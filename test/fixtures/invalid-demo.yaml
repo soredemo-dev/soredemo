@@ -1,0 +1,8 @@
+version: 1
+name: invalid-demo
+url: http://127.0.0.1:4173/
+intent:
+  goal: Demonstrate stable validation paths
+actions:
+  - action: click
+    emphasis: primary

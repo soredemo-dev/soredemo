@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Soredemo deterministic fixture</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="sticky-header">
+      <strong>Soredemo Fixture</strong>
+      <span id="click-count" aria-live="polite">Clicks: 0</span>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="fixture-title">
+        <p class="eyebrow">Deterministic local application</p>
+        <h1 id="fixture-title">Project dashboard</h1>
+        <p>Stable controls for browser capture and composition acceptance tests.</p>
+        <div class="actions">
+          <button id="preview-analytics" type="button">Preview analytics</button>
+          <button id="growing-hover-target" class="growing-button" type="button">
+            Growing hover target
+          </button>
+          <button id="new-project" class="primary" type="button">New project</button>
+        </div>
+      </section>
+
+      <section id="project-form-panel" class="panel" aria-labelledby="new-project-title" hidden>
+        <h2 id="new-project-title">Create a project</h2>
+        <form id="project-form">
+          <label for="project-name">Project name</label>
+          <input id="project-name" name="project-name" autocomplete="off" />
+          <button class="primary" type="submit">Create project</button>
+        </form>
+      </section>
+
+      <section id="result" class="panel result" aria-live="polite" hidden></section>
+
+      <div class="scroll-spacer" aria-hidden="true"></div>
+
+      <section class="panel analytics" aria-labelledby="analytics-heading">
+        <p class="eyebrow">Result reveal target</p>
+        <h2 id="analytics-heading">Analytics</h2>
+        <p id="analytics-status">No preview requested yet.</p>
+      </section>
+
+      <section class="panel event-panel" aria-labelledby="event-log-title">
+        <h2 id="event-log-title">Event log</h2>
+        <ol id="event-log"></ol>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

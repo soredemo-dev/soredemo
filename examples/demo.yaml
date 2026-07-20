@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=../schema/soredemo.schema.json
+# Start test/fixtures/web-app/server.ts on port 4173 before executing this plan.
+
+version: 1
+name: create-project
+url: http://127.0.0.1:4173/
+
+intent:
+  goal: Show how quickly a user can create a project
+  audience: Prospective SaaS customers
+  success: The newly created project is visible before analytics are revealed
+  targetDurationMs: 18000
+
+viewport:
+  width: 1440
+  height: 900
+
+style:
+  preset: studio
+  pace: balanced
+  seed: 42
+
+actions:
+  - action: wait
+    durationMs: 600
+
+  - action: goto
+    url: http://127.0.0.1:4173/workspace
+
+  - action: moveTo
+    target:
+      role: button
+      name: Preview analytics
+
+  - action: click
+    target:
+      role: button
+      name: New project
+    emphasis: primary
+
+  - action: type
+    target:
+      label: Project name
+    text: Soredemo
+
+  - action: click
+    target:
+      role: button
+      name: Create project
+    emphasis: primary
+    focusAfter:
+      target:
+        role: heading
+        name: Soredemo
+
+  - action: wait
+    until:
+      visible:
+        role: heading
+        name: Soredemo
+    timeoutMs: 10000
+    settleMs: 500
+
+  - action: scrollTo
+    target:
+      role: heading
+      name: Analytics
+    durationMs: 700
