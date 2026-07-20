@@ -1,0 +1,54 @@
+{
+  "name": "soredemo",
+  "version": "0.1.0",
+  "description": "A version-controlled demo compiler for web products.",
+  "type": "module",
+  "bin": {
+    "soredemo": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "schema"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node dist/schema/generate-json-schema.js",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "prepack": "pnpm build",
+    "soredemo": "node dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.15.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/soredemo-dev/soredemo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/soredemo-dev/soredemo/issues"
+  },
+  "homepage": "https://github.com/soredemo-dev/soredemo#readme",
+  "keywords": [
+    "browser-automation",
+    "cli",
+    "demo",
+    "playwright",
+    "video"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "citty": "^0.2.2",
+    "js-yaml": "^5.2.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.4",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.19.43",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
