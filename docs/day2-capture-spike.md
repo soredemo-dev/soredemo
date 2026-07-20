@@ -4,7 +4,7 @@
 - Result: Passed
 - Platform: macOS 26.5.2 (build 25F84), Apple Silicon (`arm64`)
 - Supported-runtime trial: Node.js 20.19.4
-- Package manager: pnpm 11.15.1
+- Package manager used during Day 2: pnpm 11.15.1
 - Playwright: 1.61.1, exact dependency
 - Chromium: 149.0.7827.55, Playwright revision 1228
 
@@ -45,4 +45,4 @@ Every run had zero duplicate timestamps, zero backward timestamps, zero write fa
 - `Page.startScreencast` and `Emulation.setVisibleSize` are Experimental CDP APIs. The exact Playwright and Chromium versions remain pinned, and their behavior must stay behind runtime gates.
 - The explicit capture surface produces roughly 90 delivered frames per second on this animated fixture. Day 3 must continue using CDP timestamps rather than interpreting frame arrival cadence as an output frame rate.
 - Short receive-delay spikes and a 51 ms source gap occurred without queue buildup. The Day-3 ±250 ms click-window gate must measure these around actual mouse-down events.
-- pnpm 11.15.1 cannot itself run under Node 20. The application runtime works under Node 20.19.4, but the package-manager engine mismatch needs a deliberate toolchain decision before release.
+- pnpm 11.15.1 could not itself run under Node 20. Day 3 resolved this recorded issue by pinning pnpm 10.34.0; the application runtime remains Node 20 or later.

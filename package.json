@@ -14,7 +14,7 @@
     "build": "tsc -p tsconfig.build.json && node dist/schema/generate-json-schema.js",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "prepack": "pnpm build",
+    "prepack": "tsc -p tsconfig.build.json && node dist/schema/generate-json-schema.js",
     "soredemo": "node dist/cli.js",
     "spike:day2": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day2-capture-spike.js",
     "test": "vitest run",
@@ -23,7 +23,7 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@11.15.1",
+  "packageManager": "pnpm@10.34.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/soredemo-dev/soredemo.git"

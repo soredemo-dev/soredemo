@@ -2,6 +2,8 @@
 
 Soredemo is a single-package, MIT-licensed Node.js CLI that compiles declarative YAML Demo Plans into polished product-demo videos of real web applications.
 
+Development uses Node.js 20 or later and the exact `pnpm@10.34.0` version declared in `package.json`. Use Corepack so the documented minimum Node runtime can execute every project command.
+
 ## Commands
 
 ```bash

@@ -53,6 +53,6 @@
 - Production runtime licenses currently report MIT for `soredemo`, `citty`, `js-yaml`, and `zod`, plus Python-2.0 for `js-yaml`'s transitive `argparse` dependency.
 - No CDP capture, cursor dispatch, frame resampling, canvas composition, or FFmpeg encoding was added on Day 1.
 - `Page.startScreencast` initially returned 1440×900 JPEGs despite a 2× device scale factor and 2880×1800 maximum dimensions. Explicitly setting the CDP visible size to 2880×1800 while retaining 1440×900 CSS metrics produced native 2× frames; runtime gates now verify both sides of that contract.
-- pnpm 11.15.1 itself requires Node 22 because it imports `node:sqlite`. Project binaries, tests, CLI, and the final capture trials pass under Node 20.19.4, but the declared package-manager version cannot be launched by Node 20. Address this toolchain-floor mismatch before release.
+- Day 3 replaced pnpm 11.15.1 with exact pnpm 10.34.0 so contributors can run the complete toolchain under the documented Node 20 minimum.
 - The final Node 20 trials observed a largest inter-frame gap of 51.46 ms and a largest receive-delay spike of 75.29 ms. Neither crossed the 100 ms diagnostic threshold; no correction was applied.
 - No cursor movement, click dispatch, action timeline, frame resampling, compositor, camera, or encoding code was added on Day 2.
