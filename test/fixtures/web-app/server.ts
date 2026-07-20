@@ -15,7 +15,10 @@ export interface FixtureServer {
   close(): Promise<void>;
 }
 
-export async function startFixtureServer(port = 0): Promise<FixtureServer> {
+export async function startFixtureServer(
+  port = 0,
+  rootDirectory = fixtureDirectory,
+): Promise<FixtureServer> {
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
     const asset = assets.get(pathname) ?? {
@@ -24,7 +27,7 @@ export async function startFixtureServer(port = 0): Promise<FixtureServer> {
     };
 
     try {
-      const body = await readFile(join(fixtureDirectory, asset.file));
+      const body = await readFile(join(rootDirectory, asset.file));
       response.writeHead(200, { 'content-type': asset.contentType });
       response.end(body);
     } catch {

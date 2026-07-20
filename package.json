@@ -16,6 +16,7 @@
     "lint:fix": "biome check --write .",
     "prepack": "pnpm build",
     "soredemo": "node dist/cli.js",
+    "spike:day2": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day2-capture-spike.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

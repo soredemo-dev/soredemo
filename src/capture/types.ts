@@ -74,6 +74,16 @@ export interface CaptureManifest {
     height: number;
   };
   deviceScaleFactor: number;
+  observedBrowserMetrics: {
+    innerWidth: number;
+    innerHeight: number;
+    devicePixelRatio: number;
+  };
+  captureSurface: {
+    method: 'cdp-explicit-visible-size';
+    pixelWidth: number;
+    pixelHeight: number;
+  };
   expectedFrameDimensions: {
     pixelWidth: number;
     pixelHeight: number;

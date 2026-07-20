@@ -78,6 +78,37 @@ main {
   margin-top: 28px;
 }
 
+.capture-probe {
+  position: relative;
+  height: 18px;
+  margin-top: 36px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d8deed;
+}
+
+.capture-probe-marker {
+  width: 96px;
+  height: 100%;
+  border-radius: inherit;
+  background: #425ce8;
+  animation: capture-probe-motion 1.6s linear infinite alternate;
+}
+
+.disable-capture-probe .capture-probe {
+  display: none;
+}
+
+@keyframes capture-probe-motion {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(816px);
+  }
+}
+
 .panel {
   margin-top: 24px;
   border: 1px solid #d8deed;
