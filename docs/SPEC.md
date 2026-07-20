@@ -116,7 +116,9 @@ Phase 1 produces a directory, not an intermediate video:
 └── timeline.json
 ```
 
-The manifest records schema and script identity, pinned Playwright and Chromium versions, CSS viewport dimensions, `deviceScaleFactor: 2`, capture origin, and frame count. Each frame record stores its index, file, calibrated CDP timestamp, pixel dimensions, page scale factor, scroll offsets, and offset top. Node receive time is diagnostic only.
+The manifest records schema and script identity, pinned Playwright and Chromium versions, CSS viewport dimensions, `deviceScaleFactor: 2`, observed browser metrics and JPEG dimensions, capture origin, frame count, clock diagnostics, and bounded-queue diagnostics. Each frame record stores its index, file, normalized CDP frame timestamp, pixel dimensions, page scale factor, scroll offsets, offset top, and diagnostic receive time.
+
+The capture implementation preserves a 1440×900 CSS viewport with device scale factor 2 while configuring an explicit 2880×1800 CDP visible capture surface. It verifies `window.innerWidth`, `window.innerHeight`, `window.devicePixelRatio`, and every JPEG dimension rather than assuming CDP honors the requested scale. Day-2 capture bundles omit `timeline.json`; action timeline events begin in a later phase.
 
 ## Timeline contracts
 
@@ -164,9 +166,13 @@ Click execution must scroll the locator into view, establish actionability and s
 - Bounding boxes are viewport-relative unless a contract explicitly says otherwise.
 - Captured pixel dimensions are stored separately from the CSS viewport.
 - Every timeline millisecond is relative to one capture origin.
-- CDP and driver timestamps are calibrated once at capture startup.
+- CDP `Page.screencastFrame` timestamps are epoch-based `Network.TimeSinceEpoch` seconds, not monotonic timestamps.
+- The first accepted CDP frame epoch defines the capture origin and each frame timestamp is normalized against it.
+- Driver events use Node's monotonic `performance.now()` clock.
+- Startup calibration maps Node monotonic time to browser epoch time using a Chromium epoch sample and the Node request midpoint; the lowest-round-trip of nine samples is selected.
+- The startup mapping remains fixed for the capture. Ending calibration measures drift but never retimes frames or events.
 - CDP screencast timestamps are the frame timing authority.
-- Node frame-arrival time is diagnostic only and never aligns streams.
+- Mapped Node frame-arrival time is diagnostic only and never aligns streams.
 - Every frame receives `Page.screencastFrameAck` only after its bytes have been copied into the capture queue.
 - The same generated cursor path drives real Playwright mouse events and later visible composition.
 

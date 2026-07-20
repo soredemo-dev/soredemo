@@ -11,6 +11,7 @@ pnpm lint:fix
 pnpm test
 pnpm build
 pnpm soredemo validate examples/demo.yaml
+pnpm spike:day2
 ```
 
 ## Source boundaries
@@ -51,6 +52,8 @@ pnpm soredemo validate examples/demo.yaml
 - macOS is the initial development, golden-frame, and release authority, but source must remain platform-agnostic.
 - v0.1 has exactly six browser actions: `goto`, `wait`, `moveTo`, `click`, `type`, and `scrollTo`.
 - Camera movement exists only in post-production. Scrolling remains real browser scrolling.
-- Do not implement CDP capture, cursor dispatch, frame resampling, canvas composition, or FFmpeg encoding during Day 1.
+- CDP frame timestamps are epoch-based and authoritative. Node receive time is diagnostic only.
+- The capture spike must preserve a 1440×900 CSS viewport and prove native 2880×1800 JPEG output.
+- Do not implement cursor dispatch, action timelines, frame resampling, canvas composition, or FFmpeg encoding before their planned phases.
 
 The accepted architectural decisions are in `docs/adr/`. Do not relitigate them during implementation.

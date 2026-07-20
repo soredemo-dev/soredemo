@@ -11,8 +11,16 @@ Cursor landing and frame resampling fail when browser events, capture metadata, 
 
 Script targets, bounding boxes, click points, and cursor paths use CSS pixels. Bounding boxes are viewport-relative unless documented otherwise. Captured pixel dimensions remain separate from CSS viewport dimensions.
 
-All timeline milliseconds are relative to one capture origin. Calibrate CDP and driver timestamps once at startup. CDP timestamps are authoritative; Node receive time is diagnostic only. Never align streams by receive time. Acknowledge every screencast frame only after copying its bytes into the capture queue.
+All timeline milliseconds are relative to one capture origin. `Page.screencastFrame` metadata timestamps are `Network.TimeSinceEpoch`: epoch-based seconds, not a monotonic clock. The first accepted CDP frame defines the capture origin, and normalized frame time is the frame epoch minus that origin.
+
+Driver events use Node's monotonic `performance.now()` clock. At startup, sample `performance.timeOrigin + performance.now()` in Chromium between Node monotonic measurements, choose the lowest-round-trip sample, and use its midpoint to establish this fixed mapping:
+
+```text
+browserEpochMs ≈ driverMonotonicMs + browserEpochAtDriverZeroMs
+```
+
+Take a second calibration at capture completion only to diagnose offset drift. Do not adjust the mapping during capture. CDP frame timestamps are authoritative; mapped Node receive time is diagnostic only. Never align streams by receive time. Acknowledge every screencast frame only after copying its bytes and metadata into the bounded capture queue.
 
 ## Consequences
 
-The driver and compositor can use the same cursor path without manual action offsets. Acceptance compares the composited cursor hotspot with the actual dispatched mouse-down point, not the original target center.
+The driver and compositor can place future action timestamps on the capture-relative clock without using frame arrival time or manual action offsets. The mapping inherits midpoint uncertainty bounded by the selected sample's round-trip latency; ending offset delta makes short-run drift observable. Acceptance compares the composited cursor hotspot with the actual dispatched mouse-down point, not the original target center.
