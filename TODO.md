@@ -30,9 +30,11 @@
 - [x] Add the deterministic fixture and test server helper.
 - [x] Add schema, loader, diagnostics, CLI, fixture, and import-boundary tests.
 - [x] Record the specification and accepted architecture decisions.
-- [ ] Run the final acceptance command sequence and packaged-binary verification.
+- [x] Run the final acceptance command sequence and packaged-binary verification.
 
 ## Session notes
 
 - The managed development sandbox rejects loopback `listen()` with `EPERM`. The fixture server helper remains typechecked; the automated Day-1 fixture test validates static controls and behavior hooks without opening a socket. Exercise the real server on macOS before the Day-3 gate.
+- The first temporary tarball installation used pnpm offline mode, but the local store lacked registry tarball metadata for `citty`. Retrying the isolated install with registry access succeeded; the packed `soredemo` binary then passed all exit-code checks.
+- Production runtime licenses currently report MIT for `soredemo`, `citty`, `js-yaml`, and `zod`, plus Python-2.0 for `js-yaml`'s transitive `argparse` dependency.
 - No CDP capture, cursor dispatch, frame resampling, canvas composition, or FFmpeg encoding was added on Day 1.
