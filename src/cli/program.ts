@@ -24,6 +24,7 @@ export const program = defineCommand({
   subCommands: {
     validate: () => import('./commands/validate.js').then((module) => module.default),
     render: () => import('./commands/render.js').then((module) => module.default),
+    doctor: () => import('./commands/doctor.js').then((module) => module.default),
   },
 });
 
@@ -33,10 +34,15 @@ function isCittyUsageError(error: unknown): error is Error & { code: string } {
 
 function rawArgumentError(argv: string[]): string | null {
   const command = argv[0];
-  if (command !== 'validate' && command !== 'render') return null;
+  if (command !== 'validate' && command !== 'render' && command !== 'doctor') return null;
 
-  const valueOptions = command === 'validate' ? new Set(['--format']) : new Set(['--out']);
-  const booleanOptions = new Set(['--verbose', '--keep-artifacts', '--json']);
+  const valueOptions =
+    command === 'validate'
+      ? new Set(['--format'])
+      : command === 'render'
+        ? new Set(['--out'])
+        : new Set();
+  const booleanOptions = new Set(['--verbose', '--quiet', '--keep-artifacts', '--json', '--deep']);
   let positionalCount = 0;
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -56,6 +62,8 @@ function rawArgumentError(argv: string[]): string | null {
     return `Unknown option: ${option ?? argument}`;
   }
 
+  if (command === 'doctor' && positionalCount > 0)
+    return 'doctor does not accept a positional argument';
   return positionalCount > 1 ? `Too many positional arguments for ${command}` : null;
 }
 
