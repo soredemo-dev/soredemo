@@ -15,6 +15,7 @@ describe('render workspace', () => {
     });
     await workspace.update({ status: 'capturing', completedActions: 2 });
     expect(workspace.snapshot()).toMatchObject({ status: 'capturing', completedActions: 2 });
+    await expect(access(workspace.compositionDirectory)).resolves.toBeUndefined();
     await workspace.cleanup();
     await expect(access(workspace.directory)).rejects.toThrow();
     expect(await readdir(root)).toEqual([]);
