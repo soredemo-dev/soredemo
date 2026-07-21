@@ -91,8 +91,8 @@ describe('cursor renderer', () => {
 
   it('keeps canvas.data as the compositor readback and never introduces getImageData', async () => {
     const sources = await Promise.all(
-      ['base-frame-compositor.ts', 'cursor-frame-compositor.ts'].map((file) =>
-        readFile(resolve('src/compositor', file), 'utf8'),
+      ['base-frame-compositor.ts', 'cursor-frame-compositor.ts', 'camera-frame-compositor.ts'].map(
+        (file) => readFile(resolve('src/compositor', file), 'utf8'),
       ),
     );
     expect(sources.join('\n')).toContain('canvas.data()');

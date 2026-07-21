@@ -1,5 +1,5 @@
 import BezierEasing from 'bezier-easing';
-import { visibleCssRect } from './camera-projection.js';
+import { clampCameraState, visibleCssRect } from './camera-projection.js';
 import type { CameraFrameState, CameraTrack } from './camera-types.js';
 
 const cameraEasing = BezierEasing(0.22, 1, 0.36, 1);
@@ -23,7 +23,8 @@ export class SequentialCameraEvaluator {
     this.previousTimeMs = outputTimestampMs;
     while (
       this.segmentIndex + 1 < this.track.segments.length &&
-      outputTimestampMs >= (this.track.segments[this.segmentIndex]?.endMs ?? Number.POSITIVE_INFINITY)
+      outputTimestampMs >=
+        (this.track.segments[this.segmentIndex]?.endMs ?? Number.POSITIVE_INFINITY)
     ) {
       this.segmentIndex += 1;
     }
@@ -43,11 +44,14 @@ export class SequentialCameraEvaluator {
       Math.max(0, (outputTimestampMs - segment.startMs) / (segment.endMs - segment.startMs)),
     );
     const easedProgress = cameraEasing(linearProgress);
-    const state = {
-      zoom: interpolate(segment.from.zoom, segment.to.zoom, easedProgress),
-      centerCssX: interpolate(segment.from.centerCssX, segment.to.centerCssX, easedProgress),
-      centerCssY: interpolate(segment.from.centerCssY, segment.to.centerCssY, easedProgress),
-    };
+    const state = clampCameraState(
+      {
+        zoom: interpolate(segment.from.zoom, segment.to.zoom, easedProgress),
+        centerCssX: interpolate(segment.from.centerCssX, segment.to.centerCssX, easedProgress),
+        centerCssY: interpolate(segment.from.centerCssY, segment.to.centerCssY, easedProgress),
+      },
+      this.track.viewport,
+    );
     return {
       ...state,
       outputTimestampMs,

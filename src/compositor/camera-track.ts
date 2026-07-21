@@ -66,13 +66,14 @@ export function buildCameraTrack(
   let heldState = establishCamera(viewport);
   for (const [index, transition] of transitions.entries()) {
     if (transition.startMs > cursorMs) {
+      const previousClickId = transitions[index - 1]?.clickId;
       const hold: CameraHoldSegment = {
         id: index === 0 ? 'camera-establish' : `camera-hold-${String(index).padStart(3, '0')}`,
         phase: index === 0 ? 'establish' : 'hold',
         startMs: cursorMs,
         endMs: transition.startMs,
         state: heldState,
-        ...(index === 0 ? {} : { clickId: transitions[index - 1]?.clickId }),
+        ...(previousClickId ? { clickId: previousClickId } : {}),
       };
       segments.push(hold);
     }
@@ -81,22 +82,27 @@ export function buildCameraTrack(
     heldState = transition.to;
   }
   if (cursorMs < durationMs) {
+    const finalClickId = transitions.at(-1)?.clickId;
     segments.push({
       id: 'camera-hold-final',
       phase: 'hold',
       startMs: cursorMs,
       endMs: durationMs,
       state: heldState,
-      ...(transitions.at(-1) ? { clickId: transitions.at(-1)?.clickId } : {}),
+      ...(finalClickId ? { clickId: finalClickId } : {}),
     });
   }
   validateCameraSegments(segments, durationMs);
   return { durationMs, viewport, segments, transitions };
 }
 
-export function validateCameraSegments(segments: readonly CameraSegment[], durationMs: number): void {
+export function validateCameraSegments(
+  segments: readonly CameraSegment[],
+  durationMs: number,
+): void {
   if (segments.length === 0) throw new Error('Camera track requires segments');
   let expectedStart = 0;
+  let expectedState: CameraTransitionSegment['from'] | undefined;
   for (const segment of segments) {
     if (Math.abs(segment.startMs - expectedStart) > 1e-7 || segment.endMs <= segment.startMs) {
       throw new Error('Camera segments must be contiguous and positive');
@@ -108,10 +114,30 @@ export function validateCameraSegments(segments: readonly CameraSegment[], durat
         state.centerCssY,
       ]);
       if (!values.every(Number.isFinite)) throw new Error('Camera transition state must be finite');
+      if (expectedState && !sameState(segment.from, expectedState)) {
+        throw new Error('Camera transition is discontinuous with its preceding segment');
+      }
+      expectedState = segment.to;
+    } else {
+      if (expectedState && !sameState(segment.state, expectedState)) {
+        throw new Error('Camera hold is discontinuous with its preceding segment');
+      }
+      expectedState = segment.state;
     }
     expectedStart = segment.endMs;
   }
   if (Math.abs(expectedStart - durationMs) > 1e-7) {
     throw new Error('Camera track must cover the composition duration');
   }
+}
+
+function sameState(
+  left: CameraTransitionSegment['from'],
+  right: CameraTransitionSegment['from'],
+): boolean {
+  return (
+    Math.abs(left.zoom - right.zoom) <= 1e-10 &&
+    Math.abs(left.centerCssX - right.centerCssX) <= 1e-10 &&
+    Math.abs(left.centerCssY - right.centerCssY) <= 1e-10
+  );
 }
