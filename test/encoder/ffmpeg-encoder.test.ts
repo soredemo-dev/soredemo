@@ -21,7 +21,7 @@ async function fakeFfmpeg(directory: string): Promise<ResolvedExecutable> {
       "import { writeFileSync } from 'node:fs';",
       'const output = process.argv.at(-1);',
       'let bytes = 0;',
-      "process.stdin.on('data', chunk => { bytes += chunk.length; if (output.includes('early')) process.exit(9); });",
+      "process.stdin.on('data', chunk => { bytes += chunk.length; if (output.includes('noisy')) process.stderr.write('x'.repeat(4096)); if (output.includes('early') || output.includes('noisy')) process.exit(9); });",
       "process.stdin.on('end', () => { writeFileSync(output, String(bytes)); });",
     ].join('\n'),
   );
@@ -76,6 +76,8 @@ describe.skipIf(process.platform === 'win32')('FFmpeg encoder session', () => {
     expect(result.backpressure.maxPendingFrames).toBe(1);
     expect(result.backpressure.maxPendingBytes).toBe(RGBA_BYTE_LENGTH);
     expect((await readdir(directory)).some((file) => file.includes('.partial.'))).toBe(false);
+    await expect(encoder.finalize()).rejects.toThrow('finalized');
+    await expect(encoder.consume(frame())).rejects.toThrow('finalized');
   });
 
   it('rejects ordering and removes partial output after abort', async () => {
@@ -111,5 +113,20 @@ describe.skipIf(process.platform === 'win32')('FFmpeg encoder session', () => {
       } as unknown as RawRgbaFrame),
     ).rejects.toThrow('layout');
     await expect(encoder.finalize()).rejects.toThrow('0 of 2');
+  });
+
+  it('bounds stderr diagnostics and cleans up an early child failure', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'soredemo-encoder-early-'));
+    const encoder = await FfmpegEncoder.create({
+      executable: await fakeFfmpeg(directory),
+      config: config(join(directory, 'noisy.mp4')),
+      logPath: join(directory, 'ffmpeg.log'),
+      validateTemporary: async () => {},
+      stderrTailBytes: 128,
+    });
+    await expect(encoder.consume(frame())).rejects.toThrow();
+    expect(encoder.stderrTailText().length).toBeLessThanOrEqual(128);
+    await encoder.abort(new Error('child failed'));
+    expect((await readdir(directory)).some((file) => file.includes('.partial.'))).toBe(false);
   });
 });
