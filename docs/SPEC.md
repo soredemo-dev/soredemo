@@ -246,6 +246,16 @@ The initial studio policy holds a 600 ms establish shot, anticipates each record
 
 The Day-7 track frames clicked controls only. Narrative result framing from resolved `focusAfter` targets will be connected when full Demo Plan execution produces those timeline targets.
 
+## Studio visual composition
+
+The v0.1 `studio` preset renders a fixed 1440×952 browser window at `{ x: 240, y: 64 }` inside the 1920×1080 output. Its 52-pixel toolbar sits above a 1440×900 browser content rectangle at `{ x: 240, y: 116 }`. A shared 22-pixel outer radius clips the toolbar top corners and browser-content bottom corners; the toolbar/content boundary remains square.
+
+The output background is one opaque diagonal gradient from `#7C3AED` through `#2563EB` to `#0EA5E9`. The window adds a restrained fixed shadow, one-pixel border, light toolbar, separator, and three glyph-free traffic-light circles. No font, URL bar, title, tab, external asset, theme registry, or author-facing styling parameter is involved.
+
+The final layer order is gradient, shadow, clipped window surface, border, click feedback, then cursor. The window compositor reuses one output canvas and one local window canvas. Its invariant shadow is pre-rendered once into a bounded cropped layer, while browser frames remain sequential. Full-frame extraction continues to use `canvas.data()`.
+
+Click feedback begins from the browser-observed `mouseDownMs`, is evaluated at fixed output time, and uses the active camera projection. A 260 ms screen-space ring expands from 3 to 20 output pixels and fades from 0.55 to zero opacity. A restrained dark backing stroke preserves contrast on light application pixels; the white foreground ring, radius, and timing remain deterministic. Ripple radius and stroke do not inherit camera zoom.
+
 ## Cinematic direction
 
 The studio preset uses a restrained shot grammar:

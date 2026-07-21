@@ -120,6 +120,22 @@
 - [x] Prove deterministic camera composition with two fresh subset executions.
 - [x] Record the Day-7 gate results and Day-8 risks.
 
+## Day 8 status
+
+- [x] Add the fixed centered v0.1 studio window and browser-content geometry.
+- [x] Draw one opaque three-stop gradient without assets or randomness.
+- [x] Add a compatibility-safe manual rounded-rectangle path shared by clip, shadow, and border.
+- [x] Render a light toolbar, separator, and fixed traffic-light controls without fonts.
+- [x] Clip camera-cropped browser pixels to the complete rounded window.
+- [x] Pre-render the invariant shadow into one bounded cached layer and restore Canvas state.
+- [x] Add deterministic 260 ms camera-aware click feedback from browser-observed mouse-down times.
+- [x] Preserve the 30×38 output-screen cursor as the topmost layer.
+- [x] Preserve zero-error landing and full target visibility across all 30 clicks.
+- [x] Complete all 1,751 frames with zero mask leaks or black output corners.
+- [x] Write ten review snapshots and a deterministic contact sheet.
+- [x] Prove deterministic studio composition with two fresh subset executions.
+- [x] Record the manual visual review, performance warning, and Day-9 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -148,3 +164,8 @@
 - The camera-enabled full run processed 1,751 frames at 24.013 frames/s with 179,879,936 bytes peak RSS, zero crop corrections, and zero camera-generated black-edge frames.
 - Day 7 intentionally frames click targets only. Resolved `focusAfter` result framing awaits full Demo Plan execution.
 - No browser chrome, rounded mask, shadow, gradient, encoder, FFmpeg, or public render integration was added on Day 7.
+- The Day-8 studio run rendered all 1,751 frames with 30 ripples across 233 output frames, zero landing error, full target visibility, zero mask leaks, and zero black output corners.
+- Pre-rendering the invariant shadow improved studio throughput from 9.18 to 11.81 frames/s. This remains below the 15 frames/s diagnostic warning and must be considered before encoder integration.
+- Peak Day-8 RSS was 221,478,912 bytes with a 4,512.607 bytes/frame fitted slope; memory remained bounded far below 1 GiB.
+- The alternating fixture pans remain visually noticeable. Camera timing was not changed on Day 8 because the accepted Day-7 track is authoritative.
+- No dependency, FFmpeg, encoder, MP4, YAML executor, `focusAfter`, or public render integration was added on Day 8.
