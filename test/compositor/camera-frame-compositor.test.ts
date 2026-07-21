@@ -89,6 +89,8 @@ describe('camera frame compositor', () => {
     expect(frame.cursorPlacement).toMatchObject({ width: 5, height: 5 });
     expect(frame.cursorPlacement?.hotspotScreenX).toBeCloseTo(frame.cursor.screenX ?? -1);
     expect(frame.cursorPixelsChanged).toBeGreaterThan(0);
+    expect(pixel(frame.data, 96, 540).slice(0, 3)).not.toEqual([0, 0, 0]);
+    expect(pixel(frame.data, 1823, 540).slice(0, 3)).not.toEqual([0, 0, 0]);
     expect(pixel(frame.data, 960, 540)[3]).toBe(255);
   });
 

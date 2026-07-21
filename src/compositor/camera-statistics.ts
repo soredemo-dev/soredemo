@@ -1,6 +1,11 @@
 import { exactDistribution } from '../resample/statistics.js';
 import type { ClickTimelineEvent, Point } from '../timeline/types.js';
-import { pointInsideRect, projectCssPoint, projectCssRect, visibleFraction } from './camera-projection.js';
+import {
+  pointInsideRect,
+  projectCssPoint,
+  projectCssRect,
+  visibleFraction,
+} from './camera-projection.js';
 import type {
   CameraFrameState,
   CameraTrack,

@@ -1,9 +1,9 @@
 import type { Image } from '@napi-rs/canvas';
 import type { Point } from '../timeline/types.js';
 import { BaseFrameCompositor } from './base-frame-compositor.js';
+import type { SequentialCameraEvaluator } from './camera-evaluator.js';
 import { projectCssPoint, sourceCropForCamera } from './camera-projection.js';
 import type { CameraFrameState, Size, SourceCrop } from './camera-types.js';
-import type { SequentialCameraEvaluator } from './camera-evaluator.js';
 import type { LoadedCursorAsset } from './cursor-asset.js';
 import { type CursorPlacement, cursorPlacement, drawCursor } from './cursor-renderer.js';
 import type { CursorFrameState, SequentialCursorEvaluator } from './cursor-track.js';

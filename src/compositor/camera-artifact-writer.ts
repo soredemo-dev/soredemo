@@ -3,16 +3,13 @@ import type { FileHandle } from 'node:fs/promises';
 import { mkdir, open, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { ClickTimelineEvent } from '../timeline/types.js';
+import type { BaseFrameCompositor } from './base-frame-compositor.js';
 import type { CameraRawRgbaFrame } from './camera-frame-compositor.js';
 import { cameraCursorHotspot } from './camera-frame-compositor.js';
 import { projectCssPoint } from './camera-projection.js';
 import { measureTargetFraming } from './camera-statistics.js';
 import type { Size, TargetFramingMeasurement } from './camera-types.js';
-import type { BaseFrameCompositor } from './base-frame-compositor.js';
-import {
-  type CursorLandingMeasurement,
-  measureCursorLanding,
-} from './landing-statistics.js';
+import { type CursorLandingMeasurement, measureCursorLanding } from './landing-statistics.js';
 import { assertRawRgbaLayout } from './rgba.js';
 import type { FrameConsumer, RawRgbaFrame, SnapshotRecord } from './types.js';
 
@@ -40,6 +37,7 @@ export class CameraDiagnosticSink implements FrameConsumer {
   private readonly cameraStates: CameraRawRgbaFrame['camera'][] = [];
   private readonly cursorFrames = { visible: 0, hidden: 0, exact: 0, linear: 0, held: 0 };
   private cropSafetyCorrections = 0;
+  private blackEdgeFrames = 0;
   private closed = false;
 
   private constructor(
@@ -81,6 +79,9 @@ export class CameraDiagnosticSink implements FrameConsumer {
     }
     assertRawRgbaLayout(frame);
     this.validateCrop(frame);
+    if (hasCameraGeneratedBlackEdge(frame.data, this.compositor.contentRect)) {
+      this.blackEdgeFrames += 1;
+    }
     const rgbaSha256 = createHash('sha256').update(frame.data).digest('hex');
     const record: CameraFrameHashRecord = {
       outputIndex: frame.outputIndex,
@@ -179,6 +180,7 @@ export class CameraDiagnosticSink implements FrameConsumer {
       cameraStates: [...this.cameraStates],
       cursorFrames: { ...this.cursorFrames },
       cropSafetyCorrections: this.cropSafetyCorrections,
+      blackEdgeFrames: this.blackEdgeFrames,
     };
   }
 
@@ -213,6 +215,28 @@ export class CameraDiagnosticSink implements FrameConsumer {
       this.cropSafetyCorrections += 1;
     }
   }
+}
+
+function hasCameraGeneratedBlackEdge(
+  data: Uint8Array,
+  contentRect: { x: number; y: number; width: number; height: number },
+): boolean {
+  const edges: Array<Array<[number, number]>> = [[], [], [], []];
+  for (let y = contentRect.y; y < contentRect.y + contentRect.height; y += 20) {
+    edges[0]?.push([contentRect.x, y]);
+    edges[1]?.push([contentRect.x + contentRect.width - 1, y]);
+  }
+  for (let x = contentRect.x; x < contentRect.x + contentRect.width; x += 20) {
+    edges[2]?.push([x, contentRect.y]);
+    edges[3]?.push([x, contentRect.y + contentRect.height - 1]);
+  }
+  return edges.some((edge) => {
+    const black = edge.filter(([x, y]) => {
+      const offset = (y * 1920 + x) * 4;
+      return data[offset] === 0 && data[offset + 1] === 0 && data[offset + 2] === 0;
+    }).length;
+    return edge.length > 0 && black / edge.length >= 0.9;
+  });
 }
 
 export async function writeCameraArtifacts(options: {

@@ -105,6 +105,21 @@
 - [x] Prove deterministic cursor composition with two fresh subset executions.
 - [x] Record the Day-6 gate results and Day-7 risks.
 
+## Day 7 status
+
+- [x] Pin `bezier-easing@3.0.1` and verify its dependency-free MIT production tree.
+- [x] Define camera state, focus policy, clamping, source crops, and projection in CSS viewport coordinates.
+- [x] Build a deterministic 30-transition track with establish, transition, and hold segments.
+- [x] Ease camera state only at fixed output timestamps.
+- [x] Crop browser pixels with the nine-argument Canvas draw path.
+- [x] Project targets, click points, and cursor hotspots through one shared camera function.
+- [x] Keep the cursor SVG fixed at 30×38 output pixels under zoom.
+- [x] Keep all 30 targets fully visible and every projected click inside its commit bbox.
+- [x] Preserve zero-error cursor landing across all 30 camera-aware mouse-down frames.
+- [x] Complete all 1,751 frames with zero unsafe crops below the 1 GiB memory gate.
+- [x] Prove deterministic camera composition with two fresh subset executions.
+- [x] Record the Day-7 gate results and Day-8 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -128,3 +143,8 @@
 - All 30 mouse-down output mappings evaluated held cursor state and landed at exactly zero output-pixel error. No timing or coordinate offset was added.
 - The cursor-enabled full run processed 1,751 frames at 23.590 frames/s with 186,662,912 bytes peak RSS and a negative fitted RSS slope.
 - Provisional click feedback was deferred. No camera, chrome, gradient, encoder, FFmpeg, or public render integration was added on Day 6.
+- The Day-7 camera generated 30 transitions and 31 establish/hold segments with no overlap or timing compression. All 30 commit bboxes remained fully visible at mouse down.
+- Camera-aware cursor landing remained exactly zero output pixels for all 30 clicks because browser-space click points and cursor hotspots share one projection.
+- The camera-enabled full run processed 1,751 frames at 24.013 frames/s with 179,879,936 bytes peak RSS, zero crop corrections, and zero camera-generated black-edge frames.
+- Day 7 intentionally frames click targets only. Resolved `focusAfter` result framing awaits full Demo Plan execution.
+- No browser chrome, rounded mask, shadow, gradient, encoder, FFmpeg, or public render integration was added on Day 7.

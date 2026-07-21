@@ -229,6 +229,23 @@ The compositor preserves fractional screen coordinates and draws at the screen h
 
 The cursor track directly joins the measured Day-3 paths. It is hidden before the first point, linearly interpolates dense measured points at fixed output time, holds each final point until the next movement, and holds the final position through composition end. It never regenerates, smooths, or retimes the path. The cursor renders after browser pixels and any future click feedback, so it remains the topmost visual layer.
 
+## Post-production camera
+
+Camera state is defined in CSS viewport coordinates as zoom plus a CSS-space center. Zoom never falls below 1, and the center is clamped at every evaluated output frame so the visible CSS rectangle remains inside captured pixels. The visible rectangle converts to source JPEG pixels using the separately recorded source-to-CSS scale and is drawn into the complete content rectangle with Canvas source cropping. The compositor never changes browser layout, viewport, hit testing, or live DOM state.
+
+One shared projection maps browser-space coordinates through the current camera:
+
+```text
+outputX = contentRect.x + (cssX - visibleCssRect.x) / visibleCssRect.width × contentRect.width
+outputY = contentRect.y + (cssY - visibleCssRect.y) / visibleCssRect.height × contentRect.height
+```
+
+Target bounds, click points, and the cursor hotspot use this exact projection. Browser pixels and cursor hotspot position therefore move together, while the SVG raster and hotspot offset remain fixed at 30×38 output pixels. At zoom 1, the projection is exactly the Day-6 CSS-to-content mapping.
+
+The initial studio policy holds a 600 ms establish shot, anticipates each recorded cursor path by 120 ms, settles camera motion 100 ms before the corresponding mouse down where timing permits, and uses non-overlapping 350–700 ms transitions. A single `cubic-bezier(0.22, 1, 0.36, 1)` curve eases center and zoom from authoritative camera states. Commit-time target bounds determine deterministic padded focus states in the 1.25–1.35 zoom range. These constants remain internal preset policy rather than author-facing YAML parameters.
+
+The Day-7 track frames clicked controls only. Narrative result framing from resolved `focusAfter` targets will be connected when full Demo Plan execution produces those timeline targets.
+
 ## Cinematic direction
 
 The studio preset uses a restrained shot grammar:

@@ -9,11 +9,11 @@ import {
 } from '../src/compositor/camera-artifact-writer.js';
 import { SequentialCameraEvaluator } from '../src/compositor/camera-evaluator.js';
 import {
-  type CameraRawRgbaFrame,
   CameraFrameCompositor,
+  type CameraRawRgbaFrame,
   cameraCursorHotspot,
 } from '../src/compositor/camera-frame-compositor.js';
-import { projectCssPoint, sourceCropForCamera } from '../src/compositor/camera-projection.js';
+import { projectCssPoint } from '../src/compositor/camera-projection.js';
 import {
   cameraMotionStatistics,
   measureTargetFraming,
@@ -124,7 +124,8 @@ async function selectedRecords(
   indices: ReadonlySet<number>,
 ): Promise<Map<number, ResampledFrameRecord>> {
   const result = new Map<number, ResampledFrameRecord>();
-  for await (const record of subsetFrames(planDirectory, indices)) result.set(record.outputIndex, record);
+  for await (const record of subsetFrames(planDirectory, indices))
+    result.set(record.outputIndex, record);
   if (result.size !== indices.size) throw new Error('Not every selected camera frame exists');
   return result;
 }
@@ -294,14 +295,18 @@ const largestPan = cameraTrack.transitions.reduce((current, transition) =>
     transition.to.centerCssX - transition.from.centerCssX,
     transition.to.centerCssY - transition.from.centerCssY,
   ) >
-  Math.hypot(current.to.centerCssX - current.from.centerCssX, current.to.centerCssY - current.from.centerCssY)
+  Math.hypot(
+    current.to.centerCssX - current.from.centerCssX,
+    current.to.centerCssY - current.from.centerCssY,
+  )
     ? transition
     : current,
 );
 const worstFraming = previewFraming.reduce((current, measurement) =>
   measurement.visibleFraction < current.visibleFraction ||
   (measurement.visibleFraction === current.visibleFraction &&
-    measurement.targetCenterDistanceFromContentCenterPx > current.targetCenterDistanceFromContentCenterPx)
+    measurement.targetCenterDistanceFromContentCenterPx >
+      current.targetCenterDistanceFromContentCenterPx)
     ? measurement
     : current,
 );
@@ -313,16 +318,36 @@ const outputIndexAt = (timeMs: number) =>
   nearestOutputIndex(timeMs, planManifest.outputFrameCount, OUTPUT_FPS);
 const snapshots = new Map<number, string>();
 addPurpose(snapshots, 0, 'initial establishing frame');
-addPurpose(snapshots, Math.ceil((firstTransition.startMs * OUTPUT_FPS) / 1000), 'first camera-transition frame');
-addPurpose(snapshots, outputIndexAt((firstTransition.startMs + firstTransition.endMs) / 2), 'midpoint of first transition');
-addPurpose(snapshots, Math.ceil((firstTransition.endMs * OUTPUT_FPS) / 1000), 'first target-focus frame');
+addPurpose(
+  snapshots,
+  Math.ceil((firstTransition.startMs * OUTPUT_FPS) / 1000),
+  'first camera-transition frame',
+);
+addPurpose(
+  snapshots,
+  outputIndexAt((firstTransition.startMs + firstTransition.endMs) / 2),
+  'midpoint of first transition',
+);
+addPurpose(
+  snapshots,
+  Math.ceil((firstTransition.endMs * OUTPUT_FPS) / 1000),
+  'first target-focus frame',
+);
 addPurpose(snapshots, clickOutputIndices.get(staticClick.id) ?? -1, 'first static click');
 addPurpose(snapshots, clickOutputIndices.get(hoverClick.id) ?? -1, 'first hover click');
-addPurpose(snapshots, outputIndexAt((largestPan.startMs + largestPan.endMs) / 2), 'large pan between targets');
+addPurpose(
+  snapshots,
+  outputIndexAt((largestPan.startMs + largestPan.endMs) / 2),
+  'large pan between targets',
+);
 const maxZoomTransition = cameraTrack.transitions.reduce((current, transition) =>
   transition.to.zoom > current.to.zoom ? transition : current,
 );
-addPurpose(snapshots, Math.ceil((maxZoomTransition.endMs * OUTPUT_FPS) / 1000), 'maximum zoom frame');
+addPurpose(
+  snapshots,
+  Math.ceil((maxZoomTransition.endMs * OUTPUT_FPS) / 1000),
+  'maximum zoom frame',
+);
 addPurpose(snapshots, worstFraming.outputIndex, 'worst target-framing frame');
 addPurpose(snapshots, clickOutputIndices.get(worstLandingId) ?? -1, 'worst landing-error frame');
 addPurpose(snapshots, planManifest.outputFrameCount - 1, 'final frame');
@@ -365,7 +390,8 @@ const { run, sinkResult } = await (async () => {
       compositor,
       consumer: sink,
       onFrameComplete: (index) => {
-        if ((index + 1) % 25 === 0) rssSamples.push({ frame: index + 1, rssBytes: process.memoryUsage().rss });
+        if ((index + 1) % 25 === 0)
+          rssSamples.push({ frame: index + 1, rssBytes: process.memoryUsage().rss });
       },
     });
     return { run, sinkResult: await sink.finish() };
@@ -398,7 +424,10 @@ const subsetIndices = new Set<number>([
   Math.ceil((firstTransition.startMs * OUTPUT_FPS) / 1000),
   outputIndexAt((firstTransition.startMs + firstTransition.endMs) / 2),
   Math.ceil((firstTransition.endMs * OUTPUT_FPS) / 1000),
-  Math.min(planManifest.outputFrameCount - 1, Math.ceil((firstTransition.endMs * OUTPUT_FPS) / 1000) + 1),
+  Math.min(
+    planManifest.outputFrameCount - 1,
+    Math.ceil((firstTransition.endMs * OUTPUT_FPS) / 1000) + 1,
+  ),
   clickOutputIndices.get(staticClick.id) ?? -1,
   clickOutputIndices.get(hoverClick.id) ?? -1,
   Math.ceil((maxZoomTransition.endMs * OUTPUT_FPS) / 1000),
@@ -406,7 +435,8 @@ const subsetIndices = new Set<number>([
 ]);
 subsetIndices.delete(-1);
 const replayLandingEvents = new Map<number, readonly ClickTimelineEvent[]>();
-for (const [index, events] of landingEvents) if (subsetIndices.has(index)) replayLandingEvents.set(index, events);
+for (const [index, events] of landingEvents)
+  if (subsetIndices.has(index)) replayLandingEvents.set(index, events);
 const replayOptions = {
   planDirectory,
   captureDirectory,
@@ -432,7 +462,12 @@ const transitions = cameraTrack.transitions.map((transition) => ({
   from: transition.from,
   to: transition.to,
   compressed: transition.compressed,
-  outputFrames: Math.max(1, Math.floor((transition.endMs * OUTPUT_FPS) / 1000) - Math.ceil((transition.startMs * OUTPUT_FPS) / 1000) + 1),
+  outputFrames: Math.max(
+    1,
+    Math.floor((transition.endMs * OUTPUT_FPS) / 1000) -
+      Math.ceil((transition.startMs * OUTPUT_FPS) / 1000) +
+      1,
+  ),
 }));
 const mouseDownCameraStates = sinkResult.framing.map((measurement) => ({
   clickId: measurement.clickId,
@@ -470,6 +505,7 @@ const manifest = {
     transitions,
     mouseDownCameraStates,
     cropSafetyCorrections: sinkResult.cropSafetyCorrections,
+    blackEdgeFrames: sinkResult.blackEdgeFrames,
   },
   cursor: {
     assetFile: 'assets/cursor.svg',
@@ -502,7 +538,9 @@ await writeCameraArtifacts({
   framing: sinkResult.framing,
 });
 
-const hashLines = (await readFile(resolve(outputDirectory, 'frame-hashes.jsonl'), 'utf8')).trim().split('\n').length;
+const hashLines = (await readFile(resolve(outputDirectory, 'frame-hashes.jsonl'), 'utf8'))
+  .trim()
+  .split('\n').length;
 const snapshotDimensions = await Promise.all(
   sinkResult.snapshots.map(async (snapshot) => {
     const image = await loadImage(resolve(outputDirectory, snapshot.file));
@@ -510,7 +548,9 @@ const snapshotDimensions = await Promise.all(
   }),
 );
 const framingPass = sinkResult.framing.every(
-  (measurement) => Math.abs(measurement.visibleFraction - 1) <= 1e-7 && measurement.clickPointInsideProjectedTarget,
+  (measurement) =>
+    Math.abs(measurement.visibleFraction - 1) <= 1e-7 &&
+    measurement.clickPointInsideProjectedTarget,
 );
 const passed =
   run.framesProcessed === planManifest.outputFrameCount &&
@@ -519,6 +559,7 @@ const passed =
   cursorLandingGatePasses(landing) &&
   framingPass &&
   sinkResult.cropSafetyCorrections === 0 &&
+  sinkResult.blackEdgeFrames === 0 &&
   run.maxActiveFrames <= 1 &&
   run.sourceImages.maxDecodedImagesRetained <= 1 &&
   memory.peakRssBytes < 1024 ** 3 &&
@@ -537,7 +578,11 @@ const summary = {
   cursorTrack: manifest.cursorTrack,
   cursorFrames: sinkResult.cursorFrames,
   cursorRaster: { width: asset.definition.renderedWidth, height: asset.definition.renderedHeight },
-  cropSafety: { corrections: sinkResult.cropSafetyCorrections, unsafeFrames: 0 },
+  cropSafety: {
+    corrections: sinkResult.cropSafetyCorrections,
+    unsafeFrames: 0,
+    blackEdgeFrames: sinkResult.blackEdgeFrames,
+  },
   bytesProcessed: run.bytesProcessed,
   rollingRgbaSha256: sinkResult.rollingRgbaSha256,
   decoding: run.sourceImages,

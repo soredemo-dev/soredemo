@@ -28,7 +28,10 @@ export function visibleCssRect(camera: CameraState, viewport: Size): CssRect {
   const halfWidth = width / 2;
   const halfHeight = height / 2;
   const centerCssX = Math.min(viewport.width - halfWidth, Math.max(halfWidth, camera.centerCssX));
-  const centerCssY = Math.min(viewport.height - halfHeight, Math.max(halfHeight, camera.centerCssY));
+  const centerCssY = Math.min(
+    viewport.height - halfHeight,
+    Math.max(halfHeight, camera.centerCssY),
+  );
   return { x: centerCssX - halfWidth, y: centerCssY - halfHeight, width, height };
 }
 
@@ -41,11 +44,7 @@ export function clampCameraState(camera: CameraState, viewport: Size): CameraSta
   };
 }
 
-export function sourceCropForCamera(
-  camera: CameraState,
-  viewport: Size,
-  source: Size,
-): SourceCrop {
+export function sourceCropForCamera(camera: CameraState, viewport: Size, source: Size): SourceCrop {
   positiveSize(source, 'Source image');
   const visible = visibleCssRect(camera, viewport);
   const scaleX = source.width / viewport.width;
