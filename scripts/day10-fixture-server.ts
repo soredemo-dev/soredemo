@@ -1,7 +1,8 @@
+import { resolve } from 'node:path';
 import { startFixtureServer } from '../test/fixtures/web-app/server.js';
 
 const port = Number(process.argv[2] ?? 4173);
-const server = await startFixtureServer(port);
+const server = await startFixtureServer(port, resolve('test/fixtures/web-app'));
 process.stdout.write(`${JSON.stringify({ url: server.url })}\n`);
 
 let closing = false;
