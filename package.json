@@ -21,6 +21,7 @@
     "spike:day3": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day3-click-gate.js",
     "spike:day4": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day4-resampler-spike.js",
     "spike:day5": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day5-compositor-spike.js",
+    "spike:day6": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day6-cursor-landing-gate.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
