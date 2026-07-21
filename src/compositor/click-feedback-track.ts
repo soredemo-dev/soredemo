@@ -6,6 +6,8 @@ export const CLICK_RIPPLE_STYLE = {
   startRadius: 3,
   endRadius: 20,
   strokeWidth: 2,
+  backingStrokeWidth: 4,
+  backingOpacityFactor: 0.35,
   startOpacity: 0.55,
   endOpacity: 0,
 } as const;

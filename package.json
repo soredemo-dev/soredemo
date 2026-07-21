@@ -23,6 +23,7 @@
     "spike:day5": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day5-compositor-spike.js",
     "spike:day6": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day6-cursor-landing-gate.js",
     "spike:day7": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day7-camera-spike.js",
+    "spike:day8": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day8-studio-composition.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

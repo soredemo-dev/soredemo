@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const forbidden =
-  /^(playwright(?:-core)?|@napi-rs\/canvas|bezier-easing)$|(?:^|\/)(?:chromium|capture|resample|compositor|camera|cursor|encoder)(?:\/|$)/;
+  /^(playwright(?:-core)?|@napi-rs\/canvas|bezier-easing)$|(?:^|\/)(?:chromium|capture|resample|compositor|studio|camera|cursor|click-feedback|encoder)(?:\/|$)/;
 
 function importsFrom(file: string, includeDynamicImports: boolean): string[] {
   const source = readFileSync(file, 'utf8');

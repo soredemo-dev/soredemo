@@ -1,4 +1,4 @@
-import type { SKRSContext2D } from '@napi-rs/canvas';
+import { type Canvas, createCanvas, type SKRSContext2D } from '@napi-rs/canvas';
 import { addRoundedRectPath } from './rounded-rect.js';
 import {
   STUDIO_BROWSER_WINDOW_RECT,
@@ -6,6 +6,14 @@ import {
   STUDIO_WINDOW_RADIUS,
   STUDIO_WINDOW_SHADOW,
 } from './studio-layout.js';
+import type { Rect } from './types.js';
+
+export const STUDIO_SHADOW_LAYER_RECT: Readonly<Rect> = {
+  x: 200,
+  y: 24,
+  width: 1520,
+  height: 1056,
+};
 
 export function drawStudioWindowShadow(context: SKRSContext2D): void {
   context.save();
@@ -26,4 +34,12 @@ export function drawStudioWindowBorder(context: SKRSContext2D): void {
   addRoundedRectPath(context, STUDIO_BROWSER_WINDOW_RECT, STUDIO_WINDOW_RADIUS);
   context.stroke();
   context.restore();
+}
+
+export function createStudioWindowShadowLayer(): Canvas {
+  const canvas = createCanvas(STUDIO_SHADOW_LAYER_RECT.width, STUDIO_SHADOW_LAYER_RECT.height);
+  const context = canvas.getContext('2d');
+  context.translate(-STUDIO_SHADOW_LAYER_RECT.x, -STUDIO_SHADOW_LAYER_RECT.y);
+  drawStudioWindowShadow(context);
+  return canvas;
 }
