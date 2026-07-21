@@ -193,7 +193,7 @@ async function executeType(
     await context.page.keyboard.press('Backspace');
   }
   const perCharacterDelayMs = { fast: 18, balanced: 32, calm: 48 }[context.pace];
-  await context.page.keyboard.type(action.text, { delay: perCharacterDelayMs });
+  await resolved.locator.pressSequentially(action.text, { delay: perCharacterDelayMs });
   if (input.value !== null) {
     const actual = await resolved.locator.inputValue();
     if (actual !== action.text)
@@ -318,7 +318,16 @@ export async function executeActions(
       else if (action.action === 'goto') {
         const startMs = now(context);
         const requestedUrl = assertHttpUrl(action.url);
-        await context.page.goto(requestedUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        try {
+          await context.page.goto(requestedUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30_000,
+          });
+        } catch (error) {
+          throw new Error(
+            `NAVIGATION_FAILED: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         await hideBrowserCursor(context.page);
         await verifyPageInstrumentation(context.page);
         await setTimeout(300);
@@ -346,7 +355,13 @@ export async function executeActions(
       } else {
         const startMs = now(context);
         const resolved = await resolveTarget(context.page, action.until.visible);
-        await resolved.locator.waitFor({ state: 'visible', timeout: action.timeoutMs });
+        try {
+          await resolved.locator.waitFor({ state: 'visible', timeout: action.timeoutMs });
+        } catch (error) {
+          throw new Error(
+            `ACTION_TIMEOUT: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         const firstVisibleMs = now(context);
         await setTimeout(action.settleMs, undefined, { signal: context.signal });
         if (!(await resolved.locator.isVisible()))

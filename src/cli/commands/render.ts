@@ -96,8 +96,13 @@ export default defineCommand({
       const planExit = reportPlanError(error, args.json ? 'json' : 'human');
       if (planExit !== null) throw new CliExitError(planExit);
       const candidate = error as { code?: unknown; workspacePath?: unknown; message?: unknown };
-      const code = typeof candidate.code === 'string' ? candidate.code : 'RENDER_FAILED';
       const message = typeof candidate.message === 'string' ? candidate.message : String(error);
+      const code =
+        typeof candidate.code === 'string'
+          ? candidate.code
+          : message.startsWith('CONFIG_INVALID:')
+            ? 'CONFIG_INVALID'
+            : 'RENDER_FAILED';
       const workspacePath =
         typeof candidate.workspacePath === 'string' ? candidate.workspacePath : undefined;
       writeFailure(args.json, code, message, workspacePath);

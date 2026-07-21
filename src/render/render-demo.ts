@@ -238,6 +238,10 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
           },
         );
       },
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith('Action ')) throw error;
+      throw new Error(`CAPTURE_FAILED: ${message}`, { cause: error });
     });
     if (!timeline) throw new Error('CAPTURE_FAILED: Action execution produced no timeline');
     await writeTimeline(workspace.captureDirectory, timeline, capture.manifest.captureDurationMs);
