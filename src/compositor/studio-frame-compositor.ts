@@ -156,6 +156,25 @@ export class StudioFrameCompositor implements FrameCompositor {
     return this.outputCanvas.toBuffer('image/png');
   }
 
+  cropPng(rect: Rect): Buffer {
+    const crop = integerCrop(rect);
+    const canvas = createCanvas(crop.width, crop.height);
+    canvas
+      .getContext('2d')
+      .drawImage(
+        this.outputCanvas,
+        crop.x,
+        crop.y,
+        crop.width,
+        crop.height,
+        0,
+        0,
+        crop.width,
+        crop.height,
+      );
+    return canvas.toBuffer('image/png');
+  }
+
   private drawWindow(image: Image, sourceCrop: SourceCrop): void {
     this.windowContext.clearRect(
       0,

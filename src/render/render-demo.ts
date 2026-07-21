@@ -21,6 +21,7 @@ import {
   SequentialClickFeedbackEvaluator,
 } from '../compositor/click-feedback-track.js';
 import { openCompositionPlan } from '../compositor/composition-plan-reader.js';
+import { cursorActionFrameRequests, isCursorBearingEvent } from '../compositor/cursor-action-landing.js';
 import { loadCursorAsset } from '../compositor/cursor-asset.js';
 import { SequentialCursorEvaluator } from '../compositor/cursor-track.js';
 import { runComposition } from '../compositor/frame-runner.js';
@@ -45,6 +46,14 @@ import { nearestOutputIndex } from '../resample/event-frame-mapping.js';
 import type { ResampledFrameRecord } from '../resample/types.js';
 import { buildCursorTrack } from '../timeline/cursor-track-validation.js';
 import type { TimelineDocument } from '../timeline/types.js';
+import {
+  CursorActionAuditConsumer,
+  type CursorActionAuditResult,
+} from './cursor-action-audit.js';
+import {
+  decodeCursorProofFrames,
+  type DecodedCursorProofRecord,
+} from './mp4-cursor-proof.js';
 import { resampleCapture } from './resample-capture.js';
 import { RenderWorkspace } from './workspace.js';
 
@@ -80,6 +89,10 @@ export interface RenderDemoResult {
     rippleCount: number;
     landingMedianPx: number;
     landingP95Px: number;
+    cursorActionLandings: { moveTo: number; click: number; type: number };
+    cursorActionFailures: number;
+    rgbaRollingSha256: string;
+    decodedCursorProofs: number;
     fullyVisibleTargets: number;
     encoder: EncodedVideoResult['backpressure'];
     parentRssPeakBytes: number;
@@ -257,6 +270,25 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
     const cameraTrack = buildCameraTrack(timeline.events, resample.outputDurationMs, viewport);
     const cursorTrack = buildCursorTrack(timeline.events, viewport);
     const feedbackTrack = buildClickFeedbackTrack(timeline.events);
+    const cursorEvents = timeline.events.filter(isCursorBearingEvent);
+    const cursorAuditRequests = cursorActionFrameRequests(
+      timeline.events,
+      OUTPUT_FPS,
+      resample.outputFrameCount,
+    );
+    const cursorLandingIndices = new Set(
+      cursorAuditRequests
+        .filter((request) =>
+          request.event.kind === 'click'
+            ? request.role === 'mouse-down'
+            : request.role === 'path-completion',
+        )
+        .map((request) => request.outputIndex),
+    );
+    await writeFile(
+      `${workspace.compositionDirectory}/camera-track.json`,
+      `${JSON.stringify(cameraTrack, null, 2)}\n`,
+    );
     const clicks = timeline.events.filter((event) => event.kind === 'click');
     const clickIndices = new Set(
       clicks.map((click) => nearestOutputIndex(click.mouseDownMs, resample.outputFrameCount)),
@@ -336,6 +368,7 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       new SequentialCameraEvaluator(cameraTrack),
       new SequentialCursorEvaluator(cursorTrack),
       new SequentialClickFeedbackEvaluator(feedbackTrack),
+      cursorLandingIndices,
     );
     const loader = await SequentialSourceImageLoader.create(
       workspace.captureDirectory,
@@ -343,6 +376,8 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       resample.sourcePixelHeight,
     );
     let validated: Awaited<ReturnType<typeof validateEncodedVideo>> | undefined;
+    let cursorAuditResult: CursorActionAuditResult | undefined;
+    let decodedCursorProofs: DecodedCursorProofRecord[] = [];
     encoder = await FfmpegEncoder.create({
       executable: ffmpeg,
       config: {
@@ -373,6 +408,15 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
           `${workspace.encodeDirectory}/ffprobe.json`,
           `${JSON.stringify(validated.ffprobeJson, null, 2)}\n`,
         );
+        if (!cursorAuditResult) {
+          throw new Error('OUTPUT_VALIDATION_FAILED: Cursor action audit did not complete');
+        }
+        decodedCursorProofs = await decodeCursorProofFrames({
+          videoFile: file,
+          ffmpeg,
+          compositionDirectory: workspace.compositionDirectory,
+          proofs: cursorAuditResult.proofs,
+        });
       },
     });
     await workspace.update({ status: 'encoding' });
@@ -394,17 +438,34 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       }
     }, 500);
     let encoded: EncodedVideoResult;
+    const auditConsumer = await CursorActionAuditConsumer.create({
+      outputDirectory: workspace.compositionDirectory,
+      compositor,
+      viewport,
+      events: timeline.events,
+      requests: cursorAuditRequests,
+      delegate: encoder,
+    });
+    let compositionSummary: Awaited<ReturnType<typeof runComposition>> | undefined;
     try {
-      await runComposition({
+      compositionSummary = await runComposition({
         frames: planReader.frames(),
         sourceWidth: resample.sourcePixelWidth,
         sourceHeight: resample.sourcePixelHeight,
         loader,
         compositor,
-        consumer: encoder,
+        consumer: auditConsumer,
       });
+      cursorAuditResult = await auditConsumer.finish();
+      if (
+        cursorAuditResult.statistics.total !== cursorEvents.length ||
+        cursorAuditResult.statistics.failures !== 0
+      ) {
+        throw new Error('OUTPUT_VALIDATION_FAILED: Cursor-bearing action landing gate failed');
+      }
       encoded = await encoder.finalize();
     } catch (error) {
+      await auditConsumer.abort().catch(() => undefined);
       await encoder.abort(error);
       throw new Error(`ENCODE_FAILED: ${error instanceof Error ? error.message : String(error)}`, {
         cause: error,
@@ -414,6 +475,9 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
     }
     rssSamples.push(process.memoryUsage().rss);
     if (!validated) throw new Error('OUTPUT_VALIDATION_FAILED: No validated video result');
+    if (!cursorAuditResult || !compositionSummary) {
+      throw new Error('OUTPUT_VALIDATION_FAILED: Composition diagnostics are incomplete');
+    }
     const video = (validated as { video: ValidatedVideo }).video;
     await writeFile(
       `${workspace.encodeDirectory}/manifest.json`,
@@ -433,11 +497,24 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         2,
       )}\n`,
     );
+    await writeFile(
+      `${workspace.compositionDirectory}/manifest.json`,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          frameCount: compositionSummary.framesProcessed,
+          bytesProcessed: compositionSummary.bytesProcessed,
+          sourceImages: compositionSummary.sourceImages,
+          rollingRgbaSha256: cursorAuditResult.rollingRgbaSha256,
+          cursorActionLandings: cursorAuditResult.statistics,
+          decodedCursorProofCount: decodedCursorProofs.length,
+        },
+        null,
+        2,
+      )}\n`,
+    );
     await workspace.update({ status: 'completed', completedAt: new Date().toISOString() });
     const renderDurationMs = performance.now() - startedAt;
-    const cursorEvents = timeline.events.filter(
-      (event) => event.kind === 'moveTo' || event.kind === 'click' || event.kind === 'type',
-    );
     const result: RenderDemoResult = {
       success: true,
       outputPath: encoded.outputPath,
@@ -462,6 +539,10 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         rippleCount: feedbackTrack.clicks.length,
         landingMedianPx: landing?.distanceOutputPx.median ?? 0,
         landingP95Px: landing?.distanceOutputPx.p95 ?? 0,
+        cursorActionLandings: cursorAuditResult.statistics.byKind,
+        cursorActionFailures: cursorAuditResult.statistics.failures,
+        rgbaRollingSha256: cursorAuditResult.rollingRgbaSha256,
+        decodedCursorProofs: decodedCursorProofs.length,
         fullyVisibleTargets: framingMeasurements.filter(
           (measurement) => Math.abs(measurement.visibleFraction - 1) <= 1e-7,
         ).length,

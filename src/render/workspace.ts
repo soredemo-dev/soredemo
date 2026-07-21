@@ -35,6 +35,7 @@ export class RenderWorkspace {
   readonly directory: string;
   readonly captureDirectory: string;
   readonly resampleDirectory: string;
+  readonly compositionDirectory: string;
   readonly encodeDirectory: string;
   private manifest: RenderRunManifest;
 
@@ -42,6 +43,7 @@ export class RenderWorkspace {
     this.directory = resolve(root, this.runId);
     this.captureDirectory = resolve(this.directory, 'capture');
     this.resampleDirectory = resolve(this.directory, 'resample');
+    this.compositionDirectory = resolve(this.directory, 'composition');
     this.encodeDirectory = resolve(this.directory, 'encode');
     this.manifest = manifest;
   }
@@ -68,6 +70,7 @@ export class RenderWorkspace {
     workspace.manifest.runId = workspace.runId;
     await mkdir(workspace.captureDirectory, { recursive: true });
     await mkdir(workspace.resampleDirectory, { recursive: true });
+    await mkdir(workspace.compositionDirectory, { recursive: true });
     await mkdir(workspace.encodeDirectory, { recursive: true });
     await workspace.update({});
     return workspace;
