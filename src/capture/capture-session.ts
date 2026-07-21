@@ -15,6 +15,8 @@ import type {
 
 const require = createRequire(import.meta.url);
 
+export const CAPTURE_BROWSER_MODE = 'headed' as const;
+
 export interface CaptureSessionOptions {
   url: string;
   outputDirectory: string;
@@ -108,7 +110,9 @@ export async function captureSession(
     outputDirectory: options.outputDirectory,
     queueLimit: options.queueLimit ?? 120,
   });
-  const browser = await chromium.launch({ headless: true });
+  // Pinned Chromium's headless screencast reports a 2x-sized surface while painting 1x page
+  // pixels into its upper-left quadrant. Headed mode preserves the required CSS-to-pixel scale.
+  const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({ viewport, deviceScaleFactor });
   await options.beforePageCreation?.(context);
   const page = await context.newPage();
@@ -198,6 +202,7 @@ export async function captureSession(
       observedBrowserMetrics,
       captureSurface: {
         method: 'cdp-explicit-visible-size',
+        browserMode: CAPTURE_BROWSER_MODE,
         pixelWidth: expectedFrameDimensions.pixelWidth,
         pixelHeight: expectedFrameDimensions.pixelHeight,
       },

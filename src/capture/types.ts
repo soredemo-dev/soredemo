@@ -81,6 +81,7 @@ export interface CaptureManifest {
   };
   captureSurface: {
     method: 'cdp-explicit-visible-size';
+    browserMode: 'headed';
     pixelWidth: number;
     pixelHeight: number;
   };
