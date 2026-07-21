@@ -61,6 +61,20 @@
 - [x] Add path, mouse, event, timeline, cadence, and statistics unit tests.
 - [x] Record the Day-3 gate results and Day-4 risks.
 
+## Day 4 status
+
+- [x] Generate every 30 fps output timestamp directly from its integer frame index.
+- [x] Stream and validate capture JSONL without reading JPEG bytes.
+- [x] Select the nearest CDP source timestamp with an earlier-frame tie break.
+- [x] Write a deterministic metadata-only resample plan and manifest.
+- [x] Keep timeline, fixed-output, and selected-source timestamps distinct.
+- [x] Map all 30 Day-3 mouse-down events to output and source frames.
+- [x] Calculate bounded full-plan statistics and exact small event diagnostics.
+- [x] Add malformed capture, clock, selection, reuse, event, and statistics tests.
+- [x] Run the real 5,428-frame Day-3 bundle without modifying or copying it.
+- [x] Verify the resample plan contains 1,751 records and no image files.
+- [x] Record the Day-4 trial results and Day-5 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -74,3 +88,6 @@
 - The first target-level hover probe used a window capture listener for `pointerenter`; Chromium did not deliver that non-bubbling event to the window. Direct capture-phase listeners are now attached to test-ID targets from the pre-application init script and maintained with a mutation observer.
 - The successful Day-3 bundle contains 5,428 lossless 2880×1800 frames and 30 click timeline events over 58.337 seconds. It is ignored under `.tmp/` and was not committed.
 - No generic action executor, selector resolver, frame resampler, compositor, camera, encoder, or public render integration was added on Day 3.
+- The Day-4 real trial selected 1,751 of 5,428 source frames, skipped 3,677 high-cadence frames, and produced a 428,518-byte metadata plan in 248.818 ms.
+- No Day-3 click exceeded the 20 ms source-to-mouse-down diagnostic threshold; the maximum was 19.337 ms.
+- No JPEG was opened, decoded, copied, resized, blended, or modified on Day 4. No compositor, visible cursor, camera, canvas, or encoder code was added.

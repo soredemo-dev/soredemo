@@ -15,6 +15,7 @@ pnpm build
 pnpm soredemo validate examples/demo.yaml
 pnpm spike:day2
 pnpm spike:day3
+pnpm spike:day4 -- <capture-dir>
 ```
 
 ## Source boundaries
@@ -22,7 +23,7 @@ pnpm spike:day3
 - `src/plan/` owns author input schemas, YAML loading, diagnostics, and normalized plans.
 - `src/cli/` owns command registration, exit codes, and stdout/stderr behavior.
 - `src/schema/` generates the checked-in JSON Schema.
-- Validation must not import or initialize Playwright, Chromium, canvas, capture, compositor, or encoder modules.
+- Validation must not import or initialize Playwright, Chromium, canvas, capture, resampling, compositor, or encoder modules.
 - Browser capture, composition, and encoding are separate pipeline phases and must remain separate modules.
 
 ## Working agreements
@@ -44,7 +45,7 @@ pnpm spike:day3
 - Machine-readable CLI output must remain stable.
 - Keep stdout machine-readable when `--format=json` is active.
 - Send diagnostics and verbose logs to stderr.
-- Do not import Playwright, canvas, capture, compositor, or encoder modules from the validation command path.
+- Do not import Playwright, canvas, capture, resampling, compositor, or encoder modules from the validation command path.
 - Never put credentials, tokens, passwords, cookies, or secret environment values in Demo Plans or timeline artifacts.
 
 ## Product constraints
@@ -58,6 +59,7 @@ pnpm spike:day3
 - CDP frame timestamps are epoch-based and authoritative. Node receive time is diagnostic only.
 - The capture spike must preserve a 1440×900 CSS viewport and prove native 2880×1800 JPEG output.
 - Use only `ghost-cursor`'s exported `path()` function. Soredemo owns Playwright dispatch and timing.
+- Frame resampling uses only ordered CDP timestamps. It never uses receive time, file metadata, or inferred capture rate.
 - Do not implement frame resampling, canvas composition, camera movement, or FFmpeg encoding before their planned phases.
 
 The accepted architectural decisions are in `docs/adr/`. Do not relitigate them during implementation.

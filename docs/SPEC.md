@@ -183,6 +183,29 @@ Click execution must scroll the locator into view, establish actionability and g
 
 Soredemo promises structural reproducibility, not pixel determinism across machines or runs. Core capture does not use JavaScript virtual-time tricks.
 
+## Timestamp frame resampling
+
+The source capture has variable cadence. Before composition, Soredemo creates a metadata-only 30 fps selection plan. Output time is independently derived from each integer index:
+
+```text
+outputTimestampMs = outputIndex × 1000 / 30
+outputFrameCount = floor(sourceDurationMs × 30 / 1000) + 1
+```
+
+Frame zero is at 0 ms, and no output timestamp exceeds the last CDP source-frame timestamp. The streaming two-pointer selector retains the closest source frame at or before output time and the first source frame after it. It selects the smaller timestamp distance; an exact tie selects the earlier source frame. It does not sort invalid captures, inspect receive time or filesystem timestamps, decode JPEGs, interpolate pixels, or infer an average capture rate.
+
+The reader incrementally validates `frames.jsonl` order, consecutive indices, canonical unique filenames, strict timestamps, native dimensions, manifest invariants, and referenced-file existence. The resampler retains only adjacent source records, current output state, bounded P² aggregate estimators, and the small set of requested event mappings.
+
+Three timestamps remain distinct:
+
+```text
+timeline event time       preserves interaction semantics
+fixed output time         evaluates camera, cursor, and visual metadata
+selected source time      selects captured browser pixels only
+```
+
+The compositor must evaluate cursor and camera metadata at output time, never at the selected source timestamp. Event timestamps are not shifted onto the 30 fps grid.
+
 ## Cinematic direction
 
 The studio preset uses a restrained shot grammar:
