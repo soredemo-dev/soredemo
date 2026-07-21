@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout } from 'node:timers/promises';
 import type { Page } from 'playwright';
 import type { NormalizedAction, Pace } from '../plan/normalized-plan.js';
+import { normalizeRenderError, RenderError } from '../render/errors.js';
 import type {
   BBox,
   ClickTimelineEvent,
@@ -42,6 +43,7 @@ export interface ActionExecutionContext {
   cssViewport: ViewportBounds;
   signal: AbortSignal;
   pace: Pace;
+  onActionFailure?: (error: RenderError) => Promise<void> | void;
 }
 
 function now(context: ActionExecutionContext): number {
@@ -60,9 +62,25 @@ function center(bbox: BBox): Point {
 }
 
 function assertHttpUrl(value: string): string {
-  const url = new URL(value);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:')
-    throw new Error('NAVIGATION_FAILED: URL must use http or https');
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    throw new RenderError({
+      code: 'NAVIGATION_FAILED',
+      stage: 'capturing',
+      message: 'Navigation URL is invalid',
+      cause: error,
+    });
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new RenderError({
+      code: 'NAVIGATION_FAILED',
+      stage: 'capturing',
+      message: 'Navigation URL must use http or https',
+      details: { protocol: url.protocol },
+    });
+  }
   return url.href;
 }
 
@@ -347,9 +365,12 @@ export async function executeActions(
             timeout: 30_000,
           });
         } catch (error) {
-          throw new Error(
-            `NAVIGATION_FAILED: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          throw new RenderError({
+            code: 'NAVIGATION_FAILED',
+            stage: 'capturing',
+            message: error instanceof Error ? error.message : String(error),
+            cause: error,
+          });
         }
         await hideBrowserCursor(context.page);
         await verifyPageInstrumentation(context.page);
@@ -381,14 +402,23 @@ export async function executeActions(
         try {
           await resolved.locator.waitFor({ state: 'visible', timeout: action.timeoutMs });
         } catch (error) {
-          throw new Error(
-            `ACTION_TIMEOUT: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          throw new RenderError({
+            code: 'ACTION_TIMEOUT',
+            stage: 'capturing',
+            message: error instanceof Error ? error.message : String(error),
+            targetDescription: resolved.description,
+            cause: error,
+          });
         }
         const firstVisibleMs = now(context);
         await setTimeout(action.settleMs, undefined, { signal: context.signal });
         if (!(await resolved.locator.isVisible()))
-          throw new Error('ACTION_TIMEOUT: Target did not remain visible through settle interval');
+          throw new RenderError({
+            code: 'ACTION_TIMEOUT',
+            stage: 'capturing',
+            message: 'Target did not remain visible through settle interval',
+            targetDescription: resolved.description,
+          });
         event = {
           id: id(actionIndex, 'wait'),
           actionIndex,
@@ -405,10 +435,24 @@ export async function executeActions(
       events.push(event);
       await onCompleted?.(events.length);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Action ${actionIndex} (${action.action}) failed: ${message}`, {
+      const normalized = normalizeRenderError(error, {
+        code: 'ACTION_FAILED',
+        stage: 'capturing',
+      });
+      const actionError = new RenderError({
+        code: normalized.code,
+        stage: normalized.stage,
+        message: normalized.message,
+        actionIndex,
+        actionKind: action.action,
+        ...(normalized.targetDescription
+          ? { targetDescription: normalized.targetDescription }
+          : {}),
+        ...(normalized.details ? { details: normalized.details } : {}),
         cause: error,
       });
+      await context.onActionFailure?.(actionError);
+      throw actionError;
     }
   }
   const timeline: TimelineDocument = { schemaVersion: 1, events };

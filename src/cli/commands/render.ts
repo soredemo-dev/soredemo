@@ -1,16 +1,47 @@
 import { defineCommand } from 'citty';
+import type { ProjectConfiguration } from '../../config/load.js';
+import {
+  DemoPlanFileError,
+  DemoPlanSyntaxError,
+  DemoPlanValidationError,
+} from '../../plan/errors.js';
+import type { ActionPlan } from '../../plan/normalized-plan.js';
+import { normalizeRenderError, RenderError, type RenderErrorCode } from '../../render/errors.js';
 import { CliExitError, EXIT_FAILURE, EXIT_USAGE } from '../exit-codes.js';
-import { reportPlanError } from '../output/plan-error.js';
+import { RenderReporter, reporterMode } from '../output/render-reporter.js';
 
-function writeFailure(json: boolean, code: string, message: string, workspacePath?: string): void {
-  if (json) {
-    process.stdout.write(
-      `${JSON.stringify({ success: false, error: { code, message, ...(workspacePath ? { workspacePath } : {}) } })}\n`,
-    );
-  } else {
-    process.stderr.write(`${message}\n`);
-    if (workspacePath) process.stderr.write(`Preserved artifacts: ${workspacePath}\n`);
+function incompatibleFlags(args: { quiet: boolean; verbose: boolean; json: boolean }): boolean {
+  return Number(args.quiet) + Number(args.verbose) + Number(args.json) > 1;
+}
+
+function planError(error: unknown): RenderError | null {
+  if (error instanceof DemoPlanValidationError || error instanceof DemoPlanSyntaxError) {
+    return new RenderError({
+      code: 'PLAN_INVALID',
+      stage: 'validating',
+      message: error.message,
+      details:
+        error instanceof DemoPlanValidationError
+          ? {
+              errors: error.issues.slice(0, 20).map((issue) => ({
+                path: issue.path,
+                code: issue.code,
+                message: issue.message,
+              })),
+            }
+          : { sourceCode: error.code },
+      cause: error,
+    });
   }
+  if (error instanceof DemoPlanFileError) {
+    return new RenderError({
+      code: 'PLAN_INVALID',
+      stage: 'validating',
+      message: error.message,
+      cause: error,
+    });
+  }
+  return null;
 }
 
 export default defineCommand({
@@ -34,43 +65,65 @@ export default defineCommand({
       description: 'preserve the temporary render workspace',
       default: false,
     },
+    quiet: {
+      type: 'boolean',
+      description: 'print only final results, warnings, and errors',
+      default: false,
+    },
     json: {
       type: 'boolean',
-      description: 'write the final result as JSON',
+      description: 'write exactly one JSON result to stdout',
       default: false,
     },
     verbose: {
       type: 'boolean',
-      description: 'write verbose diagnostics to stderr',
+      description: 'write detailed diagnostics to stderr',
       default: false,
     },
   },
   async run({ args }) {
-    let outputPath: string;
+    if (incompatibleFlags(args)) {
+      process.stderr.write('Use only one of --quiet, --verbose, or --json.\n');
+      throw new CliExitError(EXIT_USAGE);
+    }
+    const reporter = new RenderReporter(reporterMode(args));
     try {
-      process.stderr.write('Validating demo plan\n');
-      const { loadDemoPlan } = await import('../../plan/load.js');
-      const plan = await loadDemoPlan(args.script);
-      const { prepareOutputPath } = await import('../../render/output-path.js');
+      const validationStartedAt = new Date().toISOString();
+      let plan: ActionPlan;
       try {
-        outputPath = await prepareOutputPath(args.script, args.out);
+        const { loadDemoPlan } = await import('../../plan/load.js');
+        plan = await loadDemoPlan(args.script);
       } catch (error) {
-        writeFailure(
-          args.json,
-          'OUTPUT_INVALID',
-          error instanceof Error ? error.message : String(error),
-        );
-        throw new CliExitError(EXIT_USAGE);
+        throw planError(error) ?? error;
       }
-      const protocol = new URL(plan.initialUrl).protocol;
+      const { prepareOutputPath } = await import('../../render/output-path.js');
+      const outputPath = await prepareOutputPath(args.script, args.out);
+      let protocol: string;
+      try {
+        protocol = new URL(plan.initialUrl).protocol;
+      } catch (error) {
+        throw new RenderError({
+          code: 'PLAN_INVALID',
+          stage: 'validating',
+          message: 'Initial URL is invalid',
+          cause: error,
+        });
+      }
       if (protocol !== 'http:' && protocol !== 'https:') {
-        writeFailure(args.json, 'PLAN_INVALID', 'Initial URL must use http or https');
-        throw new CliExitError(EXIT_FAILURE);
+        throw new RenderError({
+          code: 'PLAN_INVALID',
+          stage: 'validating',
+          message: 'Initial URL must use http or https',
+        });
       }
       const { loadProjectConfiguration } = await import('../../config/load.js');
-      const configuration = await loadProjectConfiguration(args.script);
-
-      // Heavy capture and rendering code is loaded only after plan and output validation succeed.
+      let configuration: ProjectConfiguration;
+      try {
+        configuration = await loadProjectConfiguration(args.script);
+      } catch (error) {
+        throw normalizeRenderError(error, { code: 'CONFIG_INVALID', stage: 'validating' });
+      }
+      // Heavy rendering code is loaded only after the plan, configuration, and output validate.
       const { renderDemo } = await import('../../render/render-demo.js');
       const result = await renderDemo({
         plan,
@@ -78,35 +131,24 @@ export default defineCommand({
         configuration,
         outputPath,
         keepArtifacts: args.keepArtifacts,
-        onStage: (message) => process.stderr.write(`${message}\n`),
+        validationStartedAt,
+        onStage: (event) => reporter.stage(event),
+        onDiagnostic: (message, details) => reporter.diagnostic(message, details),
       });
-      if (args.json) {
-        process.stdout.write(`${JSON.stringify(result)}\n`);
-      } else {
-        process.stdout.write(`Created ${result.outputPath}\n`);
-        if (result.preservedArtifactsPath) {
-          process.stdout.write(`Preserved artifacts: ${result.preservedArtifactsPath}\n`);
-        }
-      }
-      if (args.verbose) {
-        process.stderr.write(`${JSON.stringify(result.diagnostics)}\n`);
-      }
+      for (const warning of result.warnings) reporter.warning(warning);
+      reporter.success(result);
     } catch (error) {
-      if (error instanceof CliExitError) throw error;
-      const planExit = reportPlanError(error, args.json ? 'json' : 'human');
-      if (planExit !== null) throw new CliExitError(planExit);
-      const candidate = error as { code?: unknown; workspacePath?: unknown; message?: unknown };
-      const message = typeof candidate.message === 'string' ? candidate.message : String(error);
-      const code =
-        typeof candidate.code === 'string'
-          ? candidate.code
-          : message.startsWith('CONFIG_INVALID:')
-            ? 'CONFIG_INVALID'
-            : 'RENDER_FAILED';
-      const workspacePath =
-        typeof candidate.workspacePath === 'string' ? candidate.workspacePath : undefined;
-      writeFailure(args.json, code, message, workspacePath);
-      throw new CliExitError(EXIT_FAILURE);
+      const normalized = normalizeRenderError(error, {
+        code: 'INTERNAL_ERROR' satisfies RenderErrorCode,
+        stage: 'validating',
+        message: 'Unexpected render failure',
+      });
+      reporter.failure(normalized);
+      throw new CliExitError(
+        normalized.code === 'OUTPUT_EXISTS' || normalized.code === 'OUTPUT_PATH_INVALID'
+          ? EXIT_USAGE
+          : EXIT_FAILURE,
+      );
     }
   },
 });

@@ -1,6 +1,7 @@
 import { setTimeout } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright';
 import type { Target } from '../plan/normalized-plan.js';
+import { RenderError } from '../render/errors.js';
 import type { BBox, ResolvedTarget } from '../timeline/types.js';
 import { isFinitePositiveBbox } from '../timeline/validation.js';
 
@@ -11,14 +12,24 @@ export interface ResolvedLocator {
   locator: Locator;
 }
 
+export interface TargetCandidateSummary {
+  tagName: string;
+  role?: string;
+  accessibleName?: string;
+  testId?: string;
+  visible: boolean;
+  enabled: boolean;
+  bbox: BBox | null;
+}
+
 export function describeTarget(target: Target): string {
   if ('role' in target)
-    return `role ${JSON.stringify(target.role)}${target.name ? ` named ${JSON.stringify(target.name)}` : ''}`;
-  if ('label' in target) return `label ${JSON.stringify(target.label)}`;
-  if ('testId' in target) return `test ID ${JSON.stringify(target.testId)}`;
+    return `role=${target.role}${target.name ? `, name=${JSON.stringify(target.name)}` : ''}`;
+  if ('label' in target) return `label=${JSON.stringify(target.label)}`;
+  if ('testId' in target) return `testId=${JSON.stringify(target.testId)}`;
   if ('text' in target)
-    return `text ${JSON.stringify(target.text)}${target.exact ? ' (exact)' : ''}`;
-  return `CSS selector ${JSON.stringify(target.css)}`;
+    return `text=${JSON.stringify(target.text)}${target.exact ? ', exact=true' : ''}`;
+  return `css=${JSON.stringify(target.css)}`;
 }
 
 export async function resolveTarget(page: Page, target: Target): Promise<ResolvedLocator> {
@@ -51,9 +62,60 @@ export async function resolveTarget(page: Page, target: Target): Promise<Resolve
   }
   const description = describeTarget(target);
   const count = await locator.count();
-  if (count === 0) throw new Error(`TARGET_NOT_FOUND: No element matches ${description}`);
-  if (count !== 1) throw new Error(`TARGET_AMBIGUOUS: ${count} elements match ${description}`);
+  if (count === 0) {
+    const candidates = await summarizeCandidates(
+      page.locator('button, input, textarea, select, a, [role], [data-testid]'),
+    );
+    throw new RenderError({
+      code: 'TARGET_NOT_FOUND',
+      stage: 'capturing',
+      message: `Could not find ${description}`,
+      targetDescription: description,
+      details: { matchCount: 0, candidates },
+    });
+  }
+  if (count !== 1) {
+    throw new RenderError({
+      code: 'TARGET_AMBIGUOUS',
+      stage: 'capturing',
+      message: `Matched ${count} elements for ${description}`,
+      targetDescription: description,
+      details: { matchCount: count, candidates: await summarizeCandidates(locator) },
+    });
+  }
   return { strategy, description, target: { strategy, value }, locator };
+}
+
+async function summarizeCandidates(locator: Locator): Promise<TargetCandidateSummary[]> {
+  const count = Math.min(await locator.count(), 10);
+  const candidates: TargetCandidateSummary[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    const [attributes, visible, enabled, bbox, snapshot] = await Promise.all([
+      candidate.evaluate((element) => ({
+        tagName: element.tagName.toLowerCase(),
+        role: element.getAttribute('role'),
+        testId: element.getAttribute('data-testid'),
+        ariaLabel: element.getAttribute('aria-label'),
+      })),
+      candidate.isVisible().catch(() => false),
+      candidate.isEnabled().catch(() => false),
+      candidate.boundingBox().catch(() => null),
+      candidate.ariaSnapshot({ timeout: 1_000 }).catch(() => ''),
+    ]);
+    const snapshotName = snapshot.split('\n')[0]?.match(/^-[^"]*"([^"]*)"/)?.[1];
+    const accessibleName = attributes.ariaLabel ?? snapshotName;
+    candidates.push({
+      tagName: attributes.tagName,
+      ...(attributes.role ? { role: attributes.role } : {}),
+      ...(accessibleName ? { accessibleName: accessibleName.slice(0, 160) } : {}),
+      ...(attributes.testId ? { testId: attributes.testId } : {}),
+      visible,
+      enabled,
+      bbox,
+    });
+  }
+  return candidates;
 }
 
 export async function stableTargetBbox(locator: Locator, tolerancePx = 0.25): Promise<BBox> {
@@ -91,8 +153,24 @@ export async function prepareTarget(
   options: { enabled?: boolean } = {},
 ): Promise<BBox> {
   await resolved.locator.scrollIntoViewIfNeeded();
-  await resolved.locator.waitFor({ state: 'visible', timeout: 10_000 });
-  if (options.enabled && !(await resolved.locator.isEnabled()))
-    throw new Error(`${resolved.description} is disabled`);
+  try {
+    await resolved.locator.waitFor({ state: 'visible', timeout: 10_000 });
+  } catch (error) {
+    throw new RenderError({
+      code: 'TARGET_NOT_VISIBLE',
+      stage: 'capturing',
+      message: `${resolved.description} is not visible`,
+      targetDescription: resolved.description,
+      cause: error,
+    });
+  }
+  if (options.enabled && !(await resolved.locator.isEnabled())) {
+    throw new RenderError({
+      code: 'TARGET_NOT_ENABLED',
+      stage: 'capturing',
+      message: `${resolved.description} is disabled`,
+      targetDescription: resolved.description,
+    });
+  }
   return stableTargetBbox(resolved.locator);
 }

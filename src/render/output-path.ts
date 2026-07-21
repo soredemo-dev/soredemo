@@ -1,5 +1,6 @@
 import { mkdir, stat } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
+import { RenderError } from './errors.js';
 
 export function defaultOutputPath(planFile: string): string {
   const absolute = resolve(planFile);
@@ -12,11 +13,30 @@ export async function prepareOutputPath(planFile: string, requested?: string): P
   const output = requested ? resolve(requested) : defaultOutputPath(planFile);
   try {
     const entry = await stat(output);
-    if (entry.isDirectory()) throw new Error(`Output path is a directory: ${output}`);
-    throw new Error(`Output already exists: ${output}`);
+    if (entry.isDirectory()) {
+      throw new RenderError({
+        code: 'OUTPUT_PATH_INVALID',
+        stage: 'validating',
+        message: `Output path is a directory: ${output}`,
+      });
+    }
+    throw new RenderError({
+      code: 'OUTPUT_EXISTS',
+      stage: 'validating',
+      message: `Output already exists: ${output}`,
+    });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
-  await mkdir(dirname(output), { recursive: true });
+  try {
+    await mkdir(dirname(output), { recursive: true });
+  } catch (error) {
+    throw new RenderError({
+      code: 'OUTPUT_PATH_INVALID',
+      stage: 'validating',
+      message: `Could not create output directory: ${dirname(output)}`,
+      cause: error,
+    });
+  }
   return output;
 }

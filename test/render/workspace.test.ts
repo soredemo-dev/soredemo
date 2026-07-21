@@ -39,4 +39,24 @@ describe('render workspace', () => {
     expect(await workspace.removeOwnedStalePartials()).toBe(1);
     expect(await readdir(workspace.encodeDirectory)).toEqual(['other.partial.mp4']);
   });
+
+  it('records terminal stage states and creates bounded diagnostics storage', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'soredemo-stages-'));
+    const workspace = await RenderWorkspace.create({
+      root,
+      planFile: 'demo.yaml',
+      output: 'demo.mp4',
+      actionCount: 2,
+    });
+    await workspace.startStage('preflight');
+    await workspace.finishStage('preflight');
+    await workspace.startStage('launching-browser');
+    await workspace.finishRunningStages('failed');
+    const stages = workspace.snapshot().stages;
+    expect(stages.map(({ stage, status }) => ({ stage, status }))).toEqual([
+      { stage: 'preflight', status: 'completed' },
+      { stage: 'launching-browser', status: 'failed' },
+    ]);
+    await expect(access(workspace.diagnosticsDirectory)).resolves.toBeUndefined();
+  });
 });

@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=../../schema/soredemo.schema.json
+version: 1
+name: missing-target
+url: http://127.0.0.1:4173/
+
+intent:
+  goal: Exercise bounded private-alpha failure diagnostics
+  audience: Soredemo maintainers
+  success: The missing target fails safely
+  targetDurationMs: 3000
+
+viewport:
+  width: 1440
+  height: 900
+
+style:
+  preset: studio
+  pace: balanced
+  seed: 42
+
+actions:
+  - action: wait
+    until:
+      visible:
+        testId: demo-ready
+    timeoutMs: 5000
+    settleMs: 100
+
+  - action: click
+    target:
+      role: button
+      name: Missing private-alpha target

@@ -23,8 +23,22 @@ describe.sequential('validate command', () => {
     const exitCode = await runCli(['validate', 'examples/demo.yaml']);
 
     expect(exitCode).toBe(0);
-    expect(output.stdout.join('')).toBe('Valid demo plan: create-project\n');
+    expect(output.stdout.join('')).toBe('✓ Validated demo plan: create-project\n');
     expect(output.stderr).toEqual([]);
+  });
+
+  it('supports stable --json and quiet output', async () => {
+    const jsonOutput = captureOutput();
+    expect(await runCli(['validate', 'examples/demo.yaml', '--json'])).toBe(0);
+    expect(JSON.parse(jsonOutput.stdout.join(''))).toMatchObject({
+      valid: true,
+      name: 'create-project',
+    });
+    vi.restoreAllMocks();
+
+    const quietOutput = captureOutput();
+    expect(await runCli(['validate', 'examples/demo.yaml', '--quiet'])).toBe(0);
+    expect(quietOutput.stdout.join('')).toBe('Valid demo plan: create-project\n');
   });
 
   it('exits 1 with parseable JSON for an invalid plan', async () => {

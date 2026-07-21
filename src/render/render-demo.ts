@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -50,6 +50,12 @@ import type { ResampledFrameRecord } from '../resample/types.js';
 import { buildCursorTrack } from '../timeline/cursor-track-validation.js';
 import type { TimelineDocument } from '../timeline/types.js';
 import { CursorActionAuditConsumer, type CursorActionAuditResult } from './cursor-action-audit.js';
+import {
+  normalizeRenderError,
+  RenderError,
+  type RenderStage,
+  type RenderWarning,
+} from './errors.js';
 import { type DecodedCursorProofRecord, decodeCursorProofFrames } from './mp4-cursor-proof.js';
 import { resampleCapture } from './resample-capture.js';
 import { RenderWorkspace } from './workspace.js';
@@ -62,7 +68,14 @@ export interface RenderDemoOptions {
   configuration: ProjectConfiguration;
   outputPath: string;
   keepArtifacts: boolean;
-  onStage?: (message: string) => void;
+  validationStartedAt?: string;
+  onStage?: (event: {
+    stage: RenderStage;
+    status: 'completed';
+    message: string;
+    details?: Record<string, unknown>;
+  }) => void;
+  onDiagnostic?: (message: string, details?: Record<string, unknown>) => void;
 }
 
 export interface RenderDemoResult {
@@ -73,7 +86,12 @@ export interface RenderDemoResult {
   durationSeconds: number;
   frameCount: number;
   fps: number;
+  actionCount: number;
+  captureFrameCount: number;
+  cursorActionMeasurements: { moveTo: number; click: number; type: number };
   renderDurationMs: number;
+  warnings: RenderWarning[];
+  artifactsPath?: string;
   preservedArtifactsPath?: string;
   diagnostics: {
     actionCount: number;
@@ -97,22 +115,6 @@ export interface RenderDemoResult {
   };
 }
 
-export class RenderPipelineError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly workspacePath: string,
-    options?: ErrorOptions,
-  ) {
-    super(message, options);
-    this.name = 'RenderPipelineError';
-  }
-}
-
-function stage(options: RenderDemoOptions, message: string): void {
-  options.onStage?.(message);
-}
-
 function assertProductionGeometry(options: RenderDemoOptions): void {
   const viewport = options.configuration.viewport ?? options.plan.viewport;
   if (viewport.width !== 1440 || viewport.height !== 900) {
@@ -123,29 +125,88 @@ function assertProductionGeometry(options: RenderDemoOptions): void {
   }
 }
 
-function failureCode(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const known = [
-    'CONFIG_INVALID',
-    'TARGET_NOT_FOUND',
-    'TARGET_AMBIGUOUS',
-    'ACTION_TIMEOUT',
-    'NAVIGATION_FAILED',
-    'CAPTURE_FAILED',
-    'FFMPEG_NOT_FOUND',
-    'ENCODER_CAPABILITY_MISSING',
-    'ENCODE_FAILED',
-    'OUTPUT_VALIDATION_FAILED',
-    'RENDER_ABORTED',
-  ];
-  return known.find((code) => message.includes(code)) ?? 'RENDER_FAILED';
-}
-
 async function sampleChildRss(pid: number): Promise<number> {
   if (process.platform !== 'darwin') return 0;
   const { stdout } = await execFileAsync('/bin/ps', ['-o', 'rss=', '-p', String(pid)]);
   const kibibytes = Number(stdout.trim());
   return Number.isFinite(kibibytes) ? kibibytes * 1024 : 0;
+}
+
+async function beginStage(workspace: RenderWorkspace, stage: RenderStage): Promise<void> {
+  await workspace.startStage(stage);
+}
+
+async function completeStage(
+  workspace: RenderWorkspace,
+  options: RenderDemoOptions,
+  stage: RenderStage,
+  message: string,
+  details?: Record<string, unknown>,
+): Promise<void> {
+  await workspace.finishStage(stage);
+  options.onStage?.({ stage, status: 'completed', message, ...(details ? { details } : {}) });
+}
+
+async function readJsonIfPresent(file: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    return JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeFailureDiagnostics(
+  workspace: RenderWorkspace,
+  error: RenderError,
+  completedActions: number,
+  totalActions: number,
+): Promise<void> {
+  const [captureManifest, captureProof, compositionManifest, diagnosticFiles, framesJsonl] =
+    await Promise.all([
+      readJsonIfPresent(`${workspace.captureDirectory}/manifest.json`),
+      readJsonIfPresent(`${workspace.captureDirectory}/pixel-scale-proof.json`),
+      readJsonIfPresent(`${workspace.compositionDirectory}/manifest.json`),
+      readdir(workspace.diagnosticsDirectory).catch(() => []),
+      readFile(`${workspace.captureDirectory}/frames.jsonl`, 'utf8').catch(() => ''),
+    ]);
+  const acceptedCaptureFrames = framesJsonl.trim() ? framesJsonl.trim().split('\n').length : 0;
+  await writeFile(
+    `${workspace.diagnosticsDirectory}/error.json`,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        error: {
+          code: error.code,
+          message: error.message,
+          stage: error.stage,
+          ...(error.actionIndex === undefined ? {} : { actionIndex: error.actionIndex }),
+          ...(error.actionKind === undefined ? {} : { actionKind: error.actionKind }),
+          ...(error.targetDescription === undefined
+            ? {}
+            : { targetDescription: error.targetDescription }),
+          ...(error.details === undefined ? {} : { details: error.details }),
+        },
+        environment: {
+          nodeVersion: process.version,
+          platform: process.platform,
+          architecture: process.arch,
+        },
+        completedActions,
+        totalActions,
+        captureFrameCount: captureManifest?.frameCount ?? acceptedCaptureFrames,
+        outputFrameCount: compositionManifest?.frameCount ?? 0,
+        capturePixelScaleProof:
+          captureManifest?.pixelScaleProof ??
+          captureProof ??
+          (error.code === 'CAPTURE_PIXEL_SCALE_INVALID' ? (error.details ?? null) : null),
+        cursorSynchronization: compositionManifest?.cursorActionLandings ?? null,
+        workspacePath: workspace.directory,
+        diagnosticFiles: ['error.json', ...diagnosticFiles].slice(0, 20),
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemoResult> {
@@ -168,10 +229,13 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
   process.once('SIGINT', abort);
   process.once('SIGTERM', abort);
   let completedActions = 0;
+  let failureScreenshotCaptured = false;
 
   try {
+    await workspace.startStage('validating', options.validationStartedAt);
+    await completeStage(workspace, options, 'validating', 'Validated demo plan');
     await workspace.removeOwnedStalePartials();
-    stage(options, 'Checking FFmpeg');
+    await beginStage(workspace, 'preflight');
     let ffmpeg: ResolvedExecutable;
     let ffprobe: ResolvedExecutable;
     try {
@@ -179,19 +243,35 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         name: 'ffmpeg',
         environmentVariable: 'SOREDEMO_FFMPEG_PATH',
       });
-      ffprobe = await resolveFfprobe(ffmpeg);
+      try {
+        ffprobe = await resolveFfprobe(ffmpeg);
+      } catch (error) {
+        throw new RenderError({
+          code: 'FFPROBE_NOT_FOUND',
+          stage: 'preflight',
+          message: error instanceof Error ? error.message : String(error),
+          cause: error,
+        });
+      }
     } catch (error) {
-      throw new Error(
-        `FFMPEG_NOT_FOUND: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      if (error instanceof RenderError) throw error;
+      throw new RenderError({
+        code: 'FFMPEG_NOT_FOUND',
+        stage: 'preflight',
+        message: error instanceof Error ? error.message : String(error),
+        cause: error,
+      });
     }
     let capabilities: FfmpegCapabilities;
     try {
       capabilities = await inspectFfmpeg(ffmpeg, ffprobe);
     } catch (error) {
-      throw new Error(
-        `ENCODER_CAPABILITY_MISSING: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new RenderError({
+        code: 'ENCODER_CAPABILITY_MISSING',
+        stage: 'preflight',
+        message: error instanceof Error ? error.message : String(error),
+        cause: error,
+      });
     }
     await Promise.all([
       writeFile(`${workspace.encodeDirectory}/ffmpeg-version.txt`, `${capabilities.raw.version}\n`),
@@ -204,8 +284,19 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         `${capabilities.raw.encoders}\n`,
       ),
     ]);
+    await completeStage(
+      workspace,
+      options,
+      'preflight',
+      `${capabilities.ffmpegVersion} with libx264`,
+      {
+        ffmpegPath: ffmpeg.realPath,
+        ffprobePath: ffprobe.realPath,
+        gplEnabled: capabilities.gplEnabled,
+      },
+    );
 
-    stage(options, 'Launching Chromium');
+    await beginStage(workspace, 'launching-browser');
     await workspace.update({ status: 'capturing' });
     const source = await readFile(options.planFile);
     let timeline: TimelineDocument | undefined;
@@ -223,6 +314,26 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       navigationTimeoutMs: 30_000,
       settleBeforeCaptureMs: 300,
       tailDurationMs: 1_000,
+      onLifecycle: async (event) => {
+        if (event === 'browser-launched') {
+          await completeStage(workspace, options, 'launching-browser', 'Launched Chromium');
+          await beginStage(workspace, 'preparing-page');
+        } else if (event === 'page-prepared') {
+          await completeStage(
+            workspace,
+            options,
+            'preparing-page',
+            'Prepared page and proved genuine 2× capture',
+          );
+          await beginStage(workspace, 'capturing');
+        }
+      },
+      onPixelScaleProof: async (proof) => {
+        await writeFile(
+          `${workspace.captureDirectory}/pixel-scale-proof.json`,
+          `${JSON.stringify(proof, null, 2)}\n`,
+        );
+      },
       beforePageCreation: installPageInstrumentation,
       preparePage: async (page) => {
         await hideBrowserCursor(page);
@@ -230,7 +341,9 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       },
       runDuringCapture: async ({ page, captureOriginEpochMs, startupCalibration }) => {
         await new Promise((resolve) => setTimeout(resolve, 600));
-        stage(options, `Capturing ${options.plan.actions.length} actions`);
+        options.onDiagnostic?.('Executing demo actions', {
+          actionCount: options.plan.actions.length,
+        });
         timeline = await executeActions(
           {
             page,
@@ -240,6 +353,18 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
             cssViewport: viewport,
             signal: abortController.signal,
             pace: options.plan.style.pace,
+            onActionFailure: async (error) => {
+              if (failureScreenshotCaptured || page.isClosed()) return;
+              failureScreenshotCaptured = true;
+              const number = String((error.actionIndex ?? 0) + 1).padStart(3, '0');
+              const kind = (error.actionKind ?? 'action').replace(/[^a-zA-Z0-9-]/g, '-');
+              await page
+                .screenshot({
+                  path: `${workspace.diagnosticsDirectory}/action-${number}-${kind}-failure.png`,
+                  fullPage: false,
+                })
+                .catch(() => undefined);
+            },
           },
           options.plan.actions,
           async (count) => {
@@ -249,20 +374,45 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         );
       },
     }).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.startsWith('Action ')) throw error;
-      throw new Error(`CAPTURE_FAILED: ${message}`, { cause: error });
+      if (error instanceof RenderError) throw error;
+      throw normalizeRenderError(error, { code: 'CAPTURE_FAILED', stage: 'capturing' });
     });
     if (!timeline) throw new Error('CAPTURE_FAILED: Action execution produced no timeline');
     await writeTimeline(workspace.captureDirectory, timeline, capture.manifest.captureDurationMs);
     await workspace.update({ captureFrameCount: capture.manifest.frameCount });
+    await completeStage(
+      workspace,
+      options,
+      'capturing',
+      `Captured ${timeline.events.length} actions and ${capture.manifest.frameCount} genuine 2× frames`,
+      {
+        viewport: capture.manifest.viewport,
+        devicePixelRatio: capture.manifest.observedBrowserMetrics.devicePixelRatio,
+        jpegDimensions: capture.manifest.expectedFrameDimensions,
+        pixelScaleProof: capture.manifest.pixelScaleProof,
+        playwrightVersion: capture.manifest.playwrightVersion,
+        chromiumVersion: capture.manifest.chromiumVersion,
+        chromiumLaunchArguments: capture.manifest.chromiumLaunchArguments,
+      },
+    );
 
-    stage(options, 'Resampling captured frames');
+    await beginStage(workspace, 'resampling');
     await workspace.update({ status: 'resampling' });
-    const resample = await resampleCapture(workspace.captureDirectory, workspace.resampleDirectory);
+    const resample = await resampleCapture(
+      workspace.captureDirectory,
+      workspace.resampleDirectory,
+    ).catch((error) => {
+      throw normalizeRenderError(error, { code: 'RESAMPLE_FAILED', stage: 'resampling' });
+    });
     await workspace.update({ outputFrameCount: resample.outputFrameCount });
+    await completeStage(
+      workspace,
+      options,
+      'resampling',
+      `Resampled to ${resample.outputFrameCount} frames at ${OUTPUT_FPS} fps`,
+    );
 
-    stage(options, 'Rendering and encoding');
+    await beginStage(workspace, 'composing');
     await workspace.update({ status: 'composing' });
     const cameraTrack = buildCameraTrack(timeline.events, resample.outputDurationMs, viewport);
     const cursorTrack = buildCursorTrack(timeline.events, viewport);
@@ -375,6 +525,7 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
     let validated: Awaited<ReturnType<typeof validateEncodedVideo>> | undefined;
     let cursorAuditResult: CursorActionAuditResult | undefined;
     let decodedCursorProofs: DecodedCursorProofRecord[] = [];
+    await beginStage(workspace, 'encoding');
     encoder = await FfmpegEncoder.create({
       executable: ffmpeg,
       config: {
@@ -391,16 +542,24 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       },
       logPath: `${workspace.encodeDirectory}/ffmpeg.log`,
       validateTemporary: async (file) => {
+        await beginStage(workspace, 'validating-output');
         await workspace.update({ status: 'validating' });
-        validated = await validateEncodedVideo({
-          file,
-          ffprobe,
-          ffmpeg,
-          width: OUTPUT_WIDTH,
-          height: OUTPUT_HEIGHT,
-          fps: OUTPUT_FPS,
-          frameCount: resample.outputFrameCount,
-        });
+        try {
+          validated = await validateEncodedVideo({
+            file,
+            ffprobe,
+            ffmpeg,
+            width: OUTPUT_WIDTH,
+            height: OUTPUT_HEIGHT,
+            fps: OUTPUT_FPS,
+            frameCount: resample.outputFrameCount,
+          });
+        } catch (error) {
+          throw normalizeRenderError(error, {
+            code: 'OUTPUT_VALIDATION_FAILED',
+            stage: 'validating-output',
+          });
+        }
         await writeFile(
           `${workspace.encodeDirectory}/ffprobe.json`,
           `${JSON.stringify(validated.ffprobeJson, null, 2)}\n`,
@@ -414,6 +573,13 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
           compositionDirectory: workspace.compositionDirectory,
           proofs: cursorAuditResult.proofs,
         });
+        await completeStage(
+          workspace,
+          options,
+          'validating-output',
+          'Validated H.264 MP4 and decoded cursor proofs',
+          { decodedCursorProofs: decodedCursorProofs.length },
+        );
       },
     });
     await workspace.update({ status: 'encoding' });
@@ -458,14 +624,34 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         cursorAuditResult.statistics.total !== cursorEvents.length ||
         cursorAuditResult.statistics.failures !== 0
       ) {
-        throw new Error('OUTPUT_VALIDATION_FAILED: Cursor-bearing action landing gate failed');
+        throw new RenderError({
+          code: 'CURSOR_SYNCHRONIZATION_FAILED',
+          stage: 'composing',
+          message: 'Cursor-bearing action landing gate failed',
+          details: { statistics: cursorAuditResult.statistics },
+        });
       }
+      await completeStage(
+        workspace,
+        options,
+        'composing',
+        `Verified ${cursorAuditResult.statistics.total} cursor-bearing actions`,
+        {
+          measurements: cursorAuditResult.statistics.byKind,
+          landingError: cursorAuditResult.statistics.errorDistanceOutputPx,
+          insideTargetCount: cursorAuditResult.statistics.insideTargetCount,
+        },
+      );
       encoded = await encoder.finalize();
+      await completeStage(workspace, options, 'encoding', 'Encoded H.264 MP4', {
+        backpressure: encoded.backpressure,
+      });
     } catch (error) {
       await auditConsumer.abort().catch(() => undefined);
       await encoder.abort(error);
-      throw new Error(`ENCODE_FAILED: ${error instanceof Error ? error.message : String(error)}`, {
-        cause: error,
+      throw normalizeRenderError(error, {
+        code: 'ENCODE_FAILED',
+        stage: cursorAuditResult ? 'encoding' : 'composing',
       });
     } finally {
       clearInterval(rssTimer);
@@ -510,8 +696,63 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         2,
       )}\n`,
     );
-    await workspace.update({ status: 'completed', completedAt: new Date().toISOString() });
+    await beginStage(workspace, 'publishing-output');
+    await completeStage(workspace, options, 'publishing-output', 'Published output atomically');
+    await beginStage(workspace, 'cleaning-up');
     const renderDurationMs = performance.now() - startedAt;
+    const parentRssPeakBytes = Math.max(...rssSamples);
+    const compositionFps = compositionSummary.framesProcessed / (encoded.executionMs / 1000);
+    const warnings: RenderWarning[] = [
+      {
+        code: 'CDP_EXPERIMENTAL_SURFACE',
+        message:
+          'CDP screencast capture is Experimental and pinned to the recorded browser version.',
+      },
+      {
+        code: 'CAPTURE_VERSION_SENSITIVE',
+        message: 'Forced device-scale capture passed its genuine-2x painted-pixel proof.',
+      },
+      ...(capabilities.gplEnabled || capabilities.libx264Enabled
+        ? [
+            {
+              code: 'SYSTEM_FFMPEG_GPL_BUILD' as const,
+              message: 'The detected system FFmpeg build is GPL-conditioned and includes libx264.',
+            },
+          ]
+        : []),
+      ...(compositionFps < 8
+        ? [
+            {
+              code: 'SLOW_COMPOSITION' as const,
+              message: `Composition and encoding throughput was ${compositionFps.toFixed(3)} fps.`,
+            },
+          ]
+        : []),
+      ...(parentRssPeakBytes > 1024 ** 3
+        ? [
+            {
+              code: 'HIGH_PARENT_MEMORY' as const,
+              message: `Parent RSS peaked at ${parentRssPeakBytes} bytes.`,
+            },
+          ]
+        : []),
+      ...(ffmpegRssPeakBytes > 1024 ** 3
+        ? [
+            {
+              code: 'HIGH_ENCODER_MEMORY' as const,
+              message: `FFmpeg RSS peaked at ${ffmpegRssPeakBytes} bytes.`,
+            },
+          ]
+        : []),
+      ...(options.keepArtifacts
+        ? [
+            {
+              code: 'WORKSPACE_PRESERVED' as const,
+              message: `Render workspace preserved at ${workspace.directory}.`,
+            },
+          ]
+        : []),
+    ];
     const result: RenderDemoResult = {
       success: true,
       outputPath: encoded.outputPath,
@@ -520,7 +761,12 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       durationSeconds: video.durationSeconds,
       frameCount: encoded.frameCount,
       fps: OUTPUT_FPS,
+      actionCount: timeline.events.length,
+      captureFrameCount: capture.manifest.frameCount,
+      cursorActionMeasurements: cursorAuditResult.statistics.byKind,
       renderDurationMs,
+      warnings,
+      ...(options.keepArtifacts ? { artifactsPath: workspace.directory } : {}),
       ...(options.keepArtifacts ? { preservedArtifactsPath: workspace.directory } : {}),
       diagnostics: {
         actionCount: timeline.events.length,
@@ -544,25 +790,57 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
           (measurement) => Math.abs(measurement.targetVisibleFraction - 1) <= 1e-7,
         ).length,
         encoder: encoded.backpressure,
-        parentRssPeakBytes: Math.max(...rssSamples),
+        parentRssPeakBytes,
         ...(ffmpegRssPeakBytes > 0 ? { ffmpegRssPeakBytes } : {}),
       },
     };
+    await workspace.finishStage('cleaning-up');
+    await workspace.update({ status: 'completed', completedAt: new Date().toISOString() });
+    options.onStage?.({
+      stage: 'cleaning-up',
+      status: 'completed',
+      message: options.keepArtifacts ? 'Preserved render workspace' : 'Cleaned render workspace',
+    });
     if (!options.keepArtifacts) await workspace.cleanup();
     return result;
   } catch (error) {
     await encoder?.abort(error).catch(() => undefined);
-    const code = abortController.signal.aborted ? 'RENDER_ABORTED' : failureCode(error);
-    const message = error instanceof Error ? error.message : String(error);
+    const normalized = abortController.signal.aborted
+      ? new RenderError({
+          code: 'RENDER_ABORTED',
+          stage: 'cleaning-up',
+          message: 'Render was interrupted',
+          cause: error,
+        })
+      : normalizeRenderError(error, { code: 'INTERNAL_ERROR', stage: 'cleaning-up' });
+    const terminalStatus = abortController.signal.aborted ? 'aborted' : 'failed';
+    await workspace.finishRunningStages(terminalStatus).catch(() => undefined);
+    await workspace.startStage('cleaning-up').catch(() => undefined);
+    const publicError = normalized.withArtifactsPath(workspace.directory);
+    await writeFailureDiagnostics(
+      workspace,
+      publicError,
+      completedActions,
+      options.plan.actions.length,
+    ).catch(() => undefined);
+    await workspace.finishStage('cleaning-up').catch(() => undefined);
     await workspace
       .update({
-        status: abortController.signal.aborted ? 'aborted' : 'failed',
+        status: terminalStatus,
         completedAt: new Date().toISOString(),
         completedActions,
-        failure: { code, message },
+        failure: {
+          code: publicError.code,
+          message: publicError.message,
+          stage: publicError.stage,
+          ...(publicError.actionIndex === undefined
+            ? {}
+            : { actionIndex: publicError.actionIndex }),
+          ...(publicError.actionKind === undefined ? {} : { actionKind: publicError.actionKind }),
+        },
       })
       .catch(() => undefined);
-    throw new RenderPipelineError(code, message, workspace.directory, { cause: error });
+    throw publicError;
   } finally {
     process.off('SIGINT', abort);
     process.off('SIGTERM', abort);

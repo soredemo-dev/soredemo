@@ -15,7 +15,11 @@ describe.sequential('render command', () => {
     const exitCode = await runCli(['render', 'test/fixtures/invalid-demo.yaml', '--json']);
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(stdout.join(''))).toMatchObject({ valid: false });
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      success: false,
+      code: 'PLAN_INVALID',
+      stage: 'validating',
+    });
   });
 
   it('reports render CLI misuse as exit 2', async () => {
@@ -29,5 +33,17 @@ describe.sequential('render command', () => {
 
     expect(exitCode).toBe(2);
     expect(stderr.join('')).toContain('Unknown option');
+  });
+
+  it('rejects incompatible reporter flags as exit 2', async () => {
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    expect(await runCli(['render', 'examples/demo.yaml', '--quiet', '--verbose'])).toBe(2);
+    expect(stderr.join('')).toContain('Use only one');
   });
 });

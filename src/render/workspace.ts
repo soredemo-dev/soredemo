@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import type { RenderErrorCode, RenderStage } from './errors.js';
 
 export type RunStatus =
   | 'initializing'
@@ -26,7 +27,20 @@ export interface RenderRunManifest {
   totalActions: number;
   captureFrameCount?: number;
   outputFrameCount?: number;
-  failure?: { code: string; message: string; actionIndex?: number; actionKind?: string };
+  stages: Array<{
+    stage: RenderStage;
+    status: 'running' | 'completed' | 'failed' | 'aborted';
+    startedAt: string;
+    completedAt?: string;
+    durationMs?: number;
+  }>;
+  failure?: {
+    code: RenderErrorCode;
+    message: string;
+    stage: RenderStage;
+    actionIndex?: number;
+    actionKind?: string;
+  };
 }
 
 export class RenderWorkspace {
@@ -37,6 +51,7 @@ export class RenderWorkspace {
   readonly resampleDirectory: string;
   readonly compositionDirectory: string;
   readonly encodeDirectory: string;
+  readonly diagnosticsDirectory: string;
   private manifest: RenderRunManifest;
 
   private constructor(root: string, manifest: RenderRunManifest) {
@@ -45,6 +60,7 @@ export class RenderWorkspace {
     this.resampleDirectory = resolve(this.directory, 'resample');
     this.compositionDirectory = resolve(this.directory, 'composition');
     this.encodeDirectory = resolve(this.directory, 'encode');
+    this.diagnosticsDirectory = resolve(this.directory, 'diagnostics');
     this.manifest = manifest;
   }
 
@@ -65,6 +81,7 @@ export class RenderWorkspace {
       startedAt: new Date().toISOString(),
       completedActions: 0,
       totalActions: options.actionCount,
+      stages: [],
     };
     const workspace = new RenderWorkspace(options.root, seed);
     workspace.manifest.runId = workspace.runId;
@@ -72,6 +89,7 @@ export class RenderWorkspace {
     await mkdir(workspace.resampleDirectory, { recursive: true });
     await mkdir(workspace.compositionDirectory, { recursive: true });
     await mkdir(workspace.encodeDirectory, { recursive: true });
+    await mkdir(workspace.diagnosticsDirectory, { recursive: true });
     await workspace.update({});
     return workspace;
   }
@@ -85,7 +103,49 @@ export class RenderWorkspace {
   }
 
   snapshot(): RenderRunManifest {
-    return { ...this.manifest };
+    return { ...this.manifest, stages: this.manifest.stages.map((stage) => ({ ...stage })) };
+  }
+
+  async startStage(stage: RenderStage, startedAt = new Date().toISOString()): Promise<void> {
+    const stages = this.manifest.stages.filter(
+      (entry) => entry.stage !== stage || entry.status !== 'running',
+    );
+    stages.push({ stage, status: 'running', startedAt });
+    await this.update({ stages });
+  }
+
+  async finishStage(
+    stage: RenderStage,
+    status: 'completed' | 'failed' | 'aborted' = 'completed',
+  ): Promise<void> {
+    const completedAt = new Date().toISOString();
+    const stages = this.manifest.stages.map((entry) =>
+      entry.stage === stage && entry.status === 'running'
+        ? {
+            ...entry,
+            status,
+            completedAt,
+            durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(entry.startedAt)),
+          }
+        : entry,
+    );
+    await this.update({ stages });
+  }
+
+  async finishRunningStages(status: 'failed' | 'aborted'): Promise<void> {
+    const completedAt = new Date().toISOString();
+    await this.update({
+      stages: this.manifest.stages.map((entry) =>
+        entry.status === 'running'
+          ? {
+              ...entry,
+              status,
+              completedAt,
+              durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(entry.startedAt)),
+            }
+          : entry,
+      ),
+    });
   }
 
   async cleanup(): Promise<void> {
