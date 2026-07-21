@@ -36,7 +36,7 @@ function rawArgumentError(argv: string[]): string | null {
   if (command !== 'validate' && command !== 'render') return null;
 
   const valueOptions = command === 'validate' ? new Set(['--format']) : new Set(['--out']);
-  const booleanOptions = new Set(['--verbose']);
+  const booleanOptions = new Set(['--verbose', '--keep-artifacts', '--json']);
   let positionalCount = 0;
 
   for (let index = 1; index < argv.length; index += 1) {
