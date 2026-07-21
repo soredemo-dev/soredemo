@@ -213,4 +213,5 @@
 - The public encoder awaited 347 write-false/drain pairs with maximum pending state of one RGBA frame. Parent RSS peaked at 345,030,656 bytes and diagnostic FFmpeg RSS at 762,429,440 bytes.
 - The final packed-package E2E produced a separate 314-frame validated MP4 through `npx --no-install soredemo`; the tarball contained no fixtures, spike scripts, captures, diagnostics, or media outputs.
 - A controlled SIGINT preserved an aborted run manifest, published no output, left no partial MP4, and left no Chromium or FFmpeg child process.
+- Focused workspace tests verify default success cleanup and restrict stale-partial removal to old encoder-owned names inside the active run directory.
 - One disposable interruption attempt observed a 9.548 ms backward CDP timestamp. The run failed loudly under the existing artifact contract; no timing correction or receive-time fallback was introduced.
