@@ -47,6 +47,7 @@
   "license": "MIT",
   "dependencies": {
     "@napi-rs/canvas": "1.0.2",
+    "bezier-easing": "3.0.1",
     "citty": "^0.2.2",
     "ghost-cursor": "1.4.2",
     "js-yaml": "^5.2.1",
