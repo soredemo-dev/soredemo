@@ -1,7 +1,7 @@
 # Day 2 CDP capture and clock spike
 
 - Date: 2026-07-21
-- Result: Passed
+- Result: Timing and bundle gate passed; the native-resolution claim was superseded by Day 10.1
 - Platform: macOS 26.5.2 (build 25F84), Apple Silicon (`arm64`)
 - Supported-runtime trial: Node.js 20.19.4
 - Package manager used during Day 2: pnpm 11.15.1
@@ -18,9 +18,9 @@ Clock calibration took nine startup samples of Chromium's `performance.timeOrigi
 
 ## Native-resolution finding
 
-`deviceScaleFactor: 2` plus `Page.startScreencast` maximum dimensions did not by itself produce 2× JPEGs in the pinned headless Chromium; it returned 1440×900 and the spike failed loudly. `Emulation.setDeviceMetricsOverride` with `dontSetVisibleSize: true`, followed by `Emulation.setVisibleSize` at 2880×1800, produced native 2880×1800 frames while the page continued to report `innerWidth: 1440`, `innerHeight: 900`, and `devicePixelRatio: 2`.
+`deviceScaleFactor: 2` plus `Page.startScreencast` maximum dimensions did not by itself produce 2× JPEGs in the pinned headless Chromium; it returned 1440×900 and the spike failed loudly. The Day-2 workaround used `Emulation.setVisibleSize` at 2880×1800 while retaining 1440×900 CSS metrics. It produced 2880×1800 files, but Day 10.1 pixel evidence later proved that Chromium painted only 1× application pixels into the upper-left quadrant. File dimensions, `devicePixelRatio`, and CSS metrics did not prove native raster scale.
 
-The capture now checks both the browser CSS metrics and every actual JPEG dimension. It does not upscale captured frames.
+The corrected capture launches Chromium with `--force-device-scale-factor=2`, keeps CDP metrics at 1440×900, does not call `Emulation.setVisibleSize`, and verifies composed and decoded cursor-target pixels in addition to browser metrics and JPEG dimensions. It does not upscale captured frames. The Day-2 clock, ordering, acknowledgement, and bundle findings remain valid; its original resolution qualification does not.
 
 ## Final Node 20 trials
 
@@ -42,7 +42,7 @@ Every run had zero duplicate timestamps, zero backward timestamps, zero write fa
 
 ## Risks for Day 3
 
-- `Page.startScreencast` and `Emulation.setVisibleSize` are Experimental CDP APIs. The exact Playwright and Chromium versions remain pinned, and their behavior must stay behind runtime gates.
+- `Page.startScreencast` is Experimental, and forced device-scale behavior remains version-sensitive. The exact Playwright and Chromium versions remain pinned, and their behavior must stay behind runtime dimension and pixel-evidence gates.
 - The explicit capture surface produces roughly 90 delivered frames per second on this animated fixture. Day 3 must continue using CDP timestamps rather than interpreting frame arrival cadence as an output frame rate.
 - Short receive-delay spikes and a 51 ms source gap occurred without queue buildup. The Day-3 ±250 ms click-window gate must measure these around actual mouse-down events.
 - pnpm 11.15.1 could not itself run under Node 20. Day 3 resolved this recorded issue by pinning pnpm 10.34.0; the application runtime remains Node 20 or later.

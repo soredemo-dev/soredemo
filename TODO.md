@@ -167,13 +167,25 @@
 - [x] Verify signal cleanup leaves no final/partial output or child process.
 - [x] Record Day-10 results and Day-11 risks.
 
+## Day 10.1 status
+
+- [x] Reproduce the visible `Growing hover target` mismatch through the public CLI.
+- [x] Classify it as action index 1, `moveTo-002`, rather than a click.
+- [x] Prove the cursor remained wrong after path and action completion in the original MP4.
+- [x] Replace the misleading 2880×1800 CDP visible-size workaround with forced 2× Chromium rasterization over 1440×900 CSS metrics.
+- [x] Include `moveTo`, `click`, and type-focus paths in one production landing-measurement union.
+- [x] Require pointer-enter, focus verification, terminal holds, target containment, and full target visibility.
+- [x] Hash every RGBA frame and save bounded original/decoded proof crops for all cursor-bearing actions.
+- [x] Add an explicit fixture gate that rejects dimension-only 2× captures and verifies encoded frame correspondence.
+- [x] Pass one public CLI render and one isolated packed-package render with one move, two clicks, and one type-focus measurement.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
 - The first temporary tarball installation used pnpm offline mode, but the local store lacked registry tarball metadata for `citty`. Retrying the isolated install with registry access succeeded; the packed `soredemo` binary then passed all exit-code checks.
 - Production runtime licenses currently report ISC for `ghost-cursor`; Apache-2.0 for Playwright; MIT for Soredemo and the remaining browser, cursor, validation, and CLI dependencies; and Python-2.0 for `js-yaml`'s transitive `argparse` dependency.
 - No CDP capture, cursor dispatch, frame resampling, canvas composition, or FFmpeg encoding was added on Day 1.
-- `Page.startScreencast` initially returned 1440×900 JPEGs despite a 2× device scale factor and 2880×1800 maximum dimensions. Explicitly setting the CDP visible size to 2880×1800 while retaining 1440×900 CSS metrics produced native 2× frames; runtime gates now verify both sides of that contract.
+- `Page.startScreencast` initially returned 1440×900 JPEGs despite a 2× device scale factor. The first workaround set the CDP visible size to 2880×1800, but Day 10.1 visual evidence proved that it painted only 1× page pixels into the upper-left quadrant. The corrected contract launches Chromium with `--force-device-scale-factor=2`, keeps 1440×900 CDP metrics, and verifies real composed and decoded target pixels in addition to 2880×1800 dimensions.
 - Day 3 replaced pnpm 11.15.1 with exact pnpm 10.34.0 so contributors can run the complete toolchain under the documented Node 20 minimum.
 - The final Node 20 trials observed a largest inter-frame gap of 51.46 ms and a largest receive-delay spike of 75.29 ms. Neither crossed the 100 ms diagnostic threshold; no correction was applied.
 - No cursor movement, click dispatch, action timeline, frame resampling, compositor, camera, or encoding code was added on Day 2.
@@ -208,7 +220,7 @@
 - An initial diagnostic `/bin/ps` probe was denied in the managed sandbox and terminated that disposable attempt. RSS sampling is now non-fatal; the authoritative Node-20 rerun passed and left no partial output.
 - No npm dependency, FFmpeg binary, downloader, full YAML executor, public render integration, audio, or cloud functionality was added on Day 9.
 - The successful public Day-10 fixture run captured 741 native 2880×1800 JPEGs, executed ten entries covering all six action kinds, and encoded 347 frames into an 11.566667-second MP4.
-- Public composition preserved zero-pixel click landing error and full visibility for both click targets. Four cursor-bearing events contained 696 accepted points; no path was regenerated during composition.
+- The original Day-10 report's zero-pixel click landing result covered only click geometry and did not validate `moveTo` or type-focus pixels. Day 10.1 supersedes that acceptance with four cursor-bearing action measurements and RGBA/MP4 visual proofs.
 - The target scroll moved the real document from y=0 to y=1298. The final result route appeared only after hover, real key events, the exact `Soredemo` value, and project creation had been persisted by the fixture.
 - The public encoder awaited 347 write-false/drain pairs with maximum pending state of one RGBA frame. Parent RSS peaked at 345,030,656 bytes and diagnostic FFmpeg RSS at 762,429,440 bytes.
 - The final packed-package E2E produced a separate 314-frame validated MP4 through `npx --no-install soredemo`; the tarball contained no fixtures, spike scripts, captures, diagnostics, or media outputs.

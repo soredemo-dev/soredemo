@@ -54,5 +54,5 @@ The generated bundle occupied approximately 342 MB under `.tmp/day3-click-gate/`
 - Raw native-resolution capture volume is high: this 58-second gate produced approximately 342 MB and more than 5,400 source frames. Day 4 resampling must stay streaming or bounded and use CDP timestamps rather than loading decoded images wholesale.
 - Real Playwright movement commands had an 8.648 ms median round trip and extended this gate beyond the nominal path schedules. Timeline points correctly contain measured times; future choreography must account for dispatch throughput without inventing timing offsets.
 - The largest mouse-command RTT was 33.518 ms. Day 4 must preserve the measured timeline instead of reconstructing motion from proposed package timing.
-- `Emulation.setVisibleSize` remains an Experimental, version-sensitive native-resolution invariant.
+- Day 10.1 superseded the `Emulation.setVisibleSize` resolution claim: it produced correctly sized files containing incorrectly scaled page pixels. Capture now uses forced Chromium device scale and an encoded pixel-alignment gate.
 - `mouseUpMs` and click-event `endMs` are intentionally equal because the browser-observed pointer-up is the action boundary.

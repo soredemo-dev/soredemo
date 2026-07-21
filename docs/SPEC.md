@@ -181,6 +181,8 @@ Click execution must scroll the locator into view, establish actionability and g
 - The same generated cursor path drives real Playwright mouse events and later visible composition.
 - Browser-observed capture-phase `pointerdown` and `pointerup` events supply canonical click times.
 
+The pinned Chromium capture launches headless with `--force-device-scale-factor=2`, keeps CDP device metrics at the 1440×900 CSS viewport, and requires 2880×1800 screencast JPEGs. Soredemo must not request a 2880×1800 CDP visible size: that configuration can report the expected JPEG dimensions while painting only 1× page pixels into the upper-left quadrant. Capture acceptance therefore includes pixel-level cursor-target evidence; dimensions and `devicePixelRatio` alone do not prove zoom headroom.
+
 Soredemo promises structural reproducibility, not pixel determinism across machines or runs. Core capture does not use JavaScript virtual-time tricks.
 
 ## Timestamp frame resampling
@@ -227,7 +229,9 @@ screenY = contentRect.y + cssY × contentRect.height / cssViewport.height
 
 The compositor preserves fractional screen coordinates and draws at the screen hotspot minus the scaled asset hotspot. Cursor raster size is constant in output pixels. Device scale factor, source JPEG dimensions, contain scale, and future browser-camera transforms do not resize it. Browser and future camera transforms belong below the cursor layer.
 
-The cursor track directly joins the measured Day-3 paths. It is hidden before the first point, linearly interpolates dense measured points at fixed output time, holds each final point until the next movement, and holds the final position through composition end. It never regenerates, smooths, or retimes the path. The cursor renders after browser pixels and any future click feedback, so it remains the topmost visual layer.
+The cursor track directly joins measured `moveTo`, `click`, and `type` paths. It is hidden before the first point, linearly interpolates dense measured points at fixed output time, holds each final point until the next movement actually begins, and holds the final position through composition end. It never regenerates, smooths, or retimes the path. The cursor renders after browser pixels and click feedback, so it remains the topmost visual layer.
+
+Production rendering measures every cursor-bearing action from the real compositor frame. `moveTo` and type-focus actions use the first fixed output frame at or after their recorded terminal path point; click actions retain the browser-observed mouse-down mapping. The actual draw hotspot must be within two output pixels of the destination and inside the camera-projected commit bbox. `moveTo` additionally requires a real pointer-enter and terminal-position holds through action completion and the frame before the next cursor action. Exact RGBA hashes, bounded proof crops, and matching decoded MP4 frames remain in preserved run artifacts.
 
 ## Post-production camera
 

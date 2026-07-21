@@ -1,5 +1,7 @@
 # Day 10: public MVP render pipeline
 
+> Day 10.1 correction: the original run below had 2880×1800 files but only 1× page pixels in the upper-left quadrant. Its click-only geometric landing result did not reveal the mismatch. The corrected capture and all-action visual gate are documented in `day10.1-cursor-synchronization.md`; its results supersede the capture and cursor acceptance claims below.
+
 Day 10 connected the accepted capture, resampling, studio composition, and system-FFmpeg modules behind the public `soredemo render` command. A user supplies a validated YAML Demo Plan for an already-running HTTP or HTTPS application and receives an atomically published, probed MP4.
 
 ## Public contract
