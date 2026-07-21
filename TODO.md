@@ -136,6 +136,22 @@
 - [x] Prove deterministic studio composition with two fresh subset executions.
 - [x] Record the manual visual review, performance warning, and Day-9 risks.
 
+## Day 9 status
+
+- [x] Resolve system FFmpeg and FFprobe without a shell or bundled binary.
+- [x] Record executable hashes, versions, compiler, configure arguments, and capabilities.
+- [x] Require rawvideo input and `libx264` before starting composition.
+- [x] Stream all 1,751 RGBA frames with callback and drain backpressure.
+- [x] Keep maximum pending application state to one 8,294,400-byte frame.
+- [x] Drain FFmpeg stderr incrementally with a bounded in-memory tail.
+- [x] Validate H.264/yuv420p geometry, exact frame count, constant 30 fps, and duration.
+- [x] Verify complete decoding and fast-start MP4 box ordering.
+- [x] Preserve prior output and remove partial files during simulated failure.
+- [x] Compare seven selected original and decoded frames without an image dependency.
+- [x] Prove same-build bit-identical encoding with two fresh 21-frame runs.
+- [x] Produce the first playable full-length MP4 below the parent-memory gate.
+- [x] Record the FFmpeg/libx264/H.264 boundary and Day-10 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -169,3 +185,10 @@
 - Peak Day-8 RSS was 221,478,912 bytes with a 4,512.607 bytes/frame fitted slope; memory remained bounded far below 1 GiB.
 - The alternating fixture pans remain visually noticeable. Camera timing was not changed on Day 8 because the accepted Day-7 track is authoritative.
 - No dependency, FFmpeg, encoder, MP4, YAML executor, `focusAfter`, or public render integration was added on Day 8.
+- The Day-9 Homebrew FFmpeg 8.0 build reports `--enable-gpl` and `--enable-libx264`; it is GPL-conditioned and remains a separately installed system executable.
+- All 1,751 frames were written exactly once. Every 8.29 MB write returned false and was paired with one awaited drain; maximum pending state remained one frame.
+- The first MP4 contains 1,751 H.264 High-profile yuv420p frames at constant 30 fps over 58.366667 seconds, with zero audio and fast-start ordering.
+- The successful MP4 is 2,430,985 bytes with SHA-256 `1b891122f64b41b979b08739ce1ea46d98f60c95586f3a786d7cf6779bc78255`.
+- Parent RSS peaked at 201,916,416 bytes and diagnostic FFmpeg RSS at 759,873,536 bytes. No application frame queue was introduced.
+- An initial diagnostic `/bin/ps` probe was denied in the managed sandbox and terminated that disposable attempt. RSS sampling is now non-fatal; the authoritative Node-20 rerun passed and left no partial output.
+- No npm dependency, FFmpeg binary, downloader, full YAML executor, public render integration, audio, or cloud functionality was added on Day 9.

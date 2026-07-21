@@ -256,6 +256,18 @@ The final layer order is gradient, shadow, clipped window surface, border, click
 
 Click feedback begins from the browser-observed `mouseDownMs`, is evaluated at fixed output time, and uses the active camera projection. A 260 ms screen-space ring expands from 3 to 20 output pixels and fades from 0.55 to zero opacity. A restrained dark backing stroke preserves contrast on light application pixels; the white foreground ring, radius, and timing remain deterministic. Ripple radius and stroke do not inherit camera zoom.
 
+## Encoding
+
+The encoder consumes only ordered fixed-rate RGBA frames. It has no knowledge of browser actions, camera state, cursor paths, source-frame timestamps, or YAML. For v0.1 it launches a separately installed FFmpeg executable without a shell and sends 1920×1080 RGBA rawvideo through stdin to `libx264`, CRF 18, medium preset, yuv420p, constant 30 fps MP4.
+
+One awaited write connects compositor and encoder. Soredemo does not compose the next frame until Node has signaled both write completion and any required drain, so at most one RGBA frame is pending. FFmpeg stderr is consumed continuously and retained only as a bounded in-memory tail plus an incremental diagnostic log.
+
+The fixed output clock determines encoded timing. For `N` frames at `fps`, the last frame starts at `(N - 1) / fps`, while media duration is `N / fps`. Selected CDP source timestamps never affect the encoded frame cadence.
+
+Output first targets a unique sibling partial file. FFmpeg must exit zero; FFprobe must prove one H.264/yuv420p 1920×1080 stream, zero audio, exact decoded frame count, constant cadence, valid duration, and BT.709 metadata where exposed; a complete decode smoke test must pass; and `moov` must precede `mdat`. Only then is the file fsynced and atomically renamed.
+
+Day-9 discovery accepts a literal `SOREDEMO_FFMPEG_PATH` or an executable found by inspecting `PATH`. The npm package contains no binary or downloader. System build configuration and the GPL-conditioned `libx264` boundary are recorded separately from Soredemo's MIT license.
+
 ## Cinematic direction
 
 The studio preset uses a restrained shot grammar:
