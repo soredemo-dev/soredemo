@@ -27,6 +27,7 @@
     "spike:day9": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day9-ffmpeg-encode.js",
     "fixture:server": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day10-fixture-server.js",
     "gate:cursor-sync": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day10-cursor-sync-gate.js",
+    "gate:signals": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day11-signal-gate.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
