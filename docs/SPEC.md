@@ -309,3 +309,13 @@ Included: Chromium; YAML plans; six browser actions; semantic targets; condition
 Explicitly excluded: 4K; MDX; audio; microphone; TTS; webcam; presenter studio; captions; music; transition types beyond hard cuts; Windows or Linux browser chrome; interactive HTML export; cloud rendering; collaboration; embedded LLM calls; autonomous feature selection; and an MCP server.
 
 Soredemo Cloud may later provide hosted rendering and team workflows, but the local MIT engine retains complete validation, capture, composition, and rendering capabilities.
+
+## Public local render workflow
+
+`soredemo render <demo-plan> --out <file.mp4>` is the production orchestration boundary. It validates the plan and output path before dynamically importing capture or rendering modules, discovers the nearest `soredemo.config.yaml`, preflights system FFmpeg, executes actions sequentially in Chromium, and preserves one capture-relative timeline across all six event variants.
+
+The initial top-level URL is prepared before capture begins. It uses `domcontentloaded`, cursor hiding, and browser instrumentation, then capture waits for its first CDP frame and holds an establishing shot before action execution. Subsequent `goto` actions are visible timeline events. Only HTTP and HTTPS navigation are supported.
+
+Semantic targets resolve through exactly one requested strategy. Soredemo never falls back to another selector or silently chooses the first match. Interactive actions use real Playwright mouse and keyboard input. Target and coordinate scrolling use real browser smooth scrolling and bounded observed position samples.
+
+The public pipeline writes capture and resample artifacts into an isolated Soredemo-owned workspace, streams studio RGBA frames directly to the external encoder with awaited backpressure, validates the temporary MP4, then atomically publishes it. Success removes the workspace by default; `--keep-artifacts` preserves it. Failures and signals preserve diagnostics but never publish partial output.

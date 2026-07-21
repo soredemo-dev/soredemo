@@ -152,6 +152,21 @@
 - [x] Produce the first playable full-length MP4 below the parent-memory gate.
 - [x] Record the FFmpeg/libx264/H.264 boundary and Day-10 risks.
 
+## Day 10 status
+
+- [x] Discover and validate the nearest YAML project configuration.
+- [x] Resolve role, label, test ID, text, and explicit CSS targets without fallback.
+- [x] Execute `goto`, `wait`, `moveTo`, `click`, `type`, and `scrollTo` sequentially with real browser input.
+- [x] Record a versioned all-action timeline without copying typed plaintext.
+- [x] Connect capture, 30 fps resampling, studio camera/cursor composition, and system FFmpeg through one production API.
+- [x] Add isolated run workspaces, atomic run manifests, success cleanup, failure preservation, and `--keep-artifacts`.
+- [x] Connect the public `render` command with safe output handling and JSON output.
+- [x] Preserve zero-error cursor landing, full target visibility, native 2× capture, and one-frame encoder backpressure.
+- [x] Produce and validate the first public-CLI fixture MP4.
+- [x] Install the npm tarball into an isolated Node-20 project and render through its packed binary.
+- [x] Verify signal cleanup leaves no final/partial output or child process.
+- [x] Record Day-10 results and Day-11 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -192,3 +207,10 @@
 - Parent RSS peaked at 201,916,416 bytes and diagnostic FFmpeg RSS at 759,873,536 bytes. No application frame queue was introduced.
 - An initial diagnostic `/bin/ps` probe was denied in the managed sandbox and terminated that disposable attempt. RSS sampling is now non-fatal; the authoritative Node-20 rerun passed and left no partial output.
 - No npm dependency, FFmpeg binary, downloader, full YAML executor, public render integration, audio, or cloud functionality was added on Day 9.
+- The successful public Day-10 fixture run captured 741 native 2880×1800 JPEGs, executed ten entries covering all six action kinds, and encoded 347 frames into an 11.566667-second MP4.
+- Public composition preserved zero-pixel click landing error and full visibility for both click targets. Four cursor-bearing events contained 696 accepted points; no path was regenerated during composition.
+- The target scroll moved the real document from y=0 to y=1298. The final result route appeared only after hover, real key events, the exact `Soredemo` value, and project creation had been persisted by the fixture.
+- The public encoder awaited 347 write-false/drain pairs with maximum pending state of one RGBA frame. Parent RSS peaked at 345,030,656 bytes and diagnostic FFmpeg RSS at 762,429,440 bytes.
+- The final packed-package E2E produced a separate 314-frame validated MP4 through `npx --no-install soredemo`; the tarball contained no fixtures, spike scripts, captures, diagnostics, or media outputs.
+- A controlled SIGINT preserved an aborted run manifest, published no output, left no partial MP4, and left no Chromium or FFmpeg child process.
+- One disposable interruption attempt observed a 9.548 ms backward CDP timestamp. The run failed loudly under the existing artifact contract; no timing correction or receive-time fallback was introduced.
