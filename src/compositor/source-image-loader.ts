@@ -1,7 +1,7 @@
 import type { Stats } from 'node:fs';
 import { lstat, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { type Image, loadImage } from '@napi-rs/canvas';
+import { Image } from '@napi-rs/canvas';
 import type { ResampledFrameRecord } from '../resample/types.js';
 import type { SourceImageLoader, SourceImageLoaderDiagnostics } from './types.js';
 
@@ -16,7 +16,7 @@ function remainsInside(root: string, candidate: string): boolean {
 }
 
 export class SequentialSourceImageLoader implements SourceImageLoader {
-  private currentImage: Image | undefined;
+  private readonly currentImage = new Image();
   private currentSourceIndex: number | undefined;
   private previousSourceIndex: number | undefined;
   private readonly state: SourceImageLoaderDiagnostics = {
@@ -54,30 +54,31 @@ export class SequentialSourceImageLoader implements SourceImageLoader {
       throw new Error('Source selections must be non-decreasing');
     }
     this.previousSourceIndex = record.sourceIndex;
-    if (record.sourceIndex === this.currentSourceIndex && this.currentImage) {
+    if (record.sourceIndex === this.currentSourceIndex) {
       this.state.cacheHits += 1;
       return this.currentImage;
     }
 
     const file = await this.resolveSourceFile(record.sourceFile);
-    let image: Image;
     try {
-      image = await loadImage(file);
+      await this.decode(file);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Unable to decode source image ${record.sourceFile}: ${message}`);
     }
-    if (image.width !== this.expectedWidth || image.height !== this.expectedHeight) {
+    if (
+      this.currentImage.width !== this.expectedWidth ||
+      this.currentImage.height !== this.expectedHeight
+    ) {
       throw new Error(
-        `Decoded source dimensions ${image.width}x${image.height} do not match ${this.expectedWidth}x${this.expectedHeight}`,
+        `Decoded source dimensions ${this.currentImage.width}x${this.currentImage.height} do not match ${this.expectedWidth}x${this.expectedHeight}`,
       );
     }
     this.state.cacheMisses += 1;
     this.state.decodeCount += 1;
-    this.currentImage = image;
     this.currentSourceIndex = record.sourceIndex;
     this.state.maxDecodedImagesRetained = Math.max(this.state.maxDecodedImagesRetained, 1);
-    return image;
+    return this.currentImage;
   }
 
   diagnostics(): SourceImageLoaderDiagnostics {
@@ -106,5 +107,15 @@ export class SequentialSourceImageLoader implements SourceImageLoader {
     const file = await stat(actual);
     if (!file.isFile()) throw new Error('Source image must be a regular file');
     return actual;
+  }
+
+  private async decode(file: string): Promise<void> {
+    await new Promise<void>((resolveDecode, rejectDecode) => {
+      this.currentImage.onload = () => {
+        this.currentImage.decode().then(resolveDecode, rejectDecode);
+      };
+      this.currentImage.onerror = rejectDecode;
+      this.currentImage.src = file;
+    });
   }
 }

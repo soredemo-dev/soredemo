@@ -11,7 +11,7 @@ describe('RGBA extraction', () => {
       context.fillStyle = color;
       context.fillRect(index % 2, Math.floor(index / 2), 1, 1);
     }
-    const bytes = rgbaBytes(context.getImageData(0, 0, 2, 2).data);
+    const bytes = rgbaBytes(canvas.data());
     expect([...bytes]).toEqual([
       255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
     ]);

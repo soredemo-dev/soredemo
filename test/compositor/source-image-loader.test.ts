@@ -28,7 +28,7 @@ describe('sequential source image loader', () => {
     const loader = await SequentialSourceImageLoader.create(directory, 4, 2);
     const first = await loader.load(frameRecord(0, 1));
     expect(await loader.load(frameRecord(1, 1))).toBe(first);
-    expect(await loader.load(frameRecord(2, 2))).not.toBe(first);
+    expect(await loader.load(frameRecord(2, 2))).toBe(first);
     expect(loader.diagnostics()).toEqual({
       decodeCount: 2,
       cacheHits: 1,

@@ -37,8 +37,7 @@ export class BaseFrameCompositor {
     this.context.globalCompositeOperation = 'source-over';
     const { x, y, width, height } = this.contentRect;
     this.context.drawImage(image, x, y, width, height);
-    const imageData = this.context.getImageData(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT).data;
-    const data = rgbaBytes(imageData);
+    const data = rgbaBytes(this.canvas.data());
     if (data.byteLength !== RGBA_BYTE_LENGTH)
       throw new Error('Canvas returned unexpected RGBA size');
     return {

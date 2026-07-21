@@ -6,7 +6,7 @@ import {
   RGBA_STRIDE_BYTES,
 } from './types.js';
 
-export function rgbaBytes(data: Uint8ClampedArray): Uint8Array {
+export function rgbaBytes(data: Uint8Array | Uint8ClampedArray): Uint8Array {
   return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 }
 
