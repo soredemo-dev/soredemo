@@ -16,13 +16,15 @@ describe('render output paths', () => {
     const output = resolve(root, 'nested/demo.mp4');
     await expect(prepareOutputPath(resolve(root, 'demo.yaml'), output)).resolves.toBe(output);
     await writeFile(output, 'existing');
-    await expect(prepareOutputPath(resolve(root, 'demo.yaml'), output)).rejects.toThrow(
-      'already exists',
-    );
+    await expect(prepareOutputPath(resolve(root, 'demo.yaml'), output)).rejects.toMatchObject({
+      code: 'OUTPUT_EXISTS',
+      stage: 'validating',
+    });
     const directory = resolve(root, 'directory');
     await mkdir(directory);
-    await expect(prepareOutputPath(resolve(root, 'demo.yaml'), directory)).rejects.toThrow(
-      'is a directory',
-    );
+    await expect(prepareOutputPath(resolve(root, 'demo.yaml'), directory)).rejects.toMatchObject({
+      code: 'OUTPUT_PATH_INVALID',
+      stage: 'validating',
+    });
   });
 });

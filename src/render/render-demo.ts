@@ -147,6 +147,19 @@ async function completeStage(
   options.onStage?.({ stage, status: 'completed', message, ...(details ? { details } : {}) });
 }
 
+export function assertCursorSynchronization(
+  result: Pick<CursorActionAuditResult, 'statistics'>,
+  expectedCount: number,
+): void {
+  if (result.statistics.total === expectedCount && result.statistics.failures === 0) return;
+  throw new RenderError({
+    code: 'CURSOR_SYNCHRONIZATION_FAILED',
+    stage: 'composing',
+    message: 'Cursor-bearing action landing gate failed',
+    details: { expectedCount, statistics: result.statistics },
+  });
+}
+
 async function readJsonIfPresent(file: string): Promise<Record<string, unknown> | undefined> {
   try {
     return JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
@@ -620,17 +633,7 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         consumer: auditConsumer,
       });
       cursorAuditResult = await auditConsumer.finish();
-      if (
-        cursorAuditResult.statistics.total !== cursorEvents.length ||
-        cursorAuditResult.statistics.failures !== 0
-      ) {
-        throw new RenderError({
-          code: 'CURSOR_SYNCHRONIZATION_FAILED',
-          stage: 'composing',
-          message: 'Cursor-bearing action landing gate failed',
-          details: { statistics: cursorAuditResult.statistics },
-        });
-      }
+      assertCursorSynchronization(cursorAuditResult, cursorEvents.length);
       await completeStage(
         workspace,
         options,
