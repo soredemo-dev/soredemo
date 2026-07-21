@@ -57,9 +57,10 @@ pnpm spike:day4 -- <capture-dir>
 - v0.1 has exactly six browser actions: `goto`, `wait`, `moveTo`, `click`, `type`, and `scrollTo`.
 - Camera movement exists only in post-production. Scrolling remains real browser scrolling.
 - CDP frame timestamps are epoch-based and authoritative. Node receive time is diagnostic only.
-- The capture spike must preserve a 1440×900 CSS viewport and prove native 2880×1800 JPEG output.
+- Capture must preserve a 1440×900 CSS viewport and prove genuine 2880×1800 painting with the CDP color-band pixel-scale proof. Dimensions alone are insufficient, and `Emulation.setVisibleSize` must not be reintroduced.
 - Use only `ghost-cursor`'s exported `path()` function. Soredemo owns Playwright dispatch and timing.
 - Frame resampling uses only ordered CDP timestamps. It never uses receive time, file metadata, or inferred capture rate.
 - Do not implement frame resampling, canvas composition, camera movement, or FFmpeg encoding before their planned phases.
+- Failure screenshots and preserved render artifacts stay local and may contain private application data. Never upload them or include them in npm packages.
 
 The accepted architectural decisions are in `docs/adr/`. Do not relitigate them during implementation.

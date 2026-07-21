@@ -179,6 +179,24 @@
 - [x] Add an explicit fixture gate that rejects dimension-only 2× captures and verifies encoded frame correspondence.
 - [x] Pass one public CLI render and one isolated packed-package render with one move, two clicks, and one type-focus measurement.
 
+## Day 11 status
+
+- [x] Push the approved Day-10.1 checkpoint before beginning new work.
+- [x] Add the stable private-alpha render error-code union and bounded JSON representation.
+- [x] Record every render stage with wall-clock start, completion, duration, and terminal state.
+- [x] Add human, quiet, verbose, and single-value JSON reporters without a spinner dependency.
+- [x] Add `soredemo doctor` checks for Node, FFmpeg, FFprobe, libx264, Chromium, Canvas, cursor asset, and workspace writability.
+- [x] Prove actual painted 2× scale through a temporary CDP color-band probe before user actions.
+- [x] Preserve launch arguments, CSS and CDP metrics, DPR, JPEG dimensions, versions, and proof observations.
+- [x] Add safe target candidates, one viewport failure screenshot, and bounded `diagnostics/error.json`.
+- [x] Preserve hard failure for backward CDP timestamps with explicit clock and queue details.
+- [x] Verify output safety, encoder early exit, target states, action timeout, navigation scheme, scale, timestamp, and cursor synchronization failure seams.
+- [x] Verify SIGINT and SIGTERM terminate with aborted manifests, no partial output, and no accumulating listeners.
+- [x] Pass current-source and packed-package full renders with four all-action cursor measurements.
+- [x] Pass current-source and packed missing-target failures with terminal workspaces and no MP4.
+- [x] Verify default success cleanup and `--keep-artifacts` preservation.
+- [x] Record private-alpha troubleshooting guidance and Day-12 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -221,6 +239,9 @@
 - No npm dependency, FFmpeg binary, downloader, full YAML executor, public render integration, audio, or cloud functionality was added on Day 9.
 - The successful public Day-10 fixture run captured 741 native 2880×1800 JPEGs, executed ten entries covering all six action kinds, and encoded 347 frames into an 11.566667-second MP4.
 - The original Day-10 report's zero-pixel click landing result covered only click geometry and did not validate `moveTo` or type-focus pixels. Day 10.1 supersedes that acceptance with four cursor-bearing action measurements and RGBA/MP4 visual proofs.
+- Day 11 added a separate pre-action CDP color-band proof. On the accepted Chromium build its four decoded sample distances were 1, 1, 1, and 0 RGB units, detecting actual 2× rasterization rather than dimension-only containers.
+- The first Day-11 full render exposed referenced 120-second timeout promises that kept Node alive after output publication. The timeout guards now use unreferenced timers; current public and packed commands exit immediately after cleanup.
+- A cursorless cleanup smoke initially failed because MP4 cursor-proof decoding required at least one proof frame. Cursorless plans now skip only that empty diagnostic decode while retaining output validation.
 - The target scroll moved the real document from y=0 to y=1298. The final result route appeared only after hover, real key events, the exact `Soredemo` value, and project creation had been persisted by the fixture.
 - The public encoder awaited 347 write-false/drain pairs with maximum pending state of one RGBA frame. Parent RSS peaked at 345,030,656 bytes and diagnostic FFmpeg RSS at 762,429,440 bytes.
 - The final packed-package E2E produced a separate 314-frame validated MP4 through `npx --no-install soredemo`; the tarball contained no fixtures, spike scripts, captures, diagnostics, or media outputs.
