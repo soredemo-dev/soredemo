@@ -31,6 +31,8 @@ export async function runCdpScreencast(options: {
   durationMs: number;
   startupCalibration: ClockCalibration;
   settings: ScreencastSettings;
+  runDuringCapture?: (captureOriginEpochMs: number) => Promise<void>;
+  tailDurationMs?: number;
 }): Promise<CdpScreencastResult> {
   const { session, writer, durationMs, startupCalibration, settings } = options;
   let captureOriginEpochMs: number | undefined;
@@ -43,6 +45,10 @@ export async function runCdpScreencast(options: {
     rejectCapture = reject;
   });
   const pendingHandlers = new Set<Promise<void>>();
+  let resolveCaptureOrigin: ((captureOriginEpochMs: number) => void) | undefined;
+  const captureOriginPromise = new Promise<number>((resolve) => {
+    resolveCaptureOrigin = resolve;
+  });
 
   function fail(error: unknown): void {
     if (captureFailure) return;
@@ -87,6 +93,7 @@ export async function runCdpScreencast(options: {
       timestampMs,
       receivedAtMs: receivedEpochMs - captureOriginEpochMs,
     });
+    if (writer.diagnostics.received === 1) resolveCaptureOrigin?.(captureOriginEpochMs);
     await session.send('Page.screencastFrameAck', { sessionId: payload.sessionId });
     writer.markAcknowledged();
   }
@@ -102,7 +109,25 @@ export async function runCdpScreencast(options: {
   try {
     await session.send('Page.startScreencast', settings);
     started = true;
-    await Promise.race([setTimeout(durationMs), failurePromise]);
+    if (options.runDuringCapture) {
+      const captureOrigin = await Promise.race([
+        captureOriginPromise,
+        failurePromise,
+        setTimeout(durationMs).then(() => {
+          throw new Error('Timed out waiting for the first CDP screencast frame');
+        }),
+      ]);
+      await Promise.race([
+        options.runDuringCapture(captureOrigin),
+        failurePromise,
+        setTimeout(durationMs).then(() => {
+          throw new Error(`Capture activity exceeded its ${durationMs}ms limit`);
+        }),
+      ]);
+      await Promise.race([setTimeout(options.tailDurationMs ?? 500), failurePromise]);
+    } else {
+      await Promise.race([setTimeout(durationMs), failurePromise]);
+    }
   } finally {
     if (started) await session.send('Page.stopScreencast').catch(fail);
     session.off('Page.screencastFrame', listener);

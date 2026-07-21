@@ -17,6 +17,7 @@
     "prepack": "tsc -p tsconfig.build.json && node dist/schema/generate-json-schema.js",
     "soredemo": "node dist/cli.js",
     "spike:day2": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day2-capture-spike.js",
+    "spike:day3": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day3-click-gate.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -42,6 +43,7 @@
   "license": "MIT",
   "dependencies": {
     "citty": "^0.2.2",
+    "ghost-cursor": "1.4.2",
     "js-yaml": "^5.2.1",
     "playwright": "1.61.1",
     "zod": "^4.4.3"

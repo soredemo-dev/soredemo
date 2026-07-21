@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { arch, platform, release } from 'node:os';
-import { chromium } from 'playwright';
+import { type BrowserContext, chromium, type Page } from 'playwright';
 import { CaptureBundleWriter } from './capture-bundle-writer.js';
 import { runCdpScreencast, type ScreencastSettings } from './cdp-screencast.js';
 import { calibrateBrowserEpoch } from './clock.js';
@@ -25,6 +25,14 @@ export interface CaptureSessionOptions {
   deviceScaleFactor?: number;
   queueLimit?: number;
   clockSampleCount?: number;
+  beforePageCreation?: (context: BrowserContext) => Promise<void>;
+  preparePage?: (page: Page) => Promise<void>;
+  runDuringCapture?: (context: {
+    page: Page;
+    captureOriginEpochMs: number;
+    startupCalibration: Awaited<ReturnType<typeof calibrateBrowserEpoch>>;
+  }) => Promise<void>;
+  tailDurationMs?: number;
 }
 
 export interface CaptureSessionResult {
@@ -98,6 +106,7 @@ export async function captureSession(
   });
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport, deviceScaleFactor });
+  await options.beforePageCreation?.(context);
   const page = await context.newPage();
   let session: Awaited<ReturnType<typeof context.newCDPSession>> | undefined;
 
@@ -137,12 +146,21 @@ export async function captureSession(
         `Browser metrics do not match the capture contract: ${JSON.stringify(observedBrowserMetrics)}`,
       );
     }
+    await options.preparePage?.(page);
     const cdpResult = await runCdpScreencast({
       session,
       writer,
       durationMs: options.durationMs,
       startupCalibration,
       settings,
+      ...(options.runDuringCapture
+        ? {
+            runDuringCapture: (captureOriginEpochMs: number) =>
+              options.runDuringCapture?.({ page, captureOriginEpochMs, startupCalibration }) ??
+              Promise.resolve(),
+          }
+        : {}),
+      ...(options.tailDurationMs === undefined ? {} : { tailDurationMs: options.tailDurationMs }),
     });
     const endingCalibration = await calibrateBrowserEpoch(sampleBrowserEpochMs, sampleCount);
     await writer.close();
