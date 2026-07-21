@@ -149,11 +149,15 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
     actionCount: options.plan.actions.length,
   });
   const abortController = new AbortController();
-  const abort = () => abortController.abort(new Error('RENDER_ABORTED: Render was interrupted'));
+  let encoder: FfmpegEncoder | undefined;
+  const abort = () => {
+    const reason = new Error('RENDER_ABORTED: Render was interrupted');
+    abortController.abort(reason);
+    void encoder?.abort(reason);
+  };
   process.once('SIGINT', abort);
   process.once('SIGTERM', abort);
   let completedActions = 0;
-  let encoder: FfmpegEncoder | undefined;
 
   try {
     await workspace.removeOwnedStalePartials();
@@ -466,7 +470,7 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
     return result;
   } catch (error) {
     await encoder?.abort(error).catch(() => undefined);
-    const code = failureCode(error);
+    const code = abortController.signal.aborted ? 'RENDER_ABORTED' : failureCode(error);
     const message = error instanceof Error ? error.message : String(error);
     await workspace
       .update({
