@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
+import type { Rect } from '../compositor/types.js';
 import { requireSuccessfulProcess, runCapturedProcess } from '../encoder/subprocess.js';
 import type { ResolvedExecutable } from '../encoder/types.js';
-import type { Rect } from '../compositor/types.js';
 import type { CursorProofFrameRecord } from './cursor-action-audit.js';
 
 export interface DecodedCursorProofRecord {
@@ -143,17 +143,7 @@ function cropImage(image: Awaited<ReturnType<typeof loadImage>>, rect: Rect) {
   const canvas = createCanvas(rect.width, rect.height);
   canvas
     .getContext('2d')
-    .drawImage(
-      image,
-      rect.x,
-      rect.y,
-      rect.width,
-      rect.height,
-      0,
-      0,
-      rect.width,
-      rect.height,
-    );
+    .drawImage(image, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
   return { canvas, data: new Uint8Array(canvas.data()) };
 }
 

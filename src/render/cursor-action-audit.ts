@@ -2,19 +2,22 @@ import { createHash } from 'node:crypto';
 import type { FileHandle } from 'node:fs/promises';
 import { mkdir, open, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { projectCssPoint, projectCssRect } from '../compositor/camera-projection.js';
 import {
-  cursorActionLandingStatistics,
-  cursorFrameSample,
-  isCursorBearingEvent,
-  measureCursorActionLanding,
   type CursorActionFrameRequest,
   type CursorActionFrameSample,
   type CursorActionLandingMeasurement,
   type CursorActionLandingStatistics,
   type CursorBearingTimelineEvent,
+  cursorActionLandingStatistics,
+  cursorFrameSample,
+  isCursorBearingEvent,
+  measureCursorActionLanding,
 } from '../compositor/cursor-action-landing.js';
-import { projectCssPoint, projectCssRect } from '../compositor/camera-projection.js';
-import type { StudioFrameCompositor, StudioRawRgbaFrame } from '../compositor/studio-frame-compositor.js';
+import type {
+  StudioFrameCompositor,
+  StudioRawRgbaFrame,
+} from '../compositor/studio-frame-compositor.js';
 import { STUDIO_BROWSER_CONTENT_RECT } from '../compositor/studio-layout.js';
 import type { FrameConsumer, RawRgbaFrame, Rect } from '../compositor/types.js';
 import type { ResampledFrameRecord } from '../resample/types.js';
@@ -310,8 +313,7 @@ function targetPixelEvidence(
     return { sampledPixels: 0, rgbStandardDeviation: 0, nonUniformFraction: 0 };
   }
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance =
-    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
   const dominant = Math.max(...colors.values());
   return {
     sampledPixels: values.length,

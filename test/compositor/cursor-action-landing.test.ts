@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { CameraFrameState } from '../../src/compositor/camera-types.js';
 import {
   cursorActionFrameRequests,
   cursorActionLandingStatistics,
@@ -6,9 +7,8 @@ import {
   measureCursorActionLanding,
   nearestCursorOutputIndex,
 } from '../../src/compositor/cursor-action-landing.js';
-import type { CameraFrameState } from '../../src/compositor/camera-types.js';
-import type { CursorFrameState } from '../../src/compositor/cursor-track.js';
 import type { CursorPlacement } from '../../src/compositor/cursor-renderer.js';
+import type { CursorFrameState } from '../../src/compositor/cursor-track.js';
 import type { ResampledFrameRecord } from '../../src/resample/types.js';
 import type {
   ClickTimelineEvent,

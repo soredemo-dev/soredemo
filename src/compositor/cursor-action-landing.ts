@@ -7,10 +7,15 @@ import type {
   TimelineEvent,
   TypeTimelineEvent,
 } from '../timeline/types.js';
-import { projectCssPoint, projectCssRect, pointInsideRect } from './camera-projection.js';
+import {
+  pointInsideRect,
+  projectCssPoint,
+  projectCssRect,
+  visibleFraction,
+} from './camera-projection.js';
 import type { CameraFrameState, Size } from './camera-types.js';
-import type { CursorFrameState } from './cursor-track.js';
 import type { CursorPlacement } from './cursor-renderer.js';
+import type { CursorFrameState } from './cursor-track.js';
 import type { Rect } from './types.js';
 
 export type CursorBearingTimelineEvent =
@@ -72,6 +77,7 @@ interface CursorActionLandingBase {
   errorYOutputPx: number;
   errorDistanceOutputPx: number;
   hotspotInsideProjectedTarget: boolean;
+  targetVisibleFraction: number;
   cursorPixelsChanged: number;
 }
 
@@ -114,7 +120,10 @@ export function firstOutputIndexAtOrAfter(
   outputFrameCount: number,
 ): number {
   validateGrid(timestampMs, fps, outputFrameCount);
-  return Math.min(outputFrameCount - 1, Math.max(0, Math.ceil((timestampMs * fps) / 1000 - EPSILON)));
+  return Math.min(
+    outputFrameCount - 1,
+    Math.max(0, Math.ceil((timestampMs * fps) / 1000 - EPSILON)),
+  );
 }
 
 export function nearestCursorOutputIndex(
@@ -143,7 +152,11 @@ export function cursorActionFrameRequests(
     if (!first || !final) throw new Error(`${event.id} has no cursor path`);
     requests.push({
       event,
-      outputIndex: nearestCursorOutputIndex((first.timeMs + final.timeMs) / 2, fps, outputFrameCount),
+      outputIndex: nearestCursorOutputIndex(
+        (first.timeMs + final.timeMs) / 2,
+        fps,
+        outputFrameCount,
+      ),
       role: 'movement-midpoint',
     });
     if (event.kind === 'click') {
@@ -168,8 +181,11 @@ export function cursorActionFrameRequests(
     const lastHeldIndex = next
       ? Math.max(
           0,
-          firstOutputIndexAtOrAfter(next.cursorPath[0]?.timeMs ?? next.startMs, fps, outputFrameCount) -
-            1,
+          firstOutputIndexAtOrAfter(
+            next.cursorPath[0]?.timeMs ?? next.startMs,
+            fps,
+            outputFrameCount,
+          ) - 1,
         )
       : outputFrameCount - 1;
     requests.push({ event, outputIndex: lastHeldIndex, role: 'final-hold' });
@@ -193,7 +209,12 @@ export function measureCursorActionLanding(options: {
     throw new Error(`${event.id} has no visible cursor at its landing frame`);
   }
   const expectedCss = expectedPoint(event);
-  const expectedScreen = projectCssPoint(expectedCss, camera, options.viewport, options.contentRect);
+  const expectedScreen = projectCssPoint(
+    expectedCss,
+    camera,
+    options.viewport,
+    options.contentRect,
+  );
   const cursorScreen = {
     x: cursorPlacement.hotspotScreenX,
     y: cursorPlacement.hotspotScreenY,
@@ -229,12 +250,16 @@ export function measureCursorActionLanding(options: {
       x: cursorScreen.x - cursorPlacement.drawX,
       y: cursorScreen.y - cursorPlacement.drawY,
     },
-    cursorInterpolation: cursor.interpolation as Exclude<CursorFrameState['interpolation'], 'hidden'>,
+    cursorInterpolation: cursor.interpolation as Exclude<
+      CursorFrameState['interpolation'],
+      'hidden'
+    >,
     ...(cursor.activeClickId ? { activeCursorEventId: cursor.activeClickId } : {}),
     errorXOutputPx,
     errorYOutputPx,
     errorDistanceOutputPx: Math.hypot(errorXOutputPx, errorYOutputPx),
     hotspotInsideProjectedTarget: pointInsideRect(cursorScreen, projectedTargetBbox),
+    targetVisibleFraction: visibleFraction(projectedTargetBbox, options.contentRect),
     cursorPixelsChanged: options.cursorPixelsChanged,
   };
   if (event.kind === 'moveTo') {
@@ -267,12 +292,14 @@ export function cursorActionLandingStatistics(
       type: measurements.filter((measurement) => measurement.kind === 'type').length,
     },
     errorDistanceOutputPx: distribution(errors),
-    insideTargetCount: measurements.filter((measurement) => measurement.hotspotInsideProjectedTarget)
-      .length,
+    insideTargetCount: measurements.filter(
+      (measurement) => measurement.hotspotInsideProjectedTarget,
+    ).length,
     failures: measurements.filter(
       (measurement) =>
         measurement.errorDistanceOutputPx > 2 ||
         !measurement.hotspotInsideProjectedTarget ||
+        Math.abs(measurement.targetVisibleFraction - 1) > 1e-7 ||
         measurement.cursorPixelsChanged < 1 ||
         (measurement.kind === 'moveTo' &&
           (!measurement.pointerEnterObserved ||
@@ -293,7 +320,11 @@ export function cursorFrameSample(options: {
   contentRect: Rect;
 }): CursorActionFrameSample {
   const { event } = options.request;
-  if (!options.cursor.visible || options.cursor.cssX === undefined || options.cursor.cssY === undefined) {
+  if (
+    !options.cursor.visible ||
+    options.cursor.cssX === undefined ||
+    options.cursor.cssY === undefined
+  ) {
     throw new Error(`${event.id} has no visible cursor for ${options.request.role}`);
   }
   const expectedCss = expectedPoint(event);
@@ -342,7 +373,9 @@ function heldAt(
   event: MoveToTimelineEvent,
   role: 'action-completion' | 'final-hold',
 ): boolean {
-  const sample = samples.find((candidate) => candidate.eventId === event.id && candidate.role === role);
+  const sample = samples.find(
+    (candidate) => candidate.eventId === event.id && candidate.role === role,
+  );
   return Boolean(
     sample &&
       sample.activeCursorEventId === event.id &&

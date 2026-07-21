@@ -4,9 +4,9 @@ import type {
   CursorActionLandingMeasurement,
   CursorBearingTimelineEvent,
 } from '../src/compositor/cursor-action-landing.js';
-import type { TimelineDocument } from '../src/timeline/types.js';
 import type { CursorProofFrameRecord } from '../src/render/cursor-action-audit.js';
 import type { DecodedCursorProofRecord } from '../src/render/mp4-cursor-proof.js';
+import type { TimelineDocument } from '../src/timeline/types.js';
 
 const workspaceArgument = process.argv.slice(2).find((argument) => argument !== '--');
 const workspace = resolve(workspaceArgument ?? '');
@@ -53,8 +53,7 @@ if (
 
 const hoverEvent = cursorEvents.find((event) => event.kind === 'moveTo');
 if (
-  !hoverEvent ||
-  hoverEvent.actionIndex !== 1 ||
+  hoverEvent?.actionIndex !== 1 ||
   hoverEvent.target.strategy !== 'testId' ||
   hoverEvent.target.value.testId !== 'hover-target'
 ) {
@@ -65,6 +64,8 @@ for (const measurement of landingDocument.measurements) {
   if (
     measurement.errorDistanceOutputPx > 2 ||
     !measurement.hotspotInsideProjectedTarget ||
+    !Number.isFinite(measurement.targetVisibleFraction) ||
+    Math.abs(measurement.targetVisibleFraction - 1) > 1e-7 ||
     measurement.cursorPixelsChanged < 1
   ) {
     throw new Error(`${measurement.eventId} failed its composed cursor landing gate`);
@@ -145,7 +146,11 @@ process.stdout.write(
       finalPoint,
       destinationPoint: hoverEvent.destinationPoint,
       nextCursorAction: nextCursorEvent
-        ? { eventId: nextCursorEvent.id, kind: nextCursorEvent.kind, startMs: nextCursorEvent.startMs }
+        ? {
+            eventId: nextCursorEvent.id,
+            kind: nextCursorEvent.kind,
+            startMs: nextCursorEvent.startMs,
+          }
         : null,
     },
     eventCounts,

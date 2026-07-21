@@ -21,7 +21,10 @@ import {
   SequentialClickFeedbackEvaluator,
 } from '../compositor/click-feedback-track.js';
 import { openCompositionPlan } from '../compositor/composition-plan-reader.js';
-import { cursorActionFrameRequests, isCursorBearingEvent } from '../compositor/cursor-action-landing.js';
+import {
+  cursorActionFrameRequests,
+  isCursorBearingEvent,
+} from '../compositor/cursor-action-landing.js';
 import { loadCursorAsset } from '../compositor/cursor-asset.js';
 import { SequentialCursorEvaluator } from '../compositor/cursor-track.js';
 import { runComposition } from '../compositor/frame-runner.js';
@@ -46,14 +49,8 @@ import { nearestOutputIndex } from '../resample/event-frame-mapping.js';
 import type { ResampledFrameRecord } from '../resample/types.js';
 import { buildCursorTrack } from '../timeline/cursor-track-validation.js';
 import type { TimelineDocument } from '../timeline/types.js';
-import {
-  CursorActionAuditConsumer,
-  type CursorActionAuditResult,
-} from './cursor-action-audit.js';
-import {
-  decodeCursorProofFrames,
-  type DecodedCursorProofRecord,
-} from './mp4-cursor-proof.js';
+import { CursorActionAuditConsumer, type CursorActionAuditResult } from './cursor-action-audit.js';
+import { type DecodedCursorProofRecord, decodeCursorProofFrames } from './mp4-cursor-proof.js';
 import { resampleCapture } from './resample-capture.js';
 import { RenderWorkspace } from './workspace.js';
 
@@ -543,8 +540,8 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         cursorActionFailures: cursorAuditResult.statistics.failures,
         rgbaRollingSha256: cursorAuditResult.rollingRgbaSha256,
         decodedCursorProofs: decodedCursorProofs.length,
-        fullyVisibleTargets: framingMeasurements.filter(
-          (measurement) => Math.abs(measurement.visibleFraction - 1) <= 1e-7,
+        fullyVisibleTargets: cursorAuditResult.measurements.filter(
+          (measurement) => Math.abs(measurement.targetVisibleFraction - 1) <= 1e-7,
         ).length,
         encoder: encoded.backpressure,
         parentRssPeakBytes: Math.max(...rssSamples),
