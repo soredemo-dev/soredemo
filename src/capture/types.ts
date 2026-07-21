@@ -59,6 +59,37 @@ export interface ObservedFrameDimensions {
   frameCount: number;
 }
 
+export interface CdpLayoutMetrics {
+  layoutViewport: {
+    pageX: number;
+    pageY: number;
+    clientWidth: number;
+    clientHeight: number;
+  };
+  cssLayoutViewport?: {
+    pageX: number;
+    pageY: number;
+    clientWidth: number;
+    clientHeight: number;
+  };
+}
+
+export interface CapturePixelScaleProof {
+  method: 'cdp-screencast-css-color-bands';
+  passed: boolean;
+  probeCssSize: { width: number; height: number };
+  expectedPaintedScale: number;
+  jpegDimensions: { width: number; height: number };
+  samples: Array<{
+    x: number;
+    y: number;
+    expected: number[];
+    observed: number[];
+    distance: number;
+  }>;
+  cdpLayoutMetrics: CdpLayoutMetrics;
+}
+
 export interface CaptureManifest {
   schemaVersion: 1;
   sourceIdentifier: string;
@@ -85,6 +116,8 @@ export interface CaptureManifest {
     pixelWidth: number;
     pixelHeight: number;
   };
+  chromiumLaunchArguments: string[];
+  pixelScaleProof: CapturePixelScaleProof;
   expectedFrameDimensions: {
     pixelWidth: number;
     pixelHeight: number;

@@ -1,13 +1,16 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { arch, platform, release } from 'node:os';
-import { type BrowserContext, chromium, type Page } from 'playwright';
+import { type Browser, type BrowserContext, chromium, type Page } from 'playwright';
+import { RenderError } from '../render/errors.js';
 import { CaptureBundleWriter } from './capture-bundle-writer.js';
 import { runCdpScreencast, type ScreencastSettings } from './cdp-screencast.js';
 import { calibrateBrowserEpoch } from './clock.js';
+import { verifyCapturePixelScale } from './pixel-scale-proof.js';
 import type {
   CapturedFrameRecord,
   CaptureManifest,
+  CapturePixelScaleProof,
   CaptureSpikeSummary,
   DistributionSummary,
   ObservedFrameDimensions,
@@ -39,6 +42,10 @@ export interface CaptureSessionOptions {
   readySelector?: string | null;
   navigationTimeoutMs?: number;
   settleBeforeCaptureMs?: number;
+  onLifecycle?: (
+    event: 'browser-launched' | 'page-prepared' | 'capture-starting',
+  ) => Promise<void> | void;
+  onPixelScaleProof?: (proof: CapturePixelScaleProof) => Promise<void> | void;
 }
 
 export interface CaptureSessionResult {
@@ -106,24 +113,42 @@ export async function captureSession(
     maxWidth: expectedFrameDimensions.pixelWidth,
     maxHeight: expectedFrameDimensions.pixelHeight,
   };
+  const chromiumLaunchArguments = [`--force-device-scale-factor=${deviceScaleFactor}`];
   const writer = await CaptureBundleWriter.create({
     outputDirectory: options.outputDirectory,
     queueLimit: options.queueLimit ?? 120,
   });
-  const browser = await chromium.launch({
-    headless: true,
-    args: [`--force-device-scale-factor=${deviceScaleFactor}`],
-  });
+  let browser: Browser;
+  try {
+    browser = await chromium.launch({ headless: true, args: chromiumLaunchArguments });
+  } catch (error) {
+    throw new RenderError({
+      code: 'BROWSER_LAUNCH_FAILED',
+      stage: 'launching-browser',
+      message: error instanceof Error ? error.message : String(error),
+      cause: error,
+    });
+  }
   const context = await browser.newContext({ viewport, deviceScaleFactor });
+  await options.onLifecycle?.('browser-launched');
   await options.beforePageCreation?.(context);
   const page = await context.newPage();
   let session: Awaited<ReturnType<typeof context.newCDPSession>> | undefined;
 
   try {
-    await page.goto(options.url, {
-      waitUntil: options.initialWaitUntil ?? 'networkidle',
-      timeout: options.navigationTimeoutMs ?? 30_000,
-    });
+    try {
+      await page.goto(options.url, {
+        waitUntil: options.initialWaitUntil ?? 'networkidle',
+        timeout: options.navigationTimeoutMs ?? 30_000,
+      });
+    } catch (error) {
+      throw new RenderError({
+        code: 'NAVIGATION_FAILED',
+        stage: 'preparing-page',
+        message: error instanceof Error ? error.message : String(error),
+        cause: error,
+      });
+    }
     const readySelector =
       options.readySelector === undefined ? '[data-capture-probe]' : options.readySelector;
     if (readySelector) await page.locator(readySelector).waitFor({ state: 'visible' });
@@ -156,14 +181,32 @@ export async function captureSession(
       );
     }
     await options.preparePage?.(page);
+    const pixelScaleProof = await verifyCapturePixelScale({
+      context,
+      page,
+      viewport,
+      deviceScaleFactor,
+      expectedPixelWidth: expectedFrameDimensions.pixelWidth,
+      expectedPixelHeight: expectedFrameDimensions.pixelHeight,
+    });
+    await options.onPixelScaleProof?.(pixelScaleProof);
+    await options.onLifecycle?.('page-prepared');
     if (options.settleBeforeCaptureMs)
       await new Promise((resolve) => setTimeout(resolve, options.settleBeforeCaptureMs));
+    const detectedPlaywrightVersion = await playwrightVersion();
+    const detectedChromiumVersion = browser.version();
+    await options.onLifecycle?.('capture-starting');
     const cdpResult = await runCdpScreencast({
       session,
       writer,
       durationMs: options.durationMs,
       startupCalibration,
       settings,
+      diagnosticContext: {
+        playwrightVersion: detectedPlaywrightVersion,
+        chromiumVersion: detectedChromiumVersion,
+        chromiumLaunchArguments,
+      },
       ...(options.runDuringCapture
         ? {
             runDuringCapture: (captureOriginEpochMs: number) =>
@@ -187,8 +230,8 @@ export async function captureSession(
       schemaVersion: 1,
       sourceIdentifier: options.sourceIdentifier,
       scriptHash: options.scriptHash,
-      playwrightVersion: await playwrightVersion(),
-      chromiumVersion: browser.version(),
+      playwrightVersion: detectedPlaywrightVersion,
+      chromiumVersion: detectedChromiumVersion,
       chromiumExecutablePath: chromium.executablePath(),
       nodeVersion: process.version,
       operatingSystem: `${platform()} ${release()}`,
@@ -202,6 +245,8 @@ export async function captureSession(
         pixelWidth: expectedFrameDimensions.pixelWidth,
         pixelHeight: expectedFrameDimensions.pixelHeight,
       },
+      chromiumLaunchArguments,
+      pixelScaleProof,
       expectedFrameDimensions,
       observedFrameDimensions: dimensions,
       zoomHeadroomConfirmed,
