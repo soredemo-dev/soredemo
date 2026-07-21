@@ -58,7 +58,10 @@ export function measureCursorLanding(options: {
   const errorYOutputPx = options.cursorScreen.y - options.clickScreen.y;
   return {
     clickId: options.click.id,
-    targetTestId: options.click.target.value.testId,
+    targetTestId:
+      typeof options.click.target.value.testId === 'string'
+        ? options.click.target.value.testId
+        : options.click.target.strategy,
     mouseDownMs: options.click.mouseDownMs,
     outputIndex: options.outputFrame.outputIndex,
     outputTimestampMs: options.outputFrame.outputTimestampMs,

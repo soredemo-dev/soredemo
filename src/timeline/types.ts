@@ -12,19 +12,56 @@ export interface BBox extends Point {
   height: number;
 }
 
-export interface ResolvedTestIdTarget {
-  strategy: 'testId';
-  value: {
-    testId: string;
-  };
+export type ResolvedTargetStrategy = 'role' | 'label' | 'testId' | 'text' | 'css';
+
+export interface ResolvedTarget {
+  strategy: ResolvedTargetStrategy;
+  value: Record<string, string | boolean | null>;
 }
 
-export interface ClickTimelineEvent {
+export interface TimelineEventBase {
   id: string;
-  kind: 'click';
+  actionIndex?: number;
+  kind: 'goto' | 'wait' | 'moveTo' | 'click' | 'type' | 'scrollTo';
   startMs: number;
   endMs: number;
-  target: ResolvedTestIdTarget;
+}
+
+export interface GotoTimelineEvent extends TimelineEventBase {
+  kind: 'goto';
+  requestedUrl: string;
+  finalUrl: string;
+}
+
+export interface DurationWaitTimelineEvent extends TimelineEventBase {
+  kind: 'wait';
+  mode: 'duration';
+  requestedDurationMs: number;
+}
+
+export interface VisibleWaitTimelineEvent extends TimelineEventBase {
+  kind: 'wait';
+  mode: 'visible';
+  target: ResolvedTarget;
+  timeoutMs: number;
+  settleMs: number;
+  firstVisibleMs: number;
+}
+
+export type WaitTimelineEvent = DurationWaitTimelineEvent | VisibleWaitTimelineEvent;
+
+export interface MoveToTimelineEvent extends TimelineEventBase {
+  kind: 'moveTo';
+  target: ResolvedTarget;
+  targetBboxAtPathStart: BBox;
+  targetBboxAtCommit: BBox;
+  destinationPoint: Point;
+  cursorPath: TimedPoint[];
+}
+
+export interface ClickTimelineEvent extends TimelineEventBase {
+  kind: 'click';
+  target: ResolvedTarget;
   targetBboxAtPathStart: BBox;
   targetBboxAtCommit: BBox;
   clickPoint: Point;
@@ -33,7 +70,36 @@ export interface ClickTimelineEvent {
   mouseUpMs: number;
 }
 
-export type TimelineEvent = ClickTimelineEvent;
+export interface TypeTimelineEvent extends TimelineEventBase {
+  kind: 'type';
+  target: ResolvedTarget;
+  targetBboxAtCommit: BBox;
+  focusPoint: Point;
+  cursorPath: TimedPoint[];
+  focusMs: number;
+  textLength: number;
+  clearedExistingValue: boolean;
+  perCharacterDelayMs: number;
+  redacted: boolean;
+}
+
+export interface ScrollToTimelineEvent extends TimelineEventBase {
+  kind: 'scrollTo';
+  target?: ResolvedTarget;
+  requestedPosition?: Point;
+  targetBboxAtCommit?: BBox;
+  initialScroll: Point;
+  finalScroll: Point;
+  observedPositions: TimedPoint[];
+}
+
+export type TimelineEvent =
+  | GotoTimelineEvent
+  | WaitTimelineEvent
+  | MoveToTimelineEvent
+  | ClickTimelineEvent
+  | TypeTimelineEvent
+  | ScrollToTimelineEvent;
 
 export interface TimelineDocument {
   schemaVersion: 1;

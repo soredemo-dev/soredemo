@@ -223,12 +223,13 @@ const timeline = parseTimeline(
   JSON.parse(await readFile(timelinePath, 'utf8')),
   captureManifest.captureDurationMs,
 );
+const clicks = timeline.events.filter((event) => event.kind === 'click');
 const track = buildCursorTrack(timeline.events, captureManifest.viewport);
 const asset = await loadCursorAsset(cursorFile);
 
 const landingEvents = new Map<number, ClickTimelineEvent[]>();
 const clickOutputIndices = new Map<string, number>();
-for (const click of timeline.events) {
+for (const click of clicks) {
   const index = nearestOutputIndex(click.mouseDownMs, planManifest.outputFrameCount, OUTPUT_FPS);
   clickOutputIndices.set(click.id, index);
   const events = landingEvents.get(index) ?? [];
@@ -238,7 +239,7 @@ for (const click of timeline.events) {
 const clickFrames = await selectedRecords(planDirectory, new Set(clickOutputIndices.values()));
 const previewEvaluator = new SequentialCursorEvaluator(track);
 const previewMeasurements: CursorLandingMeasurement[] = [];
-for (const click of timeline.events) {
+for (const click of clicks) {
   const index = clickOutputIndices.get(click.id);
   const record = index === undefined ? undefined : clickFrames.get(index);
   if (!record) throw new Error(`Missing mapped output frame for ${click.id}`);
@@ -267,9 +268,9 @@ for (const click of timeline.events) {
   );
 }
 const previewStatistics = cursorLandingStatistics(previewMeasurements);
-const predictedWorst = timeline.events.find((click) => click.id === previewStatistics.worstClickId);
-const staticClick = timeline.events.find((click) => click.target.value.testId === 'static-target');
-const hoverClick = timeline.events.find((click) => click.target.value.testId === 'hover-target');
+const predictedWorst = clicks.find((click) => click.id === previewStatistics.worstClickId);
+const staticClick = clicks.find((click) => click.target.value.testId === 'static-target');
+const hoverClick = clicks.find((click) => click.target.value.testId === 'hover-target');
 if (!predictedWorst || !staticClick || !hoverClick)
   throw new Error('Snapshot click selection failed');
 

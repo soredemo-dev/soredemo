@@ -227,6 +227,7 @@ const timelinePath = resolve(captureDirectory, 'timeline.json');
 const timeline = JSON.parse(await readFile(timelinePath, 'utf8')) as TimelineDocument;
 validateTimelineDocument(timeline, captureManifest.captureDurationMs);
 if (timeline.events.length !== 30) throw new Error('Day-7 spike requires 30 click events');
+const clicks = timeline.events.filter((event) => event.kind === 'click');
 
 const cameraTrack = buildCameraTrack(
   timeline.events,
@@ -236,7 +237,7 @@ const cameraTrack = buildCameraTrack(
 const cursorTrack = buildCursorTrack(timeline.events, captureManifest.viewport);
 const landingEvents = new Map<number, ClickTimelineEvent[]>();
 const clickOutputIndices = new Map<string, number>();
-for (const click of timeline.events) {
+for (const click of clicks) {
   const index = nearestOutputIndex(click.mouseDownMs, planManifest.outputFrameCount, OUTPUT_FPS);
   clickOutputIndices.set(click.id, index);
   const events = landingEvents.get(index) ?? [];
@@ -249,7 +250,7 @@ const previewCamera = new SequentialCameraEvaluator(cameraTrack);
 const previewCursor = new SequentialCursorEvaluator(cursorTrack);
 const previewFraming: TargetFramingMeasurement[] = [];
 const previewLanding: CursorLandingMeasurement[] = [];
-for (const click of timeline.events) {
+for (const click of clicks) {
   const index = clickOutputIndices.get(click.id);
   const record = index === undefined ? undefined : clickFrames.get(index);
   if (!record) throw new Error(`Missing camera click frame for ${click.id}`);
@@ -311,8 +312,8 @@ const worstFraming = previewFraming.reduce((current, measurement) =>
     : current,
 );
 const worstLandingId = cursorLandingStatistics(previewLanding).worstClickId;
-const staticClick = timeline.events.find((event) => event.target.value.testId === 'static-target');
-const hoverClick = timeline.events.find((event) => event.target.value.testId === 'hover-target');
+const staticClick = clicks.find((event) => event.target.value.testId === 'static-target');
+const hoverClick = clicks.find((event) => event.target.value.testId === 'hover-target');
 if (!staticClick || !hoverClick) throw new Error('Camera snapshots require fixture target types');
 const outputIndexAt = (timeMs: number) =>
   nearestOutputIndex(timeMs, planManifest.outputFrameCount, OUTPUT_FPS);

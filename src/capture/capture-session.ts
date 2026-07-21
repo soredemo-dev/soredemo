@@ -33,6 +33,10 @@ export interface CaptureSessionOptions {
     startupCalibration: Awaited<ReturnType<typeof calibrateBrowserEpoch>>;
   }) => Promise<void>;
   tailDurationMs?: number;
+  initialWaitUntil?: 'domcontentloaded' | 'networkidle';
+  readySelector?: string | null;
+  navigationTimeoutMs?: number;
+  settleBeforeCaptureMs?: number;
 }
 
 export interface CaptureSessionResult {
@@ -111,8 +115,13 @@ export async function captureSession(
   let session: Awaited<ReturnType<typeof context.newCDPSession>> | undefined;
 
   try {
-    await page.goto(options.url, { waitUntil: 'networkidle' });
-    await page.locator('[data-capture-probe]').waitFor({ state: 'visible' });
+    await page.goto(options.url, {
+      waitUntil: options.initialWaitUntil ?? 'networkidle',
+      timeout: options.navigationTimeoutMs ?? 30_000,
+    });
+    const readySelector =
+      options.readySelector === undefined ? '[data-capture-probe]' : options.readySelector;
+    if (readySelector) await page.locator(readySelector).waitFor({ state: 'visible' });
     const sampleBrowserEpochMs = () =>
       page.evaluate(() => performance.timeOrigin + performance.now());
     const sampleCount = options.clockSampleCount ?? 9;
@@ -147,6 +156,8 @@ export async function captureSession(
       );
     }
     await options.preparePage?.(page);
+    if (options.settleBeforeCaptureMs)
+      await new Promise((resolve) => setTimeout(resolve, options.settleBeforeCaptureMs));
     const cdpResult = await runCdpScreencast({
       session,
       writer,

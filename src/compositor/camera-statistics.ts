@@ -59,7 +59,10 @@ export function measureTargetFraming(options: {
   };
   return {
     clickId: options.click.id,
-    targetTestId: options.click.target.value.testId,
+    targetTestId:
+      typeof options.click.target.value.testId === 'string'
+        ? options.click.target.value.testId
+        : options.click.target.strategy,
     outputIndex: options.outputIndex,
     zoom: options.camera.zoom,
     cameraCenterCssX: options.camera.centerCssX,

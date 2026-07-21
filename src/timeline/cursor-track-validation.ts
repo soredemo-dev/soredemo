@@ -1,5 +1,5 @@
-import type { ClickTimelineEvent, TimedPoint } from './types.js';
-import { validateClickTimelineEvent } from './validation.js';
+import type { TimedPoint, TimelineEvent } from './types.js';
+import { validateTimelineEvent } from './validation.js';
 
 const JOIN_TOLERANCE_CSS_PX = 1e-6;
 
@@ -16,17 +16,22 @@ export interface CursorTrack {
 }
 
 export function buildCursorTrack(
-  events: readonly ClickTimelineEvent[],
+  allEvents: readonly TimelineEvent[],
   viewport: { width: number; height: number },
 ): CursorTrack {
-  if (events.length === 0) throw new Error('Cursor track requires at least one click event');
+  const events = allEvents.filter(
+    (event) => event.kind === 'click' || event.kind === 'moveTo' || event.kind === 'type',
+  );
   if (!(viewport.width > 0 && viewport.height > 0)) throw new Error('Viewport must be positive');
+  if (events.length === 0) {
+    return { movements: [], pointCount: 0, firstPointMs: 0, lastPointMs: 0 };
+  }
   const movements: CursorMovement[] = [];
-  let previousEvent: ClickTimelineEvent | undefined;
+  let previousEvent: (typeof events)[number] | undefined;
   let pointCount = 0;
 
   for (const event of events) {
-    validateClickTimelineEvent(event);
+    validateTimelineEvent(event);
     const first = event.cursorPath[0];
     const final = event.cursorPath.at(-1);
     if (!first || !final) throw new Error(`${event.id} has no cursor path`);

@@ -1,4 +1,4 @@
-import type { ClickTimelineEvent } from '../timeline/types.js';
+import type { BBox, TimelineEvent } from '../timeline/types.js';
 import {
   establishCamera,
   focusCamera,
@@ -15,7 +15,7 @@ import type {
 } from './camera-types.js';
 
 export function buildCameraTrack(
-  clicks: readonly ClickTimelineEvent[],
+  events: readonly TimelineEvent[],
   durationMs: number,
   viewport: Size,
   policy: StudioCameraPolicy = STUDIO_CAMERA_POLICY,
@@ -24,11 +24,31 @@ export function buildCameraTrack(
     throw new Error('Camera track duration must be finite and positive');
   }
   const transitions: CameraTransitionSegment[] = [];
+  const clicks = events.flatMap((event) => {
+    let bbox: BBox | undefined;
+    let focusMs: number | undefined;
+    if (event.kind === 'click') {
+      bbox = event.targetBboxAtCommit;
+      focusMs = event.mouseDownMs;
+    } else if (event.kind === 'moveTo') {
+      bbox = event.targetBboxAtCommit;
+      focusMs = event.endMs;
+    } else if (event.kind === 'type') {
+      bbox = event.targetBboxAtCommit;
+      focusMs = event.focusMs;
+    } else if (event.kind === 'scrollTo' && event.targetBboxAtCommit) {
+      bbox = event.targetBboxAtCommit;
+      focusMs = event.endMs;
+    }
+    return bbox && focusMs !== undefined
+      ? [{ ...event, targetBboxAtCommit: bbox, mouseDownMs: focusMs }]
+      : [];
+  });
   let previousEndMs = 0;
   let previousState = establishCamera(viewport);
   for (const [index, click] of clicks.entries()) {
     if (index > 0 && click.startMs < (clicks[index - 1]?.startMs ?? 0)) {
-      throw new Error('Camera click events must be ordered');
+      throw new Error('Camera focus events must be ordered');
     }
     const to = focusCamera(click.targetBboxAtCommit, viewport, policy);
     const proposedDuration = transitionDurationMs(previousState, to, viewport, policy);

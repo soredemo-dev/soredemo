@@ -63,6 +63,10 @@ export async function hideBrowserCursor(page: Page): Promise<void> {
   await page.addStyleTag({ content: '* { cursor: none !important; }' });
 }
 
+export async function verifyPageInstrumentation(page: Page): Promise<void> {
+  await observedEventCount(page);
+}
+
 export async function observedEventCount(page: Page): Promise<number> {
   return page.evaluate((namespace) => {
     const state = (window as unknown as Record<string, { events: ObservedPointerEvent[] }>)[

@@ -279,6 +279,7 @@ const timeline = JSON.parse(
 ) as TimelineDocument;
 validateTimelineDocument(timeline, captureManifest.captureDurationMs);
 if (timeline.events.length !== 30) throw new Error('Day-8 composition requires 30 clicks');
+const clicks = timeline.events.filter((event) => event.kind === 'click');
 
 const cameraTrack = buildCameraTrack(
   timeline.events,
@@ -289,7 +290,7 @@ const cursorTrack = buildCursorTrack(timeline.events, captureManifest.viewport);
 const feedbackTrack = buildClickFeedbackTrack(timeline.events);
 const clickOutputIndices = new Map<string, number>();
 const landingEvents = new Map<number, ClickTimelineEvent[]>();
-for (const click of timeline.events) {
+for (const click of clicks) {
   const index = nearestOutputIndex(click.mouseDownMs, planManifest.outputFrameCount, OUTPUT_FPS);
   clickOutputIndices.set(click.id, index);
   const events = landingEvents.get(index) ?? [];
@@ -317,7 +318,7 @@ for (const record of records) {
   }
   previousCamera = state;
 }
-const previewFraming = timeline.events.map((click) => {
+const previewFraming = clicks.map((click) => {
   const outputIndex = clickOutputIndices.get(click.id);
   if (outputIndex === undefined) throw new Error(`Missing output index for ${click.id}`);
   const camera = previewStates[outputIndex];
@@ -351,8 +352,8 @@ const maxZoomTransition = cameraTrack.transitions.reduce((current, item) =>
   item.to.zoom > current.to.zoom ? item : current,
 );
 if (!firstTransition) throw new Error('Day-8 camera track has no transition');
-const staticClick = timeline.events.find((item) => item.target.value.testId === 'static-target');
-const hoverClick = timeline.events.find((item) => item.target.value.testId === 'hover-target');
+const staticClick = clicks.find((item) => item.target.value.testId === 'static-target');
+const hoverClick = clicks.find((item) => item.target.value.testId === 'hover-target');
 if (!staticClick || !hoverClick) throw new Error('Day-8 snapshots require fixture target types');
 const nearestIndex = (timeMs: number) =>
   nearestOutputIndex(timeMs, planManifest.outputFrameCount, OUTPUT_FPS);

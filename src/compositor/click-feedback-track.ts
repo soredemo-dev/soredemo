@@ -1,5 +1,5 @@
 import BezierEasing from 'bezier-easing';
-import type { ClickTimelineEvent, Point } from '../timeline/types.js';
+import type { ClickTimelineEvent, Point, TimelineEvent } from '../timeline/types.js';
 
 export const CLICK_RIPPLE_STYLE = {
   durationMs: 260,
@@ -28,7 +28,8 @@ export interface ClickFeedbackTrack {
 
 const rippleEasing = BezierEasing(0.22, 1, 0.36, 1);
 
-export function buildClickFeedbackTrack(clicks: readonly ClickTimelineEvent[]): ClickFeedbackTrack {
+export function buildClickFeedbackTrack(events: readonly TimelineEvent[]): ClickFeedbackTrack {
+  const clicks = events.filter((event): event is ClickTimelineEvent => event.kind === 'click');
   let previous = Number.NEGATIVE_INFINITY;
   const ids = new Set<string>();
   for (const click of clicks) {
