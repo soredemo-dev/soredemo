@@ -25,6 +25,7 @@
     "spike:day7": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day7-camera-spike.js",
     "spike:day8": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day8-studio-composition.js",
     "spike:day9": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day9-ffmpeg-encode.js",
+    "fixture:server": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day10-fixture-server.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

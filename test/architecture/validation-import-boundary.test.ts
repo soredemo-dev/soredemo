@@ -49,4 +49,18 @@ describe('validation import boundary', () => {
 
     expect(violatingImports).toEqual([]);
   });
+
+  it('loads the heavy render pipeline only after plan validation', () => {
+    const source = readFileSync('src/cli/commands/render.ts', 'utf8');
+    const planLoad = source.indexOf('await loadDemoPlan');
+    const outputValidation = source.indexOf('await prepareOutputPath');
+    const heavyImport = source.indexOf("import('../../render/render-demo.js')");
+
+    expect(planLoad).toBeGreaterThan(-1);
+    expect(outputValidation).toBeGreaterThan(planLoad);
+    expect(heavyImport).toBeGreaterThan(outputValidation);
+    expect(
+      reachableImports('src/cli/commands/render.ts', false).filter((item) => forbidden.test(item)),
+    ).toEqual([]);
+  });
 });

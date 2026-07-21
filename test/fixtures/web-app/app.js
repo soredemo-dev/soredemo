@@ -5,8 +5,21 @@ const projectForm = document.querySelector('#project-form');
 const projectName = document.querySelector('#project-name');
 const result = document.querySelector('#result');
 const analyticsStatus = document.querySelector('#analytics-status');
+const navigationResult = document.querySelector('#navigation-result');
 
-let clicks = 0;
+const stored = JSON.parse(sessionStorage.getItem('soredemo-fixture-state') || '{}');
+const state = {
+  clicks: Number(stored.clicks || 0),
+  hoverObserved: Boolean(stored.hoverObserved),
+  keyEvents: Number(stored.keyEvents || 0),
+  typedValue: String(stored.typedValue || ''),
+  projectCreated: Boolean(stored.projectCreated),
+};
+window.__soredemoFixture = state;
+
+function persist() {
+  sessionStorage.setItem('soredemo-fixture-state', JSON.stringify(state));
+}
 
 function recordEvent(event) {
   const item = document.createElement('li');
@@ -19,8 +32,23 @@ for (const eventName of ['pointerdown', 'pointerup', 'click']) {
 }
 
 document.addEventListener('click', () => {
-  clicks += 1;
-  clickCount.textContent = `Clicks: ${clicks}`;
+  state.clicks += 1;
+  clickCount.textContent = `Clicks: ${state.clicks}`;
+  persist();
+});
+
+document.querySelector('#hover-target').addEventListener('pointerenter', () => {
+  state.hoverObserved = true;
+  persist();
+});
+
+projectName.addEventListener('keydown', () => {
+  state.keyEvents += 1;
+  persist();
+});
+projectName.addEventListener('input', () => {
+  state.typedValue = projectName.value;
+  persist();
 });
 
 document.querySelector('#preview-analytics').addEventListener('click', () => {
@@ -46,4 +74,11 @@ projectForm.addEventListener('submit', (event) => {
   heading.textContent = name || 'Untitled project';
   result.append(heading);
   result.hidden = false;
+  state.projectCreated = name === 'Soredemo';
+  persist();
 });
+
+clickCount.textContent = `Clicks: ${state.clicks}`;
+if (location.pathname === '/result' && state.hoverObserved && state.projectCreated) {
+  navigationResult.hidden = false;
+}

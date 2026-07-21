@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../../schema/soredemo.schema.json
+version: 1
+name: full-demo
+url: http://127.0.0.1:4173/
+
+intent:
+  goal: Show a complete project creation journey
+  audience: Product teams
+  success: The result route confirms the completed project flow
+  targetDurationMs: 12000
+
+viewport:
+  width: 1440
+  height: 900
+
+style:
+  preset: studio
+  pace: balanced
+  seed: 42
+
+actions:
+  - action: wait
+    until:
+      visible:
+        testId: demo-ready
+    timeoutMs: 5000
+    settleMs: 200
+
+  - action: moveTo
+    target:
+      testId: hover-target
+
+  - action: click
+    target:
+      testId: new-project
+    emphasis: primary
+
+  - action: scrollTo
+    target:
+      label: Project name
+    durationMs: 700
+
+  - action: type
+    target:
+      label: Project name
+    text: Soredemo
+
+  - action: click
+    target:
+      testId: create-project
+    emphasis: primary
+
+  - action: wait
+    until:
+      visible:
+        testId: project-created
+    timeoutMs: 5000
+    settleMs: 300
+
+  - action: goto
+    url: http://127.0.0.1:4173/result
+
+  - action: wait
+    until:
+      visible:
+        testId: navigation-result
+    timeoutMs: 5000
+    settleMs: 200
+
+  - action: wait
+    durationMs: 500
