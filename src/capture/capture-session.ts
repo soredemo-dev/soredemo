@@ -15,7 +15,7 @@ import type {
 
 const require = createRequire(import.meta.url);
 
-export const CAPTURE_BROWSER_MODE = 'headed' as const;
+export const CAPTURE_BROWSER_MODE = 'headless' as const;
 
 export interface CaptureSessionOptions {
   url: string;
@@ -110,9 +110,10 @@ export async function captureSession(
     outputDirectory: options.outputDirectory,
     queueLimit: options.queueLimit ?? 120,
   });
-  // Pinned Chromium's headless screencast reports a 2x-sized surface while painting 1x page
-  // pixels into its upper-left quadrant. Headed mode preserves the required CSS-to-pixel scale.
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [`--force-device-scale-factor=${deviceScaleFactor}`],
+  });
   const context = await browser.newContext({ viewport, deviceScaleFactor });
   await options.beforePageCreation?.(context);
   const page = await context.newPage();
@@ -139,11 +140,6 @@ export async function captureSession(
       mobile: false,
       screenWidth: viewport.width,
       screenHeight: viewport.height,
-      dontSetVisibleSize: true,
-    });
-    await session.send('Emulation.setVisibleSize', {
-      width: expectedFrameDimensions.pixelWidth,
-      height: expectedFrameDimensions.pixelHeight,
     });
     const observedBrowserMetrics = await page.evaluate(() => ({
       innerWidth: window.innerWidth,
@@ -201,7 +197,7 @@ export async function captureSession(
       deviceScaleFactor,
       observedBrowserMetrics,
       captureSurface: {
-        method: 'cdp-explicit-visible-size',
+        method: 'chromium-force-device-scale-factor',
         browserMode: CAPTURE_BROWSER_MODE,
         pixelWidth: expectedFrameDimensions.pixelWidth,
         pixelHeight: expectedFrameDimensions.pixelHeight,

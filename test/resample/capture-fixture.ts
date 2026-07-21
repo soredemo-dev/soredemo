@@ -42,7 +42,7 @@ export async function writeCaptureFixture(options: {
       viewport: { width: 1440, height: 900 },
       deviceScaleFactor: 2,
       observedBrowserMetrics: { innerWidth: 1440, innerHeight: 900, devicePixelRatio: 2 },
-      captureSurface: { browserMode: 'headed', pixelWidth: 2880, pixelHeight: 1800 },
+      captureSurface: { browserMode: 'headless', pixelWidth: 2880, pixelHeight: 1800 },
       observedFrameDimensions: [{ pixelWidth: 2880, pixelHeight: 1800, frameCount }],
     })}\n`,
   );

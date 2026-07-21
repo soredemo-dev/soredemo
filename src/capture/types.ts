@@ -80,8 +80,8 @@ export interface CaptureManifest {
     devicePixelRatio: number;
   };
   captureSurface: {
-    method: 'cdp-explicit-visible-size';
-    browserMode: 'headed';
+    method: 'chromium-force-device-scale-factor';
+    browserMode: 'headless';
     pixelWidth: number;
     pixelHeight: number;
   };
