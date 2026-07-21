@@ -1,0 +1,60 @@
+import { type Canvas, createCanvas, type Image } from '@napi-rs/canvas';
+import { containRect } from './geometry.js';
+import { rgbaBytes } from './rgba.js';
+import {
+  type CompositionFrameContext,
+  OUTPUT_HEIGHT,
+  OUTPUT_WIDTH,
+  type RawRgbaFrame,
+  type Rect,
+  RGBA_BYTE_LENGTH,
+  RGBA_STRIDE_BYTES,
+} from './types.js';
+
+export class BaseFrameCompositor {
+  readonly contentRect: Rect;
+  private readonly canvas: Canvas;
+  private readonly context;
+
+  constructor(
+    readonly sourceWidth: number,
+    readonly sourceHeight: number,
+  ) {
+    this.canvas = createCanvas(OUTPUT_WIDTH, OUTPUT_HEIGHT);
+    this.context = this.canvas.getContext('2d');
+    this.context.imageSmoothingEnabled = true;
+    this.context.imageSmoothingQuality = 'high';
+    this.contentRect = containRect(sourceWidth, sourceHeight, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+  }
+
+  compose(frameContext: CompositionFrameContext, image: Image): RawRgbaFrame {
+    if (image.width !== this.sourceWidth || image.height !== this.sourceHeight) {
+      throw new Error('Source image dimensions changed during composition');
+    }
+    this.context.globalCompositeOperation = 'copy';
+    this.context.fillStyle = 'rgba(0, 0, 0, 1)';
+    this.context.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+    this.context.globalCompositeOperation = 'source-over';
+    const { x, y, width, height } = this.contentRect;
+    this.context.drawImage(image, x, y, width, height);
+    const imageData = this.context.getImageData(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT).data;
+    const data = rgbaBytes(imageData);
+    if (data.byteLength !== RGBA_BYTE_LENGTH)
+      throw new Error('Canvas returned unexpected RGBA size');
+    return {
+      outputIndex: frameContext.outputIndex,
+      outputTimestampMs: frameContext.outputTimestampMs,
+      sourceIndex: frameContext.sourceIndex,
+      sourceTimestampMs: frameContext.sourceTimestampMs,
+      width: OUTPUT_WIDTH,
+      height: OUTPUT_HEIGHT,
+      strideBytes: RGBA_STRIDE_BYTES,
+      byteLength: RGBA_BYTE_LENGTH,
+      data,
+    };
+  }
+
+  png(): Buffer {
+    return this.canvas.toBuffer('image/png');
+  }
+}
