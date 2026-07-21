@@ -751,10 +751,12 @@
                 "const": "scrollTo"
               },
               "x": {
-                "type": "number"
+                "type": "number",
+                "minimum": 0
               },
               "y": {
-                "type": "number"
+                "type": "number",
+                "minimum": 0
               },
               "durationMs": {
                 "type": "integer",

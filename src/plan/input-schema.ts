@@ -5,7 +5,7 @@ const NonEmptyStringSchema = z
   .min(1)
   .regex(/\S/, 'Must contain a non-whitespace character');
 const DurationSchema = z.number().int().positive();
-const CoordinateSchema = z.number().finite();
+const CoordinateSchema = z.number().finite().nonnegative();
 const HttpUrlSchema = z.url({ protocol: /^https?$/ });
 
 const RoleTargetSchema = z.strictObject({
