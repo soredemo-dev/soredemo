@@ -216,6 +216,19 @@ The raw boundary is 1920×1080 RGBA with top-to-bottom rows, left-to-right pixel
 
 For every composed frame, selected source time continues to choose browser pixels and fixed output time continues to evaluate composition metadata. Decoding and drawing never collapse or retime timeline event, output, and source timestamps.
 
+## Screen-space cursor composition
+
+The visible cursor is a bundled SVG decoded once at compositor startup. Its definition fixes intrinsic dimensions, rendered dimensions, and arrow-tip hotspot. Recorded cursor coordinates remain CSS viewport pixels and transform into the contained application rectangle:
+
+```text
+screenX = contentRect.x + cssX × contentRect.width / cssViewport.width
+screenY = contentRect.y + cssY × contentRect.height / cssViewport.height
+```
+
+The compositor preserves fractional screen coordinates and draws at the screen hotspot minus the scaled asset hotspot. Cursor raster size is constant in output pixels. Device scale factor, source JPEG dimensions, contain scale, and future browser-camera transforms do not resize it. Browser and future camera transforms belong below the cursor layer.
+
+The cursor track directly joins the measured Day-3 paths. It is hidden before the first point, linearly interpolates dense measured points at fixed output time, holds each final point until the next movement, and holds the final position through composition end. It never regenerates, smooths, or retimes the path. The cursor renders after browser pixels and any future click feedback, so it remains the topmost visual layer.
+
 ## Cinematic direction
 
 The studio preset uses a restrained shot grammar:

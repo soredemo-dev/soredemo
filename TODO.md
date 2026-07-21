@@ -90,6 +90,21 @@
 - [x] Complete all 1,751 frames below the 1 GiB memory gate.
 - [x] Record the Day-5 trial results and Day-6 risks.
 
+## Day 6 status
+
+- [x] Bundle an independently drawn 30×38 SVG cursor with hotspot `(2, 2)`.
+- [x] Include the production cursor asset in the npm publish allowlist.
+- [x] Validate and join all 30 recorded paths without regeneration or retiming.
+- [x] Evaluate the global cursor track sequentially at fixed output timestamps.
+- [x] Transform CSS cursor coordinates into fractional output-screen coordinates.
+- [x] Render the fixed-size cursor above the browser base layer.
+- [x] Verify declared hotspot placement with synthetic marked-pixel tests.
+- [x] Measure all 30 real mouse-down landings from actual draw geometry.
+- [x] Produce 30 landing crops and four unique full-frame snapshots.
+- [x] Preserve bounded `canvas.data()` readback below the 1 GiB gate.
+- [x] Prove deterministic cursor composition with two fresh subset executions.
+- [x] Record the Day-6 gate results and Day-7 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -109,3 +124,7 @@
 - The initial Day-5 `getImageData()` extraction path failed twice above 3 GiB RSS despite single-frame JavaScript ownership. `canvas.data()` preserved the same RGBA hashes and completed at 167,690,240 bytes peak RSS without forced garbage collection.
 - The successful Day-5 run processed 14,523,494,400 logical RGBA bytes across 1,751 frames at 24.005 frames/s. Its diagnostic output contains hashes and six PNG snapshots, but no raw RGBA files or copied JPEGs.
 - No visible cursor, cursor landing measurement, camera, chrome, background styling, encoder, FFmpeg, or public render integration was added on Day 5.
+- The Day-6 track directly consumed 5,910 measured points from 30 Day-3 paths. All adjacent movements joined with zero CSS-pixel discontinuity.
+- All 30 mouse-down output mappings evaluated held cursor state and landed at exactly zero output-pixel error. No timing or coordinate offset was added.
+- The cursor-enabled full run processed 1,751 frames at 23.590 frames/s with 186,662,912 bytes peak RSS and a negative fitted RSS slope.
+- Provisional click feedback was deferred. No camera, chrome, gradient, encoder, FFmpeg, or public render integration was added on Day 6.
