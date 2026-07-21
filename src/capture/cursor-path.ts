@@ -45,8 +45,15 @@ export function normalizeProposedPathTiming(
   if (!Number.isFinite(durationMs) || durationMs <= 0) {
     throw new Error('Cursor movement duration must be positive');
   }
-  const firstTimestamp = points[0]?.timestamp;
-  const lastTimestamp = points.at(-1)?.timestamp;
+  const coalesced: GhostTimedPoint[] = [];
+  for (const point of points) {
+    const previous = coalesced.at(-1);
+    if (previous?.timestamp === point.timestamp) {
+      if (coalesced.length > 1) coalesced[coalesced.length - 1] = point;
+    } else coalesced.push(point);
+  }
+  const firstTimestamp = coalesced[0]?.timestamp;
+  const lastTimestamp = coalesced.at(-1)?.timestamp;
   if (
     firstTimestamp === undefined ||
     lastTimestamp === undefined ||
@@ -57,7 +64,7 @@ export function normalizeProposedPathTiming(
     throw new Error('Ghost cursor path has no usable relative timing span');
   }
   const scale = durationMs / (lastTimestamp - firstTimestamp);
-  const normalized = points.map((point) => ({
+  const normalized = coalesced.map((point) => ({
     x: point.x,
     y: point.y,
     plannedOffsetMs: (point.timestamp - firstTimestamp) * scale,

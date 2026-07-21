@@ -31,6 +31,24 @@ describe('cursor paths', () => {
     ).toEqual([0, 200, 800]);
   });
 
+  it('coalesces equal package timestamps before accepting the shared path', () => {
+    expect(
+      normalizeProposedPathTiming(
+        [
+          { x: 0, y: 0, timestamp: 10_000 },
+          { x: 2, y: 2, timestamp: 10_010 },
+          { x: 4, y: 4, timestamp: 10_010 },
+          { x: 10, y: 10, timestamp: 10_100 },
+        ],
+        800,
+      ),
+    ).toEqual([
+      { x: 0, y: 0, plannedOffsetMs: 0 },
+      { x: 4, y: 4, plannedOffsetMs: 80 },
+      { x: 10, y: 10, plannedOffsetMs: 800 },
+    ]);
+  });
+
   it('uses the generated path endpoint as the exact click point', () => {
     const end = { x: 720, y: 250 };
     const points = generateCursorPath({
