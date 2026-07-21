@@ -580,12 +580,15 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         if (!cursorAuditResult) {
           throw new Error('OUTPUT_VALIDATION_FAILED: Cursor action audit did not complete');
         }
-        decodedCursorProofs = await decodeCursorProofFrames({
-          videoFile: file,
-          ffmpeg,
-          compositionDirectory: workspace.compositionDirectory,
-          proofs: cursorAuditResult.proofs,
-        });
+        decodedCursorProofs =
+          cursorAuditResult.proofs.length > 0
+            ? await decodeCursorProofFrames({
+                videoFile: file,
+                ffmpeg,
+                compositionDirectory: workspace.compositionDirectory,
+                proofs: cursorAuditResult.proofs,
+              })
+            : [];
         await completeStage(
           workspace,
           options,
