@@ -27,6 +27,13 @@ document.querySelector('#preview-analytics').addEventListener('click', () => {
   analyticsStatus.textContent = 'Analytics preview ready.';
 });
 
+for (const target of document.querySelectorAll('[data-testid][data-application-clicks]')) {
+  target.addEventListener('click', () => {
+    const nextCount = Number(target.dataset.applicationClicks) + 1;
+    target.dataset.applicationClicks = String(nextCount);
+  });
+}
+
 document.querySelector('#new-project').addEventListener('click', () => {
   projectPanel.hidden = false;
 });

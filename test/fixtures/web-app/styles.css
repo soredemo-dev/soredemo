@@ -78,6 +78,10 @@ main {
   margin-top: 28px;
 }
 
+.gate-targets {
+  justify-content: space-between;
+}
+
 .capture-probe {
   position: relative;
   height: 18px;

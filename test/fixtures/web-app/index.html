@@ -17,11 +17,26 @@
         <p class="eyebrow">Deterministic local application</p>
         <h1 id="fixture-title">Project dashboard</h1>
         <p>Stable controls for browser capture and composition acceptance tests.</p>
-        <div class="actions">
-          <button id="preview-analytics" type="button">Preview analytics</button>
-          <button id="growing-hover-target" class="growing-button" type="button">
+        <div class="actions gate-targets">
+          <button
+            id="preview-analytics"
+            type="button"
+            data-testid="static-target"
+            data-application-clicks="0"
+          >
+            Preview analytics
+          </button>
+          <button
+            id="growing-hover-target"
+            class="growing-button"
+            type="button"
+            data-testid="hover-target"
+            data-application-clicks="0"
+          >
             Growing hover target
           </button>
+        </div>
+        <div class="actions">
           <button id="new-project" class="primary" type="button">New project</button>
         </div>
         <div class="capture-probe" data-capture-probe aria-hidden="true">
