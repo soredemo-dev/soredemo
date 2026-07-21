@@ -41,4 +41,99 @@ describe('timeline contracts', () => {
       validateTimelineDocument({ schemaVersion: 1, events: [clickEvent(), clickEvent()] }, 400),
     ).toThrow('Duplicate');
   });
+
+  it('validates consecutive action indexes across all six event variants', () => {
+    const target = { strategy: 'testId' as const, value: { testId: 'target' } };
+    const bbox = { x: 10, y: 10, width: 40, height: 20 };
+    const document: TimelineDocument = {
+      schemaVersion: 1,
+      events: [
+        {
+          id: 'wait-001',
+          actionIndex: 0,
+          kind: 'wait',
+          mode: 'duration',
+          startMs: 0,
+          endMs: 10,
+          requestedDurationMs: 10,
+        },
+        {
+          id: 'goto-002',
+          actionIndex: 1,
+          kind: 'goto',
+          startMs: 10,
+          endMs: 20,
+          requestedUrl: 'http://127.0.0.1/',
+          finalUrl: 'http://127.0.0.1/',
+        },
+        {
+          id: 'moveTo-003',
+          actionIndex: 2,
+          kind: 'moveTo',
+          startMs: 20,
+          endMs: 40,
+          target,
+          targetBboxAtPathStart: bbox,
+          targetBboxAtCommit: bbox,
+          destinationPoint: { x: 30, y: 20 },
+          cursorPath: [
+            { x: 0, y: 0, timeMs: 20 },
+            { x: 30, y: 20, timeMs: 35 },
+          ],
+        },
+        {
+          ...clickEvent('click-004'),
+          actionIndex: 3,
+          startMs: 40,
+          endMs: 60,
+          cursorPath: [
+            { x: 30, y: 20, timeMs: 40 },
+            { x: 60, y: 40, timeMs: 50 },
+          ],
+          mouseDownMs: 55,
+          mouseUpMs: 60,
+        },
+        {
+          id: 'type-005',
+          actionIndex: 4,
+          kind: 'type',
+          startMs: 60,
+          endMs: 90,
+          target,
+          targetBboxAtCommit: bbox,
+          focusPoint: { x: 30, y: 20 },
+          cursorPath: [
+            { x: 60, y: 40, timeMs: 60 },
+            { x: 30, y: 20, timeMs: 70 },
+          ],
+          focusMs: 75,
+          textLength: 8,
+          clearedExistingValue: false,
+          perCharacterDelayMs: 32,
+          redacted: false,
+        },
+        {
+          id: 'scrollTo-006',
+          actionIndex: 5,
+          kind: 'scrollTo',
+          startMs: 90,
+          endMs: 110,
+          requestedPosition: { x: 0, y: 500 },
+          initialScroll: { x: 0, y: 0 },
+          finalScroll: { x: 0, y: 500 },
+          observedPositions: [{ x: 0, y: 500, timeMs: 100 }],
+        },
+      ],
+    };
+
+    expect(() => validateTimelineDocument(document, 120)).not.toThrow();
+    expect(document.events.map((event) => event.kind)).toEqual([
+      'wait',
+      'goto',
+      'moveTo',
+      'click',
+      'type',
+      'scrollTo',
+    ]);
+  });
 });

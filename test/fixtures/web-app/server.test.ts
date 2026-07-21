@@ -14,8 +14,13 @@ describe('deterministic web fixture', () => {
     expect(html).toContain('Project name');
     expect(html).toContain('Analytics');
     expect(html).toContain('Event log');
+    expect(html).toContain('data-testid="demo-ready"');
+    expect(html).toContain('data-testid="create-project"');
+    expect(html).toContain('data-testid="navigation-result"');
     expect(script).toContain("['pointerdown', 'pointerup', 'click']");
+    expect(script).toContain('sessionStorage');
     expect(styles).toContain('position: sticky');
     expect(styles).toContain('.growing-button:hover');
+    expect(styles).toContain('.capture-heartbeat');
   });
 });
