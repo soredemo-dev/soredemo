@@ -36,6 +36,20 @@ export class BaseFrameCompositor {
     image: Image,
     overlay?: (context: SKRSContext2D) => void,
   ): RawRgbaFrame {
+    return this.composeSourceCropWithOverlay(
+      frameContext,
+      image,
+      { x: 0, y: 0, width: this.sourceWidth, height: this.sourceHeight },
+      overlay,
+    );
+  }
+
+  composeSourceCropWithOverlay(
+    frameContext: CompositionFrameContext,
+    image: Image,
+    sourceCrop: Rect,
+    overlay?: (context: SKRSContext2D) => void,
+  ): RawRgbaFrame {
     if (image.width !== this.sourceWidth || image.height !== this.sourceHeight) {
       throw new Error('Source image dimensions changed during composition');
     }
@@ -44,7 +58,17 @@ export class BaseFrameCompositor {
     this.context.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
     this.context.globalCompositeOperation = 'source-over';
     const { x, y, width, height } = this.contentRect;
-    this.context.drawImage(image, x, y, width, height);
+    this.context.drawImage(
+      image,
+      sourceCrop.x,
+      sourceCrop.y,
+      sourceCrop.width,
+      sourceCrop.height,
+      x,
+      y,
+      width,
+      height,
+    );
     overlay?.(this.context);
     const data = rgbaBytes(this.canvas.data());
     if (data.byteLength !== RGBA_BYTE_LENGTH)
