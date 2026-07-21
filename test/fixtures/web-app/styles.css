@@ -12,6 +12,24 @@ body {
   margin: 0;
 }
 
+.capture-heartbeat {
+  position: fixed;
+  z-index: 100;
+  right: 8px;
+  bottom: 8px;
+  width: 2px;
+  height: 2px;
+  background: #425ce8;
+  pointer-events: none;
+  animation: capture-heartbeat 800ms steps(2, jump-none) infinite alternate;
+}
+
+@keyframes capture-heartbeat {
+  to {
+    transform: translateX(-2px);
+  }
+}
+
 button,
 input {
   font: inherit;

@@ -13,6 +13,8 @@ import {
 } from '../capture/page-instrumentation.js';
 import { writeTimeline } from '../capture/timeline-writer.js';
 import { SequentialCameraEvaluator } from '../compositor/camera-evaluator.js';
+import { projectCssPoint } from '../compositor/camera-projection.js';
+import { measureTargetFraming } from '../compositor/camera-statistics.js';
 import { buildCameraTrack } from '../compositor/camera-track.js';
 import {
   buildClickFeedbackTrack,
@@ -22,8 +24,10 @@ import { openCompositionPlan } from '../compositor/composition-plan-reader.js';
 import { loadCursorAsset } from '../compositor/cursor-asset.js';
 import { SequentialCursorEvaluator } from '../compositor/cursor-track.js';
 import { runComposition } from '../compositor/frame-runner.js';
+import { cursorLandingStatistics, measureCursorLanding } from '../compositor/landing-statistics.js';
 import { SequentialSourceImageLoader } from '../compositor/source-image-loader.js';
 import { StudioFrameCompositor } from '../compositor/studio-frame-compositor.js';
+import { STUDIO_BROWSER_CONTENT_RECT } from '../compositor/studio-layout.js';
 import { OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH } from '../compositor/types.js';
 import type { ProjectConfiguration } from '../config/load.js';
 import { resolveExecutable, resolveFfprobe } from '../encoder/executable-resolver.js';
@@ -37,6 +41,8 @@ import type {
   ValidatedVideo,
 } from '../encoder/types.js';
 import type { ActionPlan } from '../plan/normalized-plan.js';
+import { nearestOutputIndex } from '../resample/event-frame-mapping.js';
+import type { ResampledFrameRecord } from '../resample/types.js';
 import { buildCursorTrack } from '../timeline/cursor-track-validation.js';
 import type { TimelineDocument } from '../timeline/types.js';
 import { resampleCapture } from './resample-capture.js';
@@ -72,6 +78,9 @@ export interface RenderDemoResult {
     cursorPointCount: number;
     cameraSegmentCount: number;
     rippleCount: number;
+    landingMedianPx: number;
+    landingP95Px: number;
+    fullyVisibleTargets: number;
     encoder: EncodedVideoResult['backpressure'];
     parentRssPeakBytes: number;
     ffmpegRssPeakBytes?: number;
@@ -237,10 +246,80 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
 
     stage(options, 'Rendering and encoding');
     await workspace.update({ status: 'composing' });
-    const planReader = await openCompositionPlan(workspace.resampleDirectory);
     const cameraTrack = buildCameraTrack(timeline.events, resample.outputDurationMs, viewport);
     const cursorTrack = buildCursorTrack(timeline.events, viewport);
     const feedbackTrack = buildClickFeedbackTrack(timeline.events);
+    const clicks = timeline.events.filter((event) => event.kind === 'click');
+    const clickIndices = new Set(
+      clicks.map((click) => nearestOutputIndex(click.mouseDownMs, resample.outputFrameCount)),
+    );
+    const selectedClickFrames = new Map<number, ResampledFrameRecord>();
+    const diagnosticReader = await openCompositionPlan(workspace.resampleDirectory);
+    for await (const record of diagnosticReader.frames()) {
+      if (clickIndices.has(record.outputIndex)) selectedClickFrames.set(record.outputIndex, record);
+    }
+    const diagnosticCamera = new SequentialCameraEvaluator(cameraTrack);
+    const diagnosticCursor = new SequentialCursorEvaluator(cursorTrack);
+    const landingMeasurements = [];
+    const framingMeasurements = [];
+    for (const click of clicks) {
+      const outputIndex = nearestOutputIndex(click.mouseDownMs, resample.outputFrameCount);
+      const record = selectedClickFrames.get(outputIndex);
+      if (!record) throw new Error(`OUTPUT_VALIDATION_FAILED: Missing click frame ${outputIndex}`);
+      const camera = diagnosticCamera.evaluate(record.outputTimestampMs);
+      const cursor = diagnosticCursor.evaluate(record.outputTimestampMs);
+      if (!cursor.visible || cursor.cssX === undefined || cursor.cssY === undefined) {
+        throw new Error(`OUTPUT_VALIDATION_FAILED: ${click.id} has no cursor at mouse down`);
+      }
+      const cursorScreen = projectCssPoint(
+        { x: cursor.cssX, y: cursor.cssY },
+        camera,
+        viewport,
+        STUDIO_BROWSER_CONTENT_RECT,
+      );
+      const clickScreen = projectCssPoint(
+        click.clickPoint,
+        camera,
+        viewport,
+        STUDIO_BROWSER_CONTENT_RECT,
+      );
+      landingMeasurements.push(
+        measureCursorLanding({ click, outputFrame: record, cursor, cursorScreen, clickScreen }),
+      );
+      framingMeasurements.push(
+        measureTargetFraming({
+          click,
+          outputIndex,
+          camera,
+          viewport,
+          contentRect: STUDIO_BROWSER_CONTENT_RECT,
+        }),
+      );
+    }
+    const landing = clicks.length > 0 ? cursorLandingStatistics(landingMeasurements) : undefined;
+    if (landing && (landing.distanceOutputPx.median > 1 || landing.distanceOutputPx.p95 > 2)) {
+      throw new Error('OUTPUT_VALIDATION_FAILED: Cursor landing gate failed');
+    }
+    if (
+      framingMeasurements.some(
+        (measurement) =>
+          Math.abs(measurement.visibleFraction - 1) > 1e-7 ||
+          !measurement.clickPointInsideProjectedTarget,
+      )
+    ) {
+      throw new Error('OUTPUT_VALIDATION_FAILED: Target framing gate failed');
+    }
+    await Promise.all([
+      writeFile(
+        `${workspace.directory}/landing-measurements.json`,
+        `${JSON.stringify({ measurements: landingMeasurements, statistics: landing }, null, 2)}\n`,
+      ),
+      writeFile(
+        `${workspace.directory}/target-framing.json`,
+        `${JSON.stringify(framingMeasurements, null, 2)}\n`,
+      ),
+    ]);
+    const planReader = await openCompositionPlan(workspace.resampleDirectory);
     const compositor = new StudioFrameCompositor(
       resample.sourcePixelWidth,
       resample.sourcePixelHeight,
@@ -373,6 +452,11 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
         cursorPointCount: cursorTrack.pointCount,
         cameraSegmentCount: cameraTrack.segments.length,
         rippleCount: feedbackTrack.clicks.length,
+        landingMedianPx: landing?.distanceOutputPx.median ?? 0,
+        landingP95Px: landing?.distanceOutputPx.p95 ?? 0,
+        fullyVisibleTargets: framingMeasurements.filter(
+          (measurement) => Math.abs(measurement.visibleFraction - 1) <= 1e-7,
+        ).length,
         encoder: encoded.backpressure,
         parentRssPeakBytes: Math.max(...rssSamples),
         ...(ffmpegRssPeakBytes > 0 ? { ffmpegRssPeakBytes } : {}),

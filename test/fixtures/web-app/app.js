@@ -37,7 +37,7 @@ document.addEventListener('click', () => {
   persist();
 });
 
-document.querySelector('#hover-target').addEventListener('pointerenter', () => {
+document.querySelector('[data-testid="hover-target"]').addEventListener('pointerenter', () => {
   state.hoverObserved = true;
   persist();
 });
