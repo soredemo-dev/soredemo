@@ -75,6 +75,21 @@
 - [x] Verify the resample plan contains 1,751 records and no image files.
 - [x] Record the Day-4 trial results and Day-5 risks.
 
+## Day 5 status
+
+- [x] Pin `@napi-rs/canvas@1.0.2` and verify its MIT native-package tree.
+- [x] Add deterministic contain geometry and an opaque RGBA base layer.
+- [x] Resolve source paths safely inside the capture bundle.
+- [x] Reuse one decoded image and one output canvas.
+- [x] Preserve output and selected-source timestamps in every raw frame.
+- [x] Honor sequential frame-consumer backpressure.
+- [x] Hash every RGBA frame incrementally without writing raw files.
+- [x] Write six deterministic proof snapshots and a composition manifest.
+- [x] Prove same-machine determinism with two 22-frame subset executions.
+- [x] Diagnose and replace the unbounded `getImageData()` extraction path.
+- [x] Complete all 1,751 frames below the 1 GiB memory gate.
+- [x] Record the Day-5 trial results and Day-6 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
@@ -91,3 +106,6 @@
 - The Day-4 real trial selected 1,751 of 5,428 source frames, skipped 3,677 high-cadence frames, and produced a 428,518-byte metadata plan in 248.818 ms.
 - No Day-3 click exceeded the 20 ms source-to-mouse-down diagnostic threshold; the maximum was 19.337 ms.
 - No JPEG was opened, decoded, copied, resized, blended, or modified on Day 4. No compositor, visible cursor, camera, canvas, or encoder code was added.
+- The initial Day-5 `getImageData()` extraction path failed twice above 3 GiB RSS despite single-frame JavaScript ownership. `canvas.data()` preserved the same RGBA hashes and completed at 167,690,240 bytes peak RSS without forced garbage collection.
+- The successful Day-5 run processed 14,523,494,400 logical RGBA bytes across 1,751 frames at 24.005 frames/s. Its diagnostic output contains hashes and six PNG snapshots, but no raw RGBA files or copied JPEGs.
+- No visible cursor, cursor landing measurement, camera, chrome, background styling, encoder, FFmpeg, or public render integration was added on Day 5.

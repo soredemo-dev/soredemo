@@ -206,6 +206,16 @@ selected source time      selects captured browser pixels only
 
 The compositor must evaluate cursor and camera metadata at output time, never at the selected source timestamp. Event timestamps are not shifted onto the 30 fps grid.
 
+## Minimal composition and RGBA boundary
+
+The compositor consumes resample records sequentially. It resolves each selected JPEG inside the capture bundle, decodes or reuses one current source image, draws into one reusable 1920×1080 canvas, extracts one raw RGBA frame, and awaits the frame consumer before advancing. It never retains the complete decoded or RGBA sequence.
+
+The Day-5 base layer preserves source aspect ratio using contain geometry. A 2880×1800 capture draws at `{ x: 96, y: 0, width: 1728, height: 1080 }` over an opaque black matte. This layout is provisional; final browser-window placement, chrome, mask, shadow, and background remain later composition concerns.
+
+The raw boundary is 1920×1080 RGBA with top-to-bottom rows, left-to-right pixels, a 7,680-byte stride, and 8,294,400 bytes per frame. Alpha is fully opaque. The sequential consumer contract provides backpressure for the future encoder without implementing encoding in the compositor.
+
+For every composed frame, selected source time continues to choose browser pixels and fixed output time continues to evaluate composition metadata. Decoding and drawing never collapse or retime timeline event, output, and source timestamps.
+
 ## Cinematic direction
 
 The studio preset uses a restrained shot grammar:
