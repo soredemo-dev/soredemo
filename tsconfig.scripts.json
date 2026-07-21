@@ -6,5 +6,5 @@
     "outDir": ".tmp/day2-build",
     "sourceMap": true
   },
-  "include": ["src/**/*.ts", "scripts/day2-capture-spike.ts", "test/fixtures/web-app/server.ts"]
+  "include": ["src/**/*.ts", "scripts/*.ts", "test/fixtures/web-app/server.ts"]
 }
