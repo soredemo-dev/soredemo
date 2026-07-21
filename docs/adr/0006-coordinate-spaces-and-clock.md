@@ -21,6 +21,8 @@ browserEpochMs ≈ driverMonotonicMs + browserEpochAtDriverZeroMs
 
 Take a second calibration at capture completion only to diagnose offset drift. Do not adjust the mapping during capture. CDP frame timestamps are authoritative; mapped Node receive time is diagnostic only. Never align streams by receive time. Acknowledge every screencast frame only after copying its bytes and metadata into the bounded capture queue.
 
+For each real cursor movement, measure Node monotonic time immediately before and after `page.mouse.move()` and map the interval midpoint through the fixed startup calibration. Those measured capture-relative times, paired with the exact dispatched coordinates, form the timeline cursor path. Package-generated path timestamps provide relative scheduling only and never enter the artifact. Browser-observed pointer-down and pointer-up epochs are normalized directly against the CDP capture origin.
+
 ## Consequences
 
 The driver and compositor can place future action timestamps on the capture-relative clock without using frame arrival time or manual action offsets. The mapping inherits midpoint uncertainty bounded by the selected sample's round-trip latency; ending offset delta makes short-run drift observable. Acceptance compares the composited cursor hotspot with the actual dispatched mouse-down point, not the original target center.

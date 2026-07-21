@@ -46,13 +46,31 @@
 - [x] Preserve the validation command's heavy-import boundary.
 - [x] Record the spike procedure, results, failures, and risks.
 
+## Day 3 status
+
+- [x] Align the exact pnpm toolchain with the Node 20 minimum.
+- [x] Add exact `ghost-cursor@1.4.2` and verify its permissive production license tree.
+- [x] Use only exported path generation and own all Playwright dispatch and timing.
+- [x] Inject capture-phase pointer and mouse event instrumentation before application scripts.
+- [x] Hide the browser cursor and verify `cursor: none` on both click targets.
+- [x] Record versioned click timeline events with initial and commit bboxes.
+- [x] Add static and hover-growing deterministic fixture targets with application counters.
+- [x] Complete one continuous 30-click native-resolution capture with exact event counts.
+- [x] Verify every local ±250 ms mouse-down frame window remains below 100 ms.
+- [x] Verify capture bundle, timeline, clock, coordinate, and queue integrity.
+- [x] Add path, mouse, event, timeline, cadence, and statistics unit tests.
+- [x] Record the Day-3 gate results and Day-4 risks.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
 - The first temporary tarball installation used pnpm offline mode, but the local store lacked registry tarball metadata for `citty`. Retrying the isolated install with registry access succeeded; the packed `soredemo` binary then passed all exit-code checks.
-- Production runtime licenses currently report MIT for `soredemo`, `citty`, `js-yaml`, and `zod`, plus Python-2.0 for `js-yaml`'s transitive `argparse` dependency.
+- Production runtime licenses currently report ISC for `ghost-cursor`; Apache-2.0 for Playwright; MIT for Soredemo and the remaining browser, cursor, validation, and CLI dependencies; and Python-2.0 for `js-yaml`'s transitive `argparse` dependency.
 - No CDP capture, cursor dispatch, frame resampling, canvas composition, or FFmpeg encoding was added on Day 1.
 - `Page.startScreencast` initially returned 1440×900 JPEGs despite a 2× device scale factor and 2880×1800 maximum dimensions. Explicitly setting the CDP visible size to 2880×1800 while retaining 1440×900 CSS metrics produced native 2× frames; runtime gates now verify both sides of that contract.
 - Day 3 replaced pnpm 11.15.1 with exact pnpm 10.34.0 so contributors can run the complete toolchain under the documented Node 20 minimum.
 - The final Node 20 trials observed a largest inter-frame gap of 51.46 ms and a largest receive-delay spike of 75.29 ms. Neither crossed the 100 ms diagnostic threshold; no correction was applied.
 - No cursor movement, click dispatch, action timeline, frame resampling, compositor, camera, or encoding code was added on Day 2.
+- The first target-level hover probe used a window capture listener for `pointerenter`; Chromium did not deliver that non-bubbling event to the window. Direct capture-phase listeners are now attached to test-ID targets from the pre-application init script and maintained with a mutation observer.
+- The successful Day-3 bundle contains 5,428 lossless 2880×1800 frames and 30 click timeline events over 58.337 seconds. It is ignored under `.tmp/` and was not committed.
+- No generic action executor, selector resolver, frame resampler, compositor, camera, encoder, or public render integration was added on Day 3.

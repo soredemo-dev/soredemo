@@ -118,7 +118,7 @@ Phase 1 produces a directory, not an intermediate video:
 
 The manifest records schema and script identity, pinned Playwright and Chromium versions, CSS viewport dimensions, `deviceScaleFactor: 2`, observed browser metrics and JPEG dimensions, capture origin, frame count, clock diagnostics, and bounded-queue diagnostics. Each frame record stores its index, file, normalized CDP frame timestamp, pixel dimensions, page scale factor, scroll offsets, offset top, and diagnostic receive time.
 
-The capture implementation preserves a 1440×900 CSS viewport with device scale factor 2 while configuring an explicit 2880×1800 CDP visible capture surface. It verifies `window.innerWidth`, `window.innerHeight`, `window.devicePixelRatio`, and every JPEG dimension rather than assuming CDP honors the requested scale. Day-2 capture bundles omit `timeline.json`; action timeline events begin in a later phase.
+The capture implementation preserves a 1440×900 CSS viewport with device scale factor 2 while configuring an explicit 2880×1800 CDP visible capture surface. It verifies `window.innerWidth`, `window.innerHeight`, `window.devicePixelRatio`, and every JPEG dimension rather than assuming CDP honors the requested scale. Day-2 frame-only bundles omit `timeline.json`; captures containing actions include it.
 
 ## Timeline contracts
 
@@ -141,6 +141,8 @@ interface ClickTimelineEvent extends TimelineEventBase {
   targetBboxAtCommit: BBox
   clickPoint: Point
   cursorPath: TimedPoint[]
+  mouseDownMs: number
+  mouseUpMs: number
 }
 
 interface MoveToTimelineEvent extends TimelineEventBase {
@@ -158,7 +160,9 @@ interface ScrollTimelineEvent extends TimelineEventBase {
 
 `goto`, both `wait` forms, and `type` have their own variants. Unrelated event types are never forced into one fixed object shape.
 
-Click execution must scroll the locator into view, establish actionability and stability, capture the initial box, generate one cursor path, dispatch every path point with `page.mouse.move()`, capture the commit box, hit-test the click point, and then dispatch `page.mouse.down()` and `page.mouse.up()`. A failed hit test fails loudly. `locator.click()` is not a fallback.
+Click execution must scroll the locator into view, establish actionability and geometric stability, capture the initial box, choose one click point, generate one cursor path, dispatch every path point with `page.mouse.move()`, allow hover effects to settle, capture the commit box, hit-test the original click point, and then dispatch `page.mouse.down()` and `page.mouse.up()`. A failed containment or hit test fails loudly. `locator.click()`, DOM `.click()`, and synthetic click events are not fallbacks.
+
+`ghost-cursor` supplies geometry through its exported `path()` function only. Its timestamps are reduced to relative spacing and rescaled to a restrained movement duration. For each accepted point, Soredemo waits for the proposed driver-monotonic schedule and records the measured midpoint around the real Playwright mouse command. The resulting coordinates and measured times are the single cursor path used by browser events, timeline metadata, and future composition.
 
 ## Coordinate and clock contract
 
@@ -175,6 +179,7 @@ Click execution must scroll the locator into view, establish actionability and s
 - Mapped Node frame-arrival time is diagnostic only and never aligns streams.
 - Every frame receives `Page.screencastFrameAck` only after its bytes have been copied into the capture queue.
 - The same generated cursor path drives real Playwright mouse events and later visible composition.
+- Browser-observed capture-phase `pointerdown` and `pointerup` events supply canonical click times.
 
 Soredemo promises structural reproducibility, not pixel determinism across machines or runs. Core capture does not use JavaScript virtual-time tricks.
 

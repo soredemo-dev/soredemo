@@ -14,6 +14,7 @@ pnpm test
 pnpm build
 pnpm soredemo validate examples/demo.yaml
 pnpm spike:day2
+pnpm spike:day3
 ```
 
 ## Source boundaries
@@ -56,6 +57,7 @@ pnpm spike:day2
 - Camera movement exists only in post-production. Scrolling remains real browser scrolling.
 - CDP frame timestamps are epoch-based and authoritative. Node receive time is diagnostic only.
 - The capture spike must preserve a 1440×900 CSS viewport and prove native 2880×1800 JPEG output.
-- Do not implement cursor dispatch, action timelines, frame resampling, canvas composition, or FFmpeg encoding before their planned phases.
+- Use only `ghost-cursor`'s exported `path()` function. Soredemo owns Playwright dispatch and timing.
+- Do not implement frame resampling, canvas composition, camera movement, or FFmpeg encoding before their planned phases.
 
 The accepted architectural decisions are in `docs/adr/`. Do not relitigate them during implementation.
