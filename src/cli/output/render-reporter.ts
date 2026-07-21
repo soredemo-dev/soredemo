@@ -14,7 +14,11 @@ export class RenderReporter {
   constructor(readonly mode: ReporterMode) {}
 
   stage(event: ReporterStageEvent): void {
-    if (this.mode === 'json' || this.mode === 'quiet') return;
+    if (this.mode === 'json') {
+      process.stderr.write(`[${event.stage}] ${event.message}\n`);
+      return;
+    }
+    if (this.mode === 'quiet') return;
     process.stderr.write(`✓ ${event.message}\n`);
     if (this.mode === 'verbose' && event.details) {
       process.stderr.write(`${JSON.stringify(event.details)}\n`);

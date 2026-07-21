@@ -30,6 +30,8 @@ describe('render reporter', () => {
       outputPath: '/tmp/demo.mp4',
       success: true,
     });
+    expect(captured.stderr.join('')).toContain('[capturing] Captured');
+    expect(captured.stderr.join('')).not.toContain('not written in json mode');
   });
 
   it('suppresses stages in quiet mode but retains warnings and final result', () => {
