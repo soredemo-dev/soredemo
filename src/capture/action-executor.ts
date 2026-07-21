@@ -106,11 +106,32 @@ async function executeMoveTo(
   const resolved = await resolveTarget(context.page, action.target);
   const targetBboxAtPathStart = await prepareTarget(resolved);
   const destinationPoint = center(targetBboxAtPathStart);
-  const cursorPath = await move(context, destinationPoint);
-  const targetBboxAtCommit = await commitBbox(resolved);
-  await hitTest(resolved, destinationPoint);
+  const eventId = id(actionIndex, 'moveTo');
+  const eventStart = await observedEventCount(context.page);
+  const previousRuntimeId = await resolved.locator.evaluate((element, runtimeId) => {
+    const previous = element.getAttribute('data-soredemo-pointer-target');
+    element.setAttribute('data-soredemo-pointer-target', runtimeId);
+    return previous;
+  }, eventId);
+  let cursorPath: MoveToTimelineEvent['cursorPath'];
+  let targetBboxAtCommit: BBox;
+  let pointerEnterObserved = false;
+  try {
+    cursorPath = await move(context, destinationPoint);
+    targetBboxAtCommit = await commitBbox(resolved);
+    await hitTest(resolved, destinationPoint);
+    const observed = await readObservedEvents(context.page, eventStart);
+    pointerEnterObserved = observed.some(
+      (event) => event.type === 'pointerenter' && event.targetRuntimeId === eventId,
+    );
+  } finally {
+    await resolved.locator.evaluate((element, previous) => {
+      if (previous === null) element.removeAttribute('data-soredemo-pointer-target');
+      else element.setAttribute('data-soredemo-pointer-target', previous);
+    }, previousRuntimeId);
+  }
   return {
-    id: id(actionIndex, 'moveTo'),
+    id: eventId,
     actionIndex,
     kind: 'moveTo',
     startMs: cursorPath[0]?.timeMs ?? now(context),
@@ -120,6 +141,7 @@ async function executeMoveTo(
     targetBboxAtCommit,
     destinationPoint,
     cursorPath,
+    pointerEnterObserved,
   };
 }
 
@@ -211,6 +233,7 @@ async function executeType(
     focusPoint,
     cursorPath,
     focusMs,
+    focusVerified: focused,
     textLength: action.text.length,
     clearedExistingValue,
     perCharacterDelayMs,

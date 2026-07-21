@@ -57,6 +57,7 @@ export interface MoveToTimelineEvent extends TimelineEventBase {
   targetBboxAtCommit: BBox;
   destinationPoint: Point;
   cursorPath: TimedPoint[];
+  pointerEnterObserved: boolean;
 }
 
 export interface ClickTimelineEvent extends TimelineEventBase {
@@ -77,6 +78,7 @@ export interface TypeTimelineEvent extends TimelineEventBase {
   focusPoint: Point;
   cursorPath: TimedPoint[];
   focusMs: number;
+  focusVerified: boolean;
   textLength: number;
   clearedExistingValue: boolean;
   perCharacterDelayMs: number;
@@ -114,4 +116,5 @@ export interface ObservedPointerEvent {
   button: number;
   buttons: number;
   targetTestId?: string;
+  targetRuntimeId?: string;
 }

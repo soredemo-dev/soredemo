@@ -26,6 +26,12 @@ export async function installPageInstrumentation(context: BrowserContext): Promi
         const target =
           event.target instanceof Element ? event.target.closest('[data-testid]') : null;
         const targetTestId = target?.getAttribute('data-testid') ?? undefined;
+        const runtimeTarget =
+          event.target instanceof Element
+            ? event.target.closest('[data-soredemo-pointer-target]')
+            : null;
+        const targetRuntimeId =
+          runtimeTarget?.getAttribute('data-soredemo-pointer-target') ?? undefined;
         state.events.push({
           type: event.type,
           epochMs: performance.timeOrigin + performance.now(),
@@ -34,6 +40,7 @@ export async function installPageInstrumentation(context: BrowserContext): Promi
           button: event.button,
           buttons: event.buttons,
           ...(targetTestId ? { targetTestId } : {}),
+          ...(targetRuntimeId ? { targetRuntimeId } : {}),
         });
       };
       for (const type of eventTypes) {

@@ -80,6 +80,7 @@ describe('timeline contracts', () => {
             { x: 0, y: 0, timeMs: 20 },
             { x: 30, y: 20, timeMs: 35 },
           ],
+          pointerEnterObserved: true,
         },
         {
           ...clickEvent('click-004'),
@@ -107,6 +108,7 @@ describe('timeline contracts', () => {
             { x: 30, y: 20, timeMs: 70 },
           ],
           focusMs: 75,
+          focusVerified: true,
           textLength: 8,
           clearedExistingValue: false,
           perCharacterDelayMs: 32,
