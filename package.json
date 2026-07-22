@@ -1,21 +1,23 @@
 {
   "name": "soredemo",
-  "version": "0.1.0",
-  "description": "A version-controlled demo compiler for web products.",
+  "version": "0.1.0-alpha.0",
+  "description": "Turn declarative YAML into polished product demos of real web apps.",
   "type": "module",
   "bin": {
     "soredemo": "./dist/cli.js"
   },
   "files": [
     "assets",
+    "CHANGELOG.md",
     "dist",
     "schema"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node dist/schema/generate-json-schema.js",
+    "clean": "node scripts/clean-dist.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/finalize-dist.mjs && node dist/schema/generate-json-schema.js",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "prepack": "tsc -p tsconfig.build.json && node dist/schema/generate-json-schema.js",
+    "prepack": "npm run build",
     "soredemo": "node dist/cli.js",
     "spike:day2": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day2-capture-spike.js",
     "spike:day3": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day3-click-gate.js",
@@ -34,11 +36,15 @@
     "golden:promote": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js promote",
     "golden:verify": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js verify",
     "live-visual:verify": "corepack pnpm build && tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/live-visual-verify.js",
+    "docs:verify": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/verify-doc-snippets.js",
+    "licenses:prod": "corepack pnpm licenses list --prod --json",
+    "release:check": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/release-candidate.js check",
+    "release:pack": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/release-candidate.js pack",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.4 <21"
   },
   "packageManager": "pnpm@10.34.0",
   "repository": {
@@ -57,6 +63,9 @@
     "video"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@napi-rs/canvas": "1.0.2",
     "bezier-easing": "3.0.1",
