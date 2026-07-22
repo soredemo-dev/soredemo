@@ -63,6 +63,12 @@ async function sha256(file: string): Promise<string> {
     .digest('hex');
 }
 
+function structuredOutput(stdout: string): Record<string, unknown> {
+  const offset = stdout.indexOf('{');
+  if (offset === -1) throw new Error('Command did not emit a JSON object');
+  return JSON.parse(stdout.slice(offset)) as Record<string, unknown>;
+}
+
 async function registryStatus(): Promise<Record<string, unknown>> {
   const view = await command(
     'npm',
@@ -195,9 +201,9 @@ async function check(): Promise<void> {
     gitCommit: await git('rev-parse', 'HEAD'),
     success: true,
     registry,
-    doctor: JSON.parse(doctorResult.stdout),
-    golden: JSON.parse(goldenResult.stdout),
-    liveVisual: JSON.parse(liveResult.stdout),
+    doctor: structuredOutput(doctorResult.stdout),
+    golden: structuredOutput(goldenResult.stdout),
+    liveVisual: structuredOutput(liveResult.stdout),
     packageAudit,
     cleanInstall,
     failedRender,
