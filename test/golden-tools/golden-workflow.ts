@@ -29,8 +29,10 @@ export interface VerificationResult {
   diagnosticPath?: string;
 }
 
-export async function verifyCheckedGoldens(): Promise<VerificationResult> {
-  const runtime = await inspectExactProfile();
+export async function verifyCheckedGoldens(
+  runtimeOverride?: Awaited<ReturnType<typeof inspectExactProfile>>,
+): Promise<VerificationResult> {
+  const runtime = runtimeOverride ?? (await inspectExactProfile());
   const candidate = await generateExactCandidate(resolve('.tmp/golden-verify'));
   if (!officialExactProfile(runtime)) {
     return {

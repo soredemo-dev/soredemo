@@ -7,7 +7,11 @@ import type { CameraTrack } from '../../src/compositor/camera-types.js';
 import type { ResampledFrameRecord } from '../../src/resample/types.js';
 import type { TimelineDocument } from '../../src/timeline/types.js';
 import { CANONICAL_INPUT_ROOT, CHECKED_GOLDEN_ROOT } from '../golden-tools/exact-authority.js';
-import { readGoldenManifest, verifyManifests } from '../golden-tools/golden-workflow.js';
+import {
+  readGoldenManifest,
+  verifyCheckedGoldens,
+  verifyManifests,
+} from '../golden-tools/golden-workflow.js';
 import { compareRgba, rgbaToPng } from '../golden-tools/pixel-diff.js';
 import {
   inspectExactProfile,
@@ -38,6 +42,17 @@ describe('exact compositor profile', () => {
     expect(officialExactProfile({ ...profile, osBuild: 'different' })).toBe(false);
     expect(officialExactProfile({ ...profile, architecture: 'x64' })).toBe(false);
     expect(officialExactProfile({ ...profile, canvasVersion: 'different' })).toBe(false);
+  });
+
+  it('runs structural checks but skips exact hashes outside the official profile', async () => {
+    const profile = await inspectExactProfile();
+    const result = await verifyCheckedGoldens({ ...profile, osBuild: 'non-authoritative' });
+    expect(result).toMatchObject({
+      passed: true,
+      authoritative: false,
+      exactCompared: false,
+      profileStatus: 'GOLDEN_PROFILE_MISMATCH',
+    });
   });
 });
 
