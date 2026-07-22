@@ -185,6 +185,10 @@ The pinned Chromium capture launches headless with `--force-device-scale-factor=
 
 Soredemo promises structural reproducibility, not pixel determinism across machines or runs. Core capture does not use JavaScript virtual-time tricks.
 
+Visual regression has two explicitly separate authorities. The exact synthetic compositor authority feeds fixed canonical source images, resample records, timeline events, cursor paths, camera states, and ripple events into the production compositor. On its named macOS arm64 Canvas profile, selected RGBA and PNG frames must be byte-identical. The real public-render structural authority retains normal Playwright/CDP timing, measured browser input, generated cursor paths, animation, resampling, and FFmpeg encoding; it inspects actual pixels and frame correspondence without comparing whole live frames byte-for-byte. Geometry and metadata agreement is not sufficient; actual pixels must be inspected. Actual live pixels also need not be byte-identical for the render to satisfy the structural contract.
+
+A deterministic live-capture mode is forbidden. It would create a second execution path, stop testing production timing, and could hide capture and synchronization regressions. Canonical inputs enter only at the compositor test boundary.
+
 ## Timestamp frame resampling
 
 The source capture has variable cadence. Before composition, Soredemo creates a metadata-only 30 fps selection plan. Output time is independently derived from each integer index:

@@ -16,6 +16,8 @@ pnpm soredemo validate examples/demo.yaml
 pnpm spike:day2
 pnpm spike:day3
 pnpm spike:day4 -- <capture-dir>
+pnpm golden:verify
+pnpm live-visual:verify
 ```
 
 ## Source boundaries
@@ -62,5 +64,6 @@ pnpm spike:day4 -- <capture-dir>
 - Frame resampling uses only ordered CDP timestamps. It never uses receive time, file metadata, or inferred capture rate.
 - Do not implement frame resampling, canvas composition, camera movement, or FFmpeg encoding before their planned phases.
 - Failure screenshots and preserved render artifacts stay local and may contain private application data. Never upload them or include them in npm packages.
+- Exact visual goldens use only canonical compositor inputs and the named macOS arm64 Canvas profile. Live public renders are structurally reproducible, not byte-identical; never introduce a deterministic capture path to make live hashes stable.
 
 The accepted architectural decisions are in `docs/adr/`. Do not relitigate them during implementation.

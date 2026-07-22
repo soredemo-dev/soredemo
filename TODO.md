@@ -197,6 +197,24 @@
 - [x] Verify default success cleanup and `--keep-artifacts` preservation.
 - [x] Record private-alpha troubleshooting guidance and Day-12 risks.
 
+## Day 12 status
+
+- [x] Push and verify the approved Day-11 checkpoint before visual-authority work.
+- [x] Define the official macOS arm64 Canvas-only exact compositor profile.
+- [x] Add fixed canonical browser images, resample records, timeline paths, camera states, and ripple events.
+- [x] Render canonical inputs through the production studio compositor without Playwright or ghost-cursor generation.
+- [x] Check in 13 bounded exact RGBA/PNG golden frames with deterministic semantic selection.
+- [x] Require explicit candidate generation, verification, and confirmed promotion.
+- [x] Hash every canonical input and reject unexplained input drift.
+- [x] Produce expected, actual, diff, heatmap, and bounding-box diagnostics for exact mismatches.
+- [x] Verify studio geometry, projection, opacity, mask, shadow, toolbar, controls, ripple, and cursor layers independently.
+- [x] Add a real public-render structural gate without changing capture behavior.
+- [x] Inspect live full-frame and target pixels for all four cursor-bearing actions.
+- [x] Preserve compositor, encoder-write, and decoded MP4 frame-index correspondence.
+- [x] Record expected live timing, frame-count, cursor-point, source-selection, and hash variability.
+- [x] Exclude golden inputs, goldens, candidates, diffs, captures, and video artifacts from npm.
+- [x] Document the split authority and rejection of deterministic live capture.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
