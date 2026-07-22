@@ -60,7 +60,7 @@ export default defineCommand({
       description: 'output MP4 path',
       valueHint: 'file',
     },
-    keepArtifacts: {
+    'keep-artifacts': {
       type: 'boolean',
       description: 'preserve the temporary render workspace',
       default: false,
@@ -130,7 +130,7 @@ export default defineCommand({
         planFile: args.script,
         configuration,
         outputPath,
-        keepArtifacts: args.keepArtifacts,
+        keepArtifacts: args['keep-artifacts'],
         validationStartedAt,
         onStage: (event) => reporter.stage(event),
         onDiagnostic: (message, details) => reporter.diagnostic(message, details),

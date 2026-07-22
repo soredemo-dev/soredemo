@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { defineCommand, renderUsage, runCommand } from 'citty';
 import {
   CliExitError,
@@ -7,19 +6,16 @@ import {
   EXIT_USAGE,
   type ExitCode,
 } from './exit-codes.js';
+import { packageMetadata } from './package-metadata.js';
 
-function packageVersion(): string {
-  const packageJson = JSON.parse(
-    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
-  ) as { version: string };
-  return packageJson.version;
-}
+const metadata = packageMetadata();
+const DESCRIPTION = 'Turn declarative YAML into polished product demos of real web apps.';
 
 export const program = defineCommand({
   meta: {
     name: 'soredemo',
-    version: packageVersion(),
-    description: 'Compile declarative Demo Plans into polished product-demo videos.',
+    version: metadata.version,
+    description: DESCRIPTION,
   },
   subCommands: {
     validate: () => import('./commands/validate.js').then((module) => module.default),
@@ -68,13 +64,30 @@ function rawArgumentError(argv: string[]): string | null {
 }
 
 export async function runCli(argv: string[]): Promise<ExitCode> {
-  if (argv.includes('--help') || argv.includes('-h')) {
-    process.stdout.write(`${await renderUsage(program)}\n`);
+  if (argv.length === 0 || (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h'))) {
+    process.stdout.write(
+      `Soredemo public alpha — ${DESCRIPTION}\n\n${await renderUsage(program)}\n\nWorkflow:\n  soredemo doctor\n  soredemo validate demos/create-project.yaml\n  soredemo render demos/create-project.yaml --out output/create-project.mp4\n\nDocumentation: https://github.com/soredemo-dev/soredemo#readme\n`,
+    );
     return EXIT_SUCCESS;
   }
 
   if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-v')) {
-    process.stdout.write(`${packageVersion()}\n`);
+    process.stdout.write(`${metadata.version}\n`);
+    return EXIT_SUCCESS;
+  }
+
+  if (
+    argv.length === 2 &&
+    (argv[1] === '--help' || argv[1] === '-h') &&
+    (argv[0] === 'validate' || argv[0] === 'render' || argv[0] === 'doctor')
+  ) {
+    const usage =
+      argv[0] === 'validate'
+        ? await renderUsage((await import('./commands/validate.js')).default)
+        : argv[0] === 'render'
+          ? await renderUsage((await import('./commands/render.js')).default)
+          : await renderUsage((await import('./commands/doctor.js')).default);
+    process.stdout.write(`${usage}\n`);
     return EXIT_SUCCESS;
   }
 
