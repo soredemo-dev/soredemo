@@ -109,7 +109,7 @@ async function createPack(destination: string): Promise<{ tarball: string; dryRu
 }
 
 async function runSignalGate(): Promise<void> {
-  const server = await startFixtureServer(4173, resolve('test/fixtures/web-app'));
+  const server = await fixtureServer();
   try {
     await pnpm(['gate:signals']);
   } finally {
@@ -118,7 +118,7 @@ async function runSignalGate(): Promise<void> {
 }
 
 async function runPublicFailureGate(): Promise<Record<string, unknown>> {
-  const server = await startFixtureServer(4173, resolve('test/fixtures/web-app'));
+  const server = await fixtureServer();
   try {
     const output = resolve(checkRoot, 'should-not-exist.mp4');
     const result = await command(
@@ -140,6 +140,25 @@ async function runPublicFailureGate(): Promise<Record<string, unknown>> {
     return parsed;
   } finally {
     await server.close();
+  }
+}
+
+async function fixtureServer(): Promise<{ close(): Promise<void> }> {
+  try {
+    return await startFixtureServer(4173, resolve('test/fixtures/web-app'));
+  } catch (error) {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('code' in error) ||
+      (error as { code?: unknown }).code !== 'EADDRINUSE'
+    )
+      throw error;
+    const response = await fetch('http://127.0.0.1:4173/');
+    const body = await response.text();
+    if (!response.ok || !body.includes('data-testid="demo-ready"'))
+      throw new Error('Port 4173 is occupied by something other than the Soredemo fixture');
+    return { close: async () => undefined };
   }
 }
 
