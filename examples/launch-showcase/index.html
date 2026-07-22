@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Northstar project workspace</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="capture-probe" data-capture-probe aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Northstar home">
+        <span class="brand-mark" aria-hidden="true">N</span>
+        <span>Northstar</span>
+      </a>
+      <nav aria-label="Workspace navigation">
+        <span class="nav-item active">Projects</span>
+        <span class="nav-item">Activity</span>
+        <span class="avatar" role="img" aria-label="Signed in as Demo User">DU</span>
+      </nav>
+    </header>
+
+    <main data-testid="demo-ready">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Product workspace</p>
+          <h1 id="page-title">Bring the next idea into focus.</h1>
+          <p class="lede">
+            Plan a launch, align a team, and keep the work moving from one calm workspace.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button class="secondary explore" type="button" data-testid="explore-automation">
+            <span class="spark" aria-hidden="true">✦</span>
+            Explore automation
+          </button>
+          <button class="primary" type="button" data-testid="new-project">Create project</button>
+        </div>
+      </section>
+
+      <section class="overview" aria-label="Workspace overview">
+        <article>
+          <span class="metric-label">Active projects</span>
+          <strong>12</strong>
+          <span class="trend">+3 this month</span>
+        </article>
+        <article>
+          <span class="metric-label">On track</span>
+          <strong>94%</strong>
+          <span class="trend">Healthy momentum</span>
+        </article>
+        <article>
+          <span class="metric-label">Next milestone</span>
+          <strong>Friday</strong>
+          <span class="trend">Launch review</span>
+        </article>
+      </section>
+
+      <section id="project-panel" class="project-panel" aria-labelledby="project-heading" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">New project</p>
+            <h2 id="project-heading">Shape the next launch</h2>
+          </div>
+          <span class="step-pill">1 of 1</span>
+        </div>
+        <form id="project-form">
+          <label for="project-name">Project name</label>
+          <input
+            id="project-name"
+            name="project-name"
+            autocomplete="off"
+            placeholder="For example, Aurora"
+          />
+          <fieldset class="template-row" aria-label="Selected template">
+            <span class="template-icon" aria-hidden="true">↗</span>
+            <span><strong>Product launch</strong><small>Milestones, briefs, and reviews</small></span>
+            <span class="selected-mark" aria-hidden="true">✓</span>
+          </fieldset>
+          <button class="primary create" type="submit" data-testid="create-project">
+            Create project
+          </button>
+        </form>
+      </section>
+
+      <section id="created" class="created" data-testid="project-created" hidden>
+        <span class="success-mark" aria-hidden="true">✓</span>
+        <div>
+          <p class="eyebrow">Ready to go</p>
+          <h2><span id="created-name">Aurora</span> is ready for the team.</h2>
+          <p>Your launch workspace now has a brief, timeline, and review milestones.</p>
+        </div>
+      </section>
+
+      <section class="project-list" aria-labelledby="recent-heading">
+        <div class="section-title">
+          <h2 id="recent-heading">Recent projects</h2>
+          <span>Updated today</span>
+        </div>
+        <div class="project-grid">
+          <article><span class="project-dot violet"></span><strong>Atlas refresh</strong><small>8 tasks</small></article>
+          <article><span class="project-dot blue"></span><strong>Mobile onboarding</strong><small>14 tasks</small></article>
+          <article><span class="project-dot cyan"></span><strong>Research sprint</strong><small>6 tasks</small></article>
+        </div>
+      </section>
+
+      <section id="completion" class="completion" data-testid="launch-complete" hidden>
+        <p class="eyebrow">Project created</p>
+        <h1>Every launch starts with a clear next step.</h1>
+        <p>Northstar has prepared the Aurora workspace for your team.</p>
+        <div class="completion-card">
+          <span class="success-mark" aria-hidden="true">✓</span>
+          <div><strong>Aurora</strong><small>Product launch · Ready</small></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

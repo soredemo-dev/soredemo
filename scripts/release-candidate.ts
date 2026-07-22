@@ -184,6 +184,7 @@ async function check(): Promise<void> {
   const doctorResult = await command('corepack', ['pnpm', 'soredemo', 'doctor', '--json']);
   const goldenResult = await command('corepack', ['pnpm', 'golden:verify'], { stream: true });
   const liveResult = await command('corepack', ['pnpm', 'live-visual:verify'], { stream: true });
+  const launchResult = await command('corepack', ['pnpm', 'launch:verify'], { stream: true });
   await runSignalGate();
   const failedRender = await runPublicFailureGate();
   const licenses = await command('corepack', ['pnpm', 'licenses', 'list', '--prod', '--json']);
@@ -204,6 +205,7 @@ async function check(): Promise<void> {
     doctor: structuredOutput(doctorResult.stdout),
     golden: structuredOutput(goldenResult.stdout),
     liveVisual: structuredOutput(liveResult.stdout),
+    launchDemo: structuredOutput(launchResult.stdout),
     packageAudit,
     cleanInstall,
     failedRender,
@@ -299,6 +301,7 @@ async function pack(): Promise<void> {
       doctor: true,
       exactGolden: true,
       liveVisual: true,
+      launchDemo: true,
       packageInspection: true,
       cleanInstall: true,
       packedRender: true,
@@ -326,7 +329,7 @@ async function pack(): Promise<void> {
     ),
     writeFile(
       resolve(candidateRoot, 'release-check.md'),
-      `# Soredemo ${packageJson.version} release candidate\n\nAll source, visual-authority, package, isolated-browser-cache, packed-render, failure, and signal gates passed for \`${commit}\`. No npm publication, Git tag, or GitHub Release was created.\n`,
+      `# Soredemo ${packageJson.version} release candidate\n\nAll source, visual-authority, public launch-demo, package, isolated-browser-cache, packed-render, failure, and signal gates passed for \`${commit}\`. No npm publication, Git tag, or GitHub Release was created.\n`,
     ),
   ]);
   process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);

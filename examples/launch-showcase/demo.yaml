@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=../../schema/soredemo.schema.json
+version: 1
+name: northstar-project-launch
+url: http://127.0.0.1:4184/
+
+intent:
+  goal: Create a polished product launch workspace
+  audience: Product teams
+  success: The completed Aurora workspace is visible
+  targetDurationMs: 14000
+
+style:
+  preset: studio
+  pace: balanced
+  seed: 14
+
+actions:
+  - action: wait
+    until:
+      visible:
+        testId: demo-ready
+    timeoutMs: 5000
+    settleMs: 300
+
+  - action: moveTo
+    target:
+      testId: explore-automation
+
+  - action: click
+    target:
+      testId: new-project
+    emphasis: primary
+
+  - action: scrollTo
+    target:
+      label: Project name
+    durationMs: 700
+
+  - action: type
+    target:
+      label: Project name
+    text: Aurora
+
+  - action: click
+    target:
+      testId: create-project
+    emphasis: primary
+
+  - action: wait
+    until:
+      visible:
+        testId: project-created
+    timeoutMs: 5000
+    settleMs: 400
+
+  - action: goto
+    url: http://127.0.0.1:4184/complete
+
+  - action: wait
+    until:
+      visible:
+        testId: launch-complete
+    timeoutMs: 5000
+    settleMs: 300
+
+  - action: wait
+    durationMs: 700
