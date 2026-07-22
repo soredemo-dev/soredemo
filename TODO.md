@@ -224,7 +224,7 @@
 - [x] Add schema-verified public-alpha quickstart and support/privacy documentation.
 - [x] Add allowlisted package inventory, text secret/path scan, and executable/shebang checks.
 - [x] Add non-publishing `release:check` and `release:pack` candidate workflows.
-- [ ] Complete the isolated empty-browser-cache install, packed render, and final release-candidate manifest.
+- [x] Complete the isolated empty-browser-cache install, packed render, and final release-candidate manifest.
 
 ## Session notes
 
@@ -277,3 +277,5 @@
 - A controlled SIGINT preserved an aborted run manifest, published no output, left no partial MP4, and left no Chromium or FFmpeg child process.
 - Focused workspace tests verify default success cleanup and restrict stale-partial removal to old encoder-owned names inside the active run directory.
 - One disposable interruption attempt observed a 9.548 ms backward CDP timestamp. The run failed loudly under the existing artifact contract; no timing correction or receive-time fallback was introduced.
+- The Day-13 empty-cache onboarding gate installed Playwright Chromium revision 1228 explicitly, then passed packed doctor, validation, full render, and missing-target recovery from a project path containing spaces. Package installation itself created no workspace or media file.
+- The `soredemo@0.1.0-alpha.0` candidate contains 102 allowlisted files and no tests, fixtures, goldens, source maps, captures, diagnostics, media, maintainer scripts, absolute developer paths, or credential-like text. No registry mutation, tag, or GitHub Release was created.
