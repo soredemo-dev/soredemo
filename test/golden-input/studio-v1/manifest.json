@@ -1,0 +1,17 @@
+{
+  "files": {
+    "camera-track.json": "efc3bfa7990a272aa1cea0f64a370df1f3c03e416428d82ff8e3970acca07ef6",
+    "resample-plan.jsonl": "dbbbff45f53d00025dc7b641ec8708ddfa43a115bf6b86249a1acf8c49d949e4",
+    "source-frames/establish.png": "89f2e9b29da04c9980919afb31443360117a7f86fb4ac5792265e87b1816e0d7",
+    "source-frames/form.png": "30bc3ffddd875d2200f730d8ebc983aa0c81f8d4300c7342ba07cc9b17f58af3",
+    "source-frames/hover.png": "03a0bf4be26b3a116e5ba6a2b2757c19e8be7cfb456e048ffd59bdceba59b863",
+    "source-frames/result.png": "3b6cbf3eecf33a179ae88b23ef38ea2e7af648abe18da239825fd0215622e7f8",
+    "source-frames/scrolled.png": "1b3cd1091bcedcdee8cf38387ae16dfe8e744da98af36c8dca99da8fac896278",
+    "timeline.json": "71f8e4919000a7d66b6d82450d7523768c998bc0716621a4f39278fae579ca31"
+  },
+  "frameCount": 121,
+  "outputFps": 30,
+  "schemaVersion": 1,
+  "sourceHeight": 1800,
+  "sourceWidth": 2880
+}

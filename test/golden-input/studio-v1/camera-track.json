@@ -1,0 +1,43 @@
+{
+  "durationMs": 4000,
+  "viewport": { "width": 1440, "height": 900 },
+  "segments": [
+    {
+      "id": "camera-establish",
+      "phase": "establish",
+      "startMs": 0,
+      "endMs": 300,
+      "state": { "zoom": 1, "centerCssX": 720, "centerCssY": 450 }
+    },
+    {
+      "id": "camera-transition-001",
+      "phase": "transition",
+      "clickId": "move-to-edge",
+      "startMs": 300,
+      "endMs": 900,
+      "from": { "zoom": 1, "centerCssX": 720, "centerCssY": 450 },
+      "to": { "zoom": 1.25, "centerCssX": 864, "centerCssY": 360 },
+      "compressed": false
+    },
+    {
+      "id": "camera-hold-final",
+      "phase": "hold",
+      "startMs": 900,
+      "endMs": 4000,
+      "state": { "zoom": 1.25, "centerCssX": 864, "centerCssY": 360 },
+      "clickId": "move-to-edge"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "camera-transition-001",
+      "phase": "transition",
+      "clickId": "move-to-edge",
+      "startMs": 300,
+      "endMs": 900,
+      "from": { "zoom": 1, "centerCssX": 720, "centerCssY": 450 },
+      "to": { "zoom": 1.25, "centerCssX": 864, "centerCssY": 360 },
+      "compressed": false
+    }
+  ]
+}

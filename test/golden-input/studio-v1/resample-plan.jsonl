@@ -1,0 +1,13 @@
+{"outputIndex":0,"outputTimestampMs":0,"sourceIndex":1,"sourceFile":"source-frames/establish.png","sourceTimestampMs":0,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":9,"outputTimestampMs":300,"sourceIndex":1,"sourceFile":"source-frames/establish.png","sourceTimestampMs":300,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":15,"outputTimestampMs":500,"sourceIndex":2,"sourceFile":"source-frames/hover.png","sourceTimestampMs":500,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":18,"outputTimestampMs":600,"sourceIndex":2,"sourceFile":"source-frames/hover.png","sourceTimestampMs":600,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":27,"outputTimestampMs":900,"sourceIndex":2,"sourceFile":"source-frames/hover.png","sourceTimestampMs":900,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":30,"outputTimestampMs":1000,"sourceIndex":2,"sourceFile":"source-frames/hover.png","sourceTimestampMs":1000,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":39,"outputTimestampMs":1300,"sourceIndex":3,"sourceFile":"source-frames/form.png","sourceTimestampMs":1300,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":43,"outputTimestampMs":1433.3333333333333,"sourceIndex":3,"sourceFile":"source-frames/form.png","sourceTimestampMs":1433.3333333333333,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":47,"outputTimestampMs":1566.6666666666667,"sourceIndex":3,"sourceFile":"source-frames/form.png","sourceTimestampMs":1566.6666666666667,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":66,"outputTimestampMs":2200,"sourceIndex":4,"sourceFile":"source-frames/scrolled.png","sourceTimestampMs":2200,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":87,"outputTimestampMs":2900,"sourceIndex":5,"sourceFile":"source-frames/result.png","sourceTimestampMs":2900,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":90,"outputTimestampMs":3000,"sourceIndex":5,"sourceFile":"source-frames/result.png","sourceTimestampMs":3000,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}
+{"outputIndex":120,"outputTimestampMs":4000,"sourceIndex":5,"sourceFile":"source-frames/result.png","sourceTimestampMs":4000,"signedSourceDeltaMs":0,"absoluteSourceDeltaMs":0,"relation":"exact"}

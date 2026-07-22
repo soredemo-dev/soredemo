@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "id": "move-to-edge",
+      "actionIndex": 0,
+      "kind": "moveTo",
+      "startMs": 100,
+      "endMs": 1000,
+      "target": { "strategy": "testId", "value": { "testId": "edge-target" } },
+      "targetBboxAtPathStart": { "x": 1200, "y": 240, "width": 160, "height": 60 },
+      "targetBboxAtCommit": { "x": 1190, "y": 230, "width": 180, "height": 80 },
+      "destinationPoint": { "x": 1280, "y": 270 },
+      "cursorPath": [
+        { "x": 720, "y": 450, "timeMs": 100 },
+        { "x": 940, "y": 330, "timeMs": 500 },
+        { "x": 1280, "y": 270, "timeMs": 950 }
+      ],
+      "pointerEnterObserved": true
+    },
+    {
+      "id": "click-centered",
+      "actionIndex": 1,
+      "kind": "click",
+      "startMs": 1050,
+      "endMs": 1320,
+      "target": { "strategy": "testId", "value": { "testId": "center-target" } },
+      "targetBboxAtPathStart": { "x": 650, "y": 400, "width": 140, "height": 60 },
+      "targetBboxAtCommit": { "x": 645, "y": 395, "width": 150, "height": 70 },
+      "clickPoint": { "x": 720, "y": 430 },
+      "cursorPath": [
+        { "x": 1280, "y": 270, "timeMs": 1050 },
+        { "x": 950, "y": 350, "timeMs": 1150 },
+        { "x": 720, "y": 430, "timeMs": 1250 }
+      ],
+      "mouseDownMs": 1300,
+      "mouseUpMs": 1320
+    },
+    {
+      "id": "type-focus-form",
+      "actionIndex": 2,
+      "kind": "type",
+      "startMs": 1600,
+      "endMs": 2300,
+      "target": { "strategy": "label", "value": { "label": "Project name" } },
+      "targetBboxAtCommit": { "x": 430, "y": 600, "width": 580, "height": 60 },
+      "focusPoint": { "x": 720, "y": 630 },
+      "cursorPath": [
+        { "x": 720, "y": 430, "timeMs": 1600 },
+        { "x": 700, "y": 520, "timeMs": 1850 },
+        { "x": 720, "y": 630, "timeMs": 2100 }
+      ],
+      "focusMs": 2100,
+      "focusVerified": true,
+      "textLength": 8,
+      "clearedExistingValue": true,
+      "perCharacterDelayMs": 32,
+      "redacted": false
+    },
+    {
+      "id": "click-lower-edge",
+      "actionIndex": 3,
+      "kind": "click",
+      "startMs": 2400,
+      "endMs": 2920,
+      "target": { "strategy": "testId", "value": { "testId": "lower-edge-target" } },
+      "targetBboxAtPathStart": { "x": 80, "y": 690, "width": 160, "height": 60 },
+      "targetBboxAtCommit": { "x": 75, "y": 685, "width": 170, "height": 70 },
+      "clickPoint": { "x": 160, "y": 720 },
+      "cursorPath": [
+        { "x": 720, "y": 630, "timeMs": 2400 },
+        { "x": 420, "y": 680, "timeMs": 2600 },
+        { "x": 160, "y": 720, "timeMs": 2800 }
+      ],
+      "mouseDownMs": 2900,
+      "mouseUpMs": 2920
+    }
+  ]
+}
