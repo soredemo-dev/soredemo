@@ -226,6 +226,18 @@
 - [x] Add non-publishing `release:check` and `release:pack` candidate workflows.
 - [x] Complete the isolated empty-browser-cache install, packed render, and final release-candidate manifest.
 
+## Day 14 status
+
+- [x] Push and verify the approved Day-13 checkpoint before launch preparation.
+- [x] Verify npm and GitHub authentication without exposing credentials.
+- [x] Add reviewed prerelease notes for `v0.1.0-alpha.0`.
+- [x] Add a repository-owned, synthetic launch showcase covering all six actions.
+- [x] Render and validate the public-safe launch MP4 and poster through the production CLI.
+- [ ] Run the complete final release and registry-install rehearsal gates.
+- [ ] Commit and push all Phase-A source changes.
+- [ ] Present the immutable candidate and stop for exact publication approval.
+- [ ] Publish, tag, and create the prerelease only after explicit Phase-B approval.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.

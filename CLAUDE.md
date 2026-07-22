@@ -18,6 +18,7 @@ pnpm spike:day3
 pnpm spike:day4 -- <capture-dir>
 pnpm golden:verify
 pnpm live-visual:verify
+pnpm launch:verify
 pnpm docs:verify
 pnpm release:check
 pnpm release:pack
@@ -69,5 +70,6 @@ pnpm release:pack
 - Failure screenshots and preserved render artifacts stay local and may contain private application data. Never upload them or include them in npm packages.
 - Exact visual goldens use only canonical compositor inputs and the named macOS arm64 Canvas profile. Live public renders are structurally reproducible, not byte-identical; never introduce a deterministic capture path to make live hashes stable.
 - Public-alpha release checks are local and non-publishing. `release:check` and `release:pack` must never publish, tag, push, create a GitHub Release, download a browser during package installation, or broaden the package allowlist.
+- Public release work has a mandatory two-phase boundary: prepare and review an exact tarball first, then require the active-session approval phrase for npm publication, tag push, and GitHub prerelease creation. Never infer publication approval.
 
 The accepted architectural decisions are in `docs/adr/`. Do not relitigate them during implementation.

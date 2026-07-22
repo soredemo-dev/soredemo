@@ -7,3 +7,7 @@ The first candidate is `soredemo@0.1.0-alpha.0`. It is a CLI-only product contra
 The npm name checkpoint is read-only. The candidate is installed from its tarball into an isolated project, including a parent path containing spaces. Installation has no Soredemo network or media side effect. Chromium installation is a separate explicit onboarding step.
 
 The support boundary and known limitations are summarized in the README and CHANGELOG. This candidate is for review; it is not a stable release.
+
+Day-14 publication is deliberately split. Phase A may prepare documentation, render the repository-owned launch showcase, run all release gates, build the reviewed tarball, and push source commits. It must stop before public mutation. Phase B may publish the exact reviewed tarball under the `alpha` dist-tag, push the annotated tag, and create the GitHub prerelease only after the exact approval phrase `APPROVE PUBLISH 0.1.0-alpha.0` is received in the active session.
+
+The public launch video uses only the synthetic Northstar application under `examples/launch-showcase`. The generated MP4, poster, checksums, and manifests remain ignored release artifacts; captures and diagnostic workspaces are never attached to a public release.

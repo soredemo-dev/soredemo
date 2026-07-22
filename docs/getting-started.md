@@ -3,7 +3,7 @@
 The public alpha is verified on macOS arm64 with Node.js 20.19.4. Install Soredemo into a clean project, install its matching Chromium revision explicitly, and check external prerequisites:
 
 ```bash
-npm install --save-dev soredemo
+npm install --save-dev soredemo@alpha
 npx playwright install chromium
 npx soredemo doctor
 ```

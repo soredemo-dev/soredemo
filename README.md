@@ -19,12 +19,12 @@ Audio, webcam, authentication profiles, automatic application startup, and autom
 ## Install
 
 ```bash
-npm install --save-dev soredemo
+npm install --save-dev soredemo@alpha
 npx playwright install chromium
 npx soredemo doctor
 ```
 
-Until the first npm publication, install the reviewed release-candidate tarball in place of `soredemo`.
+Release-candidate reviewers can install the generated tarball in place of `soredemo@alpha` without contacting the registry.
 
 Soredemo never downloads Chromium or FFmpeg during `npm install`. `npx playwright install chromium` resolves the Playwright version installed alongside Soredemo. FFmpeg remains a separately installed system executable; set `SOREDEMO_FFMPEG_PATH` to choose one explicitly.
 
