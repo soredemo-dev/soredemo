@@ -18,6 +18,9 @@ pnpm spike:day3
 pnpm spike:day4 -- <capture-dir>
 pnpm golden:verify
 pnpm live-visual:verify
+pnpm docs:verify
+pnpm release:check
+pnpm release:pack
 ```
 
 ## Source boundaries
@@ -65,5 +68,6 @@ pnpm live-visual:verify
 - Do not implement frame resampling, canvas composition, camera movement, or FFmpeg encoding before their planned phases.
 - Failure screenshots and preserved render artifacts stay local and may contain private application data. Never upload them or include them in npm packages.
 - Exact visual goldens use only canonical compositor inputs and the named macOS arm64 Canvas profile. Live public renders are structurally reproducible, not byte-identical; never introduce a deterministic capture path to make live hashes stable.
+- Public-alpha release checks are local and non-publishing. `release:check` and `release:pack` must never publish, tag, push, create a GitHub Release, download a browser during package installation, or broaden the package allowlist.
 
 The accepted architectural decisions are in `docs/adr/`. Do not relitigate them during implementation.

@@ -331,3 +331,11 @@ The public pipeline writes capture and resample artifacts into an isolated Sored
 Private-alpha renders use one stable product error model and the administrative stages `validating`, `preflight`, `launching-browser`, `preparing-page`, `capturing`, `resampling`, `composing`, `encoding`, `validating-output`, `publishing-output`, and `cleaning-up`. Stage wall-clock values never participate in media timing. Every run manifest ends as completed, failed, or aborted. Failures preserve `diagnostics/error.json` and at most one viewport screenshot from the first failed action. Screenshots remain local and may contain private application data.
 
 `--json` emits exactly one final stdout value; human operational output and verbose diagnostics use stderr. `--quiet` suppresses stages while retaining material warnings, errors, and the final result. `soredemo doctor` checks Node, system FFmpeg and FFprobe, libx264, the pinned Chromium revision, Canvas native loading, the cursor asset, and workspace writability without running a full render.
+
+## Public-alpha package boundary
+
+The first reviewable package is `soredemo@0.1.0-alpha.0`. Its supported product interface is the installed CLI, Demo Plan schema, cursor asset, and documentation; compositor and capture modules are not a promised JavaScript library API. The alpha runtime range is Node.js `>=20.19.4 <21`, enforced before heavy imports.
+
+The npm package never downloads Chromium or FFmpeg during installation. Users explicitly run `npx playwright install chromium` for the Playwright version installed with Soredemo and provide a compatible system FFmpeg/FFprobe build with libx264. Missing Chromium is distinguished from browser launch failure and reports the pinned revision, expected executable, active `PLAYWRIGHT_BROWSERS_PATH`, and installation command.
+
+Package creation is allowlist-oriented. Shipped content is limited to compiled production code, schema, cursor asset, package metadata, license, README, and changelog. Test fixtures, visual goldens, captures, diagnostics, maintainer scripts, source maps, MP4s, and local paths are excluded and scanned before release-candidate approval. Release commands create only ignored review artifacts; they do not publish, tag, push, or mutate registry state.

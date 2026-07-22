@@ -16,10 +16,14 @@ Failure screenshots and captured frames may contain private application data. Th
 
 Common codes:
 
+- `UNSUPPORTED_NODE_VERSION` is emitted before the CLI framework or rendering dependencies load. Use Node.js 20.19.4 or a later Node 20 patch; Node 21 and later are outside the verified alpha range.
+- `CHROMIUM_NOT_INSTALLED` means the Playwright-managed executable is absent from the active browser cache. From the project containing Soredemo, run `npx playwright install chromium`. If `PLAYWRIGHT_BROWSERS_PATH` is set, installation and execution must use the same value.
 - `TARGET_NOT_FOUND`, `TARGET_AMBIGUOUS`, `TARGET_NOT_VISIBLE`, and `TARGET_NOT_ENABLED` identify semantic-target failures. Candidate summaries contain only tag, role, accessible name, test ID, visibility, enabled state, and bbox.
 - `CAPTURE_PIXEL_SCALE_INVALID` means the CDP proof did not observe genuine 2× painting. Do not add an offset or restore `Emulation.setVisibleSize`; verify the pinned Playwright/Chromium pair and launch arguments.
 - `CAPTURE_TIMESTAMP_INVALID` means a CDP frame timestamp was non-finite or moved backward. Soredemo does not clamp, sort, drop, or replace it with receive time.
 - `CURSOR_SYNCHRONIZATION_FAILED` means a move, click, or type-focus hotspot failed its compositor landing contract.
 - `FFMPEG_NOT_FOUND`, `FFPROBE_NOT_FOUND`, and `ENCODER_CAPABILITY_MISSING` identify system-encoder preflight failures. Soredemo does not bundle or silently substitute an encoder.
+
+On the tested macOS environment, Homebrew FFmpeg 8.0 provides FFmpeg, FFprobe, and libx264. Other system installation methods are valid if `soredemo doctor` confirms the same capabilities. `SOREDEMO_FFMPEG_PATH` selects a particular executable. A libx264-enabled FFmpeg build is GPL-conditioned, and H.264 may carry separate patent considerations; this is not legal advice.
 
 On SIGINT or SIGTERM, allow cleanup to finish. The run ends as `aborted`, invalid partial MP4 files are removed, and the workspace is preserved.

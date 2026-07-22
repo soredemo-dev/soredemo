@@ -215,6 +215,17 @@
 - [x] Exclude golden inputs, goldens, candidates, diffs, captures, and video artifacts from npm.
 - [x] Document the split authority and rejection of deterministic live capture.
 
+## Day 13 status
+
+- [x] Push and verify the approved Day-12 checkpoint before release work.
+- [x] Confirm the `soredemo` npm name is currently unregistered without mutating the registry.
+- [x] Adopt the explicit `0.1.0-alpha.0` prerelease and strict Node 20 alpha range.
+- [x] Add early runtime, installed-package version, command-help, and missing-Chromium diagnostics.
+- [x] Add schema-verified public-alpha quickstart and support/privacy documentation.
+- [x] Add allowlisted package inventory, text secret/path scan, and executable/shebang checks.
+- [x] Add non-publishing `release:check` and `release:pack` candidate workflows.
+- [ ] Complete the isolated empty-browser-cache install, packed render, and final release-candidate manifest.
+
 ## Session notes
 
 - The Day-1 managed-sandbox `EPERM` was environmental: the fixture server served all local assets successfully over loopback on normal macOS, and Chromium rendered it with non-loopback requests blocked.
