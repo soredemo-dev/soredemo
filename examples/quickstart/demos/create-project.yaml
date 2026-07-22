@@ -1,0 +1,45 @@
+version: 1
+name: create-project
+url: http://127.0.0.1:3000
+
+intent:
+  goal: Show how quickly a user can create a project
+
+style:
+  preset: studio
+  pace: balanced
+
+actions:
+  - action: wait
+    until:
+      visible:
+        testId: demo-ready
+
+  - action: moveTo
+    target:
+      testId: new-project
+
+  - action: click
+    target:
+      testId: new-project
+
+  - action: type
+    target:
+      label: Project name
+    text: Soredemo
+
+  - action: scrollTo
+    target:
+      testId: create-project
+    durationMs: 700
+
+  - action: click
+    target:
+      testId: create-project
+
+  - action: wait
+    until:
+      visible:
+        testId: project-created
+    timeoutMs: 10000
+    settleMs: 200

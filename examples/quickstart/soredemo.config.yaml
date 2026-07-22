@@ -1,0 +1,16 @@
+version: 1
+
+browser:
+  viewport:
+    width: 1440
+    height: 900
+  deviceScaleFactor: 2
+
+output:
+  width: 1920
+  height: 1080
+  fps: 30
+
+defaults:
+  style: studio
+  pace: balanced
