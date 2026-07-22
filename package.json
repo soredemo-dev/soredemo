@@ -28,6 +28,11 @@
     "fixture:server": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day10-fixture-server.js",
     "gate:cursor-sync": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day10-cursor-sync-gate.js",
     "gate:signals": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day11-signal-gate.js",
+    "golden:inputs": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-inputs.js",
+    "golden:generate": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js generate",
+    "golden:verify-candidate": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js verify-candidate",
+    "golden:promote": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js promote",
+    "golden:verify": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js verify",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -1,0 +1,458 @@
+{
+  "authority": "exact-synthetic-compositor",
+  "canonicalInputs": {
+    "camera-track.json": "efc3bfa7990a272aa1cea0f64a370df1f3c03e416428d82ff8e3970acca07ef6",
+    "manifest.json#configuration": "149a1fda0c9389a5243bda8ba783767b85e5ef8a005e8214e8b83099b618af9c",
+    "resample-plan.jsonl": "dbbbff45f53d00025dc7b641ec8708ddfa43a115bf6b86249a1acf8c49d949e4",
+    "source-frames/establish.png": "89f2e9b29da04c9980919afb31443360117a7f86fb4ac5792265e87b1816e0d7",
+    "source-frames/form.png": "30bc3ffddd875d2200f730d8ebc983aa0c81f8d4300c7342ba07cc9b17f58af3",
+    "source-frames/hover.png": "03a0bf4be26b3a116e5ba6a2b2757c19e8be7cfb456e048ffd59bdceba59b863",
+    "source-frames/result.png": "3b6cbf3eecf33a179ae88b23ef38ea2e7af648abe18da239825fd0215622e7f8",
+    "source-frames/scrolled.png": "1b3cd1091bcedcdee8cf38387ae16dfe8e744da98af36c8dca99da8fac896278",
+    "timeline.json": "71f8e4919000a7d66b6d82450d7523768c998bc0716621a4f39278fae579ca31"
+  },
+  "frames": [
+    {
+      "camera": {
+        "centerCssX": 720,
+        "centerCssY": 450,
+        "phase": "establish",
+        "segmentId": "camera-establish",
+        "zoom": 1
+      },
+      "cursor": {
+        "interpolation": "hidden",
+        "visible": false
+      },
+      "file": "frames/establish.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 0,
+      "outputTimestampMs": 0,
+      "pngSha256": "1939afb9a5131009c6c3bf6ab7c6f6f214c31d561d281d34c2e8bb3da73e0afc",
+      "purpose": "establish",
+      "rgbaSha256": "60660c2add77f62e1f6d74d38a91e783e16edfb3e905317a05f4266a9352f4c0",
+      "ripples": [],
+      "sourceFile": "source-frames/establish.png",
+      "sourceIndex": 1,
+      "sourceTimestampMs": 0
+    },
+    {
+      "camera": {
+        "centerCssX": 720,
+        "centerCssY": 450,
+        "phase": "transition",
+        "segmentId": "camera-transition-001",
+        "zoom": 1
+      },
+      "cursor": {
+        "interpolation": "linear",
+        "screenHotspotX": 1070,
+        "screenHotspotY": 506,
+        "visible": true
+      },
+      "file": "frames/camera-transition-start.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 9,
+      "outputTimestampMs": 300,
+      "pngSha256": "c712e8e98e2d2f2870315545bceae0374dab0efe4cb8683f1970bfed6baad0f3",
+      "purpose": "camera-transition-start",
+      "rgbaSha256": "1dc96d98fcff05861789a36e5405d8c509da03826530f5193d54091f3daaf39a",
+      "ripples": [],
+      "sourceFile": "source-frames/establish.png",
+      "sourceIndex": 1,
+      "sourceTimestampMs": 300
+    },
+    {
+      "camera": {
+        "centerCssX": 844.807498543383,
+        "centerCssY": 371.9953134103857,
+        "phase": "transition",
+        "segmentId": "camera-transition-001",
+        "zoom": 1.216679684971151
+      },
+      "cursor": {
+        "interpolation": "exact",
+        "screenHotspotX": 1075.8187826838525,
+        "screenHotspotY": 514.9051553095871,
+        "visible": true
+      },
+      "file": "frames/move-to-interpolation.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 15,
+      "outputTimestampMs": 500,
+      "pngSha256": "30a7f8e6079846d3a233224426a7c41593c31a3ef9e08cb019b8344da0abcf4a",
+      "purpose": "move-to-interpolation",
+      "rgbaSha256": "d829ff19dffb1b1b60310e55e933996f765890243ee45c5ea3c8f8dc977d9204",
+      "ripples": [],
+      "sourceFile": "source-frames/hover.png",
+      "sourceIndex": 2,
+      "sourceTimestampMs": 500
+    },
+    {
+      "camera": {
+        "centerCssX": 858.4390868838218,
+        "centerCssY": 363.4755706976114,
+        "phase": "transition",
+        "segmentId": "camera-transition-001",
+        "zoom": 1.2403456369510795
+      },
+      "cursor": {
+        "interpolation": "linear",
+        "screenHotspotX": 1154.8787264101459,
+        "screenHotspotY": 507.94078011475597,
+        "visible": true
+      },
+      "file": "frames/camera-transition-midpoint.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 18,
+      "outputTimestampMs": 600,
+      "pngSha256": "606e06931b539cdcf70e4c0a9f4105cb6ed6f82b625d2b4712983f754da0e90d",
+      "purpose": "camera-transition-midpoint",
+      "rgbaSha256": "05a678306879100fca159adcf83392c5a69e28092234eaf905293a0530cf6eb8",
+      "ripples": [],
+      "sourceFile": "source-frames/hover.png",
+      "sourceIndex": 2,
+      "sourceTimestampMs": 600
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "linear",
+        "screenHotspotX": 1432.7777777777776,
+        "screenHotspotY": 461.83333333333337,
+        "visible": true
+      },
+      "file": "frames/camera-transition-completion.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 27,
+      "outputTimestampMs": 900,
+      "pngSha256": "d7789969b1eba837a02ecc349cac1f55d1f4e80f4a38065cd93806cf49dd19ef",
+      "purpose": "camera-transition-completion",
+      "rgbaSha256": "98a7298a1287feae96039c52e8e7e1cb567b81d6c166e8fba17425c64d599a80",
+      "ripples": [],
+      "sourceFile": "source-frames/hover.png",
+      "sourceIndex": 2,
+      "sourceTimestampMs": 900
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 1480,
+        "screenHotspotY": 453.5,
+        "visible": true
+      },
+      "file": "frames/move-to-landing.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 30,
+      "outputTimestampMs": 1000,
+      "pngSha256": "a3736be2633e303de23df2d68b94529db1bac0a9157cd0287572611b1f1dc1da",
+      "purpose": "move-to-landing",
+      "rgbaSha256": "c8777205824e30d4eceeccfefb6d9b43607be165675b2e58d80d9efe1779ed76",
+      "ripples": [],
+      "sourceFile": "source-frames/hover.png",
+      "sourceIndex": 2,
+      "sourceTimestampMs": 1000
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 780,
+        "screenHotspotY": 653.5,
+        "visible": true
+      },
+      "file": "frames/click-ripple-start.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 39,
+      "outputTimestampMs": 1300,
+      "pngSha256": "229a5176d69f51f15939ece92d1e9f857a66ee9f96f10c636bda4f9552f3b476",
+      "purpose": "click-ripple-start",
+      "rgbaSha256": "154253bf9d54edf8032296fd65980208085e461f358c2abed4fba180142b0bb0",
+      "ripples": [
+        {
+          "clickId": "click-centered",
+          "opacity": 0.55,
+          "progress": 0,
+          "radius": 3
+        }
+      ],
+      "sourceFile": "source-frames/form.png",
+      "sourceIndex": 3,
+      "sourceTimestampMs": 1300
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 780,
+        "screenHotspotY": 653.5,
+        "visible": true
+      },
+      "file": "frames/click-ripple-midpoint.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 43,
+      "outputTimestampMs": 1433.3333333333333,
+      "pngSha256": "994d11f15ee691f9a92dacd7a1e9cb4f3caa968d1dd79338961c5409e6872774",
+      "purpose": "click-ripple-midpoint",
+      "rgbaSha256": "61b6bf5ab48e1899751986483525a1a6dd2c1ddd3c83aef5f85577d027fe21b9",
+      "ripples": [
+        {
+          "clickId": "click-centered",
+          "opacity": 0.019145535172385153,
+          "progress": 0.5128205128205126,
+          "radius": 19.40822891285355
+        }
+      ],
+      "sourceFile": "source-frames/form.png",
+      "sourceIndex": 3,
+      "sourceTimestampMs": 1433.3333333333333
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 780,
+        "screenHotspotY": 653.5,
+        "visible": true
+      },
+      "file": "frames/click-ripple-completion.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 47,
+      "outputTimestampMs": 1566.6666666666667,
+      "pngSha256": "1ad32f073234d340842437dd2058fd8284b804e74d159653f9b31332cb849eec",
+      "purpose": "click-ripple-completion",
+      "rgbaSha256": "e34e0f8a47699eb05b86c32642b5cdda2fe84bc3e48e9bf4d0b8ad96fa9f3f81",
+      "ripples": [],
+      "sourceFile": "source-frames/form.png",
+      "sourceIndex": 3,
+      "sourceTimestampMs": 1566.6666666666667
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 780,
+        "screenHotspotY": 903.5,
+        "visible": true
+      },
+      "file": "frames/type-focus.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 66,
+      "outputTimestampMs": 2200,
+      "pngSha256": "dca5a4f7dc1c0029d48331b752ee74c9c73ef0891d68f4a8a6567949155ebcb8",
+      "purpose": "type-focus",
+      "rgbaSha256": "69c2ea65285e95cf4849e28cea0611efa5e0958acf48394cb98f2a585bdfa48e",
+      "ripples": [],
+      "sourceFile": "source-frames/scrolled.png",
+      "sourceIndex": 4,
+      "sourceTimestampMs": 2200
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 80,
+        "screenHotspotY": 1016,
+        "visible": true
+      },
+      "file": "frames/second-click.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 87,
+      "outputTimestampMs": 2900,
+      "pngSha256": "fd067c3ad9666dfc2a84d6139627349443ce32c9963745b8be5e19a5b4c59d40",
+      "purpose": "second-click",
+      "rgbaSha256": "3b6c9e8f273b7c38e5006cbd53320c5b45aec5e134ede46043d4de7895439fe6",
+      "ripples": [
+        {
+          "clickId": "click-lower-edge",
+          "opacity": 0.55,
+          "progress": 0,
+          "radius": 3
+        }
+      ],
+      "sourceFile": "source-frames/result.png",
+      "sourceIndex": 5,
+      "sourceTimestampMs": 2900
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 80,
+        "screenHotspotY": 1016,
+        "visible": true
+      },
+      "file": "frames/rounded-corner.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 90,
+      "outputTimestampMs": 3000,
+      "pngSha256": "01dee53172283a162eee502071cc132f9a3e0f6615bb0e8317987313f6f56cda",
+      "purpose": "rounded-corner",
+      "rgbaSha256": "61ea06b995e7282cf269406f125027df55ccf6ab24e803edd2bb25b3fb9dc04c",
+      "ripples": [
+        {
+          "clickId": "click-lower-edge",
+          "opacity": 0.05095161988372493,
+          "progress": 0.38461538461538464,
+          "radius": 18.425131749048504
+        }
+      ],
+      "sourceFile": "source-frames/result.png",
+      "sourceIndex": 5,
+      "sourceTimestampMs": 3000
+    },
+    {
+      "camera": {
+        "centerCssX": 864,
+        "centerCssY": 360,
+        "phase": "hold",
+        "segmentId": "camera-hold-final",
+        "zoom": 1.25
+      },
+      "cursor": {
+        "interpolation": "held",
+        "screenHotspotX": 80,
+        "screenHotspotY": 1016,
+        "visible": true
+      },
+      "file": "frames/final.png",
+      "output": {
+        "height": 1080,
+        "opaque": true,
+        "width": 1920
+      },
+      "outputIndex": 120,
+      "outputTimestampMs": 4000,
+      "pngSha256": "ae69fb247ffcef67398a7faffe1e35205f07630edb0356f0e095d960af5b4190",
+      "purpose": "final",
+      "rgbaSha256": "2b3d34833173a4af94402a68a429da081e2e004ab089dc6965533df08ea1d2e1",
+      "ripples": [],
+      "sourceFile": "source-frames/result.png",
+      "sourceIndex": 5,
+      "sourceTimestampMs": 4000
+    }
+  ],
+  "profile": {
+    "architecture": "arm64",
+    "canvasVersion": "1.0.2",
+    "cursorSvgSha256": "051c01324176fc5098a1db7de4b3fa56e83bab781836551b76cfd7201439d44c",
+    "name": "macos-arm64-canvas-1.0.2",
+    "nativeCanvasPackage": "@napi-rs/canvas-darwin-arm64@1.0.2",
+    "nodeVersion": "20.19.4",
+    "osBuild": "25F84",
+    "osVersion": "26.5.2",
+    "platform": "darwin",
+    "studioConstantsSha256": "f8324cbc5d646c14bfcbbe773275eae11d149efb58c338493f088d009b08163d"
+  },
+  "schemaVersion": 1,
+  "structuralAssertions": {
+    "borderAboveWindow": true,
+    "browserContentUsesCameraProjection": true,
+    "cursorAboveRipple": true,
+    "cursorRasterAndHotspot": true,
+    "gradientOutsideWindow": true,
+    "opaqueOutput": true,
+    "rippleAboveBrowserContent": true,
+    "roundedMaskPreventsLeakage": true,
+    "shadowOutsideWindow": true,
+    "toolbarGeometryAndColor": true,
+    "trafficLightGeometryAndColor": true
+  }
+}
