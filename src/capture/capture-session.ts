@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { arch, platform, release } from 'node:os';
 import { type Browser, type BrowserContext, chromium, type Page } from 'playwright';
+import { inspectChromiumInstallation } from '../browser/chromium-installation.js';
 import { RenderError } from '../render/errors.js';
 import { CaptureBundleWriter } from './capture-bundle-writer.js';
 import { runCdpScreencast, type ScreencastSettings } from './cdp-screencast.js';
@@ -114,6 +115,21 @@ export async function captureSession(
     maxHeight: expectedFrameDimensions.pixelHeight,
   };
   const chromiumLaunchArguments = [`--force-device-scale-factor=${deviceScaleFactor}`];
+  const chromiumInstallation = await inspectChromiumInstallation();
+  if (!chromiumInstallation.installed) {
+    throw new RenderError({
+      code: 'CHROMIUM_NOT_INSTALLED',
+      stage: 'launching-browser',
+      message: chromiumInstallation.message ?? 'Playwright Chromium is not installed',
+      details: {
+        playwrightVersion: chromiumInstallation.playwrightVersion,
+        chromiumRevision: chromiumInstallation.chromiumRevision,
+        expectedExecutablePath: chromiumInstallation.executablePath,
+        playwrightBrowsersPath: chromiumInstallation.browsersPath,
+        installCommand: chromiumInstallation.installCommand,
+      },
+    });
+  }
   const writer = await CaptureBundleWriter.create({
     outputDirectory: options.outputDirectory,
     queueLimit: options.queueLimit ?? 120,

@@ -2,10 +2,10 @@ import { constants } from 'node:fs';
 import { access, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { arch, platform, release } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCanvas } from '@napi-rs/canvas';
-import { chromium } from 'playwright';
+import { inspectChromiumInstallation } from '../browser/chromium-installation.js';
 import { loadCursorAsset } from '../compositor/cursor-asset.js';
 import { resolveExecutable, resolveFfprobe } from '../encoder/executable-resolver.js';
 import { inspectFfmpeg } from '../encoder/ffmpeg-preflight.js';
@@ -34,22 +34,16 @@ async function packageVersion(name: string): Promise<string> {
   return json.version;
 }
 
-async function chromiumRevision(): Promise<string> {
-  const packageFile = require.resolve('playwright/package.json');
-  const browsers = JSON.parse(
-    await readFile(resolve(dirname(packageFile), '../playwright-core/browsers.json'), 'utf8'),
-  ) as { browsers: Array<{ name: string; revision: string }> };
-  return browsers.browsers.find((browser) => browser.name === 'chromium')?.revision ?? 'unknown';
-}
-
 export async function runDoctor(): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const warnings: DoctorResult['warnings'] = [];
-  const nodeMajor = Number(process.versions.node.split('.')[0]);
+  const [nodeMajor, nodeMinor, nodePatch] = process.versions.node.split('.').map(Number);
   checks.push({
     name: 'node',
     required: true,
-    available: Number.isInteger(nodeMajor) && nodeMajor >= 20,
+    available:
+      nodeMajor === 20 &&
+      ((nodeMinor ?? 0) > 19 || ((nodeMinor ?? 0) === 19 && (nodePatch ?? 0) >= 4)),
     summary: `Node ${process.versions.node}`,
     details: {
       version: process.version,
@@ -115,31 +109,32 @@ export async function runDoctor(): Promise<DoctorResult> {
   }
 
   try {
-    const [playwrightVersion, revision] = await Promise.all([
-      packageVersion('playwright'),
-      chromiumRevision(),
-    ]);
-    const executable = chromium.executablePath();
-    await access(executable, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
+    const installation = await inspectChromiumInstallation();
     checks.push({
       name: 'chromium',
       required: true,
-      available: true,
-      summary: `Playwright ${playwrightVersion}, Chromium revision ${revision}`,
+      available: installation.installed,
+      summary: installation.installed
+        ? `Playwright ${installation.playwrightVersion}, Chromium revision ${installation.chromiumRevision}`
+        : (installation.message ?? 'Playwright Chromium is not installed'),
       details: {
-        playwrightVersion,
-        chromiumRevision: revision,
-        executable,
+        ...(installation.installed ? {} : { code: 'CHROMIUM_NOT_INSTALLED' }),
+        playwrightVersion: installation.playwrightVersion,
+        chromiumRevision: installation.chromiumRevision,
+        executable: installation.executablePath,
+        playwrightBrowsersPath: installation.browsersPath,
+        installCommand: installation.installCommand,
         launchArguments: ['--force-device-scale-factor=2'],
         viewport: { width: 1440, height: 900 },
         deviceScaleFactor: 2,
         captureScaleProof: 'cdp-screencast-css-color-bands',
       },
     });
-    warnings.push({
-      code: 'CAPTURE_VERSION_SENSITIVE',
-      message: 'The genuine-2x CDP capture path is pinned and verified at render startup.',
-    });
+    if (installation.installed)
+      warnings.push({
+        code: 'CAPTURE_VERSION_SENSITIVE',
+        message: 'The genuine-2x CDP capture path is pinned and verified at render startup.',
+      });
   } catch (error) {
     checks.push({
       name: 'chromium',

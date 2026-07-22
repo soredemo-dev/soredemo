@@ -16,6 +16,7 @@ describe('stable render errors', () => {
       'FFMPEG_NOT_FOUND',
       'FFPROBE_NOT_FOUND',
       'ENCODER_CAPABILITY_MISSING',
+      'CHROMIUM_NOT_INSTALLED',
       'BROWSER_LAUNCH_FAILED',
       'NAVIGATION_FAILED',
       'TARGET_NOT_FOUND',
