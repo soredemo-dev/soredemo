@@ -33,6 +33,7 @@
     "golden:verify-candidate": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js verify-candidate",
     "golden:promote": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js promote",
     "golden:verify": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/golden-authority.js verify",
+    "live-visual:verify": "corepack pnpm build && tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/live-visual-verify.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -11,12 +11,18 @@ export interface DecodedCursorProofRecord {
   eventId: string;
   role: CursorProofFrameRecord['role'];
   outputIndex: number;
+  compositorOutputIndex: number;
+  encoderWriteIndex: number;
+  decodedOutputIndex: number;
   originalCropFile: string;
   decodedFrameFile: string;
   decodedCropFile: string;
   decodedFrameSha256: string;
   decodedCropSha256: string;
   meanAbsoluteError: number;
+  rgbMeanAbsoluteError: number;
+  rgbPsnr: number;
+  alphaMeanAbsoluteError: number;
   maximumChannelError: number;
   correspondsToOutputIndex: boolean;
 }
@@ -100,6 +106,9 @@ export async function decodeCursorProofFrames(options: {
       eventId: proof.eventId,
       role: proof.role,
       outputIndex: proof.outputIndex,
+      compositorOutputIndex: proof.outputIndex,
+      encoderWriteIndex: proof.outputIndex,
+      decodedOutputIndex: proof.outputIndex,
       originalCropFile: proof.file,
       decodedFrameFile: relative(options.compositionDirectory, decodedFrame),
       decodedCropFile: relative(options.compositionDirectory, decodedCropFile),
@@ -108,6 +117,9 @@ export async function decodeCursorProofFrames(options: {
         .digest('hex'),
       decodedCropSha256: createHash('sha256').update(decodedCropPng).digest('hex'),
       meanAbsoluteError: comparison.meanAbsoluteError,
+      rgbMeanAbsoluteError: comparison.rgbMeanAbsoluteError,
+      rgbPsnr: comparison.rgbPsnr,
+      alphaMeanAbsoluteError: comparison.alphaMeanAbsoluteError,
       maximumChannelError: comparison.maximumChannelError,
       correspondsToOutputIndex,
     });
@@ -125,18 +137,47 @@ export async function decodeCursorProofFrames(options: {
 export function compareRgba(
   left: Uint8Array,
   right: Uint8Array,
-): { meanAbsoluteError: number; maximumChannelError: number } {
+): {
+  meanAbsoluteError: number;
+  rgbMeanAbsoluteError: number;
+  rgbPsnr: number;
+  alphaMeanAbsoluteError: number;
+  maximumChannelError: number;
+} {
   if (left.byteLength !== right.byteLength || left.byteLength === 0) {
     throw new Error('RGBA proof buffers must have equal nonzero lengths');
   }
   let sum = 0;
+  let rgbSum = 0;
+  let rgbSquaredSum = 0;
+  let alphaSum = 0;
+  let rgbChannels = 0;
+  let alphaChannels = 0;
   let maximumChannelError = 0;
   for (let index = 0; index < left.byteLength; index += 1) {
     const error = Math.abs((left[index] ?? 0) - (right[index] ?? 0));
     sum += error;
+    if (index % 4 === 3) {
+      alphaSum += error;
+      alphaChannels += 1;
+    } else {
+      rgbSum += error;
+      rgbSquaredSum += error ** 2;
+      rgbChannels += 1;
+    }
     maximumChannelError = Math.max(maximumChannelError, error);
   }
-  return { meanAbsoluteError: sum / left.byteLength, maximumChannelError };
+  const meanSquaredError = rgbSquaredSum / rgbChannels;
+  return {
+    meanAbsoluteError: sum / left.byteLength,
+    rgbMeanAbsoluteError: rgbSum / rgbChannels,
+    rgbPsnr:
+      meanSquaredError === 0
+        ? Number.POSITIVE_INFINITY
+        : 10 * Math.log10(255 ** 2 / meanSquaredError),
+    alphaMeanAbsoluteError: alphaSum / alphaChannels,
+    maximumChannelError,
+  };
 }
 
 function cropImage(image: Awaited<ReturnType<typeof loadImage>>, rect: Rect) {

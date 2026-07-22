@@ -37,6 +37,16 @@ export interface CursorProofFrameRecord extends CursorActionFrameSample {
   cropRect: Rect;
   file: string;
   pngSha256: string;
+  fullFrameFile: string;
+  fullFramePngSha256: string;
+  activeRipples: Array<{
+    clickId: string;
+    progress: number;
+    radius: number;
+    opacity: number;
+    screenX: number;
+    screenY: number;
+  }>;
   targetPixelEvidence: {
     sampledPixels: number;
     rgbStandardDeviation: number;
@@ -95,7 +105,10 @@ export class CursorActionAuditConsumer implements FrameConsumer {
     requests: readonly CursorActionFrameRequest[];
     delegate: FrameConsumer;
   }): Promise<CursorActionAuditConsumer> {
-    await mkdir(resolve(options.outputDirectory, 'crops', 'rgba'), { recursive: true });
+    await Promise.all([
+      mkdir(resolve(options.outputDirectory, 'crops', 'rgba'), { recursive: true }),
+      mkdir(resolve(options.outputDirectory, 'proof-frames', 'rgba'), { recursive: true }),
+    ]);
     const hashes = await open(resolve(options.outputDirectory, 'frame-hashes.jsonl'), 'wx');
     return new CursorActionAuditConsumer(
       options.outputDirectory,
@@ -214,8 +227,13 @@ export class CursorActionAuditConsumer implements FrameConsumer {
     );
     const cropRect = centeredCrop(expectedScreen, 256, 256);
     const png = this.compositor.cropPng(cropRect);
+    const fullFramePng = this.compositor.png();
     const file = `crops/rgba/${request.event.id}-${request.role}-frame-${String(frame.outputIndex).padStart(6, '0')}.png`;
-    await writeFile(resolve(this.outputDirectory, file), png, { flag: 'wx' });
+    const fullFrameFile = `proof-frames/rgba/${request.event.id}-${request.role}-frame-${String(frame.outputIndex).padStart(6, '0')}.png`;
+    await Promise.all([
+      writeFile(resolve(this.outputDirectory, file), png, { flag: 'wx' }),
+      writeFile(resolve(this.outputDirectory, fullFrameFile), fullFramePng, { flag: 'wx' }),
+    ]);
     this.proofs.push({
       ...sample,
       sourceIndex: frame.sourceIndex,
@@ -234,6 +252,16 @@ export class CursorActionAuditConsumer implements FrameConsumer {
       cropRect,
       file,
       pngSha256: createHash('sha256').update(png).digest('hex'),
+      fullFrameFile,
+      fullFramePngSha256: createHash('sha256').update(fullFramePng).digest('hex'),
+      activeRipples: frame.ripples.map((ripple) => ({
+        clickId: ripple.clickId,
+        progress: ripple.progress,
+        radius: ripple.radius,
+        opacity: ripple.opacity,
+        screenX: ripple.screenX,
+        screenY: ripple.screenY,
+      })),
       targetPixelEvidence: targetPixelEvidence(frame, projectedTargetBbox, placement),
     });
     if (isLandingRole(request.event, request.role)) {
