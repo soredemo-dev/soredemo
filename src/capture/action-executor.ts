@@ -44,6 +44,8 @@ export interface ActionExecutionContext {
   signal: AbortSignal;
   pace: Pace;
   onActionFailure?: (error: RenderError) => Promise<void> | void;
+  onActionStarted?: (actionIndex: number, action: NormalizedAction) => Promise<void> | void;
+  onActionCompleted?: (event: TimelineEvent) => Promise<void> | void;
 }
 
 function now(context: ActionExecutionContext): number {
@@ -350,6 +352,7 @@ export async function executeActions(
   for (const [actionIndex, action] of actions.entries()) {
     if (context.signal.aborted) throw new Error('RENDER_ABORTED: Render was interrupted');
     try {
+      await context.onActionStarted?.(actionIndex, action);
       let event: TimelineEvent;
       if (action.action === 'moveTo') event = await executeMoveTo(context, action, actionIndex);
       else if (action.action === 'click') event = await executeClick(context, action, actionIndex);
@@ -433,6 +436,7 @@ export async function executeActions(
         };
       }
       events.push(event);
+      await context.onActionCompleted?.(event);
       await onCompleted?.(events.length);
     } catch (error) {
       const normalized = normalizeRenderError(error, {

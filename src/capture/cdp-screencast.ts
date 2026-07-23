@@ -98,6 +98,13 @@ export async function runCdpScreencast(options: {
   runDuringCapture?: (captureOriginEpochMs: number) => Promise<void>;
   tailDurationMs?: number;
   diagnosticContext?: CaptureTimestampDiagnosticContext;
+  onPreviewFrame?: (frame: {
+    captureFrameIndex: number;
+    timestampMs: number;
+    width: number;
+    height: number;
+    jpegBase64: string;
+  }) => void;
 }): Promise<CdpScreencastResult> {
   const { session, writer, durationMs, startupCalibration, settings } = options;
   let captureOriginEpochMs: number | undefined;
@@ -170,6 +177,13 @@ export async function runCdpScreencast(options: {
     if (writer.diagnostics.received === 1) resolveCaptureOrigin?.(captureOriginEpochMs);
     await session.send('Page.screencastFrameAck', { sessionId: payload.sessionId });
     writer.markAcknowledged();
+    options.onPreviewFrame?.({
+      captureFrameIndex: writer.diagnostics.received,
+      timestampMs,
+      width: settings.maxWidth,
+      height: settings.maxHeight,
+      jpegBase64: payload.data,
+    });
   }
 
   const listener = (payload: ScreencastFramePayload): void => {

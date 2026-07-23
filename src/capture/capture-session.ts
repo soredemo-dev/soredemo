@@ -47,6 +47,13 @@ export interface CaptureSessionOptions {
     event: 'browser-launched' | 'page-prepared' | 'capture-starting',
   ) => Promise<void> | void;
   onPixelScaleProof?: (proof: CapturePixelScaleProof) => Promise<void> | void;
+  onPreviewFrame?: (frame: {
+    captureFrameIndex: number;
+    timestampMs: number;
+    width: number;
+    height: number;
+    jpegBase64: string;
+  }) => void;
 }
 
 export interface CaptureSessionResult {
@@ -223,6 +230,7 @@ export async function captureSession(
         chromiumVersion: detectedChromiumVersion,
         chromiumLaunchArguments,
       },
+      ...(options.onPreviewFrame ? { onPreviewFrame: options.onPreviewFrame } : {}),
       ...(options.runDuringCapture
         ? {
             runDuringCapture: (captureOriginEpochMs: number) =>

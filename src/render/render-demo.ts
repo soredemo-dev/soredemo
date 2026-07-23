@@ -11,6 +11,7 @@ import {
   installPageInstrumentation,
   verifyPageInstrumentation,
 } from '../capture/page-instrumentation.js';
+import { describeTarget } from '../capture/target-resolver.js';
 import { writeTimeline } from '../capture/timeline-writer.js';
 import { SequentialCameraEvaluator } from '../compositor/camera-evaluator.js';
 import { projectCssPoint } from '../compositor/camera-projection.js';
@@ -76,6 +77,31 @@ export interface RenderDemoOptions {
     details?: Record<string, unknown>;
   }) => void;
   onDiagnostic?: (message: string, details?: Record<string, unknown>) => void;
+  signal?: AbortSignal;
+  onObservation?: (
+    event:
+      | {
+          type: 'action.started';
+          actionIndex: number;
+          actionKind: string;
+          targetDescription?: string;
+        }
+      | { type: 'action.completed'; actionIndex: number; actionKind: string; eventId: string }
+      | {
+          type: 'capture.preview';
+          captureFrameIndex: number;
+          timestampMs: number;
+          width: number;
+          height: number;
+          jpegBase64: string;
+        }
+      | { type: 'capture.pixelScale'; passed: boolean; proof: Record<string, unknown> }
+      | {
+          type: 'cursor.summary';
+          measurements: { moveTo: number; click: number; type: number };
+          failures: number;
+        },
+  ) => void;
 }
 
 export interface RenderDemoResult {
@@ -241,6 +267,7 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
   };
   process.once('SIGINT', abort);
   process.once('SIGTERM', abort);
+  options.signal?.addEventListener('abort', abort, { once: true });
   let completedActions = 0;
   let failureScreenshotCaptured = false;
 
@@ -346,7 +373,13 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
           `${workspace.captureDirectory}/pixel-scale-proof.json`,
           `${JSON.stringify(proof, null, 2)}\n`,
         );
+        options.onObservation?.({
+          type: 'capture.pixelScale',
+          passed: proof.passed,
+          proof: proof as unknown as Record<string, unknown>,
+        });
       },
+      onPreviewFrame: (frame) => options.onObservation?.({ type: 'capture.preview', ...frame }),
       beforePageCreation: installPageInstrumentation,
       preparePage: async (page) => {
         await hideBrowserCursor(page);
@@ -366,6 +399,28 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
             cssViewport: viewport,
             signal: abortController.signal,
             pace: options.plan.style.pace,
+            onActionStarted: async (actionIndex, action) => {
+              const target =
+                'target' in action
+                  ? describeTarget(action.target)
+                  : action.action === 'wait' && 'until' in action
+                    ? describeTarget(action.until.visible)
+                    : undefined;
+              options.onObservation?.({
+                type: 'action.started',
+                actionIndex,
+                actionKind: action.action,
+                ...(target ? { targetDescription: target } : {}),
+              });
+            },
+            onActionCompleted: async (event) => {
+              options.onObservation?.({
+                type: 'action.completed',
+                actionIndex: event.actionIndex ?? 0,
+                actionKind: event.kind,
+                eventId: event.id,
+              });
+            },
             onActionFailure: async (error) => {
               if (failureScreenshotCaptured || page.isClosed()) return;
               failureScreenshotCaptured = true;
@@ -637,6 +692,11 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
       });
       cursorAuditResult = await auditConsumer.finish();
       assertCursorSynchronization(cursorAuditResult, cursorEvents.length);
+      options.onObservation?.({
+        type: 'cursor.summary',
+        measurements: cursorAuditResult.statistics.byKind,
+        failures: cursorAuditResult.statistics.failures,
+      });
       await completeStage(
         workspace,
         options,
@@ -850,5 +910,6 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
   } finally {
     process.off('SIGINT', abort);
     process.off('SIGTERM', abort);
+    options.signal?.removeEventListener('abort', abort);
   }
 }
