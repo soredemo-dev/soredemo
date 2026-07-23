@@ -24,6 +24,10 @@ export async function loadDemoPlan(scriptPath: string): Promise<ActionPlan> {
     throw new DemoPlanSyntaxError(`Invalid YAML: ${detail}`, error);
   }
 
+  return parseDemoPlan(input);
+}
+
+export function parseDemoPlan(input: unknown): ActionPlan {
   const result = ScriptInputSchema.safeParse(input);
   if (!result.success) {
     throw new DemoPlanValidationError(result.error.issues, input);
