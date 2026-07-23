@@ -97,12 +97,14 @@ async function registryStatus(): Promise<Record<string, unknown>> {
       : [];
     if (!account || !maintainers.includes(account)) {
       throw new Error(
-        `npm package ownership could not be verified for the authenticated account: ${JSON.stringify({
-          name: packageRecord.name,
-          version: packageRecord.version,
-          maintainers,
-          account,
-        })}`,
+        `npm package ownership could not be verified for the authenticated account: ${JSON.stringify(
+          {
+            name: packageRecord.name,
+            version: packageRecord.version,
+            maintainers,
+            account,
+          },
+        )}`,
       );
     }
     return {

@@ -10,7 +10,7 @@
       "!.capture",
       "!.tmp",
       "!**/.soredemo",
-      "!schema/soredemo.schema.json"
+      "!schema/*.json"
     ]
   },
   "formatter": {

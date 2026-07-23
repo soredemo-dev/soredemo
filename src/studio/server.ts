@@ -268,7 +268,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         return;
       }
       if (request.method === 'POST' && url.pathname === '/api/agent/cancel') {
-        if (!provider) throw new StudioError('AGENT_UNAVAILABLE', 'No Agent provider is configured', 409);
+        if (!provider)
+          throw new StudioError('AGENT_UNAVAILABLE', 'No Agent provider is configured', 409);
         const input = await body(request);
         if (typeof input.conversationId !== 'string') {
           throw new StudioError('AGENT_PROPOSAL_INVALID', 'Conversation ID is required');
