@@ -207,7 +207,7 @@ async function check(): Promise<void> {
   await pnpm(['test']);
   await pnpm(['build']);
   await pnpm(['docs:verify']);
-  await command('git', ['diff', '--exit-code', '--', 'schema/soredemo.schema.json']);
+  await command('git', ['diff', '--exit-code', '--', 'schema']);
   await pnpm(['soredemo', 'validate', 'examples/demo.yaml']);
   const doctorResult = await command('corepack', ['pnpm', 'soredemo', 'doctor', '--json']);
   const goldenResult = await command('corepack', ['pnpm', 'golden:verify'], { stream: true });
@@ -333,6 +333,8 @@ async function pack(): Promise<void> {
       packageInspection: true,
       cleanInstall: true,
       packedRender: true,
+      packedStudio: true,
+      packedProof: true,
     },
     lifecycleScripts,
     packageAudit: {

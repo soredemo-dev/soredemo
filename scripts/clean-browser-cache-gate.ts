@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
-import { access, cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { load } from 'js-yaml';
 import { startFixtureServer } from '../test/fixtures/web-app/server.js';
 import { verifyLiveWorkspace } from '../test/golden-tools/live-visual.js';
 
@@ -45,6 +47,241 @@ function requireSuccess(result: RunResult, label: string): void {
 
 function json(result: RunResult): Record<string, unknown> {
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+interface PackedStudioHandle {
+  url: string;
+  close(): Promise<void>;
+}
+
+interface PackedStudioModule {
+  startStudioServer(options: Record<string, unknown>): Promise<PackedStudioHandle>;
+}
+
+async function runPackedStudioGate(
+  project: string,
+  npx: (args: string[], stream?: boolean) => Promise<RunResult>,
+): Promise<Record<string, unknown>> {
+  const installedServer = resolve(project, 'node_modules/soredemo/dist/studio/server.js');
+  const studioModule = (await import(pathToFileURL(installedServer).href)) as PackedStudioModule;
+  const plan = load(await readFile('test/fixtures/full-demo.yaml', 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  let proposed = false;
+  const fakeProvider = {
+    id: 'packed-fake-agent',
+    displayName: 'Packed acceptance Agent',
+    async checkAvailability() {
+      return {
+        available: true,
+        version: '1.0.0-test',
+        capabilities: ['structured-proposals', 'read-only'],
+      };
+    },
+    async *proposePlan(request: { conversationId: string }) {
+      proposed = true;
+      yield { type: 'agent.started', conversationId: request.conversationId };
+      yield {
+        type: 'agent.proposal',
+        proposal: {
+          schemaVersion: 1,
+          title: 'Packed Studio verified demo',
+          summary: 'Exercises Chat, approval, production capture, proof, and output.',
+          assumptions: ['The deterministic fixture is already running.'],
+          plan,
+          unresolved: [],
+          warnings: [],
+        },
+      };
+    },
+    async *revisePlan(request: { conversationId: string }) {
+      yield* this.proposePlan(request);
+    },
+    async cancel() {},
+  };
+  const studio = await studioModule.startStudioServer({
+    projectRoot: project,
+    host: '127.0.0.1',
+    port: 0,
+    agentProvider: fakeProvider,
+  });
+  try {
+    const page = await fetch(studio.url);
+    if (!page.ok) throw new Error(`Packed Studio page failed: ${page.status}`);
+    const cookie = page.headers.get('set-cookie')?.split(';', 1)[0];
+    if (!cookie) throw new Error('Packed Studio did not set its session cookie');
+    const request = async (
+      path: string,
+      options: { method?: string; body?: Record<string, unknown> } = {},
+    ): Promise<Record<string, unknown>> => {
+      const response = await fetch(`${studio.url}${path}`, {
+        method: options.method ?? 'GET',
+        headers: {
+          cookie,
+          ...(options.method && options.method !== 'GET'
+            ? { origin: studio.url, 'content-type': 'application/json' }
+            : {}),
+        },
+        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      });
+      const value = (await response.json()) as Record<string, unknown>;
+      if (!response.ok)
+        throw new Error(
+          `Packed Studio ${path} failed (${response.status}): ${JSON.stringify(value)}`,
+        );
+      return value;
+    };
+    const meta = await request('/api/meta');
+    const plans = await request('/api/plans');
+    const conversationId = '00000000-0000-4000-8000-000000000015';
+    const proposedPlan = await request('/api/agent/propose', {
+      method: 'POST',
+      body: {
+        conversationId,
+        featureRequest: 'Demonstrate the deterministic project creation flow.',
+        initialUrl: 'http://127.0.0.1:4173',
+        consent: {
+          sourceFiles: false,
+          semanticSnapshot: false,
+          existingPlansAndTests: false,
+        },
+      },
+    });
+    if (!proposed) throw new Error('Packed Studio did not invoke the configured Agent provider');
+    const planPath = 'demos/packed-studio.yaml';
+    const approval = await request('/api/plans/approve', {
+      method: 'POST',
+      body: {
+        conversationId,
+        planHash: proposedPlan.planHash,
+        path: planPath,
+      },
+    });
+    const run = await request('/api/runs', {
+      method: 'POST',
+      body: {
+        approved: true,
+        planPath,
+        outputPath: 'studio-rendered.mp4',
+        proofPath: 'studio-rendered.proof',
+      },
+    });
+    const runId = String(run.runId);
+    const events = await collectStudioEvents(studio.url, cookie, runId);
+    const snapshot = await request(`/api/runs/${runId}`);
+    if (snapshot.state !== 'completed')
+      throw new Error(`Packed Studio run did not complete: ${JSON.stringify(snapshot)}`);
+    const sequences = events.map((event) => Number(event.sequence));
+    for (let index = 1; index < sequences.length; index += 1) {
+      const previous = sequences[index - 1];
+      const current = sequences[index];
+      if (previous === undefined || current === undefined || current <= previous)
+        throw new Error('Packed Studio events were not strictly ordered');
+    }
+    const eventTypes = events.map((event) => String(event.type));
+    for (const required of [
+      'action.started',
+      'capture.preview',
+      'capture.metrics',
+      'cursor.landing',
+      'target.pixelProof',
+      'proof.completed',
+      'artifact.created',
+      'run.completed',
+    ]) {
+      if (!eventTypes.includes(required))
+        throw new Error(`Packed Studio event stream missed ${required}`);
+    }
+    const actionEvents = eventTypes.filter((type) => type === 'action.completed').length;
+    if (actionEvents !== 10)
+      throw new Error(`Packed Studio completed ${actionEvents} actions instead of 10`);
+    const video = resolve(project, 'studio-rendered.mp4');
+    const proof = resolve(project, 'studio-rendered.proof');
+    await Promise.all([access(video), access(resolve(proof, 'manifest.json'))]);
+    const proofVerification = await npx(['soredemo', 'proof', 'verify', proof, '--json']);
+    requireSuccess(proofVerification, 'packed Studio proof');
+    const [videoArtifact, proofArtifact] = await Promise.all([
+      retryFetch(`${studio.url}/api/artifacts/${runId}-video`, cookie),
+      retryFetch(`${studio.url}/api/artifacts/${runId}-proof`, cookie),
+    ]);
+    if (videoArtifact.headers.get('content-type') !== 'video/mp4')
+      throw new Error('Packed Studio video artifact MIME changed');
+    if (!proofArtifact.headers.get('content-type')?.startsWith('application/json'))
+      throw new Error('Packed Studio proof artifact MIME changed');
+    return {
+      meta,
+      discoveredPlanCount: Array.isArray(plans.plans) ? plans.plans.length : 0,
+      proposal: {
+        title: (proposedPlan.proposal as Record<string, unknown>).title,
+        planHash: proposedPlan.planHash,
+      },
+      approval,
+      runId,
+      state: snapshot.state,
+      eventCount: events.length,
+      actionEvents,
+      previewEvents: eventTypes.filter((type) => type === 'capture.preview').length,
+      eventTypes: [...new Set(eventTypes)],
+      proof: json(proofVerification),
+      video,
+    };
+  } finally {
+    await studio.close();
+  }
+}
+
+async function collectStudioEvents(
+  url: string,
+  cookie: string,
+  runId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 240_000);
+  try {
+    const response = await fetch(`${url}/api/runs/${runId}/events`, {
+      headers: { cookie },
+      signal: abort.signal,
+    });
+    if (!response.ok || !response.body)
+      throw new Error(`Packed Studio SSE failed: ${response.status}`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const events: Array<Record<string, unknown>> = [];
+    let pending = '';
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      pending += decoder.decode(next.value, { stream: true });
+      let boundary = pending.indexOf('\n\n');
+      while (boundary >= 0) {
+        const block = pending.slice(0, boundary);
+        pending = pending.slice(boundary + 2);
+        const line = block.split('\n').find((candidate) => candidate.startsWith('data: '));
+        if (line) {
+          const event = JSON.parse(line.slice('data: '.length)) as Record<string, unknown>;
+          events.push(event);
+          if (['run.completed', 'run.failed', 'run.stopped'].includes(String(event.type))) {
+            await reader.cancel();
+            return events;
+          }
+        }
+        boundary = pending.indexOf('\n\n');
+      }
+    }
+    throw new Error('Packed Studio SSE ended without a terminal event');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function retryFetch(url: string, cookie: string): Promise<Response> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const response = await fetch(url, { headers: { cookie } });
+    if (response.ok) return response;
+    await new Promise((accept) => setTimeout(accept, 100));
+  }
+  throw new Error(`Packed Studio artifact was not registered: ${url}`);
 }
 
 export async function runCleanBrowserCacheGate(tarball: string): Promise<Record<string, unknown>> {
@@ -136,6 +373,7 @@ export async function runCleanBrowserCacheGate(tarball: string): Promise<Record<
       file.endsWith('.partial.mp4'),
     );
     if (partials.length > 0) throw new Error('Failed packed render left a partial MP4');
+    const packedStudio = await runPackedStudioGate(project, npx);
     return {
       project,
       browserCache,
@@ -146,6 +384,7 @@ export async function runCleanBrowserCacheGate(tarball: string): Promise<Record<
       render: renderJson,
       liveVerification,
       failedRender: json(failed),
+      packedStudio,
     };
   } finally {
     await server.close();
