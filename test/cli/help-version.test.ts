@@ -16,7 +16,7 @@ describe.sequential('public-alpha help and version', () => {
   }
 
   it('prints only the package prerelease version', async () => {
-    expect(await stdoutFor(['--version'])).toBe('0.1.0-alpha.0\n');
+    expect(await stdoutFor(['--version'])).toBe('0.1.0-alpha.1\n');
   });
 
   it('explains the alpha workflow at top level', async () => {
@@ -27,9 +27,12 @@ describe.sequential('public-alpha help and version', () => {
     expect(output).toContain('soredemo render');
   });
 
-  it.each(['validate', 'render', 'doctor'])('shows %s-specific help', async (command) => {
-    const output = await stdoutFor([command, '--help']);
-    expect(output.toLowerCase()).toContain(command);
-    expect(output).toContain('USAGE');
-  });
+  it.each(['validate', 'render', 'doctor', 'init', 'studio', 'proof'])(
+    'shows %s-specific help',
+    async (command) => {
+      const output = await stdoutFor([command, '--help']);
+      expect(output.toLowerCase()).toContain(command);
+      expect(output).toContain('USAGE');
+    },
+  );
 });

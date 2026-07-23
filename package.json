@@ -1,6 +1,6 @@
 {
   "name": "soredemo",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "description": "Turn declarative YAML into polished product demos of real web apps.",
   "type": "module",
   "bin": {
@@ -41,6 +41,9 @@
     "licenses:prod": "corepack pnpm licenses list --prod --json",
     "release:check": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/release-candidate.js check",
     "release:pack": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/release-candidate.js pack",
+    "publication:verify": "vitest run test/release/publication-hygiene.test.ts",
+    "studio:security": "vitest run test/studio/security.test.ts test/studio/server.test.ts",
+    "studio:verify": "vitest run test/studio test/agent test/project test/proof test/run-service",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
