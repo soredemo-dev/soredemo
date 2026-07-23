@@ -21,6 +21,9 @@ export const program = defineCommand({
     validate: () => import('./commands/validate.js').then((module) => module.default),
     render: () => import('./commands/render.js').then((module) => module.default),
     doctor: () => import('./commands/doctor.js').then((module) => module.default),
+    init: () => import('./commands/init.js').then((module) => module.default),
+    studio: () => import('./commands/studio.js').then((module) => module.default),
+    proof: () => import('./commands/proof.js').then((module) => module.default),
   },
 });
 
@@ -30,15 +33,34 @@ function isCittyUsageError(error: unknown): error is Error & { code: string } {
 
 function rawArgumentError(argv: string[]): string | null {
   const command = argv[0];
-  if (command !== 'validate' && command !== 'render' && command !== 'doctor') return null;
+  if (
+    command !== 'validate' &&
+    command !== 'render' &&
+    command !== 'doctor' &&
+    command !== 'init' &&
+    command !== 'studio' &&
+    command !== 'proof'
+  )
+    return null;
 
   const valueOptions =
     command === 'validate'
       ? new Set(['--format'])
       : command === 'render'
-        ? new Set(['--out'])
-        : new Set();
-  const booleanOptions = new Set(['--verbose', '--quiet', '--keep-artifacts', '--json', '--deep']);
+        ? new Set(['--out', '--proof'])
+        : command === 'studio'
+          ? new Set(['--project', '--host', '--port', '--agent'])
+          : new Set();
+  const booleanOptions = new Set([
+    '--verbose',
+    '--quiet',
+    '--keep-artifacts',
+    '--json',
+    '--deep',
+    '--dry-run',
+    '--yes',
+    '--no-open',
+  ]);
   let positionalCount = 0;
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -58,8 +80,10 @@ function rawArgumentError(argv: string[]): string | null {
     return `Unknown option: ${option ?? argument}`;
   }
 
-  if (command === 'doctor' && positionalCount > 0)
-    return 'doctor does not accept a positional argument';
+  if ((command === 'doctor' || command === 'studio') && positionalCount > 0)
+    return `${command} does not accept a positional argument`;
+  if (command === 'proof')
+    return positionalCount > 2 ? 'Too many positional arguments for proof' : null;
   return positionalCount > 1 ? `Too many positional arguments for ${command}` : null;
 }
 
@@ -79,14 +103,22 @@ export async function runCli(argv: string[]): Promise<ExitCode> {
   if (
     argv.length === 2 &&
     (argv[1] === '--help' || argv[1] === '-h') &&
-    (argv[0] === 'validate' || argv[0] === 'render' || argv[0] === 'doctor')
+    ['validate', 'render', 'doctor', 'init', 'studio', 'proof'].includes(argv[0] ?? '')
   ) {
-    const usage =
+    const loader =
       argv[0] === 'validate'
-        ? await renderUsage((await import('./commands/validate.js')).default)
+        ? () => import('./commands/validate.js')
         : argv[0] === 'render'
-          ? await renderUsage((await import('./commands/render.js')).default)
-          : await renderUsage((await import('./commands/doctor.js')).default);
+          ? () => import('./commands/render.js')
+          : argv[0] === 'doctor'
+            ? () => import('./commands/doctor.js')
+            : argv[0] === 'init'
+              ? () => import('./commands/init.js')
+              : argv[0] === 'studio'
+                ? () => import('./commands/studio.js')
+                : () => import('./commands/proof.js');
+    const command = await loader();
+    const usage = await renderUsage(command.default as never);
     process.stdout.write(`${usage}\n`);
     return EXIT_SUCCESS;
   }

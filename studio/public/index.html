@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Soredemo Studio</title>
+    <link rel="stylesheet" href="/assets/studio.css">
+  </head>
+  <body>
+    <header>
+      <div><strong>Soredemo Studio</strong><span id="version"></span></div>
+      <span class="local">● Local only</span>
+    </header>
+    <main>
+      <section aria-labelledby="chat-title">
+        <h1 id="chat-title">AI Chat</h1>
+        <p id="agent-status" role="status">Checking Agent provider…</p>
+        <label>Running application URL<input id="app-url" type="url" value="http://127.0.0.1:3000"></label>
+        <label>Describe the feature<textarea id="feature" rows="5" placeholder="Show how to create a project"></textarea></label>
+        <fieldset>
+          <legend>Agent permission review</legend>
+          <label><input id="source-consent" type="checkbox"> Allow read-only project source access</label>
+          <label><input id="snapshot-consent" type="checkbox"> Include bounded accessibility snapshot</label>
+          <p>Screenshots, environment variables, cookies, storage, and secrets are excluded.</p>
+        </fieldset>
+        <div class="actions"><button type="button" id="inspect">Inspect app</button><button type="button" id="propose">Propose plan</button><button type="button" id="cancel-agent" disabled>Cancel</button></div>
+        <div id="chat-log" aria-live="polite"></div>
+      </section>
+      <section aria-labelledby="preview-title">
+        <h2 id="preview-title">Application preview</h2>
+        <p>Live capture preview — final output is rendered separately</p>
+        <img id="preview" alt="No live preview frame yet">
+        <video id="video" controls hidden aria-label="Completed Soredemo video"><track kind="captions" label="No audio" srclang="en"></video>
+        <p id="preview-status" role="status">Idle</p>
+      </section>
+      <section aria-labelledby="plan-title">
+        <h2 id="plan-title">Demo Plan</h2>
+        <label>Existing plans<select id="plans"></select></label>
+        <label>Save path<input id="plan-path" value="demos/ai-proposal.yaml"></label>
+        <textarea id="plan-json" rows="20" spellcheck="false" aria-label="Proposed Demo Plan JSON"></textarea>
+        <p id="validation" role="status">Select or propose a plan.</p>
+        <div class="actions"><button type="button" id="approve" disabled>Approve exact plan</button><button type="button" id="run" disabled>Start verified recording</button></div>
+      </section>
+      <section aria-labelledby="run-title">
+        <h2 id="run-title">Run and evidence</h2>
+        <dl>
+          <dt>State</dt><dd id="run-state">Not started</dd>
+          <dt>Current action</dt><dd id="current-action">—</dd>
+          <dt>Target</dt><dd id="target">—</dd>
+          <dt>Cursor landing</dt><dd id="cursor">pending</dd>
+          <dt>Target pixels</dt><dd id="pixels">pending</dd>
+          <dt>Capture scale</dt><dd id="scale">pending</dd>
+          <dt>Encoder</dt><dd id="encoder">pending</dd>
+          <dt>Proof</dt><dd id="proof">pending</dd>
+        </dl>
+        <a id="proof-link" href="/api/artifacts/pending" hidden>Open proof manifest (may describe sensitive pixels)</a>
+        <button type="button" id="stop" disabled>Stop recording</button>
+        <div id="run-live" class="sr-only" aria-live="polite"></div>
+      </section>
+    </main>
+    <footer>Soredemo <span id="footer-version"></span> · agent proposals require review · verified runner remains authoritative</footer>
+    <script type="module" src="/assets/studio.js"></script>
+  </body>
+</html>
