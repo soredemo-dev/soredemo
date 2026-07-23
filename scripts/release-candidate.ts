@@ -10,7 +10,7 @@ import { auditTarball } from './release-package-audit.js';
 
 const require = createRequire(import.meta.url);
 const checkRoot = resolve('.tmp/release-check');
-const candidateRoot = resolve('.tmp/release-candidate');
+const candidateRoot = resolve('.tmp/release-candidate/alpha1');
 const npmEnvironment = { ...process.env, npm_config_cache: resolve('.tmp/release-npm-cache') };
 
 interface CommandResult {
@@ -84,7 +84,33 @@ async function registryStatus(): Promise<Record<string, unknown>> {
   });
   if (view.code === 0) {
     const packageRecord = JSON.parse(view.stdout) as Record<string, unknown>;
-    throw new Error(`npm name soredemo is already registered: ${JSON.stringify(packageRecord)}`);
+    const account = whoami.code === 0 ? whoami.stdout.trim() : undefined;
+    const maintainers = Array.isArray(packageRecord.maintainers)
+      ? packageRecord.maintainers.map((maintainer) =>
+          typeof maintainer === 'object' &&
+          maintainer !== null &&
+          'name' in maintainer &&
+          typeof maintainer.name === 'string'
+            ? maintainer.name
+            : String(maintainer).split(' ', 1)[0],
+        )
+      : [];
+    if (!account || !maintainers.includes(account)) {
+      throw new Error(
+        `npm package ownership could not be verified for the authenticated account: ${JSON.stringify({
+          name: packageRecord.name,
+          version: packageRecord.version,
+          maintainers,
+          account,
+        })}`,
+      );
+    }
+    return {
+      packageName: 'soredemo',
+      status: 'owned-by-authenticated-account',
+      authenticatedAccount: account,
+      publishedVersion: packageRecord.version,
+    };
   }
   if (!view.stderr.includes('E404') && !view.stdout.includes('E404'))
     throw new Error(`npm registry status is unverifiable: ${view.stderr || view.stdout}`);
