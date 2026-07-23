@@ -60,6 +60,11 @@ export default defineCommand({
       description: 'output MP4 path',
       valueHint: 'file',
     },
+    proof: {
+      type: 'string',
+      description: 'write a portable proof bundle',
+      valueHint: 'directory',
+    },
     'keep-artifacts': {
       type: 'boolean',
       description: 'preserve the temporary render workspace',
@@ -124,17 +129,24 @@ export default defineCommand({
         throw normalizeRenderError(error, { code: 'CONFIG_INVALID', stage: 'validating' });
       }
       // Heavy rendering code is loaded only after the plan, configuration, and output validate.
-      const { renderDemo } = await import('../../render/render-demo.js');
-      const result = await renderDemo({
+      const proofPath = args.proof
+        ? await (await import('../../proof/output-path.js')).prepareProofPath(args.proof)
+        : undefined;
+      const { RunCoordinator } = await import('../../run-service/run-coordinator.js');
+      const coordinator = new RunCoordinator();
+      const started = coordinator.start({
         plan,
         planFile: args.script,
         configuration,
         outputPath,
+        ...(proofPath ? { proofPath } : {}),
         keepArtifacts: args['keep-artifacts'],
+        initiator: 'cli',
         validationStartedAt,
         onStage: (event) => reporter.stage(event),
         onDiagnostic: (message, details) => reporter.diagnostic(message, details),
       });
+      const result = await started.completion;
       for (const warning of result.warnings) reporter.warning(warning);
       reporter.success(result);
     } catch (error) {

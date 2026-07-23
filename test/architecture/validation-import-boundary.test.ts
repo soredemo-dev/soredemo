@@ -54,7 +54,7 @@ describe('validation import boundary', () => {
     const source = readFileSync('src/cli/commands/render.ts', 'utf8');
     const planLoad = source.indexOf('await loadDemoPlan');
     const outputValidation = source.indexOf('await prepareOutputPath');
-    const heavyImport = source.indexOf("import('../../render/render-demo.js')");
+    const heavyImport = source.indexOf("import('../../run-service/run-coordinator.js')");
 
     expect(planLoad).toBeGreaterThan(-1);
     expect(outputValidation).toBeGreaterThan(planLoad);
