@@ -177,3 +177,5 @@ Soredemo is MIT licensed. FFmpeg is external and its exact license depends on it
 Development and visual-authority workflows are documented in [CLAUDE.md](CLAUDE.md) and [Visual regression](docs/visual-regression.md).
 Studio details are in [Studio](docs/studio.md), [Studio security](docs/studio-security.md),
 [Agent providers](docs/agent-providers.md), and [Proof bundles](docs/proof-bundles.md).
+An experimental Electron desktop shell (development foundation, not distributed) is described in
+[Desktop shell](docs/desktop.md) and [ADR 0011](docs/adr/0011-electron-desktop-shell.md).

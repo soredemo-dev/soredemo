@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased (desktop foundation)
+
+- Add a development-grade Electron macOS shell in `desktop/` that embeds the existing
+  Studio vertical slice: thin main process, sandboxed renderer, narrow typed preload,
+  native menu/dialog/lifecycle. The shell is one client of the shared engine, is never
+  published in the `soredemo` npm package, and is not signed or distributed. See
+  [ADR 0011](docs/adr/0011-electron-desktop-shell.md) and [docs/desktop.md](docs/desktop.md).
+- Guard the production engine against any Electron import.
+- Note: alpha.1 npm publication remains deliberately deferred; the alpha.1 source is
+  complete and verified but intentionally unpublished.
+
 ## 0.1.0-alpha.1 (development)
 
 - Add the local `soredemo studio` vertical slice: plan discovery, optional AI proposal,

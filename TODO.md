@@ -17,6 +17,30 @@
 | 13 | End-to-end `npx` flow and README |
 | 14 | Buffer, cleanup, and record Soredemo’s own demo using Soredemo |
 | 15 | Agent-native Studio vertical slice, safe plan approval, live observation, and proof bundles |
+| 17 | Electron macOS desktop foundation embedding the existing Studio vertical slice |
+
+## Day 17 status
+
+- [x] Add a separate, unpublished `desktop/` Electron package (thin main, sandboxed
+      renderer, narrow typed preload) that starts the existing Studio server via the
+      shared `startStudioServer` API and loads the unchanged UI authenticated by the
+      same session cookie.
+- [x] Native macOS shell basics: application menu (Quit `Cmd+Q`, Edit, Window, Help),
+      native project-directory picker, window-state persistence under `userData`,
+      system-appearance shell chrome.
+- [x] Lifecycle: menu/Cmd+Q/window-close/SIGINT/SIGTERM stop the server and any active
+      run through the existing close path, leaving no orphan Chromium/FFmpeg and no
+      stale `.soredemo/studio.json`.
+- [x] Shell security: sandbox, contextIsolation, nodeIntegration off, webSecurity on,
+      external navigation routed to the default browser, no remote content.
+- [x] Guard the engine against Electron imports; keep the published npm surface unchanged.
+- [x] dev + package (unsigned macOS arm64 `.app`) scripts; ADR 0011 and docs/desktop.md.
+
+No engine seam was required: `startStudioServer` already existed and the CLI already
+consumes it. alpha.1 npm publication remains deliberately deferred.
+
+Deferred beyond Day 17: design-system UI pass, code signing/notarization, DMG/auto-update,
+Manual Web/Desktop, human takeover, timeline editor, narration/audio, mobile, import modes.
 
 ## Day 15 status
 
