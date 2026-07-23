@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ClaudeCodeProvider } from '../agent/claude-code-provider.js';
 import { inspectSemanticApplication } from '../agent/semantic-snapshot.js';
 import { collectApprovedSourceContext } from '../agent/source-context.js';
-import type { AgentProvider, ProposedDemo } from '../agent/types.js';
+import type { AgentProvider, ProposeDemoPlanRequest, ProposedDemo } from '../agent/types.js';
 import { packageMetadata } from '../cli/package-metadata.js';
 import { loadProjectConfiguration } from '../config/load.js';
 import { loadDemoPlan } from '../plan/load.js';
@@ -236,8 +236,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         }
         const conversationId =
           typeof input.conversationId === 'string' ? input.conversationId : randomUUID();
+        const previous = proposals.get(conversationId)?.proposal;
         let proposal: ProposedDemo | undefined;
-        for await (const event of provider.proposePlan({
+        const requestProposal: ProposeDemoPlanRequest = {
           conversationId,
           featureRequest: String(input.featureRequest ?? '').slice(0, 8_000),
           projectRoot,
@@ -257,7 +258,17 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
                 }),
               }
             : {}),
-        })) {
+          ...(previous
+            ? {
+                previousProposal: previous,
+                revisionRequest: String(input.featureRequest ?? '').slice(0, 8_000),
+              }
+            : {}),
+        };
+        const events = previous
+          ? provider.revisePlan(requestProposal)
+          : provider.proposePlan(requestProposal);
+        for await (const event of events) {
           if (event.type === 'agent.proposal') proposal = validateProposal(event.proposal);
         }
         if (!proposal)
@@ -276,6 +287,23 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         }
         await provider.cancel(input.conversationId);
         sendJson(response, 200, { cancelled: true, conversationId: input.conversationId });
+        return;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/plans/manual/validate') {
+        const input = await body(request);
+        const proposal = validateProposal({
+          schemaVersion: 1,
+          title: String(input.title ?? 'Manually authored demo'),
+          summary: 'Manually authored and validated in Soredemo Studio.',
+          assumptions: [],
+          plan: input.plan,
+          unresolved: [],
+          warnings: [],
+        });
+        const conversationId = randomUUID();
+        const hash = planSha256(proposal.plan);
+        proposals.set(conversationId, { proposal, hash });
+        sendJson(response, 200, { conversationId, proposal, planHash: hash });
         return;
       }
       if (request.method === 'POST' && url.pathname === '/api/plans/approve') {

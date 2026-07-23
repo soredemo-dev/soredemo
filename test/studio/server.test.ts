@@ -22,6 +22,22 @@ describe('Studio local server', () => {
       version: '0.1.0-alpha.1',
       localOnly: true,
     });
+    const manual = await fetch(`${studio.url}/api/plans/manual/validate`, {
+      method: 'POST',
+      headers: { cookie, origin: studio.url, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        plan: {
+          version: 1,
+          name: 'manual-plan',
+          url: 'http://127.0.0.1:3000',
+          intent: { goal: 'Show the project' },
+          actions: [{ action: 'wait', durationMs: 100 }],
+        },
+      }),
+    });
+    await expect(manual.json()).resolves.toMatchObject({
+      proposal: { plan: { actions: [{ action: 'wait' }] } },
+    });
     const rejected = await fetch(`${studio.url}/api/snapshot`, {
       method: 'POST',
       headers: { cookie, origin: 'https://attacker.invalid', 'content-type': 'application/json' },

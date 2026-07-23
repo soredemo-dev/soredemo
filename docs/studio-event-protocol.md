@@ -9,6 +9,15 @@ and then uses the current snapshot. Terminal snapshots remain immutable. Familie
 lifecycle, action resolution/execution, capture/preview/metrics, cursor/target evidence,
 composition, encoding, proof, and artifacts. Typed text never appears.
 
+The production coordinator emits `run.*`, `action.resolving`, `action.resolved`,
+`action.started`, `action.completed`, `action.failed`, `capture.started`,
+`capture.preview`, `capture.metrics`, `capture.completed`, `cursor.landing`,
+`target.pixelProof`, `compose.started`, `compose.progress`, `compose.completed`,
+`encode.started`, `encode.progress`, `encode.completed`, `proof.updated`,
+`proof.completed`, and `artifact.created` events as the corresponding production evidence
+becomes available. A failure event reports the existing stable production error rather than
+rewriting it as a generic Studio failure.
+
 `capture.preview` is ephemeral application-pixel data. It is sampled at no more than 2 fps,
 delivered only after the CDP frame acknowledgement, and omitted from durable replay. Each SSE
 client has a 128-event queue. Preview events are dropped first; a client that cannot consume

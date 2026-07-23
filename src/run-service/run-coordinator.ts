@@ -126,6 +126,7 @@ export class RunCoordinator {
       this.emit(active, 'run.ready', {});
       this.transition(active, 'starting');
       this.emit(active, 'run.started', {});
+      this.emit(active, 'capture.started', {});
       const internalKeep = Boolean(request.keepArtifacts || request.proofPath);
       const result = await renderDemo({
         plan: request.plan,
@@ -138,14 +139,19 @@ export class RunCoordinator {
           : {}),
         onStage: (event) => {
           if (event.stage === 'resampling' && active.snapshot.state === 'capturing') {
+            this.emit(active, 'capture.completed', event.details ?? {});
             this.transition(active, 'composing');
             this.emit(active, 'compose.started', {});
           } else if (event.stage === 'composing' && active.snapshot.state === 'composing') {
+            this.emit(active, 'compose.completed', event.details ?? {});
             this.transition(active, 'encoding');
             this.emit(active, 'encode.started', {});
           } else if (event.stage === 'validating-output' && active.snapshot.state === 'encoding') {
+            this.emit(active, 'encode.progress', { status: 'validating-output' });
             this.transition(active, 'verifying');
             this.emit(active, 'proof.updated', { status: 'collected' });
+          } else if (event.stage === 'encoding') {
+            this.emit(active, 'encode.completed', event.details ?? {});
           }
           request.onStage?.(
             internalKeep && !request.keepArtifacts && event.stage === 'cleaning-up'
@@ -248,11 +254,20 @@ export class RunCoordinator {
       this.emit(active, 'action.completed', event);
       return;
     }
+    if (event.type === 'action.failed') {
+      this.emit(active, 'action.failed', event);
+      return;
+    }
     if (event.type === 'capture.pixelScale') {
       this.emit(active, 'capture.metrics', event);
       return;
     }
+    this.emit(active, 'compose.progress', { status: 'cursor-evidence-collected' });
     this.emit(active, 'cursor.landing', event);
+    this.emit(active, 'target.pixelProof', {
+      measurements: event.measurements,
+      failures: event.failures,
+    });
   }
 
   private transition(run: ActiveRun, state: RunState): void {

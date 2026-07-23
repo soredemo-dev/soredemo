@@ -88,6 +88,13 @@ export interface RenderDemoOptions {
         }
       | { type: 'action.completed'; actionIndex: number; actionKind: string; eventId: string }
       | {
+          type: 'action.failed';
+          actionIndex?: number;
+          actionKind?: string;
+          code: string;
+          message: string;
+        }
+      | {
           type: 'capture.preview';
           captureFrameIndex: number;
           timestampMs: number;
@@ -422,6 +429,13 @@ export async function renderDemo(options: RenderDemoOptions): Promise<RenderDemo
               });
             },
             onActionFailure: async (error) => {
+              options.onObservation?.({
+                type: 'action.failed',
+                ...(error.actionIndex === undefined ? {} : { actionIndex: error.actionIndex }),
+                ...(error.actionKind === undefined ? {} : { actionKind: error.actionKind }),
+                code: error.code,
+                message: error.message,
+              });
               if (failureScreenshotCaptured || page.isClosed()) return;
               failureScreenshotCaptured = true;
               const number = String((error.actionIndex ?? 0) + 1).padStart(3, '0');

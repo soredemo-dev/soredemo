@@ -24,3 +24,9 @@ Slow clients may lose preview events; durable semantic events are bounded and re
 
 Studio does not start the user's application. There is no timeline editor, manual recording,
 pause, takeover, narration, webcam, mobile, or Agent-controlled browser in alpha.1.
+
+When no Agent provider is available, an existing plan can still be selected, or a user can
+paste/edit Demo Plan JSON and choose **Validate edited JSON**. Manual and Agent-authored plans
+use the same validator, exact-hash approval, atomic save, coordinator, runner, compositor,
+encoder, and proof engine. Sending another request in the same Agent conversation revises the
+prior proposal; any edit invalidates its prior approval.

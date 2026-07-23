@@ -105,6 +105,23 @@ $('plan-json').addEventListener('input', () => {
   $('validation').textContent = 'Plan changed; prior approval is invalid.';
 });
 
+$('validate-manual').addEventListener('click', async () => {
+  try {
+    const result = await api('/api/plans/manual/validate', {
+      method: 'POST',
+      body: JSON.stringify({ plan: JSON.parse($('plan-json').value) }),
+    });
+    conversationId = result.conversationId;
+    proposal = result.proposal;
+    planHash = result.planHash;
+    $('validation').textContent =
+      `Valid manual plan · ${proposal.plan.actions.length} supported actions · approval hash ${planHash.slice(0, 12)}…`;
+    $('approve').disabled = false;
+  } catch (error) {
+    $('validation').textContent = error.message;
+  }
+});
+
 $('plans').addEventListener('change', () => {
   const selected = planRecords.find((plan) => plan.path === $('plans').value);
   if (!selected) return;
@@ -178,8 +195,13 @@ function observe() {
     'capture.preview',
     'capture.metrics',
     'cursor.landing',
+    'target.pixelProof',
     'compose.started',
+    'compose.progress',
+    'compose.completed',
     'encode.started',
+    'encode.progress',
+    'encode.completed',
     'proof.updated',
     'proof.completed',
     'run.completed',
