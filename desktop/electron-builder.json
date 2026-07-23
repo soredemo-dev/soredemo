@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "dev.soredemo.studio",
+  "productName": "Soredemo Studio",
+  "asar": true,
+  "asarUnpack": ["**/*.node"],
+  "npmRebuild": false,
+  "beforePack": "scripts/stage-engine.mjs",
+  "directories": {
+    "output": "release"
+  },
+  "files": ["dist/**/*", "package.json"],
+  "extraResources": [
+    {
+      "from": "engine",
+      "to": "engine"
+    }
+  ],
+  "mac": {
+    "target": [{ "target": "dir", "arch": ["arm64"] }],
+    "identity": null,
+    "extendInfo": {
+      "NSHumanReadableCopyright": "Soredemo (MIT). Development build — not signed, not distributed."
+    }
+  }
+}

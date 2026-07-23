@@ -1,0 +1,25 @@
+{
+  "name": "soredemo-desktop",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "description": "Development-grade Electron macOS shell embedding the Soredemo Studio vertical slice. Not published, not signed, not distributed.",
+  "license": "MIT",
+  "main": "dist/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "electron .",
+    "dist": "tsc && electron-builder --mac --arm64"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "electron": "^33.3.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^7.0.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
+  }
+}
