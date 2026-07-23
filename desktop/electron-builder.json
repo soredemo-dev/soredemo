@@ -5,7 +5,6 @@
   "asar": true,
   "asarUnpack": ["**/*.node"],
   "npmRebuild": false,
-  "beforePack": "scripts/stage-engine.mjs",
   "directories": {
     "output": "release"
   },
