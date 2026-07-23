@@ -4,13 +4,16 @@
     "includes": [
       "**",
       "!dist",
-      "!node_modules",
+      "!**/node_modules",
       "!.pnpm-store",
       "!coverage",
       "!.capture",
       "!.tmp",
       "!**/.soredemo",
-      "!schema/*.json"
+      "!schema/*.json",
+      "!desktop/dist",
+      "!desktop/engine",
+      "!desktop/release"
     ]
   },
   "formatter": {

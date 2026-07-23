@@ -9,3 +9,5 @@ coverage/
 .tmp/
 *.mp4
 .soredemo/
+desktop/engine/
+desktop/release/
