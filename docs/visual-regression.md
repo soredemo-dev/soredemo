@@ -1,5 +1,9 @@
 # Visual regression
 
+Studio does not alter either authority. Exact synthetic compositor goldens continue to use
+canonical inputs. Live verification continues through the normal Playwright/CDP runner.
+Sampled Studio preview frames are non-authoritative and cannot feed the compositor or output.
+
 Soredemo uses split visual authority. Geometry and metadata agreement is not sufficient; actual pixels must be inspected. Actual live pixels also need not be byte-identical for the render to satisfy the structural contract.
 
 ## Exact synthetic compositor authority

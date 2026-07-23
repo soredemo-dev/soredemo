@@ -16,6 +16,21 @@
 | 12 | Golden-frame visual regression testing |
 | 13 | End-to-end `npx` flow and README |
 | 14 | Buffer, cleanup, and record Soredemo’s own demo using Soredemo |
+| 15 | Agent-native Studio vertical slice, safe plan approval, live observation, and proof bundles |
+
+## Day 15 status
+
+- [x] Record alpha.0 release deviations without mutating the release.
+- [x] Capture real npm publish requests against a loopback registry and define neutral staging.
+- [x] Add safe project bootstrap and one canonical Agent skill.
+- [x] Add optional read-only Claude Code proposal provider and bounded semantic snapshots.
+- [x] Require explicit approval of the exact validated plan hash before an atomic write.
+- [x] Share one production run coordinator between CLI and Studio.
+- [x] Stream bounded structured events and sampled production CDP preview frames.
+- [x] Add a local-only authenticated Studio UI and portable proof bundles.
+
+Deferred: autonomous exploration, pause/takeover, manual capture, mobile, narration, audio,
+timeline editing, authentication profiles, and application startup.
 
 ## Day 1 status
 

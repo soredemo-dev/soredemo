@@ -1,5 +1,20 @@
 # CLI reference
 
+## `soredemo init [directory]`
+
+Plans safe starter files with `--dry-run`, or atomically creates them with `--yes`. Existing
+files are never overwritten.
+
+## `soredemo studio`
+
+Starts the local Studio. Options: `--project`, `--host`, `--port`, `--no-open`,
+`--agent auto|claude-code|none`, and `--json`. Loopback and a dynamic port are defaults.
+
+## Proof output
+
+`render --proof <directory>` writes a portable proof from production evidence.
+`soredemo proof verify <directory>` checks its manifest and component hashes.
+
 ## `soredemo doctor`
 
 Checks Node, FFmpeg, FFprobe, libx264, the pinned Playwright Chromium revision, Canvas, the cursor asset, and workspace writability. `--json` emits one machine-readable value. `--quiet` shows only failures and final status; `--verbose` adds resolved paths and versions.

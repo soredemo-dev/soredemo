@@ -1,10 +1,12 @@
 # Soredemo
 
-Turn declarative YAML into polished product demos of real web apps.
+Soredemo is the open-source, agent-native studio for verified product demos.
 
 > **Public alpha.** Soredemo is verified on macOS arm64 with Node.js 20.19.4. It is not production-ready, and Windows and Linux are not yet verified.
 
-Soredemo drives an already-running web application with real Playwright input, captures genuine Chromium pixels, and produces a 1920×1080 H.264 MP4 with camera movement, a visible cursor, click feedback, and studio framing.
+Describe what you want to demonstrate, review the proposed flow, watch the runner operate
+your application, and receive a polished video with verifiable execution evidence. The
+existing CLI remains the automation interface; Studio is the local human interface.
 
 ## Requirements
 
@@ -112,6 +114,18 @@ npx soredemo validate demos/create-project.yaml
 npx soredemo render demos/create-project.yaml --out output/create-project.mp4
 ```
 
+Or open the local application:
+
+```bash
+npx soredemo studio
+```
+
+Studio can inspect a bounded semantic view of your already-running app, ask an optional
+external Claude Code provider for a six-action proposal, require approval of the exact plan
+hash, execute the same production runner, and present the MP4 and proof summary. Agent source
+and snapshot access require separate consent. With no Agent installed, existing Demo Plans
+can still be reviewed, approved, and rendered.
+
 Canonical copies of these snippets live in [`examples/quickstart`](examples/quickstart), and the repository verifies that the README and files remain schema-valid and synchronized.
 
 ## Demo Plans
@@ -126,6 +140,10 @@ See [Getting started](docs/getting-started.md), [CLI reference](docs/cli-referen
 soredemo doctor [--json]
 soredemo validate <demo-plan> [--json|--quiet|--verbose]
 soredemo render <demo-plan> [--out <file>] [--keep-artifacts] [--json|--quiet|--verbose]
+soredemo render <demo-plan> --out <file> [--proof <directory>]
+soredemo init [directory] [--dry-run|--yes] [--json]
+soredemo studio [--project <directory>] [--no-open] [--agent <auto|claude-code|none>]
+soredemo proof verify <proof-directory>
 ```
 
 Use `soredemo <command> --help` for current options.
@@ -134,7 +152,11 @@ Use `soredemo <command> --help` for current options.
 
 Live renders are structurally reproducible, not byte-identical. Real CDP frame timing, measured browser input timing, cursor paths, source-frame selection, and application animation remain part of production execution. Exact visual regression uses fixed compositor inputs separately from live capture.
 
-Failed renders and `--keep-artifacts` workspaces can contain captured JPEGs, browser screenshots, timeline metadata, typed-text lengths, FFmpeg logs, and private application pixels. Diagnostics are local and never uploaded automatically. Password values are redacted from structured diagnostics, but Soredemo cannot detect every sensitive visual or value. Inspect artifacts and final videos before sharing.
+Studio binds to loopback by default, uses an ephemeral HttpOnly session, ships no analytics,
+and uploads nothing automatically. Agent requests never include screenshots, cookies, storage,
+environment variables, or secrets; source and bounded semantic snapshots are opt-in.
+
+Failed renders and `--keep-artifacts` workspaces can contain captured JPEGs, browser screenshots, timeline metadata, typed-text lengths, FFmpeg logs, and private application pixels. Diagnostics are local and never uploaded automatically. Password values are redacted from structured diagnostics, but Soredemo cannot detect every sensitive visual or value. Inspect artifacts, proofs, and final videos before sharing.
 
 ## Known alpha limits
 
@@ -143,6 +165,8 @@ Failed renders and `--keep-artifacts` workspaces can contain captured JPEGs, bro
 - Your application must already be running and reachable by HTTP or HTTPS.
 - Chromium and FFmpeg are external prerequisites.
 - There is no app startup, saved session, audio, narration, webcam, captions, cloud rendering, or stable-release guarantee yet.
+- Studio does not provide autonomous exploration, manual recording, human takeover, mobile
+  recording, narration, or timeline editing.
 
 See [Public-alpha release notes](docs/public-alpha-release.md) and [Troubleshooting](docs/private-alpha-troubleshooting.md).
 
@@ -151,3 +175,5 @@ See [Public-alpha release notes](docs/public-alpha-release.md) and [Troubleshoot
 Soredemo is MIT licensed. FFmpeg is external and its exact license depends on its build. The tested `libx264` configuration is GPL-conditioned, and H.264 may have jurisdiction-specific patent considerations. This is technical documentation, not legal advice. See [Encoder and codec notes](docs/encoder-and-codec-notes.md).
 
 Development and visual-authority workflows are documented in [CLAUDE.md](CLAUDE.md) and [Visual regression](docs/visual-regression.md).
+Studio details are in [Studio](docs/studio.md), [Studio security](docs/studio-security.md),
+[Agent providers](docs/agent-providers.md), and [Proof bundles](docs/proof-bundles.md).

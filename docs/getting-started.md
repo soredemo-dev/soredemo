@@ -1,5 +1,17 @@
 # Getting started
 
+For a guided local flow, run `npx soredemo studio`. Studio discovers plans in `demos/` and
+`examples/`, can collect an explicitly approved bounded semantic snapshot, and can use an
+optional external Agent to propose a plan. No execution begins until you approve the exact
+validated plan hash.
+
+To bootstrap starter files without network or installation side effects:
+
+```bash
+npx soredemo init --dry-run --json
+npx soredemo init --yes
+```
+
 The public alpha is verified on macOS arm64 with Node.js 20.19.4. Install Soredemo into a clean project, install its matching Chromium revision explicitly, and check external prerequisites:
 
 ```bash
