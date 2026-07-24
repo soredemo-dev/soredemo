@@ -14,10 +14,14 @@
   ],
   "scripts": {
     "clean": "node scripts/clean-dist.mjs",
-    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/finalize-dist.mjs && node dist/schema/generate-json-schema.js",
+    "ui:build": "vite build studio/ui --logLevel error",
+    "ui:typecheck": "tsc -p studio/ui/tsconfig.json --noEmit",
+    "ui:dev": "vite studio/ui",
+    "build": "node scripts/clean-dist.mjs && vite build studio/ui --logLevel error && tsc -p tsconfig.build.json && node scripts/finalize-dist.mjs && node dist/schema/generate-json-schema.js",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "prepack": "npm run build",
+    "pretest": "vite build studio/ui --logLevel error",
     "soredemo": "node dist/cli.js",
     "spike:day2": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day2-capture-spike.js",
     "spike:day3": "tsc -p tsconfig.scripts.json && node .tmp/day2-build/scripts/day3-click-gate.js",
@@ -45,7 +49,7 @@
     "studio:security": "vitest run test/studio/security.test.ts test/studio/server.test.ts",
     "studio:verify": "vitest run test/studio test/agent test/project test/proof test/run-service",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p studio/ui/tsconfig.json --noEmit"
   },
   "engines": {
     "node": ">=20.19.4 <21"
@@ -83,7 +87,18 @@
     "@biomejs/biome": "^2.5.4",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.43",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^7.0.2",
+    "vite": "^6.3.5",
     "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

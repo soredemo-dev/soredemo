@@ -13,7 +13,9 @@
       "!schema/*.json",
       "!desktop/dist",
       "!desktop/engine",
-      "!desktop/release"
+      "!desktop/release",
+      "!studio/public",
+      "!soredemo-vector-brand"
     ]
   },
   "formatter": {

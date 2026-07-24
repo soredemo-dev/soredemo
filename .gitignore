@@ -11,3 +11,6 @@ coverage/
 .soredemo/
 desktop/engine/
 desktop/release/
+studio/public/
+studio/ui/dist/
+soredemo-vector-brand/
