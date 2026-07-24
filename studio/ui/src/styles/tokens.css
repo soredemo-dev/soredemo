@@ -1,0 +1,69 @@
+/* Soredemo Studio design tokens. Codified in docs/design-system.md.
+   Dark-only for now. Values derive from the soredemo vector brand
+   (navy #0B0E13 surfaces, off-white #F4F4F7 text, blue #6EA8D6 accent,
+   red #F0443E attention) reconciled with the Day-18 design brief. */
+:root {
+  /* Surfaces — layered dark */
+  --bg-app: #0b0e13;
+  --bg-panel: #14171d;
+  --bg-raised: #1b1f27;
+  --bg-overlay: #232833;
+  --border: #2a2f3a;
+  --border-strong: #3a4150;
+
+  /* Text */
+  --text-primary: #f4f4f7;
+  --text-secondary: #9ba1ab;
+  --text-muted: #6a6f7a;
+
+  /* Accent — the brand cursor-spark blue; marks the current thing */
+  --accent: #6ea8d6;
+  --accent-hover: #8cbde5;
+  --accent-active: #5793c2;
+  --accent-contrast: #0b0e13;
+  --accent-soft: rgba(110, 168, 214, 0.14);
+
+  /* Attention — the brand red dot; sparing */
+  --attention: #f0443e;
+
+  /* Semantic evidence — the proof language */
+  --verified: #3fb950;
+  --recorded: #d29922;
+  --info: #58a6ff;
+  --danger: #f0443e;
+  --verified-soft: rgba(63, 185, 80, 0.14);
+  --danger-soft: rgba(240, 68, 62, 0.14);
+  --info-soft: rgba(88, 166, 255, 0.14);
+
+  /* Type */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 15px;
+  --fs-lg: 20px;
+
+  /* Space — 4px grid */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+
+  /* Shape */
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.35);
+  --ring: 0 0 0 2px var(--accent);
+
+  --motion: 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+  }
+}
