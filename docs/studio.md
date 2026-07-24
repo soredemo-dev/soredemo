@@ -12,9 +12,13 @@ workflow:
 7. observe sampled production capture pixels and ordered operational events;
 8. inspect evidence, the final MP4, and the portable proof.
 
-The shipped UI is static HTML, CSS, and small vanilla JavaScript. The server uses Node's HTTP
-implementation and Server-Sent Events, so alpha.1 adds no production or development
-dependency and no runtime CDN, font, image, telemetry, or cloud service. SSE was selected
+The shipped UI is a React + TypeScript single-page app built by Vite into static assets that
+the server serves exactly as before (same mount point, same session cookie, same CSP — the
+server does not know about Vite; React and Vite are devDependencies bundled into the emitted
+JS and are never shipped as runtime dependencies). Its visual language is codified in
+[Design system](design-system.md); see [ADR 0012](adr/0012-react-studio-ui.md). The server
+uses Node's HTTP implementation and Server-Sent Events, so the Studio adds no runtime CDN,
+font, image, telemetry, or cloud service. SSE was selected
 because runs emit a one-way ordered event stream; reconnect uses sequence IDs, and state
 changes remain ordinary authenticated HTTP requests.
 

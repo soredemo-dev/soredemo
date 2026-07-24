@@ -18,6 +18,24 @@
 | 14 | Buffer, cleanup, and record Soredemo’s own demo using Soredemo |
 | 15 | Agent-native Studio vertical slice, safe plan approval, live observation, and proof bundles |
 | 17 | Electron macOS desktop foundation embedding the existing Studio vertical slice |
+| 18 | Studio design system + React UI rebuild (functional parity, new design) |
+
+## Day 18 status
+
+- [x] React + Vite + TypeScript Studio UI with full functional parity to the alpha.1 UI
+      (agent proposal, manual paste/edit, exact plan-hash approval + edit-invalidation, run
+      start/stop, ordered SSE, live preview, MP4, proof); ADR 0012 + docs/design-system.md.
+- [x] Build wired into `studio/public` (server unchanged, same mount + session auth + CSP,
+      no inline scripts, no remote resources); `studio/public` gitignored + generated;
+      published package surface unchanged.
+- [x] New design implemented from the soredemo-vector-brand assets: three-zone layout, the
+      plan-rail verified checklist (signature element), evidence/proof badges, status bar.
+      Accent reconciled to the brand blue #6EA8D6 (brief's placeholder teal not used).
+- [x] Verified in both clients (browser `soredemo studio` + Electron shell) and against the
+      missing-target, stop, and reconnect/replay flows; zero external network requests.
+
+Deviation from the brief: accent is the brand blue, not teal. alpha.1 publication remains
+deliberately deferred. Deferred: light theme, timeline/editor, tracks, i18n.
 
 ## Day 17 status
 

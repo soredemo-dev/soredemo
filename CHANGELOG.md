@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (studio UI rebuild)
+
+- Rebuild the Studio UI in React + Vite + TypeScript with full functional parity to the
+  alpha.1 vanilla UI: agent proposal, manual plan paste/edit, exact plan-hash approval with
+  edit-invalidation, run start/stop, ordered SSE rendering, live preview, MP4, and proof.
+  New componentized design (three-zone layout, the plan-rail verified checklist, evidence
+  badges) codified in [docs/design-system.md](docs/design-system.md); see
+  [ADR 0012](docs/adr/0012-react-studio-ui.md). Both the browser `soredemo studio` command
+  and the Electron shell serve the same built assets, unchanged; the server, session auth,
+  CSP, and event protocol are untouched. React/Vite are devDependencies bundled into static
+  assets — the published package surface is unchanged.
+
 ## Unreleased (desktop foundation)
 
 - Add a development-grade Electron macOS shell in `desktop/` that embeds the existing
