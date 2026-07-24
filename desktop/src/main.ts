@@ -266,12 +266,19 @@ async function runSelfTest(outPath: string): Promise<void> {
       const bridge = globalThis.soredemoDesktop || null;
       const keys = bridge ? Object.keys(bridge).sort() : [];
       const meta = await fetch('/api/meta').then((r) => ({ status: r.status })).catch((e) => ({ error: String(e) }));
+      // Wait briefly for the React SPA to mount its root shell.
+      let appMounted = false;
+      for (let i = 0; i < 40 && !appMounted; i += 1) {
+        appMounted = !!document.querySelector('.app');
+        if (!appMounted) await new Promise((r) => setTimeout(r, 50));
+      }
       return {
         bridgeKeys: keys,
         hasRequire: typeof globalThis.require !== 'undefined',
         hasProcess: typeof globalThis.process !== 'undefined',
         hasModule: typeof globalThis.module !== 'undefined',
         title: document.title,
+        appMounted,
         metaStatus: meta.status ?? null,
         metaError: meta.error ?? null,
       };
@@ -280,6 +287,7 @@ async function runSelfTest(outPath: string): Promise<void> {
     verdict.ok =
       verdict.loadedLoopback === true &&
       renderer.metaStatus === 200 &&
+      renderer.appMounted === true &&
       renderer.hasRequire === false &&
       renderer.hasProcess === false &&
       renderer.hasModule === false &&
