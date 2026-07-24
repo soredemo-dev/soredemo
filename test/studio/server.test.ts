@@ -14,7 +14,10 @@ describe('Studio local server', () => {
     const page = await fetch(studio.url);
     expect(page.status).toBe(200);
     expect(page.headers.get('set-cookie')).toContain('HttpOnly');
-    expect(await page.text()).toContain('Local only');
+    // The UI is a React SPA; the served shell mounts the app and its bundle.
+    const shell = await page.text();
+    expect(shell).toContain('<title>Soredemo Studio</title>');
+    expect(shell).toContain('id="root"');
     const cookie = page.headers.get('set-cookie')?.split(';')[0] ?? '';
     const meta = await fetch(`${studio.url}/api/meta`, { headers: { cookie } });
     await expect(meta.json()).resolves.toMatchObject({
