@@ -33,10 +33,29 @@ error: module dependency cycle: 'Geometry (Source Target) -> Graph.swiftmodule -
 error: Build failed
 ```
 
-An undeclared import that is not also cyclic fails as `no such module`. So the module map is a
-compile error, which is what D-P1 rests on — and note the contrast with F1: SwiftPM polices the
-package's internal edges while policing nothing about system frameworks. That gap is exactly what
-the plugin fills.
+An undeclared import that is not also cyclic fails as `unable to resolve module dependency`.
+
+**But only on a clean build.** Measured on this repository:
+
+| | Result |
+| --- | --- |
+| `swift build` with a warm `.build` | `warning: 'Geometry' is missing a dependency on 'Graph'` → **Build complete!**, exit 0 |
+| `swift build` after `rm -rf .build` | `error: unable to resolve module dependency: 'Graph'` → build fails |
+
+Stale module artifacts leave the undeclared module visible, and the diagnostic degrades from error to
+warning. `.treatAllWarnings(as: .error)` does **not** close this — the warning is emitted by the
+dependency scanner rather than the compiler frontend, so warnings-as-errors never sees it. Verified.
+
+Two consequences:
+
+1. **Any verification of a dependency edge must clean first.** A warm `swift build` reports a false
+   green, which is the failure mode this document's verification rule exists to catch — and it is
+   how the very first task nearly recorded a passing check it had not observed.
+2. **`ArchitectureCheck` rule 1 is stronger than SwiftPM here, not merely complementary.** The
+   plugin reads source text and runs on every build, so it rejects `import Graph` in `Geometry`
+   incrementally, where SwiftPM only warns. The contrast with F1 still holds — SwiftPM polices
+   nothing about system frameworks — but the plugin also covers this incremental gap in the edges
+   SwiftPM does police.
 
 ### F3 — The macOS 27 `Document` protocol handles packages, but is unavailable at our floor
 

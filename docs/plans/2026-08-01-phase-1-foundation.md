@@ -33,6 +33,7 @@ This binds the plan's own verification steps, not only the tests it writes. Ever
 - the plugin's tests passing was read as "the rule is enforced"; it proved only that *imagined* violations were blocked
 - `xcodebuild ** BUILD SUCCEEDED **` was read as "the plugin works under Xcode" while the app had no reference to the package, so the package was never built there
 - a grep reporting a deployment target collapsed two values and reported the wrong one — **confirm build settings with `-showBuildSettings`, never grep**
+- a warm `swift build` reported *Build complete!* with only a warning for an undeclared cross-target import, where a clean build errors — **`rm -rf .build` before verifying any dependency edge.** Measured on this repository; `.treatAllWarnings(as: .error)` does not close it, because the diagnostic comes from the dependency scanner rather than the compiler frontend
 
 ---
 
