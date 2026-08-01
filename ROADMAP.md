@@ -42,7 +42,7 @@ would post, output quality matters more than the loop.
 | --- | --- | --- | --- |
 | ☑ | `repo-skeleton` | SwiftPM package at the repository root + hand-made Xcode app target, `.macOS(.v26)`, Swift 6 language mode, builds and **launches** empty | — |
 | ◐ | `architecture-plugin` | `Plugins/ArchitectureCheck`. Rules 1 (imports, **done and capped**), 2 (CG types) and 4 (manifest dependencies) enforced under both `swift build` and `xcodebuild`. Rule 3 (determinism) **done** — link-time symbols read by `Tests/DeterminismTests`, not by the plugin, because a build-tool plugin's command runs before its target compiles. Rule 5 (CG bridge) waits for Task 18 — vacuous today | `repo-skeleton` |
-| ☐ | `geometry` | `NormalizedPoint` (0–1, bottom-left), `NormalizedFrame` with `geometryRevision`; all conversion in one place; cross-revision comparison is a precondition failure | `repo-skeleton` |
+| ☑ | `geometry` | `NormalizedPoint` (0–1, bottom-left), `NormalizedFrame` with `geometryRevision`; all conversion in one place; cross-revision comparison is a precondition failure | `repo-skeleton` |
 | ☐ | `project-format` | Versioned `Codable` document, atomic save, relative paths, upgrade path. Hand-written **`NSDocument`** package coordinator — `ReadableDocument`/`WritableDocument` are SwiftUI types requiring macOS 27, above our floor. The row spans the package/app boundary | `geometry`, `derivation-graph` |
 | ☐ | `derivation-graph` | Observations → actions → beats → outputs. Every derived value carries an origin (`generated`/`authored`) and a review state. **The producer-value rule with its boundary tests** | `geometry` |
 
