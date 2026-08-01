@@ -9,8 +9,13 @@ import Geometry
 // transform applied to it.
 //
 // - Two entries with DIFFERENT revisions, so a round trip that silently
-//   dropped or reordered the array would be caught (an empty or
-//   single-entry registry round-trips fine under a broken encoder).
+//   dropped an entry would be caught (an empty or single-entry registry
+//   round-trips fine even if a broken encoder loses entries). This does NOT
+//   cover array order: `GeometryRegistry.Equatable` compares the underlying
+//   dictionaries, so a decode that silently reordered the encoded array
+//   would still compare `==` here — order is `GeometryRegistry`'s own
+//   contract, pinned by its own tests (`RegistryTests.swift`), not this
+//   file's business.
 // - One `DisplayGeometry` with `scale: 2` — `scale: 1` is the identity that
 //   hid a real bug in Task 10.5.
 // - `mediaFilenames` deliberately NOT in sorted order, so round-trip proves
@@ -72,10 +77,20 @@ private func richSnapshot() -> ProjectSnapshot {
 
 /// Design § Canonical encoding point 2: `ProjectSnapshot.schemaVersion` (the
 /// document version) and `CanonicalEncoding.version` (the digest version)
-/// move independently — a document schema upgrade must leave existing
-/// approvals verifiable. Pinned as two separate assertions rather than one
-/// comparison, so neither is ever derived from the other.
-@Test func documentSchemaVersionAndCanonicalEncodingVersionAreIndependentConstants() {
+/// must never be derived one from the other — a document schema upgrade
+/// must leave existing approvals verifiable.
+///
+/// What this test actually establishes, and no more: both constants equal
+/// `1` today. It does NOT prove they are independent — the two assertions
+/// below would both still pass if `currentSchemaVersion` were rewritten as
+/// `Int(CanonicalEncoding.version)`, because the values coincide. Two
+/// constants that happen to be equal is the one case a value-pinning test
+/// cannot distinguish from a coupled one; catching an actual coupling is a
+/// code-review invariant (there is no `Int(CanonicalEncoding.version)`
+/// anywhere in `ProjectSnapshot`), not something this test can detect on
+/// its own. It is named for what it pins, not for a guarantee it cannot
+/// make.
+@Test func documentSchemaVersionAndCanonicalEncodingVersionArePinnedAsSeparateConstants() {
     #expect(ProjectSnapshot.currentSchemaVersion == 1)
     #expect(CanonicalEncoding.version == 1)
 }
@@ -101,19 +116,41 @@ private func richSnapshot() -> ProjectSnapshot {
     #expect(try SchemaProbe.version(of: data) == 1)
 }
 
+/// Asserts the specific case, not merely the error type: `ProjectFormatError`
+/// has three cases, and `#expect(throws: ProjectFormatError.self)` alone
+/// would also pass for `.tooNew` or `.unsupportedLegacyVersion` — so a probe
+/// that returned the wrong case here would go undetected under that form.
 @Test func probeThrowsMalformedWhenSchemaVersionIsAbsent() {
     let data = Data("""
     {"geometries":[],"mediaFilenames":[]}
     """.utf8)
-    #expect(throws: ProjectFormatError.self) {
+    do {
         _ = try SchemaProbe.version(of: data)
+        Issue.record("expected ProjectFormatError.malformed to be thrown")
+    } catch let error as ProjectFormatError {
+        guard case .malformed = error else {
+            Issue.record("expected .malformed, got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("expected ProjectFormatError, got \(error)")
     }
 }
 
+/// See `probeThrowsMalformedWhenSchemaVersionIsAbsent` — same reasoning for
+/// asserting the case rather than only the error type.
 @Test func probeThrowsMalformedOnInvalidJSON() {
     let data = Data("not json".utf8)
-    #expect(throws: ProjectFormatError.self) {
+    do {
         _ = try SchemaProbe.version(of: data)
+        Issue.record("expected ProjectFormatError.malformed to be thrown")
+    } catch let error as ProjectFormatError {
+        guard case .malformed = error else {
+            Issue.record("expected .malformed, got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("expected ProjectFormatError, got \(error)")
     }
 }
 
@@ -147,12 +184,24 @@ private func richSnapshot() -> ProjectSnapshot {
 /// The load-bearing case (Controller addendum ruling 3): a document from a
 /// newer build must throw BEFORE any field is read into a snapshot, because
 /// a partial read followed by a save would silently delete every field the
-/// newer build wrote. `mediaFilenames` here carries a sentinel value that
-/// must never surface in a decoded snapshot, because there must never BE a
-/// decoded snapshot for this input.
+/// newer build wrote.
+///
+/// The fixture must NOT be a v1-shaped document with a bigger number in it —
+/// `{"schemaVersion":2,"geometries":[],"mediaFilenames":[...]}` decodes
+/// cleanly as `ProjectSnapshot`, so a decode-first implementation ("decode
+/// the full snapshot, then check `schemaVersion > 1` and throw `.tooNew`")
+/// would pass that fixture unchanged — the exact thing this ruling forbids.
+/// This fixture's `geometries` is an object, not an array, which
+/// `GeometryRegistry`'s hand-written `init(from:)` cannot decode
+/// (`RegistryTests.swift` documents its wire shape as a flat array), and
+/// `mediaFilenames` is absent entirely; `newInV2` stands in for a field a
+/// real future build might add. A decode-first implementation throws
+/// `.malformed` here, not `.tooNew` — a genuinely version-first probe is
+/// what makes `.tooNew` reachable at all, because the probe never asks
+/// `GeometryRegistry` or `ProjectSnapshot` to decode anything.
 @Test func loadThrowsTooNewForAFutureSchemaVersion() {
     let data = Data("""
-    {"schemaVersion":2,"geometries":[],"mediaFilenames":["should-never-be-read.mov"]}
+    {"schemaVersion":2,"geometries":{"v2":"shape"},"newInV2":42}
     """.utf8)
     do {
         _ = try ProjectUpgrade.load(data)

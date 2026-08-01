@@ -58,7 +58,7 @@ public enum ProjectUpgrade {
                 geometries: v0.geometries,
                 mediaFilenames: []
             )
-        case let future where future > 1:
+        case let future where future > ProjectSnapshot.currentSchemaVersion:
             throw ProjectFormatError.tooNew(found: future, supported: ProjectSnapshot.currentSchemaVersion)
         default:
             throw ProjectFormatError.unsupportedLegacyVersion(version)

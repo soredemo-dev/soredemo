@@ -88,9 +88,18 @@ extension GeometryRegistry: Codable {
     /// would encode as an *unkeyed* container in `Dictionary`'s iteration order,
     /// and that order comes from a per-process random hash seed —
     /// `JSONEncoder.sortedKeys` does not help, because it sorts keyed containers
-    /// only (design doc § Canonical encoding). These bytes end up inside
-    /// `ProjectSnapshot`, which Phase 8's approval gate binds to, so a registry
-    /// that encoded differently per process would make approvals unverifiable.
+    /// only (design doc § Canonical encoding). These bytes are the document
+    /// path, inside `ProjectSnapshot` — which is **not** digested and is not
+    /// what Phase 8's approval gate binds to (`Project` Task 16, Controller
+    /// addendum ruling 5). The approval gate binds to `Derived.approvalBytes`,
+    /// which never touches `GeometryRegistry`'s encoding directly: it reaches
+    /// this module only through `GeometryRevision`, a `CanonicallyEncodable`
+    /// 8-byte value fed by `DisplayGeometry.canonicalBytes`, carried inside a
+    /// `NormalizedFrame` inside `Derived`. So `GeometryRegistry`'s own
+    /// determinism still matters — an encoding that varied per process would
+    /// make every future diff of a saved document, and every "did this
+    /// change?" question about it, unanswerable — it just isn't the path
+    /// approval hashes travel.
     ///
     /// The encoding is a **flat array sorted by `revision.id`** — deterministic
     /// by construction, independent of both `Dictionary`'s order and the order
