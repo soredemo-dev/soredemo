@@ -23,9 +23,24 @@ enforces, so without it the pure/impure boundary is a convention rather than a b
 
 ---
 
-## D2 — macOS 27, Apple Silicon, Swift 6.4, no fallbacks
+## D2 — macOS 26, Apple Silicon, Swift 6.4, no fallbacks
 
-`platforms: [.macOS(.v27)]`. Strict concurrency. No availability branches.
+`platforms: [.macOS(.v26)]`. Strict concurrency. No availability branches.
+
+**Four version numbers, deliberately not the same.** They get conflated, and conflating them makes
+correct settings look stale:
+
+| | Value | Means |
+| --- | --- | --- |
+| Deployment target | **26.0** | the oldest macOS that runs the app |
+| SDK | **27.0** | the API ceiling available at compile time |
+| `swift-tools-version` | **6.3** | manifest format version |
+| Swift compiler | **6.4** | language version |
+
+Building against the newest SDK and deploying to an older system is the normal arrangement, so
+`otool -l` reporting `minos 26.0 / sdk 27.0` is correct, not a leftover. Likewise "Swift 6.4 strict
+concurrency" is current — only the *manifest format* is 6.3, because Xcode 26.6 ships SwiftPM 6.3.3
+and refuses a 6.4 manifest.
 
 macOS 27 is Apple Silicon only — Intel and Rosetta 2 are ended, so this is Apple's position rather
 than just ours. It is a stability release, so adoption risk is low. This project ships when 27 is
@@ -41,13 +56,20 @@ Accessibility, and full access to Liquid Glass, the Document API, and `SpeechAna
 
 ## D3 — Coordinates: normalised, one conversion point
 
-`NormalizedPoint` is 0–1 with a **bottom-left origin**, matching CoreGraphics and Core Image so the
-render path never flips. `NormalizedFrame` additionally carries a `geometryRevision`.
+`NormalizedPoint` is 0–1 with a **bottom-left origin**, matching Core Image and `NSScreen.frame` so
+the render path never flips. `NormalizedFrame` additionally carries a `geometryRevision`.
+
+That origin claim is right about rendering and misleading about everything else: `CGDisplayBounds`,
+`CGEventGetLocation`, and AX `kAXPositionAttribute` are all **top-left**. There *is* a flip — the
+obligation is not that it never happens, but that it happens in exactly **one** place, on entry, and
+never again. `NormalizationContext` is that one place, converting display-local top-left pixels (never
+global ones, which would silently compute a plausible wrong answer) to normalised bottom-left. Routing
+a global point to its display happens first, via `DisplayArrangement.route`.
 
 This is the decision most likely to fail silently. Two rules make it loud:
 
-1. **No raw `CGPoint` or `CGRect` crosses a module boundary.** Capture converts on entry, render
-   converts on exit. Nothing in between speaks in pixels.
+1. **No raw `CGPoint` or `CGRect` crosses a module boundary.** Capture converts on entry, through
+   `NormalizationContext`; render converts on exit. Nothing in between speaks in pixels.
 2. **Comparing frames across `geometryRevision` is a precondition failure**, never a silent coercion.
    Displays get reconfigured mid-recording; a comparison that quietly succeeds against a stale
    revision lands a zoom on the wrong control with no error anywhere.
@@ -143,12 +165,41 @@ The checker reads source text through a file-scoped lexical scan, so comments, s
 every flavour, and string-interpolation bodies are classified correctly; `public import AppKit` and
 the other SE-0409 access-level spellings are caught, as is `#if canImport(AppKit)`. It tokenises by
 maximal *identifier* run rather than by a list of separators, because Swift accepts space, tab,
-newline, CR, form feed, vertical tab and U+00A0 between `import` and the module name, and ends a
+newline, CR, form feed, vertical tab, NUL and U+00A0 between `import` and the module name, and ends a
 token at any punctuation besides — a form feed is invisible in every diff viewer, so an enumerated
-separator list is a standing invitation. Every I/O failure is a hard error: a missing sources
+separator list is a standing invitation. A backtick both closes and opens a run, because Swift
+terminates the keyword there: `` import`AppKit` `` needs no space and typechecks. Every one of the
+128 ASCII code points and 22 Unicode oddities has been swept as a separator against `swiftc` and the
+checker together; Swift accepts exactly eight, and all eight are caught. SE-0451 raw identifiers and
+extended regex literals `#/…/#` are modelled as their own lexical spans, because a `"` inside either
+is ordinary content — without that, `` @Test func `rejects import AppKit`() `` is reported as a
+violation, which is the failure that actually occurs, sentence-shaped test names being the reason raw
+identifiers exist.
+
+`codeViewLines` is a hand-rolled lexer, and therefore a list of Swift's literal forms — one that will
+be a version behind each time the language gains another. Deriving it from SwiftSyntax is the durable
+fix if this area is ever revisited. Every I/O failure is a hard error: a missing sources
 directory, a directory with no `.swift` files, and an unreadable or undecodable file all fail the
 build. Unreadable must never mean compliant. Verified to fail the build under **both** `swift build`
 and `xcodebuild`.
+
+**Determinism is checked over link-time symbols, not source text, and it is a test rather than a
+plugin rule.** Ambient time and randomness break derivation identically to a framework call and are
+far easier to introduce by accident, but `Date()`, `UUID()`, `.random(in:)` and `ContinuousClock`
+are all Foundation or standard library, so no import allow-list can see them. A text scan is a proxy
+for a semantic question and leaks — a prior implementation caught plain `Date()` while `"\(Date())"`
+and `#"\#(Date())"#` both passed. Mangled symbols have no such gaps: every syntactic evasion
+collapses into `_$s10Foundation4DateVACycfC`, measured. The check cannot live in the plugin, because
+a build-tool plugin's command runs *before* its own target compiles and `PluginContext` exposes no
+accessor for any target's build products. It lives in `Tests/DeterminismTests`, whose declared
+dependency on all six library modules is what orders their compilation ahead of it; it only *reads*
+already-built object files with `nm -u`, so there is no nested build and no `.build` lock. The
+banned list is derived from this toolchain rather than guessed, and a fixture in the suite recompiles
+every banned construct and fails if a mangling has changed. Two guards make a vacuous pass
+impossible: no object files found, and no undefined symbols read, are each a hard failure — an empty
+search finds no violations and would otherwise read as a clean bill of health. The **types** `Date`
+and `UUID` stay legal; `Geometry.o` references `Foundation.UUID` and never `UUID.init()`, because
+identifiers and timestamps are minted in the app and passed in as plain values.
 
 **This constrains the package, not the app.** The app target uses ScreenCaptureKit, AVFoundation,
 AppKit, and Metal freely — that is where recording, rendering, and UI live.

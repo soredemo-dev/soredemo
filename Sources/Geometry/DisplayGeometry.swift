@@ -1,0 +1,74 @@
+import Foundation
+
+/// The intrinsic geometry of one display: what is needed to interpret a
+/// normalised coordinate on it, and nothing else.
+///
+/// **`displayUUID`, never `CGDirectDisplayID`** (D-P2). The window server assigns
+/// display IDs dynamically; they are not stable across reboot or replug. Digesting
+/// one would make this decision's own justification false — record Monday, reboot,
+/// record Tuesday on the same monitor at the same resolution, and one document
+/// holds two revisions for identical geometry, which is exactly the false trap a
+/// monotonic counter scheme was rejected for. The persistent identity is
+/// `CGDisplayCreateUUIDFromDisplayID`, looked up in the app, bridged to a
+/// Foundation `UUID`, and passed in here as a plain value. This module never
+/// touches CoreGraphics.
+///
+/// Display identity stays *in* the digest: two identical monitors side by side
+/// would otherwise collapse to one revision, and "40% across *a* display" is not
+/// a comparable coordinate when there are two.
+///
+/// Global arrangement stays *out* — see `DisplayArrangement` in the design doc.
+/// `CGDisplayBounds` origins shift when the arrangement changes, so digesting
+/// them would let rearranging display B silently invalidate footage from A.
+public struct DisplayGeometry: Hashable, Codable, Sendable {
+    public let displayUUID: UUID
+    public let pixelWidth: Int
+    public let pixelHeight: Int
+    public let scale: Double
+
+    public init(displayUUID: UUID, pixelWidth: Int, pixelHeight: Int, scale: Double) {
+        precondition(pixelWidth > 0 && pixelHeight > 0,
+                     "display must have positive dimensions, got \(pixelWidth)×\(pixelHeight)")
+        precondition(scale.isFinite && scale > 0,
+                     "scale must be finite and positive, got \(scale)")
+        self.displayUUID = displayUUID
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.scale = scale
+    }
+
+    /// The frozen canonical encoding. 41 bytes, fixed width, no separators:
+    ///
+    /// | offset | bytes | field |
+    /// | --- | --- | --- |
+    /// | 0 | 1 | `CanonicalEncoding.version` |
+    /// | 1 | 16 | `displayUUID`, RFC 4122 byte order |
+    /// | 17 | 8 | `pixelWidth`, little-endian two's complement |
+    /// | 25 | 8 | `pixelHeight`, little-endian two's complement |
+    /// | 33 | 8 | `scale.bitPattern`, little-endian |
+    ///
+    /// Hand-written rather than routed through `Codable`: synthesised encoding is
+    /// not a stable contract, and its byte order and field order are not ours.
+    /// Changing this layout changes every revision ever computed, so it changes
+    /// only alongside `CanonicalEncoding.version`.
+    var canonicalBytes: [UInt8] {
+        var bytes: [UInt8] = [CanonicalEncoding.version]
+        // Expanded explicitly rather than via `withUnsafeBytes`, because
+        // `.strictMemorySafety()` is enabled package-wide. The tuple order is
+        // the UUID's own network byte order, so this is endian-independent.
+        let u = displayUUID.uuid
+        bytes.append(contentsOf: [u.0, u.1, u.2,  u.3,  u.4,  u.5,  u.6,  u.7,
+                                  u.8, u.9, u.10, u.11, u.12, u.13, u.14, u.15])
+        bytes.append(contentsOf: UInt64(bitPattern: Int64(pixelWidth)).littleEndianBytes)
+        bytes.append(contentsOf: UInt64(bitPattern: Int64(pixelHeight)).littleEndianBytes)
+        // Bit pattern, never a decimal rendering: `"\(scale)"` is a lossy,
+        // locale- and formatter-dependent view of the value. The initialiser's
+        // precondition is what makes this well defined — NaN has many bit
+        // patterns, so a NaN scale would be two revisions for one value.
+        bytes.append(contentsOf: scale.bitPattern.littleEndianBytes)
+        return bytes
+    }
+
+    /// Stable across processes, machines, and reopens. Not `hashValue`.
+    public var revision: GeometryRevision { GeometryRevision(id: fnv1a64(canonicalBytes)) }
+}

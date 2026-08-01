@@ -8,6 +8,16 @@
 
 **Tech Stack:** Swift 6.4 · macOS 26.0 deployment · macOS 27 SDK (Xcode 27 beta 4, `27A5228h`) · SwiftPM tools-version 6.4 · Swift Testing · SwiftUI + AppKit
 
+**Task order.** Revised after Task 2, with reasons — a plan that says one thing while the work does another is the failure mode `AGENTS.md` names:
+
+| Task | When | Why |
+| --- | --- | --- |
+| 3 · rules 2 and 4 | **next** | Rule 2 guards a mistake Phase 2 will tempt constantly — `CGEvent`, `CGDisplayBounds` and AX frames are all `CGRect`. Rule 4 keeps rule 1 honest, because rule 1's completeness rests on the package having zero dependencies. One round, substring scans over the existing code view — **not** the token stream |
+| 4 · rule 3, determinism | after **Task 6** | `Sources/` is six placeholders, so the rule has nothing to protect, and the link-time symbol spike needs real object files with real symbols. Task 6 is where determinism first matters |
+| 5 · rule 5, CG bridge | at **Task 18** | `CGGeometryBridge.swift` does not exist until Task 18 creates it and the app is two template files, so the test would be trivially green — the vacuous pass this plan warns against elsewhere |
+
+Tasks 4 and 5 are deferred for the same reason, applied to scheduling rather than to a test: running them now would produce a check that passes without proving anything.
+
 **Design doc:** `docs/design/2026-08-01-phase-1-foundation-design.md` — read it before Task 1. Findings are cited as F1–F8 and decisions as D-P0–D-P4; this plan does not repeat their reasoning.
 
 ## Global Constraints
@@ -870,7 +880,7 @@ private let displayB = UUID(uuidString: "6BA7B811-9DAD-11D1-80B4-00C04FD430C8")!
 @Test func fnv1aMatchesKnownVectors() {
     #expect(fnv1a64([]) == 0xcbf2_9ce4_8422_2325)
     #expect(fnv1a64(Array("a".utf8)) == 0xaf63_dc4c_8601_ec8c)
-    #expect(fnv1a64(Array("foobar".utf8)) == 0x8595_8bf0_63e0_1d17)
+    #expect(fnv1a64(Array("foobar".utf8)) == 0x8594_4171_f739_67e8)
 }
 
 @Test func identicalGeometryYieldsIdenticalRevision() {

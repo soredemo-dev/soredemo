@@ -3,7 +3,7 @@
 Read this before doing anything. Then `docs/PRODUCT.md`, `docs/FEATURES.md`,
 `docs/ARCHITECTURE.md`, and `ROADMAP.md`.
 
-macOS 27 · Apple Silicon · Swift 6.4 strict concurrency · SwiftUI
+macOS 26 · Apple Silicon · Swift 6.4 strict concurrency · SwiftUI · SDK 27
 
 ---
 
@@ -67,13 +67,32 @@ the code — yours or Apple's.
 **When a document is wrong, say so.** If the code disagrees with the design, the code usually wins and
 the document gets fixed in the same commit. Do not silently work around a document you think is wrong.
 
+**A correct conclusion does not excuse its reasoning.** Verify the justification as carefully as the
+result — including the justification for options you rejected. A decision whose stated reason is
+false looks settled, and an audit whose stated reason is false looks discharged; both are worse than
+having none, because nothing prompts anyone to re-examine a conclusion that happens to be right.
+
+This has surfaced twice already in Phase 1. `.macOS(.v27)` was retained for "the newer manifest API
+surface" long after the only real reason for it had gone, and the stale reason made it look
+deliberate. An audit of the checker's string handling concluded the code was safe "because the
+force-close only triggers on source that does not compile" — the conclusion held, the reason did
+not, and disproving the reason exposed a defect the audit had passed over. Neither was found by
+re-reading the conclusion. Both were found by testing the sentence underneath it.
+
+**Check the claim against the thing, not against another claim.** Most errors in this project have
+had one shape: an assertion about state that was never compared to the state. A grep that collapsed
+two build settings and reported the wrong one. `main` recorded as sitting at a commit it had already
+moved past. Every `swift build` green while the toolchain the app is opened in could not read the
+manifest at all. A green light is evidence for exactly the proposition it tests, and usually that is
+narrower than the one being claimed.
+
 ---
 
 ## Architecture rules — enforced, not aspirational
 
 `Plugins/ArchitectureCheck` enforces these. If you change a rule, change the plugin in the same commit.
 
-1. **`Packages/SoredemoCore` imports Foundation only** — no AppKit, no ScreenCaptureKit, no
+1. **The `SoredemoCore` package imports Foundation only** — `Package.swift` and `Sources/` sit at the repository root — no AppKit, no ScreenCaptureKit, no
    AVFoundation. **The compiler does not enforce this.** It constrains edges *between package
    targets*, and even that degrades to a warning on a warm `.build`; it places no restriction at all
    on system frameworks, so a target with no declared dependencies can import AppKit and build fine.
@@ -84,13 +103,13 @@ the document gets fixed in the same commit. Do not silently work around a docume
    AppKit, and Metal freely — that is where recording, rendering, and UI live.
 
    ```
-   Soredemo.xcodeproj   Capture/ Render/ Editor/ Agent/ UI/   ← platform frameworks
+   Soredemo.xcodeproj + Soredemo/   App/ UI/ Capture/ Resources/   ← platform frameworks
         │  captures, writes an observation log
         ▼
    observation log → evidence (plain data)
         │
         ▼
-   Packages/SoredemoCore   Graph/ Framing/ Timeline/ Variants/   ← Foundation only
+   Sources/   Geometry/ Timeline/ Graph/ Framing/ Variants/ Project/   ← Foundation only
    ```
 
    The core does not record; it reasons about a recording. Pure logic tests with no screen, no

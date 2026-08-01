@@ -49,6 +49,7 @@ struct ArchitectureCheck: BuildToolPlugin {
                 executable: try context.tool(named: "architecture-checker").path,
                 arguments: ["--target-name", target.name,
                             "--sources", target.directory.string,
+                            "--manifests", context.package.directory.string,
                             "--allow", "Foundation",
                             "--touch", stamp.string] + declared,
                 inputFiles: target.sourceFiles.map(\.path) + manifests,

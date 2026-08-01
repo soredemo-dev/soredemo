@@ -39,12 +39,24 @@ User scope. Toolchain setup is in `docs/TOOLCHAIN.md`.
 
 ## Phase 1 — Foundation (the first real build)
 
+> **⚠ This block is out of date and Phase 1 is already under way.** It is kept as the historical
+> kickoff. Do not paste it to restart Phase 1 — read `docs/design/2026-08-01-phase-1-foundation-design.md`
+> and `docs/plans/2026-08-01-phase-1-foundation.md` instead, which supersede it.
+>
+> Corrections since it was written, all decided deliberately: the floor is **macOS 26.0**, not 27;
+> the package sits at the **repository root**, not under `Packages/`; `project-format` uses a
+> hand-written **`NSDocument`** coordinator, because `ReadableDocument`/`WritableDocument` are
+> SwiftUI types requiring macOS 27; and there is **no git worktree**.
+>
+> The "Constraints already decided … Treat these as given" framing below is what makes this file
+> dangerous when stale: an agent handed it will faithfully reinstate a decision that was reversed.
+
 > Read `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/FEATURES.md`, and `ROADMAP.md` in full before
 > planning anything. Read them properly — do not skim, do not summarise from headings.
 >
 > We are building **Phase 1 — Foundation** from `ROADMAP.md`. Five rows, in dependency order:
 >
-> 1. `repo-skeleton` — Xcode app target + `SoredemoCore` SwiftPM package, `.macOS(.v27)`, Swift 6.4
+> 1. `repo-skeleton` — Xcode app target + `SoredemoCore` SwiftPM package, `.macOS(.v26)`, Swift 6.4
 >    strict concurrency, builds and runs empty
 > 2. `architecture-plugin` — `Plugins/ArchitectureCheck` enforcing pure-package imports and no
 >    `CGPoint`/`CGRect` in the package's public API
@@ -65,7 +77,7 @@ User scope. Toolchain setup is in `docs/TOOLCHAIN.md`.
 > contradiction, not a preference:
 >
 > - **D1** — pure logic in `Packages/SoredemoCore`, app in an Xcode target that consumes it
-> - **D2** — `platforms: [.macOS(.v27)]`, Swift 6.4, strict concurrency, no availability branches
+> - **D2** — `platforms: [.macOS(.v26)]`, Swift 6.4, strict concurrency, no availability branches
 > - **D3** — `NormalizedPoint` is 0–1 bottom-left, matching CoreGraphics so the render path never
 >   flips. No raw `CGPoint`/`CGRect` crosses a module boundary
 > - **D5** — the project is a document, not a database. Not SwiftData

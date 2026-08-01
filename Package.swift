@@ -33,6 +33,19 @@ let package = Package(
         .plugin(name: "ArchitectureCheck", capability: .buildTool(),
                 dependencies: ["architecture-checker"]),
 
+        // Rule 3 (no ambient time or randomness) is a LINK-TIME SYMBOL check, and a
+        // build-tool plugin's command runs BEFORE its target compiles, so the plugin
+        // cannot see object files at all. This test target is the mechanism: the
+        // dependency edges below are load-bearing, not decorative. They are what
+        // guarantees every library module has been compiled — and therefore that its
+        // object file exists — by the time the test body runs. A module dropped from
+        // this list would still be scanned under a full `swift test`, but the ordering
+        // guarantee would be gone; `determinismTestTargetDependsOnEveryCheckedModule`
+        // asserts the list stays complete.
+        .testTarget(name: "DeterminismTests",
+                    dependencies: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"],
+                    swiftSettings: strict),
+
         .testTarget(name: "GeometryTests", dependencies: ["Geometry"], swiftSettings: strict),
         .testTarget(name: "TimelineTests", dependencies: ["Timeline"], swiftSettings: strict),
         .testTarget(name: "GraphTests", dependencies: ["Graph"], swiftSettings: strict),

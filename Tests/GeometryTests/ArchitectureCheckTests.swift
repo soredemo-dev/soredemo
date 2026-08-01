@@ -52,6 +52,58 @@ func runChecker(targetName: String = "Geometry",
     }
 }
 
+/// Rule 4 helper: writes the given manifest files into a fresh temp directory
+/// and invokes the real built checker with `--manifests <dir>` alone — the
+/// same shape a manifest-only invocation of the checker takes.
+func runManifestChecker(files: [String: String]) throws -> (status: Int32, stderr: String) {
+    let dir = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "arch-manifests-\(ProcessInfo.processInfo.globallyUniqueString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    for (name, contents) in files {
+        try contents.write(to: dir.appending(path: name), atomically: true, encoding: .utf8)
+    }
+
+    let checker = repositoryRoot.appending(path: ".build/debug/architecture-checker")
+    try #require(FileManager.default.fileExists(atPath: checker.path(percentEncoded: false)),
+                 "architecture-checker not built at \(checker.path(percentEncoded: false))")
+
+    let process = Process()
+    process.executableURL = checker
+    process.arguments = ["--manifests", dir.path(percentEncoded: false)]
+    let err = Pipe()
+    process.standardError = err
+    try process.run()
+    let data = err.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+}
+
+let manifestWithoutDependency = """
+// swift-tools-version: 6.4
+import PackageDescription
+
+let package = Package(
+    name: "Fixture",
+    targets: [
+        .target(name: "Fixture"),
+    ]
+)
+"""
+
+let manifestWithDependency = """
+// swift-tools-version: 6.4
+import PackageDescription
+
+let package = Package(
+    name: "Fixture",
+    dependencies: [.package(path: "/tmp/LocalDep")],
+    targets: [
+        .target(name: "Fixture"),
+    ]
+)
+"""
+
 // MARK: - must be REJECTED
 
 @Test(arguments: [
@@ -141,6 +193,17 @@ func rejectsImportSpelledUnusually(_ source: String) throws {
             "line number drifted: \(result.stderr)")
 }
 
+/// The same contract for the regex frame. A guard that exists in one branch and
+/// not its sibling is a guard that gets deleted by whoever tidies next, so both
+/// branches are pinned.
+@Test func reportsAccurateLineNumberAfterRegexLineContinuation() throws {
+    let source = "public let r = #/\n  a\\\n  b\n/#\nimport AppKit"   // import is on line 5
+    let result = try runChecker(source: source)
+    #expect(result.status == 1)
+    #expect(result.stderr.contains(":5: error:"),
+            "line number drifted: \(result.stderr)")
+}
+
 /// Separators Swift accepts between `import` and the module name that a
 /// space/tab/newline tokenizer does not. Each of these was verified to typecheck
 /// under `swiftc` with `public func probeUse() -> NSColor { NSColor.red }`
@@ -164,6 +227,67 @@ func rejectsImportBehindExoticSeparators(_ source: String) throws {
     let result = try runChecker(source: source)
     #expect(result.status == 1, "should reject: \(source.debugDescription)")
     #expect(!result.stderr.isEmpty)
+}
+
+/// Swift terminates the `import` keyword at a backtick, so no space is needed
+/// before an escaped module name. Each of these typechecks clean — `NSColor`
+/// resolves — and they are one keystroke from `import \`AppKit\``, which was
+/// already caught. The backtick is in `isIdentifierCharacter` so that escaped
+/// module names survive as one token; that is exactly what welded it to the
+/// keyword, so the tokenizer has to flush at a backtick and keep it.
+@Test(arguments: [
+    "import`AppKit`",
+    "public import`AppKit`",
+    "@_spi(A)import`AppKit`",
+    "@preconcurrency public import`ScreenCaptureKit`",
+])
+func rejectsBacktickGluedImport(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 1, "should reject: \(source)")
+    #expect(!result.stderr.isEmpty)
+}
+
+/// Sibling edges have the same hole — the allow-list is consulted with the same
+/// token, so a bypass in the tokenizer is a bypass for F2 as well as F1.
+@Test func rejectsBacktickGluedSiblingImport() throws {
+    let result = try runChecker(targetName: "Framing", source: "import`Timeline`")
+    #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
+}
+
+/// Lexical constructs in which a `"` is ORDINARY CONTENT, so a scanner that does
+/// not model them opens a string frame on source that compiles clean.
+///
+/// SE-0451 raw identifiers (Swift 6.2; this toolchain is 6.4) and extended regex
+/// literals `#/…/#` are both such constructs. `"""` inside either one is worse
+/// than `"`: the frame it opens is MULTILINE, which the defensive force-close
+/// deliberately declines to close, so it blanks the remainder of the file and the
+/// import does not even need to share a line. `/*` inside a raw identifier does
+/// the same through the block-comment frame.
+///
+/// Every one of these was verified to typecheck under `swiftc` with
+/// `public func probeUse() -> NSColor { NSColor.red }` appended.
+@Test(arguments: [
+    ##"public let `a"b` = 1; import AppKit"##,
+    "public let `a\"\"\"b` = 1\nimport AppKit",
+    "public let `a/*b` = 1\nimport AppKit",
+    "public let `a#\"b` = 1\nimport AppKit",
+    ##"public let r = #/a"b/#; import AppKit"##,
+    "public let r = #/a\"\"\"b/#\nimport AppKit",
+    ##"public let r = ##/a"b/##; import AppKit"##,
+    "public let r = #/\n  a\"\"\"b\n/#\nimport AppKit",
+])
+func rejectsImportHiddenBehindRawIdentifierOrRegex(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 1, "should reject: \(source.debugDescription)")
+    #expect(!result.stderr.isEmpty)
+}
+
+/// The same construction defeats the sibling-edge rule, not just the
+/// Foundation-only rule — both consult the same token stream.
+@Test func rejectsSiblingImportHiddenBehindRawIdentifier() throws {
+    let result = try runChecker(targetName: "Framing",
+                                source: "public let `a\"\"\"b` = 1\nimport Timeline")
+    #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
 }
 
 /// Swift ends a `//` comment at a lone CR and compiles what follows. A scanner
@@ -222,6 +346,10 @@ func acceptsLiteralsAndComments(_ source: String) throws {
 /// legitimate module spelled unusually. Neither may be false-positived.
 @Test(arguments: [
     "import `Foundation`",
+    // A backtick-escaped `import` is an IDENTIFIER, not the keyword. Flushing the
+    // token run at a backtick must not turn it back into one.
+    "public let `import` = 1",
+    "let `import` = 1; let `AppKit` = 2",
     "let importAppKit = 1",
     "let x = AppKitImporter()",
     "#if canImport(AppKit)\nimport Foundation\n#endif",
@@ -245,6 +373,40 @@ func acceptsNonImportsThatLookLikeImports(_ source: String) throws {
     "// note\u{2029}import AppKit",     // PARAGRAPH SEPARATOR
 ])
 func acceptsLineCommentsThatDoNotEnd(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 0, "should accept: \(source.debugDescription)\nstderr: \(result.stderr)")
+}
+
+/// THE REASON THIS ROUND EXISTS. A raw identifier is one token and its interior
+/// is not code; splitting it on its interior spaces reports
+/// "'work' is not importable" for `` `does import work` ``.
+///
+/// This is not hypothetical. SE-0451 raw identifiers exist primarily so that test
+/// names can be sentences, and this package is tested with Swift Testing — so a
+/// suite about the import rule naturally contains names like
+/// `` @Test func `rejects import AppKit`() ``. The measured trigger is: a raw
+/// identifier containing `import` NOT at the start, followed by a word that is not
+/// an allowed module. When `import` is first the round-2 backtick flush left the
+/// delimiter attached and it passed — by luck, not by logic.
+///
+/// Regex literal content is not code either, and `#/import AppKit/#` is exactly
+/// what a tool that greps for imports would contain.
+@Test(arguments: [
+    "public func `does import work`() -> Int { 1 }",
+    "public func `test import handling`() {}",
+    "public func `rejects import AppKit`() {}",
+    "@Test func `allows a declared sibling import`() {}",
+    "@Test func `rejects import ScreenCaptureKit from Geometry`() {}",
+    "public let `import Foundation is allowed` = 1",
+    "public let `a//b` = 1",
+    "public let `a/*b` = 1",
+    ##"public let `a"b` = 1"##,
+    "public let `import AppKit` = 1",
+    ##"public let r = #/import AppKit/#"##,
+    ##"public let r = #/a"b/#"##,
+    "public let r = #/\n  import AppKit\n/#",
+])
+func acceptsRawIdentifiersAndRegexLiterals(_ source: String) throws {
     let result = try runChecker(source: source)
     #expect(result.status == 0, "should accept: \(source.debugDescription)\nstderr: \(result.stderr)")
 }
@@ -313,16 +475,57 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
 
 /// Deleting `plugins: archCheck` from a target silently voids rule 1 for it —
 /// no build failure, no diagnostic. This is the phase's largest silent-void risk.
-@Test func everyLibraryTargetCarriesTheCheckerPlugin() throws {
-    let manifest = try String(contentsOf: repositoryRoot.appending(path: "Package.swift"),
-                              encoding: .utf8)
-    for module in libraryModules {
-        let declaration = try #require(
-            manifest.split(separator: "\n").first { $0.contains(".target(name: \"\(module)\"") },
-            "no .target declaration for \(module) in Package.swift")
-        #expect(declaration.contains("plugins: archCheck"),
-                "\(module) does not carry the ArchitectureCheck plugin — rule 1 is void for it. Line: \(declaration)")
+///
+/// Asserted against the RESOLVED manifest rather than its text, so it also catches
+/// `archCheck` being redefined to `[]` and `archCheck` being repointed at some
+/// other plugin — neither of which a grep for `plugins: archCheck` would notice.
+/// A separate `--scratch-path` keeps this off the `.build` directory the enclosing
+/// `swift test` is holding.
+@Test func everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest() throws {
+    let scratch = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "dump-\(ProcessInfo.processInfo.globallyUniqueString)")
+    defer { try? FileManager.default.removeItem(at: scratch) }
+
+    let process = Process()
+    process.executableURL = URL(filePath: "/usr/bin/env")
+    process.arguments = ["swift", "package", "dump-package",
+                         "--scratch-path", scratch.path(percentEncoded: false)]
+    process.currentDirectoryURL = repositoryRoot
+    let out = Pipe()
+    process.standardOutput = out
+    // Drained, not buffered: a Pipe nobody reads blocks the child once it fills.
+    // Harmless while the package has no dependencies; a latent hang the moment it does.
+    process.standardError = FileHandle.nullDevice
+    try process.run()
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    try #require(process.terminationStatus == 0, "swift package dump-package failed")
+
+    let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let targets = try #require(root["targets"] as? [[String: Any]])
+
+    // EVERY regular target, not a remembered list — a seventh target added without
+    // the plugin is precisely the silent void this test exists to prevent. The six
+    // known ones are asserted as a floor so the filter cannot quietly match nothing.
+    let regular = targets.filter { $0["type"] as? String == "regular" }
+    let regularNames = Set(regular.compactMap { $0["name"] as? String })
+    #expect(regularNames.isSuperset(of: libraryModules),
+            "expected at least \(libraryModules) among the regular targets, got \(regularNames.sorted())")
+
+    for target in regular {
+        let name = target["name"] as? String ?? "<unnamed>"
+        let usages = target["pluginUsages"] as? [[String: Any]] ?? []
+        let plugins = usages.compactMap { ($0["plugin"] as? [Any])?.first as? String }
+        #expect(plugins.contains("ArchitectureCheck"),
+                "regular target \(name) does not use the ArchitectureCheck plugin — rule 1 is void for it. pluginUsages: \(usages)")
     }
+
+    // The checker's own target must NOT be checked: its source legitimately names
+    // the banned modules.
+    let checker = try #require(targets.first { $0["name"] as? String == "architecture-checker" })
+    let checkerPlugins = (checker["pluginUsages"] as? [[String: Any]] ?? [])
+        .compactMap { ($0["plugin"] as? [Any])?.first as? String }
+    #expect(!checkerPlugins.contains("ArchitectureCheck"))
 }
 
 // MARK: - unreadable must never mean compliant
@@ -381,4 +584,55 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     // Geometry is a leaf; Graph is not among its allowed imports.
     let result = try runChecker(targetName: "Geometry", source: "import Graph")
     #expect(result.status == 1)
+}
+
+// MARK: - rule 2: CG geometry types banned from the package
+
+@Test(arguments: [
+    "public struct F { public let r: CGRect }",
+    "let p = CGPoint(x: 0, y: 0)",
+    "func f(_ s: CGSize) {}",
+    "let w: CGFloat = 1",
+    #"let s = "\(CGRect.zero)""#,           // interpolation is code
+    ##"let s = #"\#(CGRect.zero)"#"##,      // raw interpolation is code
+])
+func rejectsCGType(_ line: String) throws {
+    #expect(try runChecker(source: "import Foundation\n\(line)").status == 1)
+}
+
+@Test(arguments: [
+    "// CGRect is converted at the boundary",
+    "/* CGRect belongs in the app */",
+    #"let s = "CGRect is banned""#,
+    ##"let s = #"CGRect"#"##,
+    "let s = \"\"\"\nmentions CGRect on line two\n\"\"\"",
+])
+func acceptsCGTypeMention(_ line: String) throws {
+    let r = try runChecker(source: "import Foundation\n\(line)")
+    #expect(r.status == 0, "should accept: \(line)\n\(r.stderr)")
+}
+
+// MARK: - rule 4: no manifest may declare a package dependency
+
+@Test func rejectsDependencyInMainManifest() throws {
+    #expect(try runManifestChecker(files: ["Package.swift": manifestWithDependency]).status == 1)
+}
+
+@Test func rejectsDependencyInVersionSpecificManifest() throws {
+    // SwiftPM prefers Package@swift-6.4.swift. Verified: a dependency declared
+    // there resolves and builds while Package.swift declares none.
+    let result = try runManifestChecker(files: [
+        "Package.swift": manifestWithoutDependency,
+        "Package@swift-6.4.swift": manifestWithDependency,
+    ])
+    #expect(result.status == 1)
+}
+
+@Test func acceptsCleanManifests() throws {
+    #expect(try runManifestChecker(files: ["Package.swift": manifestWithoutDependency]).status == 0)
+}
+
+@Test func acceptsPackageMentionInComment() throws {
+    let clean = manifestWithoutDependency + "\n// no .package( entries here\n"
+    #expect(try runManifestChecker(files: ["Package.swift": clean]).status == 0)
 }

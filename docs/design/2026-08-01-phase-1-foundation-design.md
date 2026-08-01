@@ -429,6 +429,22 @@ about rendering and misleading about everything else:
 | `NSScreen.frame` | bottom-left | AppKit — disagrees with CoreGraphics |
 
 There is a flip. The obligation is that it happens exactly once, on entry, and never again.
+**Unit mismatch waiting at capture entry — Phase 2 must resolve this explicitly.** `DisplayGeometry`
+carries **native pixels**; `CGDisplayBounds` and `CGEventGetLocation` report **points** — pixels ÷
+`scale` on a Retina display. `DisplayArrangement.route` compares its operands directly and does no
+scale conversion, which is right for a type that knows only one unit, but it means whoever populates
+`Placement` from real `CGDisplayBounds` values must convert first.
+
+Measured on a 3840×2160 display at `scale: 2`, which is 1920 points wide:
+
+```
+route(globalTopLeftX: 2500, …)  ->  routed INSIDE the display, localX = 2500
+```
+
+2500 points is well past the right edge, and it is accepted because it is compared against 3840.
+The failure is silent: a click lands on the wrong display, or on none while appearing to succeed.
+Every Phase 1 fixture uses `scale: 1`, which is exactly why the suite is green.
+
 `NormalizationContext` is that one place, and it takes **display-local** top-left pixels, never
 global ones — the ambiguity that would otherwise compute a plausible, wrong answer in silence.
 Routing happens first, via `DisplayArrangement.route`.
@@ -460,11 +476,28 @@ IDs and timestamps are minted in the app and passed in as plain values, the same
 semantic question and leaks: in a prior implementation `"\(Date())"` and `#"\#(Date())"#` both
 passed while plain `Date()` was caught. Mangled symbols have no such gaps.
 
+It is implemented in `Tests/DeterminismTests`, reading `nm -u` over already-built object files;
+`Plugins/ArchitectureCheck` rule 3 below records why the plugin cannot carry it.
+
 ### Canonical encoding
 
 `approvalBytes` and every content digest depend on an encoding that is byte-identical for equal
 values, across processes and across time. "Canonical" is defined here rather than assumed, because
 three separate things break it and each fails silently.
+
+**0. `JSONEncoder` does not encode deterministically at all, without `.sortedKeys`.** This is
+broader than the dictionary case below and was found while building `GeometryRegistry`. Measured on
+a plain `Codable` struct array containing **no dictionary of any kind**: five processes produced
+**five different byte strings**, differing only in intra-object key order. With
+`.outputFormatting = [.sortedKeys]`, one.
+
+The consequence is that `.sortedKeys` is **mandatory on every encoder whose bytes are digested**,
+not merely a mitigation for dictionaries — and the reason it is required is not the one stated in
+point 1. A type with no dictionary in it is still non-deterministic. Anyone reading point 1 alone
+could reasonably conclude the hazard does not apply to their struct and drop the flag.
+
+`approvalBytes` (D-P4) is the type this matters to most: it is what Phase 8's `approval-gate` binds
+human approval to, and it contains no dictionary.
 
 **1. Swift's `Dictionary` does not encode deterministically.** When the key is not `String` or
 `Int`, `Codable` synthesis emits an **unkeyed** container of alternating key/value in *iteration*
@@ -506,7 +539,7 @@ Given F1, this is the primary enforcement of D6, so it runs on every build.
 | --- | --- | --- |
 | 1 | Import allow-list per target | source text |
 | 2 | No `CGPoint`/`CGRect`/`CGSize`/`CGFloat` in the package | source text |
-| 3 | No ambient time or randomness | **link-time symbols** — mechanism unresolved, see below |
+| 3 | No ambient time or randomness | **link-time symbols**, read by `Tests/DeterminismTests` — *not* by the plugin, see below |
 | 4 | Manifest declares no package dependencies | source text — scan **every** manifest for `.package(` |
 | 5 | CG types in the app appear only in `Capture/CGGeometryBridge.swift` | a package **test** — the plugin attaches to SwiftPM targets and cannot see the Xcode app target |
 | 6 | One owner for the observation-log → graph join | inert in Phase 1 |
@@ -520,21 +553,70 @@ never runs on an incremental build — which is how people build.
 Use `context.tool(named:).path`, **not** `.url`: `URL.path()` percent-encodes Xcode's `${BUILD_DIR}`
 placeholder into `$%7BBUILD_DIR%7D` and breaks `xcodebuild`.
 
-### Rule 3's mechanism is unresolved, and that is written here rather than discovered
+### Rule 3's mechanism, resolved
 
 Rule 3 reads link-time symbols, but a build-tool plugin's command runs **before** its target
-compiles, so the object files do not exist when it runs. The mechanism must be established before
-the approach is committed to. Candidates:
+compiles, so the object files do not exist when it runs. The three candidates were evaluated in the
+stated order and the first one works.
 
-- **A test that builds and inspects.** Preferred. It needs no one to remember to invoke it, and it
-  runs wherever the suite runs. The whole point of D-P4 is to avoid *a validator someone might
-  forget to call*; a rule with the same weakness is the same mistake one level up.
-- A separate check target that depends on the six libraries, so its command runs after they compile.
-- A post-build script phase in the Xcode project — but that only fires under `xcodebuild`, which is
-  half the enforcement, and it needs a pbxproj edit (F8).
+**Chosen — a test that READS already-built object files.** `Tests/DeterminismTests` declares a
+dependency on all six library modules. That edge is the whole mechanism: it is what orders their
+compilation ahead of the test body, so by the time the body runs, every `<Module>.o` necessarily
+exists. The test builds nothing — it runs `nm -u` over object files that are already there — so
+there is no nested `swift build`, no second `.build` lock and no deadlock. It needs nobody to
+remember to invoke it and it runs wherever the suite runs, which is the same property D-P4 exists to
+protect. The dependency list is itself guarded: a test reads the resolved manifest and fails if
+`DeterminismTests` does not depend on every plugin-checked target, because dropping one would void
+the ordering silently.
 
-If none works cleanly, the honest outcome is a documented gap, not a symbol check nobody can prove
-runs.
+**Rejected — a separate check target whose plugin command runs after the libraries compile.** There
+is no supported way for it to find the object files. `PluginContext` has exactly three members —
+`package`, `pluginWorkDirectoryURL` and `tool(named:)` — and none of them names a build-products
+directory (read off `PackagePlugin.swiftinterface` on this toolchain). The only API that does expose
+built products is `PackageManager.BuildResult.builtArtifacts`, and `packageManager` is a member of
+`CommandPlugin`, not `BuildToolPlugin`; its artifact kinds are `executable`, `dynamicLibrary` and
+`staticLibrary`, never object files. So the target would have to hardcode a path, which under
+`xcodebuild` is the `${BUILD_DIR}` placeholder this document already records as a hazard.
+
+**Rejected — a post-build script phase in `Soredemo.xcodeproj`.** It only fires under `xcodebuild`,
+which is half the enforcement, and it requires a `project.pbxproj` edit, which F8 records as the
+thing that made the project unreadable.
+
+The banned symbols are **derived on this toolchain, not guessed**: a scratch module calls each
+construct, `nm -u` reads the mangled names back, and `swift demangle` confirms what they are. That
+derivation is reproduced inside the suite — a fixture containing one call site per banned symbol is
+compiled and read back, so a toolchain that changes a mangling turns the table RED instead of
+silently emptying it. Verified end to end: `Date()` inserted into `Sources/Geometry/DisplayGeometry.swift`
+turns the check red naming `Geometry.o: Date.init() [_$s10Foundation4DateVACycfC]`, and `"\(Date())"`,
+`#"\#(Date .init())"#` and `let make: () -> Date = Date.init; make()` all produce that same single
+symbol — which is the whole reason this is not a text scan.
+
+Two things must never be a silent pass, because both look exactly like success: **finding no object
+files**, and **finding object files that yield no symbols**. Both are `#require` failures, checked
+per module as well as in aggregate, and both were observed firing.
+
+`Date` and `UUID` as **types** stay legal and are load-bearing — `public let at: Date` is the shape
+D-P4 prescribes, since timestamps and identifiers are minted in the app. Only the constructors and
+clock reads are banned, and the distinction holds at the symbol level: `Geometry.o` references
+`Foundation.UUID`'s metadata, `==` and `.uuid` for `DisplayGeometry.displayUUID`, and does not
+reference `UUID.init()`. Matching is by exact symbol, never by substring, because the static
+`Date.timeIntervalSinceReferenceDate` (a clock read, banned) and the instance property of the same
+name (allowed) differ only by a trailing `Z`.
+
+`random(in:using:)` and its siblings are deliberately **not** banned: randomness from an injected
+generator is deterministic, which is the property being protected. There is no hole, because the
+only way to obtain the system generator is `SystemRandomNumberGenerator.init()`, which is banned.
+
+#### Rule 3's known gaps, with reachability
+
+| Construction | Direction | Reachable how |
+| --- | --- | --- |
+| Objective-C clock reads (`-[NSProcessInfo systemUptime]`, `-[NSDate timeIntervalSinceReferenceDate]`) are matched through `_objc_msgSend$<selector>` stubs | miss under other codegen | The stub is what this toolchain emits, and it is matched. A build configured without selector stubs routes the same call through `__objc_selrefs` instead, which `nm -u` does not surface. Not reachable from `Package.swift`, which does not set that flag |
+| `dlsym`/`NSClassFromString` reaching a clock at runtime | miss | Deliberate authorship only. Nobody writes it by accident, and it does not survive review |
+| `_OBJC_CLASS_$_NSDate` fires on *any* reference to `NSDate`, including a bridge that reads no clock | false positive | Loud, and deliberately over-approximated. A Foundation-only value package has no ObjC boundary to bridge across |
+| The scan runs where the object files are — `.build/debug` under `swift build`, or `<Module>.build/` under the older llbuild layout. A scratch path outside `.build` finds neither | neither | Fails **closed**: the vacuous-pass guard reports "no object files found for *module*", not a pass |
+
+The residual is the first row, and it is a codegen-configuration miss rather than a source-level one.
 
 ### Rule 4 reads source text too, so it needs its own evasion list
 
@@ -551,27 +633,77 @@ gets scanned.
   rather than a `dependencies:` shape match.
 - `.package(` inside a comment or string literal must **not** fire.
 
-### The known evasion set
+### What this plugin is for
 
-Rules 1 and 2 read source text, so they must survive these from the first commit rather than
-discovering them one at a time. Each gets a test:
+**It catches the ordinary mistake.** A stray `import AppKit`, a `CGRect` that drifted into the
+package — written by someone who knows the rule and slipped. It is **not an adversarial boundary,
+and there is no attacker.** Anyone able to edit `Sources/` can also edit the checker.
 
-- **`import` and the module name separated by a newline.** Verified valid Swift that fully
-  typechecks and grants module access, and it defeats any scanner that extracts one statement per
-  line. Found by the Task 2 implementer; neither this document's original list nor the review that
-  hardened it contained it. The fix is structural: scan tokens carrying line numbers rather than
-  splitting on lines, which also makes attributes and access levels fall out for free.
-- `` import `Foundation` `` — backtick-escaped module names are legal and must NOT be rejected
+That distinction is load-bearing, because it decides what counts as a defect and what counts as
+work worth doing:
+
+- A **false positive on idiomatic Swift** is the serious failure. It blocks real work and teaches
+  people to route around the rule. Round 3 existed because `` @Test func `rejects import AppKit`() ``
+  — an ordinary Swift Testing name, in a suite that is literally about imports — was being rejected.
+- A **theoretical evasion** is not. Nobody types a form feed by accident.
+
+**If a future round is proposed on the grounds of closing an evasion, that ground is false and the
+round does not happen.** Rule 1 is capped. It reopens on exactly two triggers: a second contributor
+joining the project, or a rule-2 false positive that blocks work. Nothing else.
+
+### Known gaps, with reachability
+
+The reachability column is the point. It separates *we chose not to close this* from *we did not
+know*. Every row was measured — `swiftc -typecheck` exit 0 means the construction really compiles
+and really imports the module.
+
+| # | Construction | Direction | Reachable how |
+| --- | --- | --- | --- |
+| 1 | `import<FF>AppKit`, `import<VT>AppKit`, leading `<FF>` | miss | Deliberate authorship only. Invisible in every diff viewer, which is exactly why nobody produces one by accident |
+| 2 | `@_spi(A)@_spi(B)import AppKit` — punctuation glued to the keyword | miss | Deliberate only. The spaced form is caught |
+| 3 | `// note<CR>import AppKit` | miss | Deliberate only. Closed in round 2 by promoting lone CR to a line terminator; listed because the class persists for any terminator Swift adds |
+| 4 | `import<NBSP>AppKit` | miss | ⌥-space is one keystroke, so marginally more reachable than 1–3, but still requires the module name to follow it on the same line |
+| 5 | Unterminated `#/…` or `"""…` blanks the rest of the file | miss | **Unreachable in a passing build** — requires source that does not compile, so it cannot hide anything from a build that would otherwise succeed |
+| 6 | Bare `/…/` regex literals are not modelled | neither | No opener can occur inside one: Swift rejects a quote or backtick there, verified |
+| 7 | `.product` dependencies resolve to nothing | false positive | Loud. The package has no products; the first one added produces a visible rejection, not silence |
+| 8 | Astral-plane identifier characters (U+10000–1FFFD) | false positive | Loud. Swift accepts them as identifier heads, `Character.isLetter` does not |
+
+**Rows 1–4 were closed anyway**, because closing them cost less than arguing about them. They are
+listed so that the next person can see they were considered rather than missed.
+
+**Row 5 is the honest residual.** It is the only miss that survives, and it survives on source that
+does not build.
+
+### The standing structural gap
+
+`codeViewLines` is a hand-rolled lexer, which makes it **a list of Swift's literal forms** — and a
+list lags by however long it takes someone to write the probe. Two forms were absent for exactly
+that reason:
+
+- **Raw identifiers** (SE-0451, Swift 6.2). A `"` inside `` `…` `` opened a string frame, blanking
+  the rest of the file on code that compiles. Found in round 3.
+- **Extended regex literals** (`#/…/#`, Swift **5.7**). Live in both directions. Absent for several
+  releases, and found by an audit rather than by the language moving.
+
+The lag is unbounded and silent in both directions. **SwiftSyntax is the durable fix** — it makes
+the checker share the compiler's notion of what a literal is, rather than maintaining a parallel
+list that is correct until it quietly is not. Deferred: at one contributor the failure mode is a
+loud false positive, which is survivable. It becomes urgent when a second contributor arrives, which
+is one of the two triggers that reopen this rule.
+
+### The evasion set the rule is tested against
+
+61 rejection forms and 41 acceptance forms, all executing the real built binary against fixtures.
+The acceptance forms matter as much as the rejections — they are what keeps the rule from being
+routed around. Notable members:
+
+- `import` and the module name separated by a **newline**: valid Swift, defeats any scanner that
+  extracts one statement per line
 - SE-0409 access levels: `public`/`package`/`internal`/`fileprivate`/`private import`
-- `@preconcurrency import AppKit`, `@testable import`, `@_exported import`, stacked attributes
-- `import AppKit; import Foundation` — semicolon-joined, either order
-- `import class AppKit.NSColor` — submodule form
-- `import<TAB>AppKit`, `import AppKit //comment`
-- string interpolation hiding real code: `"\(Date())"`, nested `"\(f("lit", Date()))"`
-- raw-string interpolation: `#"\#(Date())"#`, `##"\##(UUID())"##`, multiline `#"""…"""#`
-- must still PASS: `import Foundation`, `// import AppKit`, `#"Date()"#`, `#"a \(b) c"#`,
-  `"Date() is banned"`, a multiline string whose second line mentions `CGRect`, and
-  `import Foundation /* comment */`
+- attributes, stacked attributes, semicolon-joined imports in either order, `import class AppKit.NSColor`
+- string and raw-string interpolation hiding real code
+- must PASS: `` import `Foundation` ``, `` public let `import` = 1 ``, `` @Test func `rejects import AppKit`() ``,
+  `#/import AppKit/#`, `// import AppKit`, `#if canImport(AppKit)`, `func doImport() {}`
 
 ---
 
@@ -630,15 +762,45 @@ a known rule.
 
 ## Document corrections
 
+**This table was itself wrong.** Its first version listed only `ARCHITECTURE.md`, `ROADMAP.md` and
+`TOOLCHAIN.md` — and omitted `README.md`, `AGENTS.md` and `KICKOFF.md`, which are the three documents
+a person or an agent reads *first*. A corrections list that was never checked against the repository
+is the same failure this document keeps recording: a claim about state, never compared to the state.
+
+`KICKOFF.md` was the dangerous omission. It is a **copy-pasteable prompt** whose Phase 1 block says
+*"Constraints already decided … Treat these as given. Push back only if you find a genuine
+contradiction."* Handed to an agent unchanged, it faithfully reinstates `.macOS(.v27)` as a settled
+constraint. A stale instruction with authority framing does not sit there inertly; it actively
+undoes the decision.
+
 | Document | Claim | Correction |
 | --- | --- | --- |
-| `ARCHITECTURE.md` D6 · `AGENTS.md` rule 1 | the compiler blocks `import AppKit` | false (F1); the plugin enforces it. SwiftPM does police edges *between package targets* (F2) |
-| `ARCHITECTURE.md` D1 | `Packages/SoredemoCore/` | package is at the repository root (D-P0) |
-| `ARCHITECTURE.md` D2 | `.macOS(.v27)`, "ships when 27 is a year old" | `.macOS(.v26)`. The no-availability-branches rule survives unchanged; the ship-date argument does not |
-| `ARCHITECTURE.md` D5 | `WritableDocument`/`ReadableDocument`/`DocumentCreationSource` | hand-written `NSDocument` coordinator (F3, F4). § To verify item 1: the API handles packages but is macOS 27 only, so it is moot |
+| `README.md` | `macOS 27 · Swift 6.4`; TOOLCHAIN described as "macOS 27 setup" | macOS 26; a macOS 27 volume is not required at this floor |
+| `AGENTS.md` header | `macOS 27 · … Swift 6.4` | macOS 26, SDK 27 |
+| `AGENTS.md` rule 1 | the compiler enforces Foundation-only; package at `Packages/SoredemoCore` | the compiler does not (F1); package is at the repository root (D-P0) |
+| `KICKOFF.md` Phase 1 | `.macOS(.v27)` under "Treat these as given" | macOS 26, plus a header marking the block superseded by the design and plan |
+| `ARCHITECTURE.md` D2 | macOS 27, "ships when 27 is a year old" | macOS 26. The no-availability-branches rule survives; the ship-date argument does not |
+| `ARCHITECTURE.md` D1 | `Packages/SoredemoCore/` | package at the repository root (D-P0) |
+| `ARCHITECTURE.md` D5 | `WritableDocument`/`ReadableDocument`/`DocumentCreationSource` | hand-written `NSDocument` coordinator (F3, F4) |
 | `ARCHITECTURE.md` D3 | bottom-left "so the render path never flips" | true for render; CG, event and AX inputs are top-left. One flip, at capture entry |
+| `ARCHITECTURE.md` D6 | the compiler blocks `import AppKit` | false (F1); the plugin enforces it |
+| `FEATURES.md` header | `Target: macOS 27` | macOS 26, built against the 27 SDK |
 | `ROADMAP.md` `project-format` | lists `ReadableDocument`/`WritableDocument` | `NSDocument` coordinator; the row spans the package/app boundary |
-| `docs/TOOLCHAIN.md` § 2 | macOS 27 beta volume required | not required at a 26 floor. Xcode 27 beta stays — it is the SDK |
+| `TOOLCHAIN.md` § 2 | macOS 27 beta volume required | not required at a 26 floor. Xcode 27 beta stays — it is the SDK |
+
+### What must NOT be changed
+
+Three categories of `macOS 27` are correct and deleting them would destroy information:
+
+1. **The SDK.** `otool -l` reporting `minos 26.0 / sdk 27.0` is the normal arrangement — build
+   against the newest SDK, deploy to an older system. Likewise the Swift **compiler** is 6.4; only
+   the *manifest format* is 6.3. See D2's four-version table.
+2. **The reasoning record.** `AGENTS.md` and `PRODUCT.md` cite the `.macOS(.v27)` decision as the
+   worked example of a justification that outlived its reason. Deleting it deletes the lesson.
+3. **APIs genuinely above the floor.** `FEATURES.md` names Music Understanding, generated subtitles,
+   the Evaluations framework and `WritableDocument` as macOS 27. Those rows are **marked**, not
+   removed — they describe capability we would want, and Phase 4 and Phase 5 must not be planned on
+   them without either raising the floor or finding a macOS 26 equivalent.
 
 ---
 
