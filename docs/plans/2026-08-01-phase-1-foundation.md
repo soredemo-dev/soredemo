@@ -1330,15 +1330,21 @@ MyDemo.soredemo/          UTType(exportedAs:conformingTo: .package)
 
 - [ ] **Step 1: Confirm the package is actually BUILT, not merely mentioned**
 
-A `grep` for `SoredemoCore` in the pbxproj proves only that the string is present — and failed hand-editing attempts have left exactly that residue before. Ask the build system what it built:
+A `grep` for `SoredemoCore` in the pbxproj proves only that the string is present — and failed hand-editing attempts have left exactly that residue before. Ask the build system what it built — **from empty derived data, or the check inverts**:
 
 ```bash
-xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 \
-  | grep -cE "Compiling .*(Geometry|Timeline|Graph)|SwiftDriver.* (Geometry|Timeline|Graph) "
+rm -rf /tmp/soredemo-dd
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' \
+  -derivedDataPath /tmp/soredemo-dd build 2>&1 \
+  | grep -cE "Compiling .*(Geometry|Timeline|Graph|Project)|SwiftDriver.* (Geometry|Timeline|Graph|Project) "
 ```
 Expected: non-zero, meaning Xcode compiled package targets.
 
-If zero, **stop and report NEEDS_CONTEXT** — the local package reference has not been added, and everything below depends on it. Do not proceed on a build that silently never compiles the package.
+**Without `-derivedDataPath` on a fresh path this check reads zero on a correctly configured project.** Measured: with warm derived data, `xcodebuild` emitted no compile lines for any package target because they were already up to date, while the same project on empty derived data emitted 45 and produced `Geometry/Timeline/Graph/Project/Framing/Variants.swiftmodule`. An up-to-date target does not announce itself. This is the same warm-versus-clean axis as F2a, arriving at a different tool — and here the failure direction is worse, because a zero says "stop, the prerequisite is missing" about a prerequisite that is present.
+
+If zero *from empty derived data*, **stop and report NEEDS_CONTEXT** — the local package reference has not been added, and everything below depends on it. Do not proceed on a build that silently never compiles the package.
+
+**Compiled is not linked.** This check establishes that the package is in the build graph. It cannot establish that the app links it, because until this task writes the first `import`, nothing references it: measured at the start of Task 18, the app binary contained zero `Geometry` symbols on a build where every package module compiled. Step 4's `nm` on the app binary is what closes that gap, and it only becomes meaningful once `Minting.swift` exists.
 
 - [ ] **Step 2: Re-verify rule 1 under `xcodebuild` — for the first time meaningfully**
 
