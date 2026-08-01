@@ -1,0 +1,55 @@
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved.backup
+
+# Swift
+*.o
+*.swiftmodule
+timeline.json
+
+# Signing and secrets — never commit
+*.p12
+*.mobileprovision
+*.cer
+.env
+.env.*
+!.env.example
+ExportOptions.plist
+AuthKey_*.p8
+
+# Recordings and media used for testing — large, and often contain a real screen
+scratch/
+recordings/
+*.mov
+*.mp4
+*.gif
+!docs/**/*.gif
+!docs/**/*.png
+
+# Agent working files
+.claude/settings.local.json
+worktrees/
+
+# Rust (spikes)
+target/
