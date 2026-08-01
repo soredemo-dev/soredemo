@@ -27,13 +27,30 @@ struct ArchitectureCheck: BuildToolPlugin {
             .sorted()
             .map { context.package.directory.appending($0) } ?? []
 
+        // The allow-list IS the manifest: one `--allow` per DECLARED dependency,
+        // read out of PluginContext rather than mirrored by hand in the checker.
+        // Direct edges only — the transitive closure would permit undeclared
+        // imports (Framing→Timeline, Variants→Geometry), which are exactly the
+        // edges SwiftPM's own diagnostic degrades to a warning on a warm .build.
+        // `.product` dependencies are deliberately not expanded: a product may
+        // vend several modules under a name that is not a module name, so
+        // guessing would be wrong. The package has none today, and if one is
+        // added the checker fails closed — loudly — rather than silently open.
+        let declared = target.dependencies.flatMap { dependency -> [String] in
+            if case .target(let dependencyTarget) = dependency {
+                return ["--allow", dependencyTarget.name]
+            }
+            return []
+        }
+
         return [
             .buildCommand(
                 displayName: "ArchitectureCheck: \(target.name)",
                 executable: try context.tool(named: "architecture-checker").path,
                 arguments: ["--target-name", target.name,
                             "--sources", target.directory.string,
-                            "--touch", stamp.string],
+                            "--allow", "Foundation",
+                            "--touch", stamp.string] + declared,
                 inputFiles: target.sourceFiles.map(\.path) + manifests,
                 outputFiles: [stamp]
             )
