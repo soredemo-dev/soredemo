@@ -344,7 +344,8 @@ from. *Rejected:* single file plus sibling media folder — the "media offline" 
 ### D-P4 — Citation is a field of the value's type
 
 ```swift
-public struct Derived<Value: Codable & Hashable & Sendable>: Codable, Hashable, Sendable {
+public struct Derived<Value: CanonicallyEncodable & Codable & Hashable & Sendable>:
+    Codable, Hashable, Sendable {
     public let value: Value
     public let origin: Origin
     public var review: ReviewState
@@ -397,6 +398,19 @@ time and randomness (§ Determinism). `fnv1a64` stays internal to `Geometry` and
 **`approvalBytes` covers `value` + `origin`, never `review`.** Approving mutates `review`; a digest
 over it would invalidate the approval it just recorded. The package emits canonical bytes and the
 app hashes them.
+
+**`Value: CanonicallyEncodable`, not `Codable` (Task 13).** The signature above originally
+constrained `Value` to `Codable`, which left exactly one route to the payload's bytes — an encoder —
+and so converged on "hand-roll the outer layer, hand the payload to `JSONEncoder`". That moves the
+non-determinism inward, to the layer that matters most: the payload is the thing actually being
+approved. `.sortedKeys` fixes intra-object key order and does **not** fix decimal rendering of
+`Double`, and the first real payload is a `NormalizedFrame` — two `NormalizedPoint`s of `Double` —
+so routing `Value` through `Codable` would reintroduce inside the payload precisely the bug
+`DisplayGeometry` avoids one layer up by digesting `.bitPattern`. `CanonicallyEncodable` is a
+separate protocol (`func encodeCanonically(into:)`), `Codable` stays as the document path, and
+because the protocol sits in `Derived`'s generic constraint a payload type that forgets to conform
+does not compile rather than silently falling back. Doing this at Task 13 was free — there were zero
+payload types; from Phase 3 on it is per-type work.
 
 **The producer-value rule needs one enforced write path.** The type system guarantees that anything
 generated cites evidence; it does not by itself stop a producer replacing an `.authored` value
@@ -545,9 +559,33 @@ it is an explicit breaking change that ships with a re-approval path.
 `.bitPattern`, never as a decimal rendering, with preconditions rejecting non-finite values so the
 encoding is well-defined.
 
+**4. Variable-length fields need a length prefix (added by Task 13).** Task 6 recorded that no
+variable-length field may be appended to `DisplayGeometry.canonicalBytes`, because its fields are
+unambiguous only by virtue of being fixed-width. `Derived.approvalBytes` cannot honour that as
+written: `Evidence` is variable-length by nature, `ProducerID` and `GateCode` are strings, and
+`Value` is generic. So the discipline is extended, not broken — every variable-length field is
+preceded by a **fixed-width `UInt64` little-endian** count, of bytes or of records, which restores
+the property fixed width was protecting: every field boundary is determined by bytes already read.
+The rule that remains absolute is that a variable-length field is never appended without one.
+
+This is enforced by two *constructed* collisions in `DerivedTests`, not by assertion. Remove the
+evidence count prefix and a derivation citing two pieces of evidence encodes byte-identically to one
+citing a single piece and rejecting, because the second citation replays inside a gate code — the
+`transcript` kind tag is `0x02`, which is also the `.rejected` tag, and a UUID's first eight bytes
+can be made to read back as the needed length. Remove the value's length prefix and a producer's
+rejected derivation encodes byte-identically to a human's override. Both were computed out of band
+first, and both were verified to go red with the prefix deleted.
+
 A test encodes the same value in two separate processes and compares bytes. Running it twice in one
 process proves nothing — the seed is fixed for a process's lifetime, which is why this class of bug
 survives ordinary testing.
+
+`String` is digested as **raw UTF-8, with no Unicode normalisation** — decided in Task 13 and worth
+stating, because it is the one place a canonical encoding here is not a function of Swift's `==`:
+two canonically-equivalent strings compare equal and digest differently. Normalising would make
+every stored approval depend on the ICU tables of whichever macOS version is running, so an OS
+update could silently change bytes approvals are already bound to. The residual asymmetry fails
+closed — it asks for a re-approval; it never lets an approval be redeemed against different text.
 
 ---
 
