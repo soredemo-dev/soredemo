@@ -79,6 +79,26 @@ force-close only triggers on source that does not compile" — the conclusion he
 not, and disproving the reason exposed a defect the audit had passed over. Neither was found by
 re-reading the conclusion. Both were found by testing the sentence underneath it.
 
+**Every fixture set needs a non-identity value for every transform applied to it.** A fixture
+chosen at a transform's identity element cannot test that transform, and the test passes for a
+reason unrelated to the code being right. This has happened three times in Phase 1, each time with
+a different operation:
+
+| Fixture | Identity of | Consequence |
+| --- | --- | --- |
+| a vertically centred rect | the Y-flip | the centre-point test passes whether the flip is right or inverted |
+| a display at origin `(0,0)` | translation | a mutation making routing ignore the global origin survived |
+| `scale: 1` | scaling | 97 green tests while pixels and points were being compared directly |
+
+So: alongside the centred rect, an off-centre one. Alongside `(0,0)`, a non-zero origin. Alongside
+`scale: 1`, `scale: 2`.
+
+**Mutation testing is bounded by fixture diversity, and that ceiling is invisible.** Breaking a code
+path changes nothing if no fixture ever reaches it — so a mutation check that finds nothing is
+evidence about the fixtures as much as about the tests. Four consecutive mutation checks found real
+defects in this phase; none of them could have found the `scale: 1` problem, because no fixture had
+a scale to get wrong.
+
 **Check the claim against the thing, not against another claim.** Most errors in this project have
 had one shape: an assertion about state that was never compared to the state. A grep that collapsed
 two build settings and reported the wrong one. `main` recorded as sitting at a commit it had already
