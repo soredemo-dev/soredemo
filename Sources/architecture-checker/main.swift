@@ -47,6 +47,7 @@ enum ArchitectureChecker {
     /// pound count, and string interpolation puts the scanner back into *code*.
     private enum Frame {
         case string(hashCount: Int, multiline: Bool)
+        case regex(hashCount: Int)
         case interpolation
         case paren
         case lineComment
@@ -143,6 +144,22 @@ enum ArchitectureChecker {
                     i += 1
                 }
 
+            case .some(.regex(let hashCount)):
+                // Extended regex literal `#/…/#`. A `"` inside one is ordinary
+                // content, and `#/…/#` may span newlines, so it must be a frame.
+                if c == "/", hashRun(at: i + 1) >= hashCount {
+                    stack.removeLast()
+                    current += spaces(1 + hashCount)
+                    i += 1 + hashCount
+                } else if c == "\\" {
+                    let consumed = min(i + 2, chars.count) - i
+                    current += spaces(consumed)
+                    i += consumed
+                } else {
+                    current.append(" ")
+                    i += 1
+                }
+
             case .some(.string(let hashCount, let multiline)):
                 if multiline, matches(tripleQuote, at: i), hashRun(at: i + 3) >= hashCount {
                     stack.removeLast()
@@ -188,6 +205,33 @@ enum ArchitectureChecker {
                     stack.append(.blockComment)
                     current += spaces(2)
                     i += 2
+                } else if c == "`" {
+                    // SE-0451 raw identifier. Inside `…` a quote, a `#"`, a `//`
+                    // and a `/*` are all ORDINARY CONTENT, so none of them may open
+                    // a frame. The span is bounded and unambiguous: a raw identifier
+                    // cannot contain a backtick, a backslash, CR or LF.
+                    //
+                    // The interior is not blanked, because the escaped form is how a
+                    // module may legitimately be named — `import `Foundation`` must
+                    // still resolve to Foundation. Identifier characters are kept and
+                    // everything else is mapped to `_`, so the whole span survives as
+                    // ONE token: that is what stops `` `does import work` `` from
+                    // splitting into a bare `import` keyword and a stray `work`.
+                    if let close = chars[(i + 1)...].firstIndex(where: { $0 == "`" || $0 == "\n" || $0 == "\r" }),
+                       chars[close] == "`" {
+                        current.append("`")
+                        for character in chars[(i + 1)..<close] {
+                            current.append(isIdentifierCharacter(character) ? character : "_")
+                        }
+                        current.append("`")
+                        i = close + 1
+                    } else {
+                        // Unterminated: not a raw identifier, and not compilable
+                        // Swift. Blank just this character and carry on in code, so
+                        // nothing downstream is hidden.
+                        current.append(" ")
+                        i += 1
+                    }
                 } else if c == "#" {
                     let n = hashRun(at: i)
                     if i + n < chars.count, chars[i + n] == "\"" {
@@ -196,6 +240,16 @@ enum ArchitectureChecker {
                         let length = n + (multiline ? 3 : 1)
                         current += spaces(length)
                         i += length
+                    } else if n >= 1, i + n < chars.count, chars[i + n] == "/" {
+                        // Extended regex literal `#/…/#`. Quotes inside one are
+                        // ordinary content, and it may span newlines, so it is a
+                        // frame. Bare `/…/` is deliberately NOT modelled: it is
+                        // ambiguous with division, and Swift itself rejects a quote
+                        // inside one (`let r = /a"b/` is `error: unterminated string
+                        // literal`), so it cannot hide code from a build that compiles.
+                        stack.append(.regex(hashCount: n))
+                        current += spaces(n + 1)
+                        i += n + 1
                     } else {
                         current += String(repeating: "#", count: n)   // #if, #expect, …
                         i += n
@@ -261,6 +315,17 @@ enum ArchitectureChecker {
     /// unknown identifier), and `.` makes the source invalid outright — but the
     /// backtick terminates, so `tokens(of:)` handles it explicitly rather than
     /// leaning on this predicate. See the flush in `tokens(of:)`.
+    ///
+    /// Those four are settled by name. **The rest of the predicate is not.**
+    /// `isLetter` and `isNumber` are General_Category tests, whereas Swift's
+    /// identifier set is an explicit UAX#31-derived list of ranges with holes, so
+    /// the two disagree in both directions on some code points. The disagreements
+    /// found so far are all in the false-positive direction — a character Swift
+    /// admits and this predicate rejects merely splits a token, which can only add
+    /// rejections (`public let 🚀import = 1` is rejected for exactly this reason).
+    /// That is an empirical result from sweeping 128 ASCII code points and 22
+    /// Unicode oddities, not a structural guarantee. The SEPARATOR direction was
+    /// closed by construction; the MEMBERSHIP direction rests on the sweep.
     static func isIdentifierCharacter(_ character: Character) -> Bool {
         character == "_" || character == "$" || character == "`" || character == "."
             || character.isLetter || character.isNumber
@@ -303,6 +368,13 @@ enum ArchitectureChecker {
         return result
     }
 
+    /// The module a token names: `AppKit.NSColor` -> AppKit, `` `Foundation` `` ->
+    /// Foundation, a lone delimiter -> "".
+    static func moduleName(of token: String) -> String {
+        let head = token.split(separator: ".").first.map(String.init) ?? token
+        return head.replacingOccurrences(of: "`", with: "")
+    }
+
     /// Every module the file imports, with the line its `import` keyword sits on.
     ///
     /// The scan is over TOKENS, not lines. `import` followed by a newline and then
@@ -331,11 +403,15 @@ enum ArchitectureChecker {
             }
             let line = all[i].line
             var j = i + 1
-            while j < all.count, importDeclarationKinds.contains(all[j].text) { j += 1 }
+            // Skip declaration kinds, and any token that strips to nothing (a lone
+            // delimiter). Consuming an empty token as "the module name" would let
+            // the real one past.
+            while j < all.count,
+                  importDeclarationKinds.contains(all[j].text) || moduleName(of: all[j].text).isEmpty {
+                j += 1
+            }
             if j < all.count, all[j].text != ";" {
-                // `import class AppKit.NSColor` -> AppKit; `import `Foundation`` -> Foundation
-                let head = all[j].text.split(separator: ".").first.map(String.init) ?? all[j].text
-                let module = head.replacingOccurrences(of: "`", with: "")
+                let module = moduleName(of: all[j].text)
                 if !module.isEmpty { found.append((module, line)) }
             }
             i = j + 1

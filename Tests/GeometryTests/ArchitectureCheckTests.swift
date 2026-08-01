@@ -191,6 +191,42 @@ func rejectsBacktickGluedImport(_ source: String) throws {
     #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
 }
 
+/// Lexical constructs in which a `"` is ORDINARY CONTENT, so a scanner that does
+/// not model them opens a string frame on source that compiles clean.
+///
+/// SE-0451 raw identifiers (Swift 6.2; this toolchain is 6.4) and extended regex
+/// literals `#/…/#` are both such constructs. `"""` inside either one is worse
+/// than `"`: the frame it opens is MULTILINE, which the defensive force-close
+/// deliberately declines to close, so it blanks the remainder of the file and the
+/// import does not even need to share a line. `/*` inside a raw identifier does
+/// the same through the block-comment frame.
+///
+/// Every one of these was verified to typecheck under `swiftc` with
+/// `public func probeUse() -> NSColor { NSColor.red }` appended.
+@Test(arguments: [
+    ##"public let `a"b` = 1; import AppKit"##,
+    "public let `a\"\"\"b` = 1\nimport AppKit",
+    "public let `a/*b` = 1\nimport AppKit",
+    "public let `a#\"b` = 1\nimport AppKit",
+    ##"public let r = #/a"b/#; import AppKit"##,
+    "public let r = #/a\"\"\"b/#\nimport AppKit",
+    ##"public let r = ##/a"b/##; import AppKit"##,
+    "public let r = #/\n  a\"\"\"b\n/#\nimport AppKit",
+])
+func rejectsImportHiddenBehindRawIdentifierOrRegex(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 1, "should reject: \(source.debugDescription)")
+    #expect(!result.stderr.isEmpty)
+}
+
+/// The same construction defeats the sibling-edge rule, not just the
+/// Foundation-only rule — both consult the same token stream.
+@Test func rejectsSiblingImportHiddenBehindRawIdentifier() throws {
+    let result = try runChecker(targetName: "Framing",
+                                source: "public let `a\"\"\"b` = 1\nimport Timeline")
+    #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
+}
+
 /// Swift ends a `//` comment at a lone CR and compiles what follows. A scanner
 /// that only ends line comments at LF blanks the import — and everything else up
 /// to the next LF, so the blast radius is a whole line, not one token.
@@ -278,6 +314,40 @@ func acceptsLineCommentsThatDoNotEnd(_ source: String) throws {
     #expect(result.status == 0, "should accept: \(source.debugDescription)\nstderr: \(result.stderr)")
 }
 
+/// THE REASON THIS ROUND EXISTS. A raw identifier is one token and its interior
+/// is not code; splitting it on its interior spaces reports
+/// "'work' is not importable" for `` `does import work` ``.
+///
+/// This is not hypothetical. SE-0451 raw identifiers exist primarily so that test
+/// names can be sentences, and this package is tested with Swift Testing — so a
+/// suite about the import rule naturally contains names like
+/// `` @Test func `rejects import AppKit`() ``. The measured trigger is: a raw
+/// identifier containing `import` NOT at the start, followed by a word that is not
+/// an allowed module. When `import` is first the round-2 backtick flush left the
+/// delimiter attached and it passed — by luck, not by logic.
+///
+/// Regex literal content is not code either, and `#/import AppKit/#` is exactly
+/// what a tool that greps for imports would contain.
+@Test(arguments: [
+    "public func `does import work`() -> Int { 1 }",
+    "public func `test import handling`() {}",
+    "public func `rejects import AppKit`() {}",
+    "@Test func `allows a declared sibling import`() {}",
+    "@Test func `rejects import ScreenCaptureKit from Geometry`() {}",
+    "public let `import Foundation is allowed` = 1",
+    "public let `a//b` = 1",
+    "public let `a/*b` = 1",
+    ##"public let `a"b` = 1"##,
+    "public let `import AppKit` = 1",
+    ##"public let r = #/import AppKit/#"##,
+    ##"public let r = #/a"b/#"##,
+    "public let r = #/\n  import AppKit\n/#",
+])
+func acceptsRawIdentifiersAndRegexLiterals(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 0, "should accept: \(source.debugDescription)\nstderr: \(result.stderr)")
+}
+
 // MARK: - the allow-list is the manifest
 
 /// Direct declared edges only. The transitive closure would let `Framing` import
@@ -360,7 +430,9 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     process.currentDirectoryURL = repositoryRoot
     let out = Pipe()
     process.standardOutput = out
-    process.standardError = Pipe()
+    // Drained, not buffered: a Pipe nobody reads blocks the child once it fills.
+    // Harmless while the package has no dependencies; a latent hang the moment it does.
+    process.standardError = FileHandle.nullDevice
     try process.run()
     let data = out.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
@@ -369,13 +441,20 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     let targets = try #require(root["targets"] as? [[String: Any]])
 
-    for module in libraryModules {
-        let target = try #require(targets.first { $0["name"] as? String == module },
-                                  "no target named \(module) in the resolved manifest")
+    // EVERY regular target, not a remembered list — a seventh target added without
+    // the plugin is precisely the silent void this test exists to prevent. The six
+    // known ones are asserted as a floor so the filter cannot quietly match nothing.
+    let regular = targets.filter { $0["type"] as? String == "regular" }
+    let regularNames = Set(regular.compactMap { $0["name"] as? String })
+    #expect(regularNames.isSuperset(of: libraryModules),
+            "expected at least \(libraryModules) among the regular targets, got \(regularNames.sorted())")
+
+    for target in regular {
+        let name = target["name"] as? String ?? "<unnamed>"
         let usages = target["pluginUsages"] as? [[String: Any]] ?? []
         let plugins = usages.compactMap { ($0["plugin"] as? [Any])?.first as? String }
         #expect(plugins.contains("ArchitectureCheck"),
-                "\(module) does not use the ArchitectureCheck plugin — rule 1 is void for it. pluginUsages: \(usages)")
+                "regular target \(name) does not use the ArchitectureCheck plugin — rule 1 is void for it. pluginUsages: \(usages)")
     }
 
     // The checker's own target must NOT be checked: its source legitimately names

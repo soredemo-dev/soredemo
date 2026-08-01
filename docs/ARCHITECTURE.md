@@ -148,7 +148,15 @@ token at any punctuation besides — a form feed is invisible in every diff view
 separator list is a standing invitation. A backtick both closes and opens a run, because Swift
 terminates the keyword there: `` import`AppKit` `` needs no space and typechecks. Every one of the
 128 ASCII code points and 22 Unicode oddities has been swept as a separator against `swiftc` and the
-checker together; Swift accepts exactly eight, and all eight are caught. Every I/O failure is a hard error: a missing sources
+checker together; Swift accepts exactly eight, and all eight are caught. SE-0451 raw identifiers and
+extended regex literals `#/…/#` are modelled as their own lexical spans, because a `"` inside either
+is ordinary content — without that, `` @Test func `rejects import AppKit`() `` is reported as a
+violation, which is the failure that actually occurs, sentence-shaped test names being the reason raw
+identifiers exist.
+
+`codeViewLines` is a hand-rolled lexer, and therefore a list of Swift's literal forms — one that will
+be a version behind each time the language gains another. Deriving it from SwiftSyntax is the durable
+fix if this area is ever revisited. Every I/O failure is a hard error: a missing sources
 directory, a directory with no `.swift` files, and an unreadable or undecodable file all fail the
 build. Unreadable must never mean compliant. Verified to fail the build under **both** `swift build`
 and `xcodebuild`.
