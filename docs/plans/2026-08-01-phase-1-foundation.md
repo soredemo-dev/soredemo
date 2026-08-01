@@ -880,7 +880,7 @@ private let displayB = UUID(uuidString: "6BA7B811-9DAD-11D1-80B4-00C04FD430C8")!
 @Test func fnv1aMatchesKnownVectors() {
     #expect(fnv1a64([]) == 0xcbf2_9ce4_8422_2325)
     #expect(fnv1a64(Array("a".utf8)) == 0xaf63_dc4c_8601_ec8c)
-    #expect(fnv1a64(Array("foobar".utf8)) == 0x8595_8bf0_63e0_1d17)
+    #expect(fnv1a64(Array("foobar".utf8)) == 0x8594_4171_f739_67e8)
 }
 
 @Test func identicalGeometryYieldsIdenticalRevision() {
