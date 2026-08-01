@@ -48,9 +48,9 @@ let package = Package(
 
         .testTarget(name: "GeometryTests", dependencies: ["Geometry"], swiftSettings: strict),
         .testTarget(name: "TimelineTests", dependencies: ["Timeline"], swiftSettings: strict),
-        .testTarget(name: "GraphTests", dependencies: ["Graph"], swiftSettings: strict),
+        .testTarget(name: "GraphTests", dependencies: ["Graph", "Geometry", "Timeline"], swiftSettings: strict),
         .testTarget(name: "FramingTests", dependencies: ["Framing"], swiftSettings: strict),
         .testTarget(name: "VariantsTests", dependencies: ["Variants"], swiftSettings: strict),
-        .testTarget(name: "ProjectTests", dependencies: ["Project"], swiftSettings: strict),
+        .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
     ]
 )

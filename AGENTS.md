@@ -114,6 +114,20 @@ table and a task brief before an implementer measured it independently and disag
 of the pattern announces itself: `wc -l` returns 1 for nothing, and `grep` returns silence for a
 row it does not match. Where a number is going into a document, derive it twice.
 
+**A compile failure is not a RED.** This project's rule is that an unobserved red light is not a
+check. But writing the test before the type means the first failure is always `cannot find 'Foo' in
+scope` or an unresolved symbol at link time — which satisfies the rule's words and not its meaning.
+A missing symbol proves the test file names the API. It proves nothing about whether any assertion
+discriminates correct behaviour from incorrect. The red that counts is **behavioural**: the code
+compiles, the tests pass, you break the behaviour, and a test goes red.
+
+In this workflow, **mutation checks are the only mechanism that produces a behavioural red.** They
+are not a bonus round. A task that shipped without one has tests that were never shown to be able
+to fail, whatever colour they were at the start. Task 16 is the evidence: thirteen tests, all
+passing on their first run after a compile-level red, three covered by mutations — and the review's
+two Important findings landed on exactly the tests the mutations did not reach, one of which passed
+identically under the very implementation the requirements forbade.
+
 **Mutation testing is bounded by fixture diversity, and that ceiling is invisible.** Breaking a code
 path changes nothing if no fixture ever reaches it — so a mutation check that finds nothing is
 evidence about the fixtures as much as about the tests. Four consecutive mutation checks found real
@@ -126,6 +140,14 @@ two build settings and reported the wrong one. `main` recorded as sitting at a c
 moved past. Every `swift build` green while the toolchain the app is opened in could not read the
 manifest at all. A green light is evidence for exactly the proposition it tests, and usually that is
 narrower than the one being claimed.
+
+**Which build, and from what state.** The question has two axes and this project has been caught on
+both. *Which tool* — `swift build` does not build test targets, so a suite can be green in `swift
+test` and a package still fail under `xcodebuild`. *From what state* — every green light in Phase 1
+was observed on a warm `.build`, and no clean build was run until Task 16, because nothing in the
+plan asked for one and there is no CI to run one unasked. The gap was real whether or not it hid a
+defect: a verification never performed covers nothing. Every phase ends with `rm -rf` on a scratch
+path and `swift build --build-tests` from nothing.
 
 ---
 

@@ -46,6 +46,43 @@ Stale module artifacts leave the undeclared module visible, and the diagnostic d
 warning. `.treatAllWarnings(as: .error)` does **not** close this — the warning is emitted by the
 dependency scanner rather than the compiler frontend, so warnings-as-errors never sees it. Verified.
 
+#### F2a — corrected and narrowed at Task 16
+
+Two claims above are wrong, found by running the clean build this document had been prescribing
+since Task 1 and that nobody had actually run. Measured in an isolated four-target probe package
+plus the real repository.
+
+**1. A clean build does not turn the warning into an error.** It stays a warning; what fails the
+build is the *linker*:
+
+```
+warning: 'AlphaTests-product' is missing a dependency on 'Delta' because dependency scan
+         of Swift module 'AlphaTests' discovered a dependency on 'Delta'
+error: Ld …/AlphaTests.xctest/Contents/MacOS/AlphaTests normal failed with a nonzero exit code
+error: Build failed
+```
+
+The consequence is not cosmetic. Any gate that inspects compile-phase diagnostics — or that runs
+`swift build` without `--build-tests`, which does not build test targets at all — sees a clean
+compile. The failure only exists if something links.
+
+**2. The rule does not reach transitive imports.** A target may import any module reachable through
+its declared dependencies, with no diagnostic, on a clean build:
+
+| Probe (clean, `--build-tests`) | Result |
+| --- | --- |
+| `AlphaTests` declares `Alpha` only; imports `Gamma`, reachable via `Alpha → Beta → Gamma` | **exit 0, no diagnostic at all** |
+| `AlphaTests` imports `Delta`, not reachable from `Alpha` | exit 1 (warning + link error) |
+
+So `Tests/ProjectTests` importing `Geometry` while declaring only `Project`, and `Tests/GraphTests`
+importing `Geometry` and `Timeline` while declaring only `Graph`, are **not** broken clean builds.
+They are legal. They are still worth declaring — the day `Project` stops depending on `Geometry`,
+`ProjectTests` breaks somewhere that has nothing to do with the change — but the enforcement F2
+claims does not extend to them, and a reader of F2 alone would conclude otherwise.
+
+What F2 got right and is worth keeping: warnings-as-errors does not close the gap, because the
+diagnostic never reaches the compiler frontend. That held in every probe.
+
 Two consequences:
 
 1. **Any verification of a dependency edge must clean first.** A warm `swift build` reports a false

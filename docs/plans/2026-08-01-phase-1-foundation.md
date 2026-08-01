@@ -1402,12 +1402,28 @@ Declare the exported UTType via `INFOPLIST_KEY_*` build settings or a checked-in
 
 ### Task 19: close out the phase
 
-- [ ] **Step 1: Run everything**
+- [ ] **Step 1: Run everything — and from nothing, not from a warm `.build`**
 
 ```bash
-swift test 2>&1 | tail -3
+swift test 2>&1 | grep -E "^✔ Test run with"
 xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 | tail -2
+
+# The clean build. Not the same check.
+rm -rf /tmp/soredemo-clean
+swift build --build-tests --scratch-path /tmp/soredemo-clean 2>&1 | tail -3
 ```
+
+**`--build-tests` is not optional and neither is the scratch path.** Plain `swift build` does not
+build test targets, so it cannot see an undeclared import in a test target at all; and a warm
+`.build` leaves stale module artifacts that make undeclared imports resolve (F2). Every green light
+in Phase 1 up to Task 16 was observed on a warm `.build` — the first clean build of this repository
+was run at Task 16, because nothing asked for one before and there is no CI to run one unasked.
+
+It found no defect. That is not the reason to keep it: a verification that has never been performed
+covers nothing regardless of what it would have found, and this is the same shape as "which build?"
+on a second axis. It did correct F2 — see **F2a** in the design doc: the clean build does not
+promote the scanner's warning to an error, the *linker* fails, and the rule does not reach
+transitive imports at all.
 
 - [ ] **Step 2: Re-run all five negative cases end to end**, recording each observed failure. This is the phase's real acceptance test: five rules, five reds, five greens.
 
