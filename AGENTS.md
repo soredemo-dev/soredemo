@@ -114,6 +114,19 @@ table and a task brief before an implementer measured it independently and disag
 of the pattern announces itself: `wc -l` returns 1 for nothing, and `grep` returns silence for a
 row it does not match. Where a number is going into a document, derive it twice.
 
+**A hand-computed constant in a task brief is a guess until something computes it.** Three times in
+Phase 1 an implementer has been handed a wrong number by whoever wrote the brief and has been right
+to override it: an FNV-1a vector for `"foobar"`, a test-suite total of 226 that was 229, and a
+`droppedBytes` of 12 that was 11. Each was a value the author worked out by hand and wrote down
+without running anything. The first came with the instruction *"do not adjust the vectors"* — which,
+followed, would have pinned the error into a test and made the code wrong in the direction of the
+document.
+
+So: **an implementer who checks a supplied constant against an independent computation and disagrees
+is doing the job.** A brief's numbers are requirements about intent, not about arithmetic. If you
+are writing the brief, compute the values with a tool and paste the output; if you are implementing
+from one, verify before you pin it.
+
 **A compile failure is not a RED.** This project's rule is that an unobserved red light is not a
 check. But writing the test before the type means the first failure is always `cannot find 'Foo' in
 scope` or an unresolved symbol at link time — which satisfies the rule's words and not its meaning.
