@@ -429,6 +429,22 @@ about rendering and misleading about everything else:
 | `NSScreen.frame` | bottom-left | AppKit — disagrees with CoreGraphics |
 
 There is a flip. The obligation is that it happens exactly once, on entry, and never again.
+**Unit mismatch waiting at capture entry — Phase 2 must resolve this explicitly.** `DisplayGeometry`
+carries **native pixels**; `CGDisplayBounds` and `CGEventGetLocation` report **points** — pixels ÷
+`scale` on a Retina display. `DisplayArrangement.route` compares its operands directly and does no
+scale conversion, which is right for a type that knows only one unit, but it means whoever populates
+`Placement` from real `CGDisplayBounds` values must convert first.
+
+Measured on a 3840×2160 display at `scale: 2`, which is 1920 points wide:
+
+```
+route(globalTopLeftX: 2500, …)  ->  routed INSIDE the display, localX = 2500
+```
+
+2500 points is well past the right edge, and it is accepted because it is compared against 3840.
+The failure is silent: a click lands on the wrong display, or on none while appearing to succeed.
+Every Phase 1 fixture uses `scale: 1`, which is exactly why the suite is green.
+
 `NormalizationContext` is that one place, and it takes **display-local** top-left pixels, never
 global ones — the ambiguity that would otherwise compute a plausible, wrong answer in silence.
 Routing happens first, via `DisplayArrangement.route`.
