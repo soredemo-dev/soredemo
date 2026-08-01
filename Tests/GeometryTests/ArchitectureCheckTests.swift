@@ -52,6 +52,58 @@ func runChecker(targetName: String = "Geometry",
     }
 }
 
+/// Rule 4 helper: writes the given manifest files into a fresh temp directory
+/// and invokes the real built checker with `--manifests <dir>` alone — the
+/// same shape a manifest-only invocation of the checker takes.
+func runManifestChecker(files: [String: String]) throws -> (status: Int32, stderr: String) {
+    let dir = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "arch-manifests-\(ProcessInfo.processInfo.globallyUniqueString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    for (name, contents) in files {
+        try contents.write(to: dir.appending(path: name), atomically: true, encoding: .utf8)
+    }
+
+    let checker = repositoryRoot.appending(path: ".build/debug/architecture-checker")
+    try #require(FileManager.default.fileExists(atPath: checker.path(percentEncoded: false)),
+                 "architecture-checker not built at \(checker.path(percentEncoded: false))")
+
+    let process = Process()
+    process.executableURL = checker
+    process.arguments = ["--manifests", dir.path(percentEncoded: false)]
+    let err = Pipe()
+    process.standardError = err
+    try process.run()
+    let data = err.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+}
+
+let manifestWithoutDependency = """
+// swift-tools-version: 6.4
+import PackageDescription
+
+let package = Package(
+    name: "Fixture",
+    targets: [
+        .target(name: "Fixture"),
+    ]
+)
+"""
+
+let manifestWithDependency = """
+// swift-tools-version: 6.4
+import PackageDescription
+
+let package = Package(
+    name: "Fixture",
+    dependencies: [.package(path: "/tmp/LocalDep")],
+    targets: [
+        .target(name: "Fixture"),
+    ]
+)
+"""
+
 // MARK: - must be REJECTED
 
 @Test(arguments: [
@@ -532,4 +584,55 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     // Geometry is a leaf; Graph is not among its allowed imports.
     let result = try runChecker(targetName: "Geometry", source: "import Graph")
     #expect(result.status == 1)
+}
+
+// MARK: - rule 2: CG geometry types banned from the package
+
+@Test(arguments: [
+    "public struct F { public let r: CGRect }",
+    "let p = CGPoint(x: 0, y: 0)",
+    "func f(_ s: CGSize) {}",
+    "let w: CGFloat = 1",
+    #"let s = "\(CGRect.zero)""#,           // interpolation is code
+    ##"let s = #"\#(CGRect.zero)"#"##,      // raw interpolation is code
+])
+func rejectsCGType(_ line: String) throws {
+    #expect(try runChecker(source: "import Foundation\n\(line)").status == 1)
+}
+
+@Test(arguments: [
+    "// CGRect is converted at the boundary",
+    "/* CGRect belongs in the app */",
+    #"let s = "CGRect is banned""#,
+    ##"let s = #"CGRect"#"##,
+    "let s = \"\"\"\nmentions CGRect on line two\n\"\"\"",
+])
+func acceptsCGTypeMention(_ line: String) throws {
+    let r = try runChecker(source: "import Foundation\n\(line)")
+    #expect(r.status == 0, "should accept: \(line)\n\(r.stderr)")
+}
+
+// MARK: - rule 4: no manifest may declare a package dependency
+
+@Test func rejectsDependencyInMainManifest() throws {
+    #expect(try runManifestChecker(files: ["Package.swift": manifestWithDependency]).status == 1)
+}
+
+@Test func rejectsDependencyInVersionSpecificManifest() throws {
+    // SwiftPM prefers Package@swift-6.4.swift. Verified: a dependency declared
+    // there resolves and builds while Package.swift declares none.
+    let result = try runManifestChecker(files: [
+        "Package.swift": manifestWithoutDependency,
+        "Package@swift-6.4.swift": manifestWithDependency,
+    ])
+    #expect(result.status == 1)
+}
+
+@Test func acceptsCleanManifests() throws {
+    #expect(try runManifestChecker(files: ["Package.swift": manifestWithoutDependency]).status == 0)
+}
+
+@Test func acceptsPackageMentionInComment() throws {
+    let clean = manifestWithoutDependency + "\n// no .package( entries here\n"
+    #expect(try runManifestChecker(files: ["Package.swift": clean]).status == 0)
 }

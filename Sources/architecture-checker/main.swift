@@ -40,6 +40,13 @@ enum ArchitectureChecker {
         "let", "var", "func", "macro",
     ]
 
+    /// Rule 2: CG geometry types banned from the whole package. The app boundary
+    /// is where AppKit/CoreGraphics geometry gets converted to and from this
+    /// package's own types (ARCHITECTURE.md D3). Phase 2 will tempt this
+    /// constantly — `CGEvent`, `CGDisplayBounds` and AX frames are all `CGRect`
+    /// underneath, and the conversion belongs at the app boundary, not in here.
+    static let bannedCGTypes = ["CGRect", "CGPoint", "CGSize", "CGFloat"]
+
     // MARK: - Lexical scan
 
     /// One frame of lexical context. Comments and strings are frames rather than
@@ -454,10 +461,75 @@ enum ArchitectureChecker {
         return 2
     }
 
+    // MARK: - Rules 2 and 4: substring, not tokens — deliberately
+    //
+    // Rules 2 and 4 below scan `codeViewLines` with plain `String.contains`,
+    // rather than going through `tokens(of:)` the way rule 1 does. That is not
+    // an inconsistency to unify away; it falls out of the two rules asking
+    // different KINDS of question.
+    //
+    // Rule 1 asks "is this an import **declaration**?" — a structural question:
+    // whether a keyword sits at the head of a statement, followed by a module
+    // name, possibly through access-level and attribute prefixes. Answering
+    // that needs the token stream, because the answer depends on grammatical
+    // position, not on which characters appear.
+    //
+    // Rule 2 asks "does this **name** appear?" — a purely textual question. For
+    // a textual question, substring is the STRONGER mechanism, not a weaker
+    // stand-in for tokens: `contains("CGRect")` matches `` `CGRect` `` — a
+    // backtick-escaped identifier that resolves to the exact same declaration
+    // as the bare identifier — while token equality would not, because
+    // `tokens(of:)` keeps the backticks as part of the token's text (see the
+    // backtick-flush note there). Moving rule 2 onto the token stream would
+    // narrow what it catches, not simplify it. Rule 4 is the same question
+    // about `.package(` in a manifest, for the same reason, with the added
+    // fact that `Package.Dependency` has no public initialiser — `.package(`
+    // is the only spelling that can ever appear, so there is no grammatical
+    // position left to be structural about.
+    //
+    // Both still scan `codeViewLines`, not the raw file text, so comment and
+    // string CONTENT — where `CGRect` or `.package(` may legitimately be
+    // mentioned in prose — does not fire. That part rules 1, 2 and 4 share.
+
     static func run(arguments: [String]) -> Int32 {
+        var failed = false
+        func report(_ file: String, _ line: Int, _ message: String) {
+            FileHandle.standardError.write(Data("\(file):\(line): error: \(message)\n".utf8))
+            failed = true
+        }
+
+        // Rule 4: no manifest may declare a package dependency. Runs ahead of,
+        // and independently of, the --target-name/--sources requirement below,
+        // because manifest health belongs to the package as a whole rather
+        // than to any one target. SwiftPM honours `Package@swift-6.4.swift` in
+        // preference to `Package.swift` — verified: a dependency declared
+        // there resolves and builds while `Package.swift` declares none — so
+        // EVERY `Package*.swift` in the manifest directory is scanned, not
+        // just `Package.swift`.
+        //
+        // Rule 4 is what keeps rule 1 honest: rule 1's allow-list is complete
+        // only because the package has zero package dependencies to smuggle
+        // an unlisted module in through.
+        if let manifestDir = value(of: "--manifests", in: arguments) {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: manifestDir))?.sorted() ?? []
+            for name in names where name.hasPrefix("Package") && name.hasSuffix(".swift") {
+                let path = manifestDir + "/" + name
+                guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+                for (index, line) in codeViewLines(of: text).enumerated() where line.contains(".package(") {
+                    report(path, index + 1,
+                           "the package must declare no package dependencies. This is what keeps rule 1's import allow-list complete; see ARCHITECTURE.md D6.")
+                }
+            }
+        }
+
         guard let targetName = value(of: "--target-name", in: arguments),
               let sources = value(of: "--sources", in: arguments) else {
-            return fail("usage: architecture-checker --target-name <name> --sources <dir> [--allow <module>]… [--touch <stamp>]")
+            // A manifest-only invocation — as issued by tests, and in principle
+            // usable standalone — has nothing further to check.
+            guard value(of: "--manifests", in: arguments) != nil else {
+                return fail("usage: architecture-checker --target-name <name> --sources <dir> [--allow <module>]… [--manifests <dir>] [--touch <stamp>]")
+            }
+            return failed ? 1 : 0
         }
 
         // The plugin always passes `--allow`, one per declared dependency, so the
@@ -492,12 +564,6 @@ enum ArchitectureChecker {
             return fail("cannot enumerate sources directory: \(sources)")
         }
 
-        var failed = false
-        func report(_ file: String, _ line: Int, _ message: String) {
-            FileHandle.standardError.write(Data("\(file):\(line): error: \(message)\n".utf8))
-            failed = true
-        }
-
         var swiftFileCount = 0
         while let relative = enumerator.nextObject() as? String {
             guard relative.hasSuffix(".swift") else { continue }
@@ -510,10 +576,22 @@ enum ArchitectureChecker {
                 return fail("cannot read \(path) as UTF-8: \(error.localizedDescription). A file this checker cannot read is a file it cannot vouch for.")
             }
 
-            for (module, line) in importedModules(in: codeViewLines(of: text))
+            let lines = codeViewLines(of: text)
+
+            for (module, line) in importedModules(in: lines)
             where !allowed.contains(module) {
                 report(path, line,
                        "'\(module)' is not importable from \(targetName). Allowed: \(allowed.sorted().joined(separator: ", ")). See ARCHITECTURE.md D6.")
+            }
+
+            // Rule 2: CG geometry types banned anywhere in the package. See the
+            // "substring, not tokens" note above this function for why a plain
+            // `contains` over the code view is deliberate here.
+            for (index, line) in lines.enumerated() {
+                for banned in bannedCGTypes where line.contains(banned) {
+                    report(path, index + 1,
+                           "'\(banned)' may not appear in the package. Convert at the boundary; see ARCHITECTURE.md D3.")
+                }
             }
         }
 
