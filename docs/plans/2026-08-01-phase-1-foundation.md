@@ -1366,7 +1366,7 @@ xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=m
 
 - [ ] **Step 2: Re-run all five negative cases end to end**, recording each observed failure. This is the phase's real acceptance test: five rules, five reds, five greens.
 
-- [ ] **Step 3: Update `ROADMAP.md`** — mark rows honestly. `repo-skeleton` is ☑ only if the app launched.
+- [ ] **Step 3: Update `ROADMAP.md`** — mark rows honestly. **Do not mark `geometry` ☑ — see Open items 2.** The row was renamed `geometry-types` and one of its three claims was moved, precisely because marking it complete was the error this phase keeps making. `repo-skeleton` is ☑ only if the app launched.
 
 - [ ] **Step 4: Update `docs/TOOLCHAIN.md`** — § 2 (macOS 27 beta volume) is no longer required at a 26.0 floor; keep the section, mark it not required, and say why it is kept. Xcode 27 beta stays; it is the SDK.
 
@@ -1380,6 +1380,59 @@ xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=m
 | --- | --- |
 | `repo-skeleton` | `xcodebuild` succeeds, `otool -l` shows `minos 26.0`, **and the app launches** |
 | `architecture-plugin` | five rules, each observed failing on its own negative case; rule 1 under **both** `swift build` and `xcodebuild` |
-| `geometry` | cross-revision `contains` traps out-of-process; registry throws on a corrupt file and traps on a merge collision |
+| `geometry-types` | cross-revision `contains` traps out-of-process; registry throws on a corrupt file and traps on a merge collision. **Renamed** — see Open items 2 |
 | `derivation-graph` | authored 99 survives repeated production; cache hit paired with invalidation; `approvalBytes` stable across processes |
 | `project-format` | v1 round-trips, synthetic v0 upgrades, a save never deletes media |
+
+---
+
+## Open items
+
+Two things carried past this session. Both were derived from the project's own rules rather than
+found by a test, and both are the same failure shape recorded throughout this phase: **a green check
+read as evidence for a claim it does not cover.**
+
+### 1 · `ContentDigest`'s production half is untested — Task 18
+
+The chain is: the **package** produces canonical bytes → the **app** computes SHA-256 in
+`Minting.swift` → the digest is stored → it is verified later.
+
+Task 13 proved the bytes are byte-identical across five separate processes. But every test target
+is package-side, so **digest comparison is tested and digest production is not** — and Phase 8's
+`approval-gate` binds on production. Thirty-nine tests touch the half that is not load-bearing.
+
+Close it without an app test target, crossing the boundary with a pinned vector:
+
+- **Package side:** a test pinning *known canonical bytes → known SHA-256 digest*. It **compares
+  only and never computes**, so D6 is untouched.
+- **App side, in Task 18's verification:** `Minting.digest(of:)` over those same bytes, asserted to
+  produce that same digest.
+
+Same shape as the `fnv1a64` known-answer vectors, across the package/app boundary. Drift in
+CryptoKit, in the canonical encoding, or in the bridge between them then turns a test red instead
+of silently producing approvals nobody can verify.
+
+Already added as Task 18 Step 2.5; restated here so it is not lost in a step list.
+
+### 2 · Do not mark `geometry` ☑ — Task 19
+
+The `ROADMAP.md` row claimed three things: the normalized types, **all conversion in one place**,
+and the cross-revision precondition. The first and third are observable. The second is not —
+`NormalizationContext` appears in non-test code only inside comments, and its caller count is
+**zero**.
+
+The completion rule is explicit:
+
+> A pure function with no caller does not satisfy a row that claims a product behaviour. If the
+> caller belongs to a different row, rename the row to what it actually delivers.
+
+**This was already got wrong once**, in commit `6d3e1af`: the row was marked ☑ on the strength of
+the cross-revision trap being verified out-of-process — one claim of three, with a green check read
+as a completed row.
+
+Applied remedy: the row is renamed **`geometry-types`**, and *all conversion in one place* moved to
+`input-observation` and `ax-observation`, whose code will be the first to convert. The alternative —
+leaving it ◐ until Phase 2's capture entry — is equally honest and was not chosen only because the
+types themselves genuinely are finished.
+
+Task 19 must not silently reinstate the original wording.
