@@ -22,11 +22,11 @@
 - **Swift Testing only** (`@Test`, `#expect`, `#require`). Never XCTest.
 - Never `.glassEffect()`, never `NSGlassEffectView`.
 - Work on branch `phase-1-foundation` in `~/Documents/Soredemo/soredemo-main`. **No git worktree** (D-P0).
-- **Rollback point: tag `rollback-phase-1`**, at `8f43c34` — where `main` actually stood when this
-  phase began. An earlier version of this line claimed `7419058` and was never checked against the
-  repository; `main` was already two commits past it, carrying a superseded design document from an
-  abandoned attempt. A rollback point is a name recorded in the repo, not a hash someone remembers,
-  which is why it is a tag.
+- **Rollback point: `8f43c34`** — where `main` actually stood when this phase began, carrying a
+  superseded design document from an abandoned attempt. An earlier version of this line claimed
+  `7419058` and was never checked against the repository; `main` was already two commits past it.
+  Verify with `git log --oneline -1 main` rather than trusting this line — that is how it drifted.
+  (No tag: the owner does not want one.)
 - **Never hand-edit `Soredemo.xcodeproj/project.pbxproj` structurally** (F8). Value substitutions only. Package references are added in Xcode by the project owner.
 
 ## The verification rule
