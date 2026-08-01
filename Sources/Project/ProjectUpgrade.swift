@@ -20,6 +20,13 @@ public enum ProjectFormatError: Error, Equatable {
     /// by damage. There is no upgrade path for it because there is nothing
     /// to upgrade FROM.
     case unsupportedLegacyVersion(Int)
+    /// Task 17 (Controller addendum ruling 1): `ProjectPackageIO.writeSidecar`
+    /// refused to write because a sidecar of this name already exists.
+    /// Media is write-once and never mutated (D-P3) — this is that
+    /// invariant made mechanical. Extended onto this enum rather than a
+    /// second error type: like the other cases here, it is "the on-disk
+    /// document is not in the shape this build is willing to write to."
+    case sidecarAlreadyExists(String)
 }
 
 /// Decodes a `ProjectSnapshot` from any schema version this build knows how
