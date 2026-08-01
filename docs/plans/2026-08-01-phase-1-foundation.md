@@ -20,6 +20,40 @@ Tasks 4 and 5 are deferred for the same reason, applied to scheduling rather tha
 
 **Design doc:** `docs/design/2026-08-01-phase-1-foundation-design.md` — read it before Task 1. Findings are cited as F1–F8 and decisions as D-P0–D-P4; this plan does not repeat their reasoning.
 
+## Progress — read this, not the step checkboxes
+
+**The per-step `- [ ]` checkboxes below were never maintained.** All 77 sit unchecked while sixteen
+tasks are done, so anything that reads them as progress reads 0%. This table is the committed
+progress record; the SDD ledger at `a skill chain/sdd/2026-08-01-phase-1-foundation/progress.md`
+carries the per-task detail but is **git-ignored**, so it does not survive a fresh clone. Between
+this table and `git log --oneline 7419058..HEAD`, a new session has what it needs.
+
+| Task | | Landed at | Note |
+| --- | --- | --- | --- |
+| 1 · repo-skeleton | ☑ | `07e9f1b` | package at root, app target, launches empty |
+| 2 · rule 1, import allow-list | ☑ | `50f09e0` … `e5edc8b` | four rounds, then capped; gaps recorded with reachability |
+| 2.5 · does the plugin run under Xcode? | ☑ | (spike) | `ENABLE_USER_SCRIPT_SANDBOXING = YES` does not suppress it; violation ⇒ `xcodebuild` exit 65 |
+| 3 · rules 2 and 4 | ☑ | `23ba054` | banned CG types (substring, not tokens), no manifest dependencies |
+| 4 · rule 3, determinism | ☑ | `2ca8bfc` | link-time symbols, 37 mangled names derived not guessed |
+| 5 · rule 5, CG bridge | ☐ | — | **deferred into Task 18** — `CGGeometryBridge.swift` does not exist yet |
+| 6 · canonical encoding + digest | ☑ | `2e60445` | 41 pinned bytes, revision `0xbcf4_9ed7_dcb4_2be0` |
+| 7 · geometry registry | ☑ | `d65fc5c` | two failure modes, decode throws rather than traps |
+| 8 · normalized types + cross-revision trap | ☑ | `50c13ef` | guard is uncoverable in-process; see the task's ledger entry |
+| 9 · NormalizationContext | ☑ | `33e0519` | the single Y-axis flip — **no caller yet**, which is why Task 19 must not tick `geometry` |
+| 10 · DisplayArrangement | ☑ | `470035d` | extrinsic global→local routing |
+| 10.5 · point vs pixel as a type | ☑ | `cbc3655` | inserted after a measured mis-route; mixing units is now a compile error |
+| 11 · timeline | ☑ | `02f4e78` | `Nanoseconds`, half-open `TimeRange` |
+| 12 · ContentDigest + non-empty Evidence | ☑ | `e1117b6` | citation types |
+| 13 · Derived + approvalBytes | ☑ | `5a32eb2` | `CanonicallyEncodable` in the generic constraint, so a bad payload fails to compile |
+| 14 · producer-value rule | ☑ | `9a668e3` | mutation reddened 5 tests, three of them Task 13's |
+| 15 · reverse index + cache pairing | ☑ | `09a6d5c` | `rebuild` replaces, never merges; no self-triggering staleness detection |
+| 16 · project snapshot + upgrade chain | ☐ | — | next |
+| 17 · package I/O + truncated tail | ☐ | — | |
+| 18 · NSDocument coordinator | ☐ | — | absorbs Task 5, plus Step 2.5 from **Open items** §1 |
+| 19 · close out the phase | ☐ | — | **must not** tick `geometry`; see **Open items** §2 |
+
+226 tests green (`swift test`): 107 Geometry · 93 Graph · 18 Timeline · 8 Determinism.
+
 ## Global Constraints
 
 - `// swift-tools-version: 6.3`, `platforms: [.macOS(.v26)]`. No `if #available` anywhere. **Not 6.4** — Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest; 6.3 builds under both toolchains with no feature loss.
