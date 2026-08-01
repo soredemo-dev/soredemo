@@ -152,7 +152,15 @@ enum ArchitectureChecker {
                     current += spaces(1 + hashCount)
                     i += 1 + hashCount
                 } else if c == "\\" {
-                    let consumed = min(i + 2, chars.count) - i
+                    // Same guard as the string branch below, for the same reason:
+                    // consuming the newline here would stop it reaching the
+                    // line-break branch, and every reported line number after it
+                    // would be off by one, compounding. `file:line:` is the contract.
+                    var end = min(i + 2, chars.count)
+                    if i + 1 < chars.count, chars[i + 1] == "\n" || chars[i + 1] == "\r" {
+                        end = i + 1
+                    }
+                    let consumed = end - i
                     current += spaces(consumed)
                     i += consumed
                 } else {

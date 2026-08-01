@@ -141,6 +141,17 @@ func rejectsImportSpelledUnusually(_ source: String) throws {
             "line number drifted: \(result.stderr)")
 }
 
+/// The same contract for the regex frame. A guard that exists in one branch and
+/// not its sibling is a guard that gets deleted by whoever tidies next, so both
+/// branches are pinned.
+@Test func reportsAccurateLineNumberAfterRegexLineContinuation() throws {
+    let source = "public let r = #/\n  a\\\n  b\n/#\nimport AppKit"   // import is on line 5
+    let result = try runChecker(source: source)
+    #expect(result.status == 1)
+    #expect(result.stderr.contains(":5: error:"),
+            "line number drifted: \(result.stderr)")
+}
+
 /// Separators Swift accepts between `import` and the module name that a
 /// space/tab/newline tokenizer does not. Each of these was verified to typecheck
 /// under `swiftc` with `public func probeUse() -> NSColor { NSColor.red }`
