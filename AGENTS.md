@@ -74,7 +74,11 @@ the document gets fixed in the same commit. Do not silently work around a docume
 `Plugins/ArchitectureCheck` enforces these. If you change a rule, change the plugin in the same commit.
 
 1. **`Packages/SoredemoCore` imports Foundation only** — no AppKit, no ScreenCaptureKit, no
-   AVFoundation. The compiler enforces it; do not work around it.
+   AVFoundation. **The compiler does not enforce this.** It constrains edges *between package
+   targets*, and even that degrades to a warning on a warm `.build`; it places no restriction at all
+   on system frameworks, so a target with no declared dependencies can import AppKit and build fine.
+   `Plugins/ArchitectureCheck` is what makes it a build failure, on every build. Do not work around
+   it, and do not detach the plugin from a target to make a build pass.
 
    **This constrains the package, not the app.** The app target uses ScreenCaptureKit, AVFoundation,
    AppKit, and Metal freely — that is where recording, rendering, and UI live.

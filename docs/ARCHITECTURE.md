@@ -14,11 +14,12 @@ Soredemo.xcodeproj         App bundle, entitlements, Info.plist, assets, Sparkle
 ```
 
 The boundary is load-bearing, not cosmetic: a package that *cannot* import AppKit or ScreenCaptureKit
-is a compiler-enforced version of the pure-domain rule. See D6.
+is a build-enforced version of the pure-domain rule. The enforcement is a build-tool plugin, not the
+compiler — the compiler permits any system framework in any target. See D6.
 
 *Rejected:* pure SwiftPM — Info.plist, icons, and asset catalogues all need excluding and stitching by
-script. *Rejected:* pure Xcode project — makes the pure/impure boundary a convention rather than a
-compile error.
+script. *Rejected:* pure Xcode project — the package manifest is what carries the target graph the plugin
+enforces, so without it the pure/impure boundary is a convention rather than a build failure.
 
 ---
 
@@ -117,12 +118,26 @@ single-file documents.
 
 ---
 
-## D6 — Architecture rules, enforced by the compiler
+## D6 — Architecture rules, enforced by the build
 
 Rules that are not executable stop being true. Three mechanisms, in descending order of strength.
 
-**1. The compiler.** `SoredemoCore` imports Foundation only. `import AppKit` in the package is a build
-failure, not a review comment.
+**1. A build-tool plugin — not the compiler.** `SoredemoCore` imports Foundation only. `import AppKit`
+in the package is a build failure, not a review comment — but the *compiler does not produce that
+failure*. The compiler constrains edges **between package targets** (F2), and even there SwiftPM
+degrades an undeclared-target import to a warning on a warm `.build`; it places no restriction
+whatever on system frameworks (F1). A target with zero declared dependencies can `import AppKit` and
+`import ScreenCaptureKit` and compile cleanly, and `.treatAllWarnings(as: .error)` does not close the
+gap, because the diagnostic comes from the dependency scanner rather than the compiler frontend.
+
+What actually enforces the rule is `Plugins/ArchitectureCheck`, a SwiftPM build-tool plugin attached
+to all six library targets. It runs `architecture-checker` over each target's sources on every build —
+clean or incremental — and exits non-zero with `file:line: error:` on any import outside the target's
+allowed set. Its allow-list mirrors the dependency edges in `Package.swift`, so it enforces F2 as an
+error on warm builds too. The checker reads source text through a file-scoped lexical scan, so
+comments, string literals of every flavour, and string-interpolation bodies are classified correctly;
+`public import AppKit` and the other SE-0409 access-level spellings are caught, as is
+`#if canImport(AppKit)`.
 
 **This constrains the package, not the app.** The app target uses ScreenCaptureKit, AVFoundation,
 AppKit, and Metal freely — that is where recording, rendering, and UI live.
