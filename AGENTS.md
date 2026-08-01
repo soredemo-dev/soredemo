@@ -93,6 +93,13 @@ a different operation:
 So: alongside the centred rect, an off-centre one. Alongside `(0,0)`, a non-zero origin. Alongside
 `scale: 1`, `scale: 2`.
 
+**Never `git add -A` while an agent is working in the same directory.** This project runs
+subagents in the main checkout with no worktree isolation, so `-A` stages whatever they have
+written but not yet committed. It has already happened once: a documentation commit silently
+absorbed two source files from a task still in flight, and the commit message described only half
+of what it contained. Stage explicit paths. The damage is not corruption — the files were correct —
+it is that the history stops describing what happened, which is the one thing history is for.
+
 **A measurement that counts something must first assert it counted anything.** `sort -u | wc -l`
 returns `1` for empty input, so a probe reporting "1 distinct result" reports the same number
 whether the values agreed or the binary failed to build. This is the vacuous pass, one level up
