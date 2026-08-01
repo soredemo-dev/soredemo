@@ -21,7 +21,12 @@
 - Anything whose bytes are digested uses the **canonical encoding** rules (D-P4 § Canonical encoding): hand-written `Codable` for dictionaries, sorted deterministically, leading version byte, floats as `.bitPattern`.
 - **Swift Testing only** (`@Test`, `#expect`, `#require`). Never XCTest.
 - Never `.glassEffect()`, never `NSGlassEffectView`.
-- Work on branch `phase-1-foundation` in `~/Documents/Soredemo/soredemo-main`. **No git worktree** (D-P0). `main` stays at `7419058` as the rollback point.
+- Work on branch `phase-1-foundation` in `~/Documents/Soredemo/soredemo-main`. **No git worktree** (D-P0).
+- **Rollback point: tag `rollback-phase-1`**, at `8f43c34` — where `main` actually stood when this
+  phase began. An earlier version of this line claimed `7419058` and was never checked against the
+  repository; `main` was already two commits past it, carrying a superseded design document from an
+  abandoned attempt. A rollback point is a name recorded in the repo, not a hash someone remembers,
+  which is why it is a tag.
 - **Never hand-edit `Soredemo.xcodeproj/project.pbxproj` structurally** (F8). Value substitutions only. Package references are added in Xcode by the project owner.
 
 ## The verification rule
