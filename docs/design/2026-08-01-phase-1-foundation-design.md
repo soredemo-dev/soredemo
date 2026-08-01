@@ -580,12 +580,51 @@ A test encodes the same value in two separate processes and compares bytes. Runn
 process proves nothing — the seed is fixed for a process's lifetime, which is why this class of bug
 survives ordinary testing.
 
-`String` is digested as **raw UTF-8, with no Unicode normalisation** — decided in Task 13 and worth
-stating, because it is the one place a canonical encoding here is not a function of Swift's `==`:
-two canonically-equivalent strings compare equal and digest differently. Normalising would make
-every stored approval depend on the ICU tables of whichever macOS version is running, so an OS
-update could silently change bytes approvals are already bound to. The residual asymmetry fails
-closed — it asks for a re-approval; it never lets an approval be redeemed against different text.
+`String` is digested as **raw UTF-8, with no Unicode normalisation**. This is the one place a
+canonical encoding here is not a function of Swift's `==`, and it is worth stating what it costs,
+because both available answers cost something and only one cost was recorded when the decision was
+first made.
+
+Measured — Swift's `String ==` **is** canonical equivalence:
+
+```
+"café" (U+00E9)   [99, 97, 102, 195, 169]
+"café" (e+U+0301) [99, 97, 102, 101, 204, 129]
+Swift ==          true
+after NFC         identical
+```
+
+So two strings that compare **equal** produce **different** `approvalBytes`.
+
+| | How it fails |
+| --- | --- |
+| Normalise at digest time | an ICU update re-normalises *old* content with *today's* tables, so every stored approval moves at once — **loud, rare** |
+| Do not normalise | canonically-equivalent text — pasted from elsewhere, or an input method emitting the decomposed form — silently fails a single approval — **quiet, common** |
+
+### The resolution: normalise once at ingestion, never at digest time
+
+This is a shape the design already uses twice — the Y-flip happens *exactly once, on entry*, and
+time, randomness and SHA-256 are *injected at the boundary* rather than computed in the package.
+
+The asymmetry that makes it work:
+
+- **Normalising at digest time** re-derives from the running ICU tables on every verification, so
+  the tables become part of the contract and history breaks when they move.
+- **Normalising at ingestion** is a one-time act whose result is *stored*. Later ICU changes affect
+  only text ingested later; bytes already approved are untouched.
+
+So ingestion-time normalisation gets both properties — equal values digest equally, **and** historic
+digests are permanently stable — and neither cost above applies.
+
+**The rule: all external text is normalised to NFC before it enters the graph.** That is the same
+boundary `agentic-threat-model` already requires external text to cross as quoted data rather than
+instruction, so it is one boundary doing two jobs. First callers are Phase 5's `post-draft` and
+Phase 8's `release-evidence`.
+
+**Task 13's decision stands unchanged** — the digest layer must *not* normalise, precisely so that
+it never re-derives from today's tables. The rule above is an addition at a different layer, not a
+correction to it. Until that boundary exists, the residual asymmetry fails closed: it asks for a
+re-approval, and never lets an approval be redeemed against different text.
 
 ---
 

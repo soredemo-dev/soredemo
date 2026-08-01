@@ -93,6 +93,13 @@ a different operation:
 So: alongside the centred rect, an off-centre one. Alongside `(0,0)`, a non-zero origin. Alongside
 `scale: 1`, `scale: 2`.
 
+**A measurement that counts something must first assert it counted anything.** `sort -u | wc -l`
+returns `1` for empty input, so a probe reporting "1 distinct result" reports the same number
+whether the values agreed or the binary failed to build. This is the vacuous pass, one level up
+from the code: `Tests/DeterminismTests` carries `#require(!objectFiles.isEmpty, "…would pass
+vacuously")` for exactly this reason, and the shell probe that verified it did not. Assert non-empty
+input before reporting an aggregate — a wrong API call surfaces on its own, a false green does not.
+
 **Mutation testing is bounded by fixture diversity, and that ceiling is invisible.** Breaking a code
 path changes nothing if no fixture ever reaches it — so a mutation check that finds nothing is
 evidence about the fixtures as much as about the tests. Four consecutive mutation checks found real
