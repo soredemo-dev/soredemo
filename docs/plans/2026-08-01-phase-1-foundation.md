@@ -308,11 +308,21 @@ func runChecker(targetName: String = "Geometry", source: String) throws -> (stat
     "@testable import AppKit",
     "@_exported import AppKit",
     "@preconcurrency @_exported import AppKit",
+    // SE-0409 access-level modifiers. These are the IDIOMATIC Swift 6 spellings,
+    // pushed further by the InternalImportsByDefault upcoming feature, and a
+    // naive attribute-only strip lets every one of them through.
+    "public import AppKit",
+    "internal import AppKit",
+    "package import AppKit",
+    "fileprivate import AppKit",
+    "private import AppKit",
+    "@preconcurrency public import AppKit",
     "import AppKit; import Foundation",
     "import Foundation; import AppKit",
     "import class AppKit.NSColor",
     "import\tAppKit",
     "import AppKit //trailing comment",
+    "#if canImport(AppKit)\nimport AppKit\n#endif",
     "import ScreenCaptureKit",
 ])
 func rejectsDisallowedImport(_ line: String) throws {
@@ -325,6 +335,10 @@ func rejectsDisallowedImport(_ line: String) throws {
 
 @Test(arguments: [
     "import Foundation",
+    // The same access-level forms on a LEGITIMATE module must not be false-positived —
+    // a Swift 6 library author writes these routinely.
+    "internal import Foundation",
+    "public import Foundation",
     "// import AppKit",
     "/* import AppKit */",
     "import Foundation /* used for Date */",
@@ -397,9 +411,15 @@ func report(_ file: String, _ line: Int, _ message: String) {
 /// \(…) and \#(…) interpolation nested to any depth.
 func codeViewLines(of text: String) -> [String] { /* frame-stack scanner */ }
 
+/// Access levels permitted in front of `import` by SE-0409. Stripping only `@`
+/// attributes lets `public import AppKit` — the idiomatic Swift 6 spelling —
+/// straight through, since the statement then does not start with `import`.
+let importAccessLevels: Set<String> = ["public", "package", "internal", "fileprivate", "private"]
+
 func importedModule(fromStatement statement: String) -> String? {
     var tokens = statement.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
     while let first = tokens.first, first.hasPrefix("@") { tokens.removeFirst() }
+    while let first = tokens.first, importAccessLevels.contains(first) { tokens.removeFirst() }
     guard tokens.first == "import", tokens.count >= 2 else { return nil }
     // `import class AppKit.NSColor` -> AppKit
     return tokens.last?.split(separator: ".").first.map(String.init)
@@ -480,25 +500,103 @@ swift test --filter ArchitectureCheckTests 2>&1 | tail -6
 ```
 Expected: PASS. 11 rejection cases + 5 acceptance cases + 2 sibling cases.
 
-- [ ] **Step 7: Observe rule 1 red under BOTH build systems**
-
-`KICKOFF.md` says "fails the build". Which build. Both are verified, separately — this is the ambiguity that let the rule go unenforced under Xcode for four rounds.
+- [ ] **Step 7: Observe rule 1 red under `swift build`**
 
 ```bash
+cp Sources/Geometry/Placeholder.swift /tmp/ph.bak
 echo "import AppKit" >> Sources/Geometry/Placeholder.swift
-swift build 2>&1 | grep -c "not importable"                                   # expect >= 1
-xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 | grep -c "not importable"
-git checkout Sources/Geometry/Placeholder.swift
-swift build 2>&1 | tail -1
+swift build 2>&1 | tail -3; echo "exit=${PIPESTATUS[0]}"    # expect NON-ZERO and a diagnostic
+cp /tmp/ph.bak Sources/Geometry/Placeholder.swift
+swift build 2>&1 | tail -1                                   # expect Build complete
 ```
 
-**If the `xcodebuild` count is 0, stop.** It means the app does not reference the package, so the plugin never runs there — see Task 18, which is where that reference is added. Record the result either way; do not report the rule as enforced under Xcode until this number is non-zero.
+Also observe one access-level form directly, since that class was the total bypass:
+
+```bash
+echo "public import AppKit" >> Sources/Geometry/Placeholder.swift
+swift build 2>&1 | tail -3; echo "exit=${PIPESTATUS[0]}"    # expect NON-ZERO
+cp /tmp/ph.bak Sources/Geometry/Placeholder.swift
+```
+
+**`xcodebuild` is deliberately NOT checked here.** The app does not yet reference the package, so
+Xcode never compiles it and the result would be a meaningless zero. `KICKOFF.md` says "fails the
+build" without saying which; that ambiguity is answered in **Task 2.5**, which exists for exactly
+this and runs next.
 
 - [ ] **Step 8: Correct the two wrong documents**
 
 `ARCHITECTURE.md` D6 mechanism 1 and `AGENTS.md` architecture rule 1 both claim the compiler enforces the import rule. Replace with: the compiler enforces edges *between package targets* (F2), but places no restriction on system frameworks (F1), so `Plugins/ArchitectureCheck` enforces the Foundation-only rule.
 
 - [ ] **Step 9: Commit**
+
+---
+
+### Task 2.5: does the plugin run under Xcode at all?
+
+**This is the plan's largest unknown, and it is answered here rather than at Task 18.** If
+`ENABLE_USER_SCRIPT_SANDBOXING = YES` suppresses SwiftPM build-tool plugins under Xcode, then every
+rule built in Tasks 2–5 is inert in the app build — and the cost of learning that at Task 18 is
+sixteen tasks of plugin work that does not enforce anything where it matters most.
+
+Rule 1 exists as of Task 2, which is all this needs. `Package.swift` exists as of Task 1, so this is
+the earliest point the question can be asked.
+
+**Prerequisite — the project owner must do this in Xcode.** Hand-editing the pbxproj does not work
+(F8), verified twice at two object versions:
+
+> **File → Add Package Dependencies… → Add Local…** → select the repository root (it contains
+> `Package.swift`) → add the **SoredemoCore** product to the **Soredemo** target.
+
+- [ ] **Step 1: Confirm Xcode compiles package targets**
+
+```bash
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build > /tmp/xb0.log 2>&1
+echo "exit=$?"
+grep -cE "SwiftDriver.* (Geometry|Timeline|Graph) |Compiling.*(Geometry|Timeline|Graph)" /tmp/xb0.log
+```
+Zero means the package reference is missing → **report NEEDS_CONTEXT and stop.**
+
+- [ ] **Step 2: Make the app actually use the package**
+
+A linked-but-unused package can still be skipped. Give it a real reference in `Soredemo/UI/ContentView.swift`:
+
+```swift
+import SwiftUI
+import Geometry
+
+struct ContentView: View {
+    var body: some View {
+        Text(GeometryModule.name).padding()
+    }
+}
+```
+
+- [ ] **Step 3: Observe rule 1 RED under xcodebuild**
+
+```bash
+cp Sources/Geometry/Placeholder.swift /tmp/ph.bak
+echo "import AppKit" >> Sources/Geometry/Placeholder.swift
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build > /tmp/xb1.log 2>&1
+echo "exit=$?"                                   # expect NON-ZERO
+grep -c "ArchitectureCheck" /tmp/xb1.log         # expect non-zero
+cp /tmp/ph.bak Sources/Geometry/Placeholder.swift
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 | tail -1
+```
+
+Interpret using the three-outcome table in Task 18 Step 2.
+
+- [ ] **Step 4: If the plugin does NOT run, establish why before continuing**
+
+Try, in order, recording each result:
+
+1. Set `ENABLE_USER_SCRIPT_SANDBOXING = NO` (a value substitution, permitted) and re-run Step 3. If the plugin then fires, the sandbox is the cause — report it as a decision for the owner, since disabling it weakens the app's build hygiene.
+2. Check whether Xcode requires plugin validation/trust for this project.
+
+**If neither explains it, report BLOCKED.** Do not continue to Tasks 3–5 building rules that are provably inert under the build system the app ships from. Better to stop at task three than at task eighteen.
+
+- [ ] **Step 5: Commit, recording the answer**
+
+The commit message states plainly whether the plugin enforces under Xcode, under `swift build`, or both. This is the fact the rest of the phase rests on.
 
 ---
 
@@ -638,11 +736,32 @@ Expected: `_$s10Foundation4DateVACycfC`, `_$s10Foundation4UUIDVACycfC`, `_$ss17F
 
 Evaluate in this order and record why each is accepted or rejected:
 
-1. **A test that builds and inspects** — preferred. It needs nobody to remember to invoke it. Watch for the `.build` lock: a nested `swift build` inside `swift test` can deadlock. If it does, build to a separate scratch directory (`--scratch-path`).
+1. **A test that READS already-built object files** — preferred, and safe. It needs nobody to
+   remember to invoke it, and it does **not** need to build anything: `GeometryTests` depends on
+   `Geometry`, so by the time the test body runs, `Geometry`'s object files necessarily exist. No
+   nested `swift build`, therefore no `.build` lock and no deadlock. Locate them under
+   `.build/*/debug/` and read with `nm -u`.
 2. A separate check target depending on the six libraries, so its command runs after they compile.
-3. A post-build script phase in `Soredemo.xcodeproj` — only fires under `xcodebuild`, which is half the enforcement, and needs a pbxproj edit (forbidden by the global constraints).
+3. A post-build script phase in `Soredemo.xcodeproj` — only fires under `xcodebuild`, which is half
+   the enforcement, and needs a pbxproj edit (forbidden by the global constraints).
 
-If none works cleanly, **report BLOCKED**. A documented gap is worth more than a symbol check nobody can prove runs.
+If none works cleanly, **report BLOCKED**. A documented gap is worth more than a symbol check nobody
+can prove runs.
+
+**The empty-glob guard is mandatory.** If the object-file search returns nothing, the symbol check
+passes vacuously — a rule that silently enforces nothing, which is the exact failure this plan's
+verification rule exists to prevent, arriving on the rule where it would be least visible. Task 5
+already carries the equivalent clause for app sources; this one is the same shape:
+
+```swift
+try #require(!objectFiles.isEmpty,
+             "no object files found under \(searchRoot.path()) — the symbol check would pass vacuously")
+try #require(!undefinedSymbols.isEmpty,
+             "nm returned no undefined symbols — the check is not reading what it thinks it is")
+```
+
+Both are required. An empty file list and a file list that yields no symbols fail for different
+reasons and would both look like success.
 
 - [ ] **Step 3: Write the failing test**
 
@@ -1148,23 +1267,46 @@ MyDemo.soredemo/          UTType(exportedAs:conformingTo: .package)
 
 **This task has a prerequisite only the project owner can perform.** In Xcode: **File → Add Package Dependencies… → Add Local…** → select the repository root (which contains `Package.swift`), and add the `SoredemoCore` product to the `Soredemo` target. Hand-editing the pbxproj does not work (F8) — verified twice, at two object versions.
 
-- [ ] **Step 1: Confirm the package reference exists**
+- [ ] **Step 1: Confirm the package is actually BUILT, not merely mentioned**
+
+A `grep` for `SoredemoCore` in the pbxproj proves only that the string is present — and failed hand-editing attempts have left exactly that residue before. Ask the build system what it built:
 
 ```bash
-grep -c "SoredemoCore" Soredemo.xcodeproj/project.pbxproj    # must be > 0
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 \
+  | grep -cE "Compiling .*(Geometry|Timeline|Graph)|SwiftDriver.* (Geometry|Timeline|Graph) "
 ```
-If zero, **stop and report NEEDS_CONTEXT.** Everything below depends on it.
+Expected: non-zero, meaning Xcode compiled package targets.
+
+If zero, **stop and report NEEDS_CONTEXT** — the local package reference has not been added, and everything below depends on it. Do not proceed on a build that silently never compiles the package.
 
 - [ ] **Step 2: Re-verify rule 1 under `xcodebuild` — for the first time meaningfully**
 
-Until the package is linked, `xcodebuild ** BUILD SUCCEEDED **` said nothing about the plugin. Now it does:
+Until the package is compiled by Xcode, `** BUILD SUCCEEDED **` said nothing about the plugin. Now it can.
+
+**Do not grep for the checker's prose.** That message is defined in Task 2 and may have been reworded; grepping it risks a false negative on the single most important check in this plan. Use the build's own outcome instead:
 
 ```bash
+cp Sources/Geometry/FNV1a.swift /tmp/fnv.bak
 echo "import AppKit" >> Sources/Geometry/FNV1a.swift
-xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 | grep -c "not importable"
-git checkout Sources/Geometry/FNV1a.swift
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build > /tmp/xb.log 2>&1
+echo "exit=$?"                                  # expect NON-ZERO
+grep -c "ArchitectureCheck" /tmp/xb.log         # expect non-zero: the command ran
+grep -E "FNV1a.swift:[0-9]+: error:" /tmp/xb.log | head -2
+cp /tmp/fnv.bak Sources/Geometry/FNV1a.swift
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 | tail -1
 ```
-Expected: non-zero. **If zero, the plugin does not run under Xcode** — check whether `ENABLE_USER_SCRIPT_SANDBOXING = YES` is suppressing it, and report the finding rather than working around it.
+
+Expected: non-zero exit, `ArchitectureCheck` present in the log, an `error:` anchored to the offending file, then a clean build after the revert.
+
+**Three outcomes, three different conclusions — distinguish them:**
+
+| Observation | Means |
+| --- | --- |
+| non-zero exit, `ArchitectureCheck` in log | the plugin runs under Xcode and enforces. Done |
+| zero exit, `ArchitectureCheck` **absent** from log | the plugin command never ran — most likely `ENABLE_USER_SCRIPT_SANDBOXING = YES` suppressing it |
+| zero exit, `ArchitectureCheck` **present** in log | the command ran and did not fail — a checker bug, not a wiring problem |
+
+Report which one you observed. Do not work around it.
 
 - [ ] **Step 3: Write `Minting.swift`** — everything the package is forbidden to do: `UUID()`, `Date()`, and `SHA256.hash` via CryptoKit, returning a `ContentDigest`.
 
