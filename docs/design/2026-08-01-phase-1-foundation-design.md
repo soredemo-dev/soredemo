@@ -135,6 +135,17 @@ Corollary, learned the hard way: hand-editing `project.pbxproj` to add an
 Directory conventions follow `../opensource/a native editor`; its **module structure is explicitly
 not adopted** (see D-P1).
 
+**Why the package sits at the root is not "because a native editor does".** a native editor's manifest is at its
+root because that package *is* the application — there is no app target to coexist with, so the
+question never arises there and the reason does not transfer. The actual benefit here is smaller and
+real: `swift build` and `swift test` run at the repository root with no `cd`, which is where every
+command in the plan and every CI invocation starts. That is worth having; the resemblance to a native editor
+is not an argument.
+
+The cost is that `Sources/` at the root does not, by itself, say which code is the pure package and
+which is the app. `Soredemo/` versus `Sources/` carries that distinction by name only — the
+enforcement is D-P1's target boundaries, not the directory layout.
+
 ```
 soredemo-main/
 ├── Package.swift              SoredemoCore · swift-tools-version: 6.4 · .macOS(.v26)
@@ -178,6 +189,14 @@ on each side.
 
 `Framing` and `Variants` are empty in Phase 1; they exist to fix the dependency direction before
 there is code to tangle.
+
+**Module names must not collide with the type names inside them.** `Timeline`, `Graph` and `Project`
+are all names one would naturally give the main type in that module, and Swift cannot disambiguate
+`Timeline.foo` between the module and the type — the workaround is writing `Timeline.Timeline`,
+which then spreads. Renaming is free now and expensive later, so the principal types are named for
+what they are rather than for their module: `Timeline` holds `Nanoseconds` and `TimeRange`, `Graph`
+holds `Derived` and `Derivation`, `Project` holds `ProjectSnapshot`. No type may share its module's
+name.
 
 **a native editor's shape is the counter-example, not the model.** It is one executable target whose 26
 subfolders carry no compile-time boundary. Folders would be cosmetic and every internal boundary
@@ -241,9 +260,17 @@ so a persisted `hashValue` will not match the same geometry on reopen. FNV-1a ov
 little-endian encoding, with `scale` digested as `.bitPattern` (exact, where a decimal rendering is
 not) and a precondition rejecting non-finite or non-positive scale.
 
-`GeometryRegistry.insert` traps when one revision maps to two distinct geometries. FNV-1a is 64-bit
-and non-cryptographic; a collision would make two different geometries compare **equal**, which is
-the silent direction, and it is detectable exactly there.
+`GeometryRegistry` checks the same invariant in two places, with two different failure modes,
+because the inputs differ in kind:
+
+- **`insert` traps.** A collision reached during merge is a programmer error — a 64-bit
+  non-cryptographic digest mapping two distinct geometries to one revision would make them compare
+  **equal**, which is the silent direction, and it is detectable exactly there.
+- **`init(from:)` throws.** A registry decoded from disk is *input*, not program state. A file that
+  has been corrupted, hand-edited, or written by a future version must not crash the app on open.
+  Decoding validates `key == recompute(value).revision` and throws on mismatch.
+
+Trapping on untrusted input is how a bad file becomes an unopenable document.
 
 *Rejected:* monotonic session counter — collides on merge, false-traps on flip-back.
 *Rejected:* UUID per epoch — merges safely but still false-traps, and is opaque in a log.
@@ -406,6 +433,42 @@ IDs and timestamps are minted in the app and passed in as plain values, the same
 semantic question and leaks: in a prior implementation `"\(Date())"` and `#"\#(Date())"#` both
 passed while plain `Date()` was caught. Mangled symbols have no such gaps.
 
+### Canonical encoding
+
+`approvalBytes` and every content digest depend on an encoding that is byte-identical for equal
+values, across processes and across time. "Canonical" is defined here rather than assumed, because
+three separate things break it and each fails silently.
+
+**1. Swift's `Dictionary` does not encode deterministically.** When the key is not `String` or
+`Int`, `Codable` synthesis emits an **unkeyed** container of alternating key/value in *iteration*
+order — and iteration order comes from the per-process random hash seed. `JSONEncoder.sortedKeys`
+does not help, because it sorts keyed containers only. Measured on a `[Revision: Geometry]` of the
+same shape as `GeometryRegistry`, five runs produced five different encodings.
+
+This is the same seeding hazard already recorded for `Hashable.hashValue` in D-P2, arriving through
+a different door. Catching one and not the other is precisely the failure this document exists to
+prevent.
+
+> **Rule.** No type whose bytes are digested may rely on synthesised `Codable` for a dictionary.
+> `GeometryRegistry` hand-writes `Codable`, encoding entries as an array sorted by `revision.id`.
+
+**2. Field order and shape must be frozen.** Adding a field to `Derivation` in Phase 3, or
+reordering existing ones, changes every previously computed digest. The failure is not a validation
+error — it is validation silently checking a different thing, which is worse. Every canonical
+encoding therefore begins with a **one-byte encoding version**, and the encoding is frozen: changing
+it is an explicit breaking change that ships with a re-approval path.
+
+> This version is **not** `ProjectSnapshot.schemaVersion`. A document schema upgrade must leave
+> existing approvals verifiable; the two version lines move independently.
+
+**3. Floating point needs a bit-exact rule.** `scale` and all normalised coordinates are digested as
+`.bitPattern`, never as a decimal rendering, with preconditions rejecting non-finite values so the
+encoding is well-defined.
+
+A test encodes the same value in two separate processes and compares bytes. Running it twice in one
+process proves nothing — the seed is fixed for a process's lifetime, which is why this class of bug
+survives ordinary testing.
+
 ---
 
 ## `Plugins/ArchitectureCheck`
@@ -416,8 +479,8 @@ Given F1, this is the primary enforcement of D6, so it runs on every build.
 | --- | --- | --- |
 | 1 | Import allow-list per target | source text |
 | 2 | No `CGPoint`/`CGRect`/`CGSize`/`CGFloat` in the package | source text |
-| 3 | No ambient time or randomness | **link-time symbols** |
-| 4 | Manifest declares no package dependencies | source text — scan for `.package(`, which is complete: `Package.Dependency` has no public initialiser |
+| 3 | No ambient time or randomness | **link-time symbols** — mechanism unresolved, see below |
+| 4 | Manifest declares no package dependencies | source text — scan **every** manifest for `.package(` |
 | 5 | CG types in the app appear only in `Capture/CGGeometryBridge.swift` | a package **test** — the plugin attaches to SwiftPM targets and cannot see the Xcode app target |
 | 6 | One owner for the observation-log → graph join | inert in Phase 1 |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | inert in Phase 1 |
@@ -429,6 +492,37 @@ never runs on an incremental build — which is how people build.
 
 Use `context.tool(named:).path`, **not** `.url`: `URL.path()` percent-encodes Xcode's `${BUILD_DIR}`
 placeholder into `$%7BBUILD_DIR%7D` and breaks `xcodebuild`.
+
+### Rule 3's mechanism is unresolved, and that is written here rather than discovered
+
+Rule 3 reads link-time symbols, but a build-tool plugin's command runs **before** its target
+compiles, so the object files do not exist when it runs. The mechanism must be established before
+the approach is committed to. Candidates:
+
+- **A test that builds and inspects.** Preferred. It needs no one to remember to invoke it, and it
+  runs wherever the suite runs. The whole point of D-P4 is to avoid *a validator someone might
+  forget to call*; a rule with the same weakness is the same mistake one level up.
+- A separate check target that depends on the six libraries, so its command runs after they compile.
+- A post-build script phase in the Xcode project — but that only fires under `xcodebuild`, which is
+  half the enforcement, and it needs a pbxproj edit (F8).
+
+If none works cleanly, the honest outcome is a documented gap, not a symbol check nobody can prove
+runs.
+
+### Rule 4 reads source text too, so it needs its own evasion list
+
+The rules that read source text are 1, 2 **and 4**. Rule 4 currently sits where rules 1 and 2 sat
+before four rounds of hardening, and `.package(` being unforgeable says nothing about *which file*
+gets scanned.
+
+- **Version-specific manifests.** SwiftPM honours `Package@swift-6.4.swift` in preference to
+  `Package.swift`. Verified: a dependency declared there is resolved and built while `Package.swift`
+  declares none, and a scanner reading only `Package.swift` sees nothing. **Every** `Package*.swift`
+  in the package root must be scanned.
+- The dependency array assembled under any name and passed in by identifier, or mutated after
+  construction — both defeated an earlier syntactic scan, and are why the rule is `.package(`
+  rather than a `dependencies:` shape match.
+- `.package(` inside a comment or string literal must **not** fire.
 
 ### The known evasion set
 
@@ -477,10 +571,26 @@ each is verified separately.
 | Row | Done when |
 | --- | --- |
 | `repo-skeleton` | `xcodebuild` succeeds **and the app launches to an empty window** — now performable, since a `.macOS(.v26)` binary runs on this machine |
-| `architecture-plugin` | `import AppKit` fails **`swift build`** and fails **`xcodebuild`**, each observed |
+| `architecture-plugin` | **all five active rules observed red**, individually — see below |
 | `geometry` | cross-revision comparison traps, observed out-of-process |
 | `project-format` | a v1 document round-trips and a synthetic v0 upgrades |
 | `derivation-graph` | the producer-value rule holds under test |
+
+**`architecture-plugin` needs five negative cases, not one.** Stating the criterion as "`import
+AppKit` fails the build" proves rule 1 and silently assumes the other four — the same shape of
+ambiguity as "which build", in the same document that just adopted the observed-red rule. Each rule
+is done when its own violation has been seen to fail:
+
+| Rule | Negative case that must be observed failing |
+| --- | --- |
+| 1 · imports | `import AppKit` in a package source — under **both** `swift build` and `xcodebuild` |
+| 2 · CG types | `let r: CGRect` in a package source |
+| 3 · determinism | `Date()` in a package source — **and** `"\(Date())"`, since the text-scan predecessor passed exactly this |
+| 4 · manifest | `.package(path:)` in `Package.swift` — **and** in `Package@swift-6.4.swift` |
+| 5 · CG bridge | `CGRect` in an app source outside `Capture/CGGeometryBridge.swift` |
+
+Each pairs with its positive case: the legitimate form still builds. A rule seen only green is not
+a known rule.
 
 ---
 
