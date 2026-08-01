@@ -476,6 +476,9 @@ IDs and timestamps are minted in the app and passed in as plain values, the same
 semantic question and leaks: in a prior implementation `"\(Date())"` and `#"\#(Date())"#` both
 passed while plain `Date()` was caught. Mangled symbols have no such gaps.
 
+It is implemented in `Tests/DeterminismTests`, reading `nm -u` over already-built object files;
+`Plugins/ArchitectureCheck` rule 3 below records why the plugin cannot carry it.
+
 ### Canonical encoding
 
 `approvalBytes` and every content digest depend on an encoding that is byte-identical for equal
@@ -536,7 +539,7 @@ Given F1, this is the primary enforcement of D6, so it runs on every build.
 | --- | --- | --- |
 | 1 | Import allow-list per target | source text |
 | 2 | No `CGPoint`/`CGRect`/`CGSize`/`CGFloat` in the package | source text |
-| 3 | No ambient time or randomness | **link-time symbols** — mechanism unresolved, see below |
+| 3 | No ambient time or randomness | **link-time symbols**, read by `Tests/DeterminismTests` — *not* by the plugin, see below |
 | 4 | Manifest declares no package dependencies | source text — scan **every** manifest for `.package(` |
 | 5 | CG types in the app appear only in `Capture/CGGeometryBridge.swift` | a package **test** — the plugin attaches to SwiftPM targets and cannot see the Xcode app target |
 | 6 | One owner for the observation-log → graph join | inert in Phase 1 |
@@ -550,21 +553,70 @@ never runs on an incremental build — which is how people build.
 Use `context.tool(named:).path`, **not** `.url`: `URL.path()` percent-encodes Xcode's `${BUILD_DIR}`
 placeholder into `$%7BBUILD_DIR%7D` and breaks `xcodebuild`.
 
-### Rule 3's mechanism is unresolved, and that is written here rather than discovered
+### Rule 3's mechanism, resolved
 
 Rule 3 reads link-time symbols, but a build-tool plugin's command runs **before** its target
-compiles, so the object files do not exist when it runs. The mechanism must be established before
-the approach is committed to. Candidates:
+compiles, so the object files do not exist when it runs. The three candidates were evaluated in the
+stated order and the first one works.
 
-- **A test that builds and inspects.** Preferred. It needs no one to remember to invoke it, and it
-  runs wherever the suite runs. The whole point of D-P4 is to avoid *a validator someone might
-  forget to call*; a rule with the same weakness is the same mistake one level up.
-- A separate check target that depends on the six libraries, so its command runs after they compile.
-- A post-build script phase in the Xcode project — but that only fires under `xcodebuild`, which is
-  half the enforcement, and it needs a pbxproj edit (F8).
+**Chosen — a test that READS already-built object files.** `Tests/DeterminismTests` declares a
+dependency on all six library modules. That edge is the whole mechanism: it is what orders their
+compilation ahead of the test body, so by the time the body runs, every `<Module>.o` necessarily
+exists. The test builds nothing — it runs `nm -u` over object files that are already there — so
+there is no nested `swift build`, no second `.build` lock and no deadlock. It needs nobody to
+remember to invoke it and it runs wherever the suite runs, which is the same property D-P4 exists to
+protect. The dependency list is itself guarded: a test reads the resolved manifest and fails if
+`DeterminismTests` does not depend on every plugin-checked target, because dropping one would void
+the ordering silently.
 
-If none works cleanly, the honest outcome is a documented gap, not a symbol check nobody can prove
-runs.
+**Rejected — a separate check target whose plugin command runs after the libraries compile.** There
+is no supported way for it to find the object files. `PluginContext` has exactly three members —
+`package`, `pluginWorkDirectoryURL` and `tool(named:)` — and none of them names a build-products
+directory (read off `PackagePlugin.swiftinterface` on this toolchain). The only API that does expose
+built products is `PackageManager.BuildResult.builtArtifacts`, and `packageManager` is a member of
+`CommandPlugin`, not `BuildToolPlugin`; its artifact kinds are `executable`, `dynamicLibrary` and
+`staticLibrary`, never object files. So the target would have to hardcode a path, which under
+`xcodebuild` is the `${BUILD_DIR}` placeholder this document already records as a hazard.
+
+**Rejected — a post-build script phase in `Soredemo.xcodeproj`.** It only fires under `xcodebuild`,
+which is half the enforcement, and it requires a `project.pbxproj` edit, which F8 records as the
+thing that made the project unreadable.
+
+The banned symbols are **derived on this toolchain, not guessed**: a scratch module calls each
+construct, `nm -u` reads the mangled names back, and `swift demangle` confirms what they are. That
+derivation is reproduced inside the suite — a fixture containing one call site per banned symbol is
+compiled and read back, so a toolchain that changes a mangling turns the table RED instead of
+silently emptying it. Verified end to end: `Date()` inserted into `Sources/Geometry/DisplayGeometry.swift`
+turns the check red naming `Geometry.o: Date.init() [_$s10Foundation4DateVACycfC]`, and `"\(Date())"`,
+`#"\#(Date .init())"#` and `let make: () -> Date = Date.init; make()` all produce that same single
+symbol — which is the whole reason this is not a text scan.
+
+Two things must never be a silent pass, because both look exactly like success: **finding no object
+files**, and **finding object files that yield no symbols**. Both are `#require` failures, checked
+per module as well as in aggregate, and both were observed firing.
+
+`Date` and `UUID` as **types** stay legal and are load-bearing — `public let at: Date` is the shape
+D-P4 prescribes, since timestamps and identifiers are minted in the app. Only the constructors and
+clock reads are banned, and the distinction holds at the symbol level: `Geometry.o` references
+`Foundation.UUID`'s metadata, `==` and `.uuid` for `DisplayGeometry.displayUUID`, and does not
+reference `UUID.init()`. Matching is by exact symbol, never by substring, because the static
+`Date.timeIntervalSinceReferenceDate` (a clock read, banned) and the instance property of the same
+name (allowed) differ only by a trailing `Z`.
+
+`random(in:using:)` and its siblings are deliberately **not** banned: randomness from an injected
+generator is deterministic, which is the property being protected. There is no hole, because the
+only way to obtain the system generator is `SystemRandomNumberGenerator.init()`, which is banned.
+
+#### Rule 3's known gaps, with reachability
+
+| Construction | Direction | Reachable how |
+| --- | --- | --- |
+| Objective-C clock reads (`-[NSProcessInfo systemUptime]`, `-[NSDate timeIntervalSinceReferenceDate]`) are matched through `_objc_msgSend$<selector>` stubs | miss under other codegen | The stub is what this toolchain emits, and it is matched. A build configured without selector stubs routes the same call through `__objc_selrefs` instead, which `nm -u` does not surface. Not reachable from `Package.swift`, which does not set that flag |
+| `dlsym`/`NSClassFromString` reaching a clock at runtime | miss | Deliberate authorship only. Nobody writes it by accident, and it does not survive review |
+| `_OBJC_CLASS_$_NSDate` fires on *any* reference to `NSDate`, including a bridge that reads no clock | false positive | Loud, and deliberately over-approximated. A Foundation-only value package has no ObjC boundary to bridge across |
+| The scan runs where the object files are — `.build/debug` under `swift build`, or `<Module>.build/` under the older llbuild layout. A scratch path outside `.build` finds neither | neither | Fails **closed**: the vacuous-pass guard reports "no object files found for *module*", not a pass |
+
+The residual is the first row, and it is a codegen-configuration miss rather than a source-level one.
 
 ### Rule 4 reads source text too, so it needs its own evasion list
 

@@ -183,6 +183,24 @@ directory, a directory with no `.swift` files, and an unreadable or undecodable 
 build. Unreadable must never mean compliant. Verified to fail the build under **both** `swift build`
 and `xcodebuild`.
 
+**Determinism is checked over link-time symbols, not source text, and it is a test rather than a
+plugin rule.** Ambient time and randomness break derivation identically to a framework call and are
+far easier to introduce by accident, but `Date()`, `UUID()`, `.random(in:)` and `ContinuousClock`
+are all Foundation or standard library, so no import allow-list can see them. A text scan is a proxy
+for a semantic question and leaks — a prior implementation caught plain `Date()` while `"\(Date())"`
+and `#"\#(Date())"#` both passed. Mangled symbols have no such gaps: every syntactic evasion
+collapses into `_$s10Foundation4DateVACycfC`, measured. The check cannot live in the plugin, because
+a build-tool plugin's command runs *before* its own target compiles and `PluginContext` exposes no
+accessor for any target's build products. It lives in `Tests/DeterminismTests`, whose declared
+dependency on all six library modules is what orders their compilation ahead of it; it only *reads*
+already-built object files with `nm -u`, so there is no nested build and no `.build` lock. The
+banned list is derived from this toolchain rather than guessed, and a fixture in the suite recompiles
+every banned construct and fails if a mangling has changed. Two guards make a vacuous pass
+impossible: no object files found, and no undefined symbols read, are each a hard failure — an empty
+search finds no violations and would otherwise read as a clean bill of health. The **types** `Date`
+and `UUID` stay legal; `Geometry.o` references `Foundation.UUID` and never `UUID.init()`, because
+identifiers and timestamps are minted in the app and passed in as plain values.
+
 **This constrains the package, not the app.** The app target uses ScreenCaptureKit, AVFoundation,
 AppKit, and Metal freely — that is where recording, rendering, and UI live.
 
