@@ -40,10 +40,10 @@ would post, output quality matters more than the loop.
 
 | State | Row | Outcome | Depends on |
 | --- | --- | --- | --- |
-| ☐ | `repo-skeleton` | Xcode app target + `SoredemoCore` SwiftPM package, `.macOS(.v27)`, Swift 6.4 strict concurrency, builds and runs empty | — |
-| ☐ | `architecture-plugin` | `Plugins/ArchitectureCheck`: pure-package imports, no `CGPoint`/`CGRect` in pure public APIs | `repo-skeleton` |
+| ☑ | `repo-skeleton` | SwiftPM package at the repository root + hand-made Xcode app target, `.macOS(.v26)`, Swift 6 language mode, builds and **launches** empty | — |
+| ◐ | `architecture-plugin` | `Plugins/ArchitectureCheck`. Rule 1 (imports) **done and capped** — enforced under both `swift build` and `xcodebuild`. Rules 2 (CG types) and 4 (manifest dependencies) next. Rule 3 (determinism) waits for Task 6; rule 5 (CG bridge) waits for Task 18 — both would be vacuous today | `repo-skeleton` |
 | ☐ | `geometry` | `NormalizedPoint` (0–1, bottom-left), `NormalizedFrame` with `geometryRevision`; all conversion in one place; cross-revision comparison is a precondition failure | `repo-skeleton` |
-| ☐ | `project-format` | Versioned `Codable` document, atomic save, relative paths, upgrade path. `ReadableDocument`/`WritableDocument` | `geometry` |
+| ☐ | `project-format` | Versioned `Codable` document, atomic save, relative paths, upgrade path. Hand-written **`NSDocument`** package coordinator — `ReadableDocument`/`WritableDocument` are SwiftUI types requiring macOS 27, above our floor. The row spans the package/app boundary | `geometry`, `derivation-graph` |
 | ☐ | `derivation-graph` | Observations → actions → beats → outputs. Every derived value carries an origin (`generated`/`authored`) and a review state. **The producer-value rule with its boundary tests** | `geometry` |
 
 ---

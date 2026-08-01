@@ -551,27 +551,77 @@ gets scanned.
   rather than a `dependencies:` shape match.
 - `.package(` inside a comment or string literal must **not** fire.
 
-### The known evasion set
+### What this plugin is for
 
-Rules 1 and 2 read source text, so they must survive these from the first commit rather than
-discovering them one at a time. Each gets a test:
+**It catches the ordinary mistake.** A stray `import AppKit`, a `CGRect` that drifted into the
+package — written by someone who knows the rule and slipped. It is **not an adversarial boundary,
+and there is no attacker.** Anyone able to edit `Sources/` can also edit the checker.
 
-- **`import` and the module name separated by a newline.** Verified valid Swift that fully
-  typechecks and grants module access, and it defeats any scanner that extracts one statement per
-  line. Found by the Task 2 implementer; neither this document's original list nor the review that
-  hardened it contained it. The fix is structural: scan tokens carrying line numbers rather than
-  splitting on lines, which also makes attributes and access levels fall out for free.
-- `` import `Foundation` `` — backtick-escaped module names are legal and must NOT be rejected
+That distinction is load-bearing, because it decides what counts as a defect and what counts as
+work worth doing:
+
+- A **false positive on idiomatic Swift** is the serious failure. It blocks real work and teaches
+  people to route around the rule. Round 3 existed because `` @Test func `rejects import AppKit`() ``
+  — an ordinary Swift Testing name, in a suite that is literally about imports — was being rejected.
+- A **theoretical evasion** is not. Nobody types a form feed by accident.
+
+**If a future round is proposed on the grounds of closing an evasion, that ground is false and the
+round does not happen.** Rule 1 is capped. It reopens on exactly two triggers: a second contributor
+joining the project, or a rule-2 false positive that blocks work. Nothing else.
+
+### Known gaps, with reachability
+
+The reachability column is the point. It separates *we chose not to close this* from *we did not
+know*. Every row was measured — `swiftc -typecheck` exit 0 means the construction really compiles
+and really imports the module.
+
+| # | Construction | Direction | Reachable how |
+| --- | --- | --- | --- |
+| 1 | `import<FF>AppKit`, `import<VT>AppKit`, leading `<FF>` | miss | Deliberate authorship only. Invisible in every diff viewer, which is exactly why nobody produces one by accident |
+| 2 | `@_spi(A)@_spi(B)import AppKit` — punctuation glued to the keyword | miss | Deliberate only. The spaced form is caught |
+| 3 | `// note<CR>import AppKit` | miss | Deliberate only. Closed in round 2 by promoting lone CR to a line terminator; listed because the class persists for any terminator Swift adds |
+| 4 | `import<NBSP>AppKit` | miss | ⌥-space is one keystroke, so marginally more reachable than 1–3, but still requires the module name to follow it on the same line |
+| 5 | Unterminated `#/…` or `"""…` blanks the rest of the file | miss | **Unreachable in a passing build** — requires source that does not compile, so it cannot hide anything from a build that would otherwise succeed |
+| 6 | Bare `/…/` regex literals are not modelled | neither | No opener can occur inside one: Swift rejects a quote or backtick there, verified |
+| 7 | `.product` dependencies resolve to nothing | false positive | Loud. The package has no products; the first one added produces a visible rejection, not silence |
+| 8 | Astral-plane identifier characters (U+10000–1FFFD) | false positive | Loud. Swift accepts them as identifier heads, `Character.isLetter` does not |
+
+**Rows 1–4 were closed anyway**, because closing them cost less than arguing about them. They are
+listed so that the next person can see they were considered rather than missed.
+
+**Row 5 is the honest residual.** It is the only miss that survives, and it survives on source that
+does not build.
+
+### The standing structural gap
+
+`codeViewLines` is a hand-rolled lexer, which makes it **a list of Swift's literal forms** — and a
+list lags by however long it takes someone to write the probe. Two forms were absent for exactly
+that reason:
+
+- **Raw identifiers** (SE-0451, Swift 6.2). A `"` inside `` `…` `` opened a string frame, blanking
+  the rest of the file on code that compiles. Found in round 3.
+- **Extended regex literals** (`#/…/#`, Swift **5.7**). Live in both directions. Absent for several
+  releases, and found by an audit rather than by the language moving.
+
+The lag is unbounded and silent in both directions. **SwiftSyntax is the durable fix** — it makes
+the checker share the compiler's notion of what a literal is, rather than maintaining a parallel
+list that is correct until it quietly is not. Deferred: at one contributor the failure mode is a
+loud false positive, which is survivable. It becomes urgent when a second contributor arrives, which
+is one of the two triggers that reopen this rule.
+
+### The evasion set the rule is tested against
+
+61 rejection forms and 41 acceptance forms, all executing the real built binary against fixtures.
+The acceptance forms matter as much as the rejections — they are what keeps the rule from being
+routed around. Notable members:
+
+- `import` and the module name separated by a **newline**: valid Swift, defeats any scanner that
+  extracts one statement per line
 - SE-0409 access levels: `public`/`package`/`internal`/`fileprivate`/`private import`
-- `@preconcurrency import AppKit`, `@testable import`, `@_exported import`, stacked attributes
-- `import AppKit; import Foundation` — semicolon-joined, either order
-- `import class AppKit.NSColor` — submodule form
-- `import<TAB>AppKit`, `import AppKit //comment`
-- string interpolation hiding real code: `"\(Date())"`, nested `"\(f("lit", Date()))"`
-- raw-string interpolation: `#"\#(Date())"#`, `##"\##(UUID())"##`, multiline `#"""…"""#`
-- must still PASS: `import Foundation`, `// import AppKit`, `#"Date()"#`, `#"a \(b) c"#`,
-  `"Date() is banned"`, a multiline string whose second line mentions `CGRect`, and
-  `import Foundation /* comment */`
+- attributes, stacked attributes, semicolon-joined imports in either order, `import class AppKit.NSColor`
+- string and raw-string interpolation hiding real code
+- must PASS: `` import `Foundation` ``, `` public let `import` = 1 ``, `` @Test func `rejects import AppKit`() ``,
+  `#/import AppKit/#`, `// import AppKit`, `#if canImport(AppKit)`, `func doImport() {}`
 
 ---
 
