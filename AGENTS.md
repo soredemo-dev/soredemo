@@ -67,6 +67,25 @@ the code — yours or Apple's.
 **When a document is wrong, say so.** If the code disagrees with the design, the code usually wins and
 the document gets fixed in the same commit. Do not silently work around a document you think is wrong.
 
+**A correct conclusion does not excuse its reasoning.** Verify the justification as carefully as the
+result — including the justification for options you rejected. A decision whose stated reason is
+false looks settled, and an audit whose stated reason is false looks discharged; both are worse than
+having none, because nothing prompts anyone to re-examine a conclusion that happens to be right.
+
+This has surfaced twice already in Phase 1. `.macOS(.v27)` was retained for "the newer manifest API
+surface" long after the only real reason for it had gone, and the stale reason made it look
+deliberate. An audit of the checker's string handling concluded the code was safe "because the
+force-close only triggers on source that does not compile" — the conclusion held, the reason did
+not, and disproving the reason exposed a defect the audit had passed over. Neither was found by
+re-reading the conclusion. Both were found by testing the sentence underneath it.
+
+**Check the claim against the thing, not against another claim.** Most errors in this project have
+had one shape: an assertion about state that was never compared to the state. A grep that collapsed
+two build settings and reported the wrong one. `main` recorded as sitting at a commit it had already
+moved past. Every `swift build` green while the toolchain the app is opened in could not read the
+manifest at all. A green light is evidence for exactly the proposition it tests, and usually that is
+narrower than the one being claimed.
+
 ---
 
 ## Architecture rules — enforced, not aspirational
