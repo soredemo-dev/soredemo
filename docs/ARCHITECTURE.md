@@ -143,9 +143,12 @@ The checker reads source text through a file-scoped lexical scan, so comments, s
 every flavour, and string-interpolation bodies are classified correctly; `public import AppKit` and
 the other SE-0409 access-level spellings are caught, as is `#if canImport(AppKit)`. It tokenises by
 maximal *identifier* run rather than by a list of separators, because Swift accepts space, tab,
-newline, CR, form feed, vertical tab and U+00A0 between `import` and the module name, and ends a
+newline, CR, form feed, vertical tab, NUL and U+00A0 between `import` and the module name, and ends a
 token at any punctuation besides — a form feed is invisible in every diff viewer, so an enumerated
-separator list is a standing invitation. Every I/O failure is a hard error: a missing sources
+separator list is a standing invitation. A backtick both closes and opens a run, because Swift
+terminates the keyword there: `` import`AppKit` `` needs no space and typechecks. Every one of the
+128 ASCII code points and 22 Unicode oddities has been swept as a separator against `swiftc` and the
+checker together; Swift accepts exactly eight, and all eight are caught. Every I/O failure is a hard error: a missing sources
 directory, a directory with no `.swift` files, and an unreadable or undecodable file all fail the
 build. Unreadable must never mean compliant. Verified to fail the build under **both** `swift build`
 and `xcodebuild`.

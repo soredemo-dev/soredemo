@@ -166,6 +166,31 @@ func rejectsImportBehindExoticSeparators(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
+/// Swift terminates the `import` keyword at a backtick, so no space is needed
+/// before an escaped module name. Each of these typechecks clean — `NSColor`
+/// resolves — and they are one keystroke from `import \`AppKit\``, which was
+/// already caught. The backtick is in `isIdentifierCharacter` so that escaped
+/// module names survive as one token; that is exactly what welded it to the
+/// keyword, so the tokenizer has to flush at a backtick and keep it.
+@Test(arguments: [
+    "import`AppKit`",
+    "public import`AppKit`",
+    "@_spi(A)import`AppKit`",
+    "@preconcurrency public import`ScreenCaptureKit`",
+])
+func rejectsBacktickGluedImport(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 1, "should reject: \(source)")
+    #expect(!result.stderr.isEmpty)
+}
+
+/// Sibling edges have the same hole — the allow-list is consulted with the same
+/// token, so a bypass in the tokenizer is a bypass for F2 as well as F1.
+@Test func rejectsBacktickGluedSiblingImport() throws {
+    let result = try runChecker(targetName: "Framing", source: "import`Timeline`")
+    #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
+}
+
 /// Swift ends a `//` comment at a lone CR and compiles what follows. A scanner
 /// that only ends line comments at LF blanks the import — and everything else up
 /// to the next LF, so the blast radius is a whole line, not one token.
@@ -222,6 +247,10 @@ func acceptsLiteralsAndComments(_ source: String) throws {
 /// legitimate module spelled unusually. Neither may be false-positived.
 @Test(arguments: [
     "import `Foundation`",
+    // A backtick-escaped `import` is an IDENTIFIER, not the keyword. Flushing the
+    // token run at a backtick must not turn it back into one.
+    "public let `import` = 1",
+    "let `import` = 1; let `AppKit` = 2",
     "let importAppKit = 1",
     "let x = AppKitImporter()",
     "#if canImport(AppKit)\nimport Foundation\n#endif",
@@ -313,16 +342,48 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
 
 /// Deleting `plugins: archCheck` from a target silently voids rule 1 for it —
 /// no build failure, no diagnostic. This is the phase's largest silent-void risk.
-@Test func everyLibraryTargetCarriesTheCheckerPlugin() throws {
-    let manifest = try String(contentsOf: repositoryRoot.appending(path: "Package.swift"),
-                              encoding: .utf8)
+///
+/// Asserted against the RESOLVED manifest rather than its text, so it also catches
+/// `archCheck` being redefined to `[]` and `archCheck` being repointed at some
+/// other plugin — neither of which a grep for `plugins: archCheck` would notice.
+/// A separate `--scratch-path` keeps this off the `.build` directory the enclosing
+/// `swift test` is holding.
+@Test func everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest() throws {
+    let scratch = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "dump-\(ProcessInfo.processInfo.globallyUniqueString)")
+    defer { try? FileManager.default.removeItem(at: scratch) }
+
+    let process = Process()
+    process.executableURL = URL(filePath: "/usr/bin/env")
+    process.arguments = ["swift", "package", "dump-package",
+                         "--scratch-path", scratch.path(percentEncoded: false)]
+    process.currentDirectoryURL = repositoryRoot
+    let out = Pipe()
+    process.standardOutput = out
+    process.standardError = Pipe()
+    try process.run()
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    try #require(process.terminationStatus == 0, "swift package dump-package failed")
+
+    let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let targets = try #require(root["targets"] as? [[String: Any]])
+
     for module in libraryModules {
-        let declaration = try #require(
-            manifest.split(separator: "\n").first { $0.contains(".target(name: \"\(module)\"") },
-            "no .target declaration for \(module) in Package.swift")
-        #expect(declaration.contains("plugins: archCheck"),
-                "\(module) does not carry the ArchitectureCheck plugin — rule 1 is void for it. Line: \(declaration)")
+        let target = try #require(targets.first { $0["name"] as? String == module },
+                                  "no target named \(module) in the resolved manifest")
+        let usages = target["pluginUsages"] as? [[String: Any]] ?? []
+        let plugins = usages.compactMap { ($0["plugin"] as? [Any])?.first as? String }
+        #expect(plugins.contains("ArchitectureCheck"),
+                "\(module) does not use the ArchitectureCheck plugin — rule 1 is void for it. pluginUsages: \(usages)")
     }
+
+    // The checker's own target must NOT be checked: its source legitimately names
+    // the banned modules.
+    let checker = try #require(targets.first { $0["name"] as? String == "architecture-checker" })
+    let checkerPlugins = (checker["pluginUsages"] as? [[String: Any]] ?? [])
+        .compactMap { ($0["plugin"] as? [Any])?.first as? String }
+    #expect(!checkerPlugins.contains("ArchitectureCheck"))
 }
 
 // MARK: - unreadable must never mean compliant

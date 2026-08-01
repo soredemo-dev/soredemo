@@ -253,6 +253,14 @@ enum ArchitectureChecker {
     /// the token stops comparing equal, and the declaration goes invisible.
     /// Inverting the test closes that whole family at once, including the members
     /// nobody has thought of yet.
+    ///
+    /// Note what inverting does NOT buy: a character in this set that Swift treats
+    /// as a token TERMINATOR produces a miss, not a false positive. Merging is only
+    /// safe for characters Swift also merges. Of the four added beyond letters and
+    /// digits, `_` and `$` do merge in Swift (`import$AppKit` diagnoses as one
+    /// unknown identifier), and `.` makes the source invalid outright — but the
+    /// backtick terminates, so `tokens(of:)` handles it explicitly rather than
+    /// leaning on this predicate. See the flush in `tokens(of:)`.
     static func isIdentifierCharacter(_ character: Character) -> Bool {
         character == "_" || character == "$" || character == "`" || character == "."
             || character.isLetter || character.isNumber
@@ -272,7 +280,18 @@ enum ArchitectureChecker {
                 }
             }
             for character in line {
-                if isIdentifierCharacter(character) {
+                if character == "`" {
+                    // Swift TERMINATES a token at a backtick: `import`AppKit`` is
+                    // the keyword followed by the escaped identifier `AppKit`, and
+                    // it typechecks. Backtick is in `isIdentifierCharacter` so an
+                    // escaped module name survives as one token — which is exactly
+                    // what would weld it to the keyword. So it both closes the run
+                    // before it and opens the run after it, and is retained so that
+                    // `import` (the escaped identifier) stays distinguishable from
+                    // `import` (the keyword).
+                    flush()
+                    current.append(character)
+                } else if isIdentifierCharacter(character) {
                     current.append(character)
                 } else {
                     flush()
