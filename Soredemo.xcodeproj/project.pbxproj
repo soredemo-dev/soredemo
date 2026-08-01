@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8824C373301E441900E18130 /* SoredemoCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8824C372301E441900E18130 /* SoredemoCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		8824C350301E13DE00E18130 /* Soredemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Soredemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8824C373301E441900E18130 /* SoredemoCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = Soredemo;
 			packageProductDependencies = (
+				8824C372301E441900E18130 /* SoredemoCore */,
 			);
 			productName = Soredemo;
 			productReference = 8824C350301E13DE00E18130 /* Soredemo.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 8824C347301E13DE00E18130;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8824C371301E441900E18130 /* XCLocalSwiftPackageReference "../soredemo-main" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8824C351301E13DE00E18130 /* Products */;
 			projectDirPath = "";
@@ -333,6 +342,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		8824C371301E441900E18130 /* XCLocalSwiftPackageReference "../soredemo-main" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../soredemo-main";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8824C372301E441900E18130 /* SoredemoCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SoredemoCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8824C348301E13DE00E18130 /* Project object */;
 }
