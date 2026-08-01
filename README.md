@@ -5,7 +5,7 @@
 Soredemo turns each release into a published demo — detected from GitHub, recorded once, derived into
 video and launch copy, reviewed by a person, and posted.
 
-macOS 27 · Swift 6.4 · Apple Silicon · local by default
+macOS 26 · Swift 6.4 · Apple Silicon · local by default
 
 > **Status: pre-implementation.** Phase 0 validates the core hypothesis before any app code is
 > written. See [`ROADMAP.md`](ROADMAP.md).
@@ -33,7 +33,7 @@ Six documents. That is all of it.
 | [`docs/PRODUCT.md`](docs/PRODUCT.md) | Positioning, the loop, and what is deliberately not built |
 | [`docs/FEATURES.md`](docs/FEATURES.md) | **Every feature and the Apple framework behind it.** Four pillars: record, edit, launch video, CLI + agent |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Eight binding decisions (D1–D8) and the module map |
-| [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 and macOS 27 setup |
+| [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
 | [`KICKOFF.md`](KICKOFF.md) | Copy-paste prompts for Claude Code + a skill chain |
 
 ---
@@ -65,7 +65,7 @@ soredemo-main/            ← this repo
 │   ├── PRODUCT.md        why, who buys, what is not built
 │   ├── FEATURES.md       every feature and its Apple framework
 │   ├── ARCHITECTURE.md   D1–D8 and the module map
-│   └── TOOLCHAIN.md      Xcode 27, macOS 27
+│   └── TOOLCHAIN.md      Xcode 27 (SDK); macOS 27 volume not required
 └── soredemo-brand-kit/   SVG, PNG, favicon, tokens/colors.json
 ```
 

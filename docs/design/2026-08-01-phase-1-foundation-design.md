@@ -680,15 +680,45 @@ a known rule.
 
 ## Document corrections
 
+**This table was itself wrong.** Its first version listed only `ARCHITECTURE.md`, `ROADMAP.md` and
+`TOOLCHAIN.md` — and omitted `README.md`, `AGENTS.md` and `KICKOFF.md`, which are the three documents
+a person or an agent reads *first*. A corrections list that was never checked against the repository
+is the same failure this document keeps recording: a claim about state, never compared to the state.
+
+`KICKOFF.md` was the dangerous omission. It is a **copy-pasteable prompt** whose Phase 1 block says
+*"Constraints already decided … Treat these as given. Push back only if you find a genuine
+contradiction."* Handed to an agent unchanged, it faithfully reinstates `.macOS(.v27)` as a settled
+constraint. A stale instruction with authority framing does not sit there inertly; it actively
+undoes the decision.
+
 | Document | Claim | Correction |
 | --- | --- | --- |
-| `ARCHITECTURE.md` D6 · `AGENTS.md` rule 1 | the compiler blocks `import AppKit` | false (F1); the plugin enforces it. SwiftPM does police edges *between package targets* (F2) |
-| `ARCHITECTURE.md` D1 | `Packages/SoredemoCore/` | package is at the repository root (D-P0) |
-| `ARCHITECTURE.md` D2 | `.macOS(.v27)`, "ships when 27 is a year old" | `.macOS(.v26)`. The no-availability-branches rule survives unchanged; the ship-date argument does not |
-| `ARCHITECTURE.md` D5 | `WritableDocument`/`ReadableDocument`/`DocumentCreationSource` | hand-written `NSDocument` coordinator (F3, F4). § To verify item 1: the API handles packages but is macOS 27 only, so it is moot |
+| `README.md` | `macOS 27 · Swift 6.4`; TOOLCHAIN described as "macOS 27 setup" | macOS 26; a macOS 27 volume is not required at this floor |
+| `AGENTS.md` header | `macOS 27 · … Swift 6.4` | macOS 26, SDK 27 |
+| `AGENTS.md` rule 1 | the compiler enforces Foundation-only; package at `Packages/SoredemoCore` | the compiler does not (F1); package is at the repository root (D-P0) |
+| `KICKOFF.md` Phase 1 | `.macOS(.v27)` under "Treat these as given" | macOS 26, plus a header marking the block superseded by the design and plan |
+| `ARCHITECTURE.md` D2 | macOS 27, "ships when 27 is a year old" | macOS 26. The no-availability-branches rule survives; the ship-date argument does not |
+| `ARCHITECTURE.md` D1 | `Packages/SoredemoCore/` | package at the repository root (D-P0) |
+| `ARCHITECTURE.md` D5 | `WritableDocument`/`ReadableDocument`/`DocumentCreationSource` | hand-written `NSDocument` coordinator (F3, F4) |
 | `ARCHITECTURE.md` D3 | bottom-left "so the render path never flips" | true for render; CG, event and AX inputs are top-left. One flip, at capture entry |
+| `ARCHITECTURE.md` D6 | the compiler blocks `import AppKit` | false (F1); the plugin enforces it |
+| `FEATURES.md` header | `Target: macOS 27` | macOS 26, built against the 27 SDK |
 | `ROADMAP.md` `project-format` | lists `ReadableDocument`/`WritableDocument` | `NSDocument` coordinator; the row spans the package/app boundary |
-| `docs/TOOLCHAIN.md` § 2 | macOS 27 beta volume required | not required at a 26 floor. Xcode 27 beta stays — it is the SDK |
+| `TOOLCHAIN.md` § 2 | macOS 27 beta volume required | not required at a 26 floor. Xcode 27 beta stays — it is the SDK |
+
+### What must NOT be changed
+
+Three categories of `macOS 27` are correct and deleting them would destroy information:
+
+1. **The SDK.** `otool -l` reporting `minos 26.0 / sdk 27.0` is the normal arrangement — build
+   against the newest SDK, deploy to an older system. Likewise the Swift **compiler** is 6.4; only
+   the *manifest format* is 6.3. See D2's four-version table.
+2. **The reasoning record.** `AGENTS.md` and `PRODUCT.md` cite the `.macOS(.v27)` decision as the
+   worked example of a justification that outlived its reason. Deleting it deletes the lesson.
+3. **APIs genuinely above the floor.** `FEATURES.md` names Music Understanding, generated subtitles,
+   the Evaluations framework and `WritableDocument` as macOS 27. Those rows are **marked**, not
+   removed — they describe capability we would want, and Phase 4 and Phase 5 must not be planned on
+   them without either raising the floor or finding a macOS 26 equivalent.
 
 ---
 

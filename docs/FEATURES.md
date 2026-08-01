@@ -2,7 +2,12 @@
 
 *What Soredemo does, and the Apple framework behind each piece. Four pillars.*
 
-Target: macOS 27, Apple Silicon, Swift 6.4 strict concurrency, SwiftUI.
+Target: macOS 26, Apple Silicon, Swift 6.4 strict concurrency, SwiftUI. Built against the macOS 27
+SDK — see `ARCHITECTURE.md` D2 for why those two numbers differ.
+
+> **Anything marked macOS 27 below is above the deployment floor and cannot be used.** Those rows are
+> kept because they describe capability we would want, not because they are available. Do not plan
+> Phase 4 or Phase 5 work on them without either raising the floor or finding a macOS 26 equivalent.
 
 ---
 

@@ -3,7 +3,7 @@
 Read this before doing anything. Then `docs/PRODUCT.md`, `docs/FEATURES.md`,
 `docs/ARCHITECTURE.md`, and `ROADMAP.md`.
 
-macOS 27 · Apple Silicon · Swift 6.4 strict concurrency · SwiftUI
+macOS 26 · Apple Silicon · Swift 6.4 strict concurrency · SwiftUI · SDK 27
 
 ---
 
@@ -92,7 +92,7 @@ narrower than the one being claimed.
 
 `Plugins/ArchitectureCheck` enforces these. If you change a rule, change the plugin in the same commit.
 
-1. **`Packages/SoredemoCore` imports Foundation only** — no AppKit, no ScreenCaptureKit, no
+1. **The `SoredemoCore` package imports Foundation only** — `Package.swift` and `Sources/` sit at the repository root — no AppKit, no ScreenCaptureKit, no
    AVFoundation. **The compiler does not enforce this.** It constrains edges *between package
    targets*, and even that degrades to a warning on a warm `.build`; it places no restriction at all
    on system frameworks, so a target with no declared dependencies can import AppKit and build fine.
@@ -103,13 +103,13 @@ narrower than the one being claimed.
    AppKit, and Metal freely — that is where recording, rendering, and UI live.
 
    ```
-   Soredemo.xcodeproj   Capture/ Render/ Editor/ Agent/ UI/   ← platform frameworks
+   Soredemo.xcodeproj + Soredemo/   App/ UI/ Capture/ Resources/   ← platform frameworks
         │  captures, writes an observation log
         ▼
    observation log → evidence (plain data)
         │
         ▼
-   Packages/SoredemoCore   Graph/ Framing/ Timeline/ Variants/   ← Foundation only
+   Sources/   Geometry/ Timeline/ Graph/ Framing/ Variants/ Project/   ← Foundation only
    ```
 
    The core does not record; it reasons about a recording. Pure logic tests with no screen, no

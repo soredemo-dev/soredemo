@@ -23,9 +23,24 @@ enforces, so without it the pure/impure boundary is a convention rather than a b
 
 ---
 
-## D2 — macOS 27, Apple Silicon, Swift 6.4, no fallbacks
+## D2 — macOS 26, Apple Silicon, Swift 6.4, no fallbacks
 
-`platforms: [.macOS(.v27)]`. Strict concurrency. No availability branches.
+`platforms: [.macOS(.v26)]`. Strict concurrency. No availability branches.
+
+**Four version numbers, deliberately not the same.** They get conflated, and conflating them makes
+correct settings look stale:
+
+| | Value | Means |
+| --- | --- | --- |
+| Deployment target | **26.0** | the oldest macOS that runs the app |
+| SDK | **27.0** | the API ceiling available at compile time |
+| `swift-tools-version` | **6.3** | manifest format version |
+| Swift compiler | **6.4** | language version |
+
+Building against the newest SDK and deploying to an older system is the normal arrangement, so
+`otool -l` reporting `minos 26.0 / sdk 27.0` is correct, not a leftover. Likewise "Swift 6.4 strict
+concurrency" is current — only the *manifest format* is 6.3, because Xcode 26.6 ships SwiftPM 6.3.3
+and refuses a 6.4 manifest.
 
 macOS 27 is Apple Silicon only — Intel and Rosetta 2 are ended, so this is Apple's position rather
 than just ours. It is a stability release, so adoption risk is low. This project ships when 27 is
