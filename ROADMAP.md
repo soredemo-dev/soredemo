@@ -42,7 +42,7 @@ would post, output quality matters more than the loop.
 | --- | --- | --- | --- |
 | ☑ | `repo-skeleton` | SwiftPM package at the repository root + hand-made Xcode app target, `.macOS(.v26)`, Swift 6 language mode, builds and **launches** empty | — |
 | ◐ | `architecture-plugin` | `Plugins/ArchitectureCheck`. Rules 1 (imports, **done and capped**), 2 (CG types) and 4 (manifest dependencies) enforced under both `swift build` and `xcodebuild`. Rule 3 (determinism) **done** — link-time symbols read by `Tests/DeterminismTests`, not by the plugin, because a build-tool plugin's command runs before its target compiles. Rule 5 (CG bridge) waits for Task 18 — vacuous today | `repo-skeleton` |
-| ☑ | `geometry` | `NormalizedPoint` (0–1, bottom-left), `NormalizedFrame` with `geometryRevision`; all conversion in one place; cross-revision comparison is a precondition failure | `repo-skeleton` |
+| ☑ | `geometry-types` | `NormalizedPoint` (0–1, bottom-left), `NormalizedFrame` with `geometryRevision`; `PointRect`/`PixelRect` making the unit a compile error; cross-revision comparison is a precondition failure. **Renamed from `geometry`:** "all conversion in one place" moved to the rows whose code actually converts — `NormalizationContext` currently has zero callers, and per the completion rule a pure function with no caller does not satisfy a row claiming a product behaviour | `repo-skeleton` |
 | ☐ | `project-format` | Versioned `Codable` document, atomic save, relative paths, upgrade path. Hand-written **`NSDocument`** package coordinator — `ReadableDocument`/`WritableDocument` are SwiftUI types requiring macOS 27, above our floor. The row spans the package/app boundary | `geometry`, `derivation-graph` |
 | ☐ | `derivation-graph` | Observations → actions → beats → outputs. Every derived value carries an origin (`generated`/`authored`) and a review state. **The producer-value rule with its boundary tests** | `geometry` |
 
@@ -59,7 +59,7 @@ Goal: a build that records and plays back. Nothing derived yet. **This phase alo
 | ☐ | `capture-permissions` | Screen Recording, Microphone, Input Monitoring, Accessibility — each degrading precisely | `capture-stream` |
 | ☐ | `one-clock` | `CMClock.hostTimeClock` taken once; every timestamp derived from it. A sample before the origin or moving backwards is an error | `capture-stream` |
 | ☐ | `audio-tracks` | System audio and microphone as independent tracks, retimed across pause | `capture-stream`, `one-clock` |
-| ☐ | `input-observation` | `CGEvent.tapCreate` pointer and click stream, listen-only. **Keyboard filtered to approved shortcuts; secure input suppresses capture entirely** | `one-clock` |
+| ☐ | `input-observation` | **First caller of `NormalizationContext` — this row and `ax-observation` carry the "all conversion in one place" claim, moved from `geometry-types`.**  `CGEvent.tapCreate` pointer and click stream, listen-only. **Keyboard filtered to approved shortcuts; secure input suppresses capture entirely** | `one-clock` |
 | ☐ | `ax-observation` | `AXUIElementCopyElementAtPosition` for the control under each click, with role, frame, and a preference for well-bounded descendants | `input-observation` |
 | ☐ | `observation-log` | Versioned on-disk log joining video, audio, pointer, click, key, and AX records on the one clock | `audio-tracks`, `ax-observation` |
 | ☐ | `render-core` | `AVVideoCompositing` custom compositor over Core Image + Metal. Background, card, shadow, corner radius | `repo-skeleton` |

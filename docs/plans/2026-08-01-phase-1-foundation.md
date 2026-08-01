@@ -1324,6 +1324,19 @@ Expected: non-zero exit, `ArchitectureCheck` present in the log, an `error:` anc
 
 Report which one you observed. Do not work around it.
 
+- [ ] **Step 2.5: Close the untested half of `ContentDigest`**
+
+The package produces canonical bytes; the **app** hashes them. Task 13 proved the bytes are stable
+across processes, but every test target is package-side, so the hashing half — the half
+`approval-gate` binds on — has never been exercised.
+
+Pin a vector across the boundary, no app test target required:
+- package side: a test pinning *known canonical bytes → known SHA-256 digest*, comparing only
+- here: `Minting.digest(of:)` over those same bytes, asserted to produce that digest
+
+Record both values in the report. Drift in CryptoKit, in the encoding, or in the bridge then turns
+a test red rather than silently producing unverifiable approvals.
+
 - [ ] **Step 3: Write `Minting.swift`** — everything the package is forbidden to do: `UUID()`, `Date()`, and `SHA256.hash` via CryptoKit, returning a `ContentDigest`.
 
 - [ ] **Step 4: Write `CGGeometryBridge.swift`** — the only file in the codebase allowed to name `CGRect`. Task 5's test now has a bridge to allow-list.

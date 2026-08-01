@@ -601,6 +601,27 @@ So two strings that compare **equal** produce **different** `approvalBytes`.
 | Normalise at digest time | an ICU update re-normalises *old* content with *today's* tables, so every stored approval moves at once — **loud, rare** |
 | Do not normalise | canonically-equivalent text — pasted from elsewhere, or an input method emitting the decomposed form — silently fails a single approval — **quiet, common** |
 
+### Half of `ContentDigest` has no test, and it is the half Phase 8 depends on
+
+The chain is: **the package produces canonical bytes → the app computes SHA-256 via CryptoKit →
+the digest is stored → it is verified later.** Task 13 proved the bytes are byte-identical across
+five separate processes. But the hashing step lives in the **app target**, and every test target is
+package-side.
+
+So `ContentDigest`'s *comparison* is tested and its *production* is not — and `approval-gate` binds
+on production.
+
+Closing this needs no app test target. Cross the boundary with a pinned vector, the same shape as
+the `fnv1a64` known-answer vectors:
+
+1. In the package tests, pin *known canonical bytes → known SHA-256 digest*. The package **compares
+   only and never computes**, so D6 is untouched.
+2. In Task 18's verification, have `Minting` hash those same bytes and confirm it produces that
+   digest.
+
+Then any drift — in CryptoKit, in the canonical encoding, or in the bridge between them — turns a
+test red instead of silently producing approvals that cannot be verified.
+
 ### The resolution: normalise once at ingestion, never at digest time
 
 This is a shape the design already uses twice — the Y-flip happens *exactly once, on entry*, and
