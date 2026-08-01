@@ -429,11 +429,11 @@ about rendering and misleading about everything else:
 | `NSScreen.frame` | bottom-left | AppKit — disagrees with CoreGraphics |
 
 There is a flip. The obligation is that it happens exactly once, on entry, and never again.
-**Unit mismatch waiting at capture entry — Phase 2 must resolve this explicitly.** `DisplayGeometry`
-carries **native pixels**; `CGDisplayBounds` and `CGEventGetLocation` report **points** — pixels ÷
-`scale` on a Retina display. `DisplayArrangement.route` compares its operands directly and does no
-scale conversion, which is right for a type that knows only one unit, but it means whoever populates
-`Placement` from real `CGDisplayBounds` values must convert first.
+
+**Unit mismatch — enforced at compile time (Task 10.5).** `DisplayGeometry` carries **native
+pixels**; `CGDisplayBounds` and `CGEventGetLocation` report **points** — pixels ÷ `scale` on a
+Retina display. This was first found as a live defect, not a hypothetical: `DisplayArrangement.route`
+compared its operands directly against `pixelWidth`/`pixelHeight` and did no scale conversion.
 
 Measured on a 3840×2160 display at `scale: 2`, which is 1920 points wide:
 
@@ -441,17 +441,37 @@ Measured on a 3840×2160 display at `scale: 2`, which is 1920 points wide:
 route(globalTopLeftX: 2500, …)  ->  routed INSIDE the display, localX = 2500
 ```
 
-2500 points is well past the right edge, and it is accepted because it is compared against 3840.
-The failure is silent: a click lands on the wrong display, or on none while appearing to succeed.
-Every Phase 1 fixture uses `scale: 1`, which is exactly why the suite is green.
+2500 points is well past the right edge, and it was accepted because it was compared against 3840.
+The failure was silent: a click would land on the wrong display, or on none while appearing to
+succeed. Every Phase 1 fixture used `scale: 1`, which is exactly why the suite stayed green.
+
+This was first "fixed" by documenting it as a mismatch for Phase 2 to resolve — the wrong fix, for
+a module whose entire discipline is making conflations structurally impossible rather than
+documented. `route` now derives each display's bounds check **in points**, from `pixelWidth`/
+`pixelHeight` and `scale`, closing the defect above unconditionally. Separately, `PointRect` now
+exists alongside `PixelRect` — same four `Double` fields, same preconditions, a distinct type — so
+that handing a points-valued rect where pixels are expected (or the reverse) is a compile error:
+`cannot convert value of type 'PointRect' to expected argument type 'PixelRect'`. The only
+sanctioned crossing is `DisplayGeometry.pixels(from:)` / `.points(from:)`, which own `scale`.
+
+The pipeline is now one step longer than it looks: global point (points) → `DisplayArrangement.route`
+→ local point (**points**) → `DisplayGeometry.pixels(from:)` → local point (**pixels**) →
+`NormalizationContext.normalize`. `route`'s own arguments and return value stay bare `Double`s
+rather than becoming `PointRect` — a single routed point has no width or height, and forcing a
+zero-size rect at every call site to buy a compile-time guarantee there would trade one
+representational mismatch for another. That means the units mistake is still expressible at
+`route`'s scalar boundary, unlike at any `PointRect`/`PixelRect` boundary; see Task 10.5's report for
+the fuller reasoning and the mutation test that isolates the defect this closes.
 
 `NormalizationContext` is that one place, and it takes **display-local** top-left pixels, never
-global ones — the ambiguity that would otherwise compute a plausible, wrong answer in silence.
-Routing happens first, via `DisplayArrangement.route`.
+global ones, and never points — the ambiguity that would otherwise compute a plausible, wrong
+answer in silence. Routing happens first, via `DisplayArrangement.route`, then the points → pixels
+conversion above; `NormalizationContext` does not do either, because it is already the one place
+that flips Y and should not also acquire a second, independent unit conversion.
 
-`CGRect`/`CGPoint` never enter the package; `PixelRect` (plain `Double`s) crosses boundaries
-instead. The app holds exactly one file, `Soredemo/Capture/CGGeometryBridge.swift`, converting
-`CGRect ↔ PixelRect`.
+`CGRect`/`CGPoint` never enter the package; `PixelRect`/`PointRect` (plain `Double`s) cross
+boundaries instead. The app holds exactly one file, `Soredemo/Capture/CGGeometryBridge.swift`,
+converting `CGRect ↔ PixelRect`/`PointRect`.
 
 Cross-revision comparison is a precondition failure:
 

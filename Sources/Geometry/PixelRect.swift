@@ -1,10 +1,18 @@
-/// A rectangle in raw pixels — plain `Double`s, no origin convention baked in.
+/// A rectangle in raw, native **pixels** — plain `Double`s, no origin
+/// convention baked in.
 ///
 /// This is the type that crosses module boundaries in place of `CGRect`, which
 /// this package may not name (design doc § Geometry: the Y-axis flip; the
 /// `ArchitectureCheck` plugin rejects `CGRect`/`CGPoint`/`CGSize`/`CGFloat`
 /// outright). The app holds exactly one file, `Soredemo/Capture/CGGeometryBridge.swift`
 /// (Task 18), converting `CGRect ↔ PixelRect`.
+///
+/// **Pixels, never points.** `CGDisplayBounds`, `CGEventGetLocation`, and AX
+/// frames report **points** — see `PointRect`, this type's sibling — which
+/// equal pixels only when `DisplayGeometry.scale == 1`. `PixelRect` and
+/// `PointRect` are distinct types precisely so that handing one where the
+/// other is expected is a compile error, not a silent unit bug; convert with
+/// `DisplayGeometry.pixels(from:)` / `.points(from:)`.
 ///
 /// **`PixelRect` does not know which corner is the origin.** Whether `(x, y)`
 /// means top-left or bottom-left is a fact about whoever produced the value —
