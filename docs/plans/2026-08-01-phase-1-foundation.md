@@ -47,12 +47,23 @@ this table and `git log --oneline 7419058..HEAD`, a new session has what it need
 | 13 · Derived + approvalBytes | ☑ | `5a32eb2` | `CanonicallyEncodable` in the generic constraint, so a bad payload fails to compile |
 | 14 · producer-value rule | ☑ | `9a668e3` | mutation reddened 5 tests, three of them Task 13's |
 | 15 · reverse index + cache pairing | ☑ | `09a6d5c` | `rebuild` replaces, never merges; no self-triggering staleness detection |
-| 16 · project snapshot + upgrade chain | ☐ | — | next |
+| 16 · project snapshot + upgrade chain | ☑ | `2a30000` | `SchemaProbe` reads the version without decoding the document; `tooNew` throws before any field lands |
 | 17 · package I/O + truncated tail | ☐ | — | |
 | 18 · NSDocument coordinator | ☐ | — | absorbs Task 5, plus Step 2.5 from **Open items** §1 |
 | 19 · close out the phase | ☐ | — | **must not** tick `geometry`; see **Open items** §2 |
 
-226 tests green (`swift test`): 107 Geometry · 93 Graph · 18 Timeline · 8 Determinism.
+**Test count, and how to count it.** `swift test` prints one summary line per test target, and the
+line reads `1 test` for a target with one and `N tests` for a target with more. A grep for `tests`
+therefore silently drops every single-test target — which is how the figure 226 got into this table
+and into a task brief when the real total was 229. Count with `tests?`, or read the per-target lines
+and add them yourself:
+
+```
+swift test 2>&1 | grep -oE "^✔ Test run with ([0-9]+) tests?" | grep -oE '[0-9]+' | paste -sd+ - | bc
+```
+
+At Task 16: **241 green** — 107 Geometry · 93 Graph · 18 Timeline · 13 Project · 8 Determinism ·
+1 Framing · 1 Variants (the last two are placeholders that assert the target builds).
 
 ## Global Constraints
 

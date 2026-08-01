@@ -107,6 +107,13 @@ from the code: `Tests/DeterminismTests` carries `#require(!objectFiles.isEmpty, 
 vacuously")` for exactly this reason, and the shell probe that verified it did not. Assert non-empty
 input before reporting an aggregate — a wrong API call surfaces on its own, a false green does not.
 
+The same failure has a quieter twin: **a filter that drops rows reports a smaller number, not an
+error.** `swift test` writes `1 test` for a one-test target and `N tests` for the rest, so a grep
+for `tests` undercounted this suite by three and the wrong figure reached a committed progress
+table and a task brief before an implementer measured it independently and disagreed. Neither half
+of the pattern announces itself: `wc -l` returns 1 for nothing, and `grep` returns silence for a
+row it does not match. Where a number is going into a document, derive it twice.
+
 **Mutation testing is bounded by fixture diversity, and that ceiling is invisible.** Breaking a code
 path changes nothing if no fixture ever reaches it — so a mutation check that finds nothing is
 evidence about the fixtures as much as about the tests. Four consecutive mutation checks found real
