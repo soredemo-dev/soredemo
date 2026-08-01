@@ -95,7 +95,24 @@ public enum ProjectPackageIO {
     /// `ProjectFormatError.sidecarAlreadyExists(name)` — without writing a
     /// single byte — if a sidecar of that name is already on disk, which is
     /// "write-once, never mutated" made mechanical.
+    ///
+    /// Task 17 review, Important 3: `name` is required to be a single path
+    /// component. Names are app-minted, so a traversal name reaching here
+    /// is hardening rather than a live bug, but the consequence is not a
+    /// merely stray file: anything written outside `media/` is invisible to
+    /// `unreferencedSidecars`, which only ever scans that one directory —
+    /// making it a permanent orphan by construction, in a format whose
+    /// whole point is that orphans are sweepable. Refused before a single
+    /// byte is written, same as the write-once check below.
     public static func writeSidecar(_ data: Data, named name: String, into packageURL: URL) throws {
+        guard
+            !name.contains("/"), !name.contains("\\"),
+            name != ".", name != "..",
+            !name.hasPrefix(".")
+        else {
+            throw ProjectFormatError.invalidSidecarName(name)
+        }
+
         let fm = FileManager.default
         let directory = mediaURL(in: packageURL)
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -110,14 +127,41 @@ public enum ProjectPackageIO {
     /// Names present under `media/` that `snapshot.mediaFilenames` does not
     /// reference, sorted so the result is comparable and testable. Does not
     /// delete anything — see `compact`.
+    ///
+    /// Task 17 review, Important 2: this function's entire purpose is never
+    /// deleting something it shouldn't ("a save must never delete media" is
+    /// the row's completion criterion), so it must not report — and
+    /// `compact` must not therefore recursively delete — anything that
+    /// isn't a plain sidecar file. Two things `contentsOfDirectory(atPath:)`
+    /// would otherwise hand back are filtered out explicitly, not silently
+    /// dropped by an option flag alone:
+    ///   - **hidden files** (`.DS_Store` and similar) — `.skipsHiddenFiles`
+    ///     excludes these at the enumeration level;
+    ///   - **subdirectories** — `.skipsHiddenFiles` does NOT exclude a
+    ///     non-hidden directory an app might later create under `media/`,
+    ///     so each entry is checked with `.isRegularFileKey` and anything
+    ///     that isn't a regular file is skipped, never reported as an
+    ///     orphan. `compact`'s `removeItem` is recursive on a directory —
+    ///     reporting a subdirectory here would make `compact` capable of
+    ///     deleting an entire tree, which is exactly what this function
+    ///     exists to prevent.
     public static func unreferencedSidecars(in packageURL: URL, snapshot: ProjectSnapshot) throws -> [String] {
         let fm = FileManager.default
         let directory = mediaURL(in: packageURL)
         guard fm.fileExists(atPath: directory.path) else { return [] }
 
-        let onDisk = try fm.contentsOfDirectory(atPath: directory.path)
+        let entries = try fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        let regularFileNames = try entries.compactMap { entry -> String? in
+            let isRegular = try entry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile ?? false
+            return isRegular ? entry.lastPathComponent : nil
+        }
+
         let referenced = Set(snapshot.mediaFilenames)
-        return onDisk.filter { !referenced.contains($0) }.sorted()
+        return regularFileNames.filter { !referenced.contains($0) }.sorted()
     }
 
     /// The only path by which media is ever deleted. Removes exactly the

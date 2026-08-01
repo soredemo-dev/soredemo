@@ -42,7 +42,15 @@ public enum JSONLReader {
 
         while index < data.endIndex {
             if data[index] == newline {
-                lines.append(data[recordStart..<index])
+                // `Data(data[recordStart..<index])` — NOT the bare slice.
+                // `Data`'s subscript range returns a slice that keeps the
+                // parent's indices (`startIndex` == `recordStart`, not 0).
+                // `Data`'s `==` is content-based so no equality test can see
+                // this, but a caller indexing `line[0]` on any line after
+                // the first traps at runtime. Re-wrapping in `Data(...)`
+                // normalizes indices to start at 0, same as any other
+                // freshly constructed `Data`.
+                lines.append(Data(data[recordStart..<index]))
                 index = data.index(after: index)
                 recordStart = index
             } else {

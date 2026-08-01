@@ -150,6 +150,58 @@ private func snapshot(mediaFilenames: [String] = ["clip-01.mov"]) -> ProjectSnap
     #expect(loaded.mediaFilenames == ["b.mov", "c.mov"])
 }
 
+/// THE test for the atomic-replace mechanism itself (review Important 1).
+/// `saveLeavesNoTempFileBehindOnSuccess` and
+/// `aSecondSaveReplacesTheFirstManifestContent` both read as coverage of
+/// `replaceItemAt`, but both pass identically under a `save` that calls
+/// plain `data.write(to: manifestURL(...))` instead — no temp file to leave
+/// behind, and the second save's content still lands on disk either way.
+/// D-P3's actual guarantee — a reader never sees a torn manifest, because
+/// `rename(2)` swaps the whole file rather than truncating and rewriting an
+/// open one in place — needs an assertion that distinguishes "replaced the
+/// file" from "rewrote the file's contents." A rename produces a NEW inode
+/// at the same path; an in-place truncate-and-rewrite keeps the same one.
+///
+/// **This was verified to discriminate, and the first attempt did not.**
+/// The first version of this test read `.fileResourceIdentifierKey` via
+/// `URL.resourceValues(forKeys:)` on a `manifestURL` binding queried twice
+/// — and failed with identical bytes both times, on a `save` that WAS using
+/// `replaceItemAt` correctly. That is `NSURL`'s documented per-instance
+/// resource-value cache: the second `resourceValues(forKeys:)` call on the
+/// same `URL` value returned the first call's cached answer instead of
+/// re-reading the filesystem. Reproduced standalone, outside Swift Testing
+/// entirely (`/tmp/inode-probe/probe3.swift`), confirming it was the cache
+/// and not a real non-discrimination: two `save()` calls in a row produced
+/// `first = <4d4bc607…> second = <4d4bc607…> isEqual: true` via
+/// `resourceValues`, while `FileManager.attributesOfItem(atPath:)[.systemFileNumber]`
+/// on the exact same two states — a fresh `stat()` per call, no caching —
+/// reported `130435918` then `130435919`: genuinely different inodes.
+/// `attributesOfItem` is what this test uses below, for that reason.
+///
+/// With that fixed, the assertion was re-verified to discriminate both
+/// ways: `replaceItemAt: differ=true`, and separately, a throwaway `save`
+/// calling plain `data.write(to: manifestURL)` instead of the temp-file
+/// dance: `differ=false` — the same content lands, the inode does not
+/// change, which is exactly what the mutation check below confirms against
+/// the real `ProjectPackageIO.save`.
+@Test func savingTwiceChangesTheManifestsFileNumberProvingAnAtomicReplaceNotAnInPlaceRewrite() throws {
+    let url = freshPackageDirectory("save-atomic-replace-changes-identity")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    func fileNumber() throws -> UInt64 {
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.appending(path: "project.json").path)
+        return try #require(attrs[.systemFileNumber] as? NSNumber).uint64Value
+    }
+
+    try ProjectPackageIO.save(snapshot(mediaFilenames: ["a.mov"]), to: url)
+    let first = try fileNumber()
+
+    try ProjectPackageIO.save(snapshot(mediaFilenames: ["b.mov"]), to: url)
+    let second = try fileNumber()
+
+    #expect(first != second)
+}
+
 // MARK: - writeSidecar: write-once, mechanically enforced
 
 @Test func writeSidecarWritesTheBytesUnderMediaWithTheGivenName() throws {
@@ -185,6 +237,26 @@ private func snapshot(mediaFilenames: [String] = ["clip-01.mov"]) -> ProjectSnap
     #expect(onDisk == original)
 }
 
+/// Review Important 3: `name` must be a single path component. Without the
+/// guard, `"../escaped.mov"` writes into the package root, one level above
+/// `media/` — the exact directory `unreferencedSidecars` scans — so an
+/// escaped file could never be found or compacted: a permanent orphan by
+/// construction. Asserts both the specific error case AND that nothing
+/// landed outside `media/`, not merely that the call threw.
+@Test func writeSidecarRejectsATraversalNameAndWritesNothingOutsideMedia() throws {
+    let url = freshPackageDirectory("sidecar-rejects-traversal")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    #expect(throws: ProjectFormatError.invalidSidecarName("../escaped.mov")) {
+        try ProjectPackageIO.writeSidecar(Data("evil".utf8), named: "../escaped.mov", into: url)
+    }
+
+    let escapedLocation = url.deletingLastPathComponent().appending(path: "escaped.mov")
+    #expect(!FileManager.default.fileExists(atPath: escapedLocation.path))
+    let insidePackageRoot = url.appending(path: "escaped.mov")
+    #expect(!FileManager.default.fileExists(atPath: insidePackageRoot.path))
+}
+
 // MARK: - unreferencedSidecars / compact / the load-bearing save-must-not-delete test
 
 @Test func unreferencedSidecarsReturnsNamesOnDiskNotInTheSnapshotSortedByName() throws {
@@ -206,6 +278,43 @@ private func snapshot(mediaFilenames: [String] = ["clip-01.mov"]) -> ProjectSnap
 
     let orphans = try ProjectPackageIO.unreferencedSidecars(in: url, snapshot: snapshot(mediaFilenames: []))
     #expect(orphans == [])
+}
+
+/// Review Important 2. `unreferencedSidecars` exists specifically to make
+/// sure `compact` never deletes something it shouldn't — and `removeItem`
+/// on a directory is recursive, so reporting a subdirectory as "orphaned"
+/// would let `compact` delete an entire tree an app later created under
+/// `media/`. A dotfile (`.DS_Store`, standing in for anything Finder or the
+/// OS drops in the directory) must be excluded the same way: it is not a
+/// sidecar, minted or otherwise. Neither may appear in `unreferencedSidecars`,
+/// and — the load-bearing half of this test — `compact` must leave both
+/// completely untouched, subdirectory contents included.
+@Test func unreferencedSidecarsExcludesSubdirectoriesAndDotfilesAndCompactLeavesThemUntouched() throws {
+    let url = freshPackageDirectory("unreferenced-skips-dirs-and-dotfiles")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let referenced = snapshot(mediaFilenames: ["kept.mov"])
+    try ProjectPackageIO.save(referenced, to: url)
+    try ProjectPackageIO.writeSidecar(Data("kept".utf8), named: "kept.mov", into: url)
+
+    let mediaDir = url.appending(path: "media")
+    let subdirectory = mediaDir.appending(path: "thumbnails", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: subdirectory, withIntermediateDirectories: true)
+    let fileInsideSubdirectory = subdirectory.appending(path: "keep-me.jpg")
+    try Data("thumbnail".utf8).write(to: fileInsideSubdirectory)
+
+    let dotfile = mediaDir.appending(path: ".DS_Store")
+    try Data("finder metadata".utf8).write(to: dotfile)
+
+    let orphans = try ProjectPackageIO.unreferencedSidecars(in: url, snapshot: referenced)
+    #expect(orphans == [])
+
+    let deleted = try ProjectPackageIO.compact(url, snapshot: referenced)
+    #expect(deleted == [])
+
+    #expect(FileManager.default.fileExists(atPath: fileInsideSubdirectory.path))
+    #expect(FileManager.default.fileExists(atPath: dotfile.path))
+    #expect(FileManager.default.fileExists(atPath: mediaDir.appending(path: "kept.mov").path))
 }
 
 /// THE LOAD-BEARING TEST for this whole row (Controller addendum ruling 2,

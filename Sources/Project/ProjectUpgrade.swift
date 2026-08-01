@@ -1,7 +1,10 @@
 import Foundation
 import Geometry
 
-/// Everything that can go wrong opening a `ProjectSnapshot` document.
+/// Everything that can go wrong opening OR writing a `ProjectSnapshot`
+/// document and its package (Task 17 widened this from "opening" alone when
+/// `sidecarAlreadyExists` and `invalidSidecarName` were added — both are
+/// write-path failures from `ProjectPackageIO`, not document-open failures).
 ///
 /// `tooNew` is the load-bearing case (Controller addendum ruling 3): a
 /// document written by a future build must throw BEFORE any field is read
@@ -27,6 +30,14 @@ public enum ProjectFormatError: Error, Equatable {
     /// second error type: like the other cases here, it is "the on-disk
     /// document is not in the shape this build is willing to write to."
     case sidecarAlreadyExists(String)
+    /// Task 17 review, Important 3: `name` is not a single path component —
+    /// it contains `/` or `\`, or is `.` or `..`, or starts with `.`. Names
+    /// are minted by the app, not this package, but a name that escapes
+    /// `media/` (`"../escaped.mov"`) would write outside the directory
+    /// `unreferencedSidecars` scans, making it a permanent orphan that no
+    /// `compact` call could ever reach. Refused before a single byte is
+    /// written.
+    case invalidSidecarName(String)
 }
 
 /// Decodes a `ProjectSnapshot` from any schema version this build knows how
