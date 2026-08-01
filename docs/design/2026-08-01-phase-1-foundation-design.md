@@ -93,7 +93,7 @@ One `Package.swift`; six library targets whose SwiftPM dependency edges make the
 
 ```
 Geometry    ─ no dependencies (leaf)
-Timeline    ← Geometry
+Timeline    ─ no dependencies (leaf)
 Graph       ← Geometry, Timeline
 Framing     ← Graph, Geometry
 Variants    ← Framing, Timeline
@@ -102,6 +102,11 @@ Project     ← Graph, Geometry, Timeline
 
 `Graph` depends on `Timeline` because `EvidenceRef.sourceInterval` cites a time range: a citation
 that cannot name *when* in the recording it came from is not much of a citation.
+
+**`Timeline` is a second leaf.** It maps integer nanoseconds between source, camera, and output
+timebases; nothing in that is spatial, so it needs nothing from `Geometry`. An edge with no reason
+is one the next person will use for something unrelated, and this is the cheapest moment to leave it
+out. `Framing` and `Variants` are where space and time meet, and both already depend on each side.
 
 *Rejected:* one module — folders would be cosmetic and every internal boundary would rest on review.
 *Rejected:* several packages — nothing here ships separately; it buys manifests and resolution cost.
@@ -115,19 +120,37 @@ there is code to tangle. Each has a test target asserting only that it builds.
 Identity is *the geometry*, not the event. Same display configuration yields the same revision, in
 any session.
 
+`DisplayGeometry` holds **intrinsic** geometry only — what the panel is, not where it sits. Extrinsic
+arrangement is modelled separately and deliberately excluded from the digest; see § Display identity
+and arrangement for why both halves of that sentence are load-bearing.
+
 ```swift
 public struct GeometryRevision: Hashable, Codable, Sendable { public let id: UInt64 }
 
 public struct DisplayGeometry: Hashable, Codable, Sendable {
-    public let displayID: UInt32
+    public let displayUUID: UUID        // persistent, NOT CGDirectDisplayID
     public let pixelWidth: Int, pixelHeight: Int
-    public let scale: Double
+    public let scale: Double            // finite, > 0; digested as .bitPattern
     public var revision: GeometryRevision { GeometryRevision(id: fnv1a64(canonicalBytes)) }
 }
 
 public struct GeometryRegistry: Codable, Sendable {
     public var entries: [GeometryRevision: DisplayGeometry]
     public var firstObserved: [GeometryRevision: Int64]   // ordering, kept out of identity
+
+    /// FNV-1a is 64-bit and non-cryptographic. Collisions are vanishingly unlikely across the
+    /// handful of configurations one document sees, but they are *detectable* here, and a silent
+    /// collision means two different geometries compare equal — the exact failure D3 names.
+    public mutating func insert(_ geometry: DisplayGeometry, observedAt: Int64) {
+        let revision = geometry.revision
+        if let existing = entries[revision] {
+            precondition(existing == geometry,
+                "geometry revision collision: \(existing) vs \(geometry)")
+            return
+        }
+        entries[revision] = geometry
+        firstObserved[revision] = observedAt
+    }
 }
 ```
 
@@ -142,8 +165,12 @@ Two properties this buys:
 
 **The digest must not be `Hashable.hashValue`.** Swift's `Hasher` is randomly seeded per process, so
 a persisted `hashValue` will not match the same geometry on reopen. FNV-1a over a canonical
-little-endian encoding of the four fields, written by us and covered by a test that pins known input
-to known output.
+little-endian encoding of the fields, written by us and covered by a test that pins known input to
+known output.
+
+`scale` is a `Double`, so its canonical encoding is `scale.bitPattern` — exact and deterministic,
+where a decimal rendering is neither. A precondition rejects non-finite or non-positive scale on
+construction, which removes the `NaN`/`-0.0` cases that would otherwise make the digest ill-defined.
 
 Pixel dimensions appear only inside `DisplayGeometry` and the registry, honouring D3's rule that
 nothing in between speaks in pixels.
@@ -153,6 +180,60 @@ nothing in between speaks in pixels.
 *Rejected:* inline self-describing geometry in every frame — no registry lookup and a maximally
 informative trap message, but it puts pixel values in the type that crosses module boundaries and
 costs ~16 bytes across millions of observation records.
+
+#### Display identity and arrangement
+
+Two mistakes here would each reintroduce exactly the false trap D-P2 exists to eliminate.
+
+**`CGDirectDisplayID` must not enter the digest.** It is assigned dynamically by the window server
+and is not stable across reboot or unplug/replug. Using it would make the decision's own
+justification false: record on Monday, reboot, record on Tuesday with the same monitor at the same
+resolution, and `selective-rerecord` (Phase 4) puts both in one document with two different
+revisions for identical geometry — a precondition failure on a genuinely comparable pair. The
+persistent identity is `CGDisplayCreateUUIDFromDisplayID` (`ColorSyncDevice.h:233` in the macOS 27
+SDK, with `CGDisplayGetDisplayIDFromUUID` for the reverse). It vends a `CFUUIDRef`, bridged to a
+Foundation `UUID`, so D6 is untouched: the app target performs the lookup and passes a plain value
+into the package.
+
+Display identity stays in the digest rather than being dropped. Two identical monitors side by side
+would otherwise collapse to one revision, and "40% across *a* display" is not a comparable
+coordinate when there are two of them.
+
+**Global arrangement must stay out of the digest.** `CGEventGetLocation` returns coordinates in the
+global space spanning every display, so routing a click to the display it landed on requires each
+display's global origin — which `DisplayGeometry` deliberately does not have. Putting it there would
+be worse than the omission: `CGDisplayBounds` origins shift when the arrangement changes, and
+promoting a different display to main re-bases the entire global space, so rearranging display B
+would silently change display A's revision and invalidate footage that nothing about display A had
+altered.
+
+So the two are separated by lifetime, and only the intrinsic half is digested:
+
+```swift
+/// Intrinsic. Digested. Changes only when the panel or its mode changes.
+public struct DisplayGeometry: Hashable, Codable, Sendable { … }
+
+/// Extrinsic. NOT digested, NOT part of any revision. Used at capture entry only,
+/// to route a global point to the display that contains it.
+public struct DisplayArrangement: Sendable {
+    public struct Placement: Sendable {
+        public let geometry: DisplayGeometry
+        public let globalOriginX, globalOriginY: Double   // top-left, global space
+    }
+    public let placements: [Placement]
+
+    /// Returns the containing display and the point re-expressed in that display's
+    /// own top-left pixel space. nil when the point lies on no display.
+    public func route(globalTopLeftX: Double, globalTopLeftY: Double)
+        -> (geometry: DisplayGeometry, localX: Double, localY: Double)?
+}
+```
+
+`NormalizationContext.normalize(topLeftX:topLeftY:…)` therefore takes **display-local** top-left
+pixels, never global ones — the ambiguity that would otherwise compute a plausible, wrong answer in
+silence. Routing happens once, at capture entry, immediately before normalisation. A test asserts
+that a click on a secondary display normalises against that display's geometry and not the main
+display's.
 
 ### D-P3 — Package document, immutable media, atomic manifest
 
@@ -176,6 +257,25 @@ The `previous` snapshot (F1) identifies sidecars that became unreferenced. They 
 explicit compact operation, never as a side effect of saving — a save must not be able to delete
 media.
 
+**Atomicity is not durability, and we are choosing atomicity.** `replaceItemAt` guarantees the
+rename is atomic — a reader sees the old manifest or the new one, never a torn one. It does *not*
+guarantee the bytes reached the platter: macOS `fsync` may leave data in the drive's write cache,
+and only `fcntl(F_FULLFSYNC)` forces it out. So a power cut milliseconds after a save can lose that
+save while leaving the previous manifest intact and valid.
+
+For a video editor that trade is acceptable: the cost of losing it is one save's worth of edit
+state, the media itself is already durable because it was written once and closed, and
+`F_FULLFSYNC` on every autosave is a visible stall. **Recorded as a decision, not an omission** —
+if a later phase makes a save expensive to lose, `F_FULLFSYNC` goes in front of the rename and the
+cost is understood.
+
+**Append-only logs need a truncated-tail rule.** A crash mid-write leaves `observations/*.jsonl`
+with a partial final line. The reader discards an incomplete trailing line and reports how many
+bytes it dropped; it does not error, and it does not attempt repair. Silence here would turn a
+crash into a quietly shortened observation log, and a log that is short by one record is a
+derivation that is wrong with no diagnostic. A test appends a truncated line and asserts both the
+discard and the report.
+
 *Rejected:* APFS `clonefile` + `renamex_np(RENAME_SWAP)` — genuinely cheap whole-package atomicity
 on APFS, but needs a full byte-copy fallback for exFAT/SMB, which is the cost being avoided.
 *Rejected:* full temp copy — correct everywhere, unusable at this data size.
@@ -190,6 +290,15 @@ public struct Derived<Value: Codable & Hashable & Sendable>: Codable, Hashable, 
     public let value: Value
     public let origin: Origin
     public var review: ReviewState
+
+    /// Canonical bytes an approval is bound to: `value` + `origin`, never `review`.
+    /// Approving mutates `review`; if the bound digest covered it, the act of approving
+    /// would invalidate the approval it just recorded. Phase 8's `approval-gate` reads this,
+    /// but the definition belongs here, where the fields are declared.
+    ///
+    /// The package emits the bytes and the app hashes them, per § Two digests — so this is
+    /// `Data`, not a `ContentDigest`.
+    public var approvalBytes: Data { get }
 }
 
 public enum Origin: Codable, Hashable, Sendable {
@@ -205,20 +314,73 @@ public struct Derivation: Codable, Hashable, Sendable {
 }
 
 /// A citation with no evidence is not a citation. `[EvidenceRef]` permits `[]`, so the
-/// non-empty guarantee needs a type that cannot represent emptiness.
-public struct Evidence: Codable, Hashable, Sendable, RandomAccessCollection {
-    public let first: EvidenceRef            // at least one, structurally
-    public let rest: [EvidenceRef]
-    public init(_ first: EvidenceRef, _ rest: EvidenceRef... ) { … }
-}
+/// non-empty guarantee needs a type that cannot represent emptiness. Defined below.
 
 public struct EvidenceRef: Codable, Hashable, Sendable {
     public let kind: EvidenceKind            // .observation | .transcript | .release
     public let id: EvidenceID
-    public let contentHash: UInt64           // evidence as cited → staleness
+    public let contentDigest: ContentDigest  // evidence as cited → staleness AND approval
     public let sourceInterval: TimeRange?    // for written-steps citing its interval
 }
 ```
+
+#### Two digests, deliberately not the same primitive
+
+`GeometryRevision` and `EvidenceRef` both "hash content", and that resemblance is a trap. They have
+different threat models:
+
+| | `GeometryRevision` | `ContentDigest` |
+| --- | --- | --- |
+| Purpose | identity, registry lookup | staleness **and** `approval-gate` binding |
+| Adversary | none — inputs are the window server's | external text, attacker-controllable per `agentic-threat-model` |
+| Primitive | FNV-1a, 64-bit, non-cryptographic | SHA-256, 32 bytes, opaque |
+| Computed by | `SoredemoCore` (pure, deterministic) | the **app target**, via CryptoKit |
+
+A 64-bit non-cryptographic digest on the evidence path would be a real hole rather than a
+theoretical one: Phase 8's `approval-gate` binds per-post human approval to a content hash, and
+`ARCHITECTURE.md` § Agentic security states that release notes and PR titles are attacker-controlled
+on a repository accepting contributions. FNV-1a collisions can be constructed to order, so an
+approval could be bound to reviewed text and redeemed against substituted text.
+
+```swift
+/// Opaque. SoredemoCore compares digests; it never computes one.
+public struct ContentDigest: Hashable, Codable, Sendable {
+    public let bytes: Data                   // 32, validated on decode
+    public init(validating: Data) throws
+}
+```
+
+The package cannot compute SHA-256 without either importing CryptoKit (violating D6) or
+hand-rolling a hash function, which is the wrong way to obtain one. So the digest is **injected**:
+whoever produces the evidence computes it and passes the value in. That matches how time and
+randomness are handled (§ Determinism), and it keeps `SoredemoCore` a pure comparator.
+
+The two are also kept apart by name — `fnv1a64` is internal to `Geometry` and is not visible to
+`Graph`, so there is no route by which the identity hash reaches the evidence path.
+
+#### `Evidence`: a non-empty collection that behaves
+
+```swift
+public struct Evidence: Codable, Hashable, Sendable, RandomAccessCollection {
+    public let head: EvidenceRef             // NOT `first` — see below
+    public let tail: [EvidenceRef]
+
+    public init(_ head: EvidenceRef, _ tail: [EvidenceRef] = [])
+    /// Phase 3's framing producers hold `[EvidenceRef]`; Swift cannot splat an array
+    /// into a variadic parameter, so an array entry point is required, not optional.
+    public init?(_ refs: [EvidenceRef])      // nil on empty
+}
+```
+
+Naming the stored property `first` compiles but resolves differently by path, which was verified
+rather than assumed:
+
+```
+viaConcrete(e) → Ref              // the stored property shadows Collection.first
+viaGeneric(e)  → Optional<Ref>    // the protocol requirement, through a generic context
+```
+
+No warning, no error, and a type that changes with how the value is reached. `head` avoids it.
 
 `Evidence` encodes as a flat JSON array and decodes by rejecting an empty one, so the guarantee
 survives a round-trip through disk and is not merely an in-memory invariant.
@@ -243,7 +405,7 @@ extension Derived {
 }
 ```
 
-Producers never assign to a `Derived` directly; `ArchitectureCheck` rule 4 is extended in Phase 3 to
+Producers never assign to a `Derived` directly; `ArchitectureCheck` rule 7 arrives in Phase 3 to
 enforce that `applyingProduced` is the sole writer. In Phase 1 the rule is carried by the
 producer-value tests, which is the bar `KICKOFF.md` sets for this row.
 
@@ -396,8 +558,22 @@ Additional tests this design requires:
 - `fnv1a64` pins known input to known output, and a second test asserts the digest is stable across
   processes (guarding the `Hasher` seeding trap in D-P2).
 - Identical `DisplayGeometry` in two independently-constructed registries yields one revision.
+- `GeometryRegistry.insert` traps when two different geometries produce one revision.
+- `DisplayGeometry` rejects non-finite and non-positive `scale` on construction.
+- **Rearranging displays changes no revision.** Build an arrangement, move a placement's global
+  origin, assert every `GeometryRevision` is unchanged — the regression test for keeping extrinsic
+  data out of the digest.
+- **A click on a secondary display normalises against that display**, not the main one.
+- `Evidence(refs:)` returns `nil` on an empty array, and a decoded empty array is rejected.
+- `Evidence.head` and `Evidence.first` are both reachable and the collection conformance is
+  consistent, since this is the shadowing case that compiles either way.
+- **Determinism:** encoding the same snapshot twice yields byte-identical output.
+- `approvalBytes` is unchanged by a transition of `review`, and changes when `value` or `origin`
+  changes.
 - A save leaves every media sidecar byte-identical; a compact — and only a compact — removes an
   unreferenced one.
+- A `.jsonl` log with a truncated final line reads back with that line discarded and the dropped
+  byte count reported.
 - `unsupportedFutureVersion` throws rather than partial-decoding, and the on-disk file is unmodified
   afterwards.
 
@@ -424,7 +600,33 @@ Checks:
    siblings only. This is the D6 rule the compiler does not enforce.
 2. **No `CGPoint`/`CGRect`/`CGSize` in the package's public API.**
 3. **Single-file allow-list** for the `CGRect ↔ PixelRect` bridge.
-4. **One owner for the observation-log → graph join** — inert in Phase 1, in place for Phase 3.
+4. **Determinism: no ambient time or randomness.** See § Determinism — an import allow-list cannot
+   catch this, so it is a separate symbol scan.
+5. **Empty dependency list in `Package.swift`.** The package declares no external dependencies at
+   all; a plugin that polices imports while a manifest quietly adds a package is checking the wrong
+   door.
+6. **One owner for the observation-log → graph join** — inert in Phase 1, in place for Phase 3.
+7. **`applyingProduced` is the sole writer of a `Derived`** — inert in Phase 1, in place for Phase 3.
+
+### Determinism
+
+`ARCHITECTURE.md` D6 rests derivation correctness on determinism: "a framing stage that could call
+ScreenCaptureKit could observe the world mid-derivation, and then staleness, `isCurrent`, and
+content-hash approval all stop meaning anything." Ambient time and randomness break that identically
+to a framework call, and are far easier to introduce by accident.
+
+The concrete Phase 1 exposure is the ULID naming `media/master-01H….mov` and the values behind
+`EvidenceID`: a ULID is a timestamp plus random bytes. If either is minted inside `SoredemoCore`,
+the package stops being a deterministic function of its inputs.
+
+**`Date()`, `Date.now`, `UUID()`, `.random(in:)`, `SystemRandomNumberGenerator`, `DispatchTime.now()`
+and `ContinuousClock` are all in Foundation and the standard library.** The import allow-list from
+rule 1 cannot see them, and neither can a cross-platform build. Hence a dedicated symbol scan over
+`Packages/SoredemoCore`, and a rule that IDs and timestamps are minted in the app target and passed
+in as plain values — the same shape as the injected `ContentDigest`.
+
+A test constructs a snapshot twice from identical inputs and asserts byte-identical encodings, which
+fails if anything ambient leaks in.
 
 Its own test suite includes a fixture target that violates each rule and asserts the plugin rejects
 it. Per `AGENTS.md`: changing a rule changes the plugin in the same commit.
