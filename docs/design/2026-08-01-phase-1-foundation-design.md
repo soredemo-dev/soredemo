@@ -466,6 +466,20 @@ passed while plain `Date()` was caught. Mangled symbols have no such gaps.
 values, across processes and across time. "Canonical" is defined here rather than assumed, because
 three separate things break it and each fails silently.
 
+**0. `JSONEncoder` does not encode deterministically at all, without `.sortedKeys`.** This is
+broader than the dictionary case below and was found while building `GeometryRegistry`. Measured on
+a plain `Codable` struct array containing **no dictionary of any kind**: five processes produced
+**five different byte strings**, differing only in intra-object key order. With
+`.outputFormatting = [.sortedKeys]`, one.
+
+The consequence is that `.sortedKeys` is **mandatory on every encoder whose bytes are digested**,
+not merely a mitigation for dictionaries — and the reason it is required is not the one stated in
+point 1. A type with no dictionary in it is still non-deterministic. Anyone reading point 1 alone
+could reasonably conclude the hazard does not apply to their struct and drop the flag.
+
+`approvalBytes` (D-P4) is the type this matters to most: it is what Phase 8's `approval-gate` binds
+human approval to, and it contains no dictionary.
+
 **1. Swift's `Dictionary` does not encode deterministically.** When the key is not `String` or
 `Int`, `Codable` synthesis emits an **unkeyed** container of alternating key/value in *iteration*
 order — and iteration order comes from the per-process random hash seed. `JSONEncoder.sortedKeys`
