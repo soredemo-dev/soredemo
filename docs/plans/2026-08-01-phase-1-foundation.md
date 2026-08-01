@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- `// swift-tools-version: 6.4`, `platforms: [.macOS(.v26)]`. No `if #available` anywhere.
+- `// swift-tools-version: 6.3`, `platforms: [.macOS(.v26)]`. No `if #available` anywhere. **Not 6.4** — Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest; 6.3 builds under both toolchains with no feature loss.
 - `swiftSettings: [.swiftLanguageMode(.v6), .strictMemorySafety()]` on **every** target. **`.strictConcurrency` is not a `SwiftSetting`** and will fail the manifest (F6).
 - The package imports **Foundation only**. No AppKit, ScreenCaptureKit, AVFoundation, SwiftUI, CryptoKit, CoreGraphics.
 - No `CGPoint`, `CGRect`, `CGSize`, `CGFloat` anywhere in the package.
@@ -137,7 +137,7 @@ Expected: FAIL — no `Package.swift` yet.
 `Package.swift` at the repository root:
 
 ```swift
-// swift-tools-version: 6.4
+// swift-tools-version: 6.3
 import PackageDescription
 
 let strict: [SwiftSetting] = [

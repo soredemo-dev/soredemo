@@ -117,8 +117,16 @@ one-off.
 - `.strictConcurrency` is **not** a `SwiftSetting`: `error: type 'SwiftSetting' has no member
   'strictConcurrency'`. The correct spelling is `.swiftLanguageMode(.v6)`, which implies complete
   concurrency checking. `.strictMemorySafety()` is available and also enabled.
-- `swift-tools-version: 6.4` is kept. (It is *required* only for `.macOS(.v27)`; retained for the
-  newer manifest API surface.)
+- **`swift-tools-version: 6.3`, not 6.4.** 6.4 is required only for `.macOS(.v27)`, which this
+  design no longer targets, so it buys nothing — and it costs compatibility with the Xcode the
+  project is actually opened in. Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest outright
+  (`unexpectedly did not find the new dependency in the package graph`), while the command line
+  points at Xcode-beta 27 and never showed it. Verified: tools 6.3 builds under **both** toolchains,
+  and `.macOS(.v26)`, `.swiftLanguageMode(.v6)` and `.strictMemorySafety()` all survive at 6.3.
+
+  The general shape is the one this document keeps running into: a check that only exercises one of
+  two environments. `swift build` was green throughout while the environment the owner uses could
+  not read the manifest at all.
 
 ### F7 — Link-time symbols are exact for determinism checking
 
