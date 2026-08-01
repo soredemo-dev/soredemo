@@ -56,13 +56,20 @@ Accessibility, and full access to Liquid Glass, the Document API, and `SpeechAna
 
 ## D3 — Coordinates: normalised, one conversion point
 
-`NormalizedPoint` is 0–1 with a **bottom-left origin**, matching CoreGraphics and Core Image so the
-render path never flips. `NormalizedFrame` additionally carries a `geometryRevision`.
+`NormalizedPoint` is 0–1 with a **bottom-left origin**, matching Core Image and `NSScreen.frame` so
+the render path never flips. `NormalizedFrame` additionally carries a `geometryRevision`.
+
+That origin claim is right about rendering and misleading about everything else: `CGDisplayBounds`,
+`CGEventGetLocation`, and AX `kAXPositionAttribute` are all **top-left**. There *is* a flip — the
+obligation is not that it never happens, but that it happens in exactly **one** place, on entry, and
+never again. `NormalizationContext` is that one place, converting display-local top-left pixels (never
+global ones, which would silently compute a plausible wrong answer) to normalised bottom-left. Routing
+a global point to its display happens first, via `DisplayArrangement.route`.
 
 This is the decision most likely to fail silently. Two rules make it loud:
 
-1. **No raw `CGPoint` or `CGRect` crosses a module boundary.** Capture converts on entry, render
-   converts on exit. Nothing in between speaks in pixels.
+1. **No raw `CGPoint` or `CGRect` crosses a module boundary.** Capture converts on entry, through
+   `NormalizationContext`; render converts on exit. Nothing in between speaks in pixels.
 2. **Comparing frames across `geometryRevision` is a precondition failure**, never a silent coercion.
    Displays get reconfigured mid-recording; a comparison that quietly succeeds against a stale
    revision lands a zoom on the wrong control with no error anywhere.
