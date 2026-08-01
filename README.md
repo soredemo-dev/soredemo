@@ -57,13 +57,19 @@ auto-publish, no "approve all", no CI bypass.
 ## Layout
 
 ```
-Soredemo/
-├── soredemo-main/        ← this repo
-│   ├── AGENTS.md  ROADMAP.md  KICKOFF.md  README.md
-│   └── docs/
-│       └── PRODUCT.md  FEATURES.md  ARCHITECTURE.md  TOOLCHAIN.md
-├── soredemo-web/         brand kit, design research
-└── opensource/           comparable projects — read for ideas, not for code
+soredemo-main/            ← this repo
+├── AGENTS.md             the rules
+├── ROADMAP.md            the work list
+├── KICKOFF.md            prompts
+├── docs/
+│   ├── PRODUCT.md        why, who buys, what is not built
+│   ├── FEATURES.md       every feature and its Apple framework
+│   ├── ARCHITECTURE.md   D1–D8 and the module map
+│   └── TOOLCHAIN.md      Xcode 27, macOS 27
+└── soredemo-brand-kit/   SVG, PNG, favicon, tokens/colors.json
 ```
 
-Brand assets: `../soredemo-web/soredemo-brand-kit/` — SVG, PNG, favicon, `tokens/colors.json`.
+Sibling directories, outside the repo: `../soredemo-web/` (design research) and `../opensource/`
+(comparable projects — **read for ideas, not for code**).
+
+The app icon is built from `soredemo-brand-kit/` with Icon Composer.

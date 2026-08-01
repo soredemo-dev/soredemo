@@ -233,3 +233,97 @@ output. Pillar 3 depends on Pillar 2. Pillar 4 wraps all three and should be bui
 wraps is stable — an agent API over a changing model is rework.
 
 See `ROADMAP.md`.
+
+---
+
+# Appendix — the platform, and what was considered
+
+## macOS 27 "Golden Gate"
+
+| | |
+| --- | --- |
+| Shipped | ~14 September 2026 |
+| Architecture | **Apple Silicon only.** Intel and Rosetta 2 ended |
+| Character | Stability and performance release, in the spirit of Snow Leopard |
+| Swift | 6.4 · **Xcode** 27 · **Metal** 4.1 |
+
+macOS 27 also flags Intel apps that **stop working in macOS 28**, and Rosetta is no longer restored on
+upgrade. Apple's Intel wind-down is faster than most people assume.
+
+## Swift 6.4 — what actually helps here
+
+| Feature | Why it matters for this project |
+| --- | --- |
+| **`async` in `defer`** | Cleanup runs whether a function returns or throws. Directly useful for capture-session teardown, where a leaked `SCStream` costs the user their next recording |
+| **Iteration over noncopyable types** | `for-in` over `Span` and `InlineArray` — the frame pipeline can iterate without copying |
+| `anyAppleOS` | Simplified availability syntax. Rarely needed under a single-OS floor, but cleaner when it is |
+| `@diagnose` | Finer-grained warning control |
+| Foundation URL parsing up to **4× faster** | Free win anywhere paths are handled in bulk |
+| Swift Testing ↔ XCTest interop | Not needed for a fresh codebase, but it exists |
+
+## SwiftUI in the 2027 releases
+
+- **Document API** — `WritableDocument`/`ReadableDocument`, async incremental disk I/O, `Subprogress`
+  progress reporting, `DocumentCreationSource` + `NewDocumentButton`
+- **Reordering in any container** — `reorderable()` + `reorderContainer(for:)` works in `List`,
+  `ScrollView`, lazy stacks, and custom layouts. Use it for story beats and media lists. It is a *list*
+  primitive, so the timeline canvas still needs its own hit-testing
+- **Toolbar control** — `visibilityPriority`, `toolbarOverflowMenu`, `topBarPinnedTrailing`,
+  `toolbarMinimizeBehavior`. An editor has many toolbar items and a resizable window
+- **`ContentBuilder`** replaces the per-container `ViewBuilder` overloads, collapsing type-checking to
+  one path. Meaningfully faster compiles on a large SwiftUI codebase
+- **`@State` is a macro** — classes stored in it initialise lazily, once per view lifetime
+- `swipeActionsContainer` on any `ScrollView`; `navigationTransition(.crossFade)`
+- **AppKit interop** — `NSViewRepresentable` for the timeline canvas and preview. This boundary is where
+  SwiftUI apps usually go wrong
+
+## Considered and rejected
+
+Recorded so these are decisions, not questions that come back every few weeks.
+
+| Framework | Why not |
+| --- | --- |
+| **Core AI** | Loads and runs *your own* models on-device. This product's reasoning comes from the derivation graph; no custom model is needed |
+| **MLX** | Same reason. Genuinely impressive — Metal 4, GPU neural accelerators, distributed training over Thunderbolt — and irrelevant here |
+| **SwiftData** | The project is a document users open, move, and version. Not a store. Do not introduce a second persistence story |
+| **MetalFX** | Neural temporal upscaling for games. This renders at native resolution |
+| **Image Playground** | Generative images contradict the thesis: everything is derived from what happened |
+| **RealityKit, USDKit, Spatial Preview** | No spatial content |
+| **NowPlaying** | This produces video; it is not a playback app |
+| **App Attest, Trust Insights** | No server to attest to |
+| **PencilKit, PaperKit, WidgetKit, Live Activities** | No surface for them |
+| **Core Image RAW v9** | Improved sharpness and colour, but there is no still-photography path |
+
+## Tooling and business, for later
+
+| Framework | When |
+| --- | --- |
+| **StoreKit group and organisation subscriptions** | This is literally the Team tier in `PRODUCT.md` § Packaging. Read before designing billing |
+| **MetricKit** (new in the 2027 releases) | Crash and hang telemetry, local-first |
+| **Xcode Cloud** | CI. Worth it for a solo developer once the test suite is real |
+| **DiskImageKit** (new in macOS 27) | Built on Apple Sparse Image Format with stacked images. Relevant at `.dmg` build time, though `create-dmg` is probably still simpler |
+| **Icon Composer** | The layered Liquid Glass app icon, built from `soredemo-brand-kit/` |
+| **SF Symbols 8** | 7,000+ symbols aligned to the system font |
+| **App Intents** | *"Record a demo for the latest release"* by voice, and Spotlight indexing of past demos. `AppIntentsTesting` validates through real system pathways. Phase 8 at the earliest |
+
+## WWDC26 sessions worth watching
+
+| # | Session | For |
+| --- | --- | --- |
+| [250](https://developer.apple.com/videos/play/wwdc2026/250) | Principles of great design | Liquid Glass and the native-chrome rule |
+| [269](https://developer.apple.com/videos/play/wwdc2026/269) | What's new in SwiftUI | Document API, reordering, toolbars |
+| [272](https://developer.apple.com/videos/play/wwdc2026/272) | Use SwiftUI with AppKit and UIKit | The timeline canvas boundary |
+| [289](https://developer.apple.com/videos/play/wwdc2026/289) | Modernize your AppKit app | Same |
+| [321](https://developer.apple.com/videos/play/wwdc2026/321) | Lazy stacks and scrolling | The media browser |
+| [322](https://developer.apple.com/videos/play/wwdc2026/322) | Compose advanced graphics effects with SwiftUI | Watch before writing Metal for something the framework does |
+| [370](https://developer.apple.com/videos/play/wwdc2026/370) | Elevate your text experience with TextKit | The transcript editor |
+| [220](https://developer.apple.com/videos/play/wwdc2026/220) | Refine accessibility for custom controls | Timeline, waveform, transcript |
+| [256](https://developer.apple.com/videos/play/wwdc2026/256) | Generated subtitles and subtitle styles | Captions **and on-device translation** |
+| [253](https://developer.apple.com/videos/play/wwdc2026/253) | Meet the Music Understanding framework | Beat sync |
+| [241](https://developer.apple.com/videos/play/wwdc2026/241) | What's new in the Foundation Models framework | Guided generation, multi-provider |
+| [242](https://developer.apple.com/videos/play/wwdc2026/242) | Build agentic app experiences | The agent surface |
+| [298](https://developer.apple.com/videos/play/wwdc2026/298) | Meet the Evaluations framework | Testing the citation guard |
+| **[347](https://developer.apple.com/videos/play/wwdc2026/347)** | **Secure your app: mitigate risks to agentic features** | **Watch before building post generation** |
+| [262](https://developer.apple.com/videos/play/wwdc2026/262) | What's new in Swift | 6.4 language features |
+| [259](https://developer.apple.com/videos/play/wwdc2026/259) | Xcode, agents, and you | Xcode 27's SwiftUI skills |
+| [277 (WWDC25)](https://developer.apple.com/videos/play/wwdc2025/277) | Bring advanced speech-to-text with SpeechAnalyzer | Transcription |
