@@ -556,6 +556,13 @@ gets scanned.
 Rules 1 and 2 read source text, so they must survive these from the first commit rather than
 discovering them one at a time. Each gets a test:
 
+- **`import` and the module name separated by a newline.** Verified valid Swift that fully
+  typechecks and grants module access, and it defeats any scanner that extracts one statement per
+  line. Found by the Task 2 implementer; neither this document's original list nor the review that
+  hardened it contained it. The fix is structural: scan tokens carrying line numbers rather than
+  splitting on lines, which also makes attributes and access levels fall out for free.
+- `` import `Foundation` `` — backtick-escaped module names are legal and must NOT be rejected
+- SE-0409 access levels: `public`/`package`/`internal`/`fileprivate`/`private import`
 - `@preconcurrency import AppKit`, `@testable import`, `@_exported import`, stacked attributes
 - `import AppKit; import Foundation` — semicolon-joined, either order
 - `import class AppKit.NSColor` — submodule form
