@@ -50,6 +50,8 @@ recordings/
 # Agent working files
 .claude/settings.local.json
 worktrees/
+.claude/worktrees/
+a skill chain/
 
 # Rust (spikes)
 target/
