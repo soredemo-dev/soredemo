@@ -133,11 +133,22 @@ gap, because the diagnostic comes from the dependency scanner rather than the co
 What actually enforces the rule is `Plugins/ArchitectureCheck`, a SwiftPM build-tool plugin attached
 to all six library targets. It runs `architecture-checker` over each target's sources on every build —
 clean or incremental — and exits non-zero with `file:line: error:` on any import outside the target's
-allowed set. Its allow-list mirrors the dependency edges in `Package.swift`, so it enforces F2 as an
-error on warm builds too. The checker reads source text through a file-scoped lexical scan, so
-comments, string literals of every flavour, and string-interpolation bodies are classified correctly;
-`public import AppKit` and the other SE-0409 access-level spellings are caught, as is
-`#if canImport(AppKit)`.
+allowed set. Its allow-list is not a copy of the dependency edges — the plugin reads each target's
+**declared** dependencies out of `PluginContext` and passes them on the command line, so the
+allow-list *is* the manifest, and it enforces F2 as an error on warm builds too. Direct edges only:
+the transitive closure would silently permit `Framing → Timeline` and `Variants → Geometry`, which
+are precisely the undeclared edges SwiftPM downgrades to a warning.
+
+The checker reads source text through a file-scoped lexical scan, so comments, string literals of
+every flavour, and string-interpolation bodies are classified correctly; `public import AppKit` and
+the other SE-0409 access-level spellings are caught, as is `#if canImport(AppKit)`. It tokenises by
+maximal *identifier* run rather than by a list of separators, because Swift accepts space, tab,
+newline, CR, form feed, vertical tab and U+00A0 between `import` and the module name, and ends a
+token at any punctuation besides — a form feed is invisible in every diff viewer, so an enumerated
+separator list is a standing invitation. Every I/O failure is a hard error: a missing sources
+directory, a directory with no `.swift` files, and an unreadable or undecodable file all fail the
+build. Unreadable must never mean compliant. Verified to fail the build under **both** `swift build`
+and `xcodebuild`.
 
 **This constrains the package, not the app.** The app target uses ScreenCaptureKit, AVFoundation,
 AppKit, and Metal freely — that is where recording, rendering, and UI live.

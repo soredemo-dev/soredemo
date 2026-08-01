@@ -11,15 +11,26 @@ import Foundation
 /// via the `ArchitectureCheck` build-tool plugin.
 enum ArchitectureChecker {
 
-    /// Permitted imports per target. Must match the dependency edges in Package.swift;
-    /// changing an edge changes this table.
-    static let allowedImports: [String: Set<String>] = [
-        "Geometry": ["Foundation"],
-        "Timeline": ["Foundation"],
-        "Graph":    ["Foundation", "Geometry", "Timeline"],
-        "Framing":  ["Foundation", "Geometry", "Graph", "Timeline"],
-        "Variants": ["Foundation", "Geometry", "Graph", "Timeline", "Framing"],
-        "Project":  ["Foundation", "Geometry", "Graph", "Timeline"],
+    /// Always permitted, from every target.
+    static let alwaysAllowed: Set<String> = ["Foundation"]
+
+    /// Fallback allow-list, used only when the tool is invoked WITHOUT `--allow`
+    /// (by hand, or by a test). In a real build the `ArchitectureCheck` plugin
+    /// passes one `--allow` per declared dependency read straight out of
+    /// `PluginContext`, so the allow-list *is* the manifest by construction and
+    /// this table is not consulted.
+    ///
+    /// These are the DIRECT declared edges of `Package.swift`, not their transitive
+    /// closure. Allowing the closure would let `Framing` import `Timeline` and
+    /// `Variants` import `Geometry` — undeclared edges that SwiftPM itself only
+    /// warns about on a warm `.build`, so nothing else would catch them.
+    static let declaredEdges: [String: Set<String>] = [
+        "Geometry": [],
+        "Timeline": [],
+        "Graph":    ["Geometry", "Timeline"],
+        "Framing":  ["Graph", "Geometry"],
+        "Variants": ["Framing", "Timeline"],
+        "Project":  ["Graph", "Geometry", "Timeline"],
     ]
 
     /// Declaration kinds permitted between `import` and the module name, as in
@@ -57,6 +68,17 @@ enum ArchitectureChecker {
     /// Handles: `//`, nested `/* */`; plain, multiline and raw strings with any
     /// pound count; `\(…)` and `\#(…)` interpolation nested to any depth; and the
     /// fact that in a raw string `\(` is literal text, not an interpolation.
+    ///
+    /// A lone CR is a line terminator, not ordinary code: Swift ends a `//` comment
+    /// at a bare `\r` and compiles what follows, and its diagnostics count the CR as
+    /// a line (both verified with `swiftc -typecheck`). Treating it as content would
+    /// blank every character from the CR to the next LF. Note that FF, VT, NEL,
+    /// U+2028 and U+2029 are NOT line terminators for Swift — a `//` comment
+    /// continues straight through them — so they must not be treated as newlines
+    /// here either, or line numbers would drift from the compiler's.
+    ///
+    /// Known limitation: `#sourceLocation` remapping is not honoured, so reported
+    /// line numbers are physical, not remapped.
     static func codeViewLines(of text: String) -> [String] {
         let chars = Array(text.replacingOccurrences(of: "\r\n", with: "\n"))
         var lines: [String] = []
@@ -86,7 +108,7 @@ enum ArchitectureChecker {
         while i < chars.count {
             let c = chars[i]
 
-            if c == "\n" {
+            if c == "\n" || c == "\r" {     // a lone CR ends a // comment in Swift
                 lines.append(current)
                 current = ""
                 if case .some(.lineComment) = stack.last { stack.removeLast() }
@@ -139,7 +161,15 @@ enum ArchitectureChecker {
                         current += spaces(2 + hashCount)
                         i = after + 1
                     } else {
-                        let consumed = min(after + 1, chars.count) - i
+                        // `\` + newline is a line continuation inside a `"""`
+                        // literal. Consuming the newline here would stop it
+                        // reaching the line-break branch, and every reported line
+                        // number after it would be off by one, compounding.
+                        var end = min(after + 1, chars.count)
+                        if after < chars.count, chars[after] == "\n" || chars[after] == "\r" {
+                            end = after
+                        }
+                        let consumed = end - i
                         current += spaces(consumed)
                         i += consumed
                     }
@@ -210,15 +240,46 @@ enum ArchitectureChecker {
         let line: Int
     }
 
-    /// Whitespace-separated tokens of the code view, with 1-based line numbers.
-    /// `;` is promoted to its own token so semicolon-joined statements separate.
+    /// A character that can appear inside an identifier — plus `.` so that
+    /// `AppKit.NSColor` stays one token, and a backtick so that an escaped module
+    /// name does too.
+    ///
+    /// The set is defined by what an identifier CONTAINS, never by what separates
+    /// identifiers. Enumerating separators is a losing game: Swift accepts space,
+    /// tab, newline, CR, form feed, vertical tab and U+00A0 between `import` and the
+    /// module name — every one of those verified to typecheck — and it also ends a
+    /// token at any punctuation, so `@_spi(A)@_spi(B)import AppKit` glues `)` to the
+    /// keyword. Any separator missed by an enumeration welds itself to `import`,
+    /// the token stops comparing equal, and the declaration goes invisible.
+    /// Inverting the test closes that whole family at once, including the members
+    /// nobody has thought of yet.
+    static func isIdentifierCharacter(_ character: Character) -> Bool {
+        character == "_" || character == "$" || character == "`" || character == "."
+            || character.isLetter || character.isNumber
+    }
+
+    /// Tokens of the code view — maximal identifier runs — with 1-based line
+    /// numbers. `;` is emitted as its own token so an import with no module name
+    /// does not reach across a statement boundary for one.
     static func tokens(of lines: [String]) -> [Token] {
         var result: [Token] = []
         for (index, line) in lines.enumerated() {
-            let separated = line.replacingOccurrences(of: ";", with: " ; ")
-            for piece in separated.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
-                result.append(Token(text: String(piece), line: index + 1))
+            var current = ""
+            func flush() {
+                if !current.isEmpty {
+                    result.append(Token(text: current, line: index + 1))
+                    current = ""
+                }
             }
+            for character in line {
+                if isIdentifierCharacter(character) {
+                    current.append(character)
+                } else {
+                    flush()
+                    if character == ";" { result.append(Token(text: ";", line: index + 1)) }
+                }
+            }
+            flush()
         }
         return result
     }
@@ -229,6 +290,9 @@ enum ArchitectureChecker {
     /// the module name is valid Swift — it typechecks and grants full access to the
     /// module's API (verified with `swiftc -typecheck`) — so any statement scan that
     /// stops at the end of a line lets `import\nAppKit` straight through.
+    ///
+    /// Tokens are maximal identifier runs, so no whitespace or punctuation glued to
+    /// the keyword can hide it — see `isIdentifierCharacter`.
     ///
     /// Nothing here special-cases the position of `import` within its declaration,
     /// which is what makes the SE-0409 access-level spellings (`public import`,
@@ -263,18 +327,66 @@ enum ArchitectureChecker {
     // MARK: - Driver
 
     static func value(of flag: String, in arguments: [String]) -> String? {
-        guard let i = arguments.firstIndex(of: flag),
-              arguments.index(after: i) < arguments.endIndex
-        else { return nil }
-        return arguments[arguments.index(after: i)]
+        values(of: flag, in: arguments).first
+    }
+
+    /// Every value of a repeatable flag, in order. `--allow` is repeated once per
+    /// declared dependency.
+    static func values(of flag: String, in arguments: [String]) -> [String] {
+        var found: [String] = []
+        var i = arguments.startIndex
+        while i < arguments.endIndex {
+            if arguments[i] == flag, arguments.index(after: i) < arguments.endIndex {
+                found.append(arguments[arguments.index(after: i)])
+                i = arguments.index(i, offsetBy: 2)
+            } else {
+                i = arguments.index(after: i)
+            }
+        }
+        return found
+    }
+
+    static func fail(_ message: String) -> Int32 {
+        FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+        return 2
     }
 
     static func run(arguments: [String]) -> Int32 {
         guard let targetName = value(of: "--target-name", in: arguments),
-              let sources = value(of: "--sources", in: arguments),
-              let allowed = allowedImports[targetName] else {
-            FileHandle.standardError.write(Data("error: bad arguments or unknown target\n".utf8))
-            return 2
+              let sources = value(of: "--sources", in: arguments) else {
+            return fail("usage: architecture-checker --target-name <name> --sources <dir> [--allow <module>]… [--touch <stamp>]")
+        }
+
+        // The plugin always passes `--allow`, one per declared dependency, so the
+        // allow-list is the manifest. Only a hand or test invocation falls back to
+        // the table — and an unknown target there is a hard error, never a pass.
+        let explicit = values(of: "--allow", in: arguments)
+        let allowed: Set<String>
+        if explicit.isEmpty {
+            guard let edges = declaredEdges[targetName] else {
+                return fail("unknown target '\(targetName)' and no --allow given. Known: \(declaredEdges.keys.sorted().joined(separator: ", ")). Add it to declaredEdges in architecture-checker, or pass --allow.")
+            }
+            allowed = edges.union(alwaysAllowed)
+        } else {
+            allowed = Set(explicit).union(alwaysAllowed)
+        }
+
+        // Every I/O failure below is a hard error. For a tool whose premise is that
+        // it cannot be bypassed, "unreadable" must never mean "compliant" — a silent
+        // pass on a missing directory or an undecodable file is a bypass with extra
+        // steps.
+        let isDirectory: Bool
+        do {
+            isDirectory = try URL(fileURLWithPath: sources)
+                .resourceValues(forKeys: [.isDirectoryKey]).isDirectory ?? false
+        } catch {
+            return fail("sources directory does not exist or cannot be read: \(sources) (\(error.localizedDescription))")
+        }
+        guard isDirectory else {
+            return fail("sources path is not a directory: \(sources)")
+        }
+        guard let enumerator = FileManager.default.enumerator(atPath: sources) else {
+            return fail("cannot enumerate sources directory: \(sources)")
         }
 
         var failed = false
@@ -283,17 +395,27 @@ enum ArchitectureChecker {
             failed = true
         }
 
-        let enumerator = FileManager.default.enumerator(atPath: sources)
-        while let relative = enumerator?.nextObject() as? String {
+        var swiftFileCount = 0
+        while let relative = enumerator.nextObject() as? String {
             guard relative.hasSuffix(".swift") else { continue }
+            swiftFileCount += 1
             let path = sources + "/" + relative
-            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            let text: String
+            do {
+                text = try String(contentsOfFile: path, encoding: .utf8)
+            } catch {
+                return fail("cannot read \(path) as UTF-8: \(error.localizedDescription). A file this checker cannot read is a file it cannot vouch for.")
+            }
 
             for (module, line) in importedModules(in: codeViewLines(of: text))
             where !allowed.contains(module) {
                 report(path, line,
                        "'\(module)' is not importable from \(targetName). Allowed: \(allowed.sorted().joined(separator: ", ")). See ARCHITECTURE.md D6.")
             }
+        }
+
+        guard swiftFileCount > 0 else {
+            return fail("no .swift files under \(sources) for target \(targetName). A vacuous pass is not a pass.")
         }
 
         guard !failed else { return 1 }

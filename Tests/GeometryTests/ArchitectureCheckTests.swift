@@ -1,32 +1,55 @@
 import Testing
 import Foundation
 
-/// Runs the real built checker against a temporary fixture directory.
-/// Never reimplement the checking logic in-process — that tests the test.
-func runChecker(targetName: String = "Geometry", source: String) throws -> (status: Int32, stderr: String) {
-    let binDir = URL(filePath: #filePath)               // …/Tests/GeometryTests/ArchitectureCheckTests.swift
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appending(path: ".build/debug")
-    let checker = binDir.appending(path: "architecture-checker")
+/// …/Tests/GeometryTests/ArchitectureCheckTests.swift → the repository root.
+let repositoryRoot = URL(filePath: #filePath)
+    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+/// The six library targets the plugin must be attached to.
+let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"]
+
+/// Launches the real built checker. Never reimplement the checking logic
+/// in-process — that tests the test.
+func launchChecker(targetName: String,
+                   sourcesPath: String,
+                   allow: [String] = []) throws -> (status: Int32, stderr: String) {
+    let checker = repositoryRoot.appending(path: ".build/debug/architecture-checker")
     try #require(FileManager.default.fileExists(atPath: checker.path(percentEncoded: false)),
                  "architecture-checker not built at \(checker.path(percentEncoded: false))")
 
-    let dir = URL(filePath: NSTemporaryDirectory())
-        .appending(path: "arch-\(ProcessInfo.processInfo.globallyUniqueString)")
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: dir) }
-    try source.write(to: dir.appending(path: "Probe.swift"), atomically: true, encoding: .utf8)
-
     let process = Process()
     process.executableURL = checker
-    process.arguments = ["--target-name", targetName,
-                         "--sources", dir.path(percentEncoded: false)]
+    process.arguments = ["--target-name", targetName, "--sources", sourcesPath]
+        + allow.flatMap { ["--allow", $0] }
     let err = Pipe()
     process.standardError = err
     try process.run()
     let data = err.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
     return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+}
+
+/// Runs the checker over a temporary fixture directory built by `populate`.
+func runChecker(targetName: String = "Geometry",
+                allow: [String] = [],
+                populate: (URL) throws -> Void) throws -> (status: Int32, stderr: String) {
+    let dir = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "arch-\(ProcessInfo.processInfo.globallyUniqueString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try populate(dir)
+    return try launchChecker(targetName: targetName,
+                             sourcesPath: dir.path(percentEncoded: false),
+                             allow: allow)
+}
+
+/// Runs the checker over a fixture directory holding one `Probe.swift`.
+func runChecker(targetName: String = "Geometry",
+                allow: [String] = [],
+                source: String) throws -> (status: Int32, stderr: String) {
+    try runChecker(targetName: targetName, allow: allow) { dir in
+        try source.write(to: dir.appending(path: "Probe.swift"), atomically: true, encoding: .utf8)
+    }
 }
 
 // MARK: - must be REJECTED
@@ -107,6 +130,55 @@ func rejectsImportSpelledUnusually(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
+/// `file:line:` is the contract. A `\` line continuation inside a `"""` literal
+/// must not swallow its newline, or every reported line after it drifts by one,
+/// compounding with each continuation.
+@Test func reportsAccurateLineNumberAfterStringLineContinuation() throws {
+    let source = "let s = \"\"\"\na \\\nb\n\"\"\"\nimport AppKit"   // import is on line 5
+    let result = try runChecker(source: source)
+    #expect(result.status == 1)
+    #expect(result.stderr.contains(":5: error:"),
+            "line number drifted: \(result.stderr)")
+}
+
+/// Separators Swift accepts between `import` and the module name that a
+/// space/tab/newline tokenizer does not. Each of these was verified to typecheck
+/// under `swiftc` with `public func probeUse() -> NSColor { NSColor.red }`
+/// appended — the module really is imported and its API resolves — while the
+/// checker exited 0. Form feed is the dangerous one: invisible in every diff
+/// viewer and on GitHub, and one `printf` to introduce.
+///
+/// The fix is not a longer separator list. Tokens are maximal *identifier* runs,
+/// so every separator closes at once, including U+00A0 and whatever comes next.
+@Test(arguments: [
+    "import\u{000C}AppKit",             // FORM FEED
+    "import\u{000B}AppKit",             // VERTICAL TAB
+    "\u{000C}import AppKit",            // leading FORM FEED
+    "public import\u{000C}AppKit",      // FORM FEED after the SE-0409 access level
+    "import\u{00A0}AppKit",             // NO-BREAK SPACE (found in this round)
+    "import\u{000D}AppKit",             // lone CARRIAGE RETURN
+    "@_spi(A)@_spi(B)import AppKit",    // `)` terminates a token in Swift, so no space is needed
+    "@available(macOS 26, *)\u{000C}import AppKit",
+])
+func rejectsImportBehindExoticSeparators(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 1, "should reject: \(source.debugDescription)")
+    #expect(!result.stderr.isEmpty)
+}
+
+/// Swift ends a `//` comment at a lone CR and compiles what follows. A scanner
+/// that only ends line comments at LF blanks the import — and everything else up
+/// to the next LF, so the blast radius is a whole line, not one token.
+///
+/// FF, VT, NEL, U+2028 and U+2029 do NOT end a Swift line comment (verified: the
+/// import stays commented out and `NSColor` does not resolve), so they must stay
+/// on the accepted side — see `acceptsLineCommentsThatDoNotEnd`.
+@Test func rejectsImportAfterCarriageReturnInLineComment() throws {
+    let result = try runChecker(source: "// note\u{000D}import AppKit")
+    #expect(result.status == 1)
+    #expect(result.stderr.contains("AppKit"))
+}
+
 // MARK: - must be ACCEPTED
 
 @Test(arguments: [
@@ -159,6 +231,143 @@ func acceptsLiteralsAndComments(_ source: String) throws {
 func acceptsNonImportsThatLookLikeImports(_ source: String) throws {
     let result = try runChecker(source: source)
     #expect(result.status == 0, "should accept: \(source)\nstderr: \(result.stderr)")
+}
+
+/// Characters that are NOT line terminators for Swift: a `//` comment runs
+/// straight through them, so the import stays commented out. Treating them as
+/// newlines would both false-positive here and drift every reported line number
+/// away from the compiler's.
+@Test(arguments: [
+    "// note\u{000C}import AppKit",     // FORM FEED
+    "// note\u{000B}import AppKit",     // VERTICAL TAB
+    "// note\u{0085}import AppKit",     // NEXT LINE
+    "// note\u{2028}import AppKit",     // LINE SEPARATOR
+    "// note\u{2029}import AppKit",     // PARAGRAPH SEPARATOR
+])
+func acceptsLineCommentsThatDoNotEnd(_ source: String) throws {
+    let result = try runChecker(source: source)
+    #expect(result.status == 0, "should accept: \(source.debugDescription)\nstderr: \(result.stderr)")
+}
+
+// MARK: - the allow-list is the manifest
+
+/// Direct declared edges only. The transitive closure would let `Framing` import
+/// `Timeline` and `Variants` import `Geometry` — undeclared edges that SwiftPM
+/// itself degrades to a warning on a warm `.build`, so nothing else catches them.
+@Test func rejectsTransitiveButUndeclaredEdge() throws {
+    let framing = try runChecker(targetName: "Framing", source: "import Timeline")
+    #expect(framing.status == 1, "Framing does not declare Timeline\nstderr: \(framing.stderr)")
+
+    let variants = try runChecker(targetName: "Variants", source: "import Geometry")
+    #expect(variants.status == 1, "Variants does not declare Geometry\nstderr: \(variants.stderr)")
+}
+
+/// Dependencies as declared in `Package.swift`, parsed from the manifest text so
+/// this test cannot drift away from it.
+func declaredDependencies(of module: String, inManifest manifest: String) throws -> Set<String> {
+    let declaration = try #require(
+        manifest.split(separator: "\n").first { $0.contains(".target(name: \"\(module)\"") },
+        "no .target declaration for \(module) in Package.swift")
+    guard let open = declaration.range(of: "dependencies: ["),
+          let close = declaration[open.upperBound...].firstIndex(of: "]") else { return [] }
+    return Set(declaration[open.upperBound..<close]
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"")) }
+        .filter { !$0.isEmpty })
+}
+
+/// Every sibling pair, checked against what the manifest actually declares. This
+/// is what stops the checker's fallback table from silently mirroring the wrong
+/// graph — in a real build the plugin passes the edges from PluginContext, so
+/// there is nothing to mirror at all.
+@Test func fallbackAllowListMatchesManifestEdges() throws {
+    let manifest = try String(contentsOf: repositoryRoot.appending(path: "Package.swift"),
+                              encoding: .utf8)
+    for module in libraryModules {
+        let declared = try declaredDependencies(of: module, inManifest: manifest)
+        for sibling in libraryModules where sibling != module {
+            let result = try runChecker(targetName: module, source: "import \(sibling)")
+            if declared.contains(sibling) {
+                #expect(result.status == 0,
+                        "\(module) declares \(sibling) but the checker rejected it\nstderr: \(result.stderr)")
+            } else {
+                #expect(result.status == 1,
+                        "\(module) does NOT declare \(sibling), but the checker allowed it")
+            }
+        }
+    }
+}
+
+/// What the plugin actually does: pass the declared edges on the command line.
+@Test func explicitAllowFlagsOverrideTheFallbackTable() throws {
+    let allowed = try runChecker(targetName: "Geometry", allow: ["Graph"], source: "import Graph")
+    #expect(allowed.status == 0, "stderr: \(allowed.stderr)")
+
+    let stillBanned = try runChecker(targetName: "Geometry", allow: ["Graph"], source: "import AppKit")
+    #expect(stillBanned.status == 1)
+
+    let foundationAlways = try runChecker(targetName: "Geometry", allow: ["Graph"],
+                                          source: "import Foundation")
+    #expect(foundationAlways.status == 0, "stderr: \(foundationAlways.stderr)")
+}
+
+/// Deleting `plugins: archCheck` from a target silently voids rule 1 for it —
+/// no build failure, no diagnostic. This is the phase's largest silent-void risk.
+@Test func everyLibraryTargetCarriesTheCheckerPlugin() throws {
+    let manifest = try String(contentsOf: repositoryRoot.appending(path: "Package.swift"),
+                              encoding: .utf8)
+    for module in libraryModules {
+        let declaration = try #require(
+            manifest.split(separator: "\n").first { $0.contains(".target(name: \"\(module)\"") },
+            "no .target declaration for \(module) in Package.swift")
+        #expect(declaration.contains("plugins: archCheck"),
+                "\(module) does not carry the ArchitectureCheck plugin — rule 1 is void for it. Line: \(declaration)")
+    }
+}
+
+// MARK: - unreadable must never mean compliant
+
+@Test func failsOnMissingSourcesDirectory() throws {
+    let missing = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "arch-absent-\(ProcessInfo.processInfo.globallyUniqueString)")
+    let result = try launchChecker(targetName: "Geometry",
+                                   sourcesPath: missing.path(percentEncoded: false))
+    #expect(result.status != 0, "a missing sources directory must not be a silent pass")
+    #expect(!result.stderr.isEmpty)
+}
+
+@Test func failsOnSourcesDirectoryWithNoSwiftFiles() throws {
+    let result = try runChecker { dir in
+        try "not swift".write(to: dir.appending(path: "README.md"),
+                              atomically: true, encoding: .utf8)
+    }
+    #expect(result.status != 0, "a vacuous pass is not a pass")
+    #expect(!result.stderr.isEmpty)
+}
+
+@Test func failsOnUndecodableSwiftFile() throws {
+    let result = try runChecker { dir in
+        // 0xFF can never appear in valid UTF-8.
+        try Data([0xFF, 0xFE, 0x00, 0xFF]).write(to: dir.appending(path: "Probe.swift"))
+    }
+    #expect(result.status != 0, "a file the checker cannot read is a file it cannot vouch for")
+    #expect(!result.stderr.isEmpty)
+}
+
+@Test func failsOnUnreadableSwiftFile() throws {
+    let result = try runChecker { dir in
+        let file = dir.appending(path: "Probe.swift")
+        try "import Foundation".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000],
+                                              ofItemAtPath: file.path(percentEncoded: false))
+    }
+    #expect(result.status != 0)
+    #expect(!result.stderr.isEmpty)
+}
+
+@Test func failsOnUnknownTargetWithNoAllowFlags() throws {
+    let result = try runChecker(targetName: "NotATarget", source: "import Foundation")
+    #expect(result.status == 2, "an unknown target must fail closed\nstderr: \(result.stderr)")
 }
 
 // MARK: - declared package edges
