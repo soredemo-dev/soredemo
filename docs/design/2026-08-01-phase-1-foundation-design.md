@@ -1,69 +1,16 @@
 # Phase 1 — Foundation: design
 
-*Brainstormed 1 August 2026. Covers `repo-skeleton`, `architecture-plugin`, `geometry`,
-`project-format`, `derivation-graph`.*
+*Covers `repo-skeleton`, `architecture-plugin`, `geometry`, `project-format`, `derivation-graph`.*
 
-Four decisions were taken deliberately with the project owner and are recorded in § Decisions. Five
-claims in existing documents were tested against the macOS 27 SDK and four of them are wrong; the
-corrections are in § Document corrections and land in the same commits as the code.
+Every SDK claim below was tested against the macOS 27 SDK (Xcode 27 beta 4, `27A5228h`, Swift 6.4)
+by compiling or building, not read from documentation. Findings that contradict an existing
+document are listed in § Document corrections and are fixed alongside the code that depends on them.
 
 ---
 
 ## SDK findings
 
-Probes run against `MacOSX27.0.sdk`, Xcode 27 beta 4 (`27A5228h`), Swift 6.4. Sources are the
-`.swiftinterface` declarations and two compiled probes, not documentation.
-
-### F1 — The Document API handles packages. `ARCHITECTURE.md § To verify` is resolved
-
-`ReadableDocument`/`WritableDocument` place no constraint on the shape of what is read or written:
-
-```swift
-public protocol DocumentReader<Snapshot> {
-  associatedtype Snapshot
-  associatedtype Source = Foundation.URL          // generic, merely defaults to URL
-  @concurrent func read(from source: sending Self.Source,
-                        progress: consuming Foundation.Subprogress) async throws -> sending Self.Snapshot
-}
-```
-
-A directory URL is a URL. With `UTType(exportedAs:conformingTo: .package)` the document *is* a
-directory, and a custom reader may read one small manifest and leave gigabytes of media untouched on
-disk. Verified by compiling `DocProbe.swift` (a `Document` over a directory URL) clean under
-`-swift-version 6 -strict-concurrency=complete -target arm64-apple-macos27.0`.
-
-**Consequence:** D5 stands unchanged. No hand-written package coordinator. The contingency named in
-`KICKOFF.md` ("if the answer is single-file only, `project-format` needs a hand-written package
-coordinator and that changes the row") does not fire.
-
-**Unanticipated bonus:** `write(snapshot:to:previous:progress:)` supplies the *previous* snapshot.
-Incremental save is a first-class affordance of the API rather than something to build.
-
-### F2 — The document protocols are SwiftUI types, so `SoredemoCore` cannot use them
-
-```
-SwiftUI.framework/…/SwiftUI.swiftinterface:1812   public protocol ReadableDocument : AnyObject
-SwiftUI.framework/…/SwiftUI.swiftinterface:1822   public protocol WritableDocument : AnyObject
-```
-
-They are not in Foundation. Under D6 the package cannot import SwiftUI, so the `project-format` row
-spans the package/app boundary. See § Project format for the split.
-
-### F3 — `DocumentCreationSource` is unavailable on macOS
-
-```swift
-public struct DocumentCreationSource : Sendable, Hashable {
-  @available(macOS, unavailable)  public init(id: String)
-}
-@available(macOS, unavailable)  extension NewDocumentButton { … }
-```
-
-Unconstructible on macOS, and its only consumer is entirely macOS-unavailable — it is an
-iOS/visionOS affordance. `URLDocumentConfiguration.creationSource` compiles on macOS but is
-permanently `nil`. The three entry points (new from recording, new from release, new empty) are
-built by hand.
-
-### F4 — SwiftPM does **not** restrict system-framework imports
+### F1 — SwiftPM does **not** restrict system-framework imports
 
 A target with zero declared dependencies, importing `AppKit` and `ScreenCaptureKit` and calling
 `NSColor.red`, builds successfully:
@@ -74,214 +21,325 @@ Build complete! (10.01秒)
 ```
 
 Everything in the SDK is importable from any target. `ARCHITECTURE.md` D6 mechanism 1 and
-`AGENTS.md` architecture rule 1 both claim the compiler enforces the Foundation-only rule. It does
-not. **`Plugins/ArchitectureCheck` is the primary enforcement of D6, not a supplement to it.**
+`AGENTS.md` architecture rule 1 both credit the compiler with enforcing the Foundation-only rule.
+It does not. **`Plugins/ArchitectureCheck` is the primary enforcement of D6, not a supplement.**
 
-### F5 — `.macOS(.v27)` requires `swift-tools-version: 6.4`
+### F2 — SwiftPM **does** enforce edges between package targets
 
-Under tools version 6.2 the manifest fails with `error: 'v27' is unavailable` /
-`note: 'v27' was introduced in PackageDescription 6.4`.
+Adding `import Graph` to the `Geometry` leaf fails:
+
+```
+error: module dependency cycle: 'Geometry (Source Target) -> Graph.swiftmodule -> Geometry.swiftmodule'
+error: Build failed
+```
+
+An undeclared import that is not also cyclic fails as `unable to resolve module dependency`.
+
+**But only on a clean build.** Measured on this repository:
+
+| | Result |
+| --- | --- |
+| `swift build` with a warm `.build` | `warning: 'Geometry' is missing a dependency on 'Graph'` → **Build complete!**, exit 0 |
+| `swift build` after `rm -rf .build` | `error: unable to resolve module dependency: 'Graph'` → build fails |
+
+Stale module artifacts leave the undeclared module visible, and the diagnostic degrades from error to
+warning. `.treatAllWarnings(as: .error)` does **not** close this — the warning is emitted by the
+dependency scanner rather than the compiler frontend, so warnings-as-errors never sees it. Verified.
+
+Two consequences:
+
+1. **Any verification of a dependency edge must clean first.** A warm `swift build` reports a false
+   green, which is the failure mode this document's verification rule exists to catch — and it is
+   how the very first task nearly recorded a passing check it had not observed.
+2. **`ArchitectureCheck` rule 1 is stronger than SwiftPM here, not merely complementary.** The
+   plugin reads source text and runs on every build, so it rejects `import Graph` in `Geometry`
+   incrementally, where SwiftPM only warns. The contrast with F1 still holds — SwiftPM polices
+   nothing about system frameworks — but the plugin also covers this incremental gap in the edges
+   SwiftPM does police.
+
+### F3 — The macOS 27 `Document` protocol handles packages, but is unavailable at our floor
+
+`DocumentReader.Source` and `DocumentWriter.Destination` are generic associated types merely
+defaulting to `URL`, so a directory URL works and a reader may read one small manifest while leaving
+gigabytes on disk. Verified by compiling such a `Document` clean under `-swift-version 6
+-strict-concurrency=complete -target arm64-apple-macos27.0`.
+
+But the protocols live in **SwiftUI**, not Foundation:
+
+```
+SwiftUI.swiftinterface:1812   public protocol ReadableDocument : AnyObject
+SwiftUI.swiftinterface:1822   public protocol WritableDocument : AnyObject
+```
+
+and they are `@available(macOS 27, *)`. At a macOS 26 floor (D2) they are unusable. `KICKOFF.md`
+anticipated this branch: *"if the answer is single-file only, `project-format` needs a hand-written
+package coordinator and that changes the row."* It fires for a different reason than anticipated —
+the target floor, not the API's capability — but the consequence is the one predicted.
+
+Also recorded, now moot: `DocumentCreationSource.init(id:)` is `@available(macOS, unavailable)`, as
+is its only consumer `NewDocumentButton`. `ARCHITECTURE.md` D5 claims it maps onto the entry points;
+on macOS it cannot.
+
+### F4 — `NSDocument` satisfies the storage design on macOS 26
+
+The replacement was verified, not assumed. This compiles clean under `-swift-version 6
+-strict-concurrency=complete -target arm64-apple-macos26.0`:
+
+- `read(from url: URL, ofType:)` receives the package **directory** and decodes `project.json`
+  alone; media is never touched.
+- `writeSafely(to:ofType:for:)` is overridden to bypass `NSDocument`'s whole-package copy and
+  atomically replace only the manifest.
+
+**Cost, recorded up front rather than discovered later:** `NSDocument`'s `read` and `writeSafely`
+are **nonisolated**. Marking them `@MainActor` is a hard compile error —
+`main actor-isolated instance method 'read(from:ofType:)' has different actor isolation from
+nonisolated overridden declaration`. Document state therefore needs explicit synchronisation; the
+probe used a `Mutex`. The macOS 27 protocol avoided this by making `snapshot(contentType:)`
+`@MainActor` and handing a `sending` value to a `@concurrent` writer. This is an ongoing tax, not a
+one-off.
+
+### F5 — Everything else Phase 2–5 needs is available on macOS 26
+
+| API | Introduced |
+| --- | --- |
+| `SCContentSharingPicker` | `macos(14.0)` |
+| `SCRecordingOutput` | `macos(15.0)` |
+| `SpeechAnalyzer`, `SpeechTranscriber`, `AssetInventory` | `anyAppleOS 26` |
+| `NavigationSplitView` | `macOS 13.0` |
+| `CGEvent.tapCreate`, `AXUIElement`, `CMClock`, `CADisplayLink` | long-standing |
+
+`Speech.swiftinterface` contains **no `26.x` point-release gate** — every annotation is
+`anyAppleOS 26`, `anyAppleOS 27`, `macOS 14` or `macOS 15`. So a **26.0** floor is safe and covers
+26.0–26.4 users at no cost.
+
+### F6 — Manifest facts
+
+- `.strictConcurrency` is **not** a `SwiftSetting`: `error: type 'SwiftSetting' has no member
+  'strictConcurrency'`. The correct spelling is `.swiftLanguageMode(.v6)`, which implies complete
+  concurrency checking. `.strictMemorySafety()` is available and also enabled.
+- **`swift-tools-version: 6.3`, not 6.4.** 6.4 is required only for `.macOS(.v27)`, which this
+  design no longer targets, so it buys nothing — and it costs compatibility with the Xcode the
+  project is actually opened in. Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest outright
+  (`unexpectedly did not find the new dependency in the package graph`), while the command line
+  points at Xcode-beta 27 and never showed it. Verified: tools 6.3 builds under **both** toolchains,
+  and `.macOS(.v26)`, `.swiftLanguageMode(.v6)` and `.strictMemorySafety()` all survive at 6.3.
+
+  The general shape is the one this document keeps running into: a check that only exercises one of
+  two environments. `swift build` was green throughout while the environment the owner uses could
+  not read the manifest at all.
+
+### F7 — Link-time symbols are exact for determinism checking
+
+A module calling `Date()`, `UUID()` and `Int.random(in:)` emits these undefined symbols:
+
+```
+_$s10Foundation4DateVACycfC                      Foundation.Date.init()
+_$s10Foundation4UUIDVACycfC                      Foundation.UUID.init()
+_$ss17FixedWidthIntegerPsE6random2inxSnyxG_tFZ   FixedWidthInteger.random(in:)
+```
+
+Every syntactic evasion — interpolation, raw strings, `Date .init()`, whitespace, computed
+indirection — collapses into the same mangled symbol. This is the correct mechanism for the
+determinism rule; text scanning is a proxy for a semantic question, which is why it leaks.
+
+### F8 — `PBXFileSystemSynchronizedRootGroup` picks up subfolders
+
+The app project (`objectVersion 77`) uses Xcode's synchronised folders. Moving sources into
+`App/`, `UI/`, `Resources/` and adding new subfolders builds with **zero** `project.pbxproj` edits —
+verified by performing exactly that move on a copy and building successfully.
+
+Corollary, learned the hard way: hand-editing `project.pbxproj` to add an
+`XCLocalSwiftPackageReference` fails. At `objectVersion 110` the project became unreadable
+(`Unable to read project`); at `objectVersion 77` it parses but the module still does not resolve.
+**Package dependencies are added in Xcode, not by editing the file.**
 
 ---
 
 ## Decisions
 
+### D-P0 — Repository layout
+
+Directory conventions follow `../opensource/a native editor`; its **module structure is explicitly
+not adopted** (see D-P1).
+
+**Why the package sits at the root is not "because a native editor does".** a native editor's manifest is at its
+root because that package *is* the application — there is no app target to coexist with, so the
+question never arises there and the reason does not transfer. The actual benefit here is smaller and
+real: `swift build` and `swift test` run at the repository root with no `cd`, which is where every
+command in the plan and every CI invocation starts. That is worth having; the resemblance to a native editor
+is not an argument.
+
+The cost is that `Sources/` at the root does not, by itself, say which code is the pure package and
+which is the app. `Soredemo/` versus `Sources/` carries that distinction by name only — the
+enforcement is D-P1's target boundaries, not the directory layout.
+
+```
+soredemo-main/
+├── Package.swift              SoredemoCore · swift-tools-version: 6.4 · .macOS(.v26)
+├── Sources/{Geometry,Timeline,Graph,Framing,Variants,Project}/
+├── Tests/{Geometry,Timeline,Graph,Framing,Variants,Project}Tests/
+├── Plugins/ArchitectureCheck/
+├── Metal/                     .metal sources, outside the Swift tree (Phase 2 render-core)
+├── scripts/                   entitlements, bundle/release scripts (Phase 7)
+├── docs/  assets/             assets/ is the renamed soredemo-brand-kit/
+├── Soredemo.xcodeproj         app · objectVersion 77 · committed source of truth
+└── Soredemo/{App,UI,Capture,Resources}/
+```
+
+Work happens on a branch **in the main checkout**, not a git worktree. A worktree under
+`.claude/worktrees/` put the project at a hidden path while the owner worked interactively in
+Xcode; the result was the wrong copy being opened and files landing in the wrong checkout twice.
+One directory, one project, no ambiguity. `main` stays untouched as the rollback point.
+
+*Rejected:* the app project nested at `Soredemo/Soredemo.xcodeproj` — an extra level, and paths like
+`Soredemo/Soredemo/UI/`.
+*Rejected:* XcodeGen generating the project from `project.yml` — the hand-made project already
+carries `DEVELOPMENT_TEAM`, App Sandbox, Hardened Runtime and the real bundle identifier, which is
+what Phase 7 needs, and `PBXFileSystemSynchronizedRootGroup` already provides the source-list
+automation XcodeGen was wanted for (F8).
+
 ### D-P1 — One package, six modules
 
-One `Package.swift`; six library targets whose SwiftPM dependency edges make the module map in
-`ARCHITECTURE.md` a compile error rather than a naming convention.
+Six library targets whose SwiftPM dependency edges make `ARCHITECTURE.md`'s module map a compile
+error rather than a naming convention (F2):
 
 ```
-Geometry    ─ no dependencies (leaf)
-Timeline    ─ no dependencies (leaf)
-Graph       ← Geometry, Timeline
-Framing     ← Graph, Geometry
-Variants    ← Framing, Timeline
-Project     ← Graph, Geometry, Timeline
+Geometry ─ no dependencies        Timeline ─ no dependencies
+Graph    ← Geometry, Timeline     Framing  ← Graph, Geometry
+Variants ← Framing, Timeline      Project  ← Graph, Geometry, Timeline
 ```
 
-`Graph` depends on `Timeline` because `EvidenceRef.sourceInterval` cites a time range: a citation
-that cannot name *when* in the recording it came from is not much of a citation.
+`Graph` depends on `Timeline` because `EvidenceRef.sourceInterval` cites a time range. `Timeline` is
+a second leaf: it maps integer nanoseconds between source, camera and output timebases, and nothing
+in that is spatial. `Framing` and `Variants` are where space and time meet, and both already depend
+on each side.
 
-**`Timeline` is a second leaf.** It maps integer nanoseconds between source, camera, and output
-timebases; nothing in that is spatial, so it needs nothing from `Geometry`. An edge with no reason
-is one the next person will use for something unrelated, and this is the cheapest moment to leave it
-out. `Framing` and `Variants` are where space and time meet, and both already depend on each side.
+`Framing` and `Variants` are empty in Phase 1; they exist to fix the dependency direction before
+there is code to tangle.
 
-*Rejected:* one module — folders would be cosmetic and every internal boundary would rest on review.
-*Rejected:* several packages — nothing here ships separately; it buys manifests and resolution cost.
-*Rejected:* split later — boundaries drawn after the coupling exists are boundaries drawn too late.
+**Module names must not collide with the type names inside them.** `Timeline`, `Graph` and `Project`
+are all names one would naturally give the main type in that module, and Swift cannot disambiguate
+`Timeline.foo` between the module and the type — the workaround is writing `Timeline.Timeline`,
+which then spreads. Renaming is free now and expensive later, so the principal types are named for
+what they are rather than for their module: `Timeline` holds `Nanoseconds` and `TimeRange`, `Graph`
+holds `Derived` and `Derivation`, `Project` holds `ProjectSnapshot`. No type may share its module's
+name.
 
-`Framing` and `Variants` are empty in Phase 1. They exist to fix the dependency direction before
-there is code to tangle. Each has a test target asserting only that it builds.
+**a native editor's shape is the counter-example, not the model.** It is one executable target whose 26
+subfolders carry no compile-time boundary. Folders would be cosmetic and every internal boundary
+would rest on review.
+
+*Rejected:* one module — see above. *Rejected:* several packages — nothing here ships separately.
+*Rejected:* splitting later — boundaries drawn after the coupling exists are drawn too late.
 
 ### D-P2 — `GeometryRevision` is a stable content digest, with a registry in the document
 
-Identity is *the geometry*, not the event. Same display configuration yields the same revision, in
-any session.
-
-`DisplayGeometry` holds **intrinsic** geometry only — what the panel is, not where it sits. Extrinsic
-arrangement is modelled separately and deliberately excluded from the digest; see § Display identity
-and arrangement for why both halves of that sentence are load-bearing.
+Identity is *the geometry*, not the event, so the same display configuration yields the same
+revision in any session.
 
 ```swift
 public struct GeometryRevision: Hashable, Codable, Sendable { public let id: UInt64 }
 
 public struct DisplayGeometry: Hashable, Codable, Sendable {
-    public let displayUUID: UUID        // persistent, NOT CGDirectDisplayID
+    public let displayUUID: UUID        // persistent — NOT CGDirectDisplayID
     public let pixelWidth: Int, pixelHeight: Int
     public let scale: Double            // finite, > 0; digested as .bitPattern
     public var revision: GeometryRevision { GeometryRevision(id: fnv1a64(canonicalBytes)) }
 }
-
-public struct GeometryRegistry: Codable, Sendable {
-    public var entries: [GeometryRevision: DisplayGeometry]
-    public var firstObserved: [GeometryRevision: Int64]   // ordering, kept out of identity
-
-    /// FNV-1a is 64-bit and non-cryptographic. Collisions are vanishingly unlikely across the
-    /// handful of configurations one document sees, but they are *detectable* here, and a silent
-    /// collision means two different geometries compare equal — the exact failure D3 names.
-    public mutating func insert(_ geometry: DisplayGeometry, observedAt: Int64) {
-        let revision = geometry.revision
-        if let existing = entries[revision] {
-            precondition(existing == geometry,
-                "geometry revision collision: \(existing) vs \(geometry)")
-            return
-        }
-        entries[revision] = geometry
-        firstObserved[revision] = observedAt
-    }
-}
 ```
 
-Two properties this buys:
-
-- **No false traps.** A display that changes and changes back restores comparability, because the
-  geometry genuinely is the same. A counter would produce revisions 0 and 2 over identical geometry
-  and trap on a legitimately comparable pair — a crash for no reason.
-- **Merges are safe.** `selective-rerecord` (Phase 4) puts footage from two sessions in one document.
-  Per-session counters both start at 0 and collide silently, which is precisely the "lands a zoom on
-  the wrong control with no error anywhere" failure D3 names.
-
-**The digest must not be `Hashable.hashValue`.** Swift's `Hasher` is randomly seeded per process, so
-a persisted `hashValue` will not match the same geometry on reopen. FNV-1a over a canonical
-little-endian encoding of the fields, written by us and covered by a test that pins known input to
-known output.
-
-`scale` is a `Double`, so its canonical encoding is `scale.bitPattern` — exact and deterministic,
-where a decimal rendering is neither. A precondition rejects non-finite or non-positive scale on
-construction, which removes the `NaN`/`-0.0` cases that would otherwise make the digest ill-defined.
-
-Pixel dimensions appear only inside `DisplayGeometry` and the registry, honouring D3's rule that
-nothing in between speaks in pixels.
-
-*Rejected:* monotonic session counter — collides on merge, false-traps on flip-back.
-*Rejected:* UUID per epoch — merges safely but still false-traps, and is opaque in a log.
-*Rejected:* inline self-describing geometry in every frame — no registry lookup and a maximally
-informative trap message, but it puts pixel values in the type that crosses module boundaries and
-costs ~16 bytes across millions of observation records.
-
-#### Display identity and arrangement
-
-Two mistakes here would each reintroduce exactly the false trap D-P2 exists to eliminate.
+Two properties this buys: a display that changes and changes back restores comparability, because
+the geometry genuinely is the same; and two sessions that shared a display agree without
+coordination, which `selective-rerecord` (Phase 4) needs.
 
 **`CGDirectDisplayID` must not enter the digest.** It is assigned dynamically by the window server
-and is not stable across reboot or unplug/replug. Using it would make the decision's own
-justification false: record on Monday, reboot, record on Tuesday with the same monitor at the same
-resolution, and `selective-rerecord` (Phase 4) puts both in one document with two different
-revisions for identical geometry — a precondition failure on a genuinely comparable pair. The
-persistent identity is `CGDisplayCreateUUIDFromDisplayID` (`ColorSyncDevice.h:233` in the macOS 27
-SDK, with `CGDisplayGetDisplayIDFromUUID` for the reverse). It vends a `CFUUIDRef`, bridged to a
-Foundation `UUID`, so D6 is untouched: the app target performs the lookup and passes a plain value
-into the package.
+and is not stable across reboot or replug. Using it would make this decision's own justification
+false: record Monday, reboot, record Tuesday on the same monitor at the same resolution, and one
+document holds two revisions for identical geometry — a precondition failure on a genuinely
+comparable pair, which is the exact failure a counter scheme was rejected for. The persistent
+identity is `CGDisplayCreateUUIDFromDisplayID` (`ColorSyncDevice.h:233`), bridged to a Foundation
+`UUID`, looked up in the app and passed in as a plain value.
 
-Display identity stays in the digest rather than being dropped. Two identical monitors side by side
-would otherwise collapse to one revision, and "40% across *a* display" is not a comparable
-coordinate when there are two of them.
+Display identity stays *in* the digest: two identical monitors side by side would otherwise collapse
+to one revision, and "40% across *a* display" is not a comparable coordinate when there are two.
 
-**Global arrangement must stay out of the digest.** `CGEventGetLocation` returns coordinates in the
-global space spanning every display, so routing a click to the display it landed on requires each
-display's global origin — which `DisplayGeometry` deliberately does not have. Putting it there would
-be worse than the omission: `CGDisplayBounds` origins shift when the arrangement changes, and
-promoting a different display to main re-bases the entire global space, so rearranging display B
-would silently change display A's revision and invalidate footage that nothing about display A had
-altered.
-
-So the two are separated by lifetime, and only the intrinsic half is digested:
+**Global arrangement must stay out.** `CGEventGetLocation` returns coordinates spanning every
+display, so routing a click requires each display's global origin — which `DisplayGeometry`
+deliberately lacks. Digesting it would be worse than omitting it: `CGDisplayBounds` origins shift
+when the arrangement changes, and promoting a different display to main re-bases the whole global
+space, so rearranging display B would silently invalidate footage from display A.
 
 ```swift
-/// Intrinsic. Digested. Changes only when the panel or its mode changes.
-public struct DisplayGeometry: Hashable, Codable, Sendable { … }
-
-/// Extrinsic. NOT digested, NOT part of any revision. Used at capture entry only,
-/// to route a global point to the display that contains it.
+/// Extrinsic. NOT digested. Used at capture entry only, to route a global point to its display.
 public struct DisplayArrangement: Sendable {
     public struct Placement: Sendable {
         public let geometry: DisplayGeometry
         public let globalOriginX, globalOriginY: Double   // top-left, global space
     }
     public let placements: [Placement]
-
-    /// Returns the containing display and the point re-expressed in that display's
-    /// own top-left pixel space. nil when the point lies on no display.
     public func route(globalTopLeftX: Double, globalTopLeftY: Double)
         -> (geometry: DisplayGeometry, localX: Double, localY: Double)?
 }
 ```
 
-`NormalizationContext.normalize(topLeftX:topLeftY:…)` therefore takes **display-local** top-left
-pixels, never global ones — the ambiguity that would otherwise compute a plausible, wrong answer in
-silence. Routing happens once, at capture entry, immediately before normalisation. A test asserts
-that a click on a secondary display normalises against that display's geometry and not the main
-display's.
+**The digest must not be `Hashable.hashValue`** — Swift's `Hasher` is randomly seeded per process,
+so a persisted `hashValue` will not match the same geometry on reopen. FNV-1a over a canonical
+little-endian encoding, with `scale` digested as `.bitPattern` (exact, where a decimal rendering is
+not) and a precondition rejecting non-finite or non-positive scale.
+
+`GeometryRegistry` checks the same invariant in two places, with two different failure modes,
+because the inputs differ in kind:
+
+- **`insert` traps.** A collision reached during merge is a programmer error — a 64-bit
+  non-cryptographic digest mapping two distinct geometries to one revision would make them compare
+  **equal**, which is the silent direction, and it is detectable exactly there.
+- **`init(from:)` throws.** A registry decoded from disk is *input*, not program state. A file that
+  has been corrupted, hand-edited, or written by a future version must not crash the app on open.
+  Decoding validates `key == recompute(value).revision` and throws on mismatch.
+
+Trapping on untrusted input is how a bad file becomes an unopenable document.
+
+*Rejected:* monotonic session counter — collides on merge, false-traps on flip-back.
+*Rejected:* UUID per epoch — merges safely but still false-traps, and is opaque in a log.
+*Rejected:* inline self-describing geometry in every frame — costs ~16 bytes across millions of
+observation records and puts pixel values in the type that crosses module boundaries.
 
 ### D-P3 — Package document, immutable media, atomic manifest
 
 ```
 MyDemo.soredemo/                 UTType(exportedAs:conformingTo: .package)
 ├─ project.json                  small · atomically replaced on save
-├─ media/
-│   ├─ master-01H….mov           write-once, never mutated
-│   └─ mic-01H….caf              write-once, never mutated
-└─ observations/
-    └─ log-01H….jsonl            append-only
+├─ media/…                       write-once, never mutated
+└─ observations/…jsonl           append-only
 ```
 
-`ARCHITECTURE.md` D5 says "atomic writes" without addressing that the package holds gigabytes. The
-textbook temp-directory-and-rename copies every byte on every save. Instead: **media sidecars are
-written once under unique names and never mutated**, so the only thing a save must make atomic is
-the small manifest, via `replaceItemAt`. Saves stay in milliseconds regardless of footage size and
-work on any filesystem, including a non-APFS external drive.
+`ARCHITECTURE.md` D5 says "atomic writes" without addressing gigabytes. The textbook
+temp-directory-and-rename copies every byte on every save. Instead **media sidecars are written once
+under unique names and never mutated**, so the only thing a save must make atomic is the small
+manifest, via `replaceItemAt`. Saves stay in milliseconds regardless of footage size and work on any
+filesystem. Unreferenced sidecars are swept on an explicit compact, never as a side effect of
+saving — a save must not be able to delete media.
 
-The `previous` snapshot (F1) identifies sidecars that became unreferenced. They are swept on an
-explicit compact operation, never as a side effect of saving — a save must not be able to delete
-media.
+**Atomicity is not durability, and we are choosing atomicity.** `replaceItemAt` guarantees a reader
+sees the old manifest or the new one, never a torn one; it does not guarantee the bytes reached the
+platter, which needs `fcntl(F_FULLFSYNC)`. Losing one save's edit state to a power cut is acceptable
+— the media is already durable because it was written and closed. Recorded as a decision, not an
+omission.
 
-**Atomicity is not durability, and we are choosing atomicity.** `replaceItemAt` guarantees the
-rename is atomic — a reader sees the old manifest or the new one, never a torn one. It does *not*
-guarantee the bytes reached the platter: macOS `fsync` may leave data in the drive's write cache,
-and only `fcntl(F_FULLFSYNC)` forces it out. So a power cut milliseconds after a save can lose that
-save while leaving the previous manifest intact and valid.
+**Append-only logs need a truncated-tail rule.** A crash leaves a partial final line; the reader
+discards it and reports how many bytes it dropped. Silence would turn a crash into a quietly
+shortened observation log, and a log short by one record is a derivation that is wrong with no
+diagnostic.
 
-For a video editor that trade is acceptable: the cost of losing it is one save's worth of edit
-state, the media itself is already durable because it was written once and closed, and
-`F_FULLFSYNC` on every autosave is a visible stall. **Recorded as a decision, not an omission** —
-if a later phase makes a save expensive to lose, `F_FULLFSYNC` goes in front of the rename and the
-cost is understood.
+Because of F3/F4 the coordinator is hand-written over `NSDocument` rather than the macOS 27
+protocol. The storage layout above is unaffected — it rests on `replaceItemAt`, which is Foundation.
+What is lost is the newer API's incidental gift of a `previous` snapshot; the derivation graph
+reconstructs that information itself.
 
-**Append-only logs need a truncated-tail rule.** A crash mid-write leaves `observations/*.jsonl`
-with a partial final line. The reader discards an incomplete trailing line and reports how many
-bytes it dropped; it does not error, and it does not attempt repair. Silence here would turn a
-crash into a quietly shortened observation log, and a log that is short by one record is a
-derivation that is wrong with no diagnostic. A test appends a truncated line and asserts both the
-discard and the report.
-
-*Rejected:* APFS `clonefile` + `renamex_np(RENAME_SWAP)` — genuinely cheap whole-package atomicity
-on APFS, but needs a full byte-copy fallback for exFAT/SMB, which is the cost being avoided.
-*Rejected:* full temp copy — correct everywhere, unusable at this data size.
-*Rejected:* single file with embedded media — AVFoundation needs a file URL to stream from, so
-embedding means extracting on every open.
-*Rejected:* single file plus sibling media folder — the "media offline" bug by construction.
+*Rejected:* APFS `clonefile` + `renamex_np(RENAME_SWAP)` — cheap whole-package atomicity on APFS,
+but needs a full byte-copy fallback for exFAT/SMB. *Rejected:* full temp copy — unusable at this
+data size. *Rejected:* single file with embedded media — AVFoundation needs a file URL to stream
+from. *Rejected:* single file plus sibling media folder — the "media offline" bug by construction.
 
 ### D-P4 — Citation is a field of the value's type
 
@@ -291,144 +349,76 @@ public struct Derived<Value: Codable & Hashable & Sendable>: Codable, Hashable, 
     public let origin: Origin
     public var review: ReviewState
 
-    /// Canonical bytes an approval is bound to: `value` + `origin`, never `review`.
-    /// Approving mutates `review`; if the bound digest covered it, the act of approving
-    /// would invalidate the approval it just recorded. Phase 8's `approval-gate` reads this,
-    /// but the definition belongs here, where the fields are declared.
-    ///
-    /// The package emits the bytes and the app hashes them, per § Two digests — so this is
-    /// `Data`, not a `ContentDigest`.
+    /// Canonical bytes an approval binds to: value + origin, never review.
     public var approvalBytes: Data { get }
+
+    /// The only way a producer may write a result.
+    public func applyingProduced(_ produced: Derived<Value>) -> Derived<Value>
 }
 
 public enum Origin: Codable, Hashable, Sendable {
     case generated(Derivation)      // cannot be spelled without evidence
-    case authored(Authorship)       // human; wins, always; carries no Derivation
+    case authored(Authorship)       // human; wins, always
 }
 
 public struct Derivation: Codable, Hashable, Sendable {
-    public let producer: ProducerID          // stable code, e.g. "framing.target"
+    public let producer: ProducerID
     public let producerVersion: Int
-    public let evidence: Evidence            // non-empty by construction — see below
+    public let evidence: Evidence            // non-empty by construction
     public let outcome: Outcome              // .accepted | .rejected(GateCode)
-}
-
-/// A citation with no evidence is not a citation. `[EvidenceRef]` permits `[]`, so the
-/// non-empty guarantee needs a type that cannot represent emptiness. Defined below.
-
-public struct EvidenceRef: Codable, Hashable, Sendable {
-    public let kind: EvidenceKind            // .observation | .transcript | .release
-    public let id: EvidenceID
-    public let contentDigest: ContentDigest  // evidence as cited → staleness AND approval
-    public let sourceInterval: TimeRange?    // for written-steps citing its interval
 }
 ```
 
-#### Two digests, deliberately not the same primitive
+**`Evidence` is a non-empty collection.** `[EvidenceRef]` permits `[]`, which would make "an uncited
+generated value is unrepresentable" false. It stores `head` plus `tail`, encodes as a flat JSON
+array and rejects an empty one on decode, so the guarantee survives disk. The stored property is
+`head`, not `first`: a property named `first` shadows `Collection.first` and resolves as
+`EvidenceRef` concretely but `EvidenceRef?` through a generic context, with no diagnostic either way
+— verified by compiling both paths. It also needs an array initialiser, since Swift cannot splat an
+array into a variadic and Phase 3's producers hold `[EvidenceRef]`.
 
-`GeometryRevision` and `EvidenceRef` both "hash content", and that resemblance is a trap. They have
-different threat models:
+**Two digests, deliberately not the same primitive.**
 
 | | `GeometryRevision` | `ContentDigest` |
 | --- | --- | --- |
 | Purpose | identity, registry lookup | staleness **and** `approval-gate` binding |
-| Adversary | none — inputs are the window server's | external text, attacker-controllable per `agentic-threat-model` |
-| Primitive | FNV-1a, 64-bit, non-cryptographic | SHA-256, 32 bytes, opaque |
-| Computed by | `SoredemoCore` (pure, deterministic) | the **app target**, via CryptoKit |
+| Adversary | none | external text, attacker-controllable |
+| Primitive | FNV-1a, 64-bit | SHA-256, 32 bytes, opaque |
+| Computed by | `SoredemoCore` | the **app**, via CryptoKit |
 
-A 64-bit non-cryptographic digest on the evidence path would be a real hole rather than a
-theoretical one: Phase 8's `approval-gate` binds per-post human approval to a content hash, and
-`ARCHITECTURE.md` § Agentic security states that release notes and PR titles are attacker-controlled
-on a repository accepting contributions. FNV-1a collisions can be constructed to order, so an
-approval could be bound to reviewed text and redeemed against substituted text.
-
-```swift
-/// Opaque. SoredemoCore compares digests; it never computes one.
-public struct ContentDigest: Hashable, Codable, Sendable {
-    public let bytes: Data                   // 32, validated on decode
-    public init(validating: Data) throws
-}
-```
-
-The package cannot compute SHA-256 without either importing CryptoKit (violating D6) or
-hand-rolling a hash function, which is the wrong way to obtain one. So the digest is **injected**:
-whoever produces the evidence computes it and passes the value in. That matches how time and
-randomness are handled (§ Determinism), and it keeps `SoredemoCore` a pure comparator.
-
-The two are also kept apart by name — `fnv1a64` is internal to `Geometry` and is not visible to
+Phase 8's `approval-gate` binds per-post human approval to a content hash, over input
+`ARCHITECTURE.md § Agentic security` designates attacker-controlled. FNV-1a collisions can be
+constructed to order, so an approval could be bound to reviewed text and redeemed against
+substituted text. The package **compares** digests and never computes one — computing SHA-256 there
+would need CryptoKit (violating D6) or a hand-rolled hash. The digest is injected, the same shape as
+time and randomness (§ Determinism). `fnv1a64` stays internal to `Geometry` and is not visible to
 `Graph`, so there is no route by which the identity hash reaches the evidence path.
 
-#### `Evidence`: a non-empty collection that behaves
+**`approvalBytes` covers `value` + `origin`, never `review`.** Approving mutates `review`; a digest
+over it would invalidate the approval it just recorded. The package emits canonical bytes and the
+app hashes them.
 
-```swift
-public struct Evidence: Codable, Hashable, Sendable, RandomAccessCollection {
-    public let head: EvidenceRef             // NOT `first` — see below
-    public let tail: [EvidenceRef]
-
-    public init(_ head: EvidenceRef, _ tail: [EvidenceRef] = [])
-    /// Phase 3's framing producers hold `[EvidenceRef]`; Swift cannot splat an array
-    /// into a variadic parameter, so an array entry point is required, not optional.
-    public init?(_ refs: [EvidenceRef])      // nil on empty
-}
-```
-
-Naming the stored property `first` compiles but resolves differently by path, which was verified
-rather than assumed:
-
-```
-viaConcrete(e) → Ref              // the stored property shadows Collection.first
-viaGeneric(e)  → Optional<Ref>    // the protocol requirement, through a generic context
-```
-
-No warning, no error, and a type that changes with how the value is reached. `head` avoids it.
-
-`Evidence` encodes as a flat JSON array and decodes by rejecting an empty one, so the guarantee
-survives a round-trip through disk and is not merely an in-memory invariant.
-
-An uncited generated value is therefore **unrepresentable**. Phase 6's `evaluations-harness` then
-asserts a property the type system already guarantees, and the `agentic-threat-model` requirement —
-that injected text cannot manufacture an approvable claim — has a structural floor rather than a
-validator someone might forget to call.
-
-**What the type system does not do.** It guarantees that anything generated cites evidence. It does
-*not* by itself stop a producer replacing an `.authored` value wholesale, because a producer that
-writes a fresh `Derived` overwrites whatever was there. The producer-value rule therefore needs one
-enforced write path:
-
-```swift
-extension Derived {
-    /// The only way a producer may write a result. Authored values are returned untouched.
-    public func applyingProduced(_ produced: Derived<Value>) -> Derived<Value> {
-        if case .authored = origin { return self }      // authored always wins
-        return produced
-    }
-}
-```
-
-Producers never assign to a `Derived` directly; `ArchitectureCheck` rule 7 arrives in Phase 3 to
-enforce that `applyingProduced` is the sole writer. In Phase 1 the rule is carried by the
-producer-value tests, which is the bar `KICKOFF.md` sets for this row.
-
-`Derivation.outcome` carries rejections as first-class citations, which is what `framing-gates`
-(Phase 3) and `explain_framing` (Phase 6) read.
+**The producer-value rule needs one enforced write path.** The type system guarantees that anything
+generated cites evidence; it does not by itself stop a producer replacing an `.authored` value
+wholesale. `applyingProduced` returns authored values untouched, and producers never assign to a
+`Derived` directly.
 
 **Reverse index.** "What depended on observation X" — needed by `text-based-editing` to invalidate
-exactly the dependent beats — is computed from the forward edges and cached. Under the cache-pairing
-rule it ships with a hit test and an invalidation test in the same commit.
+exactly the dependent beats — is computed from the forward edges and cached, so under the
+cache-pairing rule it ships with a hit test and an invalidation test in the same commit.
 
 *Rejected:* side-table provenance graph — equal cost in both directions, but a value can exist with
 no edge pointing at it, making "uncited claims cannot be approved" a runtime check rather than a
-compile-time guarantee.
-*Rejected:* both representations — two records of one fact that drift apart silently.
-*Rejected:* per-producer citation protocol — the review UI and `explain_framing` would handle N
-shapes, and each new producer is a chance to define citation slightly differently.
+compile-time guarantee. *Rejected:* both representations — two records of one fact that drift apart
+silently. *Rejected:* per-producer citation protocol — the review UI and `explain_framing` would
+handle N shapes.
 
 ---
 
 ## Geometry: the Y-axis flip
 
 D3's rationale — bottom-left "matching CoreGraphics so the render path never flips" — is correct
-about rendering and misleading about everything else. Every input source in Phase 2 is top-left:
+about rendering and misleading about everything else:
 
 | Source | Origin | Consumer |
 | --- | --- | --- |
@@ -438,235 +428,222 @@ about rendering and misleading about everything else. Every input source in Phas
 | AX `kAXPositionAttribute` | top-left | `ax-observation` |
 | `NSScreen.frame` | bottom-left | AppKit — disagrees with CoreGraphics |
 
-There is a flip. The design's obligation is that it happens exactly once, on entry, and never again.
+There is a flip. The obligation is that it happens exactly once, on entry, and never again.
+`NormalizationContext` is that one place, and it takes **display-local** top-left pixels, never
+global ones — the ambiguity that would otherwise compute a plausible, wrong answer in silence.
+Routing happens first, via `DisplayArrangement.route`.
 
-```swift
-public struct NormalizedPoint: Hashable, Codable, Sendable {   // 0…1, bottom-left
-    public let x, y: Double
-}
-public struct NormalizedSize: Hashable, Codable, Sendable {
-    public let width, height: Double
-}
-public struct NormalizedFrame: Hashable, Codable, Sendable {
-    public let origin: NormalizedPoint
-    public let size: NormalizedSize
-    public let revision: GeometryRevision
-}
-
-/// The one conversion point. The only Y-flip in the codebase.
-public struct NormalizationContext: Sendable {
-    public let geometry: DisplayGeometry
-    public func normalize(topLeftX: Double, topLeftY: Double,
-                          width: Double, height: Double) -> NormalizedFrame
-    public func denormalize(_ frame: NormalizedFrame) -> PixelRect
-}
-
-/// Plain Doubles. Not CGRect — this type may cross the module boundary.
-public struct PixelRect: Hashable, Sendable { public let x, y, width, height: Double }
-```
-
-`CGRect` and `CGPoint` never enter `SoredemoCore`. The app target holds exactly one file,
-`Soredemo/Capture/CGGeometryBridge.swift`, converting `CGRect ↔ PixelRect`, and `ArchitectureCheck`
-allow-lists that single filename.
+`CGRect`/`CGPoint` never enter the package; `PixelRect` (plain `Double`s) crosses boundaries
+instead. The app holds exactly one file, `Soredemo/Capture/CGGeometryBridge.swift`, converting
+`CGRect ↔ PixelRect`.
 
 Cross-revision comparison is a precondition failure:
 
 ```swift
-extension NormalizedFrame {
-    public func contains(_ other: NormalizedFrame) -> Bool {
-        precondition(revision == other.revision,
-            "geometry revision mismatch: \(revision.id) vs \(other.revision.id)")
-        …
-    }
-}
+precondition(revision == other.revision,
+    "geometry revision mismatch: \(revision) vs \(other.revision)")
 ```
 
 ---
 
-## Project format
+## Determinism
 
-The row spans the D6 boundary because of F2. The split is not a compromise — the API asks for it.
-`snapshot(contentType:)` is `@MainActor` and returns a `sending` value consumed by a `@concurrent`
-writer, so the snapshot type must be a pure sendable value, which is exactly a `SoredemoCore` type.
+`ARCHITECTURE.md` D6 rests derivation correctness on determinism. Ambient time and randomness break
+it identically to a framework call and are far easier to introduce by accident. `Date()`,
+`Date.now`, `UUID()`, `.random(in:)`, `SystemRandomNumberGenerator`, `DispatchTime.now()` and
+`ContinuousClock` are all Foundation or standard library, so an import allow-list cannot see them.
 
-```
-Packages/SoredemoCore/Project     (Foundation)
-    ProjectSnapshot: Codable, Sendable        schema version, graph, GeometryRegistry
-    ProjectUpgrade                            v0→v1→… chain
-    ProjectPackageReader / Writer             plain URL + FileManager, no SwiftUI
-        ▲
-        │ conformance only, ~40 lines
-Soredemo/UI/ProjectDocument.swift  (SwiftUI)
-    final class ProjectDocument: @MainActor Document
-```
+IDs and timestamps are minted in the app and passed in as plain values, the same shape as
+`ContentDigest`.
 
-Strict concurrency shape, established by the compiled probe:
+**The check is over link-time symbols, not source text** (F7). Text scanning is a proxy for a
+semantic question and leaks: in a prior implementation `"\(Date())"` and `#"\#(Date())"#` both
+passed while plain `Date()` was caught. Mangled symbols have no such gaps.
 
-```swift
-@MainActor @Observable
-final class ProjectDocument: @MainActor Document {          // isolated conformance required
-    nonisolated static var readableContentTypes: [UTType] { [.soredemoProject] }
-    nonisolated func reader(configuration: sending DocumentReadConfiguration) -> sending PackageReader
-    nonisolated func writer(configuration: sending DocumentWriteConfiguration) -> sending PackageWriter
-    func apply(snapshot: sending ProjectSnapshot, previous: sending ProjectSnapshot?) async throws
-    func snapshot(contentType: UTType) async throws -> sending ProjectSnapshot
-}
-```
+### Canonical encoding
 
-Without `: @MainActor Document` the conformance fails with `#ConformanceIsolation`; without
-`nonisolated` on `readableContentTypes` it cannot satisfy the nonisolated requirement.
+`approvalBytes` and every content digest depend on an encoding that is byte-identical for equal
+values, across processes and across time. "Canonical" is defined here rather than assumed, because
+three separate things break it and each fails silently.
 
-**Versioning.** Decode a two-field probe first, then dispatch:
+**1. Swift's `Dictionary` does not encode deterministically.** When the key is not `String` or
+`Int`, `Codable` synthesis emits an **unkeyed** container of alternating key/value in *iteration*
+order — and iteration order comes from the per-process random hash seed. `JSONEncoder.sortedKeys`
+does not help, because it sorts keyed containers only. Measured on a `[Revision: Geometry]` of the
+same shape as `GeometryRegistry`, five runs produced five different encodings.
 
-```swift
-struct SchemaProbe: Decodable { let schemaVersion: Int }
-```
+This is the same seeding hazard already recorded for `Hashable.hashValue` in D-P2, arriving through
+a different door. Catching one and not the other is precisely the failure this document exists to
+prevent.
 
-- `found > current` → throw `ProjectError.unsupportedFutureVersion(found:supported:)`. Never
-  partial-decode: a partial decode followed by a save destroys fields a newer build wrote.
-- `found < current` → apply upgrades in sequence.
-- `found == current` → decode directly.
+> **Rule.** No type whose bytes are digested may rely on synthesised `Codable` for a dictionary.
+> `GeometryRegistry` hand-writes `Codable`, encoding entries as an array sorted by `revision.id`.
 
-All media paths in the manifest are relative to the package root, so the package can move.
+**2. Field order and shape must be frozen.** Adding a field to `Derivation` in Phase 3, or
+reordering existing ones, changes every previously computed digest. The failure is not a validation
+error — it is validation silently checking a different thing, which is worse. Every canonical
+encoding therefore begins with a **one-byte encoding version**, and the encoding is frozen: changing
+it is an explicit breaking change that ships with a re-approval path.
 
----
+> This version is **not** `ProjectSnapshot.schemaVersion`. A document schema upgrade must leave
+> existing approvals verifiable; the two version lines move independently.
 
-## Test plan
+**3. Floating point needs a bit-exact rule.** `scale` and all normalised coordinates are digested as
+`.bitPattern`, never as a decimal rendering, with preconditions rejecting non-finite values so the
+encoding is well-defined.
 
-Swift Testing (`@Test`, `#expect`, `#require`) throughout. No XCTest.
-
-**Mandatory forms, per `AGENTS.md` and `KICKOFF.md`:**
-
-- **Producer-value rule** — for every producer: run it, obtain `.generated`; then set `.authored`
-  with a value the producer could not have derived; re-run; assert the authored value survives
-  unchanged and `origin` is still `.authored`.
-- **Cache pairing** — the reverse-dependency index gets a hit test and an invalidation test in the
-  same commit.
-
-**Per-row completion criteria** (`KICKOFF.md` § What "done" means):
-
-| Row | Done when |
-| --- | --- |
-| `repo-skeleton` | `xcodebuild` succeeds and the app launches to an empty window |
-| `architecture-plugin` | `import AppKit` in `SoredemoCore` **fails the build**, with a test proving it |
-| `geometry` | comparing two `NormalizedFrame`s of differing `geometryRevision` traps, with a test |
-| `project-format` | a v1 document round-trips and a synthetic v0 document upgrades |
-| `derivation-graph` | the producer-value rule holds under test |
-
-Additional tests this design requires:
-
-- `fnv1a64` pins known input to known output, and a second test asserts the digest is stable across
-  processes (guarding the `Hasher` seeding trap in D-P2).
-- Identical `DisplayGeometry` in two independently-constructed registries yields one revision.
-- `GeometryRegistry.insert` traps when two different geometries produce one revision.
-- `DisplayGeometry` rejects non-finite and non-positive `scale` on construction.
-- **Rearranging displays changes no revision.** Build an arrangement, move a placement's global
-  origin, assert every `GeometryRevision` is unchanged — the regression test for keeping extrinsic
-  data out of the digest.
-- **A click on a secondary display normalises against that display**, not the main one.
-- `Evidence(refs:)` returns `nil` on an empty array, and a decoded empty array is rejected.
-- `Evidence.head` and `Evidence.first` are both reachable and the collection conformance is
-  consistent, since this is the shadowing case that compiles either way.
-- **Determinism:** encoding the same snapshot twice yields byte-identical output.
-- `approvalBytes` is unchanged by a transition of `review`, and changes when `value` or `origin`
-  changes.
-- A save leaves every media sidecar byte-identical; a compact — and only a compact — removes an
-  unreferenced one.
-- A `.jsonl` log with a truncated final line reads back with that line discarded and the dropped
-  byte count reported.
-- `unsupportedFutureVersion` throws rather than partial-decoding, and the on-disk file is unmodified
-  afterwards.
-
-`repo-skeleton`'s launch check is **blocked**: this machine runs macOS 26.5.2 (`25F84`) with no
-macOS 27 volume, so a `.macOS(.v27)` target compiles but cannot launch. The row stays ◐ until the
-volume exists per `TOOLCHAIN.md` § 2. Rows 2–5 are pure-package work verifiable by `swift test` and
-are not blocked.
-
-`derivation-graph` has no real producer in Phase 1 — observations arrive in Phase 2. `KICKOFF.md`
-sets its bar at "the producer-value rule holds under test", so it ships with a reference producer
-exercised by tests, and the completion rule is satisfied by `observation-ingest` in Phase 3. This is
-noted rather than silently accepted.
+A test encodes the same value in two separate processes and compares bytes. Running it twice in one
+process proves nothing — the seed is fixed for a process's lifetime, which is why this class of bug
+survives ordinary testing.
 
 ---
 
 ## `Plugins/ArchitectureCheck`
 
-A SwiftPM **build-tool** plugin; a non-zero exit fails the build. Given F4 it is the primary
-enforcement of D6, so it runs on every build rather than on demand.
+Given F1, this is the primary enforcement of D6, so it runs on every build.
 
-Checks:
+| # | Rule | Mechanism |
+| --- | --- | --- |
+| 1 | Import allow-list per target | source text |
+| 2 | No `CGPoint`/`CGRect`/`CGSize`/`CGFloat` in the package | source text |
+| 3 | No ambient time or randomness | **link-time symbols** — mechanism unresolved, see below |
+| 4 | Manifest declares no package dependencies | source text — scan **every** manifest for `.package(` |
+| 5 | CG types in the app appear only in `Capture/CGGeometryBridge.swift` | a package **test** — the plugin attaches to SwiftPM targets and cannot see the Xcode app target |
+| 6 | One owner for the observation-log → graph join | inert in Phase 1 |
+| 7 | `applyingProduced` is the sole writer of a `Derived` | inert in Phase 1 |
 
-1. **Import allow-list per target.** `SoredemoCore` targets may import Foundation and their declared
-   siblings only. This is the D6 rule the compiler does not enforce.
-2. **No `CGPoint`/`CGRect`/`CGSize` in the package's public API.**
-3. **Single-file allow-list** for the `CGRect ↔ PixelRect` bridge.
-4. **Determinism: no ambient time or randomness.** See § Determinism — an import allow-list cannot
-   catch this, so it is a separate symbol scan.
-5. **Empty dependency list in `Package.swift`.** The package declares no external dependencies at
-   all; a plugin that polices imports while a manifest quietly adds a package is checking the wrong
-   door.
-6. **One owner for the observation-log → graph join** — inert in Phase 1, in place for Phase 3.
-7. **`applyingProduced` is the sole writer of a `Derived`** — inert in Phase 1, in place for Phase 3.
+The plugin is a build-tool plugin using `.buildCommand` with a stamp file. `.prebuildCommand` cannot
+be used: SwiftPM prebuild commands cannot depend on an executable built from source. `Package.swift`
+must be declared among `inputFiles`, or a manifest-only edit leaves the stamp current and rule 4
+never runs on an incremental build — which is how people build.
 
-### Determinism
+Use `context.tool(named:).path`, **not** `.url`: `URL.path()` percent-encodes Xcode's `${BUILD_DIR}`
+placeholder into `$%7BBUILD_DIR%7D` and breaks `xcodebuild`.
 
-`ARCHITECTURE.md` D6 rests derivation correctness on determinism: "a framing stage that could call
-ScreenCaptureKit could observe the world mid-derivation, and then staleness, `isCurrent`, and
-content-hash approval all stop meaning anything." Ambient time and randomness break that identically
-to a framework call, and are far easier to introduce by accident.
+### Rule 3's mechanism is unresolved, and that is written here rather than discovered
 
-The concrete Phase 1 exposure is the ULID naming `media/master-01H….mov` and the values behind
-`EvidenceID`: a ULID is a timestamp plus random bytes. If either is minted inside `SoredemoCore`,
-the package stops being a deterministic function of its inputs.
+Rule 3 reads link-time symbols, but a build-tool plugin's command runs **before** its target
+compiles, so the object files do not exist when it runs. The mechanism must be established before
+the approach is committed to. Candidates:
 
-**`Date()`, `Date.now`, `UUID()`, `.random(in:)`, `SystemRandomNumberGenerator`, `DispatchTime.now()`
-and `ContinuousClock` are all in Foundation and the standard library.** The import allow-list from
-rule 1 cannot see them, and neither can a cross-platform build. Hence a dedicated symbol scan over
-`Packages/SoredemoCore`, and a rule that IDs and timestamps are minted in the app target and passed
-in as plain values — the same shape as the injected `ContentDigest`.
+- **A test that builds and inspects.** Preferred. It needs no one to remember to invoke it, and it
+  runs wherever the suite runs. The whole point of D-P4 is to avoid *a validator someone might
+  forget to call*; a rule with the same weakness is the same mistake one level up.
+- A separate check target that depends on the six libraries, so its command runs after they compile.
+- A post-build script phase in the Xcode project — but that only fires under `xcodebuild`, which is
+  half the enforcement, and it needs a pbxproj edit (F8).
 
-A test constructs a snapshot twice from identical inputs and asserts byte-identical encodings, which
-fails if anything ambient leaks in.
+If none works cleanly, the honest outcome is a documented gap, not a symbol check nobody can prove
+runs.
 
-Its own test suite includes a fixture target that violates each rule and asserts the plugin rejects
-it. Per `AGENTS.md`: changing a rule changes the plugin in the same commit.
+### Rule 4 reads source text too, so it needs its own evasion list
+
+The rules that read source text are 1, 2 **and 4**. Rule 4 currently sits where rules 1 and 2 sat
+before four rounds of hardening, and `.package(` being unforgeable says nothing about *which file*
+gets scanned.
+
+- **Version-specific manifests.** SwiftPM honours `Package@swift-6.4.swift` in preference to
+  `Package.swift`. Verified: a dependency declared there is resolved and built while `Package.swift`
+  declares none, and a scanner reading only `Package.swift` sees nothing. **Every** `Package*.swift`
+  in the package root must be scanned.
+- The dependency array assembled under any name and passed in by identifier, or mutated after
+  construction — both defeated an earlier syntactic scan, and are why the rule is `.package(`
+  rather than a `dependencies:` shape match.
+- `.package(` inside a comment or string literal must **not** fire.
+
+### The known evasion set
+
+Rules 1 and 2 read source text, so they must survive these from the first commit rather than
+discovering them one at a time. Each gets a test:
+
+- **`import` and the module name separated by a newline.** Verified valid Swift that fully
+  typechecks and grants module access, and it defeats any scanner that extracts one statement per
+  line. Found by the Task 2 implementer; neither this document's original list nor the review that
+  hardened it contained it. The fix is structural: scan tokens carrying line numbers rather than
+  splitting on lines, which also makes attributes and access levels fall out for free.
+- `` import `Foundation` `` — backtick-escaped module names are legal and must NOT be rejected
+- SE-0409 access levels: `public`/`package`/`internal`/`fileprivate`/`private import`
+- `@preconcurrency import AppKit`, `@testable import`, `@_exported import`, stacked attributes
+- `import AppKit; import Foundation` — semicolon-joined, either order
+- `import class AppKit.NSColor` — submodule form
+- `import<TAB>AppKit`, `import AppKit //comment`
+- string interpolation hiding real code: `"\(Date())"`, nested `"\(f("lit", Date()))"`
+- raw-string interpolation: `#"\#(Date())"#`, `##"\##(UUID())"##`, multiline `#"""…"""#`
+- must still PASS: `import Foundation`, `// import AppKit`, `#"Date()"#`, `#"a \(b) c"#`,
+  `"Date() is banned"`, a multiline string whose second line mentions `CGRect`, and
+  `import Foundation /* comment */`
 
 ---
 
-## Row order
+## Test plan
 
-`architecture-plugin` moves ahead of `geometry`, against the order in `ROADMAP.md`. F4 is the
-reason: the Foundation-only rule is unenforced until the plugin exists, so every row built before it
-is a row that could violate D6 undetected. The dependency (`repo-skeleton`) is unchanged.
+Swift Testing (`@Test`, `#expect`, `#require`). No XCTest.
 
-1. `repo-skeleton` — package + app target, builds; launch check deferred to the beta volume
-2. `architecture-plugin` — import allow-list, public-API check, bridge allow-list
-3. `geometry` — `NormalizedPoint`/`Frame`, `GeometryRevision`, `NormalizationContext`
-4. `derivation-graph` — `Derived`, `Origin`, `Derivation`, `EvidenceRef`, reverse index
-5. `project-format` — `ProjectSnapshot`, upgrade chain, package reader/writer, app conformance
+**Mandatory forms:**
 
-`project-format` moves after `derivation-graph` because the snapshot embeds the graph.
+- **Producer-value rule** — for every producer: supply a value the producer could not have derived,
+  assert the supplied value and its review state survive.
+- **Cache pairing** — every cache-hit test paired with an invalidation test.
+
+**The verification rule, adopted after three failures:** *a check that has never been observed RED
+is not a known check.* Every verification step records the observed failure as well as the pass, or
+states plainly that the failure was never seen. This is not only for tests the plan writes — it
+binds the plan's own verification commands, which is where it previously failed:
+
+- the plugin's tests passing was read as "the rule is enforced"; it proved only that *imagined*
+  violations were blocked
+- `xcodebuild ** BUILD SUCCEEDED **` was read as "the plugin works under Xcode" while the app had no
+  reference to the package, so the package was never built there
+- a grep reporting one deployment target collapsed two values and reported the wrong one; settings
+  are confirmed with `-showBuildSettings`, never grep
+
+**Per-row completion criteria.** `KICKOFF.md` says `architecture-plugin` is done when `import
+AppKit` "fails the build". **Which build?** That ambiguity is why the rule was enforced under
+`swift build` for four rounds while never running under `xcodebuild`. It must fail **both**, and
+each is verified separately.
+
+| Row | Done when |
+| --- | --- |
+| `repo-skeleton` | `xcodebuild` succeeds **and the app launches to an empty window** — now performable, since a `.macOS(.v26)` binary runs on this machine |
+| `architecture-plugin` | **all five active rules observed red**, individually — see below |
+| `geometry` | cross-revision comparison traps, observed out-of-process |
+| `project-format` | a v1 document round-trips and a synthetic v0 upgrades |
+| `derivation-graph` | the producer-value rule holds under test |
+
+**`architecture-plugin` needs five negative cases, not one.** Stating the criterion as "`import
+AppKit` fails the build" proves rule 1 and silently assumes the other four — the same shape of
+ambiguity as "which build", in the same document that just adopted the observed-red rule. Each rule
+is done when its own violation has been seen to fail:
+
+| Rule | Negative case that must be observed failing |
+| --- | --- |
+| 1 · imports | `import AppKit` in a package source — under **both** `swift build` and `xcodebuild` |
+| 2 · CG types | `let r: CGRect` in a package source |
+| 3 · determinism | `Date()` in a package source — **and** `"\(Date())"`, since the text-scan predecessor passed exactly this |
+| 4 · manifest | `.package(path:)` in `Package.swift` — **and** in `Package@swift-6.4.swift` |
+| 5 · CG bridge | `CGRect` in an app source outside `Capture/CGGeometryBridge.swift` |
+
+Each pairs with its positive case: the legitimate form still builds. A rule seen only green is not
+a known rule.
 
 ---
 
 ## Document corrections
 
-Per `AGENTS.md` — "when a document is wrong, say so… the code usually wins and the document gets
-fixed in the same commit."
-
-| Document | Claim | Correction | Lands with |
-| --- | --- | --- | --- |
-| `ARCHITECTURE.md` D6 mechanism 1 | "The compiler. `import AppKit` in the package is a build failure" | False (F4). The plugin enforces it. | `architecture-plugin` |
-| `AGENTS.md` architecture rule 1 | "The compiler enforces it; do not work around it" | Same correction | `architecture-plugin` |
-| `ARCHITECTURE.md` D5 | "`DocumentCreationSource` maps onto the entry points" | Unavailable on macOS (F3); entry points built by hand | `project-format` |
-| `ARCHITECTURE.md` D3 | bottom-left "so the render path never flips" | True for render; CG/AX/event inputs are top-left. One flip, at capture entry | `geometry` |
-| `ARCHITECTURE.md` § To verify, item 1 | open question on packages | Resolved (F1): packages work, no coordinator | `project-format` |
-| `ROADMAP.md` `project-format` row | lists `ReadableDocument`/`WritableDocument` | SwiftUI types (F2); row spans the boundary | `project-format` |
+| Document | Claim | Correction |
+| --- | --- | --- |
+| `ARCHITECTURE.md` D6 · `AGENTS.md` rule 1 | the compiler blocks `import AppKit` | false (F1); the plugin enforces it. SwiftPM does police edges *between package targets* (F2) |
+| `ARCHITECTURE.md` D1 | `Packages/SoredemoCore/` | package is at the repository root (D-P0) |
+| `ARCHITECTURE.md` D2 | `.macOS(.v27)`, "ships when 27 is a year old" | `.macOS(.v26)`. The no-availability-branches rule survives unchanged; the ship-date argument does not |
+| `ARCHITECTURE.md` D5 | `WritableDocument`/`ReadableDocument`/`DocumentCreationSource` | hand-written `NSDocument` coordinator (F3, F4). § To verify item 1: the API handles packages but is macOS 27 only, so it is moot |
+| `ARCHITECTURE.md` D3 | bottom-left "so the render path never flips" | true for render; CG, event and AX inputs are top-left. One flip, at capture entry |
+| `ROADMAP.md` `project-format` | lists `ReadableDocument`/`WritableDocument` | `NSDocument` coordinator; the row spans the package/app boundary |
+| `docs/TOOLCHAIN.md` § 2 | macOS 27 beta volume required | not required at a 26 floor. Xcode 27 beta stays — it is the SDK |
 
 ---
 
 ## Out of scope
 
-Recording, rendering, framing, the timeline, variants, the app's real UI, and the MCP surface. Phase
-1 delivers an app that launches empty, a package that cannot violate its own rules, and the three
-data structures every later phase is expressed in.
+Recording, rendering, framing, the timeline, variants, the app's real UI, and the MCP surface.
+Phase 1 delivers an app that launches empty, a package that cannot violate its own rules, and the
+three data structures every later phase is expressed in.
