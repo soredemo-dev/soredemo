@@ -114,6 +114,19 @@ table and a task brief before an implementer measured it independently and disag
 of the pattern announces itself: `wc -l` returns 1 for nothing, and `grep` returns silence for a
 row it does not match. Where a number is going into a document, derive it twice.
 
+**The instrument can have state.** Every entry above is about a claim never compared to the thing.
+This is the case where you did compare them and the comparison still lied, because the API answered
+from its own cache instead of from the world. `URL.resourceValues(forKeys: [.fileResourceIdentifier
+Key])`, read twice through the same `URL` binding, returns the identical value across a
+`replaceItemAt` that genuinely changed the file's inode — `NSURL` caches resource values per
+instance. `FileManager.attributesOfItem(atPath:)[.systemFileNumber]` `stat()`s each call and sees
+`130435918 → 130435919` for the same two states.
+
+The failure direction matters: the cached read made a **correct** implementation look broken. A
+measurement that reads stale is not the safe kind of wrong. When an assertion is the only thing
+standing between you and an unverified mechanism, prove it fails against the mutation *and* passes
+against the real code, in a throwaway probe, before you keep it.
+
 **A hand-computed constant in a task brief is a guess until something computes it.** Three times in
 Phase 1 an implementer has been handed a wrong number by whoever wrote the brief and has been right
 to override it: an FNV-1a vector for `"foobar"`, a test-suite total of 226 that was 229, and a
