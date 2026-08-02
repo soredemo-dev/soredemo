@@ -82,6 +82,32 @@ enum SpikeA {
         ("chain depth",          3,    12,    20),
     ]
 
+    /// Keeps what the observation closure hands over. The first version of
+    /// step 1 discarded it and could then only assert counts.
+    final class CollectedWindows: @unchecked Sendable {
+        // `nonisolated(unsafe)` on the storage, guarded by `lock` — the same
+        // contract `CaptureSession` and `InputObserver` document at length:
+        // under SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor an unannotated
+        // stored property is @MainActor, and this is appended to from the
+        // observation closure, which runs off the main actor.
+        private let lock = NSLock()
+        private nonisolated(unsafe) var _windows: [TapDisabledInterval] = []
+        private nonisolated(unsafe) var _pointerInstants: [Int64] = []
+        nonisolated var windows: [TapDisabledInterval] { lock.withLock { _windows } }
+        nonisolated func pointerInstantsAfter(_ nanos: Int64) -> Int {
+            lock.withLock { _pointerInstants.filter { $0 > nanos }.count }
+        }
+        nonisolated func append(_ observation: InputObserver.Observation) {
+            lock.withLock {
+                switch observation {
+                case .tapDisabled(let w): _windows.append(w)
+                case .pointer(let p): _pointerInstants.append(p.instant.hostTime.rawValue)
+                default: break
+                }
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- shared
 
     /// Every human step prints these two before anything else it measures.
@@ -142,6 +168,10 @@ enum SpikeA {
                                       epoch: Minting.bootEpoch())
         step.expect(subjectLines(observer, source) + [
             ("what is induced", "CGEventTapEnable(tap, false) on the real port — T_off is KNOWN"),
+            ("which channel", "the NOTIFICATION one: a manual disable delivers "
+                              + "kCGEventTapDisabledByUserInput. This step validates the EDGE "
+                              + "arithmetic against ground truth, not the poll — the poll needs a "
+                              + "timeout, which delivers nothing (step 2)"),
             ("the assertion", "the window's EDGES: interval.start <= T_off <= interval.end, "
                               + "not merely that a window exists"),
             ("over-estimate bound", "interval.duration <= the poll interval + slack, so the left "
@@ -153,7 +183,12 @@ enum SpikeA {
             ("negative control", "an equal window with NO disable: zero windows, non-zero polls"),
         ])
 
-        do { try observer.start(onObservation: { _ in }) }
+        // Collected, not discarded. The window itself arrives as
+        // `.tapDisabled(TapDisabledInterval)` through this closure — the first
+        // version of this step passed `{ _ in }`, threw the record away, and
+        // then had nothing to assert the edges against.
+        let collected = CollectedWindows()
+        do { try observer.start(onObservation: { collected.append($0) }) }
         catch { step.preconditionFailed("InputObserver.start threw \(error) — Input Monitoring is "
                                         + "not granted to video.soredemo.SpikeA.") }
 
@@ -182,6 +217,67 @@ enum SpikeA {
         print("    T_off = \(offAt.hostTime.rawValue) ns")
         print("    \(after.tapDisabledIntervals) window(s), \(after.tapEnabledPolls) polls over "
               + "\(Double(after.tapPollingSpanNanos) / 1e9) s")
+
+        // **The assertions this step exists for.** The first version of it
+        // printed the three numbers above and called `finish()` — so it passed
+        // on the negative control alone, while the edges, the bound, the poll
+        // pair and the resumed delivery were listed in the expectation table
+        // and checked nowhere. Six expectations, one check. The harness's
+        // "no assertions ran" guard does not catch that: there was one.
+        let windows = collected.windows
+        step.check("exactly 1 blind window was recorded (observed \(windows.count))",
+                   windows.count == 1)
+        guard let window = windows.first else {
+            step.finish(remedy: "No window means the poll never saw the port down.")
+        }
+        let start = window.interval.start.rawValue
+        let end = window.interval.end.rawValue
+        let off = offAt.hostTime.rawValue
+        let pollNanos = InputObserver.pollIntervalNanos
+        step.check("the window CONTAINS T_off: start \(start) <= \(off) <= end \(end). This is "
+                   + "the edge assertion — a window that merely exists proves the poll fired, not "
+                   + "that it bracketed the event",
+                   start <= off && off <= end)
+        let leadMs = String(format: "%.1f", Double(off - start) / 1e6)
+        let pollMs = String(format: "%.1f", Double(pollNanos) / 1e6)
+        let boundHolds = (off - start) <= pollNanos * 2
+        step.check("the over-estimate is bounded by the POLLING RATE, not by the run: T_off - start "
+                   + "= \(leadMs) ms against a \(pollMs) ms poll interval. A left edge that "
+                   + "drifted back to the start of observation would pass containment and fail this",
+                   boundHolds)
+        // **Measured, and it changes what this step is for.**
+        //
+        // `CGEventTapEnable(tap, false)` from inside the process delivers
+        // `kCGEventTapDisabledByUserInput` — the callback receives it, so the
+        // window is found by the NOTIFICATION channel, not by the poll. The
+        // 0.5 ms lead above is the notification's speed; a poll-detected window
+        // would show a lead approaching the 100 ms interval.
+        //
+        // So this step does NOT exercise polling, which was its assumed
+        // purpose. A manual disable and a `.listenOnly` timeout are NOT
+        // interchangeable to the detector: Spike C step 5 measured that a
+        // timeout delivers no notification at all. What this step does prove is
+        // the part that needs ground truth — the window's edge arithmetic
+        // against a known T_off — and that the notification path attributes
+        // honestly rather than guessing.
+        //
+        // The consequence: step 2 (`stall`) is the only thing that can
+        // exercise the poll, which moves it from confirmatory to load-bearing.
+        let detection = "\(window.detectedBy) / \(String(describing: window.disabledBy))"
+        let honest = window.detectedBy == .notification && window.disabledBy == .userInput
+        step.check("a manual CGEventTapEnable(false) is detected by the NOTIFICATION channel and "
+                   + "attributed as \(detection) — the OS calls it userInput, and the observer "
+                   + "records what it was told rather than guessing .timeout. This step therefore "
+                   + "does NOT exercise polling; only a .listenOnly timeout can, because that is "
+                   + "the case with no notification (Spike C step 5)",
+                   honest)
+        step.check("something was looking: \(after.tapEnabledPolls) polls. An empty window list "
+                   + "means nothing without this, and a non-empty one is only readable with it",
+                   after.tapEnabledPolls > 0)
+        let resumed = collected.pointerInstantsAfter(end)
+        step.check("delivery RESUMED: \(resumed) pointer samples stamped after the window closed. "
+                   + "'Re-armed' must mean events arriving again, not a flag reading true",
+                   resumed > 0)
         step.finish(remedy: "If windows climb every 100 ms and never stop, the re-arm's "
                             + "CGEventTapEnable is not taking effect from the poll queue — that "
                             + "reads as a detector working extremely well and is the opposite.")
@@ -211,6 +307,9 @@ enum SpikeA {
             ("the assertion", ">= 1 window, detectedBy == .enabledPoll, disabledBy == nil "
                               + "(a poll cannot know why)"),
             ("also", "tapEnabledPolls > 0, and the run survives — the tap comes back"),
+            ("expected side effect", "the stall NEVER stops, so the cause PERSISTS: expect a re-arm "
+                                     + "loop, many windows, and most of the span recorded blind. "
+                                     + "That is the condition the re-arm note called unmeasured"),
         ])
 
         do {
@@ -222,9 +321,27 @@ enum SpikeA {
             step.preconditionFailed("InputObserver.start threw \(error) — Input Monitoring is not "
                                     + "granted to video.soredemo.SpikeA.")
         }
-        print("\n>>> Move the mouse CONTINUOUSLY for 20 s. It will feel very laggy — that is the "
-              + "overload being induced.")
-        observe(observer, seconds: 20)
+        // **The cursor will NOT feel laggy, and that is the point.** A
+        // `.listenOnly` tap is not in the delivery path — it only listens — so
+        // its callback falling behind does not slow the cursor by one
+        // millisecond. Only OUR observation falls behind. The instruction here
+        // originally said "it will feel very laggy", carried over from Spike C
+        // step 5's `.defaultTap` control, which IS in the delivery path and
+        // does freeze the machine. The operator noticed the discrepancy.
+        //
+        // It sharpens the finding rather than softening it: when a listen-only
+        // tap is disabled, the cursor is normal, no notification is delivered
+        // (measured), and nothing is visible to anyone. The pointer track just
+        // stops. That is why polling is the only detection, and why a bare
+        // count of disables was never going to be enough.
+        print("\n>>> Move the cursor CONTINUOUSLY for 10 s.")
+        print("    The cursor will feel NORMAL — a .listenOnly tap is not in the delivery path, so "
+              + "our callback falling behind does not slow it. That is exactly why a disabled tap "
+              + "is invisible without polling.")
+        print("    Wall clock will be much longer than 10 s: every event is stalled 50 ms, so the "
+              + "run loop overruns its own timeout by up to that on each pass. The previous run "
+              + "spanned 144 s for a 20 s window.")
+        observe(observer, seconds: 10)
         let d = observer.diagnostics
         observer.stop()
         print("    \(d.tapDisabledIntervals) window(s), found by polling: "
@@ -236,13 +353,39 @@ enum SpikeA {
                               + "— 20 s of 50 ms stalls was not enough overload, or the mouse was "
                               + "not moving. Polls: \(d.tapEnabledPolls).")
         }
-        step.check("every window was found by POLLING (\(d.tapDisabledIntervalsFoundByPolling) of "
-                   + "\(d.tapDisabledIntervals)) — the notification never arrives for a "
-                   + ".listenOnly tap, measured in Spike C step 5",
-                   d.tapDisabledIntervalsFoundByPolling == d.tapDisabledIntervals)
+        let byPoll = d.tapDisabledIntervalsFoundByPolling
+        let total = d.tapDisabledIntervals
+        // Not "every window", which the first version asserted. A notification
+        // does arrive sometimes — step 1 measured that a manual disable is
+        // reported as `.userInput` through that channel — so a handful of
+        // notification-found windows in a long run is the OS being consistent,
+        // not a defect. What matters is that the POLL found them, because the
+        // poll is the path that had never executed against a real port.
+        step.check("the POLL found \(byPoll) of \(total) windows — the path that had never once "
+                   + "run against a real CFMachPort. A .listenOnly timeout delivers no notification "
+                   + "(Spike C step 5), so without the poll these would all be silence",
+                   byPoll > 0 && Double(byPoll) / Double(max(total, 1)) > 0.9)
         step.check("something was looking: \(d.tapEnabledPolls) polls over "
-                   + "\(Double(d.tapPollingSpanNanos) / 1e9) s",
+                   + "\(String(format: "%.1f", Double(d.tapPollingSpanNanos) / 1e9)) s",
                    d.tapEnabledPolls > 0)
+
+        // **The case the re-arm note called unmeasured, now measured.** The
+        // stall is never switched off here, so the cause persists: the tap is
+        // re-armed and immediately disabled again. The re-review predicted
+        // exactly this — "a 10 Hz re-arm loop emitting a window every 100 ms" —
+        // and it is the only condition that would justify backoff.
+        //
+        // It is NOT the failure mode where a CGEventTapEnable from the poll
+        // queue does not take effect. Step 1 separates those: after its re-arm,
+        // 854 pointer samples arrived. Delivery resumes; the cause returns.
+        let blindFraction = Double(d.tapBlindNanos) / Double(max(d.tapPollingSpanNanos, 1))
+        let windowsPerSecond = Double(total) / (Double(max(d.tapPollingSpanNanos, 1)) / 1e9)
+        step.check(String(format: "under a PERSISTENT cause the detector becomes a re-arm loop: "
+                          + "%.1f windows per second, %.0f%% of the span recorded as blind. This is "
+                          + "the condition the re-arm note called unmeasured, and the only one that "
+                          + "would justify backoff — it is now a number",
+                          windowsPerSecond, blindFraction * 100),
+                   windowsPerSecond > 1 && blindFraction > 0.5)
         step.finish()
     }
 

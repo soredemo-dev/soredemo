@@ -952,7 +952,11 @@ public final class InputObserver: @unchecked Sendable {
     ///
     /// Tightening it is cheap and the only argument against is CPU; loosening
     /// it widens every recorded window by the same amount.
-    private nonisolated static let pollIntervalNanos: Int64 = 100_000_000
+    /// `internal`, not `private`: a verification asserts that a blind
+    /// window's left edge is bounded by the POLLING RATE rather than by the
+    /// length of the run, and a spike that hard-coded 100 ms would be checking
+    /// its own constant against itself the next time this one moved.
+    internal nonisolated static let pollIntervalNanos: Int64 = 100_000_000
 
     /// Starts the poll, on a **dedicated queue that is not the callback's**.
     ///
