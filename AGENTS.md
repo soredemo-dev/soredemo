@@ -219,6 +219,20 @@ three and `Derivation.swift`'s several counted as one.
 
 Each error survived because its result looked plausible. Run the script.
 
+**The same thing happened to the test count, after this rule was already written down.** Reported as
+226 against a real 229 in Phase 1, and as 336 against a real 338 in Phase 2 — both times from a
+`grep` with a hardcoded plural (`"Test run with [0-9]+ tests"`), which silently drops every
+single-test target, and this package has two. The rule did not fail because anyone forgot it. It
+failed because **there was nothing to run**: a rule that says a number should be executable, with no
+executable beside it, is a sentence. `scripts/count-tests.sh` is the executable, and it prints the
+per-target breakdown as well as the total so the total can be checked rather than trusted. It exits
+non-zero without printing a number when `swift test` fails, because a `0` and a stale count both
+read as answers.
+
+So the rule has a second half now: **when a number in a report turns out to be wrong, the fix is a
+file, not a correction.** The third time a count is wrong is not new information about that count —
+it is information about the method.
+
 **And the eight closed ones show why the ten are open.** Phase 1 hand-wrote `Codable` for
 `GeometryRegistry`, `ContentDigest`, `ProducerID`, `GateCode`, `Evidence` and `NodeID` — the types
 whose *bytes are digested or whose identity must be checked*. That is a criterion about the
