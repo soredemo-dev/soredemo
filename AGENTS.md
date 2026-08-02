@@ -193,12 +193,23 @@ DisplayGeometry  NormalizedPoint  NormalizedSize  NormalizedFrame  PixelRect
 PointRect        Authorship       HostInstant     HostRange        TimeRange
 ```
 
-All ten are reachable from disk. `ProjectPackageIO` decodes `ProjectSnapshot` today, and that
-carries `GeometryRegistry` → `DisplayGeometry`, `Derived` → `NormalizedFrame`, `Evidence`,
-`Authorship` and `TimeRange`. A hand-edited or corrupted `project.json` can produce a
-`NormalizedPoint` with `x = 2.5` right now, and nothing complains. The input is untrusted by design:
-a `.soredemo` package is a shareable document, and `agentic-threat-model` assumes foreign content is
-attacker-influenced.
+**Two of the ten are on a live decode path. The other eight are not, and an earlier version of this
+paragraph said otherwise.** Traced structurally from `ProjectSnapshot` through stored properties and
+enum payloads rather than from memory:
+
+| reachable from `ProjectSnapshot` | not reachable today |
+| --- | --- |
+| `DisplayGeometry` (via `GeometryRegistry`), `HostRange` (via `SegmentTable` → `MasterSegment`) | `NormalizedPoint`, `NormalizedSize`, `NormalizedFrame`, `PixelRect`, `PointRect`, `Authorship`, `HostInstant`, `TimeRange` |
+
+The claim that was here — that `ProjectSnapshot` carries `Derived` → `NormalizedFrame`, `Evidence`,
+`Authorship` and `TimeRange` — was false, and `ROADMAP.md`'s `derivation-graph` row already said so
+in plain words: *"no graph is persisted or read."* An assertion about structure, written from
+impression, contradicting a fact already recorded two files away.
+
+For the two that are reachable the exposure is real and the input is untrusted by design: a
+`.soredemo` package is a shareable document, and `agentic-threat-model` assumes foreign content is
+attacker-influenced. For the other eight there is no decode path yet, so closing them now would be
+designing error handling with no caller — the thing that left `project-format` at ◐.
 
 **The first count of this was wrong, and the method was worse than the number.** It scanned for
 `Codable` on the declaration line, so it missed every type conforming in an extension — which is
