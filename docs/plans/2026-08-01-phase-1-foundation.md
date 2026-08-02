@@ -103,7 +103,7 @@ This binds the plan's own verification steps, not only the tests it writes. Ever
 
 ```
 soredemo-main/
-├── Package.swift                     tools 6.4 · .macOS(.v26)
+├── Package.swift                     tools 6.3 · .macOS(.v26)
 ├── Sources/
 │   ├── Geometry/                     FNV1a · DisplayGeometry · GeometryRevision
 │   │                                 GeometryRegistry · Normalized · PixelRect
