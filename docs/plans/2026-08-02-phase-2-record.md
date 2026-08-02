@@ -992,6 +992,49 @@ git commit -m "Mint the boot epoch from kern.bootsessionuuid, not kern.boottime"
 
 ---
 
+## Task 5.5: Close two live gaps in the determinism lists
+
+**Files:**
+- Modify: `Tests/DeterminismTests/SymbolDeterminismTests.swift`, `Tests/AppSourceTests/AppSourceAllowListTests.swift`
+- Test: the same two files
+
+Both gaps were found by a re-review asking not "was the fix applied" but "what else is the list
+missing" — the enumeration-goes-stale shape, twice.
+
+**Gap 1 — `SecRandomCopyBytes` is banned by neither list.** It compiles and links from Swift and is
+exactly `Minting`-shaped ambient randomness, the same category as `arc4random`. Verified by
+compiling: the undefined symbols are `_SecRandomCopyBytes` and `_kSecRandomDefault`, both plain C,
+no mangling.
+
+**Gap 2 — the two lists are no longer a clean subset of each other.** Task 5 added
+`mach_continuous_time` to the app-side list and not to the package-side symbol table. `sysctlbyname`
+is legitimately app-only — no package module reads `sysctl` — but `mach_continuous_time` is not. If
+`Timeline` ever called it, architecture rule 3's **purpose** (no library module references an
+ambient clock) would be violated while its **mechanism** stayed silent. Its symbol is
+`_mach_continuous_time`.
+
+**The constraint that makes this more than three string literals:** `SymbolDeterminismTests` asserts
+one call site per `bannedSymbols` entry and nothing else, so each new entry needs a corresponding
+line in the construct fixture. That invariant is what stops the table becoming a list of names
+nobody has checked.
+
+- [ ] **Step 1: Derive the symbols rather than copying them from this brief.** `nm -u` on a scratch
+      module that calls each one. The three above are what I measured; confirm them, and say so if
+      they differ.
+- [ ] **Step 2: Add the fixture call sites and the table entries together**, so the one-to-one
+      assertion never goes red for a bookkeeping reason.
+- [ ] **Step 3: Add `SecRandomCopyBytes` to the app-side banned list** with a comment saying why
+      it is a distinct source and not a spelling of `arc4random`.
+- [ ] **Step 4: Verify each new entry actually catches something.** Add a call to each in a scratch
+      module inside a package library target, confirm `swift test --filter DeterminismTests` reddens,
+      and revert. A banned symbol that no probe has ever seen fire is a name in a list.
+- [ ] **Step 5: Say what is still missing.** The re-review checked seven candidates and found one
+      real gap. Do the same sweep once more and record the result — including the candidates that
+      turned out to be unreachable from Swift, like `getentropy`, so nobody re-checks them.
+- [ ] **Step 6: Commit.**
+
+---
+
 ## Task 6: `capture-permissions` — four permissions, four named degradations
 
 **Files:**
