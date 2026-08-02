@@ -764,3 +764,117 @@ first spike in this project to **alter the machine's state**: the worst case of 
 was a wrong number in a log, and the worst case of this one is a display left in an unexpected mode
 if the process dies between changing and restoring. Small, but it is a real cost on one side of a
 balance whose other side is a measurement that changes nothing.
+
+---
+
+## D2-11 — `BootEpoch`, because a host timestamp is meaningless without one
+
+Found while deciding which timeline the observation log stores (D2-12 Q1), not by looking for it.
+
+`mach_absolute_time()` **restarts at boot.** D2-4 chose it, and had to — `CMClockGetHostTimeClock()`
+is that clock, so frame PTS and `CGEventTimestamp` are on it. But that makes a stored host timestamp
+meaningless across a reboot, and worse than meaningless: two recordings made in different boots
+carry **overlapping, incomparable** timestamps, and nothing raises an error. Phase 4's
+`selective-rerecord` splices new footage into an existing project, which is exactly where two such
+sets meet.
+
+D2-4 named one discontinuity in this clock — it stops during sleep. This is the second, in the same
+type, and it is worse because sleep leaves the ordering intact.
+
+### The shape already exists, on the other axis
+
+This is `GeometryRevision` moved to the time axis, and deliberately so:
+
+| | `GeometryRevision` | `BootEpoch` |
+| --- | --- | --- |
+| Guards | are two coordinates in the same reference frame | are two timestamps in the same clock epoch |
+| Without it | a zoom lands on the wrong control, no error | an observation lands at the wrong moment, no error |
+| Cross-boundary comparison | precondition failure | **the same** |
+| Registered in the document | `GeometryRegistry` | an epoch table |
+
+So it belongs in `Timeline` — the second leaf module, symmetric with `Geometry`. Not a new invention;
+a pattern this project already proved, applied to the axis it was not applied to.
+
+### Identity and anchor are two different things and must not be one field
+
+**`kern.boottime` is not an identity.** It is computed as *now minus uptime*, so it moves when the
+system clock is corrected by NTP or by hand — two reads in the same boot can disagree. Used as a
+boot identifier, one NTP correction makes a single boot look like two.
+
+**`kern.bootsessionuuid` is.** Verified on this machine: present, and identical across three
+consecutive reads — `6495B81D-14D1-4E05-8851-DD30BE41D757`. `kern.uuid` is the hardware, stable
+across boots; `kern.bootuuid` is a third, different value. Use `bootsessionuuid`.
+
+Two fields, two jobs:
+
+- **epoch identity** — `kern.bootsessionuuid`. Its only job is the comparison guard: comparing
+  timestamps across epochs is a precondition failure, exactly as with `GeometryRevision`.
+- **anchor** — a `(host time, wall clock)` pair, for display and rough placement.
+
+**The anchor's wall clock has no ordering authority, and this must be written down.** Wall clock
+runs backwards under NTP correction. Segment order is recorded explicitly in the document. Without
+the sentence, someone will sort by it.
+
+A cross-check fell out of the same reading: `kern.boottime` says Jul 26 against today's Aug 2, about
+7.2 days, which matches the `mach_continuous_time` figure of 172.57 h and not the
+`mach_absolute_time` figure of 112.89 h. D2-4's sleep measurement, confirmed from an independent
+direction.
+
+### It changes `EvidenceRef`, and now is when that is cheap
+
+`EvidenceRef.sourceInterval: TimeRange?` — **on which timeline?** By D2-12 Q1 the log stores host
+time only, so the interval is host time, which has just been shown to be meaningless without an
+epoch.
+
+| Option | Consequence |
+| --- | --- |
+| `sourceInterval` carries the epoch | `EvidenceRef` changes — a Phase 1 type, built and tested in Task 12 |
+| it inherits the epoch from the observation its `id` points at | `sourceInterval` becomes a **convenience copy** that can disagree with the observation's own epoch |
+
+The second is the failure D-P4 rejected side tables for: two records of one fact, drifting apart in
+silence. So the epoch goes in.
+
+`EvidenceRef` has **zero non-test callers** — verified by grep across `Sources/`, `Soredemo/` and
+`scripts/`. Changing it costs a type edit and its tests today. In Phase 4, with producers writing
+citations, it costs a migration.
+
+## D2-12 — The observation log
+
+**Q1. The log stores host time only.** Content time — the gapless concatenation of segments that the
+exported video runs on — is *derived* from host time plus the segment table. Storing it in the log
+would put a derived value in the evidence layer, which is the rule D2-1 established for element
+choice. Same rule, different subsystem.
+
+This makes D2-11 load-bearing rather than incidental: host time is now the only timeline stored, and
+it is the one with the epoch problem.
+
+**Q3. One log file per segment.** The master is a sequence (D2-9), so the boundary becomes
+structural rather than implicit, and a crash damages only the current segment's log — `JSONLReader`'s
+truncated-tail rule then has exactly one file it can apply to.
+
+An observation may straddle a boundary: the click at *t*, its AX chain still being read at *t+30 ms*,
+the boundary at *t+15 ms*. **It belongs to the segment the click happened in** — the click is the
+anchor and the chain is its attribute. And because each chain item carries its own timestamp
+(D2-2a), a chain extending past the boundary is *detectable*, which is one more real input for
+`framing-gates`' `observation stale`.
+
+**Gaps are records, not absences.** A segment boundary is written with why (pause, display
+reconfiguration, crash recovery) and what changed (the new `geometryRevision`). Third instance of
+the rule after `SCFrameStatusIdle` and chain truncation: *nothing happened* and *we were not told*
+must not be the same bytes.
+
+**Q4. One table defines every version line, and it lives in one place.**
+
+This project has already paid three times for a version number restated in several documents — the
+same wrong `tools-version` in three files. Adding a fifth line without a single definition point is
+inviting the fourth. Existing lines, from the code:
+
+| Line | Scope |
+| --- | --- |
+| `CanonicalEncoding.version` | the digest encoding; changing it invalidates every stored approval |
+| `ProjectSnapshot.currentSchemaVersion` | the document format |
+| `Derivation.producerVersion` | per producer, so a derivation can be re-run when a producer improves |
+| `ObservationLog.schemaVersion` | **new** — the on-disk log |
+| toolchain (compiler 6.4, tools 6.3, deployment 26.0, SDK 27.0) | `ARCHITECTURE.md` D2's four, a different family |
+
+They move independently, and the table is the only place that says so.
