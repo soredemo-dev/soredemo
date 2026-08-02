@@ -21,8 +21,28 @@ import Geometry
 /// lines are never coupled or derived from one another.
 public struct ProjectSnapshot: Codable, Sendable, Equatable {
     /// The current document schema version this build writes. Bump this,
-    /// never `CanonicalEncoding.version`, when `ProjectSnapshot`'s own shape
-    /// changes.
+    /// never `CanonicalEncoding.version`, when an EXISTING key's meaning or
+    /// shape changes — something an older build would misread rather than
+    /// simply not have.
+    ///
+    /// **Not bumped for `segments` (Task 4).** That field is additive and
+    /// absence-tolerant: `ProjectSnapshot.init(from:)` treats a missing
+    /// `"segments"` key as `.empty` rather than a decode failure, so a
+    /// document written by this build still opens in the build immediately
+    /// before this field existed... except it doesn't, and that is the
+    /// boundary this rule actually draws. An OLDER build opening a NEWER
+    /// document written *with* a segment table will decode it (the key
+    /// exists, `SegmentTable`'s own decoder accepts it), silently drop it
+    /// on the next save (the older build's encoder has no `segments` case
+    /// to write), and the failure `ProjectFormatError.tooNew` exists to
+    /// prevent has happened anyway, just one field at a time instead of
+    /// all at once. That risk is accepted for this task because nothing in
+    /// Phase 2 writes a real segment table yet (`SegmentTable` is
+    /// currently code with no caller) — there is no data to lose in
+    /// practice before Task 8 or 11 exist to produce it. A future
+    /// additive field should re-examine this trade explicitly rather than
+    /// assume the precedent, and MUST bump when it changes what an
+    /// existing key means or how it decodes, not just when it adds one.
     public static let currentSchemaVersion: Int = 1
 
     public var schemaVersion: Int

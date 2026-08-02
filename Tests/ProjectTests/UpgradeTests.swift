@@ -33,20 +33,32 @@ private func richRegistry() -> GeometryRegistry {
     return registry
 }
 
+private let segmentRevA = GeometryRevision(id: 0x1111_0000_0000_0001)
+private let segmentRevB = GeometryRevision(id: 0x2222_0000_0000_0002)
+
 /// Non-empty, per the fixture rule: `SegmentTable.empty` is the identity
 /// value for this field, so a `richSnapshot()` that carried the empty table
 /// would round-trip whether or not `ProjectSnapshot`'s new `segments` field
-/// actually encoded and decoded correctly. Two segments with a real gap
-/// between them (2,000..5,000 is unaccounted for), so this also isn't the
-/// single-segment, no-gap shape that would hide an ordering bug.
+/// actually encoded and decoded correctly. Two DIFFERENT revisions — a
+/// single shared revision is the identity of "does the boundary's
+/// `newRevision` payload actually get carried forward and matched to the
+/// next segment's own `revision`", exactly the mistake the `scale: 1`
+/// entry in `AGENTS.md`'s fixture table warns about, one field over.
+/// `endedBy: .displayReconfigured(newRevision:)` rather than `.paused` for
+/// the same reason: `.paused`/`.stopped` carry no associated value, so a
+/// round trip that silently dropped `SegmentBoundary`'s payload would pass
+/// unnoticed with either of them (`Important 2`, task 4 review). The two
+/// segments touch exactly at the boundary — "close together" is the
+/// realistic shape for a reconfiguration-forced file split, immediately
+/// closing one segment and opening the next with no capture gap.
 private func richSegments() throws -> SegmentTable {
     try SegmentTable(segments: [
         MasterSegment(index: 0, mediaFilename: "clip-01.mov",
                       hostRange: HostRange(epoch: bootEpoch, start: Nanoseconds(1_000), duration: Nanoseconds(1_000)),
-                      revision: GeometryRevision(id: 0x1111_0000_0000_0001), endedBy: .paused),
+                      revision: segmentRevA, endedBy: .displayReconfigured(newRevision: segmentRevB)),
         MasterSegment(index: 1, mediaFilename: "clip-02.mov",
-                      hostRange: HostRange(epoch: bootEpoch, start: Nanoseconds(5_000), duration: Nanoseconds(1_500)),
-                      revision: GeometryRevision(id: 0x1111_0000_0000_0001), endedBy: .stopped),
+                      hostRange: HostRange(epoch: bootEpoch, start: Nanoseconds(2_000), duration: Nanoseconds(1_500)),
+                      revision: segmentRevB, endedBy: .stopped),
     ])
 }
 
@@ -91,8 +103,18 @@ private func richSnapshot() throws -> ProjectSnapshot {
     let g = try #require(text.range(of: "\"geometries\""))
     let m = try #require(text.range(of: "\"mediaFilenames\""))
     let s = try #require(text.range(of: "\"schemaVersion\""))
+    // "segments" was left unasserted until the task 4 review: a hand-written
+    // `Codable` (`ProjectSnapshot.encode(to:)`, added by Task 4) is exactly
+    // the place a key can be emitted out of position — synthesis can't get
+    // key order wrong on its own, but a hand-written `container.encode(...,
+    // forKey:)` call sequence can, and `.sortedKeys` is what recovers from
+    // that regardless of call order. "schemaVersion" < "segments"
+    // alphabetically ('c' < 'e' at the fourth character), so it belongs
+    // last of these four.
+    let e = try #require(text.range(of: "\"segments\""))
     #expect(g.lowerBound < m.lowerBound)
     #expect(m.lowerBound < s.lowerBound)
+    #expect(s.lowerBound < e.lowerBound)
 }
 
 /// Design § Canonical encoding point 2: `ProjectSnapshot.schemaVersion` (the

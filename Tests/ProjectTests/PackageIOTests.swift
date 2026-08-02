@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Project
 import Geometry
+import Timeline
 
 // MARK: - JSONLReader
 //
@@ -90,12 +91,25 @@ private func registry() -> GeometryRegistry {
     return registry
 }
 
-private func snapshot(mediaFilenames: [String] = ["clip-01.mov"]) -> ProjectSnapshot {
+private func snapshot(mediaFilenames: [String] = ["clip-01.mov"], segments: SegmentTable = .empty) -> ProjectSnapshot {
     ProjectSnapshot(
         schemaVersion: ProjectSnapshot.currentSchemaVersion,
         geometries: registry(),
-        mediaFilenames: mediaFilenames
+        mediaFilenames: mediaFilenames,
+        segments: segments
     )
+}
+
+private let segmentEpoch = BootEpoch(id: UUID(uuidString: "3F2A9E10-8B1D-4C3E-9A5F-2D6E7B8C9D0E")!)
+
+/// Non-empty, per the fixture rule — `.empty` is `segments`' default and
+/// therefore its identity value for every other fixture in this file.
+private func nonEmptySegments() throws -> SegmentTable {
+    try SegmentTable(segments: [
+        MasterSegment(index: 0, mediaFilename: "clip-01.mov",
+                      hostRange: HostRange(epoch: segmentEpoch, start: Nanoseconds(0), duration: Nanoseconds(2_000)),
+                      revision: GeometryRevision(id: 0x0A0A_0000_0000_0001), endedBy: .stopped)
+    ])
 }
 
 // MARK: - save
@@ -113,11 +127,16 @@ private func snapshot(mediaFilenames: [String] = ["clip-01.mov"]) -> ProjectSnap
     #expect(FileManager.default.fileExists(atPath: url.appending(path: "project.json").path))
 }
 
+/// `segments` defaults to `.empty` in every other fixture in this file —
+/// the identity value for that field — so this is the one place proving a
+/// real segment table survives an ACTUAL file write, `replaceItemAt`, and
+/// read (`ProjectUpgrade.load` → `SegmentTable.init(from:)`, its own
+/// validating decode path), not just an in-memory encoder/decoder pair.
 @Test func saveThenLoadRoundTripsTheSnapshot() throws {
     let url = freshPackageDirectory("save-load-roundtrip")
     defer { try? FileManager.default.removeItem(at: url) }
 
-    let original = snapshot()
+    let original = snapshot(segments: try nonEmptySegments())
     try ProjectPackageIO.save(original, to: url)
     let loaded = try ProjectPackageIO.load(from: url)
 
