@@ -553,6 +553,21 @@ violation the moment someone reads the line, with no one needing to think to re-
 shape as the expiring exemption in `CanonicalEncoding.version`, and harder to catch, because there is
 no date on it.
 
+**With several candidate causes, make the discriminating measurement before fixing *or explaining*
+any of them.** The rule was written for fixes and it applies just as much to a sentence in a report.
+A verification step observed zero seconds of secure input, and that was written into a commit message
+and the ledger as "a `sudo` prompt does not enable system-wide secure input" — an inference, stated as
+a finding, with nothing behind it. The owner offered a simpler competing explanation: `sudo` caches
+its credential for five minutes, they had authenticated shortly before, so no prompt appeared at all.
+Both explanations predict exactly the same observation, so that run could not tell them apart.
+
+The discriminating experiment cost one minute: measure that the credential has expired, re-run, and
+sample the flag. It came out confirming the original claim — the prompt appeared, the mouse moved
+(1779 samples), and secure input stayed off for all fourteen seconds. Being right is not the point.
+The claim was in a commit message before any of that existed, and had the simpler explanation been
+the true one, the record would have carried a wrong fact about the OS into every future task that
+touched secure input.
+
 **With several candidate causes, make the discriminating measurement before fixing any of them.** A
 display reconfiguration left frames resampled, and three causes were plausible: a stale
 `destinationRect`, an expired `scale`, and the gap between the callback and the new segment opening.
