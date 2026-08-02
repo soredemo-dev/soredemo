@@ -164,6 +164,53 @@ public enum ProjectPackageIO {
         return regularFileNames.filter { !referenced.contains($0) }.sorted()
     }
 
+    /// **Observation logs whose header names a media file the snapshot no
+    /// longer references.**
+    ///
+    /// Reports only, and it is deliberately **not** wired into `compact`.
+    /// `compact`'s whole contract is that it deletes exactly what
+    /// `unreferencedSidecars` reports and never anything else — a save must
+    /// never be able to destroy footage, and a compaction that quietly grew a
+    /// second kind of delete is the same failure by a different door. So this
+    /// is the `unreferencedSidecars` half of the pair with no `compact` half,
+    /// on purpose, until something has a reason to remove a log.
+    ///
+    /// **What it is for.** `ObservationLogHeader.mediaFilename` is the format's
+    /// join field: it is how a log found on its own says which recording it
+    /// describes. A segment whose media was discarded by a writer failure, or
+    /// swept by `compact`, leaves `segment-NN.jsonl` behind pointing at a file
+    /// that is not there — a dangling key in the one field the join depends on.
+    /// Nothing else in the package would notice.
+    ///
+    /// A log whose first line does not decode as a header is reported too, and
+    /// under the same name: it cannot state which media it belongs to, which is
+    /// the same failure as naming media that is gone.
+    public static func danglingObservationLogs(in packageURL: URL,
+                                               snapshot: ProjectSnapshot) throws -> [String] {
+        let fm = FileManager.default
+        let directory = observationsURL(in: packageURL)
+        guard fm.fileExists(atPath: directory.path) else { return [] }
+
+        let entries = try fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        let referenced = Set(snapshot.mediaFilenames)
+        var dangling: [String] = []
+        for entry in entries {
+            let isRegular = try entry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile ?? false
+            guard isRegular, entry.pathExtension == "jsonl" else { continue }
+            let report = try? ObservationLogReadReport.read(logAt: entry)
+            guard let named = report?.header?.mediaFilename else {
+                dangling.append(entry.lastPathComponent)
+                continue
+            }
+            if !referenced.contains(named) { dangling.append(entry.lastPathComponent) }
+        }
+        return dangling.sorted()
+    }
+
     /// The only path by which media is ever deleted. Removes exactly the
     /// names `unreferencedSidecars` reports and returns them — never called
     /// implicitly by `save`.

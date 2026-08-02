@@ -361,7 +361,7 @@ sixth site missing from it is visible, and a row that says *a count* next to fou
 
 | Site | What is unobserved | How it is recorded | Enough? |
 | --- | --- | --- | --- |
-| `Sources/Project` JSONL reader | bytes in a truncated or corrupt record | `droppedBytes` — a byte count, and the reader continues — **paired since Task 11 with `bytesScanned`, without which `droppedBytes: 0` reads the same over a clean log and over no file at all** | yes: the loss is bounded and quantified in the unit that was lost, and the pair says whether anything was read |
+| `Sources/Project` JSONL reader | bytes in a truncated or corrupt record | `droppedBytes` — a byte count, and the reader continues — **paired since Task 11 with `bytesScanned`, without which `droppedBytes: 0` reads the same over a clean log and over no file at all**. Reported by `ObservationLogReadReport`, **not** by a producer's trailer: see below | yes: the loss is bounded and quantified in the unit that was lost, and the pair says whether anything was read |
 | `AXObserver` ancestor walk | levels beyond the depth cap or the time budget | an explicit truncation reason on the record, plus the `depthCap`/`walkBudgetNanos` in force — the record carries the bounds it was measured against | yes: the record says it stopped and why, so a short chain is not read as a shallow tree; and a run with no chains at all is `GapWatch(site: .axAncestorWalk).looks == 0`, not an empty list |
 | `CaptureSession` video | frames the display did not produce | `SCFrameStatusIdle`, counted separately from `.complete`, over `frameStatusCounts` — the count of callbacks that arrived at all is the companion | yes: "nothing changed" is distinguishable from "nothing arrived", and both from "the stream never delivered" |
 | `InputObserver` secure input | every event while another app holds a password field | `SecureInputInterval`, with `.secureInputDisabled` vs `.observationStopped` as its two end reasons — **paired since Task 11 with `secureInputChecks` over `secureInputCheckSpanNanos`**, because the predicate is consulted per event and a run that received no events asks zero times and reports zero intervals | yes: a measured span, the end reason says whether its end was observed or merely assumed, and the check pair says whether anything asked |
@@ -414,16 +414,32 @@ The general form, and the reason this paragraph is in the register rather than i
 > sample count — beside the gaps it found. `tapEnabledPolls: 1247 over 124.7 s` is what makes
 > `tapDisabledIntervals: []` a measurement.
 
-**That rule became a schema rule in Task 11, which is why the four rows above gained companions in
-one edit rather than four.** `observation-log`'s trailer carries a `GapWatch` for **every** row of
-this table, every time, and refuses to decode if one is missing — so a site this project knows about
-and did not report is not expressible. Each row carries `looks` (how many times the detector ran) and
-`watchedSpanNanos` (over what span) beside `gapsFound` and `lost`, and `GapWatch.isAMeasurement`
-answers `false` when `looks == 0`. The three states a reader must be able to tell apart — *the site
-is absent*, *nothing looked*, *something looked and found none* — are three different things on disk.
+**That rule became a schema rule in Task 11, which is why the rows above gained companions in one
+edit rather than four.** Each companion carries `looks` (how many times the detector ran) and
+`watchedSpanNanos` (over what span) beside `gapsFound` and `lost`, and `isAMeasurement` answers
+`false` when `looks == 0`. The three states a reader must be able to tell apart — *the site is
+absent*, *nothing looked*, *something looked and found none* — are three different things on disk.
 
-The consequence for this table: **a sixth row here needs a sixth `GapSite` case**, and adding one
-makes every log written before it fail to decode. That is deliberate and it is the loud direction.
+**But the five rows are reported from two places, and that split is itself a finding.** The trailer
+of an observation log is written by the **producer**, at segment close, and carries a `GapWatch` for
+each of the four rows below that name something a producer measured while recording. It refuses to
+decode if one of those four is missing.
+
+Row 1 is not one of them. Bytes lost to a truncated or corrupt record are a property of **reading the
+file back**, discovered after the writer is gone; `JSONLReader.Result.bytesScanned` measures what a
+*reader* examined, and a writer has no reader. Asked for that row anyway, a producer fabricates it —
+measured, not predicted: the first version of this design carried the site, and the only assembler of
+gap watches in the tree wrote `looks: 1` for it over a fixture in which not one byte had been
+scanned, with a check three subsections later asserting the fabricated row *was* a measurement. Every
+log would then have carried a number for that site meaning nothing, indistinguishable from a real
+one, forever. So row 1 lives in `ObservationLogReadReport`, produced by the code that scanned the
+bytes, and `GapSite` has no case a producer could use to claim it.
+
+The consequence for this table: **a sixth row here needs a sixth `GapSite` case if a producer can
+measure it**, and adding one makes every log written before it fail to decode — deliberate, and the
+loud direction. A sixth row that only a reader can measure belongs on `ObservationLogReadReport`
+instead, and the question to ask when adding one is *which side of the file is holding the
+instrument*.
 
 This is the seventh time in this project that a check has read a proxy for its subject rather than
 the subject: the number consulted was *notifications our callback received*, whose subject is our

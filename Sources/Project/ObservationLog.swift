@@ -141,8 +141,8 @@ extension ObservationLog {
 
 // MARK: - The gap register, as a schema rule
 
-/// One row of `docs/ARCHITECTURE.md` D6a — every place this app can fail to
-/// observe.
+/// One row of `docs/ARCHITECTURE.md` D6a **that a producer can honestly fill at
+/// segment close**.
 ///
 /// A `String` raw value, and `CaseIterable`, because
 /// `ObservationLogTrailer.init(from:)` requires **every** case to be present in
@@ -150,9 +150,38 @@ extension ObservationLog {
 /// this build wrote, which is the loud direction: a site that a version knew
 /// about and did not report is the exact ambiguity this whole type exists to
 /// remove.
+///
+/// # D6a has five rows and this enum has four, deliberately
+///
+/// The missing one is **the JSONL reader's truncated tail**, and it is not an
+/// omission — it is the correction that keeps the other four honest.
+///
+/// The trailer is written by the **producer**, at segment close. Four of D6a's
+/// rows name something the producer measured while recording: how many times it
+/// polled the tap, how many times it asked whether secure input was on, how many
+/// frame callbacks arrived, how many ancestor walks it performed. The fifth
+/// names bytes lost from a **truncated or corrupt record**, which is a property
+/// of *reading the file back* and is discovered after the writer is gone.
+/// `JSONLReader.Result.bytesScanned` measures what a reader examined, and a
+/// writer has no reader.
+///
+/// So a producer asked for that row has nothing to put in it and will put
+/// something there anyway. This was not hypothetical: the first version of this
+/// enum carried the case, and the only assembler of gap watches in the tree — a
+/// probe fixture — wrote `looks: 1` for it over a recording in which not one
+/// byte had been scanned, and a check three subsections later then asserted that
+/// fabricated row *was* a measurement. Once the format ships, every log carries
+/// a number for that site that means nothing and that a reader in six weeks
+/// cannot tell from a real one. That is Addition A's ambiguity, reintroduced at
+/// one site by the shape of the API.
+///
+/// **Where D6a row 1 lives instead: `ObservationLogReadReport`.** It is produced
+/// by the code that actually reads a log, carries `droppedBytes` beside
+/// `bytesScanned` — the same pair, with the same rule — and reports the four
+/// producer rows from the trailer alongside its own so a reader still sees all
+/// five in one place. What has been removed is the ability of a producer to
+/// claim the fifth.
 public enum GapSite: String, Codable, Sendable, CaseIterable {
-    /// `JSONLReader` — bytes in a truncated or corrupt record.
-    case jsonlTruncatedTail
     /// `AXObserver`'s ancestor walk — levels beyond the depth cap or budget.
     case axAncestorWalk
     /// `CaptureSession` video — frames the display did not produce.
@@ -161,12 +190,37 @@ public enum GapSite: String, Codable, Sendable, CaseIterable {
     case secureInput
     /// `InputObserver` — every event between a tap disable and the re-arm.
     case tapDisabled
+
+    /// **The unit this site's loss is measured in, fixed by the site.**
+    ///
+    /// Not a per-`GapWatch` choice, which is what it was until review: with the
+    /// unit unpinned, one producer could write `.nanoseconds` for
+    /// `videoFramesNotProduced` where another wrote `.frames`, both would
+    /// decode, and a reader aggregating "how much of this recording is
+    /// unobserved" would sum frames and nanoseconds. `GapUnit`'s own reason for
+    /// existing is that a bare `Int64` with no unit invites exactly that sum;
+    /// leaving the unit free left the invitation standing one field over.
+    ///
+    /// `GapWatch.init` derives the unit from here rather than taking it, so a
+    /// producer cannot get it wrong, and `GapWatch.init(from:)` refuses bytes
+    /// off disk that disagree.
+    public var lostUnit: GapUnit {
+        switch self {
+        case .axAncestorWalk: .levels
+        case .videoFramesNotProduced: .frames
+        case .secureInput, .tapDisabled: .nanoseconds
+        }
+    }
 }
 
 /// The unit the loss at a site is measured in. Named rather than assumed,
 /// because D6a's whole argument is that a gap must be quantified **in the unit
 /// that was lost** — bytes for bytes, nanoseconds for time — and a bare `Int64`
 /// with no unit invites the next reader to sum two of them.
+///
+/// `bytes` has no `GapSite`: it is D6a row 1's unit, and that row is
+/// `ObservationLogReadReport`'s, not a producer's. Kept in the enum because the
+/// read report reports in it.
 public enum GapUnit: String, Codable, Sendable {
     case bytes
     case nanoseconds
@@ -215,14 +269,28 @@ public struct GapWatch: Hashable, Codable, Sendable {
     /// underlying interval is an enclosing bound (`TapDisabledInterval`); the
     /// safe direction for "how much of this recording is unobserved" is up.
     public let lost: Int64
+    /// Fixed by `site` — see `GapSite.lostUnit`. Stored and encoded so the
+    /// document is self-describing, derived rather than taken so a producer
+    /// cannot write a unit that disagrees with its own site.
     public let lostUnit: GapUnit
 
     /// `precondition`, not `throw`: a producer assembling this from its own
     /// diagnostics cannot legitimately produce a negative count or claim gaps
     /// it never looked for. Untrusted input arrives through `init(from:)`
     /// below, which throws.
+    ///
+    /// **There is no `lostUnit` parameter**, deliberately — it comes from
+    /// `site`. See `GapSite.lostUnit` for the aggregation this closes.
+    ///
+    /// Prefer the four named constructors below to this one. They exist because
+    /// the only assembler of gap watches in the tree at review time was a
+    /// fixture that passed a proxy — `looks: pointerSamples` for
+    /// `.videoFramesNotProduced` — and nothing in the type or at the call site
+    /// pushed it towards the honest number. Each named constructor's parameter
+    /// labels are its producer's own counter names, so passing something else
+    /// costs a visible rename at the call site.
     public init(site: GapSite, looks: Int, watchedSpanNanos: Int64,
-                gapsFound: Int, lost: Int64, lostUnit: GapUnit) {
+                gapsFound: Int, lost: Int64) {
         precondition(looks >= 0 && watchedSpanNanos >= 0 && gapsFound >= 0 && lost >= 0,
                      "GapWatch(\(site)) has a negative count: looks \(looks), "
                      + "span \(watchedSpanNanos), gaps \(gapsFound), lost \(lost)")
@@ -234,7 +302,7 @@ public struct GapWatch: Hashable, Codable, Sendable {
         self.watchedSpanNanos = watchedSpanNanos
         self.gapsFound = gapsFound
         self.lost = lost
-        self.lostUnit = lostUnit
+        self.lostUnit = site.lostUnit
     }
 
     /// Whether `gapsFound` is a statement about the world. `false` means
@@ -291,8 +359,72 @@ extension GapWatch {
                     one reading this type exists to make impossible.
                     """))
         }
+        guard lostUnit == site.lostUnit else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: """
+                    GapWatch(\(site.rawValue)) reports its loss in \(lostUnit.rawValue), and that \
+                    site is measured in \(site.lostUnit.rawValue). A reader aggregating \
+                    'how much of this recording is unobserved' would sum two units.
+                    """))
+        }
         self.init(site: site, looks: looks, watchedSpanNanos: span,
-                  gapsFound: gapsFound, lost: lost, lostUnit: lostUnit)
+                  gapsFound: gapsFound, lost: lost)
+    }
+}
+
+// MARK: - the honest path, one constructor per producer
+
+extension GapWatch {
+    /// D6a's tap row, from `InputObserver.Diagnostics`.
+    ///
+    /// The labels are that type's own field names. `tapEnabledPolls` over
+    /// `tapPollingSpanNanos` is the pair D6a names as the one that made
+    /// `tapDisabledIntervals: []` a measurement.
+    public static func tapDisabled(tapEnabledPolls: Int, tapPollingSpanNanos: Int64,
+                                   tapDisabledIntervals: Int, tapBlindNanos: Int64) -> GapWatch {
+        GapWatch(site: .tapDisabled, looks: tapEnabledPolls,
+                 watchedSpanNanos: tapPollingSpanNanos,
+                 gapsFound: tapDisabledIntervals, lost: tapBlindNanos)
+    }
+
+    /// D6a's secure-input row, from `InputObserver.Diagnostics`. The predicate
+    /// is consulted per event, so `secureInputChecks` is the number of asks —
+    /// counted at the ask, not at the answer.
+    public static func secureInput(secureInputChecks: Int, secureInputCheckSpanNanos: Int64,
+                                   secureInputIntervals: Int, suppressedNanos: Int64) -> GapWatch {
+        GapWatch(site: .secureInput, looks: secureInputChecks,
+                 watchedSpanNanos: secureInputCheckSpanNanos,
+                 gapsFound: secureInputIntervals, lost: suppressedNanos)
+    }
+
+    /// D6a's video row, from `CaptureSession.Diagnostics`.
+    ///
+    /// `frameCallbacksObserved` is every callback the stream delivered — the
+    /// sum of `frameStatusCounts.values`, **not** `completeFrameCount`, which
+    /// is already post-filter and cannot say whether the stream was running.
+    /// `idleFrames` is `frameStatusCounts[SCFrameStatus.idle.rawValue]`.
+    public static func videoFramesNotProduced(frameCallbacksObserved: Int,
+                                              observationSpanNanos: Int64,
+                                              idleFrames: Int) -> GapWatch {
+        GapWatch(site: .videoFramesNotProduced, looks: frameCallbacksObserved,
+                 watchedSpanNanos: observationSpanNanos,
+                 gapsFound: idleFrames, lost: Int64(idleFrames))
+    }
+
+    /// D6a's AX row, from `AXObserver.Diagnostics`.
+    ///
+    /// `chainsRecorded` is how many walks were performed — a run with no clicks
+    /// has nothing looking, and that is the state this row could not previously
+    /// express. `levelsLost` is genuinely unknowable per walk (nothing counts
+    /// the ancestors that were never asked for), so it is reported as the
+    /// number of walks that stopped early, in `levels`, and is a **lower bound
+    /// of one level each**; the record's own `truncation` is where the detail is.
+    public static func axAncestorWalk(chainsRecorded: Int, observationSpanNanos: Int64,
+                                      truncatedWalks: Int) -> GapWatch {
+        GapWatch(site: .axAncestorWalk, looks: chainsRecorded,
+                 watchedSpanNanos: observationSpanNanos,
+                 gapsFound: truncatedWalks, lost: Int64(truncatedWalks))
     }
 }
 
@@ -331,10 +463,35 @@ public enum ObservationBlindness: String, Codable, Sendable, CaseIterable {
 public struct ObservationLogHeader: Hashable, Codable, Sendable {
     public let kind: String
     public let schemaVersion: Int
-    /// **The log's clock.** See `ObservationLog.checkEpoch(of:against:)` for
-    /// why this is at the log level and not left to the per-record epochs
-    /// `HostInstant` already carries.
-    public let epoch: BootEpoch
+    /// **The log's clock, tied to a wall-clock reading.**
+    ///
+    /// `anchor.epoch` is the epoch every record in this log must carry — see
+    /// `ObservationLog.checkEpoch(of:against:)` for why that lives at the log
+    /// level and is not left to the per-record epochs `HostInstant` already
+    /// holds.
+    ///
+    /// **`EpochAnchor` rather than a bare `BootEpoch`, and this is the field
+    /// that dates a recording.** Nothing else in the format did. `HostInstant`
+    /// is monotonic-clock nanoseconds since a boot whose identity is a UUID;
+    /// `MasterSegment`, `SegmentTable` and `ProjectSnapshot` carry no wall
+    /// clock at all. So a `.soredemo` package said nowhere when it was made,
+    /// and two logs from two boot epochs could not be placed relative to each
+    /// other even roughly — which is precisely what `EpochAnchor` documents
+    /// itself as being for, and it had zero references in the repository until
+    /// this field. Filesystem mtime is not part of the format and is destroyed
+    /// by any copy.
+    ///
+    /// It is on the **header** rather than the manifest because a log is the
+    /// thing that has one epoch. A package holds several recordings by Phase 4,
+    /// each its own boot session, and one anchor on the manifest would have to
+    /// pick one of them.
+    ///
+    /// The wall clock is still not an ordering key — `EpochAnchor` says so at
+    /// length and `SegmentTable` is the order. This dates the recording; it
+    /// does not sequence it.
+    public let anchor: EpochAnchor
+    /// The boot epoch every record in this log must be stamped with.
+    public var epoch: BootEpoch { anchor.epoch }
     public let segmentIndex: Int
     /// Relative, never absolute — the same rule `MasterSegment.mediaFilename`
     /// and `ProjectSnapshot.mediaFilenames` keep.
@@ -349,15 +506,71 @@ public struct ObservationLogHeader: Hashable, Codable, Sendable {
     /// field. Same argument as `GapWatch`, one record up.
     public let blindness: [ObservationBlindness]
 
-    public init(epoch: BootEpoch, segmentIndex: Int, mediaFilename: String,
+    public init(anchor: EpochAnchor, segmentIndex: Int, mediaFilename: String,
                 revision: GeometryRevision, blindness: [ObservationBlindness]) {
         self.kind = "logHeader"
         self.schemaVersion = ObservationLog.schemaVersion
-        self.epoch = epoch
+        self.anchor = anchor
         self.segmentIndex = segmentIndex
         self.mediaFilename = mediaFilename
         self.revision = revision
         self.blindness = blindness
+    }
+}
+
+extension ObservationLogHeader {
+    private enum CodingKeys: String, CodingKey {
+        case kind, schemaVersion, anchor, segmentIndex, mediaFilename, revision, blindness
+    }
+
+    /// **Untrusted input, validated — and the field this exists for is
+    /// `schemaVersion`.**
+    ///
+    /// `kind` and `schemaVersion` are literals assigned inside the memberwise
+    /// initialiser: they are invariants of a header this build wrote, not
+    /// values a caller supplies. A synthesised `Decodable` assigns both from
+    /// the bytes, so a package carrying `"schemaVersion": 9` decoded cleanly
+    /// into a v1 reader, which then read v9 meanings as v1 — the version line
+    /// the format exists to carry was inert on the one path that carries a
+    /// document written by somebody else.
+    ///
+    /// The stance is `SchemaProbe`'s and `ProjectUpgrade`'s, one layer down:
+    /// refuse to read a single other field rather than partially interpret a
+    /// document from a future build. A version *lower* than this build's is
+    /// refused too, because there is no migration chain for observation logs
+    /// yet — when there is, this is where it hooks in, and an unsupported-low
+    /// error is a better place to start than a silent reinterpretation.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+        let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard kind == "logHeader" else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "expected kind 'logHeader', found '\(kind)'"))
+        }
+        guard schemaVersion == ObservationLog.schemaVersion else {
+            throw ProjectFormatError.tooNew(found: schemaVersion,
+                                            supported: ObservationLog.schemaVersion)
+        }
+        self.init(anchor: try container.decode(EpochAnchor.self, forKey: .anchor),
+                  segmentIndex: try container.decode(Int.self, forKey: .segmentIndex),
+                  mediaFilename: try container.decode(String.self, forKey: .mediaFilename),
+                  revision: try container.decode(GeometryRevision.self, forKey: .revision),
+                  blindness: try container.decode([ObservationBlindness].self, forKey: .blindness))
+    }
+
+    /// Matches the synthesised shape exactly, so this hand-written conformance
+    /// changes validation and not the wire form.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(anchor, forKey: .anchor)
+        try container.encode(segmentIndex, forKey: .segmentIndex)
+        try container.encode(mediaFilename, forKey: .mediaFilename)
+        try container.encode(revision, forKey: .revision)
+        try container.encode(blindness, forKey: .blindness)
     }
 }
 
@@ -474,5 +687,115 @@ extension ObservationLogTrailer {
         }
         self.init(segmentIndex: segmentIndex, hostRange: hostRange, endedBy: endedBy,
                   recordCounts: recordCounts, gapWatches: gapWatches)
+    }
+}
+
+// MARK: - D6a row 1, on the side that can measure it
+
+/// **What reading one observation log back actually found.**
+///
+/// This is where `docs/ARCHITECTURE.md` D6a's first row lives — bytes lost to a
+/// truncated or corrupt record — and it is a separate type from
+/// `ObservationLogTrailer` for the reason `GapSite` sets out at length: that
+/// row is a property of *reading* a file, and the trailer is written by a
+/// producer that has no reader. Asked for it, a producer fabricates one.
+///
+/// So the five rows of D6a are reported from two places, and this type is the
+/// one that puts them back together: `gapWatches` is the trailer's four, and
+/// `droppedBytes` over `bytesScanned` is the fifth, measured here, by the code
+/// that scanned the bytes.
+///
+/// **Three states again, and the same rule.** `droppedBytes == 0` over
+/// `bytesScanned == 0` is *no file* — not a clean one. `closedCleanly` is
+/// `false` for a log whose producer died before the segment closed, which is a
+/// different fault from a truncated tail and must not be read as an empty
+/// recording.
+public struct ObservationLogReadReport: Hashable, Sendable {
+    /// `nil` only for a file whose very first line is damaged — the header is
+    /// written at `open`, before any record.
+    public let header: ObservationLogHeader?
+    /// `nil` means the producer died before the segment closed. See
+    /// `ObservationLogTrailer`.
+    public let trailer: ObservationLogTrailer?
+    /// Complete lines that were neither the header nor the trailer.
+    public let recordLines: Int
+    /// D6a row 1: bytes in a truncated or corrupt final record.
+    public let droppedBytes: Int
+    /// D6a row 1's companion, without which the line above has two readings.
+    public let bytesScanned: Int
+
+    public init(header: ObservationLogHeader?, trailer: ObservationLogTrailer?,
+                recordLines: Int, droppedBytes: Int, bytesScanned: Int) {
+        precondition(recordLines >= 0 && droppedBytes >= 0 && bytesScanned >= 0,
+                     "ObservationLogReadReport has a negative count")
+        precondition(droppedBytes <= bytesScanned,
+                     "ObservationLogReadReport dropped \(droppedBytes) of \(bytesScanned) "
+                     + "scanned — a reader cannot lose more than it examined")
+        self.header = header
+        self.trailer = trailer
+        self.recordLines = recordLines
+        self.droppedBytes = droppedBytes
+        self.bytesScanned = bytesScanned
+    }
+
+    /// Reads one log file and reports it. The one filesystem call is
+    /// `JSONLReader.linesOfFile(at:)`'s.
+    public static func read(logAt url: URL) throws -> ObservationLogReadReport {
+        let result = try JSONLReader.linesOfFile(at: url)
+        var header: ObservationLogHeader?
+        var trailer: ObservationLogTrailer?
+        var records = 0
+        for line in result.lines {
+            switch try ObservationLog.kind(of: line) {
+            case "logHeader": header = try ObservationLog.decode(line)
+            case "logTrailer": trailer = try ObservationLog.decode(line)
+            default: records += 1
+            }
+        }
+        return ObservationLogReadReport(header: header, trailer: trailer,
+                                        recordLines: records,
+                                        droppedBytes: result.droppedBytes,
+                                        bytesScanned: result.bytesScanned)
+    }
+
+    /// Whether the segment this log belongs to closed. `false` is a crash, and
+    /// it is a different fault from a truncated tail: a log can have a clean
+    /// tail and no trailer (the process was killed between records), or a
+    /// trailer and a damaged tail (something appended afterwards).
+    public var closedCleanly: Bool { trailer != nil }
+
+    /// Whether anything was read at all. `droppedBytes == 0` means nothing
+    /// only when this is `true`.
+    public var isAMeasurement: Bool { bytesScanned > 0 }
+
+    /// All five D6a rows: the producer's four, plus this read's own.
+    ///
+    /// The fifth is deliberately **not** a `GapWatch` — see `GapSite`. It is
+    /// returned as the pair it is, so a caller cannot append it to the other
+    /// four and lose which side measured it.
+    public var producerGapWatches: [GapWatch] { trailer?.gapWatches ?? [] }
+
+    /// The read side's own row, in the shape D6a asks for: the loss, and the
+    /// evidence something looked.
+    public var truncatedTailAccounting: String {
+        var line = "jsonlTruncatedTail: \(droppedBytes) byte(s) lost"
+            + "  ←  \(bytesScanned) byte(s) scanned across \(recordLines) record line(s)"
+        if !isAMeasurement { line += "   ← NOTHING WAS READ; 0 dropped is not a measurement" }
+        return line
+    }
+
+    /// Every D6a row for this log in one block, from both sides, each labelled
+    /// with which side measured it.
+    public var accounting: String {
+        var lines = ["producer (trailer):"]
+        if let trailer {
+            lines.append(contentsOf: trailer.accounting.split(separator: "\n").map { "  " + $0 })
+        } else {
+            lines.append("  NO TRAILER — the producer died before this segment closed, so none of "
+                         + "D6a's four producer rows was written for it")
+        }
+        lines.append("reader (this read):")
+        lines.append("  " + truncatedTailAccounting)
+        return lines.joined(separator: "\n")
     }
 }

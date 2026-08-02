@@ -1052,7 +1052,7 @@ public struct LiveAXElementSource: AXElementSource {
     }
 
     public nonisolated func role(of element: AXUIElement) -> String? {
-        copyAttribute(kAXRoleAttribute, of: element) as? String
+        copyAttribute(.role, of: element) as? String
     }
 
     /// **A title is UI text, and it is recorded on purpose.** It is what makes
@@ -1062,19 +1062,19 @@ public struct LiveAXElementSource: AXElementSource {
     /// `AppSourceTests.noAppSourceReadsKeystrokeText` enforces over the whole
     /// app target rather than trusting any one file.
     public nonisolated func title(of element: AXUIElement) -> String? {
-        copyAttribute(kAXTitleAttribute, of: element) as? String
+        copyAttribute(.title, of: element) as? String
     }
 
     public nonisolated func position(of element: AXUIElement) -> (x: Double, y: Double)? {
-        CGGeometryBridge.point(fromAXValue: copyAttribute(kAXPositionAttribute, of: element))
+        CGGeometryBridge.point(fromAXValue: copyAttribute(.position, of: element))
     }
 
     public nonisolated func size(of element: AXUIElement) -> (width: Double, height: Double)? {
-        CGGeometryBridge.size(fromAXValue: copyAttribute(kAXSizeAttribute, of: element))
+        CGGeometryBridge.size(fromAXValue: copyAttribute(.size, of: element))
     }
 
     public nonisolated func parent(of element: AXUIElement) -> AXUIElement? {
-        guard let value = copyAttribute(kAXParentAttribute, of: element),
+        guard let value = copyAttribute(.parent, of: element),
               CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return (value as! AXUIElement)
     }
@@ -1095,7 +1095,7 @@ public struct LiveAXElementSource: AXElementSource {
     /// silently claims to be complete. All-or-nothing is the loud direction,
     /// and it is the one `parent(of:)` already takes.
     public nonisolated func children(of element: AXUIElement) -> [AXUIElement]? {
-        guard let value = copyAttribute(kAXChildrenAttribute, of: element),
+        guard let value = copyAttribute(.children, of: element),
               CFGetTypeID(value) == CFArrayGetTypeID(),
               let members = value as? [CFTypeRef] else { return nil }
         guard members.allSatisfy({ CFGetTypeID($0) == AXUIElementGetTypeID() }) else { return nil }
@@ -1112,9 +1112,79 @@ public struct LiveAXElementSource: AXElementSource {
     /// actually needs — "this app was never allowed to ask" — is a property of
     /// the process, not of the attribute, and is counted once in
     /// `AXObserver.Diagnostics.hitTestsReturnedNothingWithoutAccessibility`.
-    private nonisolated func copyAttribute(_ attribute: String, of element: AXUIElement) -> CFTypeRef? {
+    private nonisolated func copyAttribute(_ attribute: ReadableAXAttribute,
+                                           of element: AXUIElement) -> CFTypeRef? {
         var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        let error = AXUIElementCopyAttributeValue(element, attribute.name as CFString, &value)
         return error == .success ? value : nil
+    }
+}
+
+/// **The complete list of AX attributes this app is able to read**, as a closed
+/// type rather than a `String` parameter.
+///
+/// This exists because the text scan that enforces the observation log's content
+/// rule (`AppSourceTests.noAppSourceReadsUserContent`) could not see through a
+/// string literal, and `AXUIElementCopyAttributeValue` is stringly-typed.
+/// `SwiftSourceLexer.codeViewLines` blanks string *content* by design — a rule
+/// people can document without tripping — so with a `String` parameter,
+///
+/// ```swift
+/// let value = copyAttribute("AXValue", of: element) as? String
+/// ```
+///
+/// was invisible to the scan, compiled, passed every gate, and would have put
+/// the contents of a focused password field into every `.soredemo` package.
+/// That is the exact scenario the scan's own documentation gives as its reason
+/// for existing.
+///
+/// **A closed enum rather than a longer ban list, and the difference is the
+/// direction of the failure.** A list of banned attribute names is an open set:
+/// it has to be widened every time Apple adds an attribute, it can only ever
+/// name the ones somebody thought of, and this project has twice rejected name
+/// lists for exactly that. This is the complement — the *permitted* set, which
+/// is closed by construction. Reading `kAXValueAttribute` is not a name the
+/// scan has to know about; it is a case that does not exist, and adding one is
+/// a visible edit to this file with a `case` and a doc comment attached.
+///
+/// The six cases are what `AXElementRecord` and the walk actually need:
+/// structure (role, parent, children), position (position, size) and the label
+/// on a control (title). Every one of them is in `ObservationLog`'s "what a
+/// record may contain" list. There is no case for the text *inside* a control,
+/// and that is the point.
+enum ReadableAXAttribute {
+    /// `kAXRoleAttribute` — what kind of element this is.
+    case role
+    /// `kAXTitleAttribute` — the label **on** a control, never the text inside
+    /// one. Recorded on purpose; see `AXObserver.title(of:)`.
+    case title
+    /// `kAXPositionAttribute` — where it is.
+    case position
+    /// `kAXSizeAttribute` — how big it is.
+    case size
+    /// `kAXParentAttribute` — one level up, for the ancestor walk.
+    case parent
+    /// `kAXChildrenAttribute` — one level down (D2-3), never a tree search.
+    case children
+
+    /// The CoreFoundation constant. **The only place in this app where an AX
+    /// attribute name is written**, which is what makes the list above the
+    /// whole list rather than most of it.
+    ///
+    /// `nonisolated` deliberately, not left to `SWIFT_DEFAULT_ACTOR_ISOLATION
+    /// = MainActor`: `copyAttribute` is `nonisolated` because the AX walk runs
+    /// on this observer's own queue, and an unannotated property here is
+    /// implicitly main-actor — the compiler's own error was *"main
+    /// actor-isolated property 'name' can not be referenced from a nonisolated
+    /// context"*. Same shape, same reason, as `Minting`'s functions.
+    nonisolated var name: String {
+        switch self {
+        case .role: kAXRoleAttribute
+        case .title: kAXTitleAttribute
+        case .position: kAXPositionAttribute
+        case .size: kAXSizeAttribute
+        case .parent: kAXParentAttribute
+        case .children: kAXChildrenAttribute
+        }
     }
 }

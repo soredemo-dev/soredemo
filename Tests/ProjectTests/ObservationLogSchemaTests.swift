@@ -41,20 +41,15 @@ private func chain(instant: HostInstant,
                   axCalls: 41, depthCap: 30, walkBudgetNanos: 35_000_000)
 }
 
-/// The five `GapSite` rows, each with something that looked.
+/// One row per producer-measurable `GapSite`, each with something that looked.
 private func fullGapWatches(looks: Int = 1) -> [GapWatch] {
     GapSite.allCases.map {
         GapWatch(site: $0, looks: looks, watchedSpanNanos: 1_000_000_000,
-                 gapsFound: 0, lost: 0, lostUnit: unit(for: $0))
+                 gapsFound: 0, lost: 0)
     }
 }
-private func unit(for site: GapSite) -> GapUnit {
-    switch site {
-    case .jsonlTruncatedTail: .bytes
-    case .axAncestorWalk: .levels
-    case .videoFramesNotProduced: .frames
-    case .secureInput, .tapDisabled: .nanoseconds
-    }
+private func anchor(_ epoch: BootEpoch = epochA) -> EpochAnchor {
+    EpochAnchor(epoch: epoch, hostTime: Nanoseconds(5_000), wallClockUnixNanos: 1_785_000_000_000_000_000)
 }
 
 // MARK: - Addition B: the log's clock
@@ -132,17 +127,78 @@ private struct RecordWithNoInstant: ObservationRecord {
 
 // MARK: - Addition A: zero versus never-measured
 
-@Test func thereIsOneGapSiteForEachRowOfD6a() {
-    #expect(GapSite.allCases.count == 5,
-            "D6a has five rows; a sixth needs a case here and a GapWatch in every trailer")
+/// D6a has five rows and `GapSite` has four. The fifth is the JSONL reader's
+/// truncated tail, which no producer can measure at segment close — see
+/// `GapSite`'s own documentation and `ObservationLogReadReport`.
+@Test func gapSiteCoversEveryD6aRowAProducerCanMeasure() {
+    #expect(GapSite.allCases.count == 4,
+            "a sixth D6a row a PRODUCER can measure needs a case here and a GapWatch in every trailer")
+    #expect(Set(GapSite.allCases.map(\.rawValue))
+            == ["axAncestorWalk", "videoFramesNotProduced", "secureInput", "tapDisabled"])
+}
+
+/// **The unit is fixed by the site, so two producers cannot report one site in
+/// two units and invite a reader to sum them.**
+@Test func everyGapSiteFixesTheUnitItsLossIsMeasuredIn() {
+    #expect(GapSite.axAncestorWalk.lostUnit == .levels)
+    #expect(GapSite.videoFramesNotProduced.lostUnit == .frames)
+    #expect(GapSite.secureInput.lostUnit == .nanoseconds)
+    #expect(GapSite.tapDisabled.lostUnit == .nanoseconds)
+    for site in GapSite.allCases {
+        let watch = GapWatch(site: site, looks: 1, watchedSpanNanos: 1, gapsFound: 0, lost: 0)
+        #expect(watch.lostUnit == site.lostUnit,
+                "GapWatch derived a unit its site does not name")
+    }
+}
+
+@Test func aGapWatchWhoseUnitDisagreesWithItsSiteFailsToDecode() {
+    let mismatched = Data("""
+        {"site":"videoFramesNotProduced","looks":10,"watchedSpanNanos":1000,\
+        "gapsFound":0,"lost":0,"lostUnit":"nanoseconds"}
+        """.utf8)
+    #expect(throws: (any Error).self) {
+        let _: GapWatch = try ObservationLog.decode(mismatched)
+    }
+    // The identical bytes with the site's own unit must decode, so the failure
+    // above is about the unit and not about the fixture's shape.
+    let matched = Data("""
+        {"site":"videoFramesNotProduced","looks":10,"watchedSpanNanos":1000,\
+        "gapsFound":0,"lost":0,"lostUnit":"frames"}
+        """.utf8)
+    #expect(throws: Never.self) { let _: GapWatch = try ObservationLog.decode(matched) }
+}
+
+/// The named constructors, which exist so the honest number is the easy one.
+@Test func theNamedGapWatchConstructorsCarryTheirProducersOwnNumbers() {
+    let tap = GapWatch.tapDisabled(tapEnabledPolls: 1247, tapPollingSpanNanos: 124_700_000_000,
+                                   tapDisabledIntervals: 0, tapBlindNanos: 0)
+    #expect(tap.site == .tapDisabled)
+    #expect(tap.looks == 1247)
+    #expect(tap.isAMeasurement)
+
+    let secure = GapWatch.secureInput(secureInputChecks: 0, secureInputCheckSpanNanos: 0,
+                                      secureInputIntervals: 0, suppressedNanos: 0)
+    #expect(!secure.isAMeasurement,
+            "a run in which nothing consulted the predicate is a row that says so")
+
+    let video = GapWatch.videoFramesNotProduced(frameCallbacksObserved: 664,
+                                                observationSpanNanos: 20_000_000_000,
+                                                idleFrames: 402)
+    #expect(video.lostUnit == .frames)
+    #expect(video.gapsFound == 402)
+
+    let ax = GapWatch.axAncestorWalk(chainsRecorded: 8, observationSpanNanos: 20_000_000_000,
+                                     truncatedWalks: 8)
+    #expect(ax.lostUnit == .levels)
+    #expect(ax.looks == 8)
 }
 
 /// The middle state — present, and nothing looked.
 @Test func aGapWatchWithNoLooksIsNotAMeasurement() {
     let nothingLooked = GapWatch(site: .tapDisabled, looks: 0, watchedSpanNanos: 0,
-                                 gapsFound: 0, lost: 0, lostUnit: .nanoseconds)
+                                 gapsFound: 0, lost: 0)
     let somethingLooked = GapWatch(site: .tapDisabled, looks: 1247, watchedSpanNanos: 124_700_000_000,
-                                   gapsFound: 0, lost: 0, lostUnit: .nanoseconds)
+                                   gapsFound: 0, lost: 0)
     #expect(!nothingLooked.isAMeasurement)
     #expect(somethingLooked.isAMeasurement)
     // Both report zero gaps. The point of the type is that the two rows do not
@@ -173,8 +229,8 @@ private struct RecordWithNoInstant: ObservationRecord {
 }
 
 @Test func aGapWatchRoundTripsThroughOneJSONLLine() throws {
-    let watch = GapWatch(site: .jsonlTruncatedTail, looks: 1, watchedSpanNanos: 5_000,
-                         gapsFound: 1, lost: 23, lostUnit: .bytes)
+    let watch = GapWatch(site: .axAncestorWalk, looks: 1, watchedSpanNanos: 5_000,
+                         gapsFound: 1, lost: 1)
     let line = try ObservationLog.encode(watch)
     #expect(!line.contains(UInt8(ascii: "\n")))
     let back: GapWatch = try ObservationLog.decode(line)
@@ -234,7 +290,7 @@ private struct RecordWithNoInstant: ObservationRecord {
 @Test func aTrailerWithTwoRowsForOneSiteFailsToDecode() throws {
     var watches = fullGapWatches()
     watches.append(GapWatch(site: .tapDisabled, looks: 0, watchedSpanNanos: 0,
-                            gapsFound: 0, lost: 0, lostUnit: .nanoseconds))
+                            gapsFound: 0, lost: 0))
     let json = """
         {"kind":"logTrailer","segmentIndex":0,\
         "hostRange":\(String(decoding: try ObservationLog.encode(span(0, 1)), as: UTF8.self)),\
@@ -250,7 +306,7 @@ private struct RecordWithNoInstant: ObservationRecord {
 @Test func theTrailerNamesTheSitesNothingWasWatching() {
     var watches = fullGapWatches().filter { $0.site != .secureInput }
     watches.append(GapWatch(site: .secureInput, looks: 0, watchedSpanNanos: 0,
-                            gapsFound: 0, lost: 0, lostUnit: .nanoseconds))
+                            gapsFound: 0, lost: 0))
     let trailer = ObservationLogTrailer(segmentIndex: 0, hostRange: span(0, 1),
                                         endedBy: .stopped, recordCounts: [:],
                                         gapWatches: watches)
@@ -292,7 +348,7 @@ private struct RecordWithNoInstant: ObservationRecord {
 // MARK: - the header
 
 @Test func aHeaderRoundTripsAndSaysWhatItIsALogOf() throws {
-    let header = ObservationLogHeader(epoch: epochA, segmentIndex: 3,
+    let header = ObservationLogHeader(anchor: anchor(), segmentIndex: 3,
                                       mediaFilename: "master-03.mov", revision: rev,
                                       blindness: [])
     let line = try ObservationLog.encode(header)
@@ -309,10 +365,10 @@ private struct RecordWithNoInstant: ObservationRecord {
 /// Monitoring is byte-identical to a recording of somebody not touching the
 /// mouse; this is what tells them apart.
 @Test func aHeaderCarriesWhyAWholeSegmentSawNothing() throws {
-    let blind = ObservationLogHeader(epoch: epochA, segmentIndex: 0,
+    let blind = ObservationLogHeader(anchor: anchor(), segmentIndex: 0,
                                      mediaFilename: "master-00.mov", revision: rev,
                                      blindness: [.inputMonitoringUnavailable])
-    let sighted = ObservationLogHeader(epoch: epochA, segmentIndex: 0,
+    let sighted = ObservationLogHeader(anchor: anchor(), segmentIndex: 0,
                                        mediaFilename: "master-00.mov", revision: rev,
                                        blindness: [])
     #expect(blind != sighted, "a blind segment and a clear one encode identically")
@@ -325,7 +381,7 @@ private struct RecordWithNoInstant: ObservationRecord {
 @Test func aHeaderWithNoBlindnessKeyFailsToDecode() throws {
     let json = """
         {"kind":"logHeader","schemaVersion":1,\
-        "epoch":\(String(decoding: try ObservationLog.encode(epochA), as: UTF8.self)),\
+        "anchor":\(String(decoding: try ObservationLog.encode(anchor()), as: UTF8.self)),\
         "segmentIndex":0,"mediaFilename":"master-00.mov",\
         "revision":\(String(decoding: try ObservationLog.encode(rev), as: UTF8.self))}
         """
@@ -362,4 +418,200 @@ private struct RecordWithNoInstant: ObservationRecord {
     let r = JSONLReader.lines(from: Data("a\nb\n{\"partial\":".utf8))
     #expect(r.droppedBytes == 11)
     #expect(r.bytesScanned == 15)
+}
+
+// MARK: - the header's version line, which was inert until review
+
+/// `kind` and `schemaVersion` are literals assigned inside the memberwise
+/// initialiser — invariants of a header this build wrote, not values a caller
+/// supplies. A synthesised `Decodable` assigned both from the bytes, so a
+/// package written by a future build decoded cleanly into a v1 reader and its
+/// v9 meanings were read as v1.
+@Test func aHeaderFromAFutureBuildIsRefusedRatherThanReadAsThisOne() throws {
+    func headerJSON(schemaVersion: Int, kind: String = "logHeader") throws -> Data {
+        Data("""
+            {"kind":"\(kind)","schemaVersion":\(schemaVersion),\
+            "anchor":\(String(decoding: try ObservationLog.encode(anchor()), as: UTF8.self)),\
+            "segmentIndex":0,"mediaFilename":"master-00.mov",\
+            "revision":\(String(decoding: try ObservationLog.encode(rev), as: UTF8.self)),\
+            "blindness":[]}
+            """.utf8)
+    }
+    // The control: this build's own version decodes. Without it the two
+    // refusals below are satisfied by a decoder that refuses everything.
+    #expect(throws: Never.self) {
+        let _: ObservationLogHeader = try ObservationLog.decode(
+            try headerJSON(schemaVersion: ObservationLog.schemaVersion))
+    }
+    #expect(throws: ProjectFormatError.tooNew(found: 9, supported: 1)) {
+        let _: ObservationLogHeader = try ObservationLog.decode(try headerJSON(schemaVersion: 9))
+    }
+    // A version BELOW this build's is refused too: there is no migration chain
+    // for observation logs, and a silent reinterpretation is the worse answer.
+    #expect(throws: (any Error).self) {
+        let _: ObservationLogHeader = try ObservationLog.decode(try headerJSON(schemaVersion: 0))
+    }
+    #expect(throws: (any Error).self) {
+        let _: ObservationLogHeader = try ObservationLog.decode(
+            try headerJSON(schemaVersion: 1, kind: "logTrailer"))
+    }
+}
+
+/// `EpochAnchor` had zero references in the repository, and a `.soredemo`
+/// package therefore said nowhere when it was recorded.
+@Test func aHeaderDatesItsRecording() throws {
+    let header = ObservationLogHeader(anchor: anchor(), segmentIndex: 0,
+                                      mediaFilename: "master-00.mov", revision: rev,
+                                      blindness: [])
+    let back: ObservationLogHeader = try ObservationLog.decode(try ObservationLog.encode(header))
+    #expect(back.anchor.wallClockUnixNanos == 1_785_000_000_000_000_000)
+    #expect(back.anchor.hostTime == Nanoseconds(5_000))
+    // And the log's clock is still the anchor's epoch, not a second field that
+    // could disagree with it.
+    #expect(back.epoch == back.anchor.epoch)
+    #expect(back.epoch == epochA)
+}
+
+// MARK: - D6a row 1, on the side that can measure it
+
+@Test func theReadReportCarriesD6aRowOneAndTheTrailerCarriesTheOtherFour() throws {
+    let trailer = ObservationLogTrailer(segmentIndex: 0, hostRange: span(0, 1),
+                                        endedBy: .stopped, recordCounts: ["pointer": 3],
+                                        gapWatches: fullGapWatches())
+    let clean = ObservationLogReadReport(header: nil, trailer: trailer, recordLines: 3,
+                                         droppedBytes: 0, bytesScanned: 512)
+    #expect(clean.producerGapWatches.count == GapSite.allCases.count)
+    #expect(clean.isAMeasurement)
+    #expect(clean.closedCleanly)
+    #expect(!clean.truncatedTailAccounting.contains("NOTHING WAS READ"))
+
+    // The state that could not be told apart before: nothing was read.
+    let nothing = ObservationLogReadReport(header: nil, trailer: nil, recordLines: 0,
+                                           droppedBytes: 0, bytesScanned: 0)
+    #expect(clean.droppedBytes == nothing.droppedBytes)
+    #expect(!nothing.isAMeasurement)
+    #expect(nothing.truncatedTailAccounting.contains("NOTHING WAS READ"))
+    // A crashed log is a THIRD thing, and not the same as either.
+    #expect(!nothing.closedCleanly)
+    #expect(nothing.accounting.contains("NO TRAILER"))
+}
+
+/// No producer can fabricate D6a row 1, because there is no case for it.
+@Test func aProducerCannotClaimTheReadSideRow() {
+    #expect(!GapSite.allCases.map(\.rawValue).contains("jsonlTruncatedTail"),
+            "a producer with no reader could write a `looks` for this site that means nothing")
+}
+
+// MARK: - Addition B, one foreign epoch per epoch-bearing field
+
+/// `ObservationRecord.epochs` is written out per type rather than derived, and
+/// the compiler does **not** enforce that a newly added epoch-bearing field
+/// appears in it. These are the tests that do: one per field, each with that
+/// field alone moved into another boot session.
+@Test func everyEpochBearingFieldOfEveryRecordTypeIsRefusedWhenItIsForeign() {
+    func refuses(_ record: some ObservationRecord, _ what: String) {
+        #expect(throws: (any Error).self,
+                "\(record.kind): a foreign epoch in \(what) was accepted") {
+            try ObservationLog.checkEpoch(of: record, against: epochA)
+        }
+    }
+    let p = NormalizedPoint(x: 0.5, y: 0.5)
+
+    refuses(PointerSample(instant: at(1, epochB), position: p, revision: rev), "instant")
+    refuses(ButtonEvent(instant: at(1, epochB), position: p, revision: rev,
+                        button: .left, phase: .down), "instant")
+    refuses(KeySample(instant: at(1, epochB), shortcut: "cmd-s"), "instant")
+    refuses(SecureInputInterval(interval: span(1, 2, epochB), endedBy: .observationStopped),
+            "interval")
+    refuses(TapDisabledInterval(interval: span(1, 2, epochB), disabledBy: nil,
+                                lowerBoundFrom: .observationStart, detectedBy: .enabledPoll),
+            "interval")
+
+    // `AXChainRecord` holds five independent epochs. Each is moved on its own,
+    // so a guard that happened to cover four of them still fails here.
+    refuses(chain(instant: at(1, epochB), hitTest: span(1, 1)), "instant")
+    refuses(chain(instant: at(1), hitTest: span(1, 1, epochB)), "hitTestInterval")
+    refuses(AXChainRecord(instant: at(1), clickPosition: p, clickRevision: rev,
+                          hitTestGlobalX: 1, hitTestGlobalY: 1, hitTestInterval: span(1, 1),
+                          hit: element(readAt: span(2, 1, epochB)), ancestors: [], children: nil,
+                          truncation: .reachedRoot, axCalls: 1, depthCap: 30,
+                          walkBudgetNanos: 1), "hit.readInterval")
+    refuses(AXChainRecord(instant: at(1), clickPosition: p, clickRevision: rev,
+                          hitTestGlobalX: 1, hitTestGlobalY: 1, hitTestInterval: span(1, 1),
+                          hit: element(readAt: span(2, 1)),
+                          ancestors: [element(readAt: span(3, 1, epochB))], children: nil,
+                          truncation: .reachedRoot, axCalls: 1, depthCap: 30,
+                          walkBudgetNanos: 1), "ancestors[0].readInterval")
+    refuses(AXChainRecord(instant: at(1), clickPosition: p, clickRevision: rev,
+                          hitTestGlobalX: 1, hitTestGlobalY: 1, hitTestInterval: span(1, 1),
+                          hit: element(readAt: span(2, 1)), ancestors: [],
+                          children: [element(readAt: span(3, 1, epochB))],
+                          truncation: .reachedRoot, axCalls: 1, depthCap: 30,
+                          walkBudgetNanos: 1), "children[0].readInterval")
+
+    // The control: the same record with every field on one clock is accepted.
+    // Without it every line above is satisfied by a guard that refuses all.
+    #expect(throws: Never.self) {
+        try ObservationLog.checkEpoch(
+            of: AXChainRecord(instant: at(1), clickPosition: p, clickRevision: rev,
+                              hitTestGlobalX: 1, hitTestGlobalY: 1, hitTestInterval: span(1, 1),
+                              hit: element(readAt: span(2, 1)),
+                              ancestors: [element(readAt: span(3, 1))],
+                              children: [element(readAt: span(4, 1))],
+                              truncation: .reachedRoot, axCalls: 1, depthCap: 30,
+                              walkBudgetNanos: 1),
+            against: epochA)
+    }
+}
+
+// MARK: - the join field, dangling
+
+/// `ObservationLogHeader.mediaFilename` is how a log found on its own says
+/// which recording it describes. A segment whose media never reached the
+/// package — a writer failure, `CaptureSession.Diagnostics.discardedSegments` —
+/// or whose media was later compacted away leaves the log behind naming a file
+/// that is not there.
+@Test func aLogNamingMediaTheManifestDoesNotReferenceIsReported() throws {
+    let fm = FileManager.default
+    let packageURL = fm.temporaryDirectory
+        .appending(path: "t11-dangle-\(UUID().uuidString).soredemo", directoryHint: .isDirectory)
+    defer { try? fm.removeItem(at: packageURL) }
+    try ProjectPackageIO.save(
+        ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                        geometries: GeometryRegistry(), mediaFilenames: []),
+        to: packageURL)
+
+    let observations = packageURL.appending(path: "observations", directoryHint: .isDirectory)
+    func writeLog(named name: String, mediaFilename: String) throws {
+        var data = try ObservationLog.encode(
+            ObservationLogHeader(anchor: anchor(), segmentIndex: 0, mediaFilename: mediaFilename,
+                                 revision: rev, blindness: []))
+        data.append(UInt8(ascii: "\n"))
+        try data.write(to: observations.appending(path: name, directoryHint: .notDirectory))
+    }
+    try writeLog(named: "segment-00.jsonl", mediaFilename: "master-00.mov")
+    try writeLog(named: "segment-01.jsonl", mediaFilename: "master-01.mov")
+    // A log whose first line is not a header cannot state which media it
+    // belongs to — the same failure as naming media that is gone.
+    try Data("not json\n".utf8)
+        .write(to: observations.appending(path: "segment-02.jsonl", directoryHint: .notDirectory))
+
+    let partial = ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                                  geometries: GeometryRegistry(),
+                                  mediaFilenames: ["master-00.mov"])
+    #expect(try ProjectPackageIO.danglingObservationLogs(in: packageURL, snapshot: partial)
+            == ["segment-01.jsonl", "segment-02.jsonl"])
+
+    // The control, without which the above is satisfied by a function that
+    // reports every file it finds.
+    let complete = ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                                   geometries: GeometryRegistry(),
+                                   mediaFilenames: ["master-00.mov", "master-01.mov"])
+    #expect(try ProjectPackageIO.danglingObservationLogs(in: packageURL, snapshot: complete)
+            == ["segment-02.jsonl"])
+
+    // Reported, never deleted — `compact`'s contract is that it removes exactly
+    // what `unreferencedSidecars` names and nothing else.
+    _ = try ProjectPackageIO.compact(packageURL, snapshot: partial)
+    #expect(fm.fileExists(atPath: observations.appending(path: "segment-01.jsonl").path))
 }

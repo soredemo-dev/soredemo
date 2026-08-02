@@ -166,6 +166,16 @@ func check(_ condition: Bool, _ label: String, actual: String = "", expected: St
 enum CrossBoundaryProbe {
     @MainActor
     static func main() async throws {
+        // **The crash child, before any check runs.** § 9.8 re-launches this
+        // same binary with `--append-until-killed <package>`; the child opens a
+        // log and appends forever until its parent SIGKILLs it. It must be
+        // handled here rather than by a second executable, because the claim is
+        // about the bytes THIS writer produces.
+        if CommandLine.arguments.count >= 3,
+           CommandLine.arguments[1] == "--append-until-killed" {
+            try appendUntilKilled(packagePath: CommandLine.arguments[2])
+        }
+
         print("1. cross-boundary SHA-256 vector")
         let canonicalBytes = bytes(fromHex: pinnedCanonicalBytesHex)
         check(canonicalBytes.count == 41, "canonical bytes are the frozen 41-byte width",
@@ -252,6 +262,12 @@ enum CrossBoundaryProbe {
         try zeroIsDistinguishableFromNeverMeasured()
         print("9.7 media routed through the document is referenced; media written around it is not")
         try mediaRoutedThroughTheDocumentIsReferenced()
+        print("9.8 a real crash: the writer is SIGKILLed mid-recording")
+        try aKilledWriterLosesOnlyItsTail()
+        print("9.9 concurrent appends from many threads")
+        try concurrentAppendsAreNotLost()
+        print("9.10 a log naming media the manifest no longer references is a dangling join")
+        try aDanglingObservationLogIsReported()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -3013,6 +3029,7 @@ enum CrossBoundaryProbe {
         let table: SegmentTable
         let logURLs: [URL]
         let epoch: BootEpoch
+        let anchor: EpochAnchor
         /// Pointer samples appended per segment, at `pointerHz`.
         let pointerCounts: [Int]
         let pointerHz: Int
@@ -3031,7 +3048,11 @@ enum CrossBoundaryProbe {
                             geometries: GeometryRegistry(), mediaFilenames: []),
             to: packageURL)
 
-        let epoch = Minting.bootEpoch()
+        // `Minting.epochAnchor()`, not `bootEpoch()`: the header dates the
+        // recording, and this is the call that reads a wall clock at the one
+        // audited boundary. It had no caller in the repository before Task 11.
+        let recordingAnchor = Minting.epochAnchor()
+        let epoch = recordingAnchor.epoch
         let revisionA = GeometryRevision(id: 0xAAAA_AAAA)
         let revisionB = GeometryRevision(id: 0xBBBB_BBBB)
         func instant(_ nanos: Int64) -> HostInstant {
@@ -3057,7 +3078,7 @@ enum CrossBoundaryProbe {
         let step = Int64(1_000_000_000 / pointerHz)
 
         for segment in table.segments {
-            let header = ObservationLogHeader(epoch: epoch, segmentIndex: segment.index,
+            let header = ObservationLogHeader(anchor: recordingAnchor, segmentIndex: segment.index,
                                               mediaFilename: segment.mediaFilename,
                                               revision: segment.revision,
                                               blindness: [])
@@ -3123,33 +3144,46 @@ enum CrossBoundaryProbe {
             let url = try writer.close(
                 endedBy: segment.endedBy,
                 hostRange: segment.hostRange,
-                gapWatches: fixtureGapWatches(segment: segment, pointerSamples: appended))
+                gapWatches: fixtureGapWatches(segment: segment, chainsAppended: 1))
             logURLs.append(url)
         }
 
         return FixtureRecording(packageURL: packageURL, table: table, logURLs: logURLs,
-                                epoch: epoch, pointerCounts: pointerCounts,
+                                epoch: epoch, anchor: recordingAnchor, pointerCounts: pointerCounts,
                                 pointerHz: pointerHz, clickInstants: clickInstants)
     }
 
-    /// One `GapWatch` per D6a site, with `looks` derived from what the fixture
-    /// actually did — never a hand-typed constant, which is the expectation-table
-    /// mistake this project has made three times.
-    static func fixtureGapWatches(segment: MasterSegment, pointerSamples: Int) -> [GapWatch] {
+    /// One `GapWatch` per producer-measurable D6a site, through the **named**
+    /// constructors.
+    ///
+    /// **The first version of this function was the review finding.** It wrote
+    /// `looks: 1` for `.jsonlTruncatedTail` over a fixture in which not one byte
+    /// had been scanned — a fabricated measurement, which § 9.6 then asserted
+    /// *was* one — and `looks: pointerSamples` for the video and tap rows, a
+    /// proxy standing in for its subject. The site no longer exists (it is
+    /// `ObservationLogReadReport`'s, because a producer has no reader) and the
+    /// named constructors' parameter labels are each producer's own counter
+    /// names, so passing a proxy now costs a visible rename here.
+    ///
+    /// This fixture has no live observers, so the numbers below are the
+    /// fixture's own: `chainsRecorded` is the one chain it appended, and the
+    /// tap row's `looks` is the poll count a 100 ms poll would have made across
+    /// the segment. The secure-input row is deliberately left at zero looks, so
+    /// § 9.6 has a negative control that is a real row rather than a synthetic
+    /// one.
+    static func fixtureGapWatches(segment: MasterSegment, chainsAppended: Int) -> [GapWatch] {
         let span = segment.hostRange.duration.rawValue
+        let pollsAtOneHundredMilliseconds = Int(span / 100_000_000)
         return [
-            GapWatch(site: .jsonlTruncatedTail, looks: 1, watchedSpanNanos: span,
-                     gapsFound: 0, lost: 0, lostUnit: .bytes),
-            GapWatch(site: .axAncestorWalk, looks: 1, watchedSpanNanos: span,
-                     gapsFound: 0, lost: 0, lostUnit: .levels),
-            GapWatch(site: .videoFramesNotProduced, looks: pointerSamples, watchedSpanNanos: span,
-                     gapsFound: 0, lost: 0, lostUnit: .frames),
-            // The one deliberately left with nothing watching, so § 9.6 has a
-            // negative control that is a real row rather than a synthetic one.
-            GapWatch(site: .secureInput, looks: 0, watchedSpanNanos: 0,
-                     gapsFound: 0, lost: 0, lostUnit: .nanoseconds),
-            GapWatch(site: .tapDisabled, looks: pointerSamples, watchedSpanNanos: span,
-                     gapsFound: 0, lost: 0, lostUnit: .nanoseconds),
+            GapWatch.axAncestorWalk(chainsRecorded: chainsAppended,
+                                    observationSpanNanos: span, truncatedWalks: 0),
+            GapWatch.videoFramesNotProduced(frameCallbacksObserved: 0,
+                                            observationSpanNanos: span, idleFrames: 0),
+            GapWatch.secureInput(secureInputChecks: 0, secureInputCheckSpanNanos: 0,
+                                 secureInputIntervals: 0, suppressedNanos: 0),
+            GapWatch.tapDisabled(tapEnabledPolls: pollsAtOneHundredMilliseconds,
+                                 tapPollingSpanNanos: span,
+                                 tapDisabledIntervals: 0, tapBlindNanos: 0),
         ]
     }
 
@@ -3164,6 +3198,9 @@ enum CrossBoundaryProbe {
     }
 
     static func readLog(at url: URL) throws -> ReadLog {
+        // The package's own reader is exercised alongside, so § 9 checks the
+        // type a caller will actually use rather than only this local copy.
+        let report = try ObservationLogReadReport.read(logAt: url)
         let result = try JSONLReader.linesOfFile(at: url)
         var header: ObservationLogHeader?
         var trailer: ObservationLogTrailer?
@@ -3176,6 +3213,12 @@ enum CrossBoundaryProbe {
             default: lines.append((kind, line))
             }
         }
+        precondition(report.recordLines == lines.count
+                     && report.droppedBytes == result.droppedBytes
+                     && report.bytesScanned == result.bytesScanned
+                     && report.closedCleanly == (trailer != nil),
+                     "ObservationLogReadReport disagrees with this section's own reader — one of "
+                     + "them is wrong and neither may be trusted")
         return ReadLog(header: header, trailer: trailer, lines: lines,
                        droppedBytes: result.droppedBytes, bytesScanned: result.bytesScanned)
     }
@@ -3224,44 +3267,76 @@ enum CrossBoundaryProbe {
               },
               "every segment boundary carries a reason — silence is not a value")
 
-        var everyInstantInside = true
+        // **Everything below counts what it examined and requires it non-zero.**
+        // The first version of this block initialised two booleans to `true`
+        // and only ever assigned them inside a loop body that a
+        // `guard let header, let trailer … else { continue }` skipped — so
+        // moving the header write from `open` to `close` (a plausible refactor,
+        // and one the writer's own comment argues against, which is exactly why
+        // someone might try it) made every `log.header` nil, every iteration
+        // `continue`, and both checks pass having looked at nothing, one of
+        // them printing `actual: all inside`. Presence and correspondence are
+        // also separated: they were one boolean, so a failure named the wrong
+        // thing.
+        var headersPresent = 0
+        var trailersPresent = 0
+        var headersMatching = 0
+        var trailersMatching = 0
+        var instantsExamined = 0
         var outside: [String] = []
-        var headersMatch = true
-        var trailersPresent = true
         for (index, url) in fixture.logURLs.enumerated() {
             let segment = fixture.table.segments[index]
             let log = try readLog(at: url)
-            guard let header = log.header, let trailer = log.trailer else {
-                trailersPresent = false
-                continue
+            if let header = log.header {
+                headersPresent += 1
+                if header.segmentIndex == segment.index
+                    && header.mediaFilename == segment.mediaFilename
+                    && header.revision == segment.revision {
+                    headersMatching += 1
+                }
             }
-            if header.segmentIndex != segment.index
-                || header.mediaFilename != segment.mediaFilename
-                || header.revision != segment.revision {
-                headersMatch = false
-            }
-            if trailer.segmentIndex != segment.index
-                || trailer.hostRange != segment.hostRange
-                || trailer.endedBy != segment.endedBy {
-                trailersPresent = false
+            if let trailer = log.trailer {
+                trailersPresent += 1
+                if trailer.segmentIndex == segment.index
+                    && trailer.hostRange == segment.hostRange
+                    && trailer.endedBy == segment.endedBy {
+                    trailersMatching += 1
+                }
             }
             for line in log.lines {
-                for instant in try instants(inRecordOfKind: line.kind, bytes: line.bytes)
-                where !segment.hostRange.contains(instant) {
-                    everyInstantInside = false
-                    outside.append("\(line.kind) at \(instant.hostTime.rawValue)")
+                for instant in try instants(inRecordOfKind: line.kind, bytes: line.bytes) {
+                    instantsExamined += 1
+                    if !segment.hostRange.contains(instant) {
+                        outside.append("\(line.kind) at \(instant.hostTime.rawValue)")
+                    }
                 }
             }
         }
-        check(trailersPresent,
-              "every log carries a trailer whose segment index, host range and boundary reason "
-              + "are the segment's own — a log that cannot be joined back to its segment is a log "
-              + "about nothing")
-        check(headersMatch,
-              "every log's header names the segment, the media file and the revision it belongs to")
-        check(everyInstantInside,
+        let segmentCount = fixture.table.segments.count
+        check(headersPresent == segmentCount,
+              "every log HAS a header — counted, so a writer that stopped writing one fails here "
+              + "rather than making every check below examine nothing",
+              actual: "\(headersPresent)", expected: "\(segmentCount)")
+        check(trailersPresent == segmentCount,
+              "every log HAS a trailer — separately from whether its fields match, which was one "
+              + "boolean and so named the wrong fault",
+              actual: "\(trailersPresent)", expected: "\(segmentCount)")
+        check(headersMatching == segmentCount,
+              "every log's header names the segment, the media file and the revision it belongs to",
+              actual: "\(headersMatching) of \(headersPresent) headers read",
+              expected: "\(segmentCount)")
+        check(trailersMatching == segmentCount,
+              "every trailer's segment index, host range and boundary reason are the segment's "
+              + "own — a log that cannot be joined back to its segment is a log about nothing",
+              actual: "\(trailersMatching) of \(trailersPresent) trailers read",
+              expected: "\(segmentCount)")
+        check(instantsExamined > 0,
+              "instants were actually examined — without this the containment check below passes "
+              + "over an empty set and prints `all inside`",
+              actual: "\(instantsExamined)")
+        check(outside.isEmpty,
               "every record's instant lies inside its segment's host range",
-              actual: outside.isEmpty ? "all inside" : "\(outside.prefix(5))")
+              actual: outside.isEmpty ? "all \(instantsExamined) inside" : "\(outside.prefix(5))")
 
         // The `.window`-source caveat, made explicit rather than assumed: the
         // fixture's pointer samples carry the segment's revision because a
@@ -3274,14 +3349,33 @@ enum CrossBoundaryProbe {
               + "— an absent one would not decode, which is the third state",
               actual: "\(String(describing: firstLog.header?.blindness))")
 
-        let blindHeader = ObservationLogHeader(epoch: fixture.epoch, segmentIndex: 0,
-                                               mediaFilename: "master-00.mov",
-                                               revision: fixture.table.segments[0].revision,
-                                               blindness: [.inputMonitoringUnavailable])
-        check(blindHeader != firstLog.header,
-              "a segment recorded with Input Monitoring denied does not encode identically to one "
-              + "recorded with it granted — the whole reason CaptureError.inputMonitoringUnavailable "
-              + "has somewhere to go")
+        // The SAME anchor, index, media name and revision as the log's own
+        // header — only `blindness` differs. Built from `firstLog.header`'s own
+        // fields rather than from fresh ones, because a second
+        // `Minting.epochAnchor()` would differ in `hostTime` and make this
+        // comparison true whatever `blindness` did.
+        if let granted = firstLog.header {
+            let blindHeader = ObservationLogHeader(anchor: granted.anchor,
+                                                   segmentIndex: granted.segmentIndex,
+                                                   mediaFilename: granted.mediaFilename,
+                                                   revision: granted.revision,
+                                                   blindness: [.inputMonitoringUnavailable])
+            let sameHeader = ObservationLogHeader(anchor: granted.anchor,
+                                                  segmentIndex: granted.segmentIndex,
+                                                  mediaFilename: granted.mediaFilename,
+                                                  revision: granted.revision,
+                                                  blindness: granted.blindness)
+            check(sameHeader == granted,
+                  "the control: a header rebuilt from the log's own fields equals it, so the "
+                  + "inequality below is about `blindness` and not about a field that differs "
+                  + "for an unrelated reason")
+            check(blindHeader != granted,
+                  "a segment recorded with Input Monitoring denied does not encode identically to "
+                  + "one recorded with it granted — the whole reason "
+                  + "CaptureError.inputMonitoringUnavailable has somewhere to go")
+        } else {
+            check(false, "the fixture log has a header to compare blindness against")
+        }
         check(CaptureError.inputMonitoringUnavailable.blindness == .inputMonitoringUnavailable,
               "CaptureError maps to the header field, in one place")
         check(CaptureError.alreadyObserving.blindness == nil,
@@ -3300,10 +3394,11 @@ enum CrossBoundaryProbe {
                             geometries: GeometryRegistry(), mediaFilenames: []),
             to: packageURL)
 
-        let epoch = Minting.bootEpoch()
         let otherEpoch = BootEpoch(id: UUID())
         let revision = GeometryRevision(id: 0xC0FFEE)
-        let header = ObservationLogHeader(epoch: epoch, segmentIndex: 0,
+        let anchor = Minting.epochAnchor()
+        let epoch = anchor.epoch
+        let header = ObservationLogHeader(anchor: anchor, segmentIndex: 0,
                                           mediaFilename: "master-00.mov",
                                           revision: revision, blindness: [])
         let writer = try ObservationWriter.open(segment: header, in: packageURL)
@@ -3360,7 +3455,7 @@ enum CrossBoundaryProbe {
                                                                             start: Nanoseconds(0),
                                                                             duration: Nanoseconds(10)),
                                                        revision: revision, endedBy: .stopped),
-                                pointerSamples: 1))
+                                chainsAppended: 0))
 
         // A second `open` for the same segment must refuse: append-only means
         // the file is opened once, and two writers would interleave two
@@ -3466,9 +3561,10 @@ enum CrossBoundaryProbe {
             ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
                             geometries: GeometryRegistry(), mediaFilenames: []),
             to: orphanPackage)
-        let epoch = Minting.bootEpoch()
+        let crashAnchor = Minting.epochAnchor()
+        let epoch = crashAnchor.epoch
         let crashed = try ObservationWriter.open(
-            segment: ObservationLogHeader(epoch: epoch, segmentIndex: 0,
+            segment: ObservationLogHeader(anchor: crashAnchor, segmentIndex: 0,
                                           mediaFilename: "master-00.mov",
                                           revision: GeometryRevision(id: 0xDEAD), blindness: []),
             in: orphanPackage)
@@ -3521,8 +3617,10 @@ enum CrossBoundaryProbe {
         }
         check(everySegmentAtFullRate,
               "each segment holds about duration × \(hz) Hz pointer samples — a thinning "
-              + "optimisation anywhere between the observer and the file shows up here as a "
-              + "fraction of this, and nowhere else",
+              + "optimisation in the WRITER or the READER shows up here as a fraction of this. "
+              + "NOT the observer: this fixture builds PointerSamples by hand from the same rate "
+              + "constant the expectation uses, so InputObserver is not in the path and a "
+              + "thinning added there would pass this check. That half needs the human step",
               actual: "\(detail)")
         check(readBack.allSatisfy { $0 > 1 },
               "the rate check is not vacuous — every segment really does hold more than one "
@@ -3560,10 +3658,24 @@ enum CrossBoundaryProbe {
         check(watching?.gapsFound == notWatching?.gapsFound,
               "the two rows above carry the identical gap count, which is exactly why the count "
               + "alone was never a measurement")
-        check(trailer.sitesNothingWasWatching == [.secureInput],
+        // Two sites, and both are honest: this fixture drives no `CaptureSession`
+        // and no secure-input predicate, so neither has a producer that measured
+        // anything. Before review the fixture put a fabricated `looks` in rows
+        // like these and the check below asserted only one was empty; the number
+        // that is right here is the number of things the fixture genuinely did
+        // not watch.
+        check(trailer.sitesNothingWasWatching == [.secureInput, .videoFramesNotProduced],
               "the trailer names the sites nothing was watching, so a reader does not have to "
-              + "notice it row by row",
+              + "notice it row by row — two of them here, because this fixture runs neither a "
+              + "capture session nor a secure-input predicate and says so instead of inventing "
+              + "a number",
               actual: "\(trailer.sitesNothingWasWatching.map(\.rawValue))")
+        check(trailer.gapWatches.filter(\.isAMeasurement).map(\.site).sorted { $0.rawValue < $1.rawValue }
+                == [GapSite.axAncestorWalk, .tapDisabled],
+              "and the complement — the sites something DID watch — is named too, so this is a "
+              + "partition of the four rows rather than a one-sided list that an all-zero "
+              + "producer would also satisfy",
+              actual: "\(trailer.gapWatches.filter(\.isAMeasurement).map(\.site.rawValue).sorted())")
         check(trailer.accounting.contains("NOTHING WAS LOOKING"),
               "and the printed form says so where a person will read it")
 
@@ -3686,5 +3798,372 @@ enum CrossBoundaryProbe {
         check(survivorBytes == routedBytes,
               "and its bytes are the ones that were handed over",
               actual: survivorBytes == nil ? "the file is gone" : "\(survivorBytes!.count) bytes")
+    }
+
+    // MARK: - § 9.8  a real crash
+
+    /// The child. Opens a log in `packagePath` and appends until it is killed.
+    ///
+    /// Prints one line and flushes as soon as the log exists, so the parent
+    /// waits for a fact rather than for a duration — a `sleep` here would make
+    /// the test flaky on a loaded machine in the direction that passes.
+    @MainActor
+    static func appendUntilKilled(packagePath: String) throws -> Never {
+        let packageURL = URL(filePath: packagePath, directoryHint: .isDirectory)
+        let anchor = Minting.epochAnchor()
+        let revision = GeometryRevision(id: 0x5150)
+        let writer = try ObservationWriter.open(
+            segment: ObservationLogHeader(anchor: anchor, segmentIndex: 0,
+                                          mediaFilename: "master-00.mov",
+                                          revision: revision, blindness: []),
+            in: packageURL)
+        var n: Int64 = 0
+        while true {
+            try writer.append(PointerSample(
+                instant: HostInstant(epoch: anchor.epoch, hostTime: Nanoseconds(n)),
+                position: NormalizedPoint(x: 0.5, y: 0.5), revision: revision))
+            n += 1
+            if n == 200 { print("READY"); fflush(stdout) }
+        }
+    }
+
+    /// **§ 7.4 of the Task 11 report claimed a process crash costs the tail
+    /// rather than the segment. § 9.4 tested the reader's half of that by
+    /// appending a partial line by hand. This tests the writer's half, by
+    /// actually killing one.**
+    ///
+    /// `SIGKILL`, not `SIGTERM`: the claim is that nothing in this app's own
+    /// shutdown path is load-bearing for the log's readability, and a signal
+    /// the process can handle would let a handler quietly do the work the
+    /// design says is unnecessary.
+    @MainActor
+    static func aKilledWriterLosesOnlyItsTail() throws {
+        let fm = FileManager.default
+        let packageURL = fm.temporaryDirectory
+            .appending(path: "t11-kill-\(UUID().uuidString).soredemo", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: packageURL) }
+        try ProjectPackageIO.save(
+            ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                            geometries: GeometryRegistry(), mediaFilenames: []),
+            to: packageURL)
+
+        guard let executable = Bundle.main.executableURL ?? CommandLine.arguments.first
+            .map({ URL(filePath: $0) }) else {
+            check(false, "the probe can locate its own executable to re-launch as the crash child")
+            return
+        }
+        let child = Process()
+        child.executableURL = executable
+        child.arguments = ["--append-until-killed", packageURL.path(percentEncoded: false)]
+        let pipe = Pipe()
+        child.standardOutput = pipe
+        child.standardError = FileHandle.nullDevice
+        try child.run()
+
+        // Wait for the child's own "READY", not for a duration.
+        var sawReady = false
+        var seen = Data()
+        while child.isRunning, !sawReady {
+            let chunk = pipe.fileHandleForReading.availableData
+            if chunk.isEmpty { break }
+            seen.append(chunk)
+            sawReady = String(decoding: seen, as: UTF8.self).contains("READY")
+        }
+        check(sawReady,
+              "the child reached a state where records are on disk — without this the kill below "
+              + "could land before the first byte and the whole check would be about an empty file")
+        guard sawReady else { child.terminate(); return }
+
+        kill(child.processIdentifier, SIGKILL)
+        child.waitUntilExit()
+        check(child.terminationReason == .uncaughtSignal,
+              "the child died of an uncaught signal, not of its own accord — a child that exited "
+              + "normally would have run shutdown code the design says is not load-bearing",
+              actual: "\(child.terminationReason.rawValue)")
+
+        let url = ObservationWriter.logURL(forSegment: 0, in: packageURL)
+        let report = try ObservationLogReadReport.read(logAt: url)
+        check(report.header != nil,
+              "the header written at open survives the kill — which is why it is written at open")
+        check(report.recordLines >= 200,
+              "every record the child completed before the kill is readable — the tail is what a "
+              + "crash costs, not the segment",
+              actual: "\(report.recordLines) record line(s)", expected: "at least 200")
+        check(!report.closedCleanly,
+              "and there is no trailer, so a reader knows the producer died rather than reading "
+              + "this as a recording that simply ended")
+        check(report.droppedBytes <= 512,
+              "the damaged tail is at most one partial record, not an unbounded loss — measured, "
+              + "because `FileHandle` has no userspace buffer between this app and the kernel",
+              actual: "\(report.droppedBytes) byte(s) dropped of \(report.bytesScanned) scanned")
+        check(report.isAMeasurement,
+              "and something was actually read, so the byte count above is a measurement")
+
+        // Every surviving record decodes. A tail that damaged an EARLIER line
+        // would show up here and nowhere else.
+        var decoded = 0
+        for line in try JSONLReader.linesOfFile(at: url).lines
+        where (try? ObservationLog.kind(of: line)) == "pointer" {
+            _ = try ObservationLog.decode(line) as PointerSample
+            decoded += 1
+        }
+        check(decoded == report.recordLines,
+              "every surviving record decodes — a crash that damaged a line other than the last "
+              + "would appear here",
+              actual: "\(decoded)", expected: "\(report.recordLines)")
+    }
+
+    // MARK: - § 9.9  concurrent appends
+
+    /// **The check that would have caught the `close`/`append` race.**
+    ///
+    /// The intended load is exactly this: `InputObserver`'s tap callback thread
+    /// and `AXObserver`'s queue both calling `append`, with `close` arriving on
+    /// a third. Before review, `close` snapshotted `recordCounts` under the
+    /// lock, released it, encoded the trailer, then took the lock again to
+    /// write — so an `append` in that gap landed before the trailer and was
+    /// missing from its counts, and the trailer reported loss that had not
+    /// happened.
+    @MainActor
+    static func concurrentAppendsAreNotLost() throws {
+        let fm = FileManager.default
+        let packageURL = fm.temporaryDirectory
+            .appending(path: "t11-race-\(UUID().uuidString).soredemo", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: packageURL) }
+        try ProjectPackageIO.save(
+            ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                            geometries: GeometryRegistry(), mediaFilenames: []),
+            to: packageURL)
+
+        let threads = 8
+        let perThread = 500
+        let anchor = Minting.epochAnchor()
+        let revision = GeometryRevision(id: 0xC0DE)
+        let writer = try ObservationWriter.open(
+            segment: ObservationLogHeader(anchor: anchor, segmentIndex: 0,
+                                          mediaFilename: "master-00.mov",
+                                          revision: revision, blindness: []),
+            in: packageURL)
+
+        nonisolated(unsafe) let sharedWriter = writer
+        // Hopped out of the main actor deliberately. `concurrentPerform`'s
+        // closure parameter is not `Sendable`, so under this target's
+        // `-default-isolation MainActor` the closure below would inherit main
+        // actor isolation and running it on a worker thread traps — which is
+        // exactly the fault this check exists to catch one layer down, and it
+        // would be indistinguishable from it if the probe made the same mistake.
+        // A tiny counter of its own rather than `Synchronization.Mutex`: this
+        // probe is a standalone file compiled without that module, and the
+        // point of the box is only that the failure count survives eight
+        // concurrent writers.
+        final class FailureCount: @unchecked Sendable {
+            private nonisolated let lock = NSLock()
+            private nonisolated(unsafe) var value = 0
+            nonisolated func increment() { lock.withLock { value += 1 } }
+            nonisolated var count: Int { lock.withLock { value } }
+        }
+        let failures = FailureCount()
+        let appendBatch: @Sendable (Int) -> Void = { thread in
+            for i in 0..<perThread {
+                let n = Int64(thread * perThread + i)
+                do {
+                    try sharedWriter.append(PointerSample(
+                        instant: HostInstant(epoch: anchor.epoch, hostTime: Nanoseconds(n)),
+                        position: NormalizedPoint(x: 0.25, y: 0.75), revision: revision))
+                } catch {
+                    failures.increment()
+                }
+            }
+        }
+        DispatchQueue.concurrentPerform(iterations: threads, execute: appendBatch)
+        check(failures.count == 0,
+              "no append failed under \(threads) concurrent writers",
+              actual: "\(failures.count) failure(s)")
+
+        let expected = threads * perThread
+        _ = try writer.close(endedBy: .stopped,
+                             hostRange: HostRange(epoch: anchor.epoch, start: Nanoseconds(0),
+                                                  duration: Nanoseconds(Int64(expected))),
+                             gapWatches: fixtureGapWatches(
+                                segment: MasterSegment(index: 0, mediaFilename: "master-00.mov",
+                                                       hostRange: HostRange(epoch: anchor.epoch,
+                                                                            start: Nanoseconds(0),
+                                                                            duration: Nanoseconds(Int64(expected))),
+                                                       revision: revision, endedBy: .stopped),
+                                chainsAppended: 0))
+
+        let report = try ObservationLogReadReport.read(logAt:
+            ObservationWriter.logURL(forSegment: 0, in: packageURL))
+        check(report.recordLines == expected,
+              "\(threads) × \(perThread) concurrent appends produce exactly that many record "
+              + "lines — no interleaved write tore another one",
+              actual: "\(report.recordLines)", expected: "\(expected)")
+        check(report.droppedBytes == 0,
+              "and no line was left partial",
+              actual: "\(report.droppedBytes)")
+
+        var decoded = 0
+        var distinct = Set<Int64>()
+        for line in try JSONLReader.linesOfFile(at:
+            ObservationWriter.logURL(forSegment: 0, in: packageURL)).lines
+        where (try? ObservationLog.kind(of: line)) == "pointer" {
+            let sample = try ObservationLog.decode(line) as PointerSample
+            distinct.insert(sample.instant.hostTime.rawValue)
+            decoded += 1
+        }
+        check(decoded == expected && distinct.count == expected,
+              "every one of them decodes, and every one is a DIFFERENT sample — a count alone is "
+              + "satisfied by the same record written twice while another was lost",
+              actual: "\(decoded) decoded, \(distinct.count) distinct", expected: "\(expected)")
+
+        // **The race the review found, stated as the check that catches it.**
+        check(report.trailer?.recordCounts["pointer"] == expected,
+              "the trailer's count equals the record lines on disk. An append landing between a "
+              + "count snapshot and the trailer write is a trailer that reports loss which did "
+              + "not happen, in the field a reader trusts to find real loss",
+              actual: "\(String(describing: report.trailer?.recordCounts["pointer"]))",
+              expected: "\(expected)")
+        check(report.closedCleanly,
+              "and exactly one trailer was written, as the last line")
+
+        // ---- the same law, with `close` arriving WHILE appends are in flight
+        //
+        // The block above settles every append before closing, so it cannot
+        // reach the gap the two-lock `close` had. This one closes mid-flight.
+        // Under one critical section an append either completes before the
+        // trailer — and is therefore counted in it — or is refused; there is no
+        // third outcome, and "landed before the trailer, missing from its
+        // counts" was the third outcome.
+        let racePackage = fm.temporaryDirectory
+            .appending(path: "t11-close-race-\(UUID().uuidString).soredemo", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: racePackage) }
+        try ProjectPackageIO.save(
+            ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                            geometries: GeometryRegistry(), mediaFilenames: []),
+            to: racePackage)
+        let raceAnchor = Minting.epochAnchor()
+        let raceWriter = try ObservationWriter.open(
+            segment: ObservationLogHeader(anchor: raceAnchor, segmentIndex: 0,
+                                          mediaFilename: "master-00.mov",
+                                          revision: revision, blindness: []),
+            in: racePackage)
+        nonisolated(unsafe) let sharedRaceWriter = raceWriter
+        let accepted = FailureCount()
+        let refused = FailureCount()
+        let inFlight: @Sendable (Int) -> Void = { thread in
+            for i in 0..<perThread {
+                let n = Int64(thread * perThread + i)
+                do {
+                    try sharedRaceWriter.append(PointerSample(
+                        instant: HostInstant(epoch: raceAnchor.epoch, hostTime: Nanoseconds(n)),
+                        position: NormalizedPoint(x: 0.25, y: 0.75), revision: revision))
+                    accepted.increment()
+                } catch {
+                    refused.increment()
+                }
+            }
+        }
+        let racingQueue = DispatchQueue(label: "t11-close-race", attributes: .concurrent)
+        let group = DispatchGroup()
+        for thread in 0..<threads { racingQueue.async(group: group) { inFlight(thread) } }
+        // Close while they are still going. The wait is a floor on how much
+        // work is in flight, not a timing assumption: the checks below hold
+        // whether the close lands after two appends or after two thousand.
+        _ = group.wait(timeout: .now() + 0.004)
+        let raceRange = HostRange(epoch: raceAnchor.epoch, start: Nanoseconds(0),
+                                  duration: Nanoseconds(Int64(expected)))
+        _ = try raceWriter.close(endedBy: .stopped, hostRange: raceRange,
+                                 gapWatches: fixtureGapWatches(
+                                    segment: MasterSegment(index: 0, mediaFilename: "master-00.mov",
+                                                           hostRange: raceRange, revision: revision,
+                                                           endedBy: .stopped),
+                                    chainsAppended: 0))
+        group.wait()
+
+        let raceReport = try ObservationLogReadReport.read(logAt:
+            ObservationWriter.logURL(forSegment: 0, in: racePackage))
+        check(refused.count > 0 && accepted.count > 0,
+              "the close really did land mid-flight — some appends were accepted and some refused. "
+              + "Without both, this block measures the settled case again and the law below holds "
+              + "for the wrong reason",
+              actual: "\(accepted.count) accepted, \(refused.count) refused")
+        check(raceReport.trailer?.recordCounts["pointer"] == raceReport.recordLines,
+              "the trailer's count equals the record lines on disk even when close arrives "
+              + "mid-flight — measured against the two-lock version, which reported 279 for 295 "
+              + "lines: sixteen appends landed before the trailer and were missing from its counts",
+              actual: "trailer \(String(describing: raceReport.trailer?.recordCounts["pointer"])) "
+                      + "vs \(raceReport.recordLines) on disk")
+        check(raceReport.recordLines == accepted.count,
+              "and every append the writer ACCEPTED is on disk — a refusal is a refusal, not a "
+              + "silent drop",
+              actual: "\(raceReport.recordLines) on disk, \(accepted.count) accepted")
+        check(raceReport.droppedBytes == 0,
+              "no line was torn by the close",
+              actual: "\(raceReport.droppedBytes)")
+    }
+
+    // MARK: - § 9.10  the join field, dangling
+
+    /// `ObservationLogHeader.mediaFilename` is how a log found on its own says
+    /// which recording it describes. A segment whose media was discarded or
+    /// compacted away leaves the log behind pointing at a file that is gone.
+    @MainActor
+    static func aDanglingObservationLogIsReported() throws {
+        let fm = FileManager.default
+        let packageURL = fm.temporaryDirectory
+            .appending(path: "t11-dangle-\(UUID().uuidString).soredemo", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: packageURL) }
+        try ProjectPackageIO.save(
+            ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                            geometries: GeometryRegistry(), mediaFilenames: []),
+            to: packageURL)
+
+        let anchor = Minting.epochAnchor()
+        let revision = GeometryRevision(id: 0xDA46)
+        for index in 0...1 {
+            let writer = try ObservationWriter.open(
+                segment: ObservationLogHeader(anchor: anchor, segmentIndex: index,
+                                              mediaFilename: "master-0\(index).mov",
+                                              revision: revision, blindness: []),
+                in: packageURL)
+            let range = HostRange(epoch: anchor.epoch, start: Nanoseconds(0),
+                                  duration: Nanoseconds(1))
+            _ = try writer.close(endedBy: .stopped, hostRange: range,
+                                 gapWatches: fixtureGapWatches(
+                                    segment: MasterSegment(index: index,
+                                                           mediaFilename: "master-0\(index).mov",
+                                                           hostRange: range, revision: revision,
+                                                           endedBy: .stopped),
+                                    chainsAppended: 0))
+        }
+
+        // Only segment 0's media reached the package — segment 1's writer
+        // failed, which is `CaptureSession.Diagnostics.discardedSegments`.
+        let snapshot = ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                                       geometries: GeometryRegistry(),
+                                       mediaFilenames: ["master-00.mov"])
+        let dangling = try ProjectPackageIO.danglingObservationLogs(in: packageURL,
+                                                                   snapshot: snapshot)
+        check(dangling == ["segment-01.jsonl"],
+              "a log whose header names media the manifest does not reference is reported — a "
+              + "dangling key in the format's own join field, which nothing else in the package "
+              + "would notice",
+              actual: "\(dangling)")
+
+        // Reported, never deleted: `compact`'s contract is that it removes
+        // exactly what `unreferencedSidecars` names and nothing else, and a
+        // compaction that quietly grew a second kind of delete is the failure
+        // D-P3 exists to prevent, by a different door.
+        _ = try ProjectPackageIO.compact(packageURL, snapshot: snapshot)
+        check(fm.fileExists(atPath: ObservationWriter.logURL(forSegment: 1, in: packageURL).path),
+              "compact does not delete it — reporting and deleting are separate, as they are for "
+              + "media")
+
+        let clean = ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                                    geometries: GeometryRegistry(),
+                                    mediaFilenames: ["master-00.mov", "master-01.mov"])
+        check(try ProjectPackageIO.danglingObservationLogs(in: packageURL, snapshot: clean) == [],
+              "and a package whose manifest references both reports none — the control, without "
+              + "which the check above is satisfied by a function that reports everything")
     }
 }

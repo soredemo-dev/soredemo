@@ -57,6 +57,25 @@ import Timeline
 /// question; the log is built so that it is not an error here.
 final class ObservationWriter: @unchecked Sendable {
 
+    // **`nonisolated` on every member below, deliberately — not left to
+    // `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.** This type's whole purpose
+    // is to be called from the threads the observations arrive on:
+    // `InputObserver`'s tap callback (a `nonisolated` synchronous CoreGraphics
+    // callback), `AXObserver`'s own queue, and `CaptureSession`'s sample queue.
+    // Unannotated, each method here is implicitly main-actor, and calling one
+    // from any of those **traps at runtime rather than failing to compile** —
+    // `_swift_task_checkIsolatedSwift` → `dispatch_assert_queue_fail`, inside
+    // `withLock`'s closure, with no diagnostic anywhere before it runs.
+    //
+    // That is not hypothetical and it is not a precaution: it is what this
+    // file did until § 9.9 of the cross-boundary probe was written. Eight
+    // concurrent `append`s crashed the probe, and the crash report named the
+    // isolation check. The same reasoning, and the same discovery, as
+    // `CaptureSession`'s own header — recorded here rather than referenced,
+    // because the next person to add a method to this class needs it at the
+    // point of the edit.
+
+
     enum WriterError: Error, Equatable {
         /// A log already exists for this segment. Append-only means the file
         /// is opened once; a second open would interleave two segments'
@@ -75,19 +94,19 @@ final class ObservationWriter: @unchecked Sendable {
     /// form so the pair is obvious in a directory listing and sorts the same
     /// way. `CaptureSession.beginSegment` mints the media name with the
     /// identical `%02d`.
-    static func logFilename(forSegment index: Int) -> String {
+    nonisolated static func logFilename(forSegment index: Int) -> String {
         "segment-\(String(format: "%02d", index)).jsonl"
     }
 
-    static func logURL(forSegment index: Int, in packageURL: URL) -> URL {
+    nonisolated static func logURL(forSegment index: Int, in packageURL: URL) -> URL {
         packageURL
             .appending(path: "observations", directoryHint: .isDirectory)
             .appending(path: logFilename(forSegment: index), directoryHint: .notDirectory)
     }
 
-    let url: URL
-    private let header: ObservationLogHeader
-    private let lock = NSLock()
+    nonisolated let url: URL
+    private nonisolated let header: ObservationLogHeader
+    private nonisolated let lock = NSLock()
     private nonisolated(unsafe) var handle: FileHandle?
     /// One count per `kind` appended. A key present with a zero value and a
     /// key absent are different facts on disk — see
@@ -96,7 +115,7 @@ final class ObservationWriter: @unchecked Sendable {
     /// emit this kind and saw none" declares it with `declareRecordKind(_:)`.
     private nonisolated(unsafe) var recordCounts: [String: Int] = [:]
 
-    private init(url: URL, header: ObservationLogHeader, handle: FileHandle) {
+    private nonisolated init(url: URL, header: ObservationLogHeader, handle: FileHandle) {
         self.url = url
         self.header = header
         self.handle = handle
@@ -108,7 +127,8 @@ final class ObservationWriter: @unchecked Sendable {
     /// line still says which segment, which media file and which boot epoch it
     /// belongs to. A header written at `close` alongside the trailer would be
     /// absent from exactly the logs that need identifying.
-    static func open(segment header: ObservationLogHeader, in packageURL: URL) throws -> ObservationWriter {
+    nonisolated static func open(segment header: ObservationLogHeader,
+                                 in packageURL: URL) throws -> ObservationWriter {
         let fm = FileManager.default
         let directory = packageURL.appending(path: "observations", directoryHint: .isDirectory)
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -133,28 +153,33 @@ final class ObservationWriter: @unchecked Sendable {
     /// only the producer knows which applies: a run with Input Monitoring
     /// denied emits no `pointer` records and **does not** emit them, while a
     /// run with the grant held and a still mouse emits none and does.
-    func declareRecordKind(_ kind: String) {
+    nonisolated func declareRecordKind(_ kind: String) {
         lock.withLock { if recordCounts[kind] == nil { recordCounts[kind] = 0 } }
     }
 
     /// Appends one record as one line. Not buffered — see the type
     /// documentation.
-    func append(_ record: some ObservationRecord) throws {
+    nonisolated func append(_ record: some ObservationRecord) throws {
         try ObservationLog.checkEpoch(of: record, against: header.epoch)
         try writeLine(try ObservationLog.encode(record), kind: record.kind, counted: true)
     }
 
-    private func writeLine(_ bytes: Data, kind: String, counted: Bool) throws {
+    private nonisolated func writeLine(_ bytes: Data, kind: String, counted: Bool) throws {
+        try lock.withLock { try writeLineLocked(bytes, kind: kind, counted: counted) }
+    }
+
+    /// The lock is **not** taken here. `NSLock` is not reentrant, and `close`
+    /// has to hold it across snapshot → build → encode → write → close; see
+    /// there for why that whole sequence is one critical section.
+    private nonisolated func writeLineLocked(_ bytes: Data, kind: String, counted: Bool) throws {
         guard !bytes.contains(UInt8(ascii: "\n")) else {
             throw WriterError.recordSpansTwoLines(kind: kind)
         }
         var line = bytes
         line.append(UInt8(ascii: "\n"))
-        try lock.withLock {
-            guard let handle else { throw WriterError.logIsClosed }
-            try handle.write(contentsOf: line)
-            if counted { recordCounts[kind, default: 0] += 1 }
-        }
+        guard let handle else { throw WriterError.logIsClosed }
+        try handle.write(contentsOf: line)
+        if counted { recordCounts[kind, default: 0] += 1 }
     }
 
     /// Writes the trailer and closes the file.
@@ -167,27 +192,49 @@ final class ObservationWriter: @unchecked Sendable {
     /// by `ObservationLogTrailer`'s initialiser if a site is missing. A
     /// defaulted argument for either would be a value nothing measured
     /// sitting in the field a reader trusts.
+    /// **One critical section, from the count snapshot to the file being
+    /// closed**, and that is a correction rather than caution.
+    ///
+    /// This used to snapshot `recordCounts` under the lock, release it, encode
+    /// the trailer, then take the lock again to write. The intended load is
+    /// exactly concurrent — the tap callback thread and the AX queue both call
+    /// `append` — and three things fell through the gap:
+    ///
+    ///   * an `append` between the snapshot and the write lands **before** the
+    ///     trailer and is **missing from its counts**. The trailer then says
+    ///     1199 where 1200 record lines are on disk, and a reader using
+    ///     `recordCounts` to detect loss concludes truncation where there was
+    ///     none — a fabricated fault, in the field a reader trusts to find
+    ///     real ones;
+    ///   * an `append` **after** the trailer write breaks "the trailer is the
+    ///     last line", which is the premise of "a missing trailer is the crash
+    ///     signal";
+    ///   * two concurrent `close`s write two trailers.
+    ///
+    /// Holding the lock across `ObservationLog.encode` is deliberate. The
+    /// trailer is a few hundred bytes and encoding it is bounded; the
+    /// alternative is the gap above.
     @discardableResult
-    func close(endedBy boundary: SegmentBoundary,
-               hostRange: HostRange,
-               gapWatches: [GapWatch]) throws -> URL {
-        let counts = lock.withLock { recordCounts }
-        let trailer = ObservationLogTrailer(segmentIndex: header.segmentIndex,
-                                            hostRange: hostRange,
-                                            endedBy: boundary,
-                                            recordCounts: counts,
-                                            gapWatches: gapWatches)
-        try writeLine(try ObservationLog.encode(trailer), kind: trailer.kind, counted: false)
+    nonisolated func close(endedBy boundary: SegmentBoundary,
+                       hostRange: HostRange,
+                       gapWatches: [GapWatch]) throws -> URL {
         try lock.withLock {
-            guard let handle else { throw WriterError.logIsClosed }
-            try handle.close()
-            self.handle = nil
+            guard handle != nil else { throw WriterError.logIsClosed }
+            let trailer = ObservationLogTrailer(segmentIndex: header.segmentIndex,
+                                                hostRange: hostRange,
+                                                endedBy: boundary,
+                                                recordCounts: recordCounts,
+                                                gapWatches: gapWatches)
+            try writeLineLocked(try ObservationLog.encode(trailer),
+                                kind: trailer.kind, counted: false)
+            try handle?.close()
+            handle = nil
         }
         return url
     }
 
     /// What has been written so far, for a caller assembling the trailer.
-    var countsSoFar: [String: Int] { lock.withLock { recordCounts } }
+    nonisolated var countsSoFar: [String: Int] { lock.withLock { recordCounts } }
 }
 
 // MARK: - the blindness a whole segment inherits
