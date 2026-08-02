@@ -37,7 +37,7 @@ this table and `git log --oneline 7419058..HEAD`, a new session has what it need
 | 2.5 · does the plugin run under Xcode? | ☑ | (spike) | `ENABLE_USER_SCRIPT_SANDBOXING = YES` does not suppress it; violation ⇒ `xcodebuild` exit 65 |
 | 3 · rules 2 and 4 | ☑ | `23ba054` | banned CG types (substring, not tokens), no manifest dependencies |
 | 4 · rule 3, determinism | ☑ | `2ca8bfc` | link-time symbols, 37 mangled names derived not guessed |
-| 5 · CG bridge + app determinism allow-lists | ☐ | — | pulled back OUT of Task 18: needs the checker's lexer extracted to a library target, which is independently rejectable |
+| 5 · CG bridge + app determinism allow-lists | ☑ | `e49ce7a` + `4bb5914` | lexer extracted to `CheckerLexer`, shared with the plugin so the allow-list cannot drift from the enforcement |
 | 6 · canonical encoding + digest | ☑ | `2e60445` | 41 pinned bytes, revision `0xbcf4_9ed7_dcb4_2be0` |
 | 7 · geometry registry | ☑ | `d65fc5c` | two failure modes, decode throws rather than traps |
 | 8 · normalized types + cross-revision trap | ☑ | `50c13ef` | guard is uncoverable in-process; see the task's ledger entry |
@@ -64,8 +64,8 @@ and add them yourself:
 swift test 2>&1 | grep -oE "^✔ Test run with ([0-9]+) tests?" | grep -oE '[0-9]+' | paste -sd+ - | bc
 ```
 
-At Task 18: **263 green** — 107 Geometry · 97 Graph · 31 Project · 18 Timeline · 8 Determinism ·
-1 Framing · 1 Variants (the last two are placeholders that assert the target builds).
+At Task 5: **290 green** — 107 Geometry · 97 Graph · 31 Project · 25 CheckerLexer · 18 Timeline · 8 Determinism · 2 AppSource ·
+1 Framing · 1 Variants (the last two are placeholders that assert the target builds). Nine targets.
 
 ## Global Constraints
 
