@@ -527,18 +527,36 @@ func runVideoOnly(seconds: Int) async throws {
     // who knew the implementation. A derived table cannot degrade into "a
     // black bar was visible, so it passed".
     let expected = source.destinationRect(scale: scale)
+    // `master-file` is new. "A master file exists" was asserted from the
+    // version that discovered a -11800 over a file that did not exist, and it
+    // was never in the table — the one row whose failure sends every other
+    // reading in this step somewhere useless.
+    //
+    // "ContentScale" was one row with two assertions under it (the readable
+    // count, and no resampled frame in the master); both cite it, which is a
+    // row discharged from two directions rather than a conjunction with an
+    // unchecked half.
     step.expect([
-        ("buffer (pixels)", "\(bufferSize.width) x \(bufferSize.height)"),
-        ("destinationRect being set", "x \(Int(expected.x)) y \(Int(expected.y)) " +
-                                      "w \(Int(expected.width)) h \(Int(expected.height))"),
-        ("content will span", "x ∈ [\(Int(expected.x)), \(Int(expected.x + expected.width))], " +
-                              "y ∈ [\(Int(expected.y)), \(Int(expected.y + expected.height))]"),
-        ("right-edge samples at", "x = \(Int(expected.x + expected.width) - 4) (inside, NOT black) " +
-                                  "and \(Int(expected.x + expected.width) + 4) (outside, black)"),
-        ("per-frame contentRect", "\(Int(expected.width / scale)) x \(Int(expected.height / scale)) points " +
-                                  "at (\(Int(expected.x / scale)), \(Int(expected.y / scale)))"),
-        ("ContentScale", "1.0 on every frame — the destination matches the source size"),
-        ("frame accounting", "must balance"),
+        .init("buffer-pixels", "buffer (pixels)", "\(bufferSize.width) x \(bufferSize.height)"),
+        .init("destination-rect", "destinationRect being set",
+              "x \(Int(expected.x)) y \(Int(expected.y)) " +
+              "w \(Int(expected.width)) h \(Int(expected.height))"),
+        .init("content-span", "content will span",
+              "x ∈ [\(Int(expected.x)), \(Int(expected.x + expected.width))], " +
+              "y ∈ [\(Int(expected.y)), \(Int(expected.y + expected.height))]"),
+        .init("edge-samples", "right-edge samples at",
+              "x = \(Int(expected.x + expected.width) - 4) (inside, NOT black) " +
+              "and \(Int(expected.x + expected.width) + 4) (outside, black)"),
+        .init("per-frame-content-rect", "per-frame contentRect",
+              "\(Int(expected.width / scale)) x \(Int(expected.height / scale)) points " +
+              "at (\(Int(expected.x / scale)), \(Int(expected.y / scale)))"),
+        .init("content-scale", "ContentScale",
+              "1.0 on every frame — the destination matches the source size"),
+        .init("frame-accounting", "frame accounting", "must balance"),
+        .init("master-file", "a master file",
+              "master-00.mov exists under the package's media directory — without it the " +
+              "AVFoundation error that follows reads as 'the movie is malformed' and is " +
+              "'there is no movie'"),
     ])
 
     try await session.start()
@@ -573,14 +591,32 @@ func runVideoOnly(seconds: Int) async throws {
     // silently satisfy the "all frames had ContentScale == 1" claim.
     let checked = session.diagnostics.contentScaleCheckedCount
     let appendedResampled = session.diagnostics.appendedResampledFrameCount
-    step.check("ContentScale was readable on \(checked) frames, and \(checked) > 0 — a checked count " +
+    step.check("content-scale",
+               "ContentScale was readable on \(checked) frames, and \(checked) > 0 — a checked count " +
                "of zero would satisfy \"every checked frame had ContentScale == 1\" vacuously",
                checked > 0)
-    step.check("no resampled frame reached the MASTER — \(appendedResampled) appended, of " +
+    step.check("content-scale",
+               "no resampled frame reached the MASTER — \(appendedResampled) appended, of " +
                "\(session.diagnostics.resampledFrameCount) delivered resampled",
                appendedResampled == 0)
-    step.check("every complete frame is accounted for — \(session.diagnostics.frameAccounting)",
+    step.check("frame-accounting",
+               "every complete frame is accounted for — \(session.diagnostics.frameAccounting)",
                session.diagnostics.everyCompleteFrameIsAccountedFor)
+    // The row that was printed in the table and never compared against
+    // anything: what the session RECORDED setting, against what this file
+    // computed before the run. Two producers of one rectangle — the check is
+    // worthless if it recomputes the value from the session's own inputs.
+    let configured = session.diagnostics.configuredDestinationRect
+    step.check("destination-rect",
+               "the session configured the destinationRect this step printed before the run: " +
+               "asked \(configured.map { "x \(Int($0.x)) y \(Int($0.y)) w \(Int($0.width)) h \(Int($0.height))" } ?? "NOT RECORDED") " +
+               "against the table's x \(Int(expected.x)) y \(Int(expected.y)) " +
+               "w \(Int(expected.width)) h \(Int(expected.height))",
+               configured.map {
+                   Int($0.x) == Int(expected.x) && Int($0.y) == Int(expected.y)
+                       && Int($0.width) == Int(expected.width)
+                       && Int($0.height) == Int(expected.height)
+               } ?? false)
 
     let mediaURL = packageDir.appending(path: "media/master-00.mov")
     // Checked rather than left to `analyse` throwing out of `main`. When the
@@ -588,17 +624,17 @@ func runVideoOnly(seconds: Int) async throws {
     // `assetProperty_Tracks` — which reads as "the movie is malformed" and
     // sent the first diagnosis at the writer. The file did not exist at all.
     guard FileManager.default.fileExists(atPath: mediaURL.path()) else {
-        step.check("a master file exists at \(mediaURL.path())", false)
+        step.check("master-file", "a master file exists at \(mediaURL.path())", false)
         step.finish(remedy: "The recording did not reach the package. The `segments discarded` lines " +
                             "above say why; if that count is 0 too, then nothing in this process " +
                             "knows, which is itself the finding.")
     }
-    step.check("a master file exists in the package", true)
+    step.check("master-file", "a master file exists in the package", true)
     try await analyse(mediaURL)
     try await checkPaddingGeometry(mediaURL, contentRect: session.diagnostics.lastContentRect,
                                    scale: scale, bufferSize: bufferSize,
                                    chosen: session.diagnostics.configuredDestinationRect)
-    for (what, ok) in paddingChecks { step.check(what, ok) }
+    for (id, what, ok) in paddingChecks { step.check(id, what, ok) }
     step.finish(remedy: "Padding present but not at the computed boundary means the buffer layout and " +
                         "contentRect disagree — D2-13a's mapping is what is wrong, not the picture.")
 }
@@ -636,13 +672,28 @@ func runVideoOnly(seconds: Int) async throws {
 /// of 3024) and would have sent the next reader after the wrong thing. The
 /// edge under test is now chosen from where the padding actually is, and the
 /// refusal message says which edges were considered.
+/// **Every early return records failing checks rather than only printing.**
+/// It used to `print("FAIL — …")` and return, leaving `paddingChecks` empty —
+/// and an empty list satisfied the old count-based guard as long as the three
+/// checks above it had run. Four expectations printed in the table would go
+/// unexamined and the step would report PASS. Under the new guard an empty
+/// list is caught anyway (the rows would be undischarged), but a named failure
+/// says *why* at the place that knows, which is the whole reason the failure
+/// message is written here and not in `finish`.
 func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
                           bufferSize: (width: Int, height: Int),
                           chosen: PixelRect?) async throws {
     print("\n--- padding geometry, measured against contentRect ---")
+    /// The rows this function is responsible for discharging. On any path
+    /// that cannot measure, all of them fail with the same stated reason.
+    let owned = ["buffer-pixels", "content-span", "edge-samples", "per-frame-content-rect"]
+    func cannotMeasure(_ why: String) {
+        print("FAIL — \(why)")
+        paddingChecks = owned.map { ($0, "NOT MEASURED — \(why)", false) }
+    }
     guard let contentRect else {
-        print("FAIL — no ContentRect was ever read from a frame attachment, so there is nothing to " +
-              "check the padding AGAINST. Black bars alone would not be a finding.")
+        cannotMeasure("no ContentRect was ever read from a frame attachment, so there is nothing " +
+                      "to check the padding AGAINST. Black bars alone would not be a finding.")
         return
     }
     let asset = AVURLAsset(url: url)
@@ -664,12 +715,21 @@ func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
           "size \(contentRect.width)x\(contentRect.height)")
     print("buffer (pixels): \(bufferSize.width)x\(bufferSize.height)   " +
           "content spans x ∈ [\(left), \(right)], y ∈ [\(top), \(bottom)] after × \(scale)")
+    // The buffer row, which was a guard that printed and returned. It is a
+    // real check: the decoded frame's own dimensions against the buffer size
+    // this step asked ScreenCaptureKit for.
     guard cgImage.width == bufferSize.width, cgImage.height == bufferSize.height else {
-        print("FAIL — decoded frame is \(cgImage.width)x\(cgImage.height), not the " +
-              "\(bufferSize.width)x\(bufferSize.height) buffer the coordinates above are in. " +
-              "Every sample below would be at the wrong place.")
+        cannotMeasure("decoded frame is \(cgImage.width)x\(cgImage.height), not the " +
+                      "\(bufferSize.width)x\(bufferSize.height) buffer the coordinates above are " +
+                      "in. Every sample below would be at the wrong place.")
         return
     }
+    var measured: [(String, String, Bool)] = [
+        ("buffer-pixels",
+         "the decoded frame is \(cgImage.width)x\(cgImage.height), the buffer size this step " +
+         "configured — so the pixel coordinates below are in the space they are computed in",
+         true),
+    ]
 
     // **The contract check, and it is stronger than the pixel sampling
     // below.** `destinationRect` is no longer inherited from
@@ -686,8 +746,8 @@ func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
     // calculation against its own inputs: an assertion that cannot fail,
     // reported as the strongest check passing.
     guard let chosen else {
-        print("FAIL — the session never recorded a configured destinationRect, so there is nothing " +
-              "to compare the delivered contentRect against.")
+        cannotMeasure("the session never recorded a configured destinationRect, so there is " +
+                      "nothing to compare the delivered contentRect against.")
         return
     }
     let matchesChosen = left == Int(chosen.x) && top == Int(chosen.y)
@@ -703,10 +763,11 @@ func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
     let leftPadding = left >= margin ? left : nil
     let rightPadding = right <= bufferSize.width - margin ? bufferSize.width - right : nil
     guard leftPadding != nil || rightPadding != nil else {
-        print("FAIL — content is flush against BOTH vertical edges of the buffer " +
-              "(left \(left), right \(right), buffer width \(bufferSize.width)), so there is no " +
-              "vertical edge with padding beside it. This check would pass vacuously — which is " +
-              "exactly the identity-transform case D2-13a's ContentScale check also has to avoid.")
+        cannotMeasure("content is flush against BOTH vertical edges of the buffer " +
+                      "(left \(left), right \(right), buffer width \(bufferSize.width)), so there " +
+                      "is no vertical edge with padding beside it. This check would pass " +
+                      "vacuously — which is exactly the identity-transform case D2-13a's " +
+                      "ContentScale check also has to avoid.")
         return
     }
     // Prefer the right edge when both have padding, because the measured
@@ -724,7 +785,7 @@ func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
     // edges are the only thing under test.
     let y = (top + bottom) / 2
     guard let samples = sampleRow(cgImage, y: min(max(y, 0), cgImage.height - 1)) else {
-        print("FAIL — could not read pixels from the decoded frame.")
+        cannotMeasure("could not read pixels from the decoded frame.")
         return
     }
     func isBlack(_ x: Int) -> Bool {
@@ -736,20 +797,37 @@ func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
     let justOutside = edgeX + 4 * outsideDirection
     let justInside = edgeX - 4 * outsideDirection
 
-    let checks: [(String, Bool)] = [
-        ("padding at x=\(farPadding) (well outside the window) is black", isBlack(farPadding)),
-        ("content at x=\(farContent) (well inside the window) is NOT black", !isBlack(farContent)),
-        ("x=\(justOutside), 4 px OUTSIDE the computed \(edgeName) edge, is black", isBlack(justOutside)),
-        ("x=\(justInside), 4 px INSIDE the computed \(edgeName) edge, is NOT black", !isBlack(justInside)),
+    measured += [
+        // The two weak samples say where the content SPANS: one point well
+        // outside it is padding, one well inside it is not.
+        ("content-span",
+         "padding at x=\(farPadding) (well outside the window) is black", isBlack(farPadding)),
+        ("content-span",
+         "content at x=\(farContent) (well inside the window) is NOT black", !isBlack(farContent)),
+        // The straddling pair is the edge row: a content rectangle displaced
+        // in either direction breaks exactly one of the two.
+        ("edge-samples",
+         "x=\(justOutside), 4 px OUTSIDE the computed \(edgeName) edge, is black", isBlack(justOutside)),
+        ("edge-samples",
+         "x=\(justInside), 4 px INSIDE the computed \(edgeName) edge, is NOT black", !isBlack(justInside)),
+        // The delivered contentRect against what was asked — the contract
+        // check, and the row the table stated in points.
+        ("per-frame-content-rect",
+         "the per-frame contentRect × scale equals the destinationRect this process chose",
+         matchesChosen),
     ]
-    paddingChecks = checks + [("the per-frame contentRect × scale equals the destinationRect this " +
-                               "process chose", matchesChosen)]
+    paddingChecks = measured
 }
 
 /// Filled by `checkPaddingGeometry`, read by step 1's `finish`. A global
 /// rather than a return value only because the function has several early
 /// exits that each already print their own reason.
-nonisolated(unsafe) var paddingChecks: [(String, Bool)] = []
+///
+/// Each entry now carries the **identifier of the expectation it discharges**
+/// as well as its text. Generating that identifier from the text would not
+/// work: these strings interpolate measured pixel coordinates, so the
+/// identifier would change with the display.
+nonisolated(unsafe) var paddingChecks: [(id: String, what: String, ok: Bool)] = []
 
 func sampleRow(_ image: CGImage, y: Int) -> [(r: Int, g: Int, b: Int)]? {
     let width = image.width
@@ -840,6 +918,41 @@ func runAudioTones(seconds: Int) async throws {
 
     let display = try await firstDisplay()
     let source = CaptureSource.display(display)
+
+    // **This step had no expectation table at all.** Its four assertions were
+    // declared in the prose block above, which the harness cannot read, so
+    // nothing connected the four things it said it would check to the four it
+    // did — and the three assertions guarding readability (a file, two tracks,
+    // two distinguishable formats) appeared only in refusal branches, where a
+    // successful run never records them either way.
+    //
+    // Seven rows, all of them new. Values derived: the thresholds are the
+    // module constants the assertions themselves use, so the table cannot
+    // drift from the criterion.
+    step.expect([
+        .init("master-file", "a master file",
+              "master-00.mov exists under the package's media directory"),
+        .init("two-tracks", "audio track count",
+              "exactly 2 — the WEAK precondition, since 2 tracks prove neither separation " +
+              "nor that either carries signal. It is declared because the four rows below " +
+              "are unreadable without it, not because it is a result"),
+        .init("tracks-by-format", "tracks identified by FORMAT",
+              "one 2-channel track and one 1-channel track, from the layouts measured on " +
+              "the way in — identifying them by which tone they contain would make two of " +
+              "the four rows below tautologies"),
+        .init("system-has-440", "system track CONTAINS 440 Hz",
+              "≥ \(String(format: "%.0f", tonePresenceRatio))× the noise floor " +
+              "(median of five non-harmonic bins), never an absolute amplitude"),
+        .init("system-not-mixed", "system track is NOT mixed",
+              "its 1 kHz ≤ 1/\(Int(1 / foreignToneCeiling)) of its own 440 Hz. Immune to the " +
+              "room: nothing in the air reaches a digitally captured system stream"),
+        .init("mic-has-1k", "mic track CONTAINS 1 kHz",
+              "≥ \(String(format: "%.0f", tonePresenceRatio))× the same floor"),
+        .init("mic-not-mixed", "mic track is NOT mixed",
+              "its 440 Hz ≤ 1/\(Int(1 / foreignToneCeiling)) of its own 1 kHz. The one row " +
+              "of the four that the room can break, which is why the acoustic path is a " +
+              "precondition above rather than a result here"),
+    ])
 
     // 440 Hz generated by this process itself — one fewer human step, and it
     // removes the failure the original Spike B hit three runs out of four
@@ -969,9 +1082,10 @@ func runAudioTones(seconds: Int) async throws {
 
     let mediaURL = packageDir.appending(path: "media/master-00.mov")
     guard FileManager.default.fileExists(atPath: mediaURL.path()) else {
-        step.check("a master file exists at \(mediaURL.path())", false)
+        step.check("master-file", "a master file exists at \(mediaURL.path())", false)
         step.finish()
     }
+    step.check("master-file", "a master file exists in the package", true)
     // Read ONCE. `analyse` is handed the result rather than re-reading, so
     // there is one producer for every number below.
     let asset = AVURLAsset(url: mediaURL)
@@ -980,10 +1094,14 @@ func runAudioTones(seconds: Int) async throws {
     try await analyse(mediaURL, preRead: tones)
 
     guard audioTracks.count == 2 else {
-        step.check("the file has 2 audio tracks, not \(audioTracks.count) — the WEAK check, since 2 " +
+        step.check("two-tracks",
+                   "the file has 2 audio tracks, not \(audioTracks.count) — the WEAK check, since 2 " +
                    "tracks would not have proved separation either", false)
         step.finish()
     }
+    step.check("two-tracks", "the file has 2 audio tracks — the WEAK check, recorded on the passing " +
+               "path too, because a row that only appears in a refusal branch is not a row a " +
+               "successful run has anything to say about", true)
 
     // Identified by FORMAT — the layouts the session measured on the way in,
     // which have nothing to do with which tone is present. Identifying by
@@ -995,12 +1113,18 @@ func runAudioTones(seconds: Int) async throws {
     print("  microphone:   \(d.microphoneLayout ?? "(none)")")
     guard let systemTrack = tones.first(where: { $0.channels == 2 }),
           let micTrack = tones.first(where: { $0.channels == 1 }) else {
-        step.check("the two tracks are distinguishable by FORMAT " +
+        step.check("tracks-by-format",
+                   "the two tracks are distinguishable by FORMAT " +
                    "(\(tones.map(\.formatDescription).joined(separator: ", "))) — identifying them by " +
                    "tone instead would make two of the four assertions circular, so this step " +
                    "refuses rather than falling back", false)
         step.finish()
     }
+    step.check("tracks-by-format",
+               "the two tracks are distinguishable by FORMAT " +
+               "(\(tones.map(\.formatDescription).joined(separator: ", "))) — so 'which track is " +
+               "which' below is read off the format and not off the tone the assertion is about",
+               true)
 
     // ---- setup diagnostic, printed whether or not anything fails ----
     //
@@ -1022,19 +1146,23 @@ func runAudioTones(seconds: Int) async throws {
 
     print("\nFOUR ASSERTIONS (tracks by format; presence vs the noise floor; separation vs the " +
           "track's OWN dominant tone):")
-    let assertions: [(String, Bool)] = [
-        ("system track (\(systemTrack.formatDescription)) CONTAINS 440 Hz " +
+    let assertions: [(String, String, Bool)] = [
+        ("system-has-440",
+         "system track (\(systemTrack.formatDescription)) CONTAINS 440 Hz " +
          "— \(String(format: "%.0fx", systemTrack.ratio440)) the floor", systemTrack.has440),
-        ("system track is not MIXED with the microphone — its 1 kHz is " +
+        ("system-not-mixed",
+         "system track is not MIXED with the microphone — its 1 kHz is " +
          "\(ratioText(systemTrack.systemViewForeignRatio)) of its own 440, ceiling " +
          "\(ratioText(foreignToneCeiling))", systemTrack.systemViewForeignRatio <= foreignToneCeiling),
-        ("mic track (\(micTrack.formatDescription)) CONTAINS 1 kHz " +
+        ("mic-has-1k",
+         "mic track (\(micTrack.formatDescription)) CONTAINS 1 kHz " +
          "— \(String(format: "%.0fx", micTrack.ratio1k)) the floor", micTrack.has1k),
-        ("mic track is not MIXED with system audio — its 440 is " +
+        ("mic-not-mixed",
+         "mic track is not MIXED with system audio — its 440 is " +
          "\(ratioText(micTrack.micViewForeignRatio)) of its own 1 kHz, ceiling " +
          "\(ratioText(foreignToneCeiling))", micTrack.micViewForeignRatio <= foreignToneCeiling),
     ]
-    for (what, ok) in assertions { step.check(what, ok) }
+    for (id, what, ok) in assertions { step.check(id, what, ok) }
     step.finish(remedy: "A foreign tone near 1/1 to 1/10 of the native one is MIXING. One near the " +
                         "leakage figures printed above, with the ceiling crossed anyway, means the " +
                         "acoustic setup changed — check headphones before checking the code.")
@@ -1112,12 +1240,47 @@ func runReconfig(seconds: Int) async throws {
     // The before-value, printed before the recording, so "the revision
     // changed" has something to have changed FROM in the same log.
     let before = source.geometry(scale: 2.0, displayUUID: displayUUID(for: display.displayID))
-    step.expect([
+    // The three "now" rows are the state before the change — read off the
+    // configuration at the moment they are printed, with nothing about this
+    // run's outcome to be right or wrong about. They are `given`.
+    step.given([
         ("display now", "\(display.width) x \(display.height) points"),
         ("buffer now", "\(before.pixelWidth) x \(before.pixelHeight) pixels"),
         ("revision now", "\(before.revision)"),
-        ("after the change", "a DIFFERENT revision, in a SECOND segment, the first ended with " +
-                             ".displayReconfigured, and no resampled frame in the master"),
+    ])
+    // "after the change" was one row making four claims, and it had four
+    // assertions — so the guard could not have told a run that checked one of
+    // them from a run that checked all four. Split.
+    //
+    // Three more rows are new, and all three already had assertions: the
+    // session's own observer registration, the OS-level reconfiguration count,
+    // and how many of them the session handled. The last is the one that
+    // matters most — an OS callback the session never acted on leaves every
+    // other row here passing for the wrong reason, and it was checked without
+    // ever being declared.
+    step.expect([
+        .init("observer-registered", "the session's observer",
+              "CGError.success — the session registered its own reconfiguration callback; " +
+              "without it the split below would have to come from somewhere else"),
+        .init("os-reconfigured", "the OS reconfigured the display",
+              "≥ 1, counted by THIS SPIKE's own callback — an independent source from the " +
+              "session's, so 'the change did not happen' and 'the session did not see it' " +
+              "stay distinguishable"),
+        .init("session-handled", "the session handled it",
+              "≥ 1 of them — an OS callback the session never acted on would leave every " +
+              "row below passing for the wrong reason"),
+        .init("second-segment", "the recording split",
+              "≥ 2 segments in the returned SegmentTable"),
+        .init("ended-by-reconfigured", "the boundary says why",
+              "≥ 1 segment with endedBy == .displayReconfigured — a split with any other " +
+              "reason is a different event"),
+        .init("distinct-revisions", "the revisions differ",
+              "> 1 distinct GeometryRevision across the segments; a split that reused one " +
+              "revision would lose the very fact the split exists to record"),
+        .init("no-resampled-in-master", "nothing resampled reached the master",
+              "appendedResampledFrameCount == 0. The subject is the FILE, not the stream: " +
+              "ScreenCaptureKit delivers resampled frames across a reconfiguration whatever " +
+              "this process does, and D2-8 claims none of them are written"),
     ])
 
     // The change is made by THIS PROCESS at a known instant, not by a person
@@ -1181,17 +1344,23 @@ func runReconfig(seconds: Int) async throws {
     let reconfiguredBoundaries = table.segments.filter {
         if case .displayReconfigured = $0.endedBy { return true } else { return false }
     }
-    let reconfigChecks: [(String, Bool)] = [
-        ("the session registered its observer successfully — CGError " +
+    let reconfigChecks: [(String, String, Bool)] = [
+        ("observer-registered",
+         "the session registered its observer successfully — CGError " +
          "\(session.diagnostics.reconfigurationObserverRegistration?.rawValue.description ?? "not recorded")",
          session.diagnostics.reconfigurationObserverRegistration == CGError.success),
-        ("the OS reported \(displayReconfigurations) reconfiguration(s)", displayReconfigurations >= 1),
-        ("the session HANDLED \(handled) of them — an OS callback the session never acted on would " +
+        ("os-reconfigured",
+         "the OS reported \(displayReconfigurations) reconfiguration(s)", displayReconfigurations >= 1),
+        ("session-handled",
+         "the session HANDLED \(handled) of them — an OS callback the session never acted on would " +
          "leave every other check below passing for the wrong reason", handled >= 1),
-        ("the recording split into \(table.segments.count) segments (>= 2)", table.segments.count >= 2),
-        ("\(reconfiguredBoundaries.count) segment(s) ended with .displayReconfigured",
+        ("second-segment",
+         "the recording split into \(table.segments.count) segments (>= 2)", table.segments.count >= 2),
+        ("ended-by-reconfigured",
+         "\(reconfiguredBoundaries.count) segment(s) ended with .displayReconfigured",
          !reconfiguredBoundaries.isEmpty),
-        ("the segments carry \(revisions.count) distinct GeometryRevisions (> 1) — a split that " +
+        ("distinct-revisions",
+         "the segments carry \(revisions.count) distinct GeometryRevisions (> 1) — a split that " +
          "reused one revision would lose the very fact the split exists to record",
          revisions.count > 1),
         // Added after the first passing run, where it was printed and not
@@ -1206,14 +1375,15 @@ func runReconfig(seconds: Int) async throws {
         // written. Asserting on `resampledFrameCount` would fail over a
         // master that is entirely unresampled — the same stream-versus-file
         // confusion that reported 310 complete frames into a zero-byte file.
-        ("no resampled frame reached the MASTER — \(session.diagnostics.appendedResampledFrameCount) " +
+        ("no-resampled-in-master",
+         "no resampled frame reached the MASTER — \(session.diagnostics.appendedResampledFrameCount) " +
          "appended, of \(session.diagnostics.resampledFrameCount) delivered resampled out of " +
          "\(session.diagnostics.contentScaleCheckedCount) checked. The delivered ones are dropped " +
          "between the reconfiguration callback and the new segment opening, and counted as " +
          "awaiting-reconfiguration in the accounting above",
          session.diagnostics.appendedResampledFrameCount == 0),
     ]
-    for (what, ok) in reconfigChecks { step.check(what, ok) }
+    for (id, what, ok) in reconfigChecks { step.check(id, what, ok) }
     step.finish(remedy: "A split that happened but resampled frames usually means geometry and the " +
                         "destination rectangle were derived from different sources, or the display's " +
                         "backing scale changed with its mode and the session reused the old one.")
@@ -1224,6 +1394,10 @@ func runReconfig(seconds: Int) async throws {
         setvbuf(stdout, nil, _IOLBF, 0)   // a crash must not swallow the log
         let args = CommandLine.arguments
         switch args.count > 1 ? args[1] : "" {
+        // The verification harness's own regression case: no permission, no
+        // hardware, no operator, so it can run on every build.
+        case "--self-test":
+            VerificationStep.selfTest()
         case "video":
             try await runVideoOnly(seconds: 20)
         case "audio":

@@ -75,11 +75,17 @@ enum SpikeA {
     /// F2-2, from `docs/design/2026-08-02-phase-2-record-design.md`, 118
     /// samples. Printed as the expectation table **before** anything is
     /// measured, so a reading cannot be revised toward it afterwards.
-    static let f2_2: [(name: String, p50: Double, p90: Double, max: Double)] = [
-        ("hit-test interval ms", 1.05, 21.25, 125.47),
-        ("whole walk ms",        5.10, 32.22, 173.53),
-        ("AX calls",            41,   106,   131),
-        ("chain depth",          3,    12,    20),
+    /// The `id` is what makes this table migratable at all. Both the
+    /// expectation rows and the ratio assertions are generated from this one
+    /// array, so the identifier a row declares and the identifier its
+    /// assertion cites come from the same element — the only place in this
+    /// migration where a generated identifier is safe, because there is one
+    /// source rather than two that must agree.
+    static let f2_2: [(id: String, name: String, p50: Double, p90: Double, max: Double)] = [
+        ("f2-2-hit-test-ms", "hit-test interval ms", 1.05, 21.25, 125.47),
+        ("f2-2-whole-walk-ms", "whole walk ms",        5.10, 32.22, 173.53),
+        ("f2-2-ax-calls", "AX calls",            41,   106,   131),
+        ("f2-2-chain-depth", "chain depth",          3,    12,    20),
     ]
 
     /// Keeps what the observation closure hands over. The first version of
@@ -108,9 +114,37 @@ enum SpikeA {
         }
     }
 
+    /// How many stalls step 2's observation closure actually performed.
+    ///
+    /// `nonisolated` with a lock, for the reason `CollectedWindows` documents:
+    /// the closure runs off the main actor and under
+    /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` an unannotated stored
+    /// property is `@MainActor`, which traps at runtime rather than failing to
+    /// compile.
+    ///
+    /// It exists because step 2 never established that its own manipulation
+    /// happened. Spike C's step 6 recorded the same defect from the other
+    /// side: its guard counted callbacks, which include `mouseMoved`, while
+    /// the subject was stalls — and a run with zero clicks passed claiming the
+    /// tap survived a stall it never took.
+    nonisolated final class StallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private nonisolated(unsafe) var _count = 0
+        nonisolated var performed: Int { lock.withLock { _count } }
+        nonisolated func count() { lock.withLock { _count += 1 } }
+    }
+
     // ---------------------------------------------------------------- shared
 
     /// Every human step prints these two before anything else it measures.
+    ///
+    /// **They are `given` rows, not expectations.** Both are read off the
+    /// configuration at the moment they are printed — `type(of: source)` and
+    /// `ObjectIdentifier(observer)` cannot disagree with themselves — so there
+    /// is nothing here for a later assertion to be right or wrong about. Under
+    /// the previous harness they were concatenated into `expect`, where the
+    /// new guard would have named them undischarged in every step and the only
+    /// ways out would have been a tautological check or a weaker guard.
     ///
     /// **The AX source**, because `LiveAXElementSource` has never executed —
     /// every § 8 probe check runs against the synthetic one, which answers the
@@ -166,21 +200,41 @@ enum SpikeA {
         let source = LiveAXElementSource()
         let observer = InputObserver(arrangement: InputObserver.currentArrangement(),
                                       epoch: Minting.bootEpoch())
-        step.expect(subjectLines(observer, source) + [
-            ("what is induced", "CGEventTapEnable(tap, false) on the real port — T_off is KNOWN"),
-            ("which channel", "the NOTIFICATION one: a manual disable delivers "
-                              + "kCGEventTapDisabledByUserInput. This step validates the EDGE "
-                              + "arithmetic against ground truth, not the poll — the poll needs a "
-                              + "timeout, which delivers nothing (step 2)"),
-            ("the assertion", "the window's EDGES: interval.start <= T_off <= interval.end, "
-                              + "not merely that a window exists"),
-            ("over-estimate bound", "interval.duration <= the poll interval + slack, so the left "
-                                    + "edge is bounded by the polling rate and not by the run"),
-            ("empty vs unwatched", "tapEnabledPolls > 0 — an empty window list means nothing "
-                                   + "without it"),
-            ("delivery resumed", ">= 1 pointer sample stamped after interval.end — 're-armed' must "
-                                 + "be delivery, not a flag read"),
-            ("negative control", "an equal window with NO disable: zero windows, non-zero polls"),
+        step.given(subjectLines(observer, source))
+        // **This is the table the guard's own regression case replays.** As
+        // first written it declared six rows and discharged one — the negative
+        // control — and passed, because the old guard's output was a count.
+        // `VerificationStep.selfTest()` runs those six identifiers against the
+        // current guard and requires it to name the other five.
+        //
+        // `window-count` is new: "exactly one blind window" was asserted here
+        // from the first version and never appeared in the table, so it was an
+        // assertion with nothing to correspond to.
+        step.expect([
+            .init("induced", "what is induced",
+                  "CGEventTapEnable(tap, false) on the real port — T_off is KNOWN"),
+            .init("which-channel", "which channel",
+                  "the NOTIFICATION one: a manual disable delivers "
+                  + "kCGEventTapDisabledByUserInput. This step validates the EDGE "
+                  + "arithmetic against ground truth, not the poll — the poll needs a "
+                  + "timeout, which delivers nothing (step 2)"),
+            .init("window-count", "how many windows",
+                  "exactly 1 — one disable was induced, so a second window would mean the "
+                  + "detector emits them on its own and the edge assertion below would be "
+                  + "about an arbitrary one of them"),
+            .init("edges", "the assertion",
+                  "the window's EDGES: interval.start <= T_off <= interval.end, "
+                  + "not merely that a window exists"),
+            .init("over-estimate-bound", "over-estimate bound",
+                  "interval.duration <= the poll interval + slack, so the left "
+                  + "edge is bounded by the polling rate and not by the run"),
+            .init("poll-pair", "empty vs unwatched",
+                  "tapEnabledPolls > 0 — an empty window list means nothing without it"),
+            .init("delivery-resumed", "delivery resumed",
+                  ">= 1 pointer sample stamped after interval.end — 're-armed' must "
+                  + "be delivery, not a flag read"),
+            .init("negative-control", "negative control",
+                  "an equal window with NO disable: zero windows, non-zero polls"),
         ])
 
         // Collected, not discarded. The window itself arrives as
@@ -198,7 +252,8 @@ enum SpikeA {
         let clean = observer.diagnostics
         print("    clean window: \(clean.tapDisabledIntervals) disabled window(s), "
               + "\(clean.tapEnabledPolls) polls")
-        step.check("NEGATIVE CONTROL: an undisturbed window produced ZERO disabled windows over "
+        step.check("negative-control",
+                   "NEGATIVE CONTROL: an undisturbed window produced ZERO disabled windows over "
                    + "\(clean.tapEnabledPolls) polls — so a window found below is a finding, not "
                    + "an instrument that emits them",
                    clean.tapDisabledIntervals == 0 && clean.tapEnabledPolls > 0)
@@ -206,7 +261,9 @@ enum SpikeA {
         // ---- the induced disable ----
         print("\n>>> Now keep moving the mouse for 10 s. The port goes down at t+3s.")
         var offAt: HostInstant?
+        let observeStart = Minting.hostNow().rawValue
         observe(observer, seconds: 10, at: 3) { offAt = observer.disableTapForVerification() }
+        let observeEnd = Minting.hostNow().rawValue
         let after = observer.diagnostics
         observer.stop()
 
@@ -223,9 +280,30 @@ enum SpikeA {
         // on the negative control alone, while the edges, the bound, the poll
         // pair and the resumed delivery were listed in the expectation table
         // and checked nowhere. Six expectations, one check. The harness's
-        // "no assertions ran" guard does not catch that: there was one.
+        // "no assertions ran" guard did not catch that: there was one. The
+        // guard now names the five, and `VerificationStep.selfTest()` proves it
+        // does without needing a person or a port.
+
+        // `induced`, which had no assertion at all — the `guard let offAt`
+        // above turns a nil into `didNotHappen`, which is right, but a step
+        // that reaches this line has ground truth and never said so.
+        //
+        // Not `offAt != nil` — reaching this line already establishes that, so
+        // such an assertion could not fail, which is the shape this whole
+        // change exists to remove. The checkable claim is that T_off lies
+        // inside the window this process actually observed: a stamp from a
+        // stale port, or one on a different clock base, lands outside it and
+        // every edge assertion below would then be arithmetic on two unrelated
+        // numbers.
+        let offInsideRun = observeStart <= offAt.hostTime.rawValue
+            && offAt.hostTime.rawValue <= observeEnd
+        step.check("induced", "T_off is GROUND TRUTH and it is OUR ground truth: this process took "
+                   + "the port down itself, and the returned instant "
+                   + "\(offAt.hostTime.rawValue) ns falls inside the observed window "
+                   + "[\(observeStart), \(observeEnd)] — same clock base, same run",
+                   offInsideRun)
         let windows = collected.windows
-        step.check("exactly 1 blind window was recorded (observed \(windows.count))",
+        step.check("window-count", "exactly 1 blind window was recorded (observed \(windows.count))",
                    windows.count == 1)
         guard let window = windows.first else {
             step.finish(remedy: "No window means the poll never saw the port down.")
@@ -234,14 +312,16 @@ enum SpikeA {
         let end = window.interval.end.rawValue
         let off = offAt.hostTime.rawValue
         let pollNanos = InputObserver.pollIntervalNanos
-        step.check("the window CONTAINS T_off: start \(start) <= \(off) <= end \(end). This is "
+        step.check("edges",
+                   "the window CONTAINS T_off: start \(start) <= \(off) <= end \(end). This is "
                    + "the edge assertion — a window that merely exists proves the poll fired, not "
                    + "that it bracketed the event",
                    start <= off && off <= end)
         let leadMs = String(format: "%.1f", Double(off - start) / 1e6)
         let pollMs = String(format: "%.1f", Double(pollNanos) / 1e6)
         let boundHolds = (off - start) <= pollNanos * 2
-        step.check("the over-estimate is bounded by the POLLING RATE, not by the run: T_off - start "
+        step.check("over-estimate-bound",
+                   "the over-estimate is bounded by the POLLING RATE, not by the run: T_off - start "
                    + "= \(leadMs) ms against a \(pollMs) ms poll interval. A left edge that "
                    + "drifted back to the start of observation would pass containment and fail this",
                    boundHolds)
@@ -265,17 +345,20 @@ enum SpikeA {
         // exercise the poll, which moves it from confirmatory to load-bearing.
         let detection = "\(window.detectedBy) / \(String(describing: window.disabledBy))"
         let honest = window.detectedBy == .notification && window.disabledBy == .userInput
-        step.check("a manual CGEventTapEnable(false) is detected by the NOTIFICATION channel and "
+        step.check("which-channel",
+                   "a manual CGEventTapEnable(false) is detected by the NOTIFICATION channel and "
                    + "attributed as \(detection) — the OS calls it userInput, and the observer "
                    + "records what it was told rather than guessing .timeout. This step therefore "
                    + "does NOT exercise polling; only a .listenOnly timeout can, because that is "
                    + "the case with no notification (Spike C step 5)",
                    honest)
-        step.check("something was looking: \(after.tapEnabledPolls) polls. An empty window list "
+        step.check("poll-pair",
+                   "something was looking: \(after.tapEnabledPolls) polls. An empty window list "
                    + "means nothing without this, and a non-empty one is only readable with it",
                    after.tapEnabledPolls > 0)
         let resumed = collected.pointerInstantsAfter(end)
-        step.check("delivery RESUMED: \(resumed) pointer samples stamped after the window closed. "
+        step.check("delivery-resumed",
+                   "delivery RESUMED: \(resumed) pointer samples stamped after the window closed. "
                    + "'Re-armed' must mean events arriving again, not a flag reading true",
                    resumed > 0)
         step.finish(remedy: "If windows climb every 100 ms and never stop, the re-arm's "
@@ -299,22 +382,52 @@ enum SpikeA {
         let source = LiveAXElementSource()
         let observer = InputObserver(arrangement: InputObserver.currentArrangement(),
                                       epoch: Minting.bootEpoch())
-        step.expect(subjectLines(observer, source) + [
-            ("what is induced", "a real OS timeout — 50 ms of sleep in THIS SPIKE's observation "
-                                + "closure, on every pointer event. No product seam."),
+        step.given(subjectLines(observer, source) + [
             ("why second", "step 1 already showed the poll finds a port known to be down, so a "
                            + "null here means the OS did not disable it — one explanation, not two"),
-            ("the assertion", ">= 1 window, detectedBy == .enabledPoll, disabledBy == nil "
-                              + "(a poll cannot know why)"),
-            ("also", "tapEnabledPolls > 0, and the run survives — the tap comes back"),
-            ("expected side effect", "the stall NEVER stops, so the cause PERSISTS: expect a re-arm "
-                                     + "loop, many windows, and most of the span recorded blind. "
-                                     + "That is the condition the re-arm note called unmeasured"),
+        ])
+        // Two of the five rows this step used to declare were conjunctions,
+        // and each had an unchecked half: "detectedBy == .enabledPoll,
+        // disabledBy == nil" was discharged by an assertion about the first
+        // clause only, and "tapEnabledPolls > 0, and the run survives" by one
+        // about the first. Split, so the guard can see the halves.
+        step.expect([
+            .init("stall-applied", "what is induced",
+                  "a real OS timeout — 50 ms of sleep in THIS SPIKE's observation "
+                  + "closure, on every pointer event. No product seam. The stall must be "
+                  + "shown to have RUN: a window found without it is a different finding"),
+            .init("poll-found", "found by the poll",
+                  ">= 1 window with detectedBy == .enabledPoll — the path that had "
+                  + "never once run against a real CFMachPort"),
+            .init("poll-attribution", "a poll cannot know why",
+                  "disabledBy == nil on the poll-found windows: the flag says the tap is "
+                  + "off and nothing more, so an attribution here would be a guess "
+                  + "recorded as a measurement"),
+            .init("poll-pair", "empty vs unwatched",
+                  "tapEnabledPolls > 0 — an empty window list means nothing without it"),
+            .init("tap-rearms", "the run survives",
+                  "> 1 window: a second window is only reachable through a successful "
+                  + "re-arm, so the count is the evidence that the tap came back rather "
+                  + "than a flag read after the fact"),
+            .init("rearm-loop", "expected side effect",
+                  "the stall NEVER stops, so the cause PERSISTS: expect a re-arm "
+                  + "loop, many windows, and most of the span recorded blind. "
+                  + "That is the condition the re-arm note called unmeasured"),
         ])
 
+        // Counted, so "the stall was applied" stops being an assumption. A run
+        // where no pointer event arrives performs no stall, and every number
+        // below would then be about a tap nobody overloaded.
+        let stalls = StallCounter()
+        // Collected, not discarded — for the same reason step 1 stopped
+        // discarding them: `disabledBy` lives on the window, and the diagnostics
+        // counters can only say how many there were.
+        let collectedStallWindows = CollectedWindows()
         do {
-            try observer.start(onObservation: { _ in
+            try observer.start(onObservation: { observation in
+                collectedStallWindows.append(observation)
                 // The overload, in the spike, not in the product.
+                stalls.count()
                 usleep(50_000)
             })
         } catch {
@@ -361,13 +474,39 @@ enum SpikeA {
         // notification-found windows in a long run is the OS being consistent,
         // not a defect. What matters is that the POLL found them, because the
         // poll is the path that had never executed against a real port.
-        step.check("the POLL found \(byPoll) of \(total) windows — the path that had never once "
+        step.check("stall-applied",
+                   "the overload RAN: \(stalls.performed) observations were each stalled 50 ms, "
+                   + "which is \(String(format: "%.1f", Double(stalls.performed) * 0.05)) s of "
+                   + "deliberate lateness. A run where the mouse did not move performs zero stalls "
+                   + "and every window below would then be about something else",
+                   stalls.performed > 0)
+        step.check("poll-found",
+                   "the POLL found \(byPoll) of \(total) windows — the path that had never once "
                    + "run against a real CFMachPort. A .listenOnly timeout delivers no notification "
                    + "(Spike C step 5), so without the poll these would all be silence",
                    byPoll > 0 && Double(byPoll) / Double(max(total, 1)) > 0.9)
-        step.check("something was looking: \(d.tapEnabledPolls) polls over "
+        // The half of the old "the assertion" row that was declared and never
+        // checked. A poll reads a boolean flag; it has no access to a reason,
+        // so anything other than `nil` here is the observer inventing one.
+        let pollFound = collectedStallWindows.windows.filter { $0.detectedBy == .enabledPoll }
+        let attributed = pollFound.filter { $0.disabledBy != nil }
+        step.check("poll-attribution",
+                   "\(attributed.count) of \(pollFound.count) poll-found windows carry a "
+                   + "disabledBy attribution — a poll reads a flag and learns nothing about why, so "
+                   + "any value here would be a guess recorded in the same field the notification "
+                   + "channel fills with fact"
+                   + (pollFound.isEmpty ? ". VACUOUS ON THIS RUN: no window was poll-found" : ""),
+                   !pollFound.isEmpty && attributed.isEmpty)
+        step.check("poll-pair",
+                   "something was looking: \(d.tapEnabledPolls) polls over "
                    + "\(String(format: "%.1f", Double(d.tapPollingSpanNanos) / 1e9)) s",
                    d.tapEnabledPolls > 0)
+        step.check("tap-rearms",
+                   "the tap CAME BACK: \(total) windows were recorded, and every window after the "
+                   + "first is only reachable through a re-arm that took effect. A tap that was "
+                   + "disabled once and never re-armed produces exactly one window and then silence "
+                   + "for the rest of the run",
+                   total > 1)
 
         // **The case the re-arm note called unmeasured, now measured.** The
         // stall is never switched off here, so the cause persists: the tap is
@@ -380,7 +519,8 @@ enum SpikeA {
         // 854 pointer samples arrived. Delivery resumes; the cause returns.
         let blindFraction = Double(d.tapBlindNanos) / Double(max(d.tapPollingSpanNanos, 1))
         let windowsPerSecond = Double(total) / (Double(max(d.tapPollingSpanNanos, 1)) / 1e9)
-        step.check(String(format: "under a PERSISTENT cause the detector becomes a re-arm loop: "
+        step.check("rearm-loop",
+                   String(format: "under a PERSISTENT cause the detector becomes a re-arm loop: "
                           + "%.1f windows per second, %.0f%% of the span recorded as blind. This is "
                           + "the condition the re-arm note called unmeasured, and the only one that "
                           + "would justify backoff — it is now a number",
@@ -392,6 +532,11 @@ enum SpikeA {
     @MainActor
     static func main() {
         switch CommandLine.arguments.dropFirst().first {
+        // The guard's own regression case. No permission, no hardware, no
+        // operator — so it is the one thing in this file that can be run on
+        // every build rather than by a person at the machine, which is exactly
+        // what the previous guard's failure case could not be.
+        case "--self-test": VerificationStep.selfTest()
         case "tapdown": theRealPortGoesDown(); return
         case "stall": aRealTimeoutDisable(); return
         default: break
@@ -414,20 +559,56 @@ enum SpikeA {
         // second one does.
         let axSource = LiveAXElementSource()
         let arrangement = InputObserver.currentArrangement()
-        step.expect([
+        step.given([
             ("AX source", "\(String(describing: type(of: axSource))) — the value passed to "
                           + "enqueue(_:source:onRecord:) below, not a literal"),
             ("depth cap", "\(AXObserver.depthCap) — fixed (D2-5), expected to bind only on web content"),
             ("walk budget", "\(Double(AXObserver.walkBudgetNanos) / 1e6) ms — a D4 PLACEHOLDER"),
             ("displays", "\(arrangement.placements.count) in the arrangement under test"),
-        ] + f2_2.map { ($0.name, String(format: "p50 %.2f  p90 %.2f  max %.2f  (F2-2, 118 samples)",
-                                        $0.p50, $0.p90, $0.max)) }
-          + [("containment", "NOT all clicks outside their element — a uniform miss is the "
-                             + "coordinate path, not AX staleness"),
-             ("tap poll", "non-zero, and covering the window — an unpolled run cannot tell "
-                          + "'no blind windows' from 'nothing was looking'"),
-             ("blind windows", "any found are expected to say detectedBy: enabledPoll — the "
-                               + "notification is measured never to arrive for a .listenOnly tap")])
+        ])
+        // Five rows below are new, and each was already an assertion with
+        // nothing to correspond to: the chains-recorded floor, the click
+        // accounting, the truncation reason, the containment verdict and the
+        // monotonic clock were all checked and none was declared. That is the
+        // size of the gap in this step — five of thirteen — and it is the
+        // number this change exists to expose rather than to fix quietly.
+        //
+        // "tap poll" was one row making two claims (non-zero, and covering the
+        // window) with two assertions; split, so an assertion cannot discharge
+        // the half it does not test.
+        step.expect(f2_2.map {
+            .init($0.id, $0.name, String(format: "p50 %.2f  p90 %.2f  max %.2f  (F2-2, 118 samples)",
+                                         $0.p50, $0.p90, $0.max))
+        } + [
+            .init("chains-recorded", "chains recorded",
+                  "> 0 — a run with no chain is didNotHappen, and every distribution "
+                  + "below would otherwise be a percentile of the empty set"),
+            .init("clicks-accounted", "click accounting",
+                  "every click reaching the observer is recorded, dropped or truncated "
+                  + "with a reason, and the totals reconcile — AXObserver.Diagnostics "
+                  + ".everyClickIsAccountedFor"),
+            .init("truncation-reason", "truncation reasons",
+                  "every record carries exactly one of the four F2-3 reasons; a record "
+                  + "with none left the walk by a path nothing counts"),
+            .init("containment-verdict", "containment verdicts",
+                  "every record carries exactly one containment verdict — the denominator "
+                  + "the containment row below is a fraction of"),
+            .init("containment", "containment",
+                  "NOT all clicks outside their element — a uniform miss is the "
+                  + "coordinate path, not AX staleness"),
+            .init("monotonic-clock", "monotonic clock",
+                  "0 intervals measured backwards; a negative duration would make every "
+                  + "percentile above meaningless without making any of them look wrong"),
+            .init("tap-poll-nonzero", "tap poll fired",
+                  "non-zero — an unpolled run cannot tell 'no blind windows' from "
+                  + "'nothing was looking'"),
+            .init("tap-poll-span", "tap poll covered the run",
+                  "> 50% of the observation window — a timer that fires twice and dies "
+                  + "satisfies a non-zero count while covering none of the run"),
+            .init("blind-windows", "blind windows",
+                  "any found are expected to say detectedBy: enabledPoll — the "
+                  + "notification is measured never to arrive for a .listenOnly tap"),
+        ])
 
         controlRow(step, arrangement)
         guard CapturePermissions.status(of: .accessibility) == .granted else {
@@ -517,10 +698,13 @@ enum SpikeA {
         let walkMs = records.map { wholeWalkNanos(of: $0) / 1e6 }
         let calls = records.map { Double($0.axCalls) }
         let depths = records.map { Double($0.ancestors.count) }
-        let measured: [(String, [Double])] = [
-            ("hit-test interval ms", hitTestMs), ("whole walk ms", walkMs),
-            ("AX calls", calls), ("chain depth", depths),
-        ]
+        // Paired to `f2_2` by position, so the id an assertion cites and the id
+        // its expectation declared come from the same element of the same
+        // array. `zip` rather than a lookup by name: a name lookup is two
+        // strings that have to agree, which is the failure mode a mechanical
+        // migration produces on every call site at once.
+        let measured: [(id: String, name: String, values: [Double])] =
+            zip(f2_2, [hitTestMs, walkMs, calls, depths]).map { ($0.id, $0.name, $1) }
 
         print("\n---- MEASURED, \(records.count) samples on this machine ----")
         print("  AX source: \(String(describing: type(of: axSource)))"
@@ -531,8 +715,8 @@ enum SpikeA {
         }
         print("  " + column("", 22) + column("p50", 9) + column("p90", 9) + column("max", 9)
               + "   " + column("F2-2 p50", 9) + column("p90", 9) + column("max", 9))
-        for (name, values) in measured {
-            let reference = f2_2.first { $0.name == name }!
+        for (id, name, values) in measured {
+            let reference = f2_2.first { $0.id == id }!
             let cells = [percentile(values, 0.50), percentile(values, 0.90), values.max() ?? 0,
                          reference.p50, reference.p90, reference.max]
                 .map { column(String(format: "%.2f", $0), 9) }
@@ -574,13 +758,15 @@ enum SpikeA {
         print("  AX log: \(logURL.path()) — NOT to be committed; it carries window titles.")
 
         // ---- the checks
-        step.check("\(records.count) chains recorded from \(samples.clicksSeen) clicks",
+        step.check("chains-recorded",
+                   "\(records.count) chains recorded from \(samples.clicksSeen) clicks",
                    records.count > 0)
-        step.check("every click is accounted for — \(diagnostics.accounting.split(separator: "\n")[0])",
+        step.check("clicks-accounted",
+                   "every click is accounted for — \(diagnostics.accounting.split(separator: "\n")[0])",
                    diagnostics.everyClickIsAccountedFor)
-        step.check("every record carries one truncation reason",
+        step.check("truncation-reason", "every record carries one truncation reason",
                    diagnostics.everyRecordHasATruncationReason)
-        step.check("every record carries one containment verdict",
+        step.check("containment-verdict", "every record carries one containment verdict",
                    diagnostics.everyRecordHasAContainmentVerdict)
 
         // **The coordinate check, stated as what it can actually rule out.**
@@ -589,14 +775,15 @@ enum SpikeA {
         // cannot legitimately happen is ALL of them missing — that is the
         // reverse conversion being wrong, and it is the one shape a plausible
         // AX explanation does not cover.
-        step.check("""
+        step.check("containment", """
                    \(diagnostics.clickInsideTheHitFrame) of \(diagnostics.chainsRecorded) clicks fell \
                    inside the element the hit-test returned, \(diagnostics.clickOutsideTheHitFrame) \
                    outside, \(diagnostics.clickFrameNotComparable) not comparable, \
                    \(diagnostics.recordsWithNoFrame) with no frame — not all of them missed
                    """,
                    diagnostics.clickOutsideTheHitFrame < diagnostics.chainsRecorded)
-        step.check("no interval was measured backwards (\(diagnostics.nonMonotonicClockReadings))",
+        step.check("monotonic-clock",
+                   "no interval was measured backwards (\(diagnostics.nonMonotonicClockReadings))",
                    diagnostics.nonMonotonicClockReadings == 0)
 
         // **Evidence of looking, ASSERTED — printing it is not enough, and
@@ -608,7 +795,7 @@ enum SpikeA {
         // reports PASS, because nothing reads it. This is the only place on
         // real hardware where "something was looking" can be established at
         // all, so it is the one place it must be able to fail.
-        step.check("""
+        step.check("tap-poll-nonzero", """
                    \(tap.tapEnabledPolls) polls of the tap's own enabled flag over \
                    \(String(format: "%.1f", Double(tap.tapPollingSpanNanos) / 1e9)) s — so \
                    "\(tap.tapDisabledIntervals) blind windows" is a measurement and not a silence
@@ -618,7 +805,7 @@ enum SpikeA {
         // the count above while covering none of the run.
         let windowNanos = Double(seconds) * 1e9
         let covered = windowNanos > 0 ? Double(tap.tapPollingSpanNanos) / windowNanos : 0
-        step.check("""
+        step.check("tap-poll-span", """
                    the polling spanned \(String(format: "%.0f", covered * 100))% of the \
                    \(seconds)s observation window — a poll that stopped early cannot see what \
                    happened after it, and its count would still look healthy
@@ -628,7 +815,7 @@ enum SpikeA {
         // the notification is measured never to arrive for a .listenOnly tap.
         // Zero windows makes this vacuously true, which is why the two checks
         // above have to pass first for it to mean anything.
-        step.check("""
+        step.check("blind-windows", """
                    \(samples.blindWindows.filter { $0.detectedBy == .enabledPoll }.count) of \
                    \(samples.blindWindows.count) blind windows were found by the poll rather than \
                    by a notification that a .listenOnly tap does not receive
@@ -641,11 +828,12 @@ enum SpikeA {
         // observer does substantially more work per click than the inline walk
         // the bounds were fitted to, which is the question this re-run exists
         // to answer.
-        for (name, values) in measured {
-            let reference = f2_2.first { $0.name == name }!
+        for (id, name, values) in measured {
+            let reference = f2_2.first { $0.id == id }!
             let mine = percentile(values, 0.50)
             let ratio = reference.p50 == 0 ? 1 : mine / reference.p50
-            step.check(String(format: "%@ p50 %.2f against F2-2's %.2f — ratio %.2f, within 10×",
+            step.check(id,
+                       String(format: "%@ p50 %.2f against F2-2's %.2f — ratio %.2f, within 10×",
                               name, mine, reference.p50, ratio),
                        ratio > 0.1 && ratio < 10)
         }

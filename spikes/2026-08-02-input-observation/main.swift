@@ -174,6 +174,12 @@ enum SpikeC {
         case 5: tapTimeoutThreshold()
         case 6: clickRateStallAndReArm()
         default:
+            // The harness's own regression case — no permission, no hardware,
+            // no operator, so it runs on every build rather than only when
+            // someone is at the machine.
+            if CommandLine.arguments.dropFirst().first == "--self-test" {
+                VerificationStep.selfTest()
+            }
             print("""
             usage: SoredemoSpikeC <step>
               1  pointer track     — move the mouse across the whole screen for 5 s
@@ -210,19 +216,43 @@ enum SpikeC {
             .map { $0.split(separator: ",").compactMap { Int($0) } }
             .flatMap { $0.isEmpty ? nil : $0 }
             ?? [10, 50, 100, 200, 400, 800, 1600]
-        step.expect([
-            ("positive control", "the SAME ladder with .default (an active filter), which SHOULD "
-                                 + "trip — without it, \"listenOnly never tripped\" is "
-                                 + "indistinguishable from \"this experiment cannot detect a trip\""),
+        step.given([
             ("stall values swept (ms)", ladder.map(String.init).joined(separator: ", ")),
             ("seconds per rung", "3"),
-            ("what is being found", "the largest stall that does NOT trip "
-                                    + "kCGEventTapDisabledByTimeout, and the smallest that does"),
             ("Spike A's worst hit-test", "125.47 ms — the number this budget has to be compared to"),
-            ("also measured", "the disable-to-re-arm interval, which is what a bare count cannot say"),
+        ])
+        // `every-rung-sampled` and `notification-silent` are new, and both were
+        // already assertions here. The second is the step's most reused
+        // finding — "a re-arm that waits for kCGEventTapDisabledByTimeout will
+        // never run for a .listenOnly tap" — and it was checked without ever
+        // being declared.
+        step.expect([
+            .init("positive-control", "positive control",
+                  "the SAME ladder with .default (an active filter), which SHOULD "
+                  + "trip — without it, \"listenOnly never tripped\" is "
+                  + "indistinguishable from \"this experiment cannot detect a trip\""),
+            .init("every-rung-sampled", "every rung was sampled",
+                  "≥ 1 callback on each of the \(ladder.count) rungs — a rung with zero "
+                  + "callbacks did not fail to trip, it was not tested"),
+            .init("notification-silent", "the callback channel",
+                  "SILENT for .listenOnly: no kCGEventTapDisabled… type reaches the "
+                  + "callback, so polling CGEvent.tapIsEnabled is the only detection left"),
+            .init("threshold", "what is being found",
+                  "the largest stall that does NOT disable the tap per the OS, and the "
+                  + "smallest that does"),
+            .init("rearm-interval", "also measured",
+                  "the disable-to-re-arm interval, which is what a bare count cannot say. "
+                  + "It has a source only when the notification arrives, so on a "
+                  + ".listenOnly sweep it is expected to be UNMEASURABLE — and that has to "
+                  + "be asserted rather than left as an empty line"),
         ])
 
         var tripped: [Int: Int] = [:]
+        // Accumulated across rungs, because `timeoutDisableInstants` is cleared
+        // at the top of each one. Without this the disable-to-re-arm interval
+        // was printed per rung and then discarded, which is why the row that
+        // declared it had nothing to be discharged by.
+        var reArmGapsMs: [Double] = []
         var callbacksPerRung: [Int: Int] = [:]
         var controlTripped: [Int: Int] = [:]
         var controlSampled = 0
@@ -291,6 +321,7 @@ enum SpikeC {
             let gaps = timeoutDisableInstants.map {
                 Double($0.reArmed - $0.disabled) / 1_000_000
             }
+            reArmGapsMs += gaps
             enabledPerOS[stall] = stillEnabledPerOS
             print(String(format: "    stall %5d ms  callbacks %5d  disabled %d time(s)  OS says enabled: %@%@",
                          stall, callbacks, timeoutDisableInstants.count,
@@ -377,7 +408,8 @@ enum SpikeC {
         print("      smallest stall found DISABLED after the rung: "
               + "\(disabled.min().map { "\($0) ms" } ?? "none — no rung was disabled")")
 
-        step.check("every rung was sampled — \(sampled.count) of \(ladder.count) saw at least one "
+        step.check("every-rung-sampled",
+                   "every rung was sampled — \(sampled.count) of \(ladder.count) saw at least one "
                    + "callback. A rung with zero callbacks did not fail to trip; it was not tested",
                    sampled.count == ladder.count)
 
@@ -394,7 +426,8 @@ enum SpikeC {
                 + "arrive even for an ACTIVE tap this run — so the notification channel is "
                 + "unreliable in general, not merely absent for .listenOnly)"
               : "NOTHING"
-        step.check("POSITIVE CONTROL: an ACTIVE (.defaultTap) tap stalling for the same durations "
+        step.check("positive-control",
+                   "POSITIVE CONTROL: an ACTIVE (.defaultTap) tap stalling for the same durations "
                    + "WAS disabled, detected via \(controlEvidence) — so a disable is detectable, "
                    + "and \"listenOnly was never disabled\" would be a finding rather than a blind "
                    + "instrument",
@@ -405,7 +438,8 @@ enum SpikeC {
         // confirmed in the same run by the control, which DID receive it for an
         // active tap. Anything that re-arms on the notification is dead code
         // for a listen-only tap, and the only detection left is polling.
-        step.check("the callback channel is SILENT for .listenOnly — non-mouseMoved types seen: "
+        step.check("notification-silent",
+                   "the callback channel is SILENT for .listenOnly — non-mouseMoved types seen: "
                    + (unexpectedCallbackTypes.isEmpty ? "NONE"
                       : Set(unexpectedCallbackTypes).map { String(format: "0x%X", $0) }.sorted().joined(separator: ", "))
                    + ". A re-arm that waits for kCGEventTapDisabledByTimeout will never run for this "
@@ -424,16 +458,46 @@ enum SpikeC {
             // about a real regime; it is not the budget for a per-click cost,
             // and the assertion must not smuggle a conclusion the experiment
             // cannot reach. Run step 6 for that question.
-            step.check("under SUSTAINED overload — a stall on every pointer event at 60–120 Hz — "
+            step.check("threshold",
+                       "under SUSTAINED overload — a stall on every pointer event at 60–120 Hz — "
                        + "the tap survives \(largestSafe.map { "\($0) ms" } ?? "0 ms") and is "
                        + "disabled by \(smallestDisabled) ms. This is NOT the budget for a "
                        + "per-click cost: step 6 stalls 125 ms on clicks only and the tap survives. "
                        + "Read this number as the overload threshold and nothing else",
                        true)
         } else {
-            step.check("no rung was disabled per the OS up to \(ladder.max()!) ms — the budget is "
+            step.check("threshold",
+                       "no rung was disabled per the OS up to \(ladder.max()!) ms — the budget is "
                        + "above that and Spike A's 125.47 ms worst hit-test is inside it", true)
         }
+
+        // **The row that had no assertion, discharged by one that states the
+        // limitation rather than by one that quietly skips it.**
+        //
+        // The interval can only be measured from the notification pair, and
+        // the assertion above establishes that no notification arrives for a
+        // `.listenOnly` tap at all. So on this sweep the quantity has no
+        // source — which is a finding about the tap kind, not an omission, and
+        // it is asserted here rather than left as a blank line in the log. The
+        // predicate is not `true`: it passes when an interval was measured, or
+        // when the notification channel is provably silent, and fails if
+        // notifications arrived and no interval came out of them.
+        let notificationsArrived = tripped.values.contains { $0 > 0 }
+        step.check("rearm-interval",
+                   reArmGapsMs.isEmpty
+                       ? "VACUOUS ON THIS RUN — 0 disable→re-arm intervals were measurable across "
+                         + "\(ladder.count) rungs, because the interval is derived from the "
+                         + "kCGEventTapDisabledByTimeout notification and that notification never "
+                         + "arrives for a .listenOnly tap (asserted above). NOTHING WAS LOOKING is "
+                         + "not the reason; there was nothing to look at. The OS still disabled the "
+                         + "tap — CGEvent.tapIsEnabled says so — it simply does not say when it "
+                         + "re-armed"
+                       : String(format: "%d disable→re-arm intervals measured, %.2f–%.2f ms. This is "
+                                + "the quantity a bare count of disables cannot say, and it decides "
+                                + "whether a segment spanning one can be annotated or has to be "
+                                + "refused",
+                                reArmGapsMs.count, reArmGapsMs.min() ?? 0, reArmGapsMs.max() ?? 0),
+                   !reArmGapsMs.isEmpty || !notificationsArrived)
 
         step.finish(remedy: "If a rung shows zero callbacks the mouse stopped moving there; "
                             + "re-run before reading the threshold.")
@@ -471,14 +535,22 @@ enum SpikeC {
     static func clickRateStallAndReArm() {
         var step = VerificationStep(name: "6 — a click-rate stall, and whether a re-arm survives")
         step.begin(repositoryPath: repositoryPath)
-        step.expect([
-            ("part A stall", "125 ms, on .leftMouseDown ONLY — Spike A's worst hit-test"),
+        step.given([
             ("part A duration", "30 s; click about a dozen times, keep the mouse moving between"),
-            ("part A asks", "does a 6% duty cycle disable the tap, or was step 5's 20 ms a "
-                            + "sustained-overload artefact of stalling every pointer event?"),
-            ("part B", "induce a disable with an every-event stall, re-arm it, then poll: "
-                       + "does it STAY armed, or die again immediately?"),
-            ("part B decides", "whether 're-arm' suffices or must become 're-arm with backoff'"),
+            ("part B decides", "whether 're-arm' suffices or must become 're-arm with backoff' — "
+                               + "a consequence of the rows below, not a claim about this run"),
+        ])
+        step.expect([
+            .init("part-a-stall", "part A stall",
+                  "125 ms, on .leftMouseDown ONLY — Spike A's worst hit-test. The subject "
+                  + "is STALLS PERFORMED, not callbacks: the mask includes mouseMoved, so a "
+                  + "run with zero clicks records ~1900 callbacks and takes no stall at all"),
+            .init("part-a-verdict", "part A asks",
+                  "does a 6% duty cycle disable the tap, or was step 5's 20 ms a "
+                  + "sustained-overload artefact of stalling every pointer event?"),
+            .init("part-b-verdict", "part B",
+                  "induce a disable with an every-event stall, re-arm it, then poll: "
+                  + "does it STAY armed, or die again immediately?"),
         ])
 
         let mask = (1 << CGEventType.mouseMoved.rawValue)
@@ -573,12 +645,14 @@ enum SpikeC {
         // The subject is STALLS, not callbacks. Eight is a floor for "about a
         // dozen clicks" that still leaves room for a miscount, and any number
         // below it means part A's verdict is about a run that barely stalled.
-        step.check("part A performed \(a.callbacks) stalls of 125 ms — the path under test was "
+        step.check("part-a-stall",
+                   "part A performed \(a.callbacks) stalls of 125 ms — the path under test was "
                    + "exercised. Callbacks are NOT the subject: the mask includes mouseMoved, so a "
                    + "run with zero clicks records ~1900 callbacks, performs no stall at all, and "
                    + "would otherwise pass claiming the tap survived a stall it never took",
                    a.callbacks >= 8)
-        step.check("PART A: a 125 ms stall on CLICKS ONLY — Spike A's worst hit-test at the rate "
+        step.check("part-a-verdict",
+                   "PART A: a 125 ms stall on CLICKS ONLY — Spike A's worst hit-test at the rate "
                    + "clicks actually arrive — left the tap "
                    + (a.enabledAtEnd ? "ENABLED. Step 5's 20 ms figure was a sustained-overload "
                                        + "artefact of stalling every pointer event at 60–120 Hz, and "
@@ -606,7 +680,8 @@ enum SpikeC {
             // as step 5: a measurement taken at a duty cycle the real case does
             // not have.
             let ceiling = 19 - reArmedAt
-            step.check("PART B: after a timeout-induced disable at t+\(reArmedAt)s, one "
+            step.check("part-b-verdict",
+                       "PART B: after a timeout-induced disable at t+\(reArmedAt)s, one "
                        + "CGEventTapEnable(true) with the stall REMOVED left the tap enabled for "
                        + "\(reArmSurvivedSeconds) of \(ceiling) further polls — the instrument's "
                        + "maximum. So a re-arm sticks when nothing is still trying to disable the "
@@ -614,7 +689,8 @@ enum SpikeC {
                        + "case backoff would exist for",
                        reArmSurvivedSeconds == ceiling && (b?.enabledAtEnd ?? false))
         } else {
-            step.check("PART B did not run: no disable was induced in 20 s of every-event stalling, "
+            step.check("part-b-verdict",
+                       "PART B did not run: no disable was induced in 20 s of every-event stalling, "
                        + "so whether a re-armed tap survives is UNMEASURED. Not a pass",
                        false)
         }
@@ -625,12 +701,26 @@ enum SpikeC {
 
     static let repositoryPath = "~/Documents/Soredemo/soredemo-main"
 
-    /// The arrangement under test, plus the expectation rows derived from it.
+    /// The arrangement under test, as `given` rows.
     ///
-    /// Derived, never typed: `VerificationStep.expect` exists because every
-    /// expectation-table error this project has made was a constant written by
-    /// the person who knew the implementation, and each one happened to be the
-    /// identity element of the transform under test.
+    /// Derived, never typed: every expectation-table error this project has
+    /// made was a constant written by the person who knew the implementation,
+    /// and each one happened to be the identity element of the transform under
+    /// test.
+    ///
+    /// **Two rows left this function when the guard's output became a
+    /// correspondence table.** It used to append "every normalised coordinate
+    /// in [0, 1]" and "event timestamp base: nanoseconds, same as
+    /// Minting.hostNow()", and it was called by all four of steps 1–4 — but
+    /// only steps 1 and 2 check the coordinate range and only step 1 checks the
+    /// timestamp base. A shared helper appending a claim to steps that never
+    /// intended it is the mirror image of the failure this change is about:
+    /// there, an expectation nobody checked; here, an expectation nobody meant
+    /// to make. Each step now declares those rows itself, where it checks them.
+    ///
+    /// What remains is the arrangement, which is read off the configuration at
+    /// the moment it is printed and has nothing about the run's outcome to be
+    /// right or wrong about.
     @MainActor
     static func arrangementRows(_ arrangement: DisplayArrangement) -> [(String, String)] {
         var rows: [(String, String)] = [("displays found", "\(arrangement.placements.count)")]
@@ -645,8 +735,6 @@ enum SpikeC {
                          "(\(placement.globalOriginX), \(placement.globalOriginY))"))
             rows.append(("display \(index) revision", "\(geometry.revision)"))
         }
-        rows.append(("every normalised coordinate", "in [0, 1]"))
-        rows.append(("event timestamp base", "nanoseconds, same as Minting.hostNow()"))
         return rows
     }
 
@@ -753,11 +841,36 @@ enum SpikeC {
         var step = VerificationStep(name: "1 — the pointer track, at display rate")
         step.begin(repositoryPath: repositoryPath)
         let arrangement = InputObserver.currentArrangement()
-        step.expect(arrangementRows(arrangement) + [
-            ("pointer samples in 5 s", "> 300 — the plan's floor is 60 in 1 s"),
-            ("suppressed by secure input", "0 — no password field is focused"),
-            ("unroutable locations", "0 — the pointer cannot be off every display"),
-            ("implausible timestamps", "0 of N — this is the live unit check"),
+        step.given(arrangementRows(arrangement))
+        // Three rows are new, and every one of them already had an assertion:
+        // known revisions, the spatial extent of the track, and monotonic
+        // instants were checked and never declared. The old table's two
+        // duplicate statements of the timestamp base ("event timestamp base"
+        // from the shared helper, and "implausible timestamps" here) are now
+        // one row — two rows saying one thing means an assertion discharges
+        // both, which is the count problem at a smaller scale.
+        step.expect([
+            .init("sample-rate", "pointer samples in 5 s",
+                  "> 300 — the plan's floor is 60 in 1 s, measured IN the first second "
+                  + "rather than divided out of the total"),
+            .init("normalised-range", "every normalised coordinate", "in [0, 1]"),
+            .init("known-revisions", "revisions belong to attached displays",
+                  "every sample's revision is one the arrangement contains. A revision "
+                  + "from nowhere means the conversion invented one, which is the failure "
+                  + "GeometryRevision exists to make impossible"),
+            .init("track-spans", "the track is a track",
+                  "max x − min x > 0.5 — a stationary pointer sampled 400 times satisfies "
+                  + "the rate row above and is not a track across the whole screen"),
+            .init("monotonic-instants", "instants are non-decreasing",
+                  "taken from the EVENT's own timestamp, not from when the callback ran"),
+            .init("timestamp-base", "event timestamp base",
+                  "nanoseconds on Minting.hostNow()'s base — 0 implausible timestamps of "
+                  + "N. This is the live unit check: a constructed CGEvent has "
+                  + "timestamp == 0, so only the window server can supply a genuine one"),
+            .init("no-unroutable", "unroutable locations",
+                  "0 — the pointer cannot be off every display"),
+            .init("no-secure-suppression", "suppressed by secure input",
+                  "0 — no password field is focused"),
         ])
         controlRow(step, arrangement)
 
@@ -779,30 +892,38 @@ enum SpikeC {
         // not the quantity the floor is about.
         let firstInstant = samples[0].instant.hostTime.rawValue
         let inFirstSecond = samples.filter { $0.instant.hostTime.rawValue - firstInstant < 1_000_000_000 }.count
-        step.check("\(inFirstSecond) pointer samples in the first second of movement "
+        step.check("sample-rate",
+                   "\(inFirstSecond) pointer samples in the first second of movement "
                    + "(\(samples.count) over the whole 5 s) — the plan's floor is 60 in 1 s",
                    inFirstSecond > 60)
-        step.check("every normalised x and y is in [0, 1] — \(samples.count) samples across "
+        step.check("normalised-range",
+                   "every normalised x and y is in [0, 1] — \(samples.count) samples across "
                    + "\(arrangement.placements.count) display(s), so a second display would have "
                    + "failed this if the global point were not routed first",
                    samples.allSatisfy { (0...1).contains($0.position.x) && (0...1).contains($0.position.y) })
-        step.check("every sample carries the revision of a display that is actually attached",
+        step.check("known-revisions",
+                   "every sample carries the revision of a display that is actually attached",
                    revisionsAreKnown(collected, arrangement))
-        step.check("the track spans more than a single point — min/max x "
+        step.check("track-spans",
+                   "the track spans more than a single point — min/max x "
                    + String(format: "%.4f/%.4f", samples.map(\.position.x).min()!, samples.map(\.position.x).max()!)
                    + ", y "
                    + String(format: "%.4f/%.4f", samples.map(\.position.y).min()!, samples.map(\.position.y).max()!),
                    (samples.map(\.position.x).max()! - samples.map(\.position.x).min()!) > 0.5)
-        step.check("instants are non-decreasing — \(samples.count) samples, taken from the EVENT's "
+        step.check("monotonic-instants",
+                   "instants are non-decreasing — \(samples.count) samples, taken from the EVENT's "
                    + "own timestamp and not from when the callback ran",
                    zip(samples, samples.dropFirst()).allSatisfy { $0.instant.hostTime <= $1.instant.hostTime })
-        step.check("0 implausible timestamps of \(samples.count) — a real tapped CGEventTimestamp is "
+        step.check("timestamp-base",
+                   "0 implausible timestamps of \(samples.count) — a real tapped CGEventTimestamp is "
                    + "within a second of Minting.hostNow(), i.e. nanoseconds on the same base. "
                    + "Observed: \(diagnostics.implausibleEventTimestampCount)",
                    diagnostics.implausibleEventTimestampCount == 0)
-        step.check("0 unroutable locations (observed \(diagnostics.unroutablePointerLocations))",
+        step.check("no-unroutable",
+                   "0 unroutable locations (observed \(diagnostics.unroutablePointerLocations))",
                    diagnostics.unroutablePointerLocations == 0)
-        step.check("0 events suppressed by secure input (observed "
+        step.check("no-secure-suppression",
+                   "0 events suppressed by secure input (observed "
                    + "\(diagnostics.eventsSuppressedBySecureInput))",
                    diagnostics.eventsSuppressedBySecureInput == 0)
         step.finish(remedy: "If the sample count is low but non-zero, the mouse was moved slowly or "
@@ -817,10 +938,23 @@ enum SpikeC {
         var step = VerificationStep(name: "2 — a click produces a down and an up")
         step.begin(repositoryPath: repositoryPath)
         let arrangement = InputObserver.currentArrangement()
-        step.expect(arrangementRows(arrangement) + [
-            ("button events", "2 per click — one .down, one .up"),
-            ("order", ".down strictly before .up, by instant"),
-            ("positions", "both inside [0, 1], and close to each other"),
+        step.given(arrangementRows(arrangement))
+        // `known-revisions` is new: "both carry the revision of an attached
+        // display" was asserted here and never declared.
+        //
+        // "positions" said "both inside [0, 1], **and close to each other**",
+        // and nothing checked the second half. It is NARROWED rather than
+        // deleted, and the reason is recorded here rather than in a report:
+        // "close" needs a threshold, and there is no derivation for one on this
+        // step — a slightly dragged click is still one click, and a guessed
+        // tolerance would fail a correct run. A number this project cannot
+        // derive is a number it does not assert.
+        step.expect([
+            .init("two-events", "button events", "2 per click — one .down, one .up"),
+            .init("down-before-up", "order", ".down strictly before .up, by instant"),
+            .init("normalised-range", "positions", "both inside [0, 1]"),
+            .init("known-revisions", "revisions belong to attached displays",
+                  "both events carry a revision the arrangement contains"),
         ])
         controlRow(step, arrangement)
 
@@ -847,16 +981,21 @@ enum SpikeC {
                          ("\(b.button).\(b.phase)" as NSString).utf8String!, msSinceFirst,
                          b.position.x, b.position.y))
         }
-        step.check("\(buttons.count) button events for one click — exactly two",
+        step.check("two-events",
+                   "\(buttons.count) button events for one click — exactly two",
                    buttons.count == 2)
-        step.check("the first is .down and the second is .up (observed "
+        step.check("two-events",
+                   "the first is .down and the second is .up (observed "
                    + "\(buttons.map { "\($0.button.rawValue).\($0.phase.rawValue)" }.joined(separator: ", ")))",
                    buttons.first?.phase == .down && buttons.last?.phase == .up)
-        step.check("the down is strictly before the up on the host clock",
+        step.check("down-before-up",
+                   "the down is strictly before the up on the host clock",
                    (buttons.first?.instant.hostTime.rawValue ?? 0) < (buttons.last?.instant.hostTime.rawValue ?? 0))
-        step.check("both carry a normalised position in [0, 1]",
+        step.check("normalised-range",
+                   "both carry a normalised position in [0, 1]",
                    buttons.allSatisfy { (0...1).contains($0.position.x) && (0...1).contains($0.position.y) })
-        step.check("both carry the revision of an attached display",
+        step.check("known-revisions",
+                   "both carry the revision of an attached display",
                    revisionsAreKnown(collected, arrangement))
         step.finish(remedy: "More than two button events means the click was a double-click, or the "
                             + "mouse was clicked twice. Re-run.")
@@ -869,11 +1008,29 @@ enum SpikeC {
         var step = VerificationStep(name: "3 — keyboard is filtered to approved shortcuts")
         step.begin(repositoryPath: repositoryPath)
         let arrangement = InputObserver.currentArrangement()
-        step.expect(arrangementRows(arrangement) + [
+        step.given(arrangementRows(arrangement) + [
             ("allow-list size", "\(InputObserver.approvedShortcuts.count) entries"),
-            ("KeySamples expected", "exactly 1, with shortcut \"cmd+c\""),
-            ("KeySamples for the typing", "0 — every ordinary key is refused"),
-            ("keyDown accounting", "seen == recorded + refused, with no tolerance"),
+        ])
+        // `non-vacuous-input` is new, and it is the row this step most needed:
+        // "20 keyDowns were seen, so a zero result below is not vacuous" was
+        // asserted and never declared, which means the step's own defence
+        // against a vacuous pass was the one thing outside the table.
+        //
+        // "KeySamples expected: exactly 1, with shortcut cmd+c" was one row
+        // making two claims — a count and an identity — with two assertions
+        // under it. Split.
+        step.expect([
+            .init("non-vacuous-input", "the filter was given real input",
+                  "≥ 20 keyDown events seen — 'nothing was recorded' is nearly true of an "
+                  + "empty input as well, so the rows below cannot be read without this"),
+            .init("one-keysample", "KeySamples recorded", "exactly 1"),
+            .init("shortcut-identity", "and its identifier",
+                  "\"cmd+c\" — a name from the table in InputObserver.swift, not a "
+                  + "rendering of anything pressed"),
+            .init("ordinary-keys-refused", "KeySamples for the typing",
+                  "0 — every ordinary key is refused, so refused == seen − 1"),
+            .init("key-accounting", "keyDown accounting",
+                  "seen == recorded + refused, with no tolerance"),
         ])
         controlRow(step, arrangement)
 
@@ -918,19 +1075,24 @@ enum SpikeC {
                                     + "empty input as well, so this cannot be read.")
         }
 
-        step.check("\(diagnostics.keyDownsSeen) keyDown events were seen — the filter was given "
+        step.check("non-vacuous-input",
+                   "\(diagnostics.keyDownsSeen) keyDown events were seen — the filter was given "
                    + "real input, so a zero result below is not vacuous",
                    diagnostics.keyDownsSeen >= 20)
-        step.check("exactly 1 KeySample from \(diagnostics.keyDownsSeen) keystrokes (observed "
+        step.check("one-keysample",
+                   "exactly 1 KeySample from \(diagnostics.keyDownsSeen) keystrokes (observed "
                    + "\(collected.keys.count))",
                    collected.keys.count == 1)
-        step.check("the one recorded identifier is \"cmd+c\" — a name from the table in "
+        step.check("shortcut-identity",
+                   "the one recorded identifier is \"cmd+c\" — a name from the table in "
                    + "InputObserver.swift, not a rendering of anything pressed (observed "
                    + "\(collected.keys.map(\.shortcut)))",
                    collected.keys.map(\.shortcut) == ["cmd+c"])
-        step.check("keyDown accounting balances: \(diagnostics.keyAccounting)",
+        step.check("key-accounting",
+                   "keyDown accounting balances: \(diagnostics.keyAccounting)",
                    diagnostics.everyKeyDownIsAccountedFor)
-        step.check("\(diagnostics.keyDownsRefused) keystrokes were refused and left no trace of any "
+        step.check("ordinary-keys-refused",
+                   "\(diagnostics.keyDownsRefused) keystrokes were refused and left no trace of any "
                    + "kind — the count is a number, and there is no field anywhere holding what they were",
                    diagnostics.keyDownsRefused == diagnostics.keyDownsSeen - 1)
         step.finish(remedy: "If more than one KeySample appeared, the typing contained another "
@@ -945,11 +1107,35 @@ enum SpikeC {
         var step = VerificationStep(name: "4 — secure input produces an interval, not silence")
         step.begin(repositoryPath: repositoryPath)
         let arrangement = InputObserver.currentArrangement()
-        step.expect(arrangementRows(arrangement) + [
-            ("IsSecureEventInputEnabled now", "\(IsSecureEventInputEnabled()) — must be false before the step"),
-            ("observations while it is true", "0 — nothing at all, not a redacted sample"),
-            ("SecureInputInterval records", "exactly 1, endedBy .secureInputDisabled"),
-            ("interval width", "> 0 — it spans the seconds the field had focus"),
+        step.given(arrangementRows(arrangement) + [
+            ("IsSecureEventInputEnabled now",
+             "\(IsSecureEventInputEnabled()) — enforced by the precondition below, which "
+             + "aborts the step rather than recording an assertion. A `check` here could "
+             + "never be false at the point it would run"),
+        ])
+        // Two rows are new. `events-arrived-while-secure` is the non-vacuity
+        // row: without an event delivered while the flag was set, the "no
+        // observation" row below is a statement about an empty set.
+        // `bounded-by-motion` was asserted and never declared.
+        //
+        // "SecureInputInterval records: exactly 1, endedBy .secureInputDisabled"
+        // was one row making two claims with two assertions under it. Split.
+        step.expect([
+            .init("events-arrived-while-secure", "events arrived while it was true",
+                  "> 0 — the observer needs an event to arrive while the flag is set, or "
+                  + "it has nothing to ask the question on and the row below is vacuous"),
+            .init("no-observations-while-secure", "observations while it is true",
+                  "0 — nothing at all, not a redacted sample: no pointer sample falls "
+                  + "inside the interval"),
+            .init("one-interval", "SecureInputInterval records", "exactly 1"),
+            .init("ended-by-disabled", "and how it ended",
+                  ".secureInputDisabled — a measured interval, not the .observationStopped "
+                  + "lower bound"),
+            .init("positive-width", "interval width",
+                  "> 0 — it spans the seconds the field had focus"),
+            .init("bounded-by-motion", "the gap is bounded by real motion",
+                  "pointer samples on BOTH sides of the interval, so it is a gap and not "
+                  + "the end of the recording"),
         ])
         controlRow(step, arrangement)
 
@@ -1001,22 +1187,31 @@ enum SpikeC {
         }
 
         let intervals = collected.intervals
-        step.check("\(diagnostics.eventsSuppressedBySecureInput) events arrived while secure input "
-                   + "was enabled, and NONE of them produced an observation of any kind",
+        step.check("events-arrived-while-secure",
+                   "\(diagnostics.eventsSuppressedBySecureInput) events arrived while secure input "
+                   + "was enabled — so the zero-observation rows below are about a window in which "
+                   + "something WAS delivered. The old wording here also claimed \"and NONE of them "
+                   + "produced an observation\", which its predicate did not test; that clause is now "
+                   + "the separate assertion at the end of this step",
                    diagnostics.eventsSuppressedBySecureInput > 0)
-        step.check("exactly 1 SecureInputInterval record (observed \(intervals.count))",
+        step.check("one-interval",
+                   "exactly 1 SecureInputInterval record (observed \(intervals.count))",
                    intervals.count == 1)
-        step.check("it is marked .secureInputDisabled — a measured interval, not the "
+        step.check("ended-by-disabled",
+                   "it is marked .secureInputDisabled — a measured interval, not the "
                    + ".observationStopped lower bound (observed \(intervals.map { $0.endedBy.rawValue }))",
                    intervals.first?.endedBy == .secureInputDisabled)
-        step.check("the interval has positive width: "
+        step.check("positive-width",
+                   "the interval has positive width: "
                    + String(format: "%.3f s", Double(intervals.first?.interval.duration.rawValue ?? 0) / 1e9),
                    (intervals.first?.interval.duration.rawValue ?? 0) > 0)
-        step.check("pointer samples exist on BOTH sides of the interval — the gap is bounded by "
+        step.check("bounded-by-motion",
+                   "pointer samples exist on BOTH sides of the interval — the gap is bounded by "
                    + "real motion, so it is a gap and not the end of the recording",
                    collected.pointers.contains { $0.instant.hostTime < (intervals.first?.interval.start ?? Nanoseconds(0)) }
                    && collected.pointers.contains { $0.instant.hostTime >= (intervals.first?.interval.end ?? Nanoseconds(0)) })
-        step.check("no pointer sample falls inside the interval — \(collected.pointers.count) samples "
+        step.check("no-observations-while-secure",
+                   "no pointer sample falls inside the interval — \(collected.pointers.count) samples "
                    + "checked",
                    !collected.pointers.contains { sample in
                        guard let interval = intervals.first?.interval else { return false }

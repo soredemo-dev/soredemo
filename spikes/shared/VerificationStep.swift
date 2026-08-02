@@ -26,6 +26,11 @@ import Foundation
 /// the display was never reconfigured, the tone was never played, the person
 /// did not do the thing. It must never be recorded as either of the others,
 /// and it gets its own exit code so a script cannot collapse it into one.
+///
+/// **The guard's output is a correspondence table, not a number.** See
+/// `expect` and `Verdict`. That is the one thing about this type that has
+/// changed since Task 10, and it changed because the number was satisfiable
+/// by the wrong element — ten times.
 struct VerificationStep {
 
     /// 0 pass, 1 fail, 2 the experiment did not happen, 3 the positive
@@ -38,7 +43,8 @@ struct VerificationStep {
     }
 
     let name: String
-    private var checks: [(description: String, passed: Bool)] = []
+    private var checks: [(id: String, description: String, passed: Bool)] = []
+    private var expectations: [Expectation] = []
 
     init(name: String) {
         self.name = name
@@ -71,25 +77,95 @@ struct VerificationStep {
         """)
     }
 
-    // MARK: - 2. Expectations, before the run
+    // MARK: - 1b. The setup, recorded but not claimed
 
-    /// Prints what this step expects, **before** it measures anything.
+    /// Rows that describe **the conditions this run happened under** — the
+    /// display arrangement, the depth cap, which `AXElementSource` was passed,
+    /// the object identity of the observer whose diagnostics are read. They
+    /// are printed for the record and they carry **no identifier**, because
+    /// there is nothing about them for a later assertion to be right or wrong
+    /// about: they are read off the configuration at the moment they are
+    /// printed.
     ///
-    /// Pass derived values, not hand-written ones. Every expectation-table
-    /// error this project has made was a constant typed by the person who
-    /// knew the implementation, and each one happened to be the identity
-    /// element of the transform under test — a scale of 1, an origin of
-    /// (0, 0), a display where "the content was not resampled" is necessarily
-    /// true. A table computed from the configuration cannot degrade into
-    /// "something plausible was visible, so it passed", and being in the log
-    /// above the results means it cannot be revised afterwards either.
-    func expect(_ rows: [(String, String)]) {
+    /// **This is not a softer `expect`, and the separation is enforced.** A
+    /// `given` row has no id, so no `check` can cite one; a check that tries
+    /// is reported as citing something never declared. The rule for which
+    /// method a row belongs to is: if the row states something that could turn
+    /// out to be false about *this run's outcome*, it is an `expect` row and
+    /// something must check it. If it states what was configured before the
+    /// run began, it is a `given`.
+    ///
+    /// Before this existed, `expect` carried both kinds, and the provenance
+    /// rows — which no assertion can discharge — were the majority in some
+    /// steps. Keeping them in `expect` under the new guard would have meant
+    /// either inventing tautological checks for them or weakening the guard,
+    /// and both are the shape this change exists to remove.
+    func given(_ rows: [(String, String)]) {
+        guard !rows.isEmpty else { return }
         let width = rows.map(\.0.count).max() ?? 0
-        print("\n---- EXPECTED, computed before measuring ----")
+        print("\n---- GIVEN, the setup this run happened under (recorded, asserted nowhere) ----")
         for (label, value) in rows {
             print("  \(label.padding(toLength: width, withPad: " ", startingAt: 0))  \(value)")
         }
-        print("---------------------------------------------\n")
+        print("-------------------------------------------------------------------------------")
+    }
+
+    // MARK: - 2. Expectations, before the run — each one named
+
+    /// An expectation, with an **identifier a later assertion must cite**.
+    ///
+    /// The identifier is a declaration, not a comment. That is the whole
+    /// difference between this design and the one it replaces.
+    struct Expectation {
+        let id: String
+        let label: String
+        let value: String
+        init(_ id: String, _ label: String, _ value: String) {
+            self.id = id; self.label = label; self.value = value
+        }
+    }
+
+    /// Prints what this step expects, **before** it measures anything, and
+    /// records each expectation's identifier so `finish` can say which ones
+    /// were never discharged.
+    ///
+    /// **Why identifiers, and why counting failed ten times.** The previous
+    /// guard was "a step that records no assertions fails" — a check on the
+    /// *count* of a set, when the property wanted is about its *members*. A
+    /// number is always satisfiable by the wrong element, and it was: step 1
+    /// of Task 10's human half declared six expectations, checked one (its
+    /// negative control), printed three numbers and passed. The guard saw one
+    /// assertion and was satisfied. Twice now that failure has happened inside
+    /// something written to prevent it.
+    ///
+    /// So the guard's output changes type. It is no longer a number; it is the
+    /// correspondence between what was declared and what was discharged, and a
+    /// declared expectation that no assertion cites fails the step **by name**.
+    /// `VerificationStep.selfTest()` replays step 1's historical shape against
+    /// it, because a guard whose failure case exists only in prose is the shape
+    /// that failed ten times.
+    ///
+    /// **One row, one claim.** A row whose text is a conjunction — "≥ 1
+    /// window, detected by the poll, with no attribution" — is discharged by
+    /// an assertion that checks any one of its three parts, and the guard
+    /// cannot see the difference. Split conjunctions into separate rows with
+    /// separate identifiers; four such rows were found already carrying
+    /// unchecked halves.
+    ///
+    /// Values still come from the configuration, never typed by hand: every
+    /// expectation-table error this project has made was a constant written by
+    /// someone who knew the implementation, and each was the identity element
+    /// of the transform under test.
+    mutating func expect(_ rows: [Expectation]) {
+        expectations.append(contentsOf: rows)
+        guard !rows.isEmpty else { return }
+        let width = rows.map(\.label.count).max() ?? 0
+        print("\n---- EXPECTED, computed before measuring — each row must be cited below ----")
+        for row in rows {
+            print("  \(row.label.padding(toLength: width, withPad: " ", startingAt: 0))  \(row.value)")
+            print("  \(String(repeating: " ", count: width))  [\(row.id)]")
+        }
+        print("----------------------------------------------------------------------------\n")
     }
 
     // MARK: - 3. Positive control
@@ -175,12 +251,28 @@ struct VerificationStep {
 
     // MARK: - 4. Checks
 
-    /// One named assertion. The description carries the **measured value**,
-    /// not a summary of it — a refusal or a failure is read at the moment
-    /// someone starts investigating, which is when an inferred statement does
-    /// the most damage.
-    mutating func check(_ description: String, _ passed: Bool) {
-        checks.append((description, passed))
+    /// One named assertion, **citing the expectation it discharges**.
+    ///
+    /// The description carries the measured value, not a summary of it — a
+    /// refusal or a failure is read at the moment someone starts
+    /// investigating, which is when an inferred statement does the most
+    /// damage. It must also not claim more than its own predicate tests: one
+    /// assertion here described "events arrived while secure input was on, and
+    /// NONE produced an observation" over a predicate that only tested the
+    /// first clause.
+    ///
+    /// `id` must name an expectation declared by `expect`. Citing one that was
+    /// never declared is itself a failure: it means the step is checking
+    /// something it did not say it would, which is the same drift in the other
+    /// direction — and it is how a mechanical migration hides, by generating
+    /// identifiers on both sides that never meet.
+    ///
+    /// Several checks may cite one expectation; that is a row being discharged
+    /// from more than one direction, which is fine. What is not fine is a row
+    /// whose *text* is a conjunction and whose single check tests one half —
+    /// see `expect`.
+    mutating func check(_ id: String, _ description: String, _ passed: Bool) {
+        checks.append((id, description, passed))
     }
 
     /// A precondition that makes the measurement readable was not met — the
@@ -208,26 +300,119 @@ struct VerificationStep {
         exit(ExitCode.didNotHappen.rawValue)
     }
 
-    /// Prints every check and exits with `passed` or `failed`.
+    // MARK: - 5. The guard, as a correspondence rather than a count
+
+    /// The correspondence between the expectations a step declared and the
+    /// assertions that cited them.
+    ///
+    /// Pure and separately constructible, so the guard itself is testable —
+    /// the previous one was only reachable by running a whole spike with a
+    /// person at the machine, which is why its own failure case was never
+    /// executed.
+    struct Verdict {
+        /// Declared, and no assertion cited it. These fail the step **by
+        /// name**; this is the case a count could not see.
+        let undischarged: [String]
+        /// Cited by an assertion, never declared. The same drift the other way
+        /// round: the step checked something it did not say it would.
+        let uninvited: [String]
+        /// Declared more than once. Two rows sharing an identifier mean one
+        /// assertion silently discharges both, which is the count problem
+        /// again at a smaller scale.
+        let duplicated: [String]
+        /// Cited and failing.
+        let failed: [String]
+        /// The step declared no expectations at all. Kept as its own case
+        /// because the correspondence between two empty sets is vacuously
+        /// perfect — a step with no `expect` and no `check` would otherwise
+        /// pass, which is exactly the vacuous pass the old count-based guard
+        /// did catch and this one must not lose.
+        let declaredNothing: Bool
+
+        var passed: Bool {
+            !declaredNothing && undischarged.isEmpty && uninvited.isEmpty
+                && duplicated.isEmpty && failed.isEmpty
+        }
+    }
+
+    static func verdict(expected: [String],
+                        checks: [(id: String, passed: Bool)]) -> Verdict {
+        let cited = Set(checks.map(\.id))
+        let declared = Set(expected)
+        var seen = Set<String>()
+        var duplicated: [String] = []
+        for id in expected where !seen.insert(id).inserted { duplicated.append(id) }
+        return Verdict(undischarged: expected.uniqued().filter { !cited.contains($0) },
+                       uninvited: checks.map(\.id).filter { !declared.contains($0) }.uniqued(),
+                       duplicated: duplicated.uniqued(),
+                       failed: checks.filter { !$0.passed }.map(\.id).uniqued(),
+                       declaredNothing: expected.isEmpty)
+    }
+
+    /// Prints every assertion, then the correspondence, and exits.
     ///
     /// `remedy` is printed only on failure: the first thing to suspect when
     /// this particular step fails, which is usually the physical setup rather
     /// than the code.
     func finish(remedy: String? = nil) -> Never {
         print("\n\(checks.count) ASSERTION\(checks.count == 1 ? "" : "S") — \(name):")
-        for (description, passed) in checks {
-            print("  \(passed ? "ok  " : "FAIL") \(description)")
+        for check in checks {
+            print("  \(check.passed ? "ok  " : "FAIL") [\(check.id)] \(check.description)")
         }
-        guard !checks.isEmpty else {
-            print("\nFAIL — no assertions ran. A step that checks nothing passes vacuously, which is " +
-                  "the one outcome that must never be reported as success.")
-            exit(ExitCode.failed.rawValue)
+        let result = Self.verdict(expected: expectations.map(\.id),
+                                  checks: checks.map { ($0.id, $0.passed) })
+
+        print("\nCORRESPONDENCE — \(expectations.count) declared, "
+              + "\(Set(checks.map(\.id)).count) cited by \(checks.count) assertion(s):")
+        for expectation in expectations.uniquedBy(\.id) {
+            let citing = checks.filter { $0.id == expectation.id }
+            let mark = citing.isEmpty ? "✗ NEVER CITED"
+                : citing.allSatisfy(\.passed) ? "ok  ×\(citing.count)"
+                : "FAIL×\(citing.count)"
+            print("  \(mark.padding(toLength: 14, withPad: " ", startingAt: 0)) "
+                  + "[\(expectation.id)] \(expectation.label)")
         }
-        if checks.allSatisfy(\.passed) {
-            print("\nPASS — \(name)")
+
+        if result.declaredNothing {
+            print("""
+
+            NO EXPECTATIONS WERE DECLARED. The correspondence between two empty sets is perfect, \
+            which is why this is checked separately: a step that declares nothing and checks nothing \
+            passes vacuously, and that is the one outcome that must never be reported as success.
+            """)
+        }
+        if !result.undischarged.isEmpty {
+            print("\nUNDISCHARGED EXPECTATIONS — declared, and no assertion cites them:")
+            for id in result.undischarged {
+                let label = expectations.first { $0.id == id }?.label ?? id
+                print("  ✗ [\(id)] \(label)")
+            }
+            print("""
+            A step that declares an expectation and never checks it has stated an intention, not a \
+            result. The previous guard counted assertions and was satisfied by one — which is how a \
+            step declaring six and checking only its negative control passed.
+            """)
+        }
+        if !result.uninvited.isEmpty {
+            print("\nUNDECLARED ASSERTIONS — cited, never declared: "
+                  + result.uninvited.joined(separator: ", "))
+            print("The step checked something it did not say it would, which is the same drift the "
+                  + "other way round. Either the expectation table is incomplete — which is a "
+                  + "finding — or the identifier is a typo.")
+        }
+        if !result.duplicated.isEmpty {
+            print("\nDUPLICATE EXPECTATION IDENTIFIERS: " + result.duplicated.joined(separator: ", "))
+            print("Two rows sharing an identifier are discharged by one assertion, which is the "
+                  + "count problem again at a smaller scale.")
+        }
+        if result.passed {
+            print("\nPASS — \(name)  (\(expectations.count) expectations, every one discharged)")
             exit(ExitCode.passed.rawValue)
         }
-        print("\nFAIL — \(checks.filter { !$0.passed }.count) of \(checks.count) assertions failed.")
+        print("\nFAIL — \(name)")
+        if !result.failed.isEmpty {
+            print("  failing assertions: " + result.failed.joined(separator: ", "))
+        }
         if let remedy { print(remedy) }
         exit(ExitCode.failed.rawValue)
     }
@@ -245,5 +430,127 @@ struct VerificationStep {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension Array where Element: Hashable {
+    /// Order-preserving deduplication, so a verdict lists each id once in the
+    /// order it was first seen rather than in hash order.
+    func uniqued() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
+    }
+}
+
+extension Array {
+    /// Order-preserving deduplication on a key — used to print the
+    /// correspondence table once per identifier even when a row was declared
+    /// twice (which is itself reported).
+    func uniquedBy<Key: Hashable>(_ key: (Element) -> Key) -> [Element] {
+        var seen = Set<Key>()
+        return filter { seen.insert(key($0)).inserted }
+    }
+}
+
+// MARK: - The guard's own regression case
+
+extension VerificationStep {
+    /// **The historical failure this guard exists for, as an executable case.**
+    ///
+    /// Task 10's human step 1 declared six expectations — the edges, the
+    /// over-estimate bound, the poll pair, resumed delivery, the negative
+    /// control, and what was induced — and discharged exactly one of them, its
+    /// negative control. It then printed three numbers and called `finish()`.
+    /// It **passed**, because the old guard's output was a count and the count
+    /// was one.
+    ///
+    /// This replays those identifiers against the current guard, and it is not
+    /// a demonstration: a guard whose own failure case is described only in
+    /// prose is the shape that failed ten times. It also runs the guard's own
+    /// positive control — a fully discharged step must still pass — so a guard
+    /// that has degraded into failing everything is caught here rather than by
+    /// the person who cannot get a green step.
+    ///
+    /// Needs no permission, no hardware and no operator: `--self-test` on any
+    /// spike.
+    static func selfTest() -> Never {
+        var failures: [String] = []
+        func require(_ condition: Bool, _ what: String) {
+            if !condition { failures.append(what) }
+        }
+
+        print("── VerificationStep self-test — the guard's own regression case ──")
+
+        // ---- 1. Task 10 human step 1, as it was first written ----
+        let declared = ["induced", "edges", "over-estimate-bound", "poll-pair",
+                        "delivery-resumed", "negative-control"]
+        let asStepOneWas: [(id: String, passed: Bool)] = [("negative-control", true)]
+        let old = Self.verdict(expected: declared, checks: asStepOneWas)
+        print("\n1. replaying Task 10 human step 1 as it was first written:")
+        print("   declared   \(declared.count): \(declared.joined(separator: ", "))")
+        print("   discharged \(asStepOneWas.count): \(asStepOneWas.map(\.id).joined(separator: ", "))")
+        print("   the OLD guard's output was a count — 1 assertion, so it PASSED")
+        print("   this guard names the undischarged: \(old.undischarged.joined(separator: ", "))")
+        require(!old.passed, "the guard passed step 1's original shape")
+        require(old.undischarged.count == 5,
+                "expected 5 undischarged, got \(old.undischarged.count)")
+        require(!old.undischarged.contains("negative-control"),
+                "the one expectation that WAS discharged is listed as undischarged")
+        for id in declared where id != "negative-control" {
+            require(old.undischarged.contains(id), "\"\(id)\" was not named as undischarged")
+        }
+
+        // ---- 2. the other direction: an assertion citing something undeclared ----
+        let uninvited = Self.verdict(expected: ["a"], checks: [("a", true), ("b", true)])
+        print("\n2. an assertion citing an identifier that was never declared:")
+        print("   declared [a], cited [a, b] → uninvited: \(uninvited.uninvited.joined(separator: ", "))")
+        require(uninvited.uninvited == ["b"], "an undeclared assertion was not named")
+        require(!uninvited.passed, "the guard passed an undeclared assertion")
+
+        // ---- 3. the guard's own POSITIVE CONTROL ----
+        //
+        // Without this the guard could have degraded into failing everything
+        // and cases 1 and 2 would still read as green — which is the same
+        // "passes for the wrong reason" shape one level up.
+        let clean = Self.verdict(expected: ["a", "b"], checks: [("a", true), ("b", true)])
+        print("\n3. positive control — a fully discharged step must still PASS:")
+        print("   declared [a, b], cited [a, b] → passed: \(clean.passed)")
+        require(clean.passed, "the guard failed a fully discharged step")
+        require(clean.undischarged.isEmpty && clean.uninvited.isEmpty,
+                "a fully discharged step reported a correspondence problem")
+
+        // ---- 4. a failing assertion still fails ----
+        let failing = Self.verdict(expected: ["a"], checks: [("a", false)])
+        require(!failing.passed, "the guard passed a step whose only assertion failed")
+        require(failing.failed == ["a"], "a failing assertion was not named")
+
+        // ---- 5. the vacuous step the OLD guard did catch, and this must too ----
+        let empty = Self.verdict(expected: [], checks: [])
+        print("\n4. a step that declares nothing and checks nothing:")
+        print("   declaredNothing: \(empty.declaredNothing), passed: \(empty.passed)")
+        require(!empty.passed, "a step declaring nothing and checking nothing passed")
+        require(empty.declaredNothing, "declaring nothing was not reported as such")
+
+        // ---- 6. two rows sharing an identifier ----
+        let duped = Self.verdict(expected: ["a", "a"], checks: [("a", true)])
+        require(duped.duplicated == ["a"], "a duplicated identifier was not named")
+        require(!duped.passed, "the guard passed a step with two rows sharing an identifier")
+
+        // ---- 7. one expectation, several assertions ----
+        let manyToOne = Self.verdict(expected: ["a"], checks: [("a", true), ("a", true)])
+        require(manyToOne.passed, "two assertions citing one expectation were rejected")
+
+        guard failures.isEmpty else {
+            print("\nFAIL — the guard does not catch its own historical failure:")
+            for failure in failures { print("  ✗ \(failure)") }
+            exit(ExitCode.failed.rawValue)
+        }
+        print("""
+
+        PASS — the guard names all five of step 1's undischarged expectations, rejects an assertion \
+        citing an identifier that was never declared, rejects a duplicated identifier, rejects a step \
+        that declares nothing, and still passes a fully discharged step.
+        """)
+        exit(ExitCode.passed.rawValue)
     }
 }
