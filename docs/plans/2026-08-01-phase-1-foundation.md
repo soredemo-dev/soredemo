@@ -6,7 +6,9 @@
 
 **Architecture:** One SwiftPM package at the repository root with six library targets whose dependency edges are compile-enforced, consumed by a hand-made Xcode app target. The package imports Foundation only; a build-tool plugin enforces that, because SwiftPM does not. Every derived value carries a citation that cannot be omitted.
 
-**Tech Stack:** Swift 6.4 · macOS 26.0 deployment · macOS 27 SDK (Xcode 27 beta 4, `27A5228h`) · SwiftPM tools-version 6.4 · Swift Testing · SwiftUI + AppKit
+**Tech Stack:** Swift 6.4 compiler · macOS 26.0 deployment · macOS 27 SDK (Xcode 27 beta 4, `27A5228h`) · SwiftPM **tools-version 6.3** · Swift Testing · SwiftUI + AppKit
+
+Four version numbers, deliberately spelled out — D2 in the design doc exists because conflating them has already cost this project a day. The compiler is 6.4; the manifest declares 6.3, because a tools version is a floor on the reader and 6.3 is what keeps Xcode 26 — kept installed on purpose per `TOOLCHAIN.md` § 1 — able to open the package. This header said 6.4 until Task 5, contradicting the Global Constraints section directly below it; and it said "Xcode 26.6 … refuses a 6.4 manifest outright" until Task 19, which named the wrong toolchain, since the *selected* one accepts it. Both measured — see F6.
 
 **Task order.** Revised after Task 2, with reasons — a plan that says one thing while the work does another is the failure mode `AGENTS.md` names:
 
@@ -20,9 +22,54 @@ Tasks 4 and 5 are deferred for the same reason, applied to scheduling rather tha
 
 **Design doc:** `docs/design/2026-08-01-phase-1-foundation-design.md` — read it before Task 1. Findings are cited as F1–F8 and decisions as D-P0–D-P4; this plan does not repeat their reasoning.
 
+## Progress — read this, not the step checkboxes
+
+**The per-step `- [ ]` checkboxes below were never maintained.** All 77 sit unchecked while sixteen
+tasks are done, so anything that reads them as progress reads 0%. This table is the committed
+progress record; the SDD ledger at `a skill chain/sdd/2026-08-01-phase-1-foundation/progress.md`
+carries the per-task detail but is **git-ignored**, so it does not survive a fresh clone. Between
+this table and `git log --oneline 7419058..HEAD`, a new session has what it needs.
+
+| Task | | Landed at | Note |
+| --- | --- | --- | --- |
+| 1 · repo-skeleton | ☑ | `07e9f1b` | package at root, app target, launches empty |
+| 2 · rule 1, import allow-list | ☑ | `50f09e0` … `e5edc8b` | four rounds, then capped; gaps recorded with reachability |
+| 2.5 · does the plugin run under Xcode? | ☑ | (spike) | `ENABLE_USER_SCRIPT_SANDBOXING = YES` does not suppress it; violation ⇒ `xcodebuild` exit 65 |
+| 3 · rules 2 and 4 | ☑ | `23ba054` | banned CG types (substring, not tokens), no manifest dependencies |
+| 4 · rule 3, determinism | ☑ | `2ca8bfc` | link-time symbols, 37 mangled names derived not guessed |
+| 5 · CG bridge + app determinism allow-lists | ☑ | `e49ce7a` + `4bb5914` | lexer extracted to `CheckerLexer`, shared with the plugin so the allow-list cannot drift from the enforcement |
+| 6 · canonical encoding + digest | ☑ | `2e60445` | 41 pinned bytes, revision `0xbcf4_9ed7_dcb4_2be0` |
+| 7 · geometry registry | ☑ | `d65fc5c` | two failure modes, decode throws rather than traps |
+| 8 · normalized types + cross-revision trap | ☑ | `50c13ef` | guard is uncoverable in-process; see the task's ledger entry |
+| 9 · NormalizationContext | ☑ | `33e0519` | the single Y-axis flip — **no caller yet**, which is why Task 19 must not tick `geometry` |
+| 10 · DisplayArrangement | ☑ | `470035d` | extrinsic global→local routing |
+| 10.5 · point vs pixel as a type | ☑ | `cbc3655` | inserted after a measured mis-route; mixing units is now a compile error |
+| 11 · timeline | ☑ | `02f4e78` | `Nanoseconds`, half-open `TimeRange` |
+| 12 · ContentDigest + non-empty Evidence | ☑ | `e1117b6` | citation types |
+| 13 · Derived + approvalBytes | ☑ | `5a32eb2` | `CanonicallyEncodable` in the generic constraint, so a bad payload fails to compile |
+| 14 · producer-value rule | ☑ | `9a668e3` | mutation reddened 5 tests, three of them Task 13's |
+| 15 · reverse index + cache pairing | ☑ | `09a6d5c` | `rebuild` replaces, never merges; no self-triggering staleness detection |
+| 16 · project snapshot + upgrade chain | ☑ | `2a30000` + `ace903c` | `SchemaProbe` reads the version without decoding the document; `tooNew` throws before any field lands |
+| 17 · package I/O + truncated tail | ☑ | `46e31ae` + `3180653` | four mutations passed and the mechanism was still untested; see the ledger |
+| 18 · NSDocument coordinator | ☑ | `2f46c33` + `9ea17ac` + `7eebe6a` | Task 5 pulled OUT, see below. Step 2 outcome 1: `xcodebuild` exit 65 with the package actually compiled |
+| 19 · close out the phase | ☐ | — | **must not** tick `geometry`; see **Open items** §2 |
+
+**Test count, and how to count it.** `swift test` prints one summary line per test target, and the
+line reads `1 test` for a target with one and `N tests` for a target with more. A grep for `tests`
+therefore silently drops every single-test target — which is how the figure 226 got into this table
+and into a task brief when the real total was 229. Count with `tests?`, or read the per-target lines
+and add them yourself:
+
+```
+swift test 2>&1 | grep -oE "^✔ Test run with ([0-9]+) tests?" | grep -oE '[0-9]+' | paste -sd+ - | bc
+```
+
+At Task 5: **290 green** — 107 Geometry · 97 Graph · 31 Project · 25 CheckerLexer · 18 Timeline · 8 Determinism · 2 AppSource ·
+1 Framing · 1 Variants (the last two are placeholders that assert the target builds). Nine targets.
+
 ## Global Constraints
 
-- `// swift-tools-version: 6.3`, `platforms: [.macOS(.v26)]`. No `if #available` anywhere. **Not 6.4** — Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest; 6.3 builds under both toolchains with no feature loss.
+- `// swift-tools-version: 6.3`, `platforms: [.macOS(.v26)]`. No `if #available` anywhere. **Not 6.4** — the *selected* toolchain (Xcode 27 beta 4) accepts a 6.4 manifest, but Xcode 26, which `TOOLCHAIN.md` § 1 keeps installed on purpose, refuses it: `package 'soredemo-main' is using Swift tools version 6.4.0 but the installed version is 6.3.3`. A tools version is a floor on the reader, and 6.3 is what keeps both able to open the package. Both directions measured at Task 19; see F6.
 - `swiftSettings: [.swiftLanguageMode(.v6), .strictMemorySafety()]` on **every** target. **`.strictConcurrency` is not a `SwiftSetting`** and will fail the manifest (F6).
 - The package imports **Foundation only**. No AppKit, ScreenCaptureKit, AVFoundation, SwiftUI, CryptoKit, CoreGraphics.
 - No `CGPoint`, `CGRect`, `CGSize`, `CGFloat` anywhere in the package.
@@ -56,7 +103,7 @@ This binds the plan's own verification steps, not only the tests it writes. Ever
 
 ```
 soredemo-main/
-├── Package.swift                     tools 6.4 · .macOS(.v26)
+├── Package.swift                     tools 6.3 · .macOS(.v26)
 ├── Sources/
 │   ├── Geometry/                     FNV1a · DisplayGeometry · GeometryRevision
 │   │                                 GeometryRegistry · Normalized · PixelRect
@@ -1285,15 +1332,38 @@ MyDemo.soredemo/          UTType(exportedAs:conformingTo: .package)
 
 - [ ] **Step 1: Confirm the package is actually BUILT, not merely mentioned**
 
-A `grep` for `SoredemoCore` in the pbxproj proves only that the string is present — and failed hand-editing attempts have left exactly that residue before. Ask the build system what it built:
+A `grep` for `SoredemoCore` in the pbxproj proves only that the string is present — and failed hand-editing attempts have left exactly that residue before. Ask the build system what it built — **from empty derived data, or the check inverts**:
 
 ```bash
-xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 \
-  | grep -cE "Compiling .*(Geometry|Timeline|Graph)|SwiftDriver.* (Geometry|Timeline|Graph) "
+rm -rf /tmp/soredemo-dd
+xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' \
+  -derivedDataPath /tmp/soredemo-dd build 2>&1 \
+  | grep -cE "Compiling .*(Geometry|Timeline|Graph|Project)|SwiftDriver.* (Geometry|Timeline|Graph|Project) "
 ```
 Expected: non-zero, meaning Xcode compiled package targets.
 
-If zero, **stop and report NEEDS_CONTEXT** — the local package reference has not been added, and everything below depends on it. Do not proceed on a build that silently never compiles the package.
+**Without `-derivedDataPath` on a fresh path this check reads zero on a correctly configured project.** Measured: with warm derived data, `xcodebuild` emitted no compile lines for any package target because they were already up to date, while the same project on empty derived data emitted 45 and produced `Geometry/Timeline/Graph/Project/Framing/Variants.swiftmodule`. An up-to-date target does not announce itself. This is the same warm-versus-clean axis as F2a, arriving at a different tool — and here the failure direction is worse, because a zero says "stop, the prerequisite is missing" about a prerequisite that is present.
+
+If zero *from empty derived data*, **stop and report NEEDS_CONTEXT** — the local package reference has not been added, and everything below depends on it. Do not proceed on a build that silently never compiles the package.
+
+**Compiled is not linked — and `nm` on "the app binary" does not measure it.** Two things about this, both found by measuring rather than reasoning, after this paragraph first stated the opposite.
+
+`Soredemo.app/Contents/MacOS/Soredemo` is a **59 KB launcher stub** with 120 symbols in a Debug build; all app code lives in `Soredemo.debug.dylib`. `nm` on the stub reports **zero** `Geometry` symbols before Task 18 and **zero** after — a check that returns the same answer whether or not the work was done.
+
+On the dylib, the count barely moves: **1191 → 1197**. SwiftPM's static product is force-loaded whole, so the package's symbols were already present when nothing imported it at all. "Zero before" was never true of the app; it was true of the file being measured.
+
+What discriminates is the app's **own** new types:
+
+| Symbols naming | before | after |
+| --- | --- | --- |
+| `Minting` | 0 | 9 |
+| `CGGeometryBridge` | 0 | 10 |
+| `ProjectDocument` | 0 | 117 |
+
+Measure those with **plain `nm`** on `Soredemo.debug.dylib`, found with
+`find "$DD" -name "Soredemo.debug.dylib"`. State the flag when quoting the number: `nm -a` includes
+debug symbols and gives 20 / 22 / 234 for the same three on the same file, and 2394 rather than 1197
+for `8Geometry`. Neither is wrong; a number without its flag is.
 
 - [ ] **Step 2: Re-verify rule 1 under `xcodebuild` — for the first time meaningfully**
 
@@ -1324,6 +1394,19 @@ Expected: non-zero exit, `ArchitectureCheck` present in the log, an `error:` anc
 
 Report which one you observed. Do not work around it.
 
+- [ ] **Step 2.5: Close the untested half of `ContentDigest`**
+
+The package produces canonical bytes; the **app** hashes them. Task 13 proved the bytes are stable
+across processes, but every test target is package-side, so the hashing half — the half
+`approval-gate` binds on — has never been exercised.
+
+Pin a vector across the boundary, no app test target required:
+- package side: a test pinning *known canonical bytes → known SHA-256 digest*, comparing only
+- here: `Minting.digest(of:)` over those same bytes, asserted to produce that digest
+
+Record both values in the report. Drift in CryptoKit, in the encoding, or in the bridge then turns
+a test red rather than silently producing unverifiable approvals.
+
 - [ ] **Step 3: Write `Minting.swift`** — everything the package is forbidden to do: `UUID()`, `Date()`, and `SHA256.hash` via CryptoKit, returning a `ContentDigest`.
 
 - [ ] **Step 4: Write `CGGeometryBridge.swift`** — the only file in the codebase allowed to name `CGRect`. Task 5's test now has a bridge to allow-list.
@@ -1344,16 +1427,32 @@ Declare the exported UTType via `INFOPLIST_KEY_*` build settings or a checked-in
 
 ### Task 19: close out the phase
 
-- [ ] **Step 1: Run everything**
+- [ ] **Step 1: Run everything — and from nothing, not from a warm `.build`**
 
 ```bash
-swift test 2>&1 | tail -3
+swift test 2>&1 | grep -E "^✔ Test run with"
 xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=macOS' build 2>&1 | tail -2
+
+# The clean build. Not the same check.
+rm -rf /tmp/soredemo-clean
+swift build --build-tests --scratch-path /tmp/soredemo-clean 2>&1 | tail -3
 ```
+
+**`--build-tests` is not optional and neither is the scratch path.** Plain `swift build` does not
+build test targets, so it cannot see an undeclared import in a test target at all; and a warm
+`.build` leaves stale module artifacts that make undeclared imports resolve (F2). Every green light
+in Phase 1 up to Task 16 was observed on a warm `.build` — the first clean build of this repository
+was run at Task 16, because nothing asked for one before and there is no CI to run one unasked.
+
+It found no defect. That is not the reason to keep it: a verification that has never been performed
+covers nothing regardless of what it would have found, and this is the same shape as "which build?"
+on a second axis. It did correct F2 — see **F2a** in the design doc: the clean build does not
+promote the scanner's warning to an error, the *linker* fails, and the rule does not reach
+transitive imports at all.
 
 - [ ] **Step 2: Re-run all five negative cases end to end**, recording each observed failure. This is the phase's real acceptance test: five rules, five reds, five greens.
 
-- [ ] **Step 3: Update `ROADMAP.md`** — mark rows honestly. `repo-skeleton` is ☑ only if the app launched.
+- [ ] **Step 3: Update `ROADMAP.md`** — mark rows honestly. **Do not mark `geometry` ☑ — see Open items 2.** The row was renamed `geometry-types` and one of its three claims was moved, precisely because marking it complete was the error this phase keeps making. `repo-skeleton` is ☑ only if the app launched.
 
 - [ ] **Step 4: Update `docs/TOOLCHAIN.md`** — § 2 (macOS 27 beta volume) is no longer required at a 26.0 floor; keep the section, mark it not required, and say why it is kept. Xcode 27 beta stays; it is the SDK.
 
@@ -1367,6 +1466,59 @@ xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -destination 'platform=m
 | --- | --- |
 | `repo-skeleton` | `xcodebuild` succeeds, `otool -l` shows `minos 26.0`, **and the app launches** |
 | `architecture-plugin` | five rules, each observed failing on its own negative case; rule 1 under **both** `swift build` and `xcodebuild` |
-| `geometry` | cross-revision `contains` traps out-of-process; registry throws on a corrupt file and traps on a merge collision |
+| `geometry-types` | cross-revision `contains` traps out-of-process; registry throws on a corrupt file and traps on a merge collision. **Renamed** — see Open items 2 |
 | `derivation-graph` | authored 99 survives repeated production; cache hit paired with invalidation; `approvalBytes` stable across processes |
 | `project-format` | v1 round-trips, synthetic v0 upgrades, a save never deletes media |
+
+---
+
+## Open items
+
+Two things carried past this session. Both were derived from the project's own rules rather than
+found by a test, and both are the same failure shape recorded throughout this phase: **a green check
+read as evidence for a claim it does not cover.**
+
+### 1 · `ContentDigest`'s production half is untested — Task 18
+
+The chain is: the **package** produces canonical bytes → the **app** computes SHA-256 in
+`Minting.swift` → the digest is stored → it is verified later.
+
+Task 13 proved the bytes are byte-identical across five separate processes. But every test target
+is package-side, so **digest comparison is tested and digest production is not** — and Phase 8's
+`approval-gate` binds on production. Thirty-nine tests touch the half that is not load-bearing.
+
+Close it without an app test target, crossing the boundary with a pinned vector:
+
+- **Package side:** a test pinning *known canonical bytes → known SHA-256 digest*. It **compares
+  only and never computes**, so D6 is untouched.
+- **App side, in Task 18's verification:** `Minting.digest(of:)` over those same bytes, asserted to
+  produce that same digest.
+
+Same shape as the `fnv1a64` known-answer vectors, across the package/app boundary. Drift in
+CryptoKit, in the canonical encoding, or in the bridge between them then turns a test red instead
+of silently producing approvals nobody can verify.
+
+Already added as Task 18 Step 2.5; restated here so it is not lost in a step list.
+
+### 2 · Do not mark `geometry` ☑ — Task 19
+
+The `ROADMAP.md` row claimed three things: the normalized types, **all conversion in one place**,
+and the cross-revision precondition. The first and third are observable. The second is not —
+`NormalizationContext` appears in non-test code only inside comments, and its caller count is
+**zero**.
+
+The completion rule is explicit:
+
+> A pure function with no caller does not satisfy a row that claims a product behaviour. If the
+> caller belongs to a different row, rename the row to what it actually delivers.
+
+**This was already got wrong once**, in commit `6d3e1af`: the row was marked ☑ on the strength of
+the cross-revision trap being verified out-of-process — one claim of three, with a green check read
+as a completed row.
+
+Applied remedy: the row is renamed **`geometry-types`**, and *all conversion in one place* moved to
+`input-observation` and `ax-observation`, whose code will be the first to convert. The alternative —
+leaving it ◐ until Phase 2's capture entry — is equally honest and was not chosen only because the
+types themselves genuinely are finished.
+
+Task 19 must not silently reinstate the original wording.

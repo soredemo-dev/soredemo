@@ -5,17 +5,31 @@ import Foundation
 /// normalised, revision-tagged coordinates, and back.
 ///
 /// **Every input to `normalize` is display-local top-left pixels — never
-/// global ones.** `CGDisplayBounds`, `CGEventGetLocation`, and AX
-/// `kAXPositionAttribute` are all top-left, but a *global* point (e.g. from
-/// `CGEventGetLocation`, which reports coordinates relative to the whole
-/// desktop) still has to be routed to the display it actually landed on
-/// before it means anything here — that routing is `DisplayArrangement.route`
-/// (Task 10), not this type. Accepting a global point directly would still
-/// produce a plausible-looking `NormalizedPoint`: the arithmetic doesn't know
-/// it was handed the wrong display's width and height, so it would compute a
-/// wrong answer with no error anywhere. Do not "helpfully" widen this
-/// initialiser to accept global coordinates or a display list — route first,
-/// then normalize against the one display the point is actually on.
+/// global ones, and never points.** `CGDisplayBounds`, `CGEventGetLocation`,
+/// and AX `kAXPositionAttribute` are all top-left, but a *global* point (e.g.
+/// from `CGEventGetLocation`, which reports coordinates relative to the whole
+/// desktop, in points) still has to cross two boundaries before it means
+/// anything here:
+///
+/// 1. **Routed** to the display it actually landed on, via
+///    `DisplayArrangement.route` (Task 10) — which returns display-local
+///    **points**, not pixels.
+/// 2. **Converted** from points to this display's native pixels, via
+///    `DisplayGeometry.pixels(from:)` (Task 10.5) — `route` deliberately does
+///    not do this itself, and neither does this initialiser; each unit
+///    conversion happens in exactly one place.
+///
+/// So the full pipeline is global point (points) → `route` → local point
+/// (points) → `DisplayGeometry.pixels(from:)` → local point (pixels) →
+/// `normalize`. Skipping either step — feeding a global point straight in,
+/// or feeding `route`'s point output straight in without the pixel
+/// conversion — produces a plausible-looking `NormalizedPoint`: the
+/// arithmetic below doesn't know it was handed the wrong display's width and
+/// height, or the wrong unit, so it computes a wrong answer with no error
+/// anywhere. Do not "helpfully" widen this initialiser to accept global or
+/// point-valued coordinates, or a display list — route and convert first,
+/// then normalize against the one display the point is actually on, in
+/// pixels.
 ///
 /// The flip itself anchors on the rect's **bottom** edge, not its top: a
 /// frame's normalised `y` is `1 - ((topLeftY + height) / pixelHeight)`, not

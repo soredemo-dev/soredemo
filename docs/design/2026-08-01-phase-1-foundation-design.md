@@ -1,6 +1,8 @@
 # Phase 1 — Foundation: design
 
-*Covers `repo-skeleton`, `architecture-plugin`, `geometry`, `project-format`, `derivation-graph`.*
+*Covers `repo-skeleton`, `architecture-plugin`, `geometry-types`, `project-format`, `derivation-graph`.*
+*(`geometry` was renamed `geometry-types` at Task 19 — "all conversion in one place" moved to
+`input-observation`/`ax-observation`, whose code is the first to call `NormalizationContext`.)*
 
 Every SDK claim below was tested against the macOS 27 SDK (Xcode 27 beta 4, `27A5228h`, Swift 6.4)
 by compiling or building, not read from documentation. Findings that contradict an existing
@@ -45,6 +47,43 @@ An undeclared import that is not also cyclic fails as `unable to resolve module 
 Stale module artifacts leave the undeclared module visible, and the diagnostic degrades from error to
 warning. `.treatAllWarnings(as: .error)` does **not** close this — the warning is emitted by the
 dependency scanner rather than the compiler frontend, so warnings-as-errors never sees it. Verified.
+
+#### F2a — corrected and narrowed at Task 16
+
+Two claims above are wrong, found by running the clean build this document had been prescribing
+since Task 1 and that nobody had actually run. Measured in an isolated four-target probe package
+plus the real repository.
+
+**1. A clean build does not turn the warning into an error.** It stays a warning; what fails the
+build is the *linker*:
+
+```
+warning: 'AlphaTests-product' is missing a dependency on 'Delta' because dependency scan
+         of Swift module 'AlphaTests' discovered a dependency on 'Delta'
+error: Ld …/AlphaTests.xctest/Contents/MacOS/AlphaTests normal failed with a nonzero exit code
+error: Build failed
+```
+
+The consequence is not cosmetic. Any gate that inspects compile-phase diagnostics — or that runs
+`swift build` without `--build-tests`, which does not build test targets at all — sees a clean
+compile. The failure only exists if something links.
+
+**2. The rule does not reach transitive imports.** A target may import any module reachable through
+its declared dependencies, with no diagnostic, on a clean build:
+
+| Probe (clean, `--build-tests`) | Result |
+| --- | --- |
+| `AlphaTests` declares `Alpha` only; imports `Gamma`, reachable via `Alpha → Beta → Gamma` | **exit 0, no diagnostic at all** |
+| `AlphaTests` imports `Delta`, not reachable from `Alpha` | exit 1 (warning + link error) |
+
+So `Tests/ProjectTests` importing `Geometry` while declaring only `Project`, and `Tests/GraphTests`
+importing `Geometry` and `Timeline` while declaring only `Graph`, are **not** broken clean builds.
+They are legal. They are still worth declaring — the day `Project` stops depending on `Geometry`,
+`ProjectTests` breaks somewhere that has nothing to do with the change — but the enforcement F2
+claims does not extend to them, and a reader of F2 alone would conclude otherwise.
+
+What F2 got right and is worth keeping: warnings-as-errors does not close the gap, because the
+diagnostic never reaches the compiler frontend. That held in every probe.
 
 Two consequences:
 
@@ -119,10 +158,27 @@ one-off.
   concurrency checking. `.strictMemorySafety()` is available and also enabled.
 - **`swift-tools-version: 6.3`, not 6.4.** 6.4 is required only for `.macOS(.v27)`, which this
   design no longer targets, so it buys nothing — and it costs compatibility with the Xcode the
-  project is actually opened in. Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest outright
-  (`unexpectedly did not find the new dependency in the package graph`), while the command line
-  points at Xcode-beta 27 and never showed it. Verified: tools 6.3 builds under **both** toolchains,
-  and `.macOS(.v26)`, `.swiftLanguageMode(.v6)` and `.strictMemorySafety()` all survive at 6.3.
+  project is also opened in. `.macOS(.v26)`, `.swiftLanguageMode(.v6)` and `.strictMemorySafety()`
+  all survive at 6.3.
+
+  **Re-measured at Task 19, because the reason stated here had gone stale in two ways.** It said
+  "Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest", which describes a toolchain that is
+  not the selected one — `xcode-select -p` points at `Xcode-beta.app` — and it quoted the wrong
+  error. Setting `Package.swift` to `// swift-tools-version: 6.4` and running `swift package
+  dump-package` under each:
+
+  | Toolchain | Result |
+  | --- | --- |
+  | Xcode 27 beta 4 · Swift 6.4 · **selected** | **exit 0** — a 6.4 manifest is *accepted* |
+  | `/Applications/Xcode.app` · Swift 6.3.3 | **exit 1** — `error: 'soredemo-main': package 'soredemo-main' is using Swift tools version 6.4.0 but the installed version is 6.3.3` |
+
+  So the conclusion holds on the *other* toolchain, not this one. The previously quoted message,
+  `unexpectedly did not find the new dependency in the package graph`, is not what SwiftPM 6.3.3
+  prints for this condition; two documents quoted two different messages for one measurement, which
+  is the tell that neither had been run recently. `ARCHITECTURE.md` D2 carries the same correction.
+  A tools version is a floor on the reader: 6.3 is what keeps Xcode 26 — which `TOOLCHAIN.md` § 1
+  keeps installed on purpose — able to open the package. Raise it only when Xcode 26 is deliberately
+  dropped.
 
   The general shape is the one this document keeps running into: a check that only exercises one of
   two environments. `swift build` was green throughout while the environment the owner uses could
@@ -175,9 +231,15 @@ enforcement is D-P1's target boundaries, not the directory layout.
 
 ```
 soredemo-main/
-├── Package.swift              SoredemoCore · swift-tools-version: 6.4 · .macOS(.v26)
+├── Package.swift              SoredemoCore · swift-tools-version: 6.3 · .macOS(.v26)
 ├── Sources/{Geometry,Timeline,Graph,Framing,Variants,Project}/
+├── Sources/architecture-checker/   executableTarget · the plugin's tool · no plugin on itself
+├── Sources/CheckerLexer/      the checker's code view, shared with Tests/AppSourceTests
+│                              · no plugin on it either: that would close a dependency cycle
 ├── Tests/{Geometry,Timeline,Graph,Framing,Variants,Project}Tests/
+├── Tests/DeterminismTests/    rule 3, over link-time symbols
+├── Tests/CheckerLexerTests/   the code view, tested directly for the first time
+├── Tests/AppSourceTests/      rule 5 and its determinism twin, over Soredemo/
 ├── Plugins/ArchitectureCheck/
 ├── Metal/                     .metal sources, outside the Swift tree (Phase 2 render-core)
 ├── scripts/                   entitlements, bundle/release scripts (Phase 7)
@@ -344,7 +406,8 @@ from. *Rejected:* single file plus sibling media folder — the "media offline" 
 ### D-P4 — Citation is a field of the value's type
 
 ```swift
-public struct Derived<Value: Codable & Hashable & Sendable>: Codable, Hashable, Sendable {
+public struct Derived<Value: CanonicallyEncodable & Codable & Hashable & Sendable>:
+    Codable, Hashable, Sendable {
     public let value: Value
     public let origin: Origin
     public var review: ReviewState
@@ -398,6 +461,19 @@ time and randomness (§ Determinism). `fnv1a64` stays internal to `Geometry` and
 over it would invalidate the approval it just recorded. The package emits canonical bytes and the
 app hashes them.
 
+**`Value: CanonicallyEncodable`, not `Codable` (Task 13).** The signature above originally
+constrained `Value` to `Codable`, which left exactly one route to the payload's bytes — an encoder —
+and so converged on "hand-roll the outer layer, hand the payload to `JSONEncoder`". That moves the
+non-determinism inward, to the layer that matters most: the payload is the thing actually being
+approved. `.sortedKeys` fixes intra-object key order and does **not** fix decimal rendering of
+`Double`, and the first real payload is a `NormalizedFrame` — two `NormalizedPoint`s of `Double` —
+so routing `Value` through `Codable` would reintroduce inside the payload precisely the bug
+`DisplayGeometry` avoids one layer up by digesting `.bitPattern`. `CanonicallyEncodable` is a
+separate protocol (`func encodeCanonically(into:)`), `Codable` stays as the document path, and
+because the protocol sits in `Derived`'s generic constraint a payload type that forgets to conform
+does not compile rather than silently falling back. Doing this at Task 13 was free — there were zero
+payload types; from Phase 3 on it is per-type work.
+
 **The producer-value rule needs one enforced write path.** The type system guarantees that anything
 generated cites evidence; it does not by itself stop a producer replacing an `.authored` value
 wholesale. `applyingProduced` returns authored values untouched, and producers never assign to a
@@ -429,11 +505,11 @@ about rendering and misleading about everything else:
 | `NSScreen.frame` | bottom-left | AppKit — disagrees with CoreGraphics |
 
 There is a flip. The obligation is that it happens exactly once, on entry, and never again.
-**Unit mismatch waiting at capture entry — Phase 2 must resolve this explicitly.** `DisplayGeometry`
-carries **native pixels**; `CGDisplayBounds` and `CGEventGetLocation` report **points** — pixels ÷
-`scale` on a Retina display. `DisplayArrangement.route` compares its operands directly and does no
-scale conversion, which is right for a type that knows only one unit, but it means whoever populates
-`Placement` from real `CGDisplayBounds` values must convert first.
+
+**Unit mismatch — enforced at compile time (Task 10.5).** `DisplayGeometry` carries **native
+pixels**; `CGDisplayBounds` and `CGEventGetLocation` report **points** — pixels ÷ `scale` on a
+Retina display. This was first found as a live defect, not a hypothetical: `DisplayArrangement.route`
+compared its operands directly against `pixelWidth`/`pixelHeight` and did no scale conversion.
 
 Measured on a 3840×2160 display at `scale: 2`, which is 1920 points wide:
 
@@ -441,17 +517,37 @@ Measured on a 3840×2160 display at `scale: 2`, which is 1920 points wide:
 route(globalTopLeftX: 2500, …)  ->  routed INSIDE the display, localX = 2500
 ```
 
-2500 points is well past the right edge, and it is accepted because it is compared against 3840.
-The failure is silent: a click lands on the wrong display, or on none while appearing to succeed.
-Every Phase 1 fixture uses `scale: 1`, which is exactly why the suite is green.
+2500 points is well past the right edge, and it was accepted because it was compared against 3840.
+The failure was silent: a click would land on the wrong display, or on none while appearing to
+succeed. Every Phase 1 fixture used `scale: 1`, which is exactly why the suite stayed green.
+
+This was first "fixed" by documenting it as a mismatch for Phase 2 to resolve — the wrong fix, for
+a module whose entire discipline is making conflations structurally impossible rather than
+documented. `route` now derives each display's bounds check **in points**, from `pixelWidth`/
+`pixelHeight` and `scale`, closing the defect above unconditionally. Separately, `PointRect` now
+exists alongside `PixelRect` — same four `Double` fields, same preconditions, a distinct type — so
+that handing a points-valued rect where pixels are expected (or the reverse) is a compile error:
+`cannot convert value of type 'PointRect' to expected argument type 'PixelRect'`. The only
+sanctioned crossing is `DisplayGeometry.pixels(from:)` / `.points(from:)`, which own `scale`.
+
+The pipeline is now one step longer than it looks: global point (points) → `DisplayArrangement.route`
+→ local point (**points**) → `DisplayGeometry.pixels(from:)` → local point (**pixels**) →
+`NormalizationContext.normalize`. `route`'s own arguments and return value stay bare `Double`s
+rather than becoming `PointRect` — a single routed point has no width or height, and forcing a
+zero-size rect at every call site to buy a compile-time guarantee there would trade one
+representational mismatch for another. That means the units mistake is still expressible at
+`route`'s scalar boundary, unlike at any `PointRect`/`PixelRect` boundary; see Task 10.5's report for
+the fuller reasoning and the mutation test that isolates the defect this closes.
 
 `NormalizationContext` is that one place, and it takes **display-local** top-left pixels, never
-global ones — the ambiguity that would otherwise compute a plausible, wrong answer in silence.
-Routing happens first, via `DisplayArrangement.route`.
+global ones, and never points — the ambiguity that would otherwise compute a plausible, wrong
+answer in silence. Routing happens first, via `DisplayArrangement.route`, then the points → pixels
+conversion above; `NormalizationContext` does not do either, because it is already the one place
+that flips Y and should not also acquire a second, independent unit conversion.
 
-`CGRect`/`CGPoint` never enter the package; `PixelRect` (plain `Double`s) crosses boundaries
-instead. The app holds exactly one file, `Soredemo/Capture/CGGeometryBridge.swift`, converting
-`CGRect ↔ PixelRect`.
+`CGRect`/`CGPoint` never enter the package; `PixelRect`/`PointRect` (plain `Double`s) cross
+boundaries instead. The app holds exactly one file, `Soredemo/Capture/CGGeometryBridge.swift`,
+converting `CGRect ↔ PixelRect`/`PointRect`.
 
 Cross-revision comparison is a precondition failure:
 
@@ -525,9 +621,93 @@ it is an explicit breaking change that ships with a re-approval path.
 `.bitPattern`, never as a decimal rendering, with preconditions rejecting non-finite values so the
 encoding is well-defined.
 
+**4. Variable-length fields need a length prefix (added by Task 13).** Task 6 recorded that no
+variable-length field may be appended to `DisplayGeometry.canonicalBytes`, because its fields are
+unambiguous only by virtue of being fixed-width. `Derived.approvalBytes` cannot honour that as
+written: `Evidence` is variable-length by nature, `ProducerID` and `GateCode` are strings, and
+`Value` is generic. So the discipline is extended, not broken — every variable-length field is
+preceded by a **fixed-width `UInt64` little-endian** count, of bytes or of records, which restores
+the property fixed width was protecting: every field boundary is determined by bytes already read.
+The rule that remains absolute is that a variable-length field is never appended without one.
+
+This is enforced by two *constructed* collisions in `DerivedTests`, not by assertion. Remove the
+evidence count prefix and a derivation citing two pieces of evidence encodes byte-identically to one
+citing a single piece and rejecting, because the second citation replays inside a gate code — the
+`transcript` kind tag is `0x02`, which is also the `.rejected` tag, and a UUID's first eight bytes
+can be made to read back as the needed length. Remove the value's length prefix and a producer's
+rejected derivation encodes byte-identically to a human's override. Both were computed out of band
+first, and both were verified to go red with the prefix deleted.
+
 A test encodes the same value in two separate processes and compares bytes. Running it twice in one
 process proves nothing — the seed is fixed for a process's lifetime, which is why this class of bug
 survives ordinary testing.
+
+`String` is digested as **raw UTF-8, with no Unicode normalisation**. This is the one place a
+canonical encoding here is not a function of Swift's `==`, and it is worth stating what it costs,
+because both available answers cost something and only one cost was recorded when the decision was
+first made.
+
+Measured — Swift's `String ==` **is** canonical equivalence:
+
+```
+"café" (U+00E9)   [99, 97, 102, 195, 169]
+"café" (e+U+0301) [99, 97, 102, 101, 204, 129]
+Swift ==          true
+after NFC         identical
+```
+
+So two strings that compare **equal** produce **different** `approvalBytes`.
+
+| | How it fails |
+| --- | --- |
+| Normalise at digest time | an ICU update re-normalises *old* content with *today's* tables, so every stored approval moves at once — **loud, rare** |
+| Do not normalise | canonically-equivalent text — pasted from elsewhere, or an input method emitting the decomposed form — silently fails a single approval — **quiet, common** |
+
+### Half of `ContentDigest` has no test, and it is the half Phase 8 depends on
+
+The chain is: **the package produces canonical bytes → the app computes SHA-256 via CryptoKit →
+the digest is stored → it is verified later.** Task 13 proved the bytes are byte-identical across
+five separate processes. But the hashing step lives in the **app target**, and every test target is
+package-side.
+
+So `ContentDigest`'s *comparison* is tested and its *production* is not — and `approval-gate` binds
+on production.
+
+Closing this needs no app test target. Cross the boundary with a pinned vector, the same shape as
+the `fnv1a64` known-answer vectors:
+
+1. In the package tests, pin *known canonical bytes → known SHA-256 digest*. The package **compares
+   only and never computes**, so D6 is untouched.
+2. In Task 18's verification, have `Minting` hash those same bytes and confirm it produces that
+   digest.
+
+Then any drift — in CryptoKit, in the canonical encoding, or in the bridge between them — turns a
+test red instead of silently producing approvals that cannot be verified.
+
+### The resolution: normalise once at ingestion, never at digest time
+
+This is a shape the design already uses twice — the Y-flip happens *exactly once, on entry*, and
+time, randomness and SHA-256 are *injected at the boundary* rather than computed in the package.
+
+The asymmetry that makes it work:
+
+- **Normalising at digest time** re-derives from the running ICU tables on every verification, so
+  the tables become part of the contract and history breaks when they move.
+- **Normalising at ingestion** is a one-time act whose result is *stored*. Later ICU changes affect
+  only text ingested later; bytes already approved are untouched.
+
+So ingestion-time normalisation gets both properties — equal values digest equally, **and** historic
+digests are permanently stable — and neither cost above applies.
+
+**The rule: all external text is normalised to NFC before it enters the graph.** That is the same
+boundary `agentic-threat-model` already requires external text to cross as quoted data rather than
+instruction, so it is one boundary doing two jobs. First callers are Phase 5's `post-draft` and
+Phase 8's `release-evidence`.
+
+**Task 13's decision stands unchanged** — the digest layer must *not* normalise, precisely so that
+it never re-derives from today's tables. The rule above is an addition at a different layer, not a
+correction to it. Until that boundary exists, the residual asymmetry fails closed: it asks for a
+re-approval, and never lets an approval be redeemed against different text.
 
 ---
 
@@ -617,6 +797,94 @@ only way to obtain the system generator is `SystemRandomNumberGenerator.init()`,
 | The scan runs where the object files are — `.build/debug` under `swift build`, or `<Module>.build/` under the older llbuild layout. A scratch path outside `.build` finds neither | neither | Fails **closed**: the vacuous-pass guard reports "no object files found for *module*", not a pass |
 
 The residual is the first row, and it is a codegen-configuration miss rather than a source-level one.
+
+#### Rule 3's app-side half is a TEXT scan, and here is what text cannot reach
+
+The mechanism above — link-time symbols — covers the **package**. `Soredemo/Support/Minting.swift`
+is in the **app** target, which has no test target and whose object files a package test cannot be
+pointed at, so the app-side half (`Tests/AppSourceTests`,
+`ambientTimeRandomnessAndHashingEnterOnlyThroughMinting`) is a substring scan over the shared code
+view. **That is the mechanism this document rejected for this rule**, in F7 and § Determinism, on
+the grounds that a text scan is a proxy for a semantic question and leaks. The verdict has not been
+reversed; text is simply what is available on that side of the boundary. So the leaks get a
+reachability table, which this rule shipped without — and the absence of the table is why nobody
+noticed, until Task 19, that the banned list was **four entries long** and caught none of
+`Date.now`, `Int.random(in:)`, `UUID.init()`, `Date.init()`, `Bool.random()` or `arc4random()`.
+The list is now derived entry-by-entry from `bannedSymbols`; all 23 constructs in
+`bannedConstructFixture` that an app source could name were observed caught.
+
+Every row below **compiles** — checked with `swiftc -typecheck -swift-version 6 -target
+arm64-apple-macos26.0` — so unlike rule 1's row 5, none of these is excused by "the source does not
+build".
+
+| Construction | Direction | Reachable how |
+| --- | --- | --- |
+| `Date .init()` — a space between the type and `.init` | miss | Deliberate authorship. It is also **precisely the leak F7 names** as the reason the package side reads symbols instead of text; recorded here as the same leak, unclosed, on the side that cannot read symbols |
+| `Date` newline `.init()` | miss | Deliberate. The scan is line-by-line over the code view, so no substring can span the break |
+| `typealias Moment = Date` then `Moment()` | miss | **The reachable one, and it is not deliberate-only.** `typealias Timestamp = Date` is a thing people write for readability, and the call site through it looks innocent. Nothing in the app does this today; the rule would not see it if it did |
+| `"\(Date())"` — the interpolated form | **caught** | Listed because it is the form the package's text-scan predecessor let through. The shared code view keeps interpolation *bodies* as code while blanking string content, so it fires here |
+| `Int.random(in:)` as an unapplied function reference | **caught** | Same reason — `.random(` is present in the spelling |
+
+The residual is row 3. It is closed by the same fix as the standing structural gap below —
+SwiftSyntax, or an app test target that lets `nm` do here what it does for the package — and by
+nothing cheaper, since banning `.init` outright would fire on idiomatic SwiftUI on every line.
+
+**The list is mirrored, not shared, and nothing enforces the agreement.** The package's 37 mangled
+symbols and the app's substrings describe the same rule over two bodies of source that cannot import
+each other's test targets. A construct added to one side does not appear on the other, and no test
+compares them. Same shape as `bannedCGTypes`, recorded below.
+
+#### `CheckerLexer` is outside rules 1 and 3, and both exclusions are held by hand
+
+One library target is not covered by either mechanism, and neither exclusion is enforced by anything:
+
+| Rule | Why `CheckerLexer` is outside it | What holds it |
+| --- | --- | --- |
+| 1 · imports | It cannot carry `plugins: archCheck` — the plugin's own `architecture-checker` executable depends on `CheckerLexer`, so attaching the plugin to it closes a dependency cycle | A comment in `Package.swift`, and review |
+| 3 · determinism | `Tests/DeterminismTests` derives its module list from the **plugin-attached** targets, so a target outside rule 1 is automatically outside rule 3 | The same comment, and this table |
+
+The coupling in the second row is the part worth seeing: rule 3's coverage is *defined by* rule 1's
+attachment list — `scannedModules()` reads the plugin-attached targets out of the resolved manifest —
+so the two exclusions are not independent decisions that happen to agree. One causes the other.
+
+**What is guarded, stated precisely, because "held by hand" overstates it in one direction.** A
+seventh regular target added without `plugins: archCheck` does *not* slip through:
+`everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` fails on any regular target outside
+the exemption set, and asserts the six known modules as a floor so the filter cannot match nothing.
+Attaching the plugin to `CheckerLexer` is not merely discouraged either — it is impossible; SwiftPM
+refuses to resolve the package (`cyclic dependency declaration found: AppSourceTests -> CheckerLexer
+-> ArchitectureCheck -> architecture-checker -> CheckerLexer`).
+
+**What is genuinely held by hand is the exemption set itself.** `pluginExemptTargets` is a literal
+in the test — today `["CheckerLexer"]`. Adding a name to it removes that target from rule 1 and,
+through the coupling above, from rule 3 as well, in one edit, with nothing going red. That is the
+residual: not a target drifting out of coverage by accident, but the list of permitted exceptions
+growing on purpose and taking two rules with it each time. And `CheckerLexer`'s own compliance —
+Foundation only, no ambient time or randomness, the code view a pure function of its input string —
+rests on review alone.
+
+#### The two banned-name lists are mirrored, and the reasoning lives only in a test file
+
+Rule 2 exists twice. `ArchitectureChecker.bannedCGTypes` in `Sources/architecture-checker/main.swift`
+holds `CGRect`, `CGPoint`, `CGSize`, `CGFloat` for the **package**;
+`coreGraphicsGeometryTypesAppearOnlyInTheBridge` in `Tests/AppSourceTests` holds the same four for
+the **app**, permitting one file. Rule 3 has the same split — 37 mangled symbols on the package side,
+the substring list on the app side. In both cases **nothing enforces that the two halves agree**, and
+adding a fifth banned name means remembering to edit both.
+
+Mirroring is deliberate rather than an oversight, and the argument is worth having in a document
+instead of only in a doc comment where the next person will not find it:
+
+- They are two rules over two different bodies of source. Either side may legitimately gain a name
+  the other must not — the app will name `CMTime` and `SCStream` types the package may never see,
+  and the package's list is about its own public vocabulary.
+- The only target both sides can import is `CheckerLexer` — which is, per the subsection above, the
+  one target outside plugin enforcement. A shared list would therefore sit in the least-guarded
+  place in the package, to remove a duplication that is four strings long.
+
+The cost is accepted, not unnoticed: **the failure mode is one side silently enforcing less than the
+other**, exactly as happened to rule 3's app half before Task 19. If a third mirror ever appears, or
+either list grows past a handful of entries, that trade stops being obviously right.
 
 ### Rule 4 reads source text too, so it needs its own evasion list
 
@@ -738,7 +1006,7 @@ each is verified separately.
 | --- | --- |
 | `repo-skeleton` | `xcodebuild` succeeds **and the app launches to an empty window** — now performable, since a `.macOS(.v26)` binary runs on this machine |
 | `architecture-plugin` | **all five active rules observed red**, individually — see below |
-| `geometry` | cross-revision comparison traps, observed out-of-process |
+| `geometry-types` | cross-revision comparison traps, observed out-of-process. **Renamed** — "all conversion in one place" moved to `input-observation`/`ax-observation`, whose code is the first to call `NormalizationContext` |
 | `project-format` | a v1 document round-trips and a synthetic v0 upgrades |
 | `derivation-graph` | the producer-value rule holds under test |
 
@@ -787,6 +1055,21 @@ undoes the decision.
 | `FEATURES.md` header | `Target: macOS 27` | macOS 26, built against the 27 SDK |
 | `ROADMAP.md` `project-format` | lists `ReadableDocument`/`WritableDocument` | `NSDocument` coordinator; the row spans the package/app boundary |
 | `TOOLCHAIN.md` § 2 | macOS 27 beta volume required | not required at a 26 floor. Xcode 27 beta stays — it is the SDK |
+
+**Applied at Task 19**, the last two outstanding rows: `ARCHITECTURE.md` D1 — three copies of
+`Packages/SoredemoCore/`, in a repo tree, a data-flow diagram and the module map — and
+`TOOLCHAIN.md` § 2 together with its target-state table. Every other row above had already been
+applied by an earlier task; checked one by one against the files rather than assumed.
+
+Two further stale claims were found in the same sweep and are not in the table above, because
+nothing had noticed them: **D2's
+body still argued the floor it no longer has** — "27 is a stability release … this project ships when
+27 is roughly a year old", under a heading reading `D2 — macOS 26` — and **D2's reason for the 6.3
+tools version named a toolchain that is not the selected one**. Both conclusions were right, both
+reasons were false, and a false reason under a right conclusion is the shape this document keeps
+recording. `PRODUCT.md` § Distribution still calls the floor "the macOS 27 floor" twice; it is left
+alone deliberately, because § What must NOT be changed names `PRODUCT.md` as part of the reasoning
+record and the distinction between a record and a stale claim needs a decision, not a sweep.
 
 ### What must NOT be changed
 

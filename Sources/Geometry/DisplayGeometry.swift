@@ -71,4 +71,30 @@ public struct DisplayGeometry: Hashable, Codable, Sendable {
 
     /// Stable across processes, machines, and reopens. Not `hashValue`.
     public var revision: GeometryRevision { GeometryRevision(id: fnv1a64(canonicalBytes)) }
+
+    // MARK: - Points ↔ pixels (Task 10.5)
+    //
+    // `DisplayGeometry` carries native pixels; `CGDisplayBounds`,
+    // `CGEventGetLocation`, and AX frames report points. The two coincide
+    // only when `scale == 1`, which is why every Phase 1 fixture that used
+    // `scale: 1` could compare them directly and still pass. These two
+    // methods are the only sanctioned crossing between `PointRect` and
+    // `PixelRect` (see both types' documentation) — named so the direction
+    // is unmistakable at the call site: `pixels(from:)` returns pixels,
+    // `points(from:)` returns points.
+
+    /// Converts a rect reported in points — `CGDisplayBounds`,
+    /// `CGEventGetLocation`, an AX frame — into this display's native
+    /// pixels, by multiplying every field by `scale`.
+    public func pixels(from rect: PointRect) -> PixelRect {
+        PixelRect(x: rect.x * scale, y: rect.y * scale,
+                  width: rect.width * scale, height: rect.height * scale)
+    }
+
+    /// The inverse of `pixels(from:)`: converts a rect in this display's
+    /// native pixels back into points, by dividing every field by `scale`.
+    public func points(from rect: PixelRect) -> PointRect {
+        PointRect(x: rect.x / scale, y: rect.y / scale,
+                  width: rect.width / scale, height: rect.height / scale)
+    }
 }

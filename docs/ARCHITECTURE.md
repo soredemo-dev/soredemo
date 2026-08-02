@@ -9,9 +9,13 @@
 Pure logic lives in a SwiftPM package. The app is an Xcode target that consumes it.
 
 ```
-Packages/SoredemoCore/     Foundation only — derivation graph, framing, timeline, variants, project
+Package.swift + Sources/   Foundation only — derivation graph, framing, timeline, variants, project
 Soredemo.xcodeproj         App bundle, entitlements, Info.plist, assets, Sparkle, signing
 ```
+
+**The package sits at the repository root, not under `Packages/SoredemoCore/`** (design doc D-P0).
+One manifest, one `Sources/`, one `Tests/`; the Xcode project references the package by relative
+path from the same directory.
 
 The boundary is load-bearing, not cosmetic: a package that *cannot* import AppKit or ScreenCaptureKit
 is a build-enforced version of the pure-domain rule. The enforcement is a build-tool plugin, not the
@@ -38,19 +42,42 @@ correct settings look stale:
 | Swift compiler | **6.4** | language version |
 
 Building against the newest SDK and deploying to an older system is the normal arrangement, so
-`otool -l` reporting `minos 26.0 / sdk 27.0` is correct, not a leftover. Likewise "Swift 6.4 strict
-concurrency" is current — only the *manifest format* is 6.3, because Xcode 26.6 ships SwiftPM 6.3.3
-and refuses a 6.4 manifest.
+`otool -l` reporting `minos 26.0 / sdk 27.0` is correct, not a leftover — measured on
+`Soredemo.app/Contents/MacOS/Soredemo`. Likewise "Swift 6.4 strict concurrency" is current; only the
+*manifest format* is 6.3.
 
-macOS 27 is Apple Silicon only — Intel and Rosetta 2 are ended, so this is Apple's position rather
-than just ours. It is a stability release, so adoption risk is low. This project ships when 27 is
-roughly a year old.
+**Why 6.3 and not 6.4, restated — the old reason had gone stale.** It used to read "because Xcode
+26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest", which describes a toolchain that is no longer
+the selected one: `xcode-select -p` points at `Xcode-beta.app` (Xcode 27 beta 4, Swift 6.4), and
+that toolchain **accepts** a 6.4 manifest — `swift package dump-package` exits 0 with
+`// swift-tools-version: 6.4`, measured. The reason to stay at 6.3 is the *other* toolchain:
+`TOOLCHAIN.md` § 1 keeps Xcode 26 installed on purpose, and its SwiftPM refuses the same manifest —
+`error: package 'soredemo-main' is using Swift tools version 6.4.0 but the installed version is
+6.3.3`, also measured. A tools version is a floor on the reader, so 6.3 is what keeps both
+toolchains able to open the package. Raise it only when Xcode 26 is deliberately dropped.
 
-What the floor buys: no two-tier material code, no `if #available` on ScreenCaptureKit, Speech, or
-Accessibility, and full access to Liquid Glass, the Document API, and `SpeechAnalyzer`.
+macOS 26 is Apple Silicon only — Intel and Rosetta 2 are ended, so that part is Apple's position
+rather than just ours.
 
-**Known cost:** a macOS-27-only free tier cannot be a mass-market distribution channel. See
-`PRODUCT.md` § Distribution — the channels are built deliberately instead.
+**The ship-date argument that used to sit here is gone, and its removal is the point.** The floor
+was `.macOS(.v27)` and the justification was "27 is a stability release, and this project ships when
+it is roughly a year old". The floor came down to 26; the argument stayed, and for a while it read
+as a live reason for a decision that had already been reversed. `AGENTS.md` cites exactly this as
+the worked example of a justification outliving its reason. The real reason for 26 is smaller and
+duller: a macOS 27 binary cannot be launched on this machine, so every "it builds" would have gone
+unpaired with an "it runs".
+
+What the floor buys: no two-tier material code and no `if #available` on ScreenCaptureKit, Speech,
+or Accessibility. `SCContentSharingPicker`, `SCRecordingOutput`, `SpeechAnalyzer`,
+`SpeechTranscriber` and `AssetInventory` are all available at 26 (design doc F5), as is native
+Liquid Glass.
+
+**What it costs, measured rather than assumed.** The SwiftUI `Document` API is **not** available at
+this floor: `ReadableDocument` and `WritableDocument` are `@available(macOS 27, *)`, which is why D5
+is a hand-written `NSDocument` coordinator (design doc F3, F4). `FEATURES.md` names Music
+Understanding, generated subtitles and the Evaluations framework in the same position. Phase 4 and
+Phase 5 must not be planned on any of them without either raising the floor or finding a macOS 26
+equivalent.
 
 ---
 
@@ -121,6 +148,23 @@ nothing reads it. A framing origin that nothing consumes is a pure function with
 completion rule. This is also what `explain_framing` and the review UI read, so it has to be durable,
 not recomputed.
 
+### Rule 7's target is `Derived.init`, and the first row that has to close it is `framing-targets`
+
+Rule 7 — `applyingProduced` is the sole writer of a `Derived` — is inert in D6 because no producer
+exists. When one does, **the gap will not be the missing producer; it will be `Derived`'s public
+initialiser.** `Sources/Graph/Derived.swift` declares
+`public init(value:origin:review: = .pending)`, so a producer can write
+`Derived(value: v, origin: .generated(d), review: .approved)` and never touch the guarded path. The
+default makes the honest call short and the dishonest one one argument longer. Held today by two doc
+comments and nothing else, and the comment on `applyingProduced` claimed to be "the enforced write
+path" until Task 19, when it was not.
+
+The initialiser cannot simply be closed: the app mints authored values through it and the decoder
+needs it. So rule 7 has to be a check that a *producer* does not name it — the same shape as rule 5,
+over `Sources/` instead of `Soredemo/`. **Phase 3's `framing-targets` is the first row that writes a
+producer, and therefore the row that must bring the mechanism with it.** A producer landing before
+the check would make the producer-value rule a convention on the exact code it exists to constrain.
+
 ---
 
 ## D5 — Project format: a document, not a database
@@ -128,13 +172,38 @@ not recomputed.
 A versioned `Codable` document with a schema number and an explicit upgrade path. Atomic writes.
 Relative paths only, so a project folder can move. Media lives beside the project file as sidecars.
 
-**I/O:** `WritableDocument`/`ReadableDocument` — asynchronous, incremental disk operations with
-`Subprogress` reporting. For a package holding multi-gigabyte recordings that is the difference
-between a responsive open and a beachball. `DocumentCreationSource` maps onto the entry points: new
-from recording, new from a release, new empty.
+**I/O:** a hand-written `NSDocument` coordinator — `Soredemo/UI/ProjectDocument.swift`.
+`read(from:ofType:)` receives the package **directory** and decodes `project.json` alone, so opening
+a document is independent of how much footage it holds; `writeSafely(to:ofType:for:)` is overridden
+to bypass `NSDocument`'s whole-package copy and let `ProjectPackageIO` make the manifest alone
+atomic.
 
-*Verify first* that these handle a **package** — a directory with large media sidecars — and not only
-single-file documents.
+**Corrected from `WritableDocument`/`ReadableDocument`/`DocumentCreationSource`** (design doc F3,
+F4). Those protocols *do* handle a package — their `Source`/`Destination` associated types merely
+default to `URL` — so the original verification question was answered *yes*. They are unusable
+anyway for a different reason: they live in **SwiftUI**, not Foundation, and are
+`@available(macOS 27, *)`, above this project's macOS 26 floor (D2). `DocumentCreationSource.init(id:)`
+is separately `@available(macOS, unavailable)`, as is its only consumer `NewDocumentButton`, so the
+claim that it maps onto the entry points was never true on macOS.
+
+**The cost of the substitute, recorded rather than discovered later.** `NSDocument`'s `read` and
+`writeSafely` are `nonisolated`; marking an override `@MainActor` is a hard compile error. Document
+state therefore lives in a `Mutex` instead of behind the class's own main-actor isolation, and every
+piece of state this coordinator grows pays that tax. The newer protocol avoided it by making
+`snapshot(contentType:)` `@MainActor` and handing a `sending` value to a `@concurrent` writer.
+
+**File coordination is unresolved, not decided — the one open item in this decision.**
+`super.writeSafely` does two things: it copies the whole package, and it performs the write inside an
+`NSFileCoordinator` coordinated write, which tells other coordinated readers — Finder previews, a
+sync daemon, a second instance of this app — to stand off while the document changes. The override
+drops both. Dropping the copy is the point, and atomicity was *relocated* to
+`ProjectPackageIO`'s `replaceItemAt` rather than lost. Durability was *declined* on a stated
+argument (D-P3: one save's edit state is an acceptable loss, the media it references is already
+durable). Coordination was neither relocated nor argued — it was simply dropped, and nothing
+replaces it. Phase 1 gets away with it because `save` is single-writer by construction and
+`autosavesInPlace` is `false`. It bites first when a project package sits in a synced folder, which
+is a normal place to keep one. **Revisit before Phase 2 ships a recording path that writes while the
+user has the document open.**
 
 *Rejected:* SwiftData. The project is a document users open, move, and version — not a store.
 
@@ -143,6 +212,35 @@ single-file documents.
 ## D6 — Architecture rules, enforced by the build
 
 Rules that are not executable stop being true. Three mechanisms, in descending order of strength.
+
+### The numbering, stated once
+
+**This table is the one numbering.** Other documents point at it; they do not restate it. There were
+two schemes in circulation until Task 19 — this one, and a different `1…6` in `AGENTS.md` where 3 was
+`geometryRevision` and 5 was strict concurrency — and both were cited from source, twice in the same
+file two lines apart, with `CGGeometryBridge.swift` carrying a parenthetical to say which 5 it meant.
+A rule you have to disambiguate by document name is a rule nobody can cite.
+
+"Enforces these" was also broader than the truth: of the rules below, the plugin enforces **three**.
+
+| # | Rule | Enforced by | Fails |
+| --- | --- | --- | --- |
+| 1 | The package imports Foundation only, plus each target's declared siblings | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
+| 2 | No `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package** — not merely in its public API | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
+| 3 | No ambient time or randomness | `Tests/DeterminismTests`, link-time symbols (package) · `Tests/AppSourceTests`, source text (app) | `swift test` only |
+| 4 | No manifest declares a package dependency — this is what keeps rule 1's allow-list complete | `Plugins/ArchitectureCheck`, scans every `Package*.swift` | `swift build` **and** `xcodebuild` |
+| 5 | CG types in the app appear only in `Soredemo/Capture/CGGeometryBridge.swift` | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
+| 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
+| 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
+
+Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
+target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
+write.
+
+The project's other binding rules are **not** in this numbering and never were: comparing
+`NormalizedFrame` across `geometryRevision` is a precondition failure (D3), Swift 6 strict
+concurrency (D2), and native-only Liquid Glass (D7). They are decisions with their own letters, and
+giving them numbers in a second list is what produced the collision.
 
 **1. A build-tool plugin — not the compiler.** `SoredemoCore` imports Foundation only. `import AppKit`
 in the package is a build failure, not a review comment — but the *compiler does not produce that
@@ -211,7 +309,7 @@ Soredemo.xcodeproj   Capture/ Render/ Editor/ Agent/ UI/   ← ScreenCaptureKit,
 observation log → evidence (plain data)
      │
      ▼
-Packages/SoredemoCore   Graph/ Framing/ Timeline/ Variants/ Project/   ← Foundation only
+Sources/                Graph/ Framing/ Timeline/ Variants/ Project/   ← Foundation only
 ```
 
 **The core does not record; it reasons about a recording.** Three reasons this line matters:
@@ -223,8 +321,22 @@ Packages/SoredemoCore   Graph/ Framing/ Timeline/ Variants/ Project/   ← Found
   content-hash approval all stop meaning anything.
 - The boundary cannot be violated by accident, only by deleting the rule.
 
-**2. `Plugins/ArchitectureCheck`** for what the compiler cannot see: no `CGPoint`/`CGRect` in the
-package's public API; exactly one owner for the log→graph join; the timeline consumer allow-list.
+**2. `Plugins/ArchitectureCheck`** for what the compiler cannot see. As of Phase 1 that is rule 2 —
+no `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package**, not merely in its public API,
+because the conversion belongs at the app boundary — and rule 4, no package dependency in any
+`Package*.swift`, which is what keeps rule 1's allow-list complete. Rule 6 (one owner for the
+log→graph join) and rule 7 (`applyingProduced` is the sole writer of a `Derived`) are **inert**: the
+code they constrain does not exist yet, and an unwritten rule is not an enforced one.
+
+`CGRect` in the package is worth a sentence on its own, because the compiler is no help and it looks
+like it should be. Foundation on Darwin re-exports the CG geometry **types**, so
+`let r: CGRect? = nil` in a Foundation-only target compiles with no diagnostic at all; only the
+plugin fails that build. This is F1's shape a second time — measured, not assumed.
+
+`CheckerLexer` sits outside rules 1 and 3. It cannot carry `plugins: archCheck` without closing a
+dependency cycle (the plugin's own executable depends on it), and `Tests/DeterminismTests` derives
+its module list from plugin-attached targets, so it is outside rule 3 for the same reason. Both
+constraints on that one module are **held by hand**. `Package.swift` says so; so does this.
 
 **3. Tests as specification.** Two forms are mandatory and are the ones most likely to be skipped:
 
@@ -278,7 +390,7 @@ bugs and a class of "it looked different when I exported it" reports that cannot
 ## Module map
 
 ```
-Packages/SoredemoCore/           Foundation only
+Sources/                         Foundation only, at the repository root
   Geometry/                      NormalizedPoint, NormalizedFrame, geometryRevision
   Graph/                         observations → actions → beats → outputs; origin + review state
   Framing/                       AX targets, named rejections, depth, zoom blocks
@@ -325,9 +437,13 @@ Three mitigations, and the design already provides two:
 
 Taken from documentation, not from running code. Two of these change decisions.
 
-- [ ] Do `WritableDocument`/`ReadableDocument` handle a **package** (directory with large media
+- [x] Do `WritableDocument`/`ReadableDocument` handle a **package** (directory with large media
       sidecars), or only single-file documents? *(If single only, D5 needs a hand-written package
-      coordinator.)*
+      coordinator.)* — **Resolved (design doc F3).** They handle a package; `Source`/`Destination`
+      are associated types merely defaulting to `URL`, verified by compilation. It changes the
+      decision anyway, for the reason the question did not anticipate: they are SwiftUI protocols
+      gated at `macOS 27`, above the macOS 26 floor. D5 therefore gets the hand-written coordinator
+      the parenthetical predicted, arriving by a different route.
 - [ ] Does `SpeechAnalyzer` accept an `AVAssetReader` audio track for offline transcription of a
       finished recording, or only live input? *(If live only, the transcript work grows.)*
 - [ ] Is `SCRecordingOutput` sufficient for the master, or is per-frame `AVAssetWriter` control needed

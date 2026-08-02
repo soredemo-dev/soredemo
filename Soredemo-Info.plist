@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Declares the `.soredemo` package document type (design doc D-P3).
+
+	  This file carries ONLY the document-type declaration. `GENERATE_INFOPLIST_FILE`
+	  stays `YES`; Xcode merges the generated keys and every `INFOPLIST_KEY_*`
+	  build setting into this file rather than replacing it, so nothing that was
+	  already being generated is lost by adding it.
+
+	  It is a checked-in plist rather than `INFOPLIST_KEY_*` build settings
+	  because `UTExportedTypeDeclarations` and `CFBundleDocumentTypes` are arrays
+	  of dictionaries, and `INFOPLIST_KEY_<KEY>` can only set a string or a
+	  string array. There is no build-setting spelling of a nested dictionary.
+
+	  It sits at the repository root, NOT inside `Soredemo/`, on purpose.
+	  `Soredemo/` is a `PBXFileSystemSynchronizedRootGroup`, so every file under
+	  it is automatically a target member — and measured, a plist placed there is
+	  copied to `Contents/Resources/Info.plist` as a stray second copy with
+	  `$(PRODUCT_MODULE_NAME)` left unexpanded, *even when* `INFOPLIST_FILE`
+	  points at it. Keeping it outside the synchronized group means the one
+	  build-setting change below is the whole wiring, with no membership
+	  exception to remember.
+
+	  WIRING (an Xcode step, not a hand edit — F8): select the Soredemo target →
+	  Build Settings → Packaging → **Info.plist File** → `Soredemo-Info.plist`,
+	  for Debug and Release. Leave **Generate Info.plist File** at Yes; Xcode
+	  merges the generated keys into this file rather than replacing it, verified
+	  by building with `INFOPLIST_FILE=Soredemo-Info.plist` on the command line
+	  and confirming `LSApplicationCategoryType` still present in the product.
+	-->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Soredemo Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<!-- The document is a directory presented as a single file. -->
+			<key>LSTypeIsPackage</key>
+			<true/>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.soredemo.project</string>
+			</array>
+			<!--
+			  Must match `ProjectDocument.contentTypeIdentifier`'s owner:
+			  `NSDocumentController` instantiates this class by name, and the
+			  name of a Swift class in an app target is module-qualified.
+			-->
+			<key>NSDocumentClass</key>
+			<string>$(PRODUCT_MODULE_NAME).ProjectDocument</string>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.soredemo.project</string>
+			<key>UTTypeDescription</key>
+			<string>Soredemo Project</string>
+			<!--
+			  `com.apple.package`, not `public.data`: the on-disk form is a
+			  directory (`project.json` + `media/` + `observations/`), and
+			  conforming to `.package` is what makes Finder present it as one
+			  file and what stops a copy from descending into gigabytes of
+			  footage as loose items.
+			-->
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>soredemo</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>
