@@ -176,8 +176,17 @@ struct SoredemoApp: App {
                 case .window(let window, let bufferSize):
                     let sizeInPixels = PixelRect(x: 0, y: 0,
                                                   width: Double(bufferSize.width), height: Double(bufferSize.height))
+                    // **The window's title is deliberately not printed**, and
+                    // that is Task 11's content rule reaching a debug path
+                    // rather than a fastidiousness. `ObservationLog`'s "what a
+                    // record may contain" section bans another application's
+                    // window title from anything this app writes down; an
+                    // earlier spike put 444 KB of them in a capture log, and a
+                    // `print` here is a log the moment anybody redirects
+                    // stdout. `windowID` is the identity this line needs, and
+                    // it is not content.
                     print("derived CaptureSource: .window(windowID: \(window.windowID), " +
-                          "title: \(window.title ?? "nil"), bufferSize: \(sizeInPixels))")
+                          "bufferSize: \(sizeInPixels))")
                 case nil:
                     print("derived CaptureSource: nil — filter.style was not .display/.window, " +
                           "or no display was available to size a window buffer against")

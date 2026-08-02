@@ -59,6 +59,28 @@ import Timeline
 /// locking instead" — a compile error, not a style preference). Critical
 /// sections are kept synchronous and short; nothing awaits while holding the
 /// lock.
+/// Where a finished master segment's bytes go.
+///
+/// **A protocol so that `CaptureSession` cannot reach `ProjectPackageIO`
+/// directly.** The session used to call `writeSidecar` itself, which put the
+/// file in `media/` and left nothing in the manifest referencing it — see
+/// `CaptureSession.init` and `ProjectDocument.addMedia(_:named:)` for why that
+/// is a defect with a delete at the end of it rather than untidiness.
+///
+/// Declared here rather than beside its conformer because this is the file that
+/// *consumes* it, and because `Soredemo/UI/ProjectDocument.swift` is not
+/// compiled by `spikes/2026-08-02-capture-master` — a spike has no `NSDocument`
+/// and supplies its own conformer, which is a test double and says so.
+///
+/// `@MainActor` on the requirement rather than on the protocol: the shipping
+/// conformer is `NSDocument`-derived and its state must be touched on the main
+/// actor, while `finalizeCurrentSegment` reaches this from a `nonisolated
+/// async` context and therefore has to hop deliberately rather than by
+/// inheriting an isolation it did not ask for.
+public protocol MediaSink: Sendable {
+    @MainActor func acceptMedia(_ data: Data, named name: String) throws
+}
+
 public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sendable {
 
     // MARK: - Configuration knobs held for the life of the session
@@ -66,7 +88,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private let source: CaptureSource
     private let scale: Double
     private let displayUUID: UUID
-    private let packageURL: URL
+    private let mediaSink: any MediaSink
     private let epoch: BootEpoch
 
     /// Every Nth complete video frame is luminance-sampled for the black-frame
@@ -467,18 +489,36 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// and the caller (eventually `capture-permissions`'s successor in
     /// `app-shell`) already has to compute them once to drive the picker.
     ///
-    /// `packageURL` is the `.soredemo` package each segment's media is
-    /// written into via `ProjectPackageIO.writeSidecar`, so the write-once
-    /// refusal applies to every segment this session produces. `epoch` is
-    /// the recording's `BootEpoch` (`Minting.bootEpoch()`), supplied once so
-    /// every `HostInstant` this session mints shares one epoch — the same
-    /// reasoning `SegmentTable.init(segments:)`'s `mixedEpochs` guard exists
-    /// to catch if it were ever wrong.
-    public init(source: CaptureSource, scale: Double, displayUUID: UUID, packageURL: URL, epoch: BootEpoch) {
+    /// `mediaSink` is where each finished segment's bytes go, and it replaced
+    /// a bare `packageURL` in Task 11.
+    ///
+    /// **The session used to call `ProjectPackageIO.writeSidecar` itself, and
+    /// that was a live defect rather than a layering preference.**
+    /// `writeSidecar` puts the file in `media/` and does nothing else — so
+    /// every segment this session produced was a file the manifest did not
+    /// reference, invisible to `ProjectSnapshot.mediaFilenames`, and correctly
+    /// identified as an orphan by the next `ProjectDocument.compactMedia()`,
+    /// which deletes it. The write-once refusal and the path-component check
+    /// still happen, one layer further in: `ProjectDocument.addMedia(_:named:)`
+    /// calls the same `writeSidecar` and then records the reference and marks
+    /// the document dirty, which are the two steps that were missing.
+    ///
+    /// It is an `any MediaSink` and not an optional: a session with nowhere to
+    /// put media is a session whose recording is discarded at the end, and
+    /// having to say where at construction is what makes that unsayable by
+    /// accident.
+    ///
+    /// `epoch` is the recording's `BootEpoch` (`Minting.bootEpoch()`), supplied
+    /// once so every `HostInstant` this session mints shares one epoch — the
+    /// same reasoning `SegmentTable.init(segments:)`'s `mixedEpochs` guard
+    /// exists to catch if it were ever wrong, and the same reasoning
+    /// `ObservationLogHeader.epoch` carries one line per log.
+    public init(source: CaptureSource, scale: Double, displayUUID: UUID,
+                mediaSink: any MediaSink, epoch: BootEpoch) {
         self.source = source
         self.scale = scale
         self.displayUUID = displayUUID
-        self.packageURL = packageURL
+        self.mediaSink = mediaSink
         self.epoch = epoch
         super.init()
     }
@@ -766,7 +806,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             // "several GB of video"); mapping avoids doubling that in RAM
             // the way `Data(contentsOf:)`'s default eager read would.
             let bytes = try Data(contentsOf: tempURL, options: .mappedIfSafe)
-            try ProjectPackageIO.writeSidecar(bytes, named: mediaFilename, into: packageURL)
+            // Through the document, never around it: `addMedia` is what records
+            // the reference and marks the document dirty. See `init`.
+            let sink = mediaSink
+            try await MainActor.run { try sink.acceptMedia(bytes, named: mediaFilename) }
             try? FileManager.default.removeItem(at: tempURL)
         } else {
             // The recording for this segment did not make it into the

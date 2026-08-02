@@ -1,0 +1,217 @@
+import Foundation
+import Project
+import Timeline
+
+/// **One observation log per master segment, written as it happens.**
+///
+/// D2-12 Q3: one JSONL file per segment, append-only, under `observations/`. A
+/// crash then damages only the current segment's log, and `JSONLReader`'s
+/// truncated-tail rule has exactly one file it can apply to — rather than one
+/// file whose damaged tail is the whole recording's.
+///
+/// **Nothing is buffered across a segment, and that is the point of
+/// append-only rather than an implementation detail.** Each `append` is one
+/// `FileHandle.write(contentsOf:)` of the record's bytes plus `\n`, straight to
+/// the file descriptor. `FileHandle` is not a `FILE*` — there is no userspace
+/// buffer between this and the kernel — so what a crash costs is the tail the
+/// page cache had not flushed, not the segment. Collecting records in an array
+/// and writing them at `close` would be faster and would lose everything on the
+/// one path this design exists for.
+///
+/// (Durability is a separate question and is answered the same way
+/// `ProjectPackageIO` answers it: no `F_FULLFSYNC`, deliberately. A power cut
+/// can still cost whatever the page cache held. What is bought here is that a
+/// *process* crash — the case this app can actually cause — costs a tail whose
+/// size `JSONLReader.droppedBytes` reports.)
+///
+/// **What this type refuses.** Two things, both at `append`, which is the last
+/// moment the producer that made the mistake is still on the stack:
+///
+///   * a record stamped with a boot epoch other than the log's
+///     (`ObservationLog.checkEpoch(of:against:)` — see there for why the log
+///     carries an epoch of its own at all);
+///   * a record whose encoded bytes contain a literal newline, which would
+///     split one record into two lines and be reported by `JSONLReader` as two
+///     clean records with **zero dropped bytes**. Foundation's `JSONEncoder`
+///     escapes newlines inside strings, so this cannot fire today; it is here
+///     because its failure mode is silent and looks like success, which is the
+///     shape this project keeps paying for.
+///
+/// **The straddling-observation rule (D2-12).** An observation whose AX chain
+/// extends past a segment boundary belongs to the segment **its click happened
+/// in** — the click is the anchor, the chain is its attribute. Nothing here
+/// splits a chain: `append` is called with the whole `AXChainRecord` on
+/// whichever writer was open when the button event was stamped. Because each
+/// chain element carries its own `readInterval`, a chain reaching past the
+/// boundary is *detectable* after the fact by comparing against the trailer's
+/// `hostRange`, which is one more real input for `framing-gates`'
+/// `observation stale`. That detectability is the reason the rule is anchoring
+/// rather than clipping.
+///
+/// **`.window` sources: a pointer sample's revision can never equal the
+/// segment's.** A window `CaptureSource` mints its own `GeometryRevision`
+/// (`CaptureSource.geometry`), while `InputObserver` normalises against the
+/// display the pointer routed to. Nothing here compares the two, and nothing
+/// downstream should read the header's `revision` as one a record's revision
+/// must match. Whether that divergence is intended is a `camera-motion`
+/// question; the log is built so that it is not an error here.
+final class ObservationWriter: @unchecked Sendable {
+
+    enum WriterError: Error, Equatable {
+        /// A log already exists for this segment. Append-only means the file
+        /// is opened once; a second open would interleave two segments'
+        /// records into one file, and the interleaving would be invisible
+        /// afterwards because every record carries its own instant and would
+        /// look sorted.
+        case logAlreadyExists(String)
+        /// `append` or `close` after `close`.
+        case logIsClosed
+        /// A record encoded to bytes containing a literal `\n`. See the type
+        /// documentation.
+        case recordSpansTwoLines(kind: String)
+    }
+
+    /// `observations/segment-NN.jsonl`, matching `master-NN.mov`'s two-digit
+    /// form so the pair is obvious in a directory listing and sorts the same
+    /// way. `CaptureSession.beginSegment` mints the media name with the
+    /// identical `%02d`.
+    static func logFilename(forSegment index: Int) -> String {
+        "segment-\(String(format: "%02d", index)).jsonl"
+    }
+
+    static func logURL(forSegment index: Int, in packageURL: URL) -> URL {
+        packageURL
+            .appending(path: "observations", directoryHint: .isDirectory)
+            .appending(path: logFilename(forSegment: index), directoryHint: .notDirectory)
+    }
+
+    let url: URL
+    private let header: ObservationLogHeader
+    private let lock = NSLock()
+    private nonisolated(unsafe) var handle: FileHandle?
+    /// One count per `kind` appended. A key present with a zero value and a
+    /// key absent are different facts on disk — see
+    /// `ObservationLogTrailer.recordCounts` — so this starts empty and gains a
+    /// key the first time a kind is written. A producer that wants to say "I
+    /// emit this kind and saw none" declares it with `declareRecordKind(_:)`.
+    private nonisolated(unsafe) var recordCounts: [String: Int] = [:]
+
+    private init(url: URL, header: ObservationLogHeader, handle: FileHandle) {
+        self.url = url
+        self.header = header
+        self.handle = handle
+    }
+
+    /// Opens the log for one segment and writes its header line immediately.
+    ///
+    /// The header goes down before any record, so a log truncated to its first
+    /// line still says which segment, which media file and which boot epoch it
+    /// belongs to. A header written at `close` alongside the trailer would be
+    /// absent from exactly the logs that need identifying.
+    static func open(segment header: ObservationLogHeader, in packageURL: URL) throws -> ObservationWriter {
+        let fm = FileManager.default
+        let directory = packageURL.appending(path: "observations", directoryHint: .isDirectory)
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let url = logURL(forSegment: header.segmentIndex, in: packageURL)
+        guard !fm.fileExists(atPath: url.path) else {
+            throw WriterError.logAlreadyExists(logFilename(forSegment: header.segmentIndex))
+        }
+        guard fm.createFile(atPath: url.path, contents: nil) else {
+            throw WriterError.logAlreadyExists(logFilename(forSegment: header.segmentIndex))
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        let writer = ObservationWriter(url: url, header: header, handle: handle)
+        try writer.writeLine(try ObservationLog.encode(header), kind: header.kind, counted: false)
+        return writer
+    }
+
+    /// Records that this writer emits `kind` even if it never sees one, so the
+    /// trailer's `recordCounts` carries `kind: 0` rather than no key at all.
+    ///
+    /// The two are different facts (`ObservationLogTrailer.recordCounts`), and
+    /// only the producer knows which applies: a run with Input Monitoring
+    /// denied emits no `pointer` records and **does not** emit them, while a
+    /// run with the grant held and a still mouse emits none and does.
+    func declareRecordKind(_ kind: String) {
+        lock.withLock { if recordCounts[kind] == nil { recordCounts[kind] = 0 } }
+    }
+
+    /// Appends one record as one line. Not buffered — see the type
+    /// documentation.
+    func append(_ record: some ObservationRecord) throws {
+        try ObservationLog.checkEpoch(of: record, against: header.epoch)
+        try writeLine(try ObservationLog.encode(record), kind: record.kind, counted: true)
+    }
+
+    private func writeLine(_ bytes: Data, kind: String, counted: Bool) throws {
+        guard !bytes.contains(UInt8(ascii: "\n")) else {
+            throw WriterError.recordSpansTwoLines(kind: kind)
+        }
+        var line = bytes
+        line.append(UInt8(ascii: "\n"))
+        try lock.withLock {
+            guard let handle else { throw WriterError.logIsClosed }
+            try handle.write(contentsOf: line)
+            if counted { recordCounts[kind, default: 0] += 1 }
+        }
+    }
+
+    /// Writes the trailer and closes the file.
+    ///
+    /// **Three parameters where the plan wrote one.** `endedBy` alone cannot
+    /// produce a trailer: `hostRange` is the segment's own span, which is not
+    /// known until it closes and is what makes "every record's instant lies
+    /// inside its segment" checkable from the log without the manifest; and
+    /// `gapWatches` is Addition A — one row per `GapSite`, mandatory, refused
+    /// by `ObservationLogTrailer`'s initialiser if a site is missing. A
+    /// defaulted argument for either would be a value nothing measured
+    /// sitting in the field a reader trusts.
+    @discardableResult
+    func close(endedBy boundary: SegmentBoundary,
+               hostRange: HostRange,
+               gapWatches: [GapWatch]) throws -> URL {
+        let counts = lock.withLock { recordCounts }
+        let trailer = ObservationLogTrailer(segmentIndex: header.segmentIndex,
+                                            hostRange: hostRange,
+                                            endedBy: boundary,
+                                            recordCounts: counts,
+                                            gapWatches: gapWatches)
+        try writeLine(try ObservationLog.encode(trailer), kind: trailer.kind, counted: false)
+        try lock.withLock {
+            guard let handle else { throw WriterError.logIsClosed }
+            try handle.close()
+            self.handle = nil
+        }
+        return url
+    }
+
+    /// What has been written so far, for a caller assembling the trailer.
+    var countsSoFar: [String: Int] { lock.withLock { recordCounts } }
+}
+
+// MARK: - the blindness a whole segment inherits
+
+extension CaptureError {
+    /// The header field this error becomes.
+    ///
+    /// `CaptureError.inputMonitoringUnavailable` maps to
+    /// `CapturePermissions`' `.observationBlind`, and **nothing wrote it
+    /// anywhere until `ObservationLogHeader.blindness`**. This is that
+    /// mapping, in one place, so a caller catching a `CaptureError` at
+    /// observation start-up puts it in the log rather than deciding
+    /// per-call-site what it means.
+    ///
+    /// `.alreadyObserving` returns `nil` on purpose: it is a programming
+    /// error in this app's own state machine, not a statement about what the
+    /// recording could see. Recording it as blindness would put a bug in the
+    /// field a reader uses to decide whether a user's permissions were the
+    /// problem.
+    var blindness: ObservationBlindness? {
+        switch self {
+        case .inputMonitoringUnavailable: .inputMonitoringUnavailable
+        case .eventTapRunLoopSourceUnavailable: .eventTapRunLoopSourceUnavailable
+        case .alreadyObserving: nil
+        }
+    }
+}

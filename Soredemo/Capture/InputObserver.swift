@@ -155,6 +155,27 @@ public final class InputObserver: @unchecked Sendable {
         /// therefore not emitted in any form.
         public internal(set) var eventsSuppressedBySecureInput = 0
         public internal(set) var secureInputIntervals = 0
+        /// **How many times `IsSecureEventInputEnabled()` was actually
+        /// asked**, and over how long.
+        ///
+        /// The same pair, for the same reason, as `tapEnabledPolls` over
+        /// `tapPollingSpanNanos` — and this row of `ARCHITECTURE.md` D6a did
+        /// not have one until Task 11. `secureInputIntervals == 0` has two
+        /// readings, "nobody typed a password" and "nothing ever asked", and
+        /// they were the same zero. The second is reachable without any bug at
+        /// all: the predicate is consulted **per event**, so a run in which the
+        /// tap delivered nothing — Input Monitoring denied, the tap disabled
+        /// for its whole life — asks zero times and reports zero intervals,
+        /// which reads as a clean recording.
+        ///
+        /// Read them together, which `secureInputAccounting` prints. Counted
+        /// at the ask, not at the answer, so a run where the predicate was
+        /// consulted and always said `false` is distinguishable from one where
+        /// it was never consulted.
+        public internal(set) var secureInputChecks = 0
+        /// First check to last, in nanoseconds — the span the count above
+        /// covers, on the same argument as `tapPollingSpanNanos`.
+        public internal(set) var secureInputCheckSpanNanos: Int64 = 0
         /// Locations `DisplayArrangement.route` placed on no known display.
         ///
         /// Non-zero means the arrangement this observer was constructed with
@@ -301,6 +322,20 @@ public final class InputObserver: @unchecked Sendable {
                 + "  → \(everyKeyDownIsAccountedFor ? "balances" : "DOES NOT BALANCE")"
         }
 
+        /// D6a's secure-input row, as the pair that makes its zero readable.
+        /// Never print the interval count without the check count.
+        public var secureInputAccounting: String {
+            let seconds = Double(secureInputCheckSpanNanos) / 1e9
+            var line = "secure input intervals: \(secureInputIntervals)"
+                + " (\(eventsSuppressedBySecureInput) event(s) suppressed)\n"
+                + "secure input checks   : \(secureInputChecks) over "
+                + String(format: "%.1f", seconds) + " s"
+            if secureInputChecks == 0 {
+                line += "  ← NOTHING WAS LOOKING; the line above is not a measurement"
+            }
+            return line
+        }
+
         /// The two numbers that only mean something together. Never print the
         /// first without the second.
         public var tapAccounting: String {
@@ -350,6 +385,11 @@ public final class InputObserver: @unchecked Sendable {
     private nonisolated(unsafe) var runLoopSource: CFRunLoopSource?
     /// The start of the open secure-input interval, if one is open.
     private nonisolated(unsafe) var secureInputBegan: HostInstant?
+    /// The first event at which `secureInputIsEnabled()` was consulted — the
+    /// left edge of `Diagnostics.secureInputCheckSpanNanos`. Held rather than
+    /// derived, because the span has to survive the interval opening and
+    /// closing any number of times.
+    private nonisolated(unsafe) var firstSecureInputCheckInstant: HostInstant?
     /// The instant of the last event this observer saw — **any** event,
     /// including one suppressed by secure input, because what this records is
     /// that the tap was still delivering, not that anything was emitted.
@@ -846,7 +886,20 @@ public final class InputObserver: @unchecked Sendable {
         // EventInputEnabled()` is true while a password field has focus;
         // while it is, this emits NOTHING — not a redacted sample, not a
         // placeholder — and accumulates the interval instead.
-        if secureInputIsEnabled() {
+        // The ask itself is counted, before the answer is looked at: a run
+        // where the predicate was consulted and always said `false` has to be
+        // distinguishable from a run where it was never consulted at all. See
+        // `Diagnostics.secureInputChecks`.
+        let secureInputIsOn = secureInputIsEnabled()
+        lock.withLock {
+            _diagnostics.secureInputChecks += 1
+            if firstSecureInputCheckInstant == nil { firstSecureInputCheckInstant = instant }
+            if let first = firstSecureInputCheckInstant, first.epoch == instant.epoch {
+                _diagnostics.secureInputCheckSpanNanos =
+                    max(0, instant.hostTime.rawValue - first.hostTime.rawValue)
+            }
+        }
+        if secureInputIsOn {
             lock.withLock {
                 _diagnostics.eventsSuppressedBySecureInput += 1
                 if secureInputBegan == nil { secureInputBegan = instant }

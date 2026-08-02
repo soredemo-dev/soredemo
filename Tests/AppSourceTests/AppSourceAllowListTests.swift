@@ -753,3 +753,81 @@ func lineNumber(of location: String) -> Int {
             \(reader.text)
             """)
 }
+
+// MARK: - the content rule: what an observation log may never carry
+
+/// **`ObservationLog`'s "what a record may contain" section, enforced.**
+///
+/// Task 11's Addition C required the content rule to be stated in the schema's
+/// own documentation — it is, on `ObservationLog` — and asked whether the
+/// mechanism that already enforces the keystroke half could cover the rest. It
+/// can, for the same reason and with the same limits: **a producer cannot write
+/// what it cannot read**, so banning the APIs that read user content is a
+/// stronger statement than any rule about what the writer does with it.
+///
+/// The banned list is the ways this app could learn something a recording does
+/// not already show:
+///
+///   * `kAXValueAttribute` and `kAXValueDescriptionAttribute` — the text
+///     *inside* a control, as distinct from the label *on* it. This is the
+///     natural next attribute for somebody extending `AXElementRecord`, and it
+///     is the one that would put a half-typed password into a log while
+///     `IsSecureEventInputEnabled()` was never consulted, because that
+///     predicate governs the event tap and says nothing about an AX walk this
+///     process performs itself.
+///   * `kAXSelectedTextAttribute` / `kAXSelectedTextRangeAttribute` — the same
+///     thing, narrowed to what is highlighted.
+///   * `NSPasteboard` — the clipboard is ambient user content in its entirety,
+///     and reading it is never a step towards describing a click.
+///   * `kCGWindowName`, `CGWindowListCopyWindowInfo` and
+///     `CGWindowListCreateDescriptionFromArray` — an enumeration of every
+///     window on the machine, including every document **not** being recorded.
+///     An earlier spike wrote 444 KB of window titles into a capture log.
+///
+/// **`kAXTitleAttribute` is deliberately absent from this list, and that is a
+/// correction to the task brief rather than an omission.** The brief described
+/// `AXChainRecord` as storing "roles and frames and deliberately not titles or
+/// values"; it stores titles, on purpose, and `AXObserver.title(of:)` carries
+/// the argument at the point of the read. A title belongs to something the
+/// recording already shows and is what makes "the Save button" identifiable in
+/// derivation. Values, keystrokes, the pasteboard and other applications'
+/// windows are none of those things. The line this list draws is **in-frame**
+/// versus **ambient**, not "text" versus "not text".
+///
+/// **The named gap: `SCWindow.title`.** ScreenCaptureKit's own window title is
+/// not textually separable from `NSWindow.title`, which
+/// `ProjectDocument.makeWindowControllers` sets legitimately on a window this
+/// app owns. A `.title` entry here would fire on both. The live site — a debug
+/// `print` in `SoredemoApp.swift` that named the picked window — was found by
+/// writing this test and removed in the same commit; what remains is that a new
+/// one would not be caught by this scan. It is the same class of known gap the
+/// two scans above document at length, on the same side of the same boundary,
+/// for the same reason.
+@Test func noAppSourceReadsUserContent() throws {
+    let found = try violationsEverywhere(
+        banned: [
+            // AX: the contents of a control, not the label on it.
+            "kAXValueAttribute",
+            "kAXValueDescriptionAttribute",
+            "kAXSelectedTextAttribute",
+            "kAXSelectedTextRangeAttribute",
+            // The clipboard.
+            "NSPasteboard",
+            // Every window on the machine, including the unrecorded ones.
+            "kCGWindowName",
+            "CGWindowListCopyWindowInfo",
+            "CGWindowListCreateDescriptionFromArray",
+        ],
+        in: try appSourceFiles())
+
+    #expect(found.isEmpty,
+            """
+            an app source can read content an observation log may never carry:
+            \(found.joined(separator: "\n"))
+            See ObservationLog's "What a record may contain" section, which is the schema's \
+            own statement of this rule. A record carries instants, normalised coordinates, AX \
+            roles, AX titles, frames, and counts. It never carries what a person typed, the \
+            contents of a control, the pasteboard, or an enumeration of other applications' \
+            windows.
+            """)
+}

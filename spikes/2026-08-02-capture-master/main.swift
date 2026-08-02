@@ -65,6 +65,27 @@ let verificationDir = FileManager.default.temporaryDirectory
     .appending(path: "Soredemo-Task8-Verification", directoryHint: .isDirectory)
 let packageDir = verificationDir.appending(path: "verify.soredemo", directoryHint: .isDirectory)
 
+/// **A test double, and it says so.** `CaptureSession` writes a finished
+/// segment's bytes through a `MediaSink` rather than calling
+/// `ProjectPackageIO.writeSidecar` itself, because the shipping sink —
+/// `ProjectDocument.addMedia(_:named:)` — also records the reference in the
+/// manifest and marks the document dirty, without which every recording is an
+/// orphan the next compaction deletes.
+///
+/// A spike has no `NSDocument`, and `Soredemo/UI/ProjectDocument.swift` is not
+/// in this build's source list. So this stands in with the *file-writing half
+/// only*, which is the half this spike measures: its assertions are about a
+/// `master-NN.mov` existing under `media/` with the right bytes in it. It
+/// deliberately does not fake the manifest half — a double that pretended to
+/// record a reference would let this spike report a state no shipping path
+/// produces.
+struct SpikeMediaSink: MediaSink {
+    let packageURL: URL
+    func acceptMedia(_ data: Data, named name: String) throws {
+        try ProjectPackageIO.writeSidecar(data, named: name, into: packageURL)
+    }
+}
+
 let tb: mach_timebase_info_data_t = {
     var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t
 }()
@@ -516,7 +537,7 @@ func runVideoOnly(seconds: Int) async throws {
     // §5 uses for its own `.window` fixtures.
     let windowSourceIdentity = UUID()
     let session = CaptureSession(source: source, scale: scale, displayUUID: windowSourceIdentity,
-                                  packageURL: packageDir, epoch: bootEpoch())
+                                  mediaSink: SpikeMediaSink(packageURL: packageDir), epoch: bootEpoch())
     // ---- EXPECTATION TABLE, computed and printed BEFORE the recording ----
     //
     // Every value below is derived from the configuration, not chosen by
@@ -985,7 +1006,7 @@ func runAudioTones(seconds: Int) async throws {
     let preflightPackage = verificationDir.appending(path: "preflight.soredemo", directoryHint: .isDirectory)
     let preflight = CaptureSession(source: source, scale: 2.0,
                                     displayUUID: displayUUID(for: display.displayID),
-                                    packageURL: preflightPackage, epoch: bootEpoch())
+                                    mediaSink: SpikeMediaSink(packageURL: preflightPackage), epoch: bootEpoch())
     try await preflight.start()
     for i in (1...8).reversed() {
         try await Task.sleep(for: .seconds(1))
@@ -1060,7 +1081,7 @@ func runAudioTones(seconds: Int) async throws {
     // ---- the real run ----
     let session = CaptureSession(source: source, scale: 2.0,
                                   displayUUID: displayUUID(for: display.displayID),
-                                  packageURL: packageDir, epoch: bootEpoch())
+                                  mediaSink: SpikeMediaSink(packageURL: packageDir), epoch: bootEpoch())
     try await session.start()
     print("recording \(seconds)s, video + system audio + microphone, to \(packageDir.path()) ...")
     for s in stride(from: seconds, to: 0, by: -5) {
@@ -1229,7 +1250,7 @@ func runReconfig(seconds: Int) async throws {
     let display = try await firstDisplay()
     let source = CaptureSource.display(display)
     let session = CaptureSession(source: source, scale: 2.0, displayUUID: displayUUID(for: display.displayID),
-                                  packageURL: packageDir, epoch: bootEpoch())
+                                  mediaSink: SpikeMediaSink(packageURL: packageDir), epoch: bootEpoch())
     let registration = CGDisplayRegisterReconfigurationCallback(reconfigCallback, nil)
     print("spike's own reconfiguration callback registration: CGError \(registration.rawValue)")
     guard registration == .success else {
