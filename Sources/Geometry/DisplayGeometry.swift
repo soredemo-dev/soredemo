@@ -20,7 +20,7 @@ import Foundation
 /// Global arrangement stays *out* — see `DisplayArrangement` in the design doc.
 /// `CGDisplayBounds` origins shift when the arrangement changes, so digesting
 /// them would let rearranging display B silently invalidate footage from A.
-public struct DisplayGeometry: Hashable, Codable, Sendable {
+public struct DisplayGeometry: Hashable, Sendable {
     public let displayUUID: UUID
     public let pixelWidth: Int
     public let pixelHeight: Int
@@ -96,5 +96,49 @@ public struct DisplayGeometry: Hashable, Codable, Sendable {
     public func points(from rect: PixelRect) -> PointRect {
         PointRect(x: rect.x / scale, y: rect.y / scale,
                   width: rect.width / scale, height: rect.height / scale)
+    }
+}
+
+extension DisplayGeometry: Codable {
+    /// Matches the synthesised shape exactly — `displayUUID`, `pixelWidth`,
+    /// `pixelHeight`, `scale` — so this hand-written conformance changes
+    /// validation, not the wire form.
+    private enum CodingKeys: String, CodingKey {
+        case displayUUID, pixelWidth, pixelHeight, scale
+    }
+
+    /// Untrusted input: decodes the four fields into a keyed container
+    /// identical to synthesis's, then re-checks both of `init`'s
+    /// preconditions — positive dimensions, and a finite positive scale —
+    /// and throws `DecodingError.dataCorrupted` rather than trapping. Same
+    /// shape as `HostRange.init(from:)`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let displayUUID = try container.decode(UUID.self, forKey: .displayUUID)
+        let pixelWidth = try container.decode(Int.self, forKey: .pixelWidth)
+        let pixelHeight = try container.decode(Int.self, forKey: .pixelHeight)
+        let scale = try container.decode(Double.self, forKey: .scale)
+        guard pixelWidth > 0 && pixelHeight > 0 else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "DisplayGeometry must have positive dimensions, got \(pixelWidth)×\(pixelHeight)"))
+        }
+        guard scale.isFinite && scale > 0 else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "DisplayGeometry scale must be finite and positive, got \(scale)"))
+        }
+        self.displayUUID = displayUUID
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.scale = scale
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(displayUUID, forKey: .displayUUID)
+        try container.encode(pixelWidth, forKey: .pixelWidth)
+        try container.encode(pixelHeight, forKey: .pixelHeight)
+        try container.encode(scale, forKey: .scale)
     }
 }
