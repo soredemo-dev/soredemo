@@ -789,8 +789,31 @@ This is `GeometryRevision` moved to the time axis, and deliberately so:
 | --- | --- | --- |
 | Guards | are two coordinates in the same reference frame | are two timestamps in the same clock epoch |
 | Without it | a zoom lands on the wrong control, no error | an observation lands at the wrong moment, no error |
-| Cross-boundary comparison | precondition failure | **the same** |
+| Cross-boundary comparison | precondition failure | **split — see below** |
 | Registered in the document | `GeometryRegistry` | an epoch table |
+
+**Correction (Task 1 review):** this table originally said cross-boundary comparison was "the same"
+as `GeometryRevision`'s — a precondition failure — and the brief specified a type that does not do
+that uniformly. The code is right and this row was wrong. `HostInstant.<` traps, matching
+`NormalizedFrame.contains`'s stance on `geometryRevision`: ordering two instants assumes a shared
+clock, and reaching the comparison with epochs that differ is mis-plumbed state, not a question
+worth an answer. `HostRange.contains`, by contrast, returns `false` for an instant from another
+epoch rather than trapping, because "does this instant fall in this range" is a question a caller
+can legitimately ask across epochs and needs an answer to, not a caller error — Task 4's
+`SegmentTable.contentTime(of:)` must return `nil` rather than crash for exactly this reason, and by
+Phase 4 a project holds several recordings, each with its own epoch, so the question comes up by
+construction. The split is deliberate: trap where a mismatch can only be a programming error, return
+`false` where a caller legitimately asks across epochs. `HostRange.isComparable(with:)` exists so a
+caller that needs to know *which* of those two cases produced a `false` from `contains` can ask
+directly instead of inferring it.
+
+The closest existing precedent for the `false`-not-trap side is `ReverseIndex.dependents(of:)`, which
+also returns empty rather than trapping when asked about something it cannot currently answer for —
+but the analogy is imperfect and worth stating precisely: `ReverseIndex` is signalling the staleness
+of a cache, a temporal condition that resolves once the index is rebuilt. `HostRange.contains` is
+signalling that two identities never matched and never will; nothing rebuilds it into a match. Both
+choose `false` over a trap because the caller's question is legitimate to ask, not because the two
+absences mean the same thing.
 
 So it belongs in `Timeline` — the second leaf module, symmetric with `Geometry`. Not a new invention;
 a pattern this project already proved, applied to the axis it was not applied to.
