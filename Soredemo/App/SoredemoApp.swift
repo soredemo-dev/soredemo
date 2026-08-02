@@ -6,10 +6,17 @@
 //
 
 import AppKit
+@preconcurrency import ScreenCaptureKit
 import SwiftUI
 
 @main
 struct SoredemoApp: App {
+    /// Kept alive for the process's lifetime — `SCContentSharingPicker.add(_:)`
+    /// is not documented to retain its observer, and a locally-scoped
+    /// `CaptureSourcePicker` would be freed the instant `presentPickerForVerification()`
+    /// returns, before the picker could ever call back.
+    @MainActor
+    private static var retainedPicker: CaptureSourcePicker?
     /// Task 6's repeatable permission check, and the only place it can live.
     ///
     /// `scripts/cross-boundary-digest-probe.swift` cannot answer this: it is
@@ -66,6 +73,18 @@ struct SoredemoApp: App {
         // bare launch observable; `app-shell` replaces it.
         WindowGroup {
             ContentView()
+                // `--present-picker`: Task 7's human verification step.
+                // `SCContentSharingPicker.present()` hands off to Control
+                // Center's own UI, which needs a running app with an active
+                // run loop to call back into — unlike `--dump-permissions`,
+                // this cannot exit from `init()` before `body` ever runs.
+                // `.task` fires once the window (and the run loop pumping
+                // it) is actually up.
+                .task {
+                    if CommandLine.arguments.dropFirst().contains("--present-picker") {
+                        Self.presentPickerForVerification()
+                    }
+                }
         }
         .commands {
             // `ProjectDocument` is an `NSDocument`, not a SwiftUI
@@ -81,5 +100,48 @@ struct SoredemoApp: App {
                 .keyboardShortcut("o")
             }
         }
+    }
+
+    /// Task 7's human verification step, run with:
+    ///
+    ///     open -W -n -a Soredemo.app --stdout <path> --args --present-picker
+    ///
+    /// **`open`, not the raw executable path** — Task 6's finding applies
+    /// unchanged: a direct `fork`/`exec` does not carry this bundle's own
+    /// TCC identity, and the picker needs Screen Recording granted to
+    /// `video.soredemo.Soredemo` specifically, not to whatever launched it.
+    ///
+    /// Prints, in order: the raw filter (`style`, `contentRect`,
+    /// `pointPixelScale`) via `CaptureSourcePicker`'s `debugFilterObserver`
+    /// hook, then the derived `CaptureSource` — a `.window` case prints its
+    /// display-sized `bufferSize` beside the filter's own (smaller)
+    /// `contentRect`, so the two numbers are visible on the same lines a
+    /// person is already reading. Exits after exactly one selection,
+    /// cancellation, or picker-start failure — see `task-7-report.md` for
+    /// what to expect from each of the three cases this is meant to cover.
+    @MainActor
+    private static func presentPickerForVerification() {
+        let picker = CaptureSourcePicker(
+            onSelect: { source in
+                switch source {
+                case .display(let display):
+                    print("derived CaptureSource: .display(displayID: \(display.displayID), " +
+                          "\(display.width)x\(display.height) pt)")
+                case .window(let window, let bufferSize):
+                    print("derived CaptureSource: .window(windowID: \(window.windowID), " +
+                          "title: \(window.title ?? "nil"), bufferSize: " +
+                          "\(bufferSize.width)x\(bufferSize.height) px)")
+                case nil:
+                    print("derived CaptureSource: nil — filter.style was not .display/.window, " +
+                          "or no display was available to size a window buffer against")
+                }
+                exit(0)
+            },
+            debugFilterObserver: { filter in
+                print("picker filter: style=\(filter.style.rawValue) " +
+                      "contentRect=\(filter.contentRect) pointPixelScale=\(filter.pointPixelScale)")
+            })
+        retainedPicker = picker
+        picker.present()
     }
 }

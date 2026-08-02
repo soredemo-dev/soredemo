@@ -79,6 +79,13 @@ import Geometry
 import Graph
 import Project
 @preconcurrency import ScreenCaptureKit
+// `Nanoseconds.rawValue` (§ 4, epochAndClock) is `Timeline`'s, reached until
+// now only transitively through `Project` → `Graph` → `Timeline`. Harmless
+// under a plain `swiftc` invocation; `-enable-upcoming-feature
+// MemberImportVisibility` (added to this probe's flags alongside the app's
+// other isolation semantics) no longer allows it — a real, pre-existing gap
+// this flag surfaced rather than introduced.
+import Timeline
 
 // Kept byte-identical to `Tests/GraphTests/CrossBoundaryDigestVectorTests.swift`.
 // The two literals ARE the vector; that file checks the left-hand one against
@@ -425,10 +432,10 @@ enum CrossBoundaryProbe {
     /// machine (macOS 26.6). That is the fixture source below.
     ///
     /// "Do not construct a filter by hand except in the probe" (task brief)
-    /// is exercised here too: `init(pickerFilter:)` is tested by handing it
-    /// filters this function builds directly with `SCContentFilter`'s own
-    /// initialisers — the app itself never does this; only the picker
-    /// supplies a filter there.
+    /// is exercised here too: `init(pickerFilter:availableDisplays:)` is
+    /// tested by handing it filters this function builds directly with
+    /// `SCContentFilter`'s own initialisers — the app itself never does
+    /// this; only the picker supplies a filter there.
     @MainActor
     static func captureSourceGeometry() async throws {
         let content = try await SCShareableContent.currentProcess
@@ -513,10 +520,11 @@ enum CrossBoundaryProbe {
               ".window: pixel dimensions come from bufferSize, not from the window's own frame",
               actual: "\(smallerBufferGeometry.pixelWidth)x\(smallerBufferGeometry.pixelHeight)")
 
-        // ---- 4. init(pickerFilter:) — never hand-built in the app; built by
-        // hand here only, per the header comment above.
+        // ---- 4. init(pickerFilter:availableDisplays:) — never hand-built in
+        // the app; built by hand here only, per the header comment above.
         let displayFilter = SCContentFilter(display: display, excludingWindows: [])
-        guard let derivedDisplaySource = CaptureSource(pickerFilter: displayFilter) else {
+        guard let derivedDisplaySource = CaptureSource(pickerFilter: displayFilter, availableDisplays: [display])
+        else {
             check(false, "CaptureSource(pickerFilter:) derives a .display from a display-style filter")
             return
         }
@@ -527,26 +535,64 @@ enum CrossBoundaryProbe {
             check(false, "CaptureSource(pickerFilter:) returned .window for a display-style filter")
         }
 
+        // D2-13a: the window case's bufferSize is DISPLAY-sized, derived
+        // from `availableDisplays`, not from the filter's own `contentRect`
+        // (which reports the window's own, smaller, current size — printed
+        // below for contrast, exactly the number this derivation must NOT
+        // produce). `windowFilter.contentRect` needs no bridge here: this is
+        // the probe, not app code, and rule 5 scopes to `Soredemo/`.
         let windowFilter = SCContentFilter(desktopIndependentWindow: scWindowAfterMove)
-        guard let derivedWindowSource = CaptureSource(pickerFilter: windowFilter) else {
+        print("        window's own filter.contentRect = \(windowFilter.contentRect), " +
+              "pointPixelScale = \(windowFilter.pointPixelScale) — NOT the bufferSize input under D2-13a")
+        guard let derivedWindowSource = CaptureSource(pickerFilter: windowFilter, availableDisplays: [display])
+        else {
             check(false, "CaptureSource(pickerFilter:) derives a .window from a window-style filter")
             return
         }
         if case .window(let derivedWindow, let derivedBufferSize) = derivedWindowSource {
             check(derivedWindow.windowID == scWindowAfterMove.windowID,
                   "CaptureSource(pickerFilter:) picked the same SCWindow the filter names")
-            // The filter's own contentRect/pointPixelScale, not the fixed
-            // 1600x1200/800x600 test values above — this is what the real
-            // picker path derives, unlike the two synthetic sources tested
-            // above it. Printed rather than pinned to an exact value: the
-            // window's true on-screen pixel size depends on this machine's
-            // backing scale and window chrome, neither of which this probe
-            // controls.
-            print("        picker-derived window bufferSize = \(derivedBufferSize.width)x\(derivedBufferSize.height)")
-            check(derivedBufferSize.width > 0 && derivedBufferSize.height > 0,
-                  "CaptureSource(pickerFilter:) derives a positive buffer size from the filter's contentRect")
+            // The expected pixel size is the DISPLAY's, at the filter's own
+            // pointPixelScale (see `init(pickerFilter:availableDisplays:)`'s
+            // doc comment for why that scale, not a separately-looked-up
+            // display scale). Pinned to a computed expectation, not merely
+            // "positive" — a regression back to contentRect-sizing would
+            // still be positive and would pass a weaker check.
+            let expectedWidth = Int((Double(display.width) * Double(windowFilter.pointPixelScale)).rounded())
+            let expectedHeight = Int((Double(display.height) * Double(windowFilter.pointPixelScale)).rounded())
+            check(derivedBufferSize.width == expectedWidth && derivedBufferSize.height == expectedHeight,
+                  "CaptureSource(pickerFilter:) derives a DISPLAY-sized buffer (D2-13a), not a window-sized one",
+                  actual: "\(derivedBufferSize.width)x\(derivedBufferSize.height)",
+                  expected: "\(expectedWidth)x\(expectedHeight)")
+            // And the display-sized buffer is strictly larger than the
+            // window's own content, on this machine — the property D2-13a's
+            // "D strictly dominates" argument rests on.
+            //
+            // **Not discriminating on its own — recorded, not fixed, per
+            // AGENTS.md's mutation-granularity rule.** A `>=` comparison is
+            // still satisfied when the two sides are equal, which is exactly
+            // what happens if this regresses to window-content-sizing (the
+            // check above catches that regression; this one does not, on
+            // its own, at this window's current size). Mutation run and
+            // reverted while building this task: reverting the window
+            // branch to `filter.contentRect`-based sizing reddened the
+            // `==`-based check above (`1000x784` vs an expected
+            // `3024x1964`) and left this `>=` check green. Kept anyway,
+            // because it states a property (the buffer strictly dominates
+            // the window) that is worth asserting on its own terms, not as
+            // a substitute for the check above.
+            check(derivedBufferSize.width >= Int(windowFilter.contentRect.width * CGFloat(windowFilter.pointPixelScale)),
+                  "the derived buffer is at least as wide as the window's own content, in pixels")
         } else {
             check(false, "CaptureSource(pickerFilter:) returned .display for a window-style filter")
         }
+
+        // ---- 5. init(pickerFilter:availableDisplays:) with no displays
+        // supplied: a window selection must fail rather than silently fall
+        // back to the window's own size (`AGENTS.md`: a measurement/derivation
+        // has no safe default).
+        let noDisplaysSource = CaptureSource(pickerFilter: windowFilter, availableDisplays: [])
+        check(noDisplaysSource == nil,
+              "CaptureSource(pickerFilter:) with no available displays returns nil for a window, not a fallback size")
     }
 }

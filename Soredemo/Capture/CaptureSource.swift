@@ -23,18 +23,18 @@ import Geometry
 /// **Only `SCContentSharingPicker` produces a live `CaptureSource` in the
 /// running app.** The picker carries permission affordances and Presenter
 /// Overlay for free (`ROADMAP.md`); constructing an `SCContentFilter` by
-/// hand bypasses both, so the app never does — `init(pickerFilter:)` below
+/// hand bypasses both, so the app never does — `init(pickerFilter:availableDisplays:)` below
 /// only ever *reads* a filter the picker produced. The one sanctioned
 /// exception is measurement: `scripts/cross-boundary-digest-probe.swift`
 /// constructs filters directly from windows/displays it obtains without a
 /// picker, to exercise the pure functions here without a human present.
 /// **`nonisolated` on every member, deliberately**, not left to this
 /// project's app-wide `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Under
-/// that default, `.geometry()`, `.filter()` and `init(pickerFilter:)` would
+/// that default, `.geometry()`, `.filter()` and `init(pickerFilter:availableDisplays:)` would
 /// all become implicitly `@MainActor`-isolated — which broke a real caller
 /// while building this task: `CaptureSourcePicker`'s observer callbacks are
 /// `nonisolated` (see that type's header for why) and one of them calls
-/// `init(pickerFilter:)` synchronously, which `xcodebuild` rejected with
+/// `init(pickerFilter:availableDisplays:)` synchronously, which `xcodebuild` rejected with
 /// `call to main actor-isolated initializer ... in a synchronous nonisolated
 /// context` until this annotation was added. Beyond fixing that call site,
 /// it is the correct shape for what this type claims to be: the task brief
@@ -45,12 +45,28 @@ import Geometry
 public enum CaptureSource: Sendable {
     case display(SCDisplay)
 
-    /// `bufferSize` is the *output buffer's* size, in pixels — not the
-    /// window's current screen size. It is fixed once, at selection, and
-    /// held for the life of the recording: a QuickTime video track cannot
-    /// change dimensions mid-track (design doc D2-9), so this is the number
-    /// `capture-stream` must configure `SCStreamConfiguration.width/height`
-    /// with and never change afterward, regardless of what the window does.
+    /// `bufferSize` is the *output buffer's* size, in pixels — **not** the
+    /// window's own current or natural size. It is fixed once, at selection,
+    /// and held for the life of the recording: a QuickTime video track
+    /// cannot change dimensions mid-track (design doc D2-9), so this is the
+    /// number `capture-stream` must configure `SCStreamConfiguration.width`/
+    /// `.height` with and never change afterward, regardless of what the
+    /// window does — alongside `scalesToFit = false` and
+    /// `preservesAspectRatio = true`, which is `capture-stream`'s
+    /// configuration to make, not this type's.
+    ///
+    /// **Display-sized, per D2-13a — not window-content-sized.** The design
+    /// doc's D2-13 originally left scale-to-fill versus letterbox open for a
+    /// recording to settle; D2-13a settled it from the header instead:
+    /// `scalesToFit`/`preservesAspectRatio` are documented flags with
+    /// documented defaults, and the chosen shape is a buffer sized to (a)
+    /// display, not to the window. Sizing to the window's own current
+    /// dimensions means growing the window past that size gets resampled
+    /// (`scalesToFit = false` only scales *down*); sizing to a display means
+    /// that only happens if the window grows past the whole display — D
+    /// strictly dominates, same architecture, larger buffer. So
+    /// `init(pickerFilter:availableDisplays:)` below derives this from the
+    /// caller-supplied displays, not from the filter's own `contentRect`.
     case window(SCWindow, bufferSize: (width: Int, height: Int))
 
     /// The intrinsic geometry — what `GeometryRevision` is a digest of.
@@ -103,7 +119,7 @@ public enum CaptureSource: Sendable {
 
     /// The `SCContentFilter` this source captures through — the direction
     /// `capture-stream` needs: what actually gets handed to `SCStream(filter:
-    /// configuration:delegate:)`. The reverse of `init(pickerFilter:)`.
+    /// configuration:delegate:)`. The reverse of `init(pickerFilter:availableDisplays:)`.
     ///
     /// Constructing a filter here is not the hand-built filter the header
     /// above warns against: it is reconstructing, from a value the picker
@@ -120,31 +136,52 @@ public enum CaptureSource: Sendable {
 
     /// Derives a `CaptureSource` from a filter the picker produced (Step 2).
     /// Returns `nil` for anything this app does not model — `.application`
-    /// and `.none` — and for a window filter whose content is degenerate
-    /// (see below), rather than constructing a value that would only fail
-    /// later, deeper in `.geometry()`.
+    /// and `.none` — and for a window filter this process cannot size a
+    /// buffer for (see below), rather than constructing a value that would
+    /// only fail later, deeper in `.geometry()`.
     ///
-    /// `bufferSize` for a window is read from the filter's own `contentRect`
-    /// (points) and `pointPixelScale`, **not** from the window's `frame` —
-    /// the filter already reports the size of the *captured* content, which
-    /// is what the output buffer will be and the only window-shaped number
-    /// D2-13 allows into the digest. Both are `SCContentFilter` properties
-    /// available since macOS 14.0, below this project's macOS 26.0 floor.
+    /// `availableDisplays` is how a `.window` source gets its `bufferSize`
+    /// under D2-13a's decision (see that case's doc comment): the *largest*
+    /// of the supplied displays, by point-space area — not `filter
+    /// .contentRect`, which reports the window's own current size, exactly
+    /// the number D2-13a moved away from. Ranking by point area rather than
+    /// pixel area is a deliberate simplification: `SCDisplay` exposes no
+    /// scale of its own (verified against the header — `width`/`height`/
+    /// `frame`/`displayID` only), so comparing pixel areas across displays
+    /// with different scales would need a second, separate scale lookup per
+    /// display (e.g. matching each `SCDisplay.displayID` against
+    /// `NSScreen.screens`), which is more machinery than this task's scope
+    /// asked for. On any real multi-display setup seen while building this
+    /// (a single 5K-class display), the two rankings agree; a setup where
+    /// they would not — a small, very-high-scale display next to a large,
+    /// low-scale one — is a known gap, left for whoever wires this into
+    /// `capture-stream` to close if it matters there. The caller (today,
+    /// `CaptureSourcePicker`) supplies `availableDisplays`, matching this
+    /// file's existing pattern for ambient SDK state — see `.geometry()`'s
+    /// `scale`/`displayUUID` parameters, supplied the same way.
     ///
-    /// `contentRect` carries a CoreGraphics type; per architecture rule 5 it
-    /// is routed through `CGGeometryBridge` and never named directly in this
-    /// file.
+    /// The chosen display's `width`/`height` are points (`SCShareableContent.h`,
+    /// same as `.geometry()`'s `.display` case); this initialiser reuses
+    /// `filter.pointPixelScale` — the window's own filter-reported scale —
+    /// to convert them to pixels, rather than looking up the chosen
+    /// display's own scale, since `SCDisplay` does not expose one and the
+    /// two are the same value whenever the window and the sizing display
+    /// share a scale, which they do unless the window started on a
+    /// differently-scaled display than the one chosen for sizing.
     ///
-    /// **Not `nonisolated`, unlike `.geometry()`/`.filter()` above.**
-    /// `CGGeometryBridge` carries no isolation annotation of its own, so
-    /// under this project's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` it
-    /// is implicitly `@MainActor` — calling it from a `nonisolated` context
-    /// is exactly the mismatch `xcodebuild` caught while building this task
-    /// (`call to main actor-isolated static method 'pointRect(from:)' in a
-    /// synchronous nonisolated context`). This initialiser inherits that
-    /// isolation rather than fighting it; `CaptureSourcePicker` hops onto
-    /// the main actor before calling it, below.
-    public init?(pickerFilter filter: SCContentFilter) {
+    /// A degenerate result (an empty `availableDisplays`, or a non-positive
+    /// size after rounding) must not become a `.window` case that traps
+    /// later inside `.geometry()`'s call to `DisplayGeometry.init`. Failing
+    /// here, at the boundary that already returns `Optional`, keeps the
+    /// failure inside this function's own error channel instead of a
+    /// precondition three calls downstream (`AGENTS.md`: failure must land
+    /// outside the value range, not inside a later one).
+    ///
+    /// **Not `nonisolated`, unlike `.geometry()`/`.filter()` above** — kept
+    /// implicitly `@MainActor` under this project's
+    /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so `CaptureSourcePicker`
+    /// hops onto the main actor before calling it, below.
+    public init?(pickerFilter filter: SCContentFilter, availableDisplays: [SCDisplay]) {
         switch filter.style {
         case .display:
             guard let display = filter.includedDisplays.first else { return nil }
@@ -152,18 +189,11 @@ public enum CaptureSource: Sendable {
 
         case .window:
             guard let window = filter.includedWindows.first else { return nil }
-            let contentPoints = CGGeometryBridge.pointRect(from: filter.contentRect)
+            guard let largestDisplay = availableDisplays.max(by: { $0.width * $0.height < $1.width * $1.height })
+            else { return nil }
             let pixelScale = Double(filter.pointPixelScale)
-            let width = Int((contentPoints.width * pixelScale).rounded())
-            let height = Int((contentPoints.height * pixelScale).rounded())
-            // A degenerate content rect (zero or negative after rounding —
-            // e.g. a filter read before the window's content settled) must
-            // not become a `.window` case that traps later inside
-            // `.geometry()`'s call to `DisplayGeometry.init`. Failing here,
-            // at the boundary that already returns `Optional`, keeps the
-            // failure inside this function's own error channel instead of
-            // a precondition three calls downstream (`AGENTS.md`: failure
-            // must land outside the value range, not inside a later one).
+            let width = Int((Double(largestDisplay.width) * pixelScale).rounded())
+            let height = Int((Double(largestDisplay.height) * pixelScale).rounded())
             guard width > 0, height > 0 else { return nil }
             self = .window(window, bufferSize: (width: width, height: height))
 
@@ -211,8 +241,23 @@ public enum CaptureSource: Sendable {
 public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver {
     private let onSelect: @Sendable (CaptureSource?) -> Void
 
-    public init(onSelect: @escaping @Sendable (CaptureSource?) -> Void) {
+    /// Optional hook for the raw `SCContentFilter` the picker returned,
+    /// called *before* `init(pickerFilter:availableDisplays:)` derives a
+    /// `CaptureSource` from it. `nil` for every real caller today — nothing
+    /// in the product needs the filter itself, only what `CaptureSource`
+    /// derives from it. It exists for one reason: Task 7's human
+    /// verification step (`Soredemo/App/SoredemoApp.swift`, `--present-picker`)
+    /// needs to print `filter.contentRect`/`.pointPixelScale` beside the
+    /// derived value, and doing that against the *real* derivation path —
+    /// this type, unmodified — is worth more than a second, parallel
+    /// observer that could drift from what actually ships. See that file for
+    /// the three cases a person should check.
+    private let debugFilterObserver: (@Sendable (SCContentFilter) -> Void)?
+
+    public init(onSelect: @escaping @Sendable (CaptureSource?) -> Void,
+                debugFilterObserver: (@Sendable (SCContentFilter) -> Void)? = nil) {
         self.onSelect = onSelect
+        self.debugFilterObserver = debugFilterObserver
         super.init()
     }
 
@@ -220,24 +265,57 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
     /// is a singleton per the header (`.shared`) — this type is an observer
     /// of it, not an owner. Main-actor because it touches AppKit-adjacent,
     /// UI-presenting API, unlike the callbacks below.
+    ///
+    /// **`allowedPickerModes` is restricted to `.singleWindow` and
+    /// `.singleDisplay`.** Left at its default (`0`, "no excluded picking
+    /// modes" per the header), the picker can also hand back a whole
+    /// application, multiple windows, or multiple applications — shapes
+    /// `CaptureSource` has no case for. Restricting the picker keeps the
+    /// picker and the type in agreement *by construction*, the same move as
+    /// `Evidence` refusing to be empty and `NormalizedPoint` validating in
+    /// its own initialiser: no downstream "I do not support this" branch has
+    /// to exist, because the shape it would guard against is never offered.
+    /// `init(pickerFilter:availableDisplays:)` still returns `Optional`
+    /// rather than a non-failable value, though — this restriction lives in
+    /// picker *configuration*, which a later caller could change, and the
+    /// derivation function must not assume its own caller left it alone.
     @MainActor
     public func present() {
         let picker = SCContentSharingPicker.shared
+        var configuration = picker.defaultConfiguration
+        configuration.allowedPickerModes = [.singleWindow, .singleDisplay]
+        picker.defaultConfiguration = configuration
         picker.isActive = true
         picker.add(self)
         picker.present()
     }
 
-    /// `init(pickerFilter:)` is main-actor isolated (its own header explains
-    /// why), so this hops there rather than calling it inline — the callback
-    /// itself stays `nonisolated`, matching the other two below and the
-    /// class-level doc comment's reasoning.
+    /// `init(pickerFilter:availableDisplays:)` is main-actor isolated (its
+    /// own header explains why), so this hops there rather than calling it
+    /// inline — the callback itself stays `nonisolated`, matching the other
+    /// two below and the class-level doc comment's reasoning.
+    ///
+    /// `availableDisplays` comes from `SCShareableContent.currentProcess`
+    /// (`getCurrentProcessShareableContentWithCompletionHandler:`, macOS
+    /// 14.4+) — the same permission-free, picker-free source
+    /// `scripts/cross-boundary-digest-probe.swift` uses for its fixtures,
+    /// used here for the same reason: displays are not owned by a process,
+    /// so this call reports them without a Screen Recording grant, verified
+    /// empirically before writing this (`AGENTS.md`'s primary-source rule —
+    /// the header's own wording, "without user consent via TCC", was
+    /// checked, not trusted). If it throws or returns no displays,
+    /// `init(pickerFilter:availableDisplays:)` returns `nil` for a window
+    /// selection — a real failure, reported to `onSelect` as `nil` rather
+    /// than silently falling back to the filter's own `contentRect`, which
+    /// is exactly the number D2-13a moved away from.
     public nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker,
                                                   didUpdateWith filter: SCContentFilter,
                                                   for stream: SCStream?) {
+        debugFilterObserver?(filter)
         let onSelect = self.onSelect
         Task { @MainActor in
-            onSelect(CaptureSource(pickerFilter: filter))
+            let availableDisplays = (try? await SCShareableContent.currentProcess)?.displays ?? []
+            onSelect(CaptureSource(pickerFilter: filter, availableDisplays: availableDisplays))
         }
     }
 
