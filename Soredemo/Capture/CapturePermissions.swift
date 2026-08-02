@@ -217,21 +217,65 @@ public enum CapturePermissions {
         }
     }
 
-    /// Flat text, OS version first — the repeatable check `AGENTS.md`'s
-    /// completion rule and the design doc's TCC section both ask for. TCC's
-    /// behaviour has already changed inside one macOS point release, 26.0.1
-    /// to 26.1 (carried-forward doc), so a claim about what one of these
-    /// four functions reports is only as good as the OS version it was read
-    /// under, printed beside it rather than assumed stable.
+    /// Flat text, subject first, OS version second — the repeatable check
+    /// `AGENTS.md`'s completion rule and the design doc's TCC section both
+    /// ask for. TCC's behaviour has already changed inside one macOS point
+    /// release, 26.0.1 to 26.1 (carried-forward doc), so a claim about what
+    /// one of these four functions reports is only as good as the OS
+    /// version it was read under, printed beside it rather than assumed
+    /// stable.
+    ///
+    /// **The subject block exists because moving this dump inside
+    /// `Soredemo.app` fixed one occurrence and not the category.** The bare
+    /// probe was wrong because TCC attributed its reads to its responsible
+    /// process rather than to it — a fact invisible in its output, which
+    /// read as four confident answers with nothing to flag them as being
+    /// about the wrong thing. Running the app itself narrows how that can
+    /// happen again, but does not remove it: launched from Xcode, from
+    /// Finder, or execed directly from a shell, a process can still end up
+    /// answering for something other than `video.soredemo.Soredemo` — and
+    /// the failure shape is identical, four plausible-looking values with
+    /// nothing about them that looks wrong. So every dump names its own
+    /// subject, in the same output, rather than asking whoever reads it to
+    /// already know what a responsible process is:
+    ///
+    /// - `bundle identifier` — `Bundle.main.bundleIdentifier`. `nil` here is
+    ///   the single-line tell that whatever ran has no bundle identity at
+    ///   all (the bare probe's failure mode) and the four values below
+    ///   cannot be about `Soredemo`, no System Settings pane required to
+    ///   notice it.
+    /// - `executable path` — `Bundle.main.executablePath`, so a stale or
+    ///   unexpected build (wrong `DerivedData`, wrong scheme) is visible
+    ///   rather than assumed.
+    /// - `inside a .app` — whether `Bundle.main.bundlePath` ends in `.app`.
+    ///   Redundant with the bundle identifier on paper; kept anyway,
+    ///   because it is a second, differently-computed signal for the same
+    ///   claim, and a mismatch between the two (a `.app` path with a `nil`
+    ///   identifier, say) would itself be a finding.
+    /// - `pid` — `ProcessInfo.processInfo.processIdentifier`, for whoever is
+    ///   correlating this output against `Console.app` or a `log show`
+    ///   query for the same moment.
     ///
     /// Deliberately plain text, not JSON: the reader is a person standing at
     /// System Settings comparing two short lists, not another program.
-    /// Invoked from `scripts/cross-boundary-digest-probe.swift` via
-    /// `--dump-permissions`; see that file for why the dump is behind a flag
-    /// and not part of the default run.
+    /// Invoked from `Soredemo/App/SoredemoApp.swift`'s `init()` via
+    /// `--dump-permissions`, run as the app's own executable — see that
+    /// file for why, and why it is not the probe.
     public static func dumpText() -> String {
         let v = ProcessInfo.processInfo.operatingSystemVersion
-        var lines = ["macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"]
+        let bundle = Bundle.main
+        let bundleIdentifier = bundle.bundleIdentifier ?? "nil"
+        let executablePath = bundle.executablePath ?? "nil"
+        let insideAnApp = bundle.bundlePath.hasSuffix(".app")
+
+        var lines = [
+            "macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)",
+            "bundle identifier : \(bundleIdentifier)",
+            "executable path   : \(executablePath)",
+            "inside a .app     : \(insideAnApp ? "yes" : "no")",
+            "pid               : \(ProcessInfo.processInfo.processIdentifier)",
+            "──",
+        ]
         for o in observations() {
             lines.append(
                 "\(o.permission.rawValue): \(o.status.rawValue)"

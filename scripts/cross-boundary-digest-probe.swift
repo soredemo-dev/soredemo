@@ -32,28 +32,35 @@
 //     scripts/run-cross-boundary-probe.sh
 //
 // It compiles the REAL `Soredemo/Support/Minting.swift`,
-// `Soredemo/Capture/CGGeometryBridge.swift`, `Soredemo/Capture/CapturePermissions.swift`
-// and `Soredemo/UI/ProjectDocument.swift`
+// `Soredemo/Capture/CGGeometryBridge.swift` and `Soredemo/UI/ProjectDocument.swift`
 // — not copies — against the package's debug build products, so it cannot drift
 // away from what the app ships.
 //
 // **Note for the CG allow-list task:** this file names `CGRect` and is not app
 // code. Rule 5 is about the app target; scope the scan to `Soredemo/`.
 //
-// **Task 6's dump, `--dump-permissions`.** A separate flag rather than a fifth
-// numbered section, because it touches TCC and the other sections do not, and
-// because the task-6 brief's Step 3 requires a human to report the four
-// System Settings switch states BLIND, before seeing any program output.
-// Keeping it opt-in means the ordinary invocation above never risks supplying
-// that answer early. Run:
+// **`CapturePermissions` (`Soredemo/Capture/CapturePermissions.swift`) is
+// deliberately NOT compiled into this probe, and no permission dump belongs
+// here.** This binary is `swiftc`-compiled straight to a temp path — a bare
+// executable with **no bundle identity**. TCC does not attribute a request
+// to the binary that made it; it attributes it to the *responsible process*,
+// walked up the parent chain to whatever launched this one. Measured: run
+// this probe from a shell, and any permission read inside it reports the
+// SHELL's grants, not `video.soredemo.Soredemo`'s — four confident-looking
+// "granted"s for a process that held none of them, discovered only because a
+// human's own read of System Settings was recorded before the probe ran and
+// the two disagreed. `docs/design/2026-08-01-phase-1-carried-forward.md`
+// already says why the probe has no bundle identity; this is that fact
+// mattering somewhere concrete rather than staying a footnote.
 //
-//     scripts/run-cross-boundary-probe.sh --dump-permissions
-//
-// which prints the OS version and, for each of the four permissions in
-// `Soredemo/Capture/CapturePermissions.swift`, its status, which
-// `PermissionStatus` cases that permission's API can actually distinguish,
-// and the named degradation if it is absent. Compare against System
-// Settings > Privacy & Security. Nothing else in the probe runs in this mode.
+// **The permission dump lives in `Soredemo/App/SoredemoApp.swift`'s
+// `init()`, gated behind `--dump-permissions`, run as the actual app
+// executable** (`Soredemo.app/Contents/MacOS/Soredemo --dump-permissions`)
+// — the one invocation that runs under the app's own bundle identity and so
+// is the one invocation TCC can attribute to it. If you are adding a
+// permission-related check, it belongs beside that one, not here — this
+// probe cannot answer an identity-scoped question no matter how it is
+// phrased.
 
 import AppKit
 import CoreGraphics
@@ -127,19 +134,6 @@ func check(_ condition: Bool, _ label: String, actual: String = "", expected: St
 enum CrossBoundaryProbe {
     @MainActor
     static func main() throws {
-        // `--dump-permissions` is Task 6's repeatable check (design doc §
-        // TCC behaviour; task-6 brief Step 2): run it, open System Settings,
-        // compare — thirty seconds, instead of re-deriving what to look at.
-        // Gated behind its own flag and returning before section 1 runs, so
-        // the ordinary probe invocation (`run-cross-boundary-probe.sh`, no
-        // arguments) never touches a TCC API and never risks showing a human
-        // permission state before Step 3's blind comparison asks them for
-        // their own read of System Settings first.
-        if CommandLine.arguments.dropFirst().contains("--dump-permissions") {
-            print(CapturePermissions.dumpText())
-            return
-        }
-
         print("1. cross-boundary SHA-256 vector")
         let canonicalBytes = bytes(fromHex: pinnedCanonicalBytesHex)
         check(canonicalBytes.count == 41, "canonical bytes are the frozen 41-byte width",
