@@ -431,6 +431,15 @@ func printDiagnostics(_ d: CaptureSession.Diagnostics) {
                   "absent from the file, and this line is the only place it says so before you open it.")
         }
     }
+    for (i, c) in d.segmentConfigurations.enumerated() {
+        print("  segment \(i) configured: buffer \(c.bufferWidth)x\(c.bufferHeight)  " +
+              "destination \(Int(c.destination.x)),\(Int(c.destination.y)) " +
+              "\(Int(c.destination.width))x\(Int(c.destination.height))  scale \(c.scale)")
+        print("    ContentScale over \(c.framesChecked) frames: " +
+              "\(c.contentScaleMin.map { String(format: "%.4f", $0) } ?? "n/a") … " +
+              "\(c.contentScaleMax.map { String(format: "%.4f", $0) } ?? "n/a")   " +
+              "resampled \(c.framesResampled)")
+    }
     print("  frames whose ContentRect could not be decoded: \(d.unreadableContentRectCount)   " +
           "ScreenRect: \(d.unreadableScreenRectCount)")
     print("  segments discarded (media never reached the package): \(d.discardedSegments.count)")
@@ -1071,20 +1080,60 @@ func runAudioTones(seconds: Int) async throws {
     }
 }
 
+
+// ------------------------------------------- programmatic display mode change
+
+/// Changes the display's mode from this process, so step 3's experiment
+/// cannot silently fail to happen.
+///
+/// **Why this replaced a human step.** The first attempt asked a person to
+/// change the resolution mid-recording. The run reported zero
+/// reconfigurations, and that has two indistinguishable causes — the change
+/// never happened, or it happened and the callback never fired — with no way
+/// to tell them apart afterwards. The display was back at its default by the
+/// time anyone looked. An experiment whose non-occurrence is invisible is
+/// not an experiment.
+///
+/// **`kCGConfigureForAppOnly` is the safety net, and it is load-bearing.**
+/// A configuration made with that scope is reverted by the window server
+/// when this process exits — including if it crashes mid-recording. The
+/// explicit restore below is the normal path; this is what stops a spike
+/// leaving someone's display in a mode they did not choose.
+func displayModes(of id: CGDirectDisplayID) -> [CGDisplayMode] {
+    (CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode]) ?? []
+}
+
+func setDisplayMode(_ id: CGDirectDisplayID, _ mode: CGDisplayMode) -> CGError {
+    var config: CGDisplayConfigRef?
+    let began = CGBeginDisplayConfiguration(&config)
+    guard began == .success, let config else { return began }
+    let configured = CGConfigureDisplayWithDisplayMode(config, id, mode, nil)
+    guard configured == .success else {
+        CGCancelDisplayConfiguration(config)
+        return configured
+    }
+    return CGCompleteDisplayConfiguration(config, .forAppOnly)
+}
+
 // --------------------------------------------------------- Step 3: reconfig
 
 func runReconfig(seconds: Int) async throws {
     printIdentityBlock(step: "3 — display reconfiguration (LAST — changes system state)")
     print("""
     Expect BEFORE running:
-      - at roughly the midpoint, you will change this display's resolution in
-        System Settings -> Displays
+      - at the midpoint THIS PROCESS changes the display's resolution itself,
+        and restores it afterwards — no human step, because a human step that
+        does not happen is indistinguishable from a callback that does not fire
       - the recording produces >= 2 segments in the returned SegmentTable
       - the segment before the change has endedBy == .displayReconfigured(...)
       - the two segments carry DIFFERENT GeometryRevision values
       - diagnostics.displayReconfigurationsHandled >= 1
-    This step changes your display's resolution. Change it back afterward if
-    it does not revert on its own.
+      - and NO resampled frame reaches the MASTER, across the change. Frames
+        DELIVERED resampled during the switch are expected and are dropped;
+        the claim is about the file, not the stream
+    This step changes your display's resolution for about 20 seconds and then
+    changes it back. The configuration scope is .forAppOnly, so the window
+    server reverts it when this process exits even if it crashes.
     """)
     requireScreenRecording()
     try? FileManager.default.removeItem(at: verificationDir)
@@ -1092,9 +1141,57 @@ func runReconfig(seconds: Int) async throws {
     let source = CaptureSource.display(display)
     let session = CaptureSession(source: source, scale: 2.0, displayUUID: displayUUID(for: display.displayID),
                                   packageURL: packageDir, epoch: bootEpoch())
-    CGDisplayRegisterReconfigurationCallback(reconfigCallback, nil)
+    let registration = CGDisplayRegisterReconfigurationCallback(reconfigCallback, nil)
+    print("spike's own reconfiguration callback registration: CGError \(registration.rawValue)")
+    guard registration == .success else {
+        print("FAIL — the spike could not register its own reconfiguration callback, so its " +
+              "OS-level count below would be zero for a reason that has nothing to do with the session.")
+        exit(16)
+    }
     try await session.start()
-    print("recording \(seconds)s. CHANGE THIS DISPLAY'S RESOLUTION at roughly the midpoint.")
+    // The before-value, printed before the recording, so "the revision
+    // changed" has something to have changed FROM in the same log.
+    let before = source.geometry(scale: 2.0, displayUUID: displayUUID(for: display.displayID))
+    print("""
+
+    ---- EXPECTED, with the state before the change ----
+      display now             \(display.width) x \(display.height) points
+      buffer now              \(before.pixelWidth) x \(before.pixelHeight) pixels
+      revision now            \(before.revision)
+      after your change       a DIFFERENT revision, in a SECOND segment, and the
+                              first segment ended with .displayReconfigured
+    ----------------------------------------------------
+    """)
+    // The change is made by THIS PROCESS at a known instant, not by a person
+    // at an approximate one. See `setDisplayMode` for why.
+    guard let currentMode = CGDisplayCopyDisplayMode(display.displayID) else {
+        print("FAIL — cannot read the display's current mode; nothing to change from.")
+        exit(14)
+    }
+    let candidates = displayModes(of: display.displayID).filter {
+        $0.pixelWidth != currentMode.pixelWidth && $0.pixelWidth >= 1280 && $0.pixelHeight >= 800
+    }
+    guard let target = candidates.max(by: { $0.pixelWidth < $1.pixelWidth }) else {
+        print("FAIL — this display offers no alternative mode at or above 1280x800 " +
+              "(\(displayModes(of: display.displayID).count) modes total). The experiment cannot be run here.")
+        exit(15)
+    }
+    print("will switch \(currentMode.pixelWidth)x\(currentMode.pixelHeight) -> " +
+          "\(target.pixelWidth)x\(target.pixelHeight) at t-\(seconds / 2)s, and restore it afterwards " +
+          "(scope .forAppOnly, so a crash reverts it too)")
+    print("recording \(seconds)s ...")
+
+    let switchTask = Task {
+        try? await Task.sleep(for: .seconds(seconds / 2))
+        let e = setDisplayMode(display.displayID, target)
+        print("  *** switched display mode programmatically, CGError \(e.rawValue)" +
+              (e == .success ? "" : "  <- NON-ZERO: the change did not happen"))
+    }
+    defer {
+        switchTask.cancel()
+        let restored = setDisplayMode(display.displayID, currentMode)
+        print("restored \(currentMode.pixelWidth)x\(currentMode.pixelHeight), CGError \(restored.rawValue)")
+    }
     for s in stride(from: seconds, to: 0, by: -5) {
         try await Task.sleep(for: .seconds(min(5, s)))
         print("  t-\(max(0, s-5))s  \(session.diagnostics.completeFrameCount) complete frames, " +
@@ -1114,16 +1211,62 @@ func runReconfig(seconds: Int) async throws {
         print("  [\(seg.index)] \(seg.mediaFilename)  revision=\(seg.revision)  endedBy=\(seg.endedBy)")
     }
     printDiagnostics(session.diagnostics)
-    if displayReconfigurations == 0 {
-        print("\n-> the display was NOT reconfigured during this run — the experiment did not happen, not a finding.")
-    } else if table.segments.count < 2 {
-        print("\nFAIL — the OS reported \(displayReconfigurations) reconfiguration(s) but the session produced " +
-              "only \(table.segments.count) segment(s). Expected a split.")
+    // FIVE assertions, one per line of the expectation table above. The
+    // previous version listed five and checked two — `endedBy` and
+    // `displayReconfigurationsHandled` were printed and then never compared
+    // against anything, which is the same shape as an expectation table
+    // whose rows quietly stop being checks.
+    guard displayReconfigurations > 0 else {
+        print("\n-> the display was NOT reconfigured during this run. THE EXPERIMENT DID NOT HAPPEN — " +
+              "this is not a pass and not a failure, and it must not be recorded as either. " +
+              "Re-run and change the resolution at roughly the midpoint.")
+        exit(12)
+    }
+    let handled = session.diagnostics.displayReconfigurationsHandled
+    let revisions = Set(table.segments.map(\.revision))
+    let reconfiguredBoundaries = table.segments.filter {
+        if case .displayReconfigured = $0.endedBy { return true } else { return false }
+    }
+    let checks: [(String, Bool)] = [
+        ("the session registered its observer successfully — CGError " +
+         "\(session.diagnostics.reconfigurationObserverRegistration?.rawValue.description ?? "not recorded")",
+         session.diagnostics.reconfigurationObserverRegistration == CGError.success),
+        ("the OS reported \(displayReconfigurations) reconfiguration(s)", displayReconfigurations >= 1),
+        ("the session HANDLED \(handled) of them — an OS callback the session never acted on would " +
+         "leave every other check below passing for the wrong reason", handled >= 1),
+        ("the recording split into \(table.segments.count) segments (>= 2)", table.segments.count >= 2),
+        ("\(reconfiguredBoundaries.count) segment(s) ended with .displayReconfigured",
+         !reconfiguredBoundaries.isEmpty),
+        ("the segments carry \(revisions.count) distinct GeometryRevisions (> 1) — a split that " +
+         "reused one revision would lose the very fact the split exists to record",
+         revisions.count > 1),
+        // Added after the first passing run, where it was printed and not
+        // checked. That run split correctly, minted two revisions, and
+        // resampled 335 of 664 frames — every frame after the change —
+        // because the new segment's buffer followed the new display while
+        // its destinationRect still described the old one. Six assertions
+        // passed over a master that D2-8 says must not exist.
+        // The subject is the MASTER, not the stream. ScreenCaptureKit
+        // delivers resampled frames across a reconfiguration no matter what
+        // this process does; what D2-8 claims is that none of them are
+        // written. Asserting on `resampledFrameCount` would fail over a
+        // master that is entirely unresampled — the same stream-versus-file
+        // confusion that reported 310 complete frames into a zero-byte file.
+        ("no resampled frame reached the MASTER — \(session.diagnostics.appendedResampledFrameCount) " +
+         "appended, of \(session.diagnostics.resampledFrameCount) delivered resampled out of " +
+         "\(session.diagnostics.contentScaleCheckedCount) checked. The delivered ones are dropped " +
+         "between the reconfiguration callback and the new segment opening, and counted as " +
+         "awaiting-reconfiguration in the accounting above",
+         session.diagnostics.appendedResampledFrameCount == 0),
+    ]
+    print("\nSEVEN ASSERTIONS:")
+    for (what, ok) in checks { print("  \(ok ? "ok  " : "FAIL") \(what)") }
+    if checks.allSatisfy({ $0.1 }) {
+        print("\nPASS — reconfiguration closes the current segment, opens the next, and mints a new " +
+              "GeometryRevision. D2-10 holds on a real display change.")
     } else {
-        let revisions = Set(table.segments.map(\.revision))
-        print(revisions.count > 1
-              ? "PASS — segments carry \(revisions.count) distinct GeometryRevisions."
-              : "FAIL — segments split but all carry the SAME revision.")
+        print("\nFAIL — see above.")
+        exit(13)
     }
 }
 

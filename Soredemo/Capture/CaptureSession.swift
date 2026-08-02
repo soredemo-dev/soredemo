@@ -136,6 +136,18 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// checkable rather than assumed. See `recordContentScale` for the
         /// assert-vs-record decision.
         public internal(set) var resampledFrameCount = 0
+        /// Resampled frames that were **written to the master**, as opposed
+        /// to merely delivered.
+        ///
+        /// This is the number D2-8 is about. `resampledFrameCount` counts
+        /// what ScreenCaptureKit handed over; during a display
+        /// reconfiguration the session deliberately drops frames rather than
+        /// append them, and those still appear there. A verification that
+        /// checked `resampledFrameCount == 0` would report a failure over a
+        /// master that is, in fact, entirely unresampled — the same
+        /// stream-versus-file confusion that let "310 complete frames" be
+        /// reported over a zero-byte file.
+        public internal(set) var appendedResampledFrameCount = 0
         public internal(set) var minContentScaleObserved: Double?
         public internal(set) var maxContentScaleObserved: Double?
         /// The most recently observed `ContentRect`/`ScreenRect`, bridged to
@@ -295,6 +307,37 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         public internal(set) var unreadableContentRectCount = 0
         public internal(set) var unreadableScreenRectCount = 0
 
+        /// The result of `CGDisplayRegisterReconfigurationCallback`.
+        ///
+        /// `.success` means the observer is installed; anything else means
+        /// D2-10's segment-splitting cannot happen at all, and every
+        /// downstream symptom — one segment where two were expected, one
+        /// `GeometryRevision` across a resolution change — would look like a
+        /// logic bug somewhere else entirely.
+        public internal(set) var reconfigurationObserverRegistration: CGError?
+
+        /// What each segment was actually configured with, one entry per
+        /// `beginSegment`, in order.
+        ///
+        /// Added because a fix reasoned from two numbers (a buffer size and a
+        /// ratio) did not work, and the next step after a wrong diagnosis is
+        /// an instrument, not a second guess. These are the values handed to
+        /// `SCStreamConfiguration`, recorded where they are set.
+        public struct SegmentConfiguration: Sendable {
+            public let bufferWidth: Int
+            public let bufferHeight: Int
+            public let destination: PixelRect
+            public let scale: Double
+            /// `ContentScale` values actually observed while this segment was
+            /// the open one — the answer to "which segment was resampled",
+            /// which a session-wide min/max cannot give.
+            public internal(set) var contentScaleMin: Double?
+            public internal(set) var contentScaleMax: Double?
+            public internal(set) var framesChecked = 0
+            public internal(set) var framesResampled = 0
+        }
+        public internal(set) var segmentConfigurations: [SegmentConfiguration] = []
+
         /// The `destinationRect` this session actually configured, recorded
         /// **at the moment it was set**.
         ///
@@ -322,6 +365,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// failed still reported 310 complete frames.
         public internal(set) var skippedWriterNotWritingCount = 0
         public internal(set) var skippedInputNotReadyCount = 0
+        /// Frames dropped between a display-reconfiguration callback and the
+        /// new segment opening. Bounded by how long
+        /// `SCShareableContent.current` takes; non-zero only across a
+        /// reconfiguration, and the alternative to dropping them is writing
+        /// resampled frames into the master.
+        public internal(set) var skippedAwaitingReconfigurationCount = 0
 
         /// **A conservation law, and the invariant the zero-byte file broke.**
         ///
@@ -343,6 +392,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 + failedVideoAppendCount
                 + skippedWriterNotWritingCount
                 + skippedInputNotReadyCount
+                + skippedAwaitingReconfigurationCount
                 + unconvertiblePresentationTimeCount
         }
 
@@ -352,6 +402,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 + " + refused \(failedVideoAppendCount)"
                 + " + writer-not-writing \(skippedWriterNotWritingCount)"
                 + " + input-not-ready \(skippedInputNotReadyCount)"
+                + " + awaiting-reconfiguration \(skippedAwaitingReconfigurationCount)"
                 + " + pts-unconvertible \(unconvertiblePresentationTimeCount)"
                 + "  → \(everyCompleteFrameIsAccountedFor ? "balances" : "DOES NOT BALANCE")"
         }
@@ -389,6 +440,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated(unsafe) var writerTempURL: URL?
     private nonisolated(unsafe) var writerSessionStarted = false
     private nonisolated(unsafe) var currentGeometry: DisplayGeometry?
+    /// Held alongside `currentGeometry` and always set with it, so `resume()`
+    /// cannot restore one and re-derive the other.
+    private nonisolated(unsafe) var currentDestination: PixelRect?
+    /// Set synchronously by `reconfigurationCallback`, cleared when the next
+    /// segment opens. While true, complete frames are counted and dropped
+    /// rather than appended — see the callback for why.
+    private nonisolated(unsafe) var suspendAppendsForReconfiguration = false
     private nonisolated(unsafe) var currentMediaFilename: String?
     private nonisolated(unsafe) var lastFrameInstant: HostInstant?
     private nonisolated(unsafe) var frameCounterForBlackCheck = 0
@@ -449,8 +507,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         guard !wasAlreadyRunning else { throw SessionError.alreadyRunning }
 
         registerReconfigurationObserver()
-        let geometry = source.geometry(scale: scale, displayUUID: displayUUID)
-        try await beginSegment(geometry: geometry)
+        try await beginSegment(geometry: source.geometry(scale: scale, displayUUID: displayUUID),
+                                destination: source.destinationRect(scale: scale))
     }
 
     /// Finalises the current segment with `.paused` and tears the stream
@@ -464,10 +522,17 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// pausing is a user action, not a display change, so nothing here
     /// re-derives geometry the way `handleReconfiguration` does.
     public nonisolated func resume() async throws {
-        let (running, savedGeometry) = lock.withLock { (isRunning, currentGeometry) }
+        let (running, savedGeometry, savedDestination) =
+            lock.withLock { (isRunning, currentGeometry, currentDestination) }
         guard running else { throw SessionError.notRunning }
-        let geometry = savedGeometry ?? source.geometry(scale: scale, displayUUID: displayUUID)
-        try await beginSegment(geometry: geometry)
+        // Both saved values, or both re-derived — never one of each, which is
+        // the mismatch `beginSegment`'s doc comment describes.
+        if let savedGeometry, let savedDestination {
+            try await beginSegment(geometry: savedGeometry, destination: savedDestination)
+        } else {
+            try await beginSegment(geometry: source.geometry(scale: scale, displayUUID: displayUUID),
+                                    destination: source.destinationRect(scale: scale))
+        }
     }
 
     /// The result of stopping a recording.
@@ -535,7 +600,24 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// segment. The write-once refusal (`ProjectPackageIO.writeSidecar`)
     /// applies once the segment's bytes are finished — see
     /// `finalizeCurrentSegment` for why it cannot apply here, at open time.
-    private nonisolated func beginSegment(geometry: DisplayGeometry) async throws {
+    /// **`geometry` and `destination` are passed together, from one
+    /// `CaptureSource`, and that is the invariant this signature exists to
+    /// hold.** They used to be derived separately: `geometry` from the
+    /// caller, `destination` from `self.source` — and `self.source` is a
+    /// snapshot taken when the session was constructed. Across a display
+    /// reconfiguration the two disagreed: the buffer followed the new
+    /// display (2704x1690) while the destination rectangle still asked for
+    /// the old one (3024x1964), so ScreenCaptureKit scaled every frame of
+    /// the new segment by exactly 3024/2704 = 1.1183 — measured, 335 of 664
+    /// frames with `ContentScale != 1`, which is D2-8's central claim broken
+    /// for half a recording.
+    ///
+    /// It is worth naming what caused it: setting `destinationRect` at all
+    /// was the fix for an uncontracted default, and the fix introduced this.
+    /// A value that is now chosen has to be chosen *from the same place* as
+    /// everything derived alongside it, on every path — including the one
+    /// that only runs when the display changes underneath a recording.
+    private nonisolated func beginSegment(geometry: DisplayGeometry, destination: PixelRect) async throws {
         let index = lock.withLock { ledger.closedSegments.count }
         let mediaFilename = "master-\(String(format: "%02d", index)).mov"
 
@@ -602,9 +684,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // as origin-anchored on this OS build and promised nowhere. See
         // `CaptureSource.destinationRect(scale:)` for why an uncontracted
         // anchor is the same failure this project already refused twice.
-        let destination = source.destinationRect(scale: scale)
         configuration.destinationRect = CGGeometryBridge.rect(from: destination)
-        lock.withLock { _diagnostics.configuredDestinationRect = destination }
+        lock.withLock {
+            _diagnostics.configuredDestinationRect = destination
+            _diagnostics.segmentConfigurations.append(
+                Diagnostics.SegmentConfiguration(bufferWidth: geometry.pixelWidth,
+                                                  bufferHeight: geometry.pixelHeight,
+                                                  destination: destination, scale: geometry.scale))
+        }
         configuration.capturesAudio = true
         configuration.captureMicrophone = true
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
@@ -629,6 +716,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             self.writerTempURL = tempURL
             self.writerSessionStarted = false
             self.currentGeometry = geometry
+            self.currentDestination = destination
+            self.suspendAppendsForReconfiguration = false
             self.currentMediaFilename = mediaFilename
             self.lastFrameInstant = nil
             self.frameCounterForBlackCheck = 0
@@ -821,7 +910,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let frameInstant = HostInstant(epoch: epoch, hostTime: ptsNanoseconds)
         let latencyNanos = callbackInstant.rawValue - ptsNanos
 
-        recordContentScale(from: attachments)
+        let observedContentScale = recordContentScale(from: attachments)
         recordExtrinsicRects(from: attachments)
 
         let (shouldCheckBlack, writerRef, videoInputRef, sessionAlreadyStarted) = lock.withLock {
@@ -842,6 +931,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // both used to leave through one anonymous `return`, which is how
         // 308 frames vanished between "complete" and "written" while the
         // report said nothing was wrong.
+        if lock.withLock({ suspendAppendsForReconfiguration }) {
+            lock.withLock { _diagnostics.skippedAwaitingReconfigurationCount += 1 }
+            return
+        }
         guard let writerRef, writerRef.status == .writing else {
             lock.withLock { _diagnostics.skippedWriterNotWritingCount += 1 }
             return
@@ -854,7 +947,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             writerRef.startSession(atSourceTime: pts)
             lock.withLock { writerSessionStarted = true }
         }
-        recordAppend(videoInputRef.append(sampleBuffer), of: writerRef, isVideo: true)
+        let accepted = videoInputRef.append(sampleBuffer)
+        if accepted, let observedContentScale, observedContentScale != 1 {
+            lock.withLock { _diagnostics.appendedResampledFrameCount += 1 }
+        }
+        recordAppend(accepted, of: writerRef, isVideo: true)
     }
 
     /// Records whether an append was accepted, and captures the writer's
@@ -998,7 +1095,18 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// design doc's own framing ("checkable per frame ... rather than
     /// assumed"), without recording putting that check ahead of finishing
     /// the recording.
-    private nonisolated func recordContentScale(from attachments: [SCStreamFrameInfo: Any]) {
+    /// Returns the `ContentScale` this frame carried, or `nil` if the
+    /// attachment was unreadable.
+    ///
+    /// **It returns the value as well as recording it** so the caller can
+    /// tell `resampledFrameCount` (frames the STREAM delivered resampled)
+    /// apart from frames that were resampled *and written*. Those are
+    /// different claims about different things, and only the second one is
+    /// what D2-8 is about. Sixteen frames arriving resampled during a
+    /// reconfiguration and being dropped is fine; sixteen reaching the
+    /// master is not — and a single count cannot say which happened.
+    @discardableResult
+    private nonisolated func recordContentScale(from attachments: [SCStreamFrameInfo: Any]) -> Double? {
         let scaleValue: Double?
         if let d = attachments[.contentScale] as? Double {
             scaleValue = d
@@ -1007,13 +1115,25 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         } else {
             scaleValue = nil
         }
-        guard let scale = scaleValue else { return }
+        guard let scale = scaleValue else { return nil }
         lock.withLock {
             _diagnostics.contentScaleCheckedCount += 1
             if scale != 1 { _diagnostics.resampledFrameCount += 1 }
             _diagnostics.minContentScaleObserved = min(_diagnostics.minContentScaleObserved ?? scale, scale)
             _diagnostics.maxContentScaleObserved = max(_diagnostics.maxContentScaleObserved ?? scale, scale)
+            // Also attributed to the segment that was open when it arrived.
+            // A session-wide count cannot say WHICH segment was resampled,
+            // and across a reconfiguration that is the only interesting
+            // question.
+            if var current = _diagnostics.segmentConfigurations.last {
+                current.framesChecked += 1
+                if scale != 1 { current.framesResampled += 1 }
+                current.contentScaleMin = min(current.contentScaleMin ?? scale, scale)
+                current.contentScaleMax = max(current.contentScaleMax ?? scale, scale)
+                _diagnostics.segmentConfigurations[_diagnostics.segmentConfigurations.count - 1] = current
+            }
         }
+        return scale
     }
 
     /// `SCStreamFrameInfoContentRect`/`.screenRect` are `CGRect`-valued
@@ -1110,7 +1230,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated func registerReconfigurationObserver() {
         let token = Unmanaged.passUnretained(self)
         lock.withLock { reconfigToken = token }
-        CGDisplayRegisterReconfigurationCallback(CaptureSession.reconfigurationCallback, token.toOpaque())
+        // The `CGError` was discarded. A registration that failed and a
+        // registration that succeeded but never fired produced identical
+        // evidence — zero reconfigurations handled — and D2-10's whole
+        // mechanism rests on this one call. Same family as the discarded
+        // `append(_:)` result: the value that says whether the thing worked
+        // was the value nothing looked at.
+        let error = CGDisplayRegisterReconfigurationCallback(
+            CaptureSession.reconfigurationCallback, token.toOpaque())
+        lock.withLock { _diagnostics.reconfigurationObserverRegistration = error }
     }
 
     private nonisolated func unregisterReconfigurationObserver() {
@@ -1134,10 +1262,27 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `deinit` (which cannot be actor-isolated) nor a plain C callback
     /// context can reference it; caught by `swiftc`, not by inspection.
     private nonisolated static let reconfigurationCallback: CGDisplayReconfigurationCallBack = { displayID, flags, userInfo in
-        // `.beginConfigurationFlag` fires paired with the real change —
-        // count only the completed one, matching the spike's own comment.
-        guard !flags.contains(.beginConfigurationFlag), let userInfo else { return }
+        guard let userInfo else { return }
         let session = Unmanaged<CaptureSession>.fromOpaque(userInfo).takeUnretainedValue()
+
+        // **Appending stops synchronously, here, on BOTH callbacks.**
+        //
+        // Splitting the segment needs `SCShareableContent.current`, which is
+        // an await and a cross-process round trip. Measured, that gap let 16
+        // frames of a 660-frame recording reach the master already resampled
+        // — the display had changed, the old segment's buffer had not, and
+        // `ContentScale` on those frames was 1.1183. Six assertions passed
+        // over that file. D2-8 says the master is unresampled, and "except
+        // for about a second at each boundary" is a different claim.
+        //
+        // So the flag is set in the callback itself, before any suspension
+        // point, and `.beginConfigurationFlag` is deliberately NOT filtered
+        // out for this purpose: the "begin" callback arrives *before* the
+        // change, which is the earliest instant this process can know about
+        // it at all. Only the completed callback goes on to split.
+        session.lock.withLock { session.suspendAppendsForReconfiguration = true }
+
+        guard !flags.contains(.beginConfigurationFlag) else { return }
         Task { await session.handleReconfiguration(of: displayID) }
     }
 
@@ -1149,6 +1294,17 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `windowResized` case on `SegmentBoundary`. Nothing new." A window's
     /// *owning display* reconfiguring is a real, separate gap this
     /// deliberately leaves open — see the task report.
+    /// Pixels per point for a display's **current** mode.
+    ///
+    /// `CGDisplayMode` exposes both, and their ratio is the backing scale —
+    /// 2 for a Retina "looks like" mode, 1 for a native one. Read fresh on
+    /// every reconfiguration because it is exactly what a mode change can
+    /// alter, and the session's constructor value cannot follow it.
+    private nonisolated static func backingScale(of displayID: CGDirectDisplayID) -> Double? {
+        guard let mode = CGDisplayCopyDisplayMode(displayID), mode.width > 0 else { return nil }
+        return Double(mode.pixelWidth) / Double(mode.width)
+    }
+
     private nonisolated func handleReconfiguration(of displayID: CGDirectDisplayID) async {
         guard case .display(let capturedDisplay) = source, capturedDisplay.displayID == displayID else { return }
         guard lock.withLock({ ledger.isSegmentOpen }) else { return }
@@ -1166,13 +1322,27 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             return
         }
 
+        // **The scale is re-derived, not reused.** `init(scale:)`'s own doc
+        // comment argued that this type should not derive a display's scale
+        // because the caller already has it. That reasoning holds at `start()`
+        // and is false here: a reconfiguration happens *inside* the session,
+        // and a display's backing scale factor changes with its mode. Measured
+        // — switching a 3024x1964 Retina mode (2704 pixels per 1352 points) to
+        // a native 2704x1690 one (1 pixel per point) and reusing the
+        // constructor's 2.0 gave the new segment a 5408x3380 buffer for a 2704
+        // wide source, and ScreenCaptureKit scaled every one of its 319 frames
+        // by exactly 2.0. Six assertions passed over that recording; only the
+        // seventh, added afterwards, saw it.
         let newSource = CaptureSource.display(freshDisplay)
-        let newGeometry = newSource.geometry(scale: scale, displayUUID: displayUUID)
+        let newScale = Self.backingScale(of: displayID) ?? scale
+        let newGeometry = newSource.geometry(scale: newScale, displayUUID: displayUUID)
 
         lock.withLock { _diagnostics.displayReconfigurationsHandled += 1 }
 
         try? await finalizeCurrentSegment(endedBy: .displayReconfigured(newRevision: newGeometry.revision))
-        try? await beginSegment(geometry: newGeometry)
+        // `newSource`, not `self.source` — the whole point of re-deriving.
+        try? await beginSegment(geometry: newGeometry,
+                                 destination: newSource.destinationRect(scale: newScale))
     }
 }
 
