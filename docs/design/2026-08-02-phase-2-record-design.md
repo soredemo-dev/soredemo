@@ -438,3 +438,28 @@ slower or busier machine.
 
 So: three thresholds were called placeholders; **one of them is.** Saying so now saves rediscovering
 it twice.
+
+---
+
+## What this document does NOT cover
+
+Stated because a status table in conversation marked `input-observation` as designed, and it is not.
+
+**Pointer sampling rate is undecided, and cannot be decided here.** Everything above concerns the
+*click* half of `input-observation` — the event tap that says when and where, paired with the AX
+hit-test that says what. Spike A listened to `leftMouseDown` and `rightMouseDown` only; it never
+subscribed to `mouseMoved`, so the pointer track has not been measured at all.
+
+The rate is not free to choose. `cursor-render` asks for a spring-smoothed cursor drawn at composite
+time, and **how dense the track must be to avoid aliasing under that smoothing is a property of the
+smoothing, not of the tap.** An event tap will deliver every system-generated mouse move — 60–120 Hz,
+more on a high-refresh display. Keeping all of them is a volume question; thinning them is a "thin to
+what" question whose answer lives in a row that has no design yet.
+
+So four of Phase 2's fourteen rows are designed and one of those four has a parameter waiting on one
+of the other ten. The observation half is **not** independently plannable, which is the reason to
+design the whole phase before planning any of it — a better reason than the one originally given.
+
+Undesigned as of this document: `capture-source`, `capture-stream`, `audio-tracks`, `render-core`,
+`cursor-render`, `export-basic`, `app-shell`, `preview-playback`, `render-parity`, and the
+degradation behaviour half of `capture-permissions`.
