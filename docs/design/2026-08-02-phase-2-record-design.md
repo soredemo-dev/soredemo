@@ -1035,3 +1035,76 @@ type, not one line of it — the first attempt missed `GeometryRegistry`, `Conte
 **The ten existing cases are the rule's negative-test fixtures.** No fixture has to be invented, and
 each one closed is a fixture that must be removed from the expected-violation list — which makes the
 list a live record of the remaining work rather than a comment.
+
+---
+
+## D2-15 — The master's colour space must be pinned, and the tag must match the data
+
+A third independent reason for `AVAssetWriter`, and a problem neither comparable project has to
+solve.
+
+### What the two comparable projects do — read from the checkouts, verified
+
+| | `colorSpaceName` at capture | tag written to the file |
+| --- | --- | --- |
+| `a Swift recorder` (208 Swift files) | **never set — zero occurrences** | user-selectable: `AVVideoColorPrimaries_ITU_R_709_2` / `_P3_D65` / `_ITU_R_2020`, set at write time in `ExportEngine+Helpers.swift` |
+| `a Rust recorder` (596 Rust files) | never set | **hardcoded 709/709/709**, `crates/enc-avfoundation/src/mp4.rs:330-332` |
+
+Both tag at **write** time, not at capture. That is the lever, and `SCRecordingOutput` does not
+expose it.
+
+Worth copying as an approach, not as code: a Swift recorder's `RenderSettings.swift:429` returns
+`AVVideoTransferFunction_ITU_R_709_2` for **every** colour space — the return sits outside the
+switch — and the matrix is 709 for all but BT2020. That is Apple's standard way of tagging P3
+video; there is no "P3 transfer function" to pair with P3 primaries in this context. Only the
+primaries change.
+
+### The SDK default reframes the question
+
+`SCStreamConfiguration.colorSpaceName`: *"If not set the output buffer uses the same color space as
+the display."*
+
+So the default is **not sRGB — it is display-matched**. Neither project setting it means both
+already capture in P3 on a P3 display, and a Rust recorder then tags that data 709. Data and label disagree by
+default, on the default path.
+
+For a project whose master is a piece of material, that is a quality bug. **For a project whose
+master is evidence it is worse**, and in a different way: it makes the master's colour space
+*machine-dependent*. The same demo recorded on two Macs carries two different colour meanings, and
+nothing in the file says which. That is the shape `GeometryRevision` exists for, on the colour axis.
+
+### The decision
+
+**Pin the capture colour space and record it, rather than inheriting the display's.**
+
+```
+capture:  colorSpaceName = <pinned>            the pixel data's gamut is a known quantity
+file tag: AVVideoColorPrimaries matching it    label and data agree
+          + 709 transfer + 709 matrix          per Apple's convention above
+```
+
+`SCRecordingOutput` cannot write the second half. `AVAssetWriter` can. So the reasons to reject
+`SCRecordingOutput` now number three, and they are independent:
+
+1. audio cannot be separated — measured, F2-4
+2. the colour tag cannot be controlled — this section
+3. both comparable projects use `AVAssetWriter`, both for output-tag control
+
+**Which colour space to pin is not settled here.** P3 preserves more of what was on screen and is
+what a modern Mac display actually shows; sRGB is what most viewers of the exported video will have.
+The evidence argument favours capturing wide and narrowing at export — the same "record everything,
+judge in derivation" rule as D2-1 and D2-7 — but that needs measuring, not asserting.
+
+### Not measured, and it should be before this is implemented
+
+- **What `SCRecordingOutput` actually tags.** Spike B's output was deleted after its audio question
+  was answered, and its colour tags were never read. The claim above that data and label disagree by
+  default is inference from the SDK comment plus a Rust recorder's hardcoding, not observation here.
+- **What this machine's display colour space is**, which determines what "the default" means on the
+  one machine currently doing the measuring.
+- **Whether a P3-tagged master survives the compositor and export unchanged.** D2-6 requires parity
+  to compare the compositor's output buffer *before* colour management; a pinned wide-gamut master
+  is exactly the input that would expose a working-space mismatch there.
+
+One recording answers all three. Fold it into `capture-stream` rather than a separate spike, per the
+reasoning in D2-10: the answer arrives while there is code in hand to act on it.
