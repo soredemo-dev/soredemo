@@ -129,7 +129,28 @@ public enum CapturePermissions {
     /// Screen Recording, and exactly as collapsible: this cannot tell "never
     /// asked" from "denied" from "restricted", so `false` maps to
     /// `.notGrantedIndeterminate`, never to `.denied`.
-    public static func status(of p: CapturePermission) -> PermissionStatus {
+    ///
+    /// **`nonisolated`, added in Task 10, and the same annotation for the same
+    /// reason `Minting` and `CGGeometryBridge` both carry.** Unannotated, this
+    /// function is implicitly `@MainActor` under this target's
+    /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — harmless while every
+    /// caller was itself MainActor, which stopped being true once `AXObserver`
+    /// (Task 10) needed to say *why* a hit-test returned nothing from inside a
+    /// `nonisolated` walk reached from `InputObserver`'s tap callback, a bare C
+    /// function pointer with no isolation to inherit. Measured, not assumed:
+    /// `xcodebuild` rejected the call with "call to main actor-isolated static
+    /// method 'status(of:)' in a synchronous nonisolated context", the same
+    /// shape both of those files record hitting.
+    ///
+    /// The four APIs underneath are thread-safe point-in-time reads —
+    /// `CGPreflightScreenCaptureAccess`, `AVCaptureDevice.authorizationStatus
+    /// (for:)` (a class method over TCC's own state), `IOHIDCheckAccess` and
+    /// `AXIsProcessTrusted` — and none of them touches AppKit or UI state, so
+    /// `nonisolated` states what was already true of the implementation rather
+    /// than working around the compiler. Only this function is annotated: the
+    /// dump and its subject block read `Bundle.main` and belong on the main
+    /// actor.
+    public nonisolated static func status(of p: CapturePermission) -> PermissionStatus {
         switch p {
         case .screenRecording:
             return CGPreflightScreenCaptureAccess() ? .granted : .notGrantedIndeterminate

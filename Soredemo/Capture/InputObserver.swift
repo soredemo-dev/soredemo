@@ -18,6 +18,31 @@ import Timeline
 /// `NormalizedPoint`. If a second one appears, the row is false and should say
 /// so instead.
 ///
+/// **Two have appeared, in Task 10, and this is that paragraph saying so
+/// rather than the claim quietly going stale.** Both are in
+/// `Soredemo/Capture/AXObserver.swift` and neither converts an *event*
+/// location:
+///
+///   * `AXObserver.normalizedFrame(globalTopLeftX:globalTopLeftY:width:height:in:)`
+///     — the same four steps over an AX element's frame, which is a rectangle
+///     and therefore anchors the Y flip on its **bottom** edge, a difference
+///     `NormalizationContext.normalize`'s two overloads already carry and this
+///     function cannot avoid having;
+///   * `AXObserver.globalPoint(of:revision:in:)` — the **inverse** of
+///     `normalizedPosition` below, needed because
+///     `AXUIElementCopyElementAtPosition` takes a global point and a
+///     `ButtonEvent` no longer has one.
+///
+/// So the accurate claim today is narrower and still worth something: a global
+/// event location becomes a `NormalizedPoint` only here, and every conversion
+/// in either direction is composed of the same three package primitives
+/// (`DisplayArrangement.route`, `DisplayGeometry.pixels`/`points`,
+/// `NormalizationContext`) rather than open-coded. What checks the pair is not
+/// prose but `§ 8.1` of `scripts/cross-boundary-digest-probe.swift`, which
+/// runs a point through this function and back through the inverse and
+/// requires the original global coordinate, against a `scale: 2` fixture where
+/// a dropped step changes the answer.
+///
 /// **The conversion is four steps and the order is load-bearing:**
 ///
 /// ```

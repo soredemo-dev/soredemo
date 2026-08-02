@@ -1,199 +1,311 @@
-// Spike A — click-to-hit-test pairing latency.
+// Spike A — click-to-hit-test pairing latency, **against the real observers**.
 //
-// Answers, on real targets, what F2-1 could only lower-bound:
-//   * tap-path latency: the event's own timestamp -> the moment our callback runs
-//   * AX interval width: mach_absolute_time() before and after each AX call
-//   * how both behave while the UI is animating, which is when people click buttons
+// This file used to carry its own inline tap and its own inline AX walk. It
+// does not any more: it drives `Soredemo/Capture/InputObserver.swift` and
+// `Soredemo/Capture/AXObserver.swift`, the code that ships, for the reason
+// `scripts/run-cross-boundary-probe.sh` and Spike C's build script both carry
+// — a spike that measures a copy measures the copy. F2-2's distribution was
+// produced by the inline version, so re-running this is the only thing that
+// can say whether the shipping observer does more work than the spike that
+// justified its bounds.
+//
+// **What needs a person, and why nothing here can be automated further.**
+// Three separate grants and one physical act:
+//
+//   1. Input Monitoring, for `CGEvent.tapCreate`. TCC grants it to a signed
+//      bundle, not to a `swiftc` output run from a shell.
+//   2. Accessibility, for `AXUIElementCopyElementAtPosition`. Without it every
+//      hit-test returns nothing, and `AXObserver.Diagnostics
+//      .hitTestsReturnedNothingWithoutAccessibility` is what says so instead
+//      of the run reading as "nobody clicked on anything".
+//   3. Real applications, of three different classes — native AppKit, an
+//      Electron app, and one known to be slow. F2-2's spread is 120× between
+//      p50 and max and it is entirely a property of what is being clicked on.
+//   4. Clicks **during animations**. A static screen measures the easy case;
+//      the pairing fails while the UI is moving, which is when people click.
+//
+// `scripts/cross-boundary-digest-probe.swift` § 8 checks everything that does
+// not need those four: both coordinate conversions, the depth cap, the
+// budget, all four truncation reasons, the call arithmetic and the
+// containment instrument, against a synthetic `AXElementSource`. This file is
+// the remainder, and the remainder is irreducible.
 //
 // It records. It does not judge — D2-1. Nothing here decides which element is
-// "the control"; every element the bounded walk reaches is written out with its
-// own interval, and the derivation stage chooses later.
+// "the control".
 //
-// Needs Input Monitoring (for the tap) and Accessibility (for the hit-test).
-// It does NOT need Screen Recording — that is spike B.
+// **The JSONL it writes carries window titles from real work and is NOT
+// committed**, exactly as the design doc says of the previous run's log. What
+// this file *prints* is measurements and AX role names only — never a title,
+// never an application name (`AGENTS.md`: reports quote measurements, never
+// captured content).
 
 import AppKit
-import ApplicationServices
-import Darwin
+import CoreGraphics
+import Foundation
+import Geometry
+import Project
+import Timeline
 
-// D4 applies: these are PLACEHOLDERS, not calibrated thresholds. The whole point
-// of this spike is to produce the distribution they should be fitted to. Any
-// value quoted from a run of this tool must say it was measured under these.
-let depthCap = 20
-let walkBudgetNanos: UInt64 = 20_000_000   // 20 ms
+/// Everything the tap delivered, plus the AX chain recorded against each
+/// `.down`.
+///
+/// A class with a lock rather than captured `var`s: `InputObserver`'s sink is
+/// `@Sendable`, which is the constraint the real callback path lives under.
+nonisolated final class Samples: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [AXChainRecord] = []
+    private var clicks = 0
 
-var tb = mach_timebase_info_data_t(); mach_timebase_info(&tb)
-@inline(__always) func nowNanos() -> UInt64 {
-    mach_absolute_time() &* UInt64(tb.numer) / UInt64(tb.denom)
+    var records: [AXChainRecord] { lock.withLock { storage } }
+    var clicksSeen: Int { lock.withLock { clicks } }
+
+    func append(_ record: AXChainRecord) { lock.withLock { storage.append(record) } }
+    func countClick() { lock.withLock { clicks += 1 } }
 }
 
-let outURL = URL(filePath: NSHomeDirectory())
-    .appending(path: "soredemo-spike-a.jsonl")
-var out = FileHandle(forWritingAtPath: outURL.path())
-if out == nil {
-    FileManager.default.createFile(atPath: outURL.path(), contents: nil)
-    out = FileHandle(forWritingAtPath: outURL.path())
-}
-out?.seekToEndOfFile()
+@main
+enum SpikeA {
 
-func emit(_ o: [String: Any]) {
-    guard let d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]) else { return }
-    out?.write(d); out?.write(Data("\n".utf8))
-}
+    static let repositoryPath = "~/Documents/Soredemo/soredemo-main"
 
-/// One AX call, bracketed. The interval width IS the uncertainty (D2-2a) —
-/// this API has no timestamp of its own, so a single number would invent a
-/// precision that was never measured.
-func timed<T>(_ body: () -> T) -> (value: T, before: UInt64, after: UInt64) {
-    let b = nowNanos(); let v = body(); let a = nowNanos()
-    return (v, b, a)
-}
-
-func copyAttr(_ el: AXUIElement, _ attr: String) -> (CFTypeRef?, UInt64, UInt64) {
-    var v: CFTypeRef?
-    let r = timed { AXUIElementCopyAttributeValue(el, attr as CFString, &v) }
-    return (r.value == .success ? v : nil, r.before, r.after)
-}
-
-func describe(_ el: AXUIElement) -> ([String: Any], UInt64) {
-    var calls: UInt64 = 0
-    var o: [String: Any] = [:]
-    let (roleV, rb, ra) = copyAttr(el, kAXRoleAttribute as String); calls += 1
-    o["role"] = (roleV as? String) ?? NSNull()
-    o["roleIntervalNs"] = ["before": rb, "after": ra, "width": ra - rb]
-    // TWO IPC calls, not one. `kAXFrameAttribute` is not exposed to Swift; the
-    // public spelling is position + size, so every element costs an extra
-    // round trip into the target process. That goes straight into the budget
-    // D2-2 bounds, and it is why this is measured rather than assumed.
-    let (posV, pb2, pa2) = copyAttr(el, kAXPositionAttribute as String); calls += 1
-    let (sizeV, sb, sa) = copyAttr(el, kAXSizeAttribute as String); calls += 1
-    var origin = CGPoint.zero, size = CGSize.zero
-    if let pv = posV, CFGetTypeID(pv) == AXValueGetTypeID() {
-        AXValueGetValue(pv as! AXValue, .cgPoint, &origin)
-    }
-    if let sv = sizeV, CFGetTypeID(sv) == AXValueGetTypeID() {
-        AXValueGetValue(sv as! AXValue, .cgSize, &size)
-    }
-    o["frame"] = ["x": origin.x, "y": origin.y, "w": size.width, "h": size.height]
-    o["frameIntervalNs"] = ["before": pb2, "after": sa, "width": sa - pb2,
-                            "positionWidth": pa2 - pb2, "sizeWidth": sa - sb]
-    let (titleV, _, _) = copyAttr(el, kAXTitleAttribute as String); calls += 1
-    o["title"] = (titleV as? String) ?? NSNull()
-    return (o, calls)
-}
-
-var sampleIndex = 0
-
-func handle(_ event: CGEvent) {
-    let cbNanos = nowNanos()
-    let evNanos = UInt64(event.timestamp)      // F2-1: this is NANOSECONDS, measured
-    let loc = event.location                    // global, top-left origin — same space AX uses
-    var calls: UInt64 = 0
-
-    let sys = AXUIElementCreateSystemWide()
-    var hit: AXUIElement?
-    let hitR = timed { () -> AXError in
-        var e: AXUIElement?
-        let err = AXUIElementCopyElementAtPosition(sys, Float(loc.x), Float(loc.y), &e)
-        hit = e; return err
-    }
-    calls += 1
-
-    var record: [String: Any] = [
-        "sample": sampleIndex,
-        "eventTimestampNs": evNanos,
-        "callbackEntryNs": cbNanos,
-        "tapLatencyNs": cbNanos > evNanos ? cbNanos - evNanos : 0,
-        "tapLatencyNegative": cbNanos <= evNanos,   // never silently zero — F2-1's own bug
-        "clickPoint": ["x": loc.x, "y": loc.y],
-        "hitTestIntervalNs": ["before": hitR.before, "after": hitR.after,
-                              "width": hitR.after - hitR.before],
-        "hitTestError": hitR.value == .success ? NSNull() : hitR.value.rawValue,
-        "depthCap": depthCap, "walkBudgetNs": walkBudgetNanos,
+    /// F2-2, from `docs/design/2026-08-02-phase-2-record-design.md`, 118
+    /// samples. Printed as the expectation table **before** anything is
+    /// measured, so a reading cannot be revised toward it afterwards.
+    static let f2_2: [(name: String, p50: Double, p90: Double, max: Double)] = [
+        ("hit-test interval ms", 1.05, 21.25, 125.47),
+        ("whole walk ms",        5.10, 32.22, 173.53),
+        ("AX calls",            41,   106,   131),
+        ("chain depth",          3,    12,    20),
     ]
 
-    guard let start = hit else {
-        record["truncation"] = "hit-test returned nothing"
-        record["axCalls"] = calls
-        emit(record); sampleIndex += 1
-        print("sample \(sampleIndex - 1): hit-test returned nothing")
-        return
+    @MainActor
+    static func main() {
+        let seconds = CommandLine.arguments.dropFirst().first.flatMap(Int.init) ?? 45
+        var step = VerificationStep(name: "Spike A — pairing latency against the real AXObserver")
+        step.begin(repositoryPath: repositoryPath)
+
+        let arrangement = InputObserver.currentArrangement()
+        step.expect([
+            ("depth cap", "\(AXObserver.depthCap) — fixed (D2-5), expected to bind only on web content"),
+            ("walk budget", "\(Double(AXObserver.walkBudgetNanos) / 1e6) ms — a D4 PLACEHOLDER"),
+            ("displays", "\(arrangement.placements.count) in the arrangement under test"),
+        ] + f2_2.map { ($0.name, String(format: "p50 %.2f  p90 %.2f  max %.2f  (F2-2, 118 samples)",
+                                        $0.p50, $0.p90, $0.max)) }
+          + [("containment", "NOT all clicks outside their element — a uniform miss is the "
+                             + "coordinate path, not AX staleness")])
+
+        controlRow(step, arrangement)
+        guard CapturePermissions.status(of: .accessibility) == .granted else {
+            step.preconditionFailed("""
+            Accessibility is not granted to this bundle (video.soredemo.SpikeA). \
+            CapturePermissions reports: \(CapturePermissions.status(of: .accessibility)). \
+            Every hit-test would return nothing and the run would measure the permission, \
+            not the pairing. System Settings → Privacy & Security → Accessibility.
+            """)
+        }
+
+        // ---- the run
+        let epoch = Minting.bootEpoch()
+        let samples = Samples()
+        let axObserver = AXObserver(arrangement: arrangement, epoch: epoch)
+        let inputObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        let out = openLog()
+
+        do {
+            try inputObserver.start { observation in
+                // `.down` only. The verb half of "click the Save button" is
+                // the press; hit-testing the release as well would double the
+                // AX cost for a second answer to the same question.
+                guard case .button(let event) = observation, event.phase == .down else { return }
+                samples.countClick()
+                guard let record = axObserver.chain(at: event) else { return }
+                samples.append(record)
+                if let line = try? ObservationLog.encode(record) {
+                    out?.write(line); out?.write(Data("\n".utf8))
+                }
+            }
+        } catch CaptureError.inputMonitoringUnavailable {
+            step.preconditionFailed("""
+            CGEvent.tapCreate returned nil — Input Monitoring is not granted to this bundle \
+            (video.soredemo.SpikeA), or it is granted to a previous build with a different \
+            signature. CapturePermissions reports: \
+            \(CapturePermissions.status(of: .inputMonitoring)). This is NOT 'no clicks happened'.
+            """)
+        } catch {
+            step.preconditionFailed("InputObserver.start threw \(error)")
+        }
+
+        step.humanWindow(seconds, """
+            Click on things — a native AppKit app, an Electron app (Slack, VS Code), and \
+            something known to be slow. Click DURING animations: open a menu and click an item \
+            while it is still appearing, click the Dock while it is moving, click inside web \
+            content while it is scrolling. \(seconds)s.
+            """)
+        inputObserver.stop()
+        out?.closeFile()
+
+        // ---- what came back
+        let records = samples.records
+        let diagnostics = axObserver.diagnostics
+        guard !records.isEmpty else {
+            step.didNotHappen("""
+            \(samples.clicksSeen) clicks reached the observer and \(records.count) chains were \
+            recorded. \(diagnostics.accounting)
+            """)
+        }
+
+        let hitTestMs = records.map { Double($0.hitTestInterval.duration.rawValue) / 1e6 }
+        let walkMs = records.map { wholeWalkNanos(of: $0) / 1e6 }
+        let calls = records.map { Double($0.axCalls) }
+        let depths = records.map { Double($0.ancestors.count) }
+        let measured: [(String, [Double])] = [
+            ("hit-test interval ms", hitTestMs), ("whole walk ms", walkMs),
+            ("AX calls", calls), ("chain depth", depths),
+        ]
+
+        print("\n---- MEASURED, \(records.count) samples on this machine ----")
+        func column(_ text: String, _ width: Int) -> String {
+            text.count >= width ? text
+                : String(repeating: " ", count: width - text.count) + text
+        }
+        print("  " + column("", 22) + column("p50", 9) + column("p90", 9) + column("max", 9)
+              + "   " + column("F2-2 p50", 9) + column("p90", 9) + column("max", 9))
+        for (name, values) in measured {
+            let reference = f2_2.first { $0.name == name }!
+            let cells = [percentile(values, 0.50), percentile(values, 0.90), values.max() ?? 0,
+                         reference.p50, reference.p90, reference.max]
+                .map { column(String(format: "%.2f", $0), 9) }
+            print("  " + name.padding(toLength: 22, withPad: " ", startingAt: 0)
+                  + cells[0] + cells[1] + cells[2] + "   " + cells[3] + cells[4] + cells[5])
+        }
+        print("  a 60 fps frame is 16.67 ms; the whole walk at p90 is "
+              + String(format: "%.1f frames", percentile(walkMs, 0.90) / 16.67))
+        print("\n---- truncation, and where the chains topped out (F2-3) ----")
+        for reason in [ChainTruncation.reachedRoot, .depthCapReached, .budgetExceeded,
+                       .hitTestReturnedNothing] {
+            let matching = records.filter { $0.truncation == reason }
+            guard !matching.isEmpty else { continue }
+            let tops = Dictionary(grouping: matching.compactMap { $0.ancestors.last?.role ?? $0.hit?.role },
+                                  by: { $0 })
+                .map { "\($0.key) ×\($0.value.count)" }.sorted().joined(separator: ", ")
+            print("  \(reason.rawValue): \(matching.count) — tops: \(tops)")
+        }
+        print("\n---- diagnostics ----")
+        print("  " + diagnostics.accounting.replacingOccurrences(of: "\n", with: "\n  "))
+        print("  tap re-armed after a timeout: \(inputObserver.diagnostics.tapReArmedCount)")
+        print("  AX log: \(logURL.path()) — NOT to be committed; it carries window titles.")
+
+        // ---- the checks
+        step.check("\(records.count) chains recorded from \(samples.clicksSeen) clicks",
+                   records.count > 0)
+        step.check("every click is accounted for — \(diagnostics.accounting.split(separator: "\n")[0])",
+                   diagnostics.everyClickIsAccountedFor)
+        step.check("every record carries one truncation reason",
+                   diagnostics.everyRecordHasATruncationReason)
+        step.check("every record carries one containment verdict",
+                   diagnostics.everyRecordHasAContainmentVerdict)
+
+        // **The coordinate check, stated as what it can actually rule out.**
+        // Some proportion of clicks legitimately miss: AX is stale during
+        // animation, which is what this run is deliberately provoking. What
+        // cannot legitimately happen is ALL of them missing — that is the
+        // reverse conversion being wrong, and it is the one shape a plausible
+        // AX explanation does not cover.
+        step.check("""
+                   \(diagnostics.clickInsideTheHitFrame) of \(diagnostics.chainsRecorded) clicks fell \
+                   inside the element the hit-test returned, \(diagnostics.clickOutsideTheHitFrame) \
+                   outside, \(diagnostics.clickFrameNotComparable) not comparable, \
+                   \(diagnostics.recordsWithNoFrame) with no frame — not all of them missed
+                   """,
+                   diagnostics.clickOutsideTheHitFrame < diagnostics.chainsRecorded)
+        step.check("no interval was measured backwards (\(diagnostics.nonMonotonicClockReadings))",
+                   diagnostics.nonMonotonicClockReadings == 0)
+
+        // Order of magnitude, not equality. F2-2 is one machine, one session,
+        // an uncontrolled app mix; D4 still applies and this is not a
+        // calibration. What a 10× divergence would mean is that the shipping
+        // observer does substantially more work per click than the inline walk
+        // the bounds were fitted to, which is the question this re-run exists
+        // to answer.
+        for (name, values) in measured {
+            let reference = f2_2.first { $0.name == name }!
+            let mine = percentile(values, 0.50)
+            let ratio = reference.p50 == 0 ? 1 : mine / reference.p50
+            step.check(String(format: "%@ p50 %.2f against F2-2's %.2f — ratio %.2f, within 10×",
+                              name, mine, reference.p50, ratio),
+                       ratio > 0.1 && ratio < 10)
+        }
+
+        step.finish(remedy: """
+        A p50 an order of magnitude above F2-2's means AXObserver is doing more work per click \
+        than the inline walk F2-2 measured — compare `axCalls` first, which is exact.
+        All clicks landing outside their element means the reverse conversion \
+        (AXObserver.globalPoint) is wrong, NOT that AX is stale: staleness moves an element by a \
+        frame of animation, it does not move it out of its own coordinate space. Probe § 8.1 is \
+        the same claim against a fixture and would still be green, because it does not use this \
+        machine's arrangement.
+        """)
     }
 
-    let (hitDesc, hitCalls) = describe(start); calls += hitCalls
-    record["hit"] = hitDesc
+    // MARK: -
 
-    // Bounded ancestor walk. Truncation is itself a record (D2-2): otherwise
-    // "there were no more ancestors" and "I did not ask" are identical on disk.
-    var chain: [[String: Any]] = []
-    var cur = start
-    var truncation = "reached root"
-    let walkStart = nowNanos()
-    for depth in 0..<depthCap {
-        if nowNanos() - walkStart > walkBudgetNanos { truncation = "budget exceeded"; break }
-        let (pv, pb, pa) = copyAttr(cur, kAXParentAttribute as String); calls += 1
-        guard let p = pv, CFGetTypeID(p) == AXUIElementGetTypeID() else { break }
-        let parent = p as! AXUIElement
-        var (d, c) = describe(parent); calls += c
-        d["depth"] = depth + 1
-        d["parentLookupIntervalNs"] = ["before": pb, "after": pa, "width": pa - pb]
-        chain.append(d)
-        cur = parent
-        if depth == depthCap - 1 { truncation = "depth cap reached" }
+    /// Hit-test start to the last attribute read of the whole observation —
+    /// the "chain that never simultaneously existed" span (F2-2 § 3), computed
+    /// from the record rather than measured separately, so it is the same
+    /// number a reader of the log would get.
+    static func wholeWalkNanos(of record: AXChainRecord) -> Double {
+        let ends = ([record.hit] + record.ancestors.map { $0 } + (record.children ?? []).map { $0 })
+            .compactMap { $0?.readInterval.end.rawValue }
+        let last = ends.max() ?? record.hitTestInterval.end.rawValue
+        return Double(last - record.hitTestInterval.start.rawValue)
     }
-    record["ancestors"] = chain
-    record["truncation"] = truncation
 
-    // One level down (D2-3). Without this the row's stated preference for
-    // well-bounded DESCENDANTS is unimplementable in derivation.
-    let (kidsV, kb, ka) = copyAttr(start, kAXChildrenAttribute as String); calls += 1
-    var kids: [[String: Any]] = []
-    if let arr = kidsV as? [AXUIElement] {
-        for k in arr.prefix(32) { let (d, c) = describe(k); calls += c; kids.append(d) }
-        record["childrenTruncated"] = arr.count > 32
+    static func percentile(_ values: [Double], _ fraction: Double) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        let index = Int((Double(sorted.count - 1) * fraction).rounded())
+        return sorted[index]
     }
-    record["children"] = kids
-    record["childrenLookupIntervalNs"] = ["before": kb, "after": ka, "width": ka - kb]
 
-    record["axCalls"] = calls
-    record["totalWallNs"] = nowNanos() - cbNanos
-    emit(record)
+    static let logURL = URL(filePath: NSHomeDirectory()).appending(path: "soredemo-spike-a.jsonl")
 
-    let tap = record["tapLatencyNs"] as! UInt64
-    print(String(format: "sample %d  tap %.2f ms  hit-test %.2f ms  chain %d  calls %llu  total %.1f ms  [%@]",
-                 sampleIndex, Double(tap) / 1e6,
-                 Double(hitR.after - hitR.before) / 1e6, chain.count, calls,
-                 Double(record["totalWallNs"] as! UInt64) / 1e6, truncation))
-    sampleIndex += 1
+    static func openLog() -> FileHandle? {
+        if !FileManager.default.fileExists(atPath: logURL.path()) {
+            FileManager.default.createFile(atPath: logURL.path(), contents: nil)
+        }
+        let handle = FileHandle(forWritingAtPath: logURL.path())
+        handle?.seekToEndOfFile()
+        return handle
+    }
+
+    /// A row whose answer is known independently of anything under test — and
+    /// deliberately, the *coordinate* half rather than the AX half.
+    ///
+    /// The forward conversion was verified against real hardware in Task 9;
+    /// this reverses it and lands back on the point it started from. If that
+    /// fails, every hit-test below is performed at the wrong place and every
+    /// number this run prints is about the wrong element — which would
+    /// otherwise present as "AX returned the wrong thing", the explanation
+    /// F2-2 makes credible and this control exists to remove.
+    @MainActor
+    static func controlRow(_ step: VerificationStep, _ arrangement: DisplayArrangement) {
+        guard let screen = NSScreen.main else {
+            step.preconditionFailed("NSScreen.main is nil; there is no independent source to check against")
+        }
+        // A point a third of the way across the main screen — not its centre
+        // and not its origin, both of which are fixed points of some wrong
+        // conversions.
+        let globalX = (screen.frame.width / 3).rounded()
+        let globalY = (screen.frame.height / 4).rounded()
+        guard let forward = InputObserver.normalizedPosition(globalTopLeftX: globalX,
+                                                             globalTopLeftY: globalY,
+                                                             in: arrangement) else {
+            step.preconditionFailed("(\(globalX), \(globalY)) is on no display in the arrangement")
+        }
+        let back = AXObserver.globalPoint(of: forward.position, revision: forward.revision,
+                                          in: arrangement)
+        step.control("a global point through the forward conversion and back, on this machine's own display",
+                     expected: "(\(globalX), \(globalY))",
+                     observed: back.map { "(\($0.x), \($0.y))" } ?? "nil")
+    }
 }
-
-// ---- permissions, reported not assumed ----
-let axTrusted = AXIsProcessTrusted()
-print("Accessibility trusted: \(axTrusted)")
-if !axTrusted {
-    _ = AXIsProcessTrustedWithOptions(
-        [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
-}
-
-let mask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.rightMouseDown.rawValue)
-guard let tap = CGEvent.tapCreate(
-    tap: .cgSessionEventTap, place: .headInsertEventTap,
-    options: .listenOnly, eventsOfInterest: CGEventMask(mask),
-    callback: { _, _, event, _ in handle(event); return Unmanaged.passUnretained(event) },
-    userInfo: nil)
-else {
-    print("TAP CREATION FAILED — Input Monitoring not granted, or the app is not the one granted.")
-    print("This is the failure that must NOT be read as 'no events happened'.")
-    exit(2)
-}
-let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
-CGEvent.tapEnable(tap: tap, enable: true)
-
-print("Tap created. Writing to \(outURL.path())")
-print("Click on things — native AppKit, an Electron app, and something known to be slow.")
-print("Click DURING animations, not on a static screen. Ctrl-C to stop.\n")
-
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-app.run()

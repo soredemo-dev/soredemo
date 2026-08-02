@@ -10,14 +10,41 @@
 # executable's path, so a DerivedData build re-prompts every time it moves.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
 APP="$HOME/Applications/SoredemoSpikeA.app"
 IDENTITY="${SPIKE_SIGN_IDENTITY:-Apple Development}"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
-xcrun swiftc -O -target arm64-apple-macos26.0 \
-    -o "$APP/Contents/MacOS/SoredemoSpikeA" "$HERE/main.swift"
+# Compiles the REAL app sources, not copies, under the SAME language-mode
+# flags `Soredemo.xcodeproj` uses — the same reasoning
+# `scripts/run-cross-boundary-probe.sh` and Spike C's build script carry:
+# without them this builds under DIFFERENT isolation semantics from the code it
+# is checking, and a `nonisolated` mistake passes here and fails `xcodebuild`.
+# This spike measured its own inline tap and inline AX walk until Task 10; a
+# spike that measures a copy measures the copy.
+(cd "$REPO" && swift build)
+
+xcrun swiftc -O -target arm64-apple-macos26.0 -parse-as-library \
+    -swift-version 6 \
+    -default-isolation MainActor \
+    -enable-upcoming-feature MemberImportVisibility \
+    -enable-upcoming-feature InferIsolatedConformances \
+    -enable-upcoming-feature NonisolatedNonsendingByDefault \
+    -I "$REPO/.build/debug" \
+    -L "$REPO/.build/debug" \
+    -lSoredemoCore \
+    -o "$APP/Contents/MacOS/SoredemoSpikeA" \
+    "$REPO/Soredemo/Support/Minting.swift" \
+    "$REPO/Soredemo/App/BuildProvenance.swift" \
+    "$REPO/Soredemo/Capture/CGGeometryBridge.swift" \
+    "$REPO/Soredemo/Capture/CaptureError.swift" \
+    "$REPO/Soredemo/Capture/CapturePermissions.swift" \
+    "$REPO/Soredemo/Capture/InputObserver.swift" \
+    "$REPO/Soredemo/Capture/AXObserver.swift" \
+    "$REPO/spikes/shared/VerificationStep.swift" \
+    "$HERE/main.swift"
 codesign --force --options runtime --sign "$IDENTITY" "$APP"
 
 echo "built:  $APP"
@@ -26,7 +53,7 @@ echo
 echo "Grant BOTH, to $APP:"
 echo "  System Settings -> Privacy & Security -> Input Monitoring"
 echo "  System Settings -> Privacy & Security -> Accessibility"
-echo "Then run:  $APP/Contents/MacOS/SoredemoSpikeA"
+echo "Then run:  $APP/Contents/MacOS/SoredemoSpikeA [seconds]   # default 45"
 echo "Not Screen Recording — that is spike B."
 
 echo

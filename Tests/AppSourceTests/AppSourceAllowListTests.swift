@@ -500,3 +500,51 @@ func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: St
             field, and it only means anything while the default IS the real predicate.
             """)
 }
+
+/// The same shape one row over: **`AXObserver`'s accessibility predicate is
+/// injected, and the default has to stay the real reader.**
+///
+/// `AXObserver` takes `accessibilityIsGranted` as an argument so that
+/// `hitTestsReturnedNothingWithoutAccessibility` can be exercised in both
+/// directions by `§ 8.3` of the probe — which is a bare `swiftc` binary whose
+/// TCC reads are attributed to the shell that launched it, so the real
+/// predicate cannot answer about the right subject there at all.
+///
+/// That injection opens the same one-character hole the secure-input one does,
+/// and this one is quieter: defaulting it to `{ true }` leaves every check in
+/// this package and every check in the probe green, because none of them ever
+/// evaluates the default — while a whole recording made without the
+/// Accessibility grant would consist of empty chains attributed to *the
+/// clicks*, reading as "nobody clicked on anything" rather than as
+/// `Degradation.noElementIdentity`. That is the silence-is-not-a-value failure
+/// this project has now written down four times.
+///
+/// Weaker than its neighbour in one respect, and deliberately: it pins the
+/// **count** and the **file**, not the exact line, because the default
+/// argument is too long to fit on one line and a check that required it to
+/// would be a check about formatting. Zero occurrences means the default was
+/// replaced by a constant; two means there is a second policy about what the
+/// Accessibility grant implies, which is what `CapturePermissions` exists to
+/// prevent.
+@Test func theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt() throws {
+    let readers = try codeLinesNaming("CapturePermissions.status(of: .accessibility)",
+                                      in: try appSourceFiles())
+
+    #expect(readers.count == 1,
+            """
+            expected exactly one app source line reading CapturePermissions.status(of: \
+            .accessibility), found \(readers.count):
+            \(readers.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+            Zero means AXObserver's accessibility predicate no longer defaults to the real reader, \
+            and a recording made without the grant would attribute its empty chains to the clicks. \
+            More than one means two policies about what that grant implies.
+            """)
+
+    guard let reader = readers.first else { return }
+    #expect(reader.location.hasPrefix("Soredemo/Capture/AXObserver.swift:"),
+            """
+            the Accessibility grant is read at \(reader.location), not at AXObserver's injection \
+            point:
+            \(reader.text)
+            """)
+}

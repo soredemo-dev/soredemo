@@ -49,9 +49,19 @@
 // **Note for the CG allow-list task:** this file names `CGRect` and is not app
 // code. Rule 5 is about the app target; scope the scan to `Soredemo/`.
 //
-// **`CapturePermissions` (`Soredemo/Capture/CapturePermissions.swift`) is
-// deliberately NOT compiled into this probe, and no permission dump belongs
-// here.** This binary is `swiftc`-compiled straight to a temp path — a bare
+// **No permission dump, and no permission read, belongs in this probe.**
+//
+// `CapturePermissions` (`Soredemo/Capture/CapturePermissions.swift`) IS now
+// compiled in, which it was not before Task 10, and the reason is narrow: it
+// is the default argument of `AXObserver.init`'s `accessibilityIsGranted`
+// predicate, and a default argument has to compile whether or not it is ever
+// evaluated. Every `AXObserver` in § 8 passes its own predicate, so nothing
+// here ever calls it — which is what the paragraph below requires, and it is
+// now a property of the checks rather than of the compile list. If a check
+// ever lets that default be evaluated, the value it gets back is about the
+// shell, not about this app.
+//
+// This binary is `swiftc`-compiled straight to a temp path — a bare
 // executable with **no bundle identity**. TCC does not attribute a request
 // to the binary that made it; it attributes it to the *responsible process*,
 // walked up the parent chain to whatever launched this one. Measured: run
@@ -203,6 +213,20 @@ enum CrossBoundaryProbe {
         theProductionSecureInputPredicateIsRead()
         print("7.8 the observation path and the capture path agree on a display's revision")
         await theTwoDerivationsOfADisplayAgree()
+
+        print("8. AXObserver — the bounded walk that records and does not judge (Task 10)")
+        print("8.1 the reverse conversion is the exact inverse of the forward one")
+        theReverseConversion()
+        print("8.2 the AXValue decoders, against real AXValues")
+        theAXValueDecoders()
+        print("8.2b an AX frame becomes a NormalizedFrame anchored on its BOTTOM edge")
+        theFrameConversion()
+        print("8.3 the walk is bounded, and says which bound stopped it")
+        theWalkIsBounded()
+        print("8.4 the recorded element is checkable against where the click was")
+        theRecordedElementIsCheckableAgainstTheClick()
+        print("8.5 the diagnostics balance")
+        theAXDiagnosticsBalance()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -1611,5 +1635,604 @@ enum CrossBoundaryProbe {
         check(diagnostics.pointerSamples == 0,
               "no pointer sample was recorded even in the diagnostics",
               actual: "\(diagnostics.pointerSamples)")
+    }
+
+    // MARK: - § 8  AXObserver (Task 10)
+    //
+    // Why here and not in a test target: `AXObserver` lives in the app, names
+    // `AXUIElement`, and reaches CoreGraphics geometry through
+    // `CGGeometryBridge` — three things no package test may touch.
+    //
+    // What is checked here is everything that does NOT need the Accessibility
+    // grant, which is everything except one thing: both coordinate
+    // conversions, the depth cap, the wall-clock budget, all four truncation
+    // reasons, the AX call arithmetic, the empty-versus-absent children
+    // distinction, and the containment instrument that separates a coordinate
+    // fault from an AX timing fault. The walk runs against a synthetic
+    // `AXElementSource`, which is not a mock standing in for a reader that
+    // could have been called directly: the real one needs a TCC grant this
+    // binary structurally cannot hold (see this file's header on responsible
+    // processes) and a running application animating under the pointer.
+    //
+    // What is left for a person is exactly one claim — that
+    // `LiveAXElementSource` asks the real API the right questions, and that
+    // the resulting distributions still look like F2-2's.
+    // `spikes/2026-08-02-pairing-latency/` is that step.
+
+    /// One node of a synthetic accessibility tree. Deliberately holds the same
+    /// shapes `AXElementSource` returns, so the fake cannot answer a question
+    /// the real one is not asked.
+    struct FakeNode {
+        var role: String?
+        var title: String?
+        var position: (x: Double, y: Double)?
+        var size: (width: Double, height: Double)?
+        var parent: Int?
+        var children: [Int]?
+    }
+
+    /// A synthetic AX hierarchy, with an independent count of the IPC round
+    /// trips it was asked for and an optional per-call delay.
+    ///
+    /// **The delay is what makes the wall-clock budget checkable at all.**
+    /// Without it every call returns instantly, `budgetExceeded` is
+    /// unreachable, and the branch that produces it would be dead code that
+    /// three green checks nonetheless report on.
+    ///
+    /// `calls` is counted here, by the thing making the calls, and compared
+    /// against the `axCalls` the observer writes into the record. Two
+    /// independent counts of one quantity: if the observer's arithmetic drifts
+    /// from what it actually asked for, this disagrees.
+    nonisolated final class FakeAXSource: AXElementSource, @unchecked Sendable {
+        typealias Element = Int
+
+        let nodes: [FakeNode]
+        let hitIndex: Int?
+        let microsecondsPerCall: UInt32
+        private let lock = NSLock()
+        private var _calls = 0
+        var calls: Int { lock.withLock { _calls } }
+
+        init(nodes: [FakeNode], hitIndex: Int?, microsecondsPerCall: UInt32 = 0) {
+            self.nodes = nodes
+            self.hitIndex = hitIndex
+            self.microsecondsPerCall = microsecondsPerCall
+        }
+
+        private func charge() {
+            lock.withLock { _calls += 1 }
+            if microsecondsPerCall > 0 { usleep(microsecondsPerCall) }
+        }
+
+        func hitTest(globalTopLeftX: Double, globalTopLeftY: Double) -> Int? { charge(); return hitIndex }
+        func role(of element: Int) -> String? { charge(); return nodes[element].role }
+        func title(of element: Int) -> String? { charge(); return nodes[element].title }
+        func position(of element: Int) -> (x: Double, y: Double)? { charge(); return nodes[element].position }
+        func size(of element: Int) -> (width: Double, height: Double)? { charge(); return nodes[element].size }
+        func parent(of element: Int) -> Int? { charge(); return nodes[element].parent }
+        func children(of element: Int) -> [Int]? { charge(); return nodes[element].children }
+    }
+
+    /// A hit element with `ancestorDepth` ancestors above it and `children`
+    /// children below it, all with frames on the fixture's `scale: 2` display.
+    ///
+    /// `childrenAttributeAnswers == false` builds the element whose
+    /// `kAXChildrenAttribute` did not answer — the case that must not be
+    /// recorded the same way as an element with no children.
+    @MainActor
+    static func fakeTree(ancestorDepth: Int,
+                         children: Int,
+                         hitPosition: (x: Double, y: Double)? = (x: 2380, y: 250),
+                         hitSize: (width: Double, height: Double)? = (width: 100, height: 100),
+                         childrenAttributeAnswers: Bool = true) -> [FakeNode] {
+        // 0 is the hit element; 1...ancestorDepth are its ancestors, outermost
+        // last; the rest are its children.
+        let firstChild = ancestorDepth + 1
+        var nodes: [FakeNode] = [
+            FakeNode(role: "AXButton", title: "Save",
+                     position: hitPosition, size: hitSize,
+                     parent: ancestorDepth > 0 ? 1 : nil,
+                     children: childrenAttributeAnswers
+                        ? (children > 0 ? Array(firstChild..<(firstChild + children)) : [])
+                        : nil)
+        ]
+        for level in 1...max(ancestorDepth, 1) where ancestorDepth > 0 {
+            nodes.append(FakeNode(role: level == ancestorDepth ? "AXApplication" : "AXGroup",
+                                  title: nil,
+                                  position: (x: 1920, y: 0), size: (width: 1920, height: 1080),
+                                  parent: level < ancestorDepth ? level + 1 : nil,
+                                  children: nil))
+        }
+        for index in 0..<children {
+            nodes.append(FakeNode(role: "AXStaticText", title: nil,
+                                  position: (x: 2385 + Double(index) * 10, y: 255),
+                                  size: (width: 8, height: 8),
+                                  parent: 0, children: []))
+        }
+        return nodes
+    }
+
+    /// An `AXObserver` whose accessibility predicate is **always explicit**.
+    ///
+    /// Never `AXObserver(arrangement:epoch:)` in this file. That form
+    /// evaluates the default argument, which reads TCC — and a TCC read from
+    /// this binary reports the shell's grants, not this app's, for the reason
+    /// this file's header sets out at length. Routing every construction
+    /// through here makes "the probe asks TCC nothing" a property of one
+    /// function instead of a habit at nine call sites.
+    @MainActor
+    static func axObserver(_ arrangement: DisplayArrangement, _ epoch: BootEpoch,
+                           accessibilityGranted: Bool = true) -> AXObserver {
+        AXObserver(arrangement: arrangement, epoch: epoch,
+                   accessibilityIsGranted: { accessibilityGranted })
+    }
+
+    /// A `ButtonEvent` at a global point, converted by the REAL forward path.
+    ///
+    /// Built through `InputObserver.normalizedPosition` rather than by writing
+    /// a `NormalizedPoint` literal, because the whole question § 8.1 and § 8.4
+    /// ask is whether the reverse conversion undoes the forward one. A
+    /// hand-written normalised position would make both sides of that question
+    /// the same guess.
+    @MainActor
+    static func clickEvent(atGlobalX x: Double, y: Double,
+                           in arrangement: DisplayArrangement, epoch: BootEpoch) -> ButtonEvent? {
+        guard let converted = InputObserver.normalizedPosition(globalTopLeftX: x, globalTopLeftY: y,
+                                                               in: arrangement) else { return nil }
+        return ButtonEvent(instant: HostInstant(epoch: epoch, hostTime: Minting.hostNow()),
+                           position: converted.position, revision: converted.revision,
+                           button: .left, phase: .down)
+    }
+
+    @MainActor
+    static func theReverseConversion() {
+        let (arrangement, main, retina) = fixtureArrangement()
+        check(retina.scale == 2 && main.scale == 1,
+              "fixture sanity: the reverse conversion is checked against the scale: 2 display, where "
+              + "the pixels→points step is not the identity",
+              actual: "main \(main.scale), retina \(retina.scale)", expected: "1 and 2")
+
+        let globalX = 2400.0, globalY = 270.0
+        guard let forward = InputObserver.normalizedPosition(globalTopLeftX: globalX,
+                                                             globalTopLeftY: globalY,
+                                                             in: arrangement) else {
+            check(false, "a point on the scale: 2 display must route somewhere")
+            return
+        }
+        guard let back = AXObserver.globalPoint(of: forward.position, revision: forward.revision,
+                                                in: arrangement) else {
+            check(false, "the reverse conversion must find the display its own revision names")
+            return
+        }
+        print("        forward: (\(globalX), \(globalY)) pt → \(forward.position)")
+        print("        reverse: → (\(back.x), \(back.y)) pt")
+        check(back.x == globalX && back.y == globalY,
+              "the reverse conversion returns the exact global point the forward one started from — "
+              + "this is the coordinate AXUIElementCopyElementAtPosition is handed",
+              actual: "(\(back.x), \(back.y))", expected: "(\(globalX), \(globalY))")
+
+        // The two ways to get the reverse wrong, computed explicitly — neither
+        // fails to compile, neither produces an out-of-range value, and both
+        // collapse onto the right answer at scale: 1.
+        let pixels = NormalizationContext(geometry: retina).denormalize(
+            NormalizedFrame(origin: forward.position, size: NormalizedSize(width: 0, height: 0),
+                            revision: retina.revision))
+        let skippingThePointStep = (x: 1920 + pixels.x, y: 0 + pixels.y)
+        check(back.x != skippingThePointStep.x,
+              "handing denormalize's PIXELS straight back into the global space gives a different, "
+              + "plausible point — off by exactly the display's scale",
+              actual: "correct \(back.x) vs pixel-valued \(skippingThePointStep.x)")
+        let points = retina.points(from: pixels)
+        check(back.x != points.x,
+              "and forgetting the display's global origin gives a point on the wrong display "
+              + "entirely, which would still return a real element",
+              actual: "correct \(back.x) vs unplaced \(points.x)")
+
+        // A revision this arrangement does not contain: no point, not a
+        // nearest-display guess.
+        check(AXObserver.globalPoint(of: forward.position,
+                                     revision: GeometryRevision(id: 0xdead_beef_dead_beef),
+                                     in: arrangement) == nil,
+              "a click whose revision names no attached display yields NO point — a guessed one "
+              + "would hit-test a real element at a place the click never was")
+    }
+
+    /// `CGGeometryBridge.point(fromAXValue:)` and `.size(fromAXValue:)`, against
+    /// values built the way the accessibility API builds them.
+    ///
+    /// **This is the check the `NSValue` cast next door did not have.**
+    /// `pointRect(fromFrameAttachment:)` was `as? NSValue` alone for a whole
+    /// task: the cast failed silently on every frame of every recording, and
+    /// nothing caught it because the only thing exercising that function was
+    /// the live path. These two decoders have exactly the same shape — a
+    /// `CFTypeRef` of an opaque type, a type-ID guard, and an out-parameter
+    /// that stays zero when the call refuses — and exactly the same failure
+    /// mode: a zeroed point is an element at the top-left corner of the main
+    /// display, which is a legal-looking answer.
+    ///
+    /// `AXValueCreate` needs no permission and no running application, so
+    /// there is no reason for this to be left to the live path.
+    @MainActor
+    static func theAXValueDecoders() {
+        var point = CGPoint(x: 1234.5, y: -67.25)
+        let pointValue = AXValueCreate(.cgPoint, &point)
+        var size = CGSize(width: 800.75, height: 600.5)
+        let sizeValue = AXValueCreate(.cgSize, &size)
+
+        let decodedPoint = CGGeometryBridge.point(fromAXValue: pointValue)
+        check(decodedPoint?.x == 1234.5 && decodedPoint?.y == -67.25,
+              "an AXValue holding a position decodes to the exact scalars it was built from — "
+              + "including a NEGATIVE origin, which is an ordinary coordinate for a display placed "
+              + "left of or above the main one",
+              actual: "\(decodedPoint as (x: Double, y: Double)?)", expected: "(1234.5, -67.25)")
+        let decodedSize = CGGeometryBridge.size(fromAXValue: sizeValue)
+        check(decodedSize?.width == 800.75 && decodedSize?.height == 600.5,
+              "and an AXValue holding a size decodes to its own scalars, not the position's",
+              actual: "\(decodedSize as (width: Double, height: Double)?)", expected: "(800.75, 600.5)")
+
+        // The wrong AXValue TYPE. `AXValueGetValue` refuses and leaves the
+        // out-parameter alone, so a decoder that ignored its return value
+        // would hand back (0, 0) — an element at the corner of the display,
+        // which is where a wrongly-placed zoom would go.
+        check(CGGeometryBridge.point(fromAXValue: sizeValue) == nil,
+              "a size AXValue read as a position yields NIL, not the zeroed point AXValueGetValue "
+              + "leaves behind when it refuses",
+              actual: "\(CGGeometryBridge.point(fromAXValue: sizeValue) as (x: Double, y: Double)?)")
+        check(CGGeometryBridge.size(fromAXValue: pointValue) == nil,
+              "and the same in the other direction",
+              actual: "\(CGGeometryBridge.size(fromAXValue: pointValue) as (width: Double, height: Double)?)")
+
+        // Not an AXValue at all — what an attribute that answered with a
+        // string, or a number, would give.
+        check(CGGeometryBridge.point(fromAXValue: "AXButton" as CFTypeRef) == nil,
+              "a CFTypeRef that is not an AXValue is refused by the type-ID guard, which is the "
+              + "guard the NSValue cast one function over did not have")
+        check(CGGeometryBridge.point(fromAXValue: nil) == nil
+                && CGGeometryBridge.size(fromAXValue: nil) == nil,
+              "and an attribute that did not answer at all decodes to nothing")
+    }
+
+    @MainActor
+    static func theFrameConversion() {
+        let (arrangement, _, retina) = fixtureArrangement()
+
+        // The expectation, computed from the fixture rather than typed. An AX
+        // frame is global top-left POINTS, like CGEventGetLocation.
+        let axX = 2400.0, axY = 270.0, axW = 100.0, axH = 50.0
+        let localX = axX - 1920, localY = axY
+        let pixelX = localX * retina.scale, pixelY = localY * retina.scale
+        let pixelW = axW * retina.scale, pixelH = axH * retina.scale
+        let expectedOriginX = pixelX / Double(retina.pixelWidth)
+        // The BOTTOM edge, which is what makes this different from the point
+        // formula: 1 - ((topLeftY + height) / pixelHeight).
+        let expectedOriginY = 1 - ((pixelY + pixelH) / Double(retina.pixelHeight))
+        print("        expected, computed from the fixture: origin (\(expectedOriginX), \(expectedOriginY))")
+
+        check(axH > 0,
+              "fixture sanity: the frame has a non-zero height, which is the only thing that makes "
+              + "the bottom-edge anchor distinguishable from the top-edge one",
+              actual: "\(axH)")
+
+        guard let frame = AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
+                                                     width: axW, height: axH,
+                                                     in: arrangement) else {
+            check(false, "an AX frame on the scale: 2 display must route somewhere")
+            return
+        }
+        check(frame.origin == NormalizedPoint(x: expectedOriginX, y: expectedOriginY),
+              "an AX frame lands at its computed normalised origin",
+              actual: "(\(frame.origin.x), \(frame.origin.y))",
+              expected: "(\(expectedOriginX), \(expectedOriginY))")
+        check(frame.size == NormalizedSize(width: pixelW / Double(retina.pixelWidth),
+                                           height: pixelH / Double(retina.pixelHeight)),
+              "and at its computed normalised size — the points→pixels step applies to the "
+              + "dimensions too, not only to the origin",
+              actual: "\(frame.size.width)×\(frame.size.height)")
+        check(frame.revision == retina.revision,
+              "the frame carries the revision of the display its ORIGIN routed to, which is what "
+              + "AXChainRecord.clickContainment compares against the click's own revision",
+              actual: "\(frame.revision)", expected: "\(retina.revision)")
+
+        let topEdgeAnchored = 1 - (pixelY / Double(retina.pixelHeight))
+        check(frame.origin.y != topEdgeAnchored,
+              "anchoring the Y flip on the frame's TOP edge gives a different, plausible answer — "
+              + "wrong by exactly the frame's own height, which reads as a rounding bug and lands a "
+              + "zoom on the wrong control",
+              actual: "correct \(frame.origin.y) vs top-anchored \(topEdgeAnchored)")
+
+        check(AXObserver.normalizedFrame(globalTopLeftX: 9000, globalTopLeftY: 270,
+                                         width: axW, height: axH, in: arrangement) == nil,
+              "a frame whose origin is on no attached display normalises to nothing, rather than "
+              + "against whichever display happens to be first")
+        check(AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
+                                         width: axW, height: -1, in: arrangement) == nil,
+              "a negative dimension from a misbehaving application yields nil — PointRect.init "
+              + "would trap on it, and a trap in a walk that reads another process's UI is not a "
+              + "failure mode this row can have")
+    }
+
+    @MainActor
+    static func theWalkIsBounded() {
+        let (arrangement, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
+            check(false, "the fixture click must convert"); return
+        }
+
+        // ---- a complete walk, and the call arithmetic.
+        let plainSource = FakeAXSource(nodes: fakeTree(ancestorDepth: 3, children: 2), hitIndex: 0)
+        guard let complete = axObserver(arrangement, epoch)
+            .chain(at: click, source: plainSource) else {
+            check(false, "a hit element must produce a record"); return
+        }
+        check(complete.truncation == .reachedRoot,
+              "a walk that runs out of ancestors reports reachedRoot, not a cap",
+              actual: "\(complete.truncation)")
+        check(complete.ancestors.count == 3,
+              "all three ancestors are recorded, innermost first",
+              actual: "\(complete.ancestors.count)", expected: "3")
+        check(complete.ancestors.last?.role == "AXApplication",
+              "and the outermost one is the top of the tree — F2-3's tell that a walk completed",
+              actual: complete.ancestors.last?.role ?? "nil")
+        check(complete.children?.count == 2,
+              "one level down is recorded too (D2-3), or the row's preference for well-bounded "
+              + "descendants is unimplementable in derivation",
+              actual: "\(complete.children?.count as Int?)")
+        // 1 hit-test + 4 for the hit element + 3×(1 parent + 4) + 1 parent
+        // lookup that came back empty + 1 children attribute + 2×4 children.
+        let expectedCalls = 1 + 4 + 3 * 5 + 1 + 1 + 2 * 4
+        check(complete.axCalls == expectedCalls,
+              "the recorded AX call count is the round trips actually made — a frame costs TWO of "
+              + "them, which is where a walk's budget goes",
+              actual: "\(complete.axCalls)", expected: "\(expectedCalls)")
+        check(plainSource.calls == complete.axCalls,
+              "and the source's own independent count agrees with the record's",
+              actual: "source \(plainSource.calls) vs record \(complete.axCalls)")
+        check(complete.depthCap == AXObserver.depthCap
+                && complete.walkBudgetNanos == AXObserver.walkBudgetNanos,
+              "the bounds in force are recorded per observation, because the budget is a D4 "
+              + "placeholder and a log written under a different one is a different measurement",
+              actual: "depth \(complete.depthCap), budget \(complete.walkBudgetNanos) ns")
+
+        // ---- the depth cap.
+        let deep = axObserver(arrangement, epoch)
+        guard let capped = deep.chain(at: click,
+                                      source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 0),
+                                                           hitIndex: 0)) else {
+            check(false, "a deep tree must still produce a record"); return
+        }
+        check(capped.truncation == .depthCapReached,
+              "a 40-level hierarchy stops at the cap and says so",
+              actual: "\(capped.truncation)")
+        check(capped.ancestors.count == AXObserver.depthCap,
+              "exactly depthCap ancestors were recorded",
+              actual: "\(capped.ancestors.count)", expected: "\(AXObserver.depthCap)")
+        check(capped.children == [],
+              "and the children were still read: the depth cap is not the budget, and a capped walk "
+              + "has spent no measurable time (F2-2: capped walks completed in 4–13 ms)",
+              actual: "\(capped.children as [AXElementRecord]?)")
+
+        // ---- the wall-clock budget. 5 ms a call against a 35 ms budget, so
+        // the walk is cut off after a handful of levels while the depth cap is
+        // nowhere near — the two bounds catch different things (F2-2 § 4).
+        let slow = axObserver(arrangement, epoch)
+        guard let starved = slow.chain(at: click,
+                                       source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 0),
+                                                            hitIndex: 0,
+                                                            microsecondsPerCall: 5_000)) else {
+            check(false, "a slow source must still produce a record"); return
+        }
+        check(starved.truncation == .budgetExceeded,
+              "a source that blocks 5 ms a call exhausts the 35 ms budget and the record says which "
+              + "bound stopped it",
+              actual: "\(starved.truncation)")
+        check(starved.ancestors.count > 0 && starved.ancestors.count < AXObserver.depthCap,
+              "it stopped short of the depth cap, which is what makes this the OTHER bound",
+              actual: "\(starved.ancestors.count) ancestors of a possible \(AXObserver.depthCap)")
+        check(starved.ancestors.last?.role != "AXApplication",
+              "and it stopped at a mid-level container, not the top of the tree — F2-3: truncation "
+              + "drops the OUTERMOST ancestors, the ones least likely to be the camera's target",
+              actual: starved.ancestors.last?.role ?? "nil")
+
+        // ---- the hit-test returning nothing.
+        let empty = axObserver(arrangement, epoch)
+        guard let nothing = empty.chain(at: click,
+                                        source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
+                                                             hitIndex: nil)) else {
+            check(false, "a hit-test that returns nothing must still produce a record — the click "
+                  + "happened"); return
+        }
+        check(nothing.truncation == .hitTestReturnedNothing && nothing.hit == nil,
+              "no element under the pointer is a recorded fact with its own reason, not an absent "
+              + "record",
+              actual: "\(nothing.truncation), hit \(nothing.hit == nil ? "nil" : "present")")
+        check(nothing.axCalls == 1,
+              "and it cost exactly the one hit-test",
+              actual: "\(nothing.axCalls)", expected: "1")
+        check(empty.diagnostics.hitTestsReturnedNothingWithoutAccessibility == 0,
+              "with the grant present, an empty hit-test is attributed to the CLICK — there was "
+              + "nothing under the pointer",
+              actual: "\(empty.diagnostics.hitTestsReturnedNothingWithoutAccessibility)", expected: "0")
+
+        // The same click, the same source, the same empty answer — and a
+        // different attribution. Both directions, because a counter that only
+        // ever goes up on one of them is indistinguishable from one that is
+        // wired to a constant.
+        let blind = axObserver(arrangement, epoch, accessibilityGranted: false)
+        _ = blind.chain(at: click, source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
+                                                        hitIndex: nil))
+        check(blind.diagnostics.hitTestsReturnedNothing == 1
+                && blind.diagnostics.hitTestsReturnedNothingWithoutAccessibility == 1,
+              "without the grant the identical empty record is attributed to the PERMISSION — "
+              + "CapturePermission.accessibility's stated degradation is .noElementIdentity, and "
+              + "this is where a whole recording of empty chains says so instead of reading as a "
+              + "session where nobody clicked on anything",
+              actual: "nothing \(blind.diagnostics.hitTestsReturnedNothing), without the grant "
+                    + "\(blind.diagnostics.hitTestsReturnedNothingWithoutAccessibility)")
+
+        // ---- empty children versus absent children, the distinction the
+        // record type exists for.
+        let leafSource = FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0), hitIndex: 0)
+        let leafObserver = axObserver(arrangement, epoch)
+        let leaf = leafObserver.chain(at: click, source: leafSource)
+        check(leaf?.children == [],
+              "an element read and found to have no children records the EMPTY list",
+              actual: "\(leaf?.children as [AXElementRecord]??)")
+
+        let silentSource = FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0,
+                                                        childrenAttributeAnswers: false),
+                                        hitIndex: 0)
+        let silentObserver = axObserver(arrangement, epoch)
+        let silent = silentObserver.chain(at: click, source: silentSource)
+        check(silent?.children == nil,
+              "an element whose children attribute did not answer records NO list — on disk that is "
+              + "the difference between 'this is a leaf' and 'I never found out'",
+              actual: "\(silent?.children as [AXElementRecord]??)")
+        check(silentObserver.diagnostics.childrenAttributeUnavailable == 1
+                && silentObserver.diagnostics.childrenNotRead == 0,
+              "and the two ways to end up with no list are counted apart, even though the record "
+              + "spells them the same",
+              actual: "unavailable \(silentObserver.diagnostics.childrenAttributeUnavailable), "
+                    + "not read \(silentObserver.diagnostics.childrenNotRead)")
+    }
+
+    @MainActor
+    static func theRecordedElementIsCheckableAgainstTheClick() {
+        let (arrangement, main, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
+            check(false, "the fixture click must convert"); return
+        }
+
+        // ---- the positive direction: the element the hit-test returned
+        // really is under the click.
+        //
+        // The element's frame is global (2380, 250) 100×100 pt, which contains
+        // (2400, 270); the click's position is whatever the REAL forward
+        // conversion produced. Nothing here is hand-normalised, so the check
+        // spans both conversions and the walk.
+        let containing = axObserver(arrangement, epoch)
+        guard let record = containing.chain(at: click,
+                                            source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1,
+                                                                                 children: 0),
+                                                                 hitIndex: 0)) else {
+            check(false, "the click must produce a record"); return
+        }
+        check(record.hitTestGlobalX == 2400 && record.hitTestGlobalY == 270,
+              "the record carries the global point the hit-test was ACTUALLY performed at — without "
+              + "it, 'asked at the wrong place' and 'asked at the right place, answered wrongly' are "
+              + "the same record",
+              actual: "(\(record.hitTestGlobalX), \(record.hitTestGlobalY))", expected: "(2400.0, 270.0)")
+        check(record.clickContainment == .containsTheClick,
+              "the click falls inside the returned element's own frame, computed from the record "
+              + "alone — no re-running, no arrangement needed",
+              actual: "\(record.clickContainment)")
+        check(containing.diagnostics.clickInsideTheHitFrame == 1
+                && containing.diagnostics.clickOutsideTheHitFrame == 0,
+              "and the standing instrument agrees with what a reader would recompute",
+              actual: containing.diagnostics.accounting)
+
+        // ---- the negative direction, which is the whole point: a click
+        // outside the returned element's frame is a COORDINATE fault, and it
+        // must not be attributable to AX staleness. The element below sits at
+        // global (2000, 250) 50×50 pt — nowhere near the click.
+        let elsewhere = axObserver(arrangement, epoch)
+        guard let wrong = elsewhere.chain(
+            at: click,
+            source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0,
+                                                 hitPosition: (x: 2000, y: 250),
+                                                 hitSize: (width: 50, height: 50)),
+                                 hitIndex: 0)) else {
+            check(false, "the click must produce a record"); return
+        }
+        check(wrong.clickContainment == .doesNotContainTheClick,
+              "an element that does not contain the click is reported as such — this is the check "
+              + "that could not fail if the conversion were wrong in either direction",
+              actual: "\(wrong.clickContainment)")
+        check(elsewhere.diagnostics.clickOutsideTheHitFrame == 1,
+              "and it lands in the counter that reads as 'the coordinate path is wrong' when it "
+              + "equals the click count, rather than disappearing into a boolean",
+              actual: elsewhere.diagnostics.accounting)
+
+        // ---- neither fault: the element's origin is on the OTHER display, so
+        // the two normalised frames are not comparable at all. A window
+        // straddling two displays does this legitimately.
+        let straddling = axObserver(arrangement, epoch)
+        let acrossDisplays = straddling.chain(
+            at: click,
+            source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0,
+                                                 hitPosition: (x: 100, y: 100),
+                                                 hitSize: (width: 4000, height: 400)),
+                                 hitIndex: 0))
+        check(acrossDisplays?.hit?.frame?.revision == main.revision,
+              "fixture sanity: that element's frame normalised against the OTHER display",
+              actual: "\(acrossDisplays?.hit?.frame?.revision as GeometryRevision??)")
+        check(acrossDisplays?.clickContainment == .notComparable,
+              "two frames from two displays are not comparable, and the record says so rather than "
+              + "trapping the way NormalizedFrame.contains would — this is neither a coordinate "
+              + "fault nor a timing one",
+              actual: "\(acrossDisplays?.clickContainment as ClickContainment??)")
+
+        // ---- the timing half of the same split, from the same record.
+        check(record.clickToHitTestAnswerNanos.map { $0 >= 0 } == true,
+              "the record also carries the timing exposure — click stamp to hit-test answer — so "
+              + "the two candidate explanations are separable from one record",
+              actual: "\(record.clickToHitTestAnswerNanos as Int64?) ns")
+        check(record.hitTestInterval.duration.rawValue >= 0
+                && record.hitTestInterval.epoch == click.instant.epoch,
+              "and the interval is on the click's own clock, which is what makes that subtraction "
+              + "mean anything",
+              actual: "\(record.hitTestInterval.duration.rawValue) ns")
+    }
+
+    @MainActor
+    static func theAXDiagnosticsBalance() {
+        let (arrangement, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        let observer = axObserver(arrangement, epoch)
+        guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
+            check(false, "the fixture click must convert"); return
+        }
+
+        // Four clicks over three different outcomes, plus one that cannot be
+        // converted back to a global point at all.
+        _ = observer.chain(at: click, source: FakeAXSource(nodes: fakeTree(ancestorDepth: 2, children: 1),
+                                                           hitIndex: 0))
+        _ = observer.chain(at: click, source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 0),
+                                                           hitIndex: 0))
+        _ = observer.chain(at: click, source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
+                                                           hitIndex: nil))
+        let stale = ButtonEvent(instant: click.instant, position: click.position,
+                                revision: GeometryRevision(id: 0x5747_0000_0000_0001),
+                                button: .left, phase: .down)
+        let noRecord = observer.chain(at: stale,
+                                      source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
+                                                           hitIndex: 0))
+
+        let d = observer.diagnostics
+        print("        " + d.accounting.replacingOccurrences(of: "\n", with: "\n        "))
+        check(noRecord == nil,
+              "a click whose revision names no attached display produces NO record — not one "
+              + "hit-tested at a guessed point")
+        check(d.clicksObserved == 4 && d.chainsRecorded == 3 && d.clicksWithNoGlobalPoint == 1,
+              "every click is accounted for: three recorded, one unconvertible",
+              actual: "observed \(d.clicksObserved), recorded \(d.chainsRecorded), "
+                    + "no point \(d.clicksWithNoGlobalPoint)")
+        check(d.everyClickIsAccountedFor,
+              "clicks = records + clicks with no global point — the conservation law that makes "
+              + "'the arrangement went stale' a statement rather than a gap in the log")
+        check(d.everyRecordHasATruncationReason,
+              "records = reachedRoot + depthCapReached + budgetExceeded + hitTestReturnedNothing",
+              actual: d.accounting)
+        check(d.everyRecordHasAContainmentVerdict,
+              "records = inside + outside + not comparable + no frame + no element — the coordinate "
+              + "instrument covers every record, so a run cannot be silently missing verdicts",
+              actual: d.accounting)
+        check(d.hitTestsReturnedNothing == 1 && d.recordsWithNoHitElement == 1,
+              "the empty hit-test appears in both laws, once each",
+              actual: "\(d.hitTestsReturnedNothing) and \(d.recordsWithNoHitElement)")
+        check(d.nonMonotonicClockReadings == 0,
+              "and no interval was measured backwards — the readings come from one monotonic clock",
+              actual: "\(d.nonMonotonicClockReadings)")
     }
 }

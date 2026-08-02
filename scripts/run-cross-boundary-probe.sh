@@ -50,7 +50,10 @@ xcrun swiftc \
   Soredemo/Capture/AudioInterleave.swift \
   Soredemo/Capture/CaptureSession.swift \
   Soredemo/Capture/CaptureError.swift \
+  Soredemo/App/BuildProvenance.swift \
+  Soredemo/Capture/CapturePermissions.swift \
   Soredemo/Capture/InputObserver.swift \
+  Soredemo/Capture/AXObserver.swift \
   Soredemo/UI/ProjectDocument.swift \
   scripts/cross-boundary-digest-probe.swift
 

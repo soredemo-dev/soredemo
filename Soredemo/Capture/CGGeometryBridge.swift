@@ -1,3 +1,10 @@
+// For `AXValue`, `AXValueGetTypeID()` and `AXValueGetValue` in
+// `point(fromAXValue:)`/`size(fromAXValue:)`. An accessibility element's
+// position and size arrive as `AXValue`s that decode into a `CGPoint` and a
+// `CGSize`, and this is the only file allowed to name either — so the import
+// belongs here rather than in `AXObserver`, which would then be holding the
+// decoded CoreGraphics values.
+import ApplicationServices
 import CoreGraphics
 // For `NSValue`/`NSDictionary` in `pointRect(fromFrameAttachment:)`. A
 // ScreenCaptureKit frame attachment arrives as one of those two Objective-C
@@ -150,6 +157,58 @@ enum CGGeometryBridge {
             return pointRect(from: rect)
         }
         return nil
+    }
+
+    // MARK: - accessibility → package (Task 10)
+
+    /// Decodes an `AXValue` holding a position into bare scalars, in
+    /// **points**, in the global top-left space — what `kAXPositionAttribute`
+    /// reports, the same space `CGEventGetLocation` reports in.
+    ///
+    /// **This is the hardest case rule 5 has had, and it is solved here rather
+    /// than at the call site.** An AX frame is a `CGRect` in two halves:
+    /// `kAXFrameAttribute` is not exposed to Swift, so `AXObserver` reads
+    /// `kAXPositionAttribute` and `kAXSizeAttribute` separately — two IPC
+    /// round trips per element, not one — and each answer arrives as an
+    /// `AXValue` that only `AXValueGetValue` can open, into a `CGPoint` or a
+    /// `CGSize`. Every route into those two types therefore passes through the
+    /// two functions below, and `AXObserver` never names one.
+    ///
+    /// **Scalars, not `PointRect`, and the two halves stay separate.** Pairing
+    /// them into a rectangle here would hide the fact that they are two
+    /// distinct reads at two distinct moments — which is precisely what the
+    /// per-element interval in `AXElementRecord` exists to expose (D2-2a), and
+    /// what makes the call count in `AXChainRecord.axCalls` add up. The caller
+    /// assembles the `PointRect`, guarding the dimensions, because the caller
+    /// is the one holding both readings and their timing.
+    ///
+    /// `nil` when the attribute did not answer, when what came back is not an
+    /// `AXValue` at all, or when `AXValueGetValue` refuses the requested type
+    /// — three ways for one call to fail that a caller counts as one absence.
+    /// A zeroed `CGPoint` would be an element at the top-left corner of the
+    /// main display, which is a legal answer and would be wrong.
+    ///
+    /// **Non-finite values are returned as they are, not filtered.** This
+    /// file's own header says a non-finite rectangle traps in
+    /// `PointRect.init`; the caller checks `isFinite` where it still has the
+    /// context to say which element misreported itself, exactly as the header
+    /// prescribes for `CGRect.null`.
+    nonisolated static func point(fromAXValue value: CFTypeRef?) -> (x: Double, y: Double)? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
+        return (Double(point.x), Double(point.y))
+    }
+
+    /// Decodes an `AXValue` holding a size into bare scalars, in **points** —
+    /// what `kAXSizeAttribute` reports. See `point(fromAXValue:)` for why the
+    /// two halves of an AX frame are decoded separately and why the result is
+    /// scalars.
+    nonisolated static func size(fromAXValue value: CFTypeRef?) -> (width: Double, height: Double)? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
+        return (Double(size.width), Double(size.height))
     }
 
     // MARK: - package → CoreGraphics
