@@ -44,33 +44,12 @@ import Geometry
 // simplification for a throwaway tool, not the product-grade answer
 // `BuildProvenance`'s own doc comment insists on for `Soredemo.app` — labelled
 // as such below so nobody mistakes one for the other.
-func printIdentityBlock(step: String) {
-    let bundle = Bundle.main
-    let v = ProcessInfo.processInfo.operatingSystemVersion
-    var commit = "unknown"
-    let proc = Process()
-    proc.executableURL = URL(filePath: "/usr/bin/git")
-    proc.arguments = ["-C", URL(filePath: #filePath).deletingLastPathComponent().path(), "rev-parse", "--short", "HEAD"]
-    let pipe = Pipe()
-    proc.standardOutput = pipe
-    proc.standardError = FileHandle.nullDevice
-    if (try? proc.run()) != nil {
-        proc.waitUntilExit()
-        if let data = try? pipe.fileHandleForReading.readToEnd(), let s = String(data: data, encoding: .utf8) {
-            commit = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-    print("""
-    ── Spike B / Task 8 verification — step: \(step) ──
-    commit (read at launch, NOT baked — throwaway spike, not BuildProvenance): \(commit)
-    macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)
-    bundle identifier : \(bundle.bundleIdentifier ?? "nil")
-    executable path   : \(bundle.executablePath ?? "nil")
-    inside a .app     : \(bundle.bundlePath.hasSuffix(".app") ? "yes" : "no")
-    pid               : \(ProcessInfo.processInfo.processIdentifier)
-    ──
-    """)
-}
+/// The identity block, the expectation table and the positive control now
+/// live in `spikes/shared/VerificationStep.swift`. Tasks 6, 7 and 8 each grew
+/// their own copy; four more manual steps are coming, and the seventh
+/// re-derivation is a worse time to notice than the fourth.
+let repositoryPath = URL(filePath: #filePath).deletingLastPathComponent()
+    .deletingLastPathComponent().deletingLastPathComponent().path()
 
 // A temporary directory, NOT the home directory. Standing constraint: a
 // spike's capture output goes to temp only and is deleted afterwards —
@@ -456,7 +435,8 @@ func printDiagnostics(_ d: CaptureSession.Diagnostics) {
 // ------------------------------------------------------------- Step 1: video
 
 func runVideoOnly(seconds: Int) async throws {
-    printIdentityBlock(step: "1 — video only, no audio, WINDOW capture (D2-13a)")
+    var step = VerificationStep(name: "1 — video only, no audio, WINDOW capture (D2-13a)")
+    step.begin(repositoryPath: repositoryPath)
     print("""
     Expect BEFORE running:
       - a real NSWindow this process creates, deliberately SMALLER than the
@@ -506,8 +486,7 @@ func runVideoOnly(seconds: Int) async throws {
 
     let content = try await SCShareableContent.currentProcess
     guard let scWindow = content.windows.first(where: { $0.title == testWindow.title }) else {
-        print("FAIL — the test window did not appear in SCShareableContent.currentProcess; cannot proceed.")
-        exit(6)
+        step.preconditionFailed("the test window did not appear in SCShareableContent.currentProcess.")
     }
 
     // D2-13a: the buffer is sized to the DISPLAY's own native pixels, not
@@ -524,10 +503,10 @@ func runVideoOnly(seconds: Int) async throws {
           "— must be SMALLER than the buffer above (in the same units) for this check to mean anything")
     guard Double(testWindow.frame.width) * scale < Double(bufferSize.width),
           Double(testWindow.frame.height) * scale < Double(bufferSize.height) else {
-        print("FAIL — the test window is not smaller than the display-sized buffer on this machine; " +
-              "the ContentScale check below would be vacuous (the identity-transform case this step exists " +
-              "to avoid). Shrink the window in this file and re-run.")
-        exit(7)
+        step.preconditionFailed("the test window is not smaller than the display-sized buffer on " +
+                                "this machine, so the ContentScale check would be vacuous — the " +
+                                "identity-transform case this step exists to avoid. Shrink the " +
+                                "window in this file and re-run.")
     }
 
     let source = CaptureSource.window(scWindow, bufferSize: bufferSize)
@@ -548,23 +527,19 @@ func runVideoOnly(seconds: Int) async throws {
     // who knew the implementation. A derived table cannot degrade into "a
     // black bar was visible, so it passed".
     let expected = source.destinationRect(scale: scale)
-    print("""
-
-    ---- EXPECTED, computed before recording ----
-      buffer (pixels)            \(bufferSize.width) x \(bufferSize.height)
-      destinationRect being set  x \(Int(expected.x)) y \(Int(expected.y)) \
-    w \(Int(expected.width)) h \(Int(expected.height))
-      content will span          x ∈ [\(Int(expected.x)), \(Int(expected.x + expected.width))], \
-    y ∈ [\(Int(expected.y)), \(Int(expected.y + expected.height))]
-      right-edge samples at      x = \(Int(expected.x + expected.width) - 4) (inside, NOT black) \
-    and \(Int(expected.x + expected.width) + 4) (outside, black)
-      per-frame contentRect      must come back as \(Int(expected.width / scale)) x \
-    \(Int(expected.height / scale)) points at (\(Int(expected.x / scale)), \(Int(expected.y / scale)))
-      ContentScale               1.0 on every frame — the destination matches the source size,
-                                 so there is nothing to resample
-      frame accounting           must balance, and every audio track's too
-    ---------------------------------------------
-    """)
+    step.expect([
+        ("buffer (pixels)", "\(bufferSize.width) x \(bufferSize.height)"),
+        ("destinationRect being set", "x \(Int(expected.x)) y \(Int(expected.y)) " +
+                                      "w \(Int(expected.width)) h \(Int(expected.height))"),
+        ("content will span", "x ∈ [\(Int(expected.x)), \(Int(expected.x + expected.width))], " +
+                              "y ∈ [\(Int(expected.y)), \(Int(expected.y + expected.height))]"),
+        ("right-edge samples at", "x = \(Int(expected.x + expected.width) - 4) (inside, NOT black) " +
+                                  "and \(Int(expected.x + expected.width) + 4) (outside, black)"),
+        ("per-frame contentRect", "\(Int(expected.width / scale)) x \(Int(expected.height / scale)) points " +
+                                  "at (\(Int(expected.x / scale)), \(Int(expected.y / scale)))"),
+        ("ContentScale", "1.0 on every frame — the destination matches the source size"),
+        ("frame accounting", "must balance"),
+    ])
 
     try await session.start()
     print("\nrecording \(seconds)s, video only, WINDOW capture, to \(packageDir.path()) ...")
@@ -597,24 +572,15 @@ func runVideoOnly(seconds: Int) async throws {
     // the claim together — a checked count of zero FAILS, it does not
     // silently satisfy the "all frames had ContentScale == 1" claim.
     let checked = session.diagnostics.contentScaleCheckedCount
-    let passing = checked - session.diagnostics.resampledFrameCount
-    if checked == 0 {
-        print("\nFAIL — checked 0 frames for ContentScale. Zero is not a pass; nothing was verified.")
-    } else if passing == checked {
-        // The subject is named in the sentence, deliberately. The previous
-        // wording — "PASS — checked 112 frames, 112 > 0, of which 112 had
-        // ContentScale == 1" — was true of a run whose output file was zero
-        // bytes. Every frame the STREAM delivered was unresampled; not one
-        // of them reached a FILE. Both halves have to appear or the pass
-        // reads as something it never claimed.
-        print("\nPASS (about the STREAM, not the file) — of the frames ScreenCaptureKit delivered, " +
-              "checked \(checked), \(checked) > 0, of which \(passing) had ContentScale == 1.")
-        print("Whether any of them were written is the `video appends accepted` line above, " +
-              "and whether the file exists is the check below.")
-    } else {
-        print("\nFAIL — checked \(checked) frames, of which only \(passing) had ContentScale == 1 " +
-              "(\(checked - passing) were resampled). The master was NOT unresampled here — see D2-8.")
-    }
+    let appendedResampled = session.diagnostics.appendedResampledFrameCount
+    step.check("ContentScale was readable on \(checked) frames, and \(checked) > 0 — a checked count " +
+               "of zero would satisfy \"every checked frame had ContentScale == 1\" vacuously",
+               checked > 0)
+    step.check("no resampled frame reached the MASTER — \(appendedResampled) appended, of " +
+               "\(session.diagnostics.resampledFrameCount) delivered resampled",
+               appendedResampled == 0)
+    step.check("every complete frame is accounted for — \(session.diagnostics.frameAccounting)",
+               session.diagnostics.everyCompleteFrameIsAccountedFor)
 
     let mediaURL = packageDir.appending(path: "media/master-00.mov")
     // Checked rather than left to `analyse` throwing out of `main`. When the
@@ -622,20 +588,20 @@ func runVideoOnly(seconds: Int) async throws {
     // `assetProperty_Tracks` — which reads as "the movie is malformed" and
     // sent the first diagnosis at the writer. The file did not exist at all.
     guard FileManager.default.fileExists(atPath: mediaURL.path()) else {
-        print("\nFAIL — no file at \(mediaURL.path()). The recording did not reach the package. " +
-              "The `segments discarded` lines above say why; if that count is 0 too, then nothing " +
-              "in this process knows, which is itself the finding.")
-        exit(8)
+        step.check("a master file exists at \(mediaURL.path())", false)
+        step.finish(remedy: "The recording did not reach the package. The `segments discarded` lines " +
+                            "above say why; if that count is 0 too, then nothing in this process " +
+                            "knows, which is itself the finding.")
     }
+    step.check("a master file exists in the package", true)
     try await analyse(mediaURL)
     try await checkPaddingGeometry(mediaURL, contentRect: session.diagnostics.lastContentRect,
                                    scale: scale, bufferSize: bufferSize,
                                    chosen: session.diagnostics.configuredDestinationRect)
-    print("\nOptional, and NOT the check: open \"\(mediaURL.path())\" if you want to see it. " +
-          "The eye is good at noticing things and bad at confirming them — the padding was verified " +
-          "against computed coordinates above, not by looking.")
+    for (what, ok) in paddingChecks { step.check(what, ok) }
+    step.finish(remedy: "Padding present but not at the computed boundary means the buffer layout and " +
+                        "contentRect disagree — D2-13a's mapping is what is wrong, not the picture.")
 }
-
 
 // ------------------------------------------------- padding, measured
 
@@ -776,13 +742,14 @@ func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
         ("x=\(justOutside), 4 px OUTSIDE the computed \(edgeName) edge, is black", isBlack(justOutside)),
         ("x=\(justInside), 4 px INSIDE the computed \(edgeName) edge, is NOT black", !isBlack(justInside)),
     ]
-    for (what, ok) in checks { print("  \(ok ? "ok  " : "FAIL") \(what)") }
-    print(checks.allSatisfy { $0.1 } && matchesChosen
-          ? "PASS — the padding is where contentRect × scale says it is, not merely present. " +
-            "Content is anchored at the buffer origin; the padding is to the \(edgeName.lowercased())."
-          : "FAIL — padding exists but is not at the computed boundary. The buffer layout and " +
-            "contentRect disagree; D2-13a's mapping is what is wrong, not the picture.")
+    paddingChecks = checks + [("the per-frame contentRect × scale equals the destinationRect this " +
+                               "process chose", matchesChosen)]
 }
+
+/// Filled by `checkPaddingGeometry`, read by step 1's `finish`. A global
+/// rather than a return value only because the function has several early
+/// exits that each already print their own reason.
+nonisolated(unsafe) var paddingChecks: [(String, Bool)] = []
 
 func sampleRow(_ image: CGImage, y: Int) -> [(r: Int, g: Int, b: Int)]? {
     let width = image.width
@@ -806,7 +773,8 @@ func sampleRow(_ image: CGImage, y: Int) -> [(r: Int, g: Int, b: Int)]? {
 // ------------------------------------------------------------- Step 2: audio
 
 func runAudioTones(seconds: Int) async throws {
-    printIdentityBlock(step: "2 — two audio sources, distinguishable tones")
+    var step = VerificationStep(name: "2 — two audio sources, distinguishable tones")
+    step.begin(repositoryPath: repositoryPath)
     print("""
     ***  USE HEADPHONES.  ***
     Not a preference — assertion 4 is "the microphone track does NOT contain
@@ -850,9 +818,9 @@ func runAudioTones(seconds: Int) async throws {
         _ = await AVCaptureDevice.requestAccess(for: .audio)
     }
     guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
-        print("ABORTING — without microphone access this experiment cannot be read (one silent track " +
-              "would be indistinguishable from a real 'mic dropped' result). Grant it and re-run.")
-        exit(4)
+        step.preconditionFailed("without microphone access this experiment cannot be read — one " +
+                                "silent track would be indistinguishable from a real 'mic dropped' " +
+                                "result. Grant it and re-run.")
     }
 
     // Which microphone, printed rather than assumed.
@@ -926,15 +894,14 @@ func runAudioTones(seconds: Int) async throws {
                  systemLive ? "LIVE" : "SILENT", pre.systemAudioAccounting.peakRMS ?? 0,
                  micLive ? "LIVE" : "SILENT", pre.microphoneAccounting.peakRMS ?? 0, silenceFloor))
     guard systemLive, micLive else {
-        print("\nABORTING before recording — " +
+        engine.stop()
+        step.preconditionFailed(
               (!systemLive && !micLive ? "NEITHER source is carrying signal."
                : !systemLive ? "the SYSTEM AUDIO source is silent: either the 440 is not reaching the "
                              + "capture path, or the output device produces nothing capturable."
                : "the MICROPHONE is silent: the 1 kHz tone is not reaching it, or the input device is muted.")
-              + "\nA recording made now would produce one silent track, which is exactly what a real " +
+              + " A recording made now would produce one silent track, which is exactly what a real " +
               "failure looks like — and the two would not be distinguishable afterwards.")
-        engine.stop()
-        exit(5)
     }
     // ---- PRECONDITION 2: the acoustic path, checked BEFORE spending 30s ----
     //
@@ -961,17 +928,16 @@ func runAudioTones(seconds: Int) async throws {
             print(String(format: "  acoustic leakage into the microphone: 440 Hz is %@ of the 1 kHz tone",
                          leak <= 0 ? "0" : (leak >= 1 ? String(format: "%.2f", leak) : "1/\(Int((1/leak).rounded()))")))
             guard leak <= foreignToneCeiling else {
-                print("\nABORTING before recording — the 440 Hz this process is playing is reaching the " +
-                      "MICROPHONE loudly enough that assertion 4 could not be read afterwards. " +
-                      "That assertion asks whether the two tracks are mixed; with the speakers audible " +
-                      "it would instead be measuring the room, and a failure would be indistinguishable " +
-                      "from real mixing.")
-                print("Put HEADPHONES on (or mute the speakers) and re-run. Note assertion 2 — the other " +
-                      "direction — needs no such condition: nothing in the room can reach a digitally " +
-                      "captured system stream.")
                 engine.stop()
                 try? FileManager.default.removeItem(at: verificationDir)
-                exit(6)
+                step.preconditionFailed(
+                      "the 440 Hz this process is playing is reaching the MICROPHONE loudly enough " +
+                      "that assertion 4 could not be read afterwards. That assertion asks whether the " +
+                      "two tracks are mixed; with the speakers audible it would instead be measuring " +
+                      "the room, and a failure would be indistinguishable from real mixing.\n" +
+                      "Put HEADPHONES on (or mute the speakers) and re-run. Note assertion 2 — the " +
+                      "other direction — needs no such condition: nothing in the room can reach a " +
+                      "digitally captured system stream.")
             }
         }
     }
@@ -1003,8 +969,8 @@ func runAudioTones(seconds: Int) async throws {
 
     let mediaURL = packageDir.appending(path: "media/master-00.mov")
     guard FileManager.default.fileExists(atPath: mediaURL.path()) else {
-        print("\nFAIL — no file at \(mediaURL.path()); the four assertions have nothing to run against.")
-        exit(8)
+        step.check("a master file exists at \(mediaURL.path())", false)
+        step.finish()
     }
     // Read ONCE. `analyse` is handed the result rather than re-reading, so
     // there is one producer for every number below.
@@ -1014,9 +980,9 @@ func runAudioTones(seconds: Int) async throws {
     try await analyse(mediaURL, preRead: tones)
 
     guard audioTracks.count == 2 else {
-        print("\nFAIL — expected 2 audio tracks, got \(audioTracks.count). The four assertions cannot run. " +
-              "Note this is the WEAK check: 2 tracks would not have proved separation either.")
-        exit(9)
+        step.check("the file has 2 audio tracks, not \(audioTracks.count) — the WEAK check, since 2 " +
+                   "tracks would not have proved separation either", false)
+        step.finish()
     }
 
     // Identified by FORMAT — the layouts the session measured on the way in,
@@ -1029,11 +995,11 @@ func runAudioTones(seconds: Int) async throws {
     print("  microphone:   \(d.microphoneLayout ?? "(none)")")
     guard let systemTrack = tones.first(where: { $0.channels == 2 }),
           let micTrack = tones.first(where: { $0.channels == 1 }) else {
-        print("\nFAIL — could not tell the two tracks apart by format " +
-              "(\(tones.map(\.formatDescription).joined(separator: ", "))). " +
-              "Identifying them by tone instead would make two of the four assertions circular, " +
-              "so this step refuses rather than falling back.")
-        exit(10)
+        step.check("the two tracks are distinguishable by FORMAT " +
+                   "(\(tones.map(\.formatDescription).joined(separator: ", "))) — identifying them by " +
+                   "tone instead would make two of the four assertions circular, so this step " +
+                   "refuses rather than falling back", false)
+        step.finish()
     }
 
     // ---- setup diagnostic, printed whether or not anything fails ----
@@ -1068,16 +1034,10 @@ func runAudioTones(seconds: Int) async throws {
          "\(ratioText(micTrack.micViewForeignRatio)) of its own 1 kHz, ceiling " +
          "\(ratioText(foreignToneCeiling))", micTrack.micViewForeignRatio <= foreignToneCeiling),
     ]
-    for (what, ok) in assertions { print("  \(ok ? "ok  " : "FAIL") \(what)") }
-    if assertions.allSatisfy({ $0.1 }) {
-        print("\nPASS — system audio and the microphone are independent tracks, and each carries only " +
-              "its own source. All four assertions hold.")
-    } else {
-        print("\nFAIL — see the ratios above. A foreign tone near 1/1 to 1/10 of the native one is " +
-              "MIXING; one near the leakage figures printed above with the ceiling crossed anyway " +
-              "means the acoustic setup changed — check headphones before checking the code.")
-        exit(11)
-    }
+    for (what, ok) in assertions { step.check(what, ok) }
+    step.finish(remedy: "A foreign tone near 1/1 to 1/10 of the native one is MIXING. One near the " +
+                        "leakage figures printed above, with the ceiling crossed anyway, means the " +
+                        "acoustic setup changed — check headphones before checking the code.")
 }
 
 
@@ -1118,7 +1078,8 @@ func setDisplayMode(_ id: CGDirectDisplayID, _ mode: CGDisplayMode) -> CGError {
 // --------------------------------------------------------- Step 3: reconfig
 
 func runReconfig(seconds: Int) async throws {
-    printIdentityBlock(step: "3 — display reconfiguration (LAST — changes system state)")
+    var step = VerificationStep(name: "3 — display reconfiguration (LAST — changes system state)")
+    step.begin(repositoryPath: repositoryPath)
     print("""
     Expect BEFORE running:
       - at the midpoint THIS PROCESS changes the display's resolution itself,
@@ -1144,37 +1105,32 @@ func runReconfig(seconds: Int) async throws {
     let registration = CGDisplayRegisterReconfigurationCallback(reconfigCallback, nil)
     print("spike's own reconfiguration callback registration: CGError \(registration.rawValue)")
     guard registration == .success else {
-        print("FAIL — the spike could not register its own reconfiguration callback, so its " +
-              "OS-level count below would be zero for a reason that has nothing to do with the session.")
-        exit(16)
+        step.preconditionFailed("the spike could not register its own reconfiguration callback, so " +
+                                "its OS-level count would be zero for a reason unrelated to the session.")
     }
     try await session.start()
     // The before-value, printed before the recording, so "the revision
     // changed" has something to have changed FROM in the same log.
     let before = source.geometry(scale: 2.0, displayUUID: displayUUID(for: display.displayID))
-    print("""
+    step.expect([
+        ("display now", "\(display.width) x \(display.height) points"),
+        ("buffer now", "\(before.pixelWidth) x \(before.pixelHeight) pixels"),
+        ("revision now", "\(before.revision)"),
+        ("after the change", "a DIFFERENT revision, in a SECOND segment, the first ended with " +
+                             ".displayReconfigured, and no resampled frame in the master"),
+    ])
 
-    ---- EXPECTED, with the state before the change ----
-      display now             \(display.width) x \(display.height) points
-      buffer now              \(before.pixelWidth) x \(before.pixelHeight) pixels
-      revision now            \(before.revision)
-      after your change       a DIFFERENT revision, in a SECOND segment, and the
-                              first segment ended with .displayReconfigured
-    ----------------------------------------------------
-    """)
     // The change is made by THIS PROCESS at a known instant, not by a person
     // at an approximate one. See `setDisplayMode` for why.
     guard let currentMode = CGDisplayCopyDisplayMode(display.displayID) else {
-        print("FAIL — cannot read the display's current mode; nothing to change from.")
-        exit(14)
+        step.preconditionFailed("cannot read the display's current mode; nothing to change from.")
     }
     let candidates = displayModes(of: display.displayID).filter {
         $0.pixelWidth != currentMode.pixelWidth && $0.pixelWidth >= 1280 && $0.pixelHeight >= 800
     }
     guard let target = candidates.max(by: { $0.pixelWidth < $1.pixelWidth }) else {
-        print("FAIL — this display offers no alternative mode at or above 1280x800 " +
-              "(\(displayModes(of: display.displayID).count) modes total). The experiment cannot be run here.")
-        exit(15)
+        step.preconditionFailed("this display offers no alternative mode at or above 1280x800 " +
+                                "(\(displayModes(of: display.displayID).count) modes total).")
     }
     print("will switch \(currentMode.pixelWidth)x\(currentMode.pixelHeight) -> " +
           "\(target.pixelWidth)x\(target.pixelHeight) at t-\(seconds / 2)s, and restore it afterwards " +
@@ -1217,17 +1173,15 @@ func runReconfig(seconds: Int) async throws {
     // against anything, which is the same shape as an expectation table
     // whose rows quietly stop being checks.
     guard displayReconfigurations > 0 else {
-        print("\n-> the display was NOT reconfigured during this run. THE EXPERIMENT DID NOT HAPPEN — " +
-              "this is not a pass and not a failure, and it must not be recorded as either. " +
-              "Re-run and change the resolution at roughly the midpoint.")
-        exit(12)
+        step.didNotHappen("the display was never reconfigured during this run, so nothing this step " +
+                          "verifies was exercised.")
     }
     let handled = session.diagnostics.displayReconfigurationsHandled
     let revisions = Set(table.segments.map(\.revision))
     let reconfiguredBoundaries = table.segments.filter {
         if case .displayReconfigured = $0.endedBy { return true } else { return false }
     }
-    let checks: [(String, Bool)] = [
+    let reconfigChecks: [(String, Bool)] = [
         ("the session registered its observer successfully — CGError " +
          "\(session.diagnostics.reconfigurationObserverRegistration?.rawValue.description ?? "not recorded")",
          session.diagnostics.reconfigurationObserverRegistration == CGError.success),
@@ -1259,15 +1213,10 @@ func runReconfig(seconds: Int) async throws {
          "awaiting-reconfiguration in the accounting above",
          session.diagnostics.appendedResampledFrameCount == 0),
     ]
-    print("\nSEVEN ASSERTIONS:")
-    for (what, ok) in checks { print("  \(ok ? "ok  " : "FAIL") \(what)") }
-    if checks.allSatisfy({ $0.1 }) {
-        print("\nPASS — reconfiguration closes the current segment, opens the next, and mints a new " +
-              "GeometryRevision. D2-10 holds on a real display change.")
-    } else {
-        print("\nFAIL — see above.")
-        exit(13)
-    }
+    for (what, ok) in reconfigChecks { step.check(what, ok) }
+    step.finish(remedy: "A split that happened but resampled frames usually means geometry and the " +
+                        "destination rectangle were derived from different sources, or the display's " +
+                        "backing scale changed with its mode and the session reused the old one.")
 }
 
 @main enum SpikeB {

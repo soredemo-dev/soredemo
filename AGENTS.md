@@ -528,6 +528,26 @@ Unicode normalisation resting on the current OS's ICU tables. Set the value (`de
 anchor is chosen rather than inherited. The test of the difference: if the OS changed it tomorrow,
 would anything fail? An inherited default displaces every derived coordinate silently.
 
+**A justification that rests on the caller must name the caller.** `CaptureSession.init(scale:)`
+carried "this type does not derive a display's scale itself, because the caller already has to
+compute it once to drive the picker." That was true when `start()` was the only caller. It became
+false the moment reconfiguration handling appeared — a second caller, *inside* the type, which never
+gets a chance to supply a fresh value — and nobody re-checked, because a paragraph of reasoning reads
+like a decision that has already been made. The comment was never wrong; it expired. Write "**`start()`**
+already computes it; any other caller must supply its own" instead, and the second caller is in
+violation the moment someone reads the line, with no one needing to think to re-examine it. The same
+shape as the expiring exemption in `CanonicalEncoding.version`, and harder to catch, because there is
+no date on it.
+
+**With several candidate causes, make the discriminating measurement before fixing any of them.** A
+display reconfiguration left frames resampled, and three causes were plausible: a stale
+`destinationRect`, an expired `scale`, and the gap between the callback and the new segment opening.
+Three fix-and-rerun rounds followed, the first two diagnosing wrongly — and the first of those fixed a
+real but unrelated defect, which made it look like progress. One measurement separated all three:
+buffer size, source size, scale and per-frame `ContentScale`, recorded **per segment**. Fixing is the
+expensive move, especially with a person waiting; measuring is cheap. This project measures first
+everywhere except when debugging, where it reverts to guessing.
+
 ---
 
 ## Architecture rules — enforced, not aspirational

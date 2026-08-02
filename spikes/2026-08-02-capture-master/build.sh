@@ -30,6 +30,7 @@ xcrun swiftc -O -target arm64-apple-macos26.0 -parse-as-library \
     "$REPO/Soredemo/Capture/CaptureSource.swift" \
     "$REPO/Soredemo/Capture/AudioInterleave.swift" \
     "$REPO/Soredemo/Capture/CaptureSession.swift" \
+    "$REPO/spikes/shared/VerificationStep.swift" \
     "$HERE/main.swift"
 codesign --force --options runtime --sign "$IDENTITY" "$APP"
 echo "built: $APP"
