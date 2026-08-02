@@ -6,7 +6,9 @@
 
 **Architecture:** One SwiftPM package at the repository root with six library targets whose dependency edges are compile-enforced, consumed by a hand-made Xcode app target. The package imports Foundation only; a build-tool plugin enforces that, because SwiftPM does not. Every derived value carries a citation that cannot be omitted.
 
-**Tech Stack:** Swift 6.4 · macOS 26.0 deployment · macOS 27 SDK (Xcode 27 beta 4, `27A5228h`) · SwiftPM tools-version 6.4 · Swift Testing · SwiftUI + AppKit
+**Tech Stack:** Swift 6.4 compiler · macOS 26.0 deployment · macOS 27 SDK (Xcode 27 beta 4, `27A5228h`) · SwiftPM **tools-version 6.3** · Swift Testing · SwiftUI + AppKit
+
+Four version numbers, deliberately spelled out — D2 in the design doc exists because conflating them has already cost this project a day. The compiler is 6.4; the manifest declares 6.3, because Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest outright. This header said 6.4 until Task 5, contradicting the Global Constraints section directly below it.
 
 **Task order.** Revised after Task 2, with reasons — a plan that says one thing while the work does another is the failure mode `AGENTS.md` names:
 
