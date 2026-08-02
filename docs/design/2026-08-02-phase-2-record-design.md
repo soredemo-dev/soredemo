@@ -1230,3 +1230,54 @@ content scale is not 1 *was* resampled. That is checkable per frame, so the prop
 decision exists to protect stops being a design intention and becomes something the recorder can
 assert — and record when it fails, rather than letting it happen quietly. Which of the two it does
 belongs with `capture-stream`.
+
+---
+
+## D2-17 — Replace the banned-symbol list with a pinned baseline
+
+D2-16 measured a pattern scan and rejected it: 575 undefined symbols across the six library modules,
+9 pattern hits, 0 of them real. That measurement was used to conclude the enumeration must stay.
+
+**It also enables a better mechanism, which was not considered at the time.** 575 is not a number
+that argues against pattern-matching. It is a number small enough to *pin*.
+
+```
+baseline   the current 575 undefined symbols, snapshotted into the repository
+check      any symbol NOT in the baseline fails the build, until a human reviews
+           it and adds it
+```
+
+### Why this is strictly better than a ban list
+
+A ban list has to **predict what to forbid**, and it has been wrong three times in one session —
+`mach_continuous_time` beside `mach_absolute_time`, `NSUUID` beside `NSDate`, `clock` beside
+`clock_gettime`. Every miss was a sibling of something already listed, which is what an enumeration
+does: it goes stale by omission, and an omission is silent.
+
+A baseline predicts nothing. It catches `Date()`, `NSUUID()`, `clock()`, `CCRandomGenerateBytes`
+**and the fourth thing nobody has thought of**, because a new undefined symbol is a new undefined
+symbol regardless of whether anyone anticipated it. It cannot be stale by omission. It is
+`AGENTS.md`'s invert-the-list rule applied to the one check where the list is machine-generated
+rather than hand-written.
+
+### The cost, stated honestly
+
+The baseline needs updating whenever a package module legitimately reaches a Foundation API it had
+not used before. For a **Foundation-only, pure-logic package with a narrow and stabilising API
+surface**, that is infrequent — and each update is exactly the review moment the ban list was trying
+to create and kept missing. A diff adding `_$s10Foundation…` is a question someone answers once,
+rather than a name someone had to think of in advance.
+
+Where it would be wrong: a target with a wide or fast-moving dependency surface, where the baseline
+would churn and be rubber-stamped. That is not what `Sources/` is.
+
+### Notes for whoever builds it
+
+- Snapshot per module, not globally: a symbol appearing in `Timeline` and one appearing in `Graph`
+  are different facts, and a global set hides which module reached for what.
+- Sort the file, so a diff is readable and a review is possible.
+- Keep the existing ban list **as well**, at least initially. It names *why* a symbol is forbidden,
+  which a baseline cannot — the baseline says "this is new", the ban list says "this is ambient
+  time". Two questions, two mechanisms.
+- The `nm -u` plumbing already exists in `Tests/DeterminismTests`, including the guard that an empty
+  object-file set fails rather than passes vacuously.

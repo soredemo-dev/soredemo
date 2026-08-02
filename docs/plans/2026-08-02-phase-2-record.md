@@ -1618,6 +1618,10 @@ the type. A scan keyed on the declaration line misses `GeometryRegistry`, `Conte
       one literal list, so an eleventh added later still fails. Do not exempt by predicate.
 - [ ] **Step 4: Confirm the build fails** when a new violating type is added, and passes when it is
       given an explicit `init(from:)`.
+- [ ] **Step 4.5: Consider replacing the ban list with a pinned baseline (D2-17)** — read it before
+      doing Step 5. If the baseline is built, Step 5's four names are caught by it automatically and
+      the ban list keeps only its *explanatory* role: a baseline says "this symbol is new", a ban
+      list says "this symbol is ambient time". Report which you built and why.
 - [ ] **Step 5: Close the four verified gaps Task 5.5 found and did not fix** — `NSUUID` (both
       lists, `_OBJC_CLASS_$_NSUUID`), `CCRandomGenerateBytes` (app side; the package side is already
       blocked by rule 1's import allow-list), `clock()` (package side, `_clock`, distinct from the
