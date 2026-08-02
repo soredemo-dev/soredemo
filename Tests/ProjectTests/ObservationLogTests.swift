@@ -170,3 +170,68 @@ private func topLevelKeys(from json: Data) -> [String] {
     #expect(expectedKeys == expectedKeys.sorted(), "fixture sanity: the expected literal must itself be sorted")
     #expect(keys == expectedKeys)
 }
+
+// MARK: - secure input (Task 9)
+
+/// The claim this record exists for: an interval with no samples must be
+/// *stated*, not inferred from a gap. Round-tripping it is the mechanical
+/// half; the half that matters is that `kind` is a distinct value a reader
+/// can dispatch on without knowing the type — the same property
+/// `kindIsReadableWithoutDecodingTheRecord` pins for the three Task 3
+/// records.
+@Test func aSecureInputIntervalRoundTripsAndCarriesItsOwnKind() throws {
+    let record = SecureInputInterval(
+        interval: HostRange(epoch: ep, start: Nanoseconds(1_000), duration: Nanoseconds(4_000)),
+        endedBy: .secureInputDisabled)
+    let line = try ObservationLog.encode(record)
+    #expect(try ObservationLog.kind(of: line) == "secureInput")
+    let back: SecureInputInterval = try ObservationLog.decode(line)
+    #expect(back == record)
+    #expect(back.interval.end == Nanoseconds(5_000))
+}
+
+/// **The two end reasons are not interchangeable, and this is what stops
+/// them being written as one.** `.observationStopped` means the recording
+/// ended while secure input was still on: the end instant is when observing
+/// stopped, not when secure input did. Encoded as the same field with no
+/// discriminator, a lower bound and a measurement would be indistinguishable
+/// on disk — which is the exact failure the record itself exists to prevent
+/// one level up, so it would be a strange place to reintroduce it.
+@Test func theTwoWaysASecureInputIntervalCanEndAreDistinguishableOnDisk() throws {
+    let range = HostRange(epoch: ep, start: Nanoseconds(7), duration: Nanoseconds(11))
+    let measured = SecureInputInterval(interval: range, endedBy: .secureInputDisabled)
+    let bounded = SecureInputInterval(interval: range, endedBy: .observationStopped)
+    #expect(measured != bounded, "same interval, different reason — the records must not compare equal")
+    let measuredLine = try ObservationLog.encode(measured)
+    let boundedLine = try ObservationLog.encode(bounded)
+    #expect(measuredLine != boundedLine)
+    #expect(try ObservationLog.decode(measuredLine) as SecureInputInterval == measured)
+    #expect(try ObservationLog.decode(boundedLine) as SecureInputInterval == bounded)
+}
+
+/// A zero-width interval is legal — secure input can be observed on and then
+/// off between two consecutive pointer samples — and it is still a record,
+/// not a reason to emit nothing. Emitting nothing here would restore the
+/// silence the type was added to break.
+@Test func aZeroWidthSecureInputIntervalIsStillARecord() throws {
+    let record = SecureInputInterval(
+        interval: HostRange(epoch: ep, start: Nanoseconds(42), duration: Nanoseconds(0)),
+        endedBy: .secureInputDisabled)
+    let line = try ObservationLog.encode(record)
+    #expect(try ObservationLog.kind(of: line) == "secureInput")
+    #expect(try ObservationLog.decode(line) as SecureInputInterval == record)
+}
+
+/// A `KeySample` has exactly one payload field and it is an identifier, not
+/// text. Stated as a test rather than left to the type's doc comment,
+/// because "the package never sees an unfiltered keystroke" is a privacy
+/// claim and the *shape* of the record is the part of it this side of the
+/// boundary can carry: there is nowhere here to put a character even if the
+/// observer wanted to. The behavioural half — that the observer refuses to
+/// mint one for ordinary typing — is `§ 7` of
+/// `scripts/cross-boundary-digest-probe.swift`, where the filter lives.
+@Test func aKeySampleHasNowhereToPutTypedText() throws {
+    let sample = KeySample(instant: at(3), shortcut: "cmd+c")
+    let keys = topLevelKeys(from: try ObservationLog.encode(sample))
+    #expect(keys == ["instant", "kind", "shortcut"])
+}

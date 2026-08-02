@@ -57,3 +57,50 @@ public struct KeySample: Hashable, Codable, Sendable {
         self.shortcut = shortcut
     }
 }
+
+/// Why a `SecureInputInterval` closed.
+///
+/// Two ways, not one, and they are not the same fact. `.secureInputDisabled`
+/// means the observer saw secure input turn off and the interval is a
+/// measurement. `.observationStopped` means the recording ended while it was
+/// still on, so the end instant is when *observing* stopped, not when secure
+/// input did — the interval is a lower bound and nothing knows how much
+/// longer it ran. Collapsing the two would put a bound and a measurement in
+/// the same field with nothing to tell them apart, which is the shape
+/// `SegmentBoundary` already refuses one layer up.
+public enum SecureInputIntervalEnd: String, Codable, Sendable {
+    case secureInputDisabled
+    case observationStopped
+}
+
+/// An interval during which `IsSecureEventInputEnabled()` was true and the
+/// observer emitted **nothing at all** — not a redacted sample, not a
+/// placeholder.
+///
+/// This record exists because emitting nothing is indistinguishable from
+/// nothing having happened. A five-second gap in the pointer track is
+/// produced by a person typing a password *and* by a person not touching the
+/// mouse, and a derivation that cannot tell those apart will happily invent
+/// motion across the first one.
+///
+/// **`interval` is a lower bound on the true one, always.** The observer
+/// learns that secure input is on by asking while handling an event, so
+/// `interval.start` is the first *observed* instant inside it, not the moment
+/// the password field took focus; the same applies at the far end when the
+/// end reason is `.observationStopped`. That is D2-2a's stance — an interval
+/// whose width is the uncertainty — rather than a single instant that would
+/// claim a precision nothing measured. A caller must not read this as
+/// "secure input began at exactly `start`".
+public struct SecureInputInterval: Hashable, Codable, Sendable {
+    public let kind: String
+    /// Half-open, epoch-stamped. `HostRange` already refuses a negative
+    /// duration, so this type adds no ordering precondition of its own.
+    public let interval: HostRange
+    public let endedBy: SecureInputIntervalEnd
+
+    public init(interval: HostRange, endedBy: SecureInputIntervalEnd) {
+        self.kind = "secureInput"
+        self.interval = interval
+        self.endedBy = endedBy
+    }
+}

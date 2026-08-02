@@ -279,6 +279,18 @@ func violations(
             // list has to be re-derived every time `Minting` gains a new
             // ambient source, not assumed to already cover it.
             "sysctlbyname",
+            // A display's persistent identity, from
+            // `CGDisplayCreateUUIDFromDisplayID` — added in Task 9 alongside
+            // `Minting.displayUUID(of:)`, in the same commit, because this
+            // list has to be re-derived every time `Minting` gains an ambient
+            // source rather than assumed to already cover it. It is also the
+            // only route from a `CGDirectDisplayID` to the `UUID`
+            // `DisplayGeometry` requires, so banning it here is what makes
+            // the `UUID(` ban above unevadable for display identity
+            // specifically: without it a caller could read the `CFUUID`
+            // anywhere and only the final `UUID(uuidString:)` would be
+            // caught, which is a check on the last line of the wrong file.
+            "CGDisplayCreateUUIDFromDisplayID",
         ],
         permittedPath: "Soredemo/Support/Minting.swift",
         in: try appSourceFiles())
@@ -290,5 +302,85 @@ func violations(
             Identifiers, timestamps and digests enter at that one boundary and \
             are passed onward as plain values — that is what makes derivation a \
             deterministic function of its input.
+            """)
+}
+
+// MARK: - the keystroke ban: no allow-listed file, because there is no legitimate caller
+
+/// Like `violations(banned:permittedPath:in:)`, but with **no permitted
+/// file**.
+///
+/// The other two scans are about where something may happen; this one is
+/// about something that may not happen anywhere. Passing an allow-listed path
+/// would be worse than useless: the only file that would ever want one is
+/// `InputObserver.swift`, which is precisely the file the rule is about.
+func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] {
+    try #require(!files.isEmpty, "no app sources were scanned — this scan would pass vacuously")
+    var found: [String] = []
+    var linesScanned = 0
+    for file in files {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for (index, line) in SwiftSourceLexer.codeViewLines(of: text).enumerated() {
+            linesScanned += 1
+            for name in banned where line.contains(name) {
+                found.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1): names '\(name)'")
+            }
+        }
+    }
+    try #require(linesScanned > 0, "no lines were examined — the scan would pass vacuously")
+    return found
+}
+
+/// **`ROADMAP.md`'s `input-observation` row: "the package must never receive
+/// an unfiltered keystroke — there is then nothing to redact later."**
+///
+/// `InputObserver.approvedShortcut(forKeyCode:flags:)` is the behavioural half
+/// of that claim, and it is checked behaviourally in `§ 7.3` of
+/// `scripts/cross-boundary-digest-probe.swift` — including with the filter
+/// removed, observed red. This is the other half, and it is a different
+/// statement: not "the filter refuses ordinary typing", but **"no code in
+/// this app can turn a key event into text at all"**. A filter can be
+/// bypassed by a second code path; this cannot, because the APIs that would
+/// do it are not nameable.
+///
+/// The list is the ways a `CGEvent` or an `NSEvent` yields characters:
+/// `CGEventKeyboardGetUnicodeString` and its `CGEventField` spelling,
+/// `NSEvent.characters` / `.charactersIgnoringModifiers`, and `UCKeyTranslate`
+/// (with the Text Input Source lookup that feeds it), which is the manual
+/// keycode → character route someone would reach for after finding the first
+/// three unavailable. Key *codes* and modifier flags stay legal: they are
+/// hardware positions and a bitmask, and they are what the allow-list matches
+/// on.
+///
+/// **This does not claim to be exhaustive**, and a text scan cannot be — it is
+/// the same known gap the ambient-value scan above documents at length, on the
+/// same side of the same boundary, for the same reason (the app target has no
+/// object files a package test can point `nm` at). What it does is make the
+/// obvious routes cost a deliberate edit to this file.
+@Test func noAppSourceReadsKeystrokeText() throws {
+    let found = try violationsEverywhere(
+        banned: [
+            // CoreGraphics: the event's own characters.
+            "CGEventKeyboardGetUnicodeString",
+            "keyboardEventUnicodeString",
+            // AppKit: `.characters` also covers `.charactersIgnoringModifiers`,
+            // which begins with the same substring including the dot.
+            ".characters",
+            // The manual keycode → character route, and the input source it
+            // needs. Either name alone is enough to make the attempt visible.
+            "UCKeyTranslate",
+            "TISGetInputSourceProperty",
+        ],
+        in: try appSourceFiles())
+
+    #expect(found.isEmpty,
+            """
+            an app source can read the text of a keystroke:
+            \(found.joined(separator: "\n"))
+            Keyboard observation matches key CODES and modifier flags against \
+            InputObserver.approvedShortcuts and records that table's own \
+            identifier. Nothing in this app is permitted to learn what was typed \
+            — including in order to discard it, because a value that existed can \
+            be logged, and there is then something to redact later.
             """)
 }
