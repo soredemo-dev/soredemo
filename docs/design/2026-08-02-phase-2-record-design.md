@@ -231,3 +231,53 @@ behave under load.
 which is exactly when a person clicks a button. At least three targets — native AppKit, an Electron
 app (Slack or VS Code), and one known to be slow. Their AX latency distributions differ by a lot,
 and the depth cap in D2-2 must be calibrated against the **worst** of them, not the best.
+
+---
+
+## D2-4 — `mach_absolute_time`, and sleep is a state to detect rather than ignore
+
+`one-clock` says *"a sample before the origin or moving backwards is an error"*. That catches one
+discontinuity and misses the one that actually happens.
+
+**`mach_absolute_time()` does not advance while the system sleeps. `mach_continuous_time()` does.**
+Not theoretical — measured on this machine:
+
+```
+mach_absolute_time    406387.952 s   (112.89 h)
+mach_continuous_time  621253.784 s   (172.57 h)
+divergence            214865.832 s   ( 59.68 h)
+```
+
+Up for 172 hours, asleep for 60 of them. The two clocks disagree by 35% of this machine's uptime.
+
+**We use `absolute`, and the choice is forced, not preferred.** `CMClockGetHostTimeClock()` is
+`mach_absolute_time()` (F2-1), so frame presentation timestamps are on it, and `CGEventTimestamp` is
+host time on the same base. Mixing in `continuous` anywhere would reintroduce exactly the skew F2-1
+established does not exist.
+
+### Why this is worse than the discontinuity the row already names
+
+Sleep does not move the clock backwards. **It stops it.** Across a sleep, timestamps do not regress
+and nothing precedes the origin — so `one-clock`'s stated check passes, every ordering assertion
+passes, and the recording simply contains a gap where no time appears to have elapsed while a great
+deal did. A stopped clock is harder to see than a reversed one because every guard is satisfied.
+
+This is `AGENTS.md`'s "a measurement has no safe default" at the level of a whole timeline: the
+failure produces a legal-looking result.
+
+### The detector is the divergence itself
+
+Read both clocks at the start and end of a recording. If `continuous` advanced more than `absolute`,
+the system slept, and the difference is how long for:
+
+```swift
+let sleptNanos = (contEnd - contStart) - (absEnd - absStart)
+```
+
+Cheap, exact, and needs no API beyond the two already in use. Record it in the observation log as a
+first-class state — not a warning printed once, but a value a later gate can reject on. A demo
+recorded across a machine sleep is not a demo, and the derivation stage must be able to see that
+rather than infer it from a suspicious gap.
+
+Sampling frequency and what the recorder does on detection — abort, mark, or split — are open, and
+belong with the `capture-stream` work rather than here.
