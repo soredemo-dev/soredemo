@@ -243,10 +243,21 @@ those grants. It measured the terminal.
 
 So: `granted, granted, granted, granted` is not a claim. `granted ×4, for pid 1234, bundle
 video.soredemo.Soredemo` is one, because it can be wrong. **The dump prints its own subject —
-bundle identifier, executable path, whether it is inside a `.app`, pid — beside the values.** A
-`bundle identifier: nil` line catches this class on sight, with no pane to consult. And the class
-recurs: an app launched from Xcode can have Xcode as its responsible process, which differs from
-launching it from Finder. Moving the check inside the app ended this instance, not the category.
+bundle identifier, executable path, whether it is inside a `.app`, pid — beside the values.**
+
+**And then that was not enough either.** Running the app's own binary directly from a shell prints a
+*correct* subject block — right bundle identifier, inside a `.app`: yes — and still returns
+misattributed values. `Bundle.main.bundleIdentifier` reads `Info.plist`: it answers *what does this
+binary say it is*, not *who does TCC hold responsible for it*. Same shape, different question, and
+they diverge exactly when the binary is `exec`'d rather than launched by `open`.
+
+So the rule has a second half: **print who is asserting the subject.** A block sourced from
+`Info.plist` is the binary's claim about itself. The attribution that decides the answer lives
+somewhere else, and a check that prints only the first has moved the ambiguity rather than removed
+it.
+
+The class recurs beyond this instance — an app launched from Xcode can have Xcode as its responsible
+process, which differs again from Finder. Moving the check inside the app ended one occurrence.
 
 **And the reconciliation went the wrong way by default.** The failure presented as four greens —
 output that invites no question. Had the program been run before the human was asked, the
