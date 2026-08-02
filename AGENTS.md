@@ -562,6 +562,26 @@ buffer size, source size, scale and per-frame `ContentScale`, recorded **per seg
 expensive move, especially with a person waiting; measuring is cheap. This project measures first
 everywhere except when debugging, where it reverts to guessing.
 
+**A caveat belongs where the people it protects will be.** Two probe checks carried "on a
+single-display machine this passes trivially" in a source comment and printed two unqualified `ok`
+lines. Anyone watching the console saw the mirror-fold path verified; on that machine it was not
+exercised at all. A caveat that lives only in the source is a caveat for people already reading the
+source, and those are not the people the output misleads. This is the second half of "state a
+measurement's subject": say it, and say it **to the audience that will act on it** — which for a
+check means its printed text, conditionally, only when the limitation actually applies:
+
+    ok  no display appears twice in the arrangement  [VACUOUS ON THIS RUN: 1 display attached —
+        this asserts nothing about mirroring. It needs two or more displays, at least two mirrored.]
+
+**A cross-subsystem agreement is a check, not a note.** Two paths derived the same display's
+geometry from different APIs — `CGDisplayMode.pixelWidth` on the observation side,
+`SCDisplay.width × scale` on the capture side — both feeding `GeometryRevision`, whose mismatch is a
+`precondition` trap downstream rather than a coordinate that is slightly off. The first instinct was
+to write it into the ledger as a risk for the task where the two finally meet. It is checkable now,
+with no permission and no human: assert they agree, **and** assert they disagree under a deliberately
+wrong input, so the agreement is a fact about the derivations and not about a digest that ignores
+them. A landmine someone has to remember is worse than a red light.
+
 ---
 
 ## Architecture rules — enforced, not aspirational

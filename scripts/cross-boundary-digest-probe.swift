@@ -201,6 +201,8 @@ enum CrossBoundaryProbe {
         theAmbientArrangement()
         print("7.7 the PRODUCTION secure-input predicate is really read")
         theProductionSecureInputPredicateIsRead()
+        print("7.8 the observation path and the capture path agree on a display's revision")
+        await theTwoDerivationsOfADisplayAgree()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -1485,6 +1487,81 @@ enum CrossBoundaryProbe {
     /// assertion below runs after secure input has been released, because a
     /// failing `check` must never be the thing that leaves it on.
     @MainActor
+    /// **The two subsystems derive the same display's geometry from different
+    /// APIs, and a disagreement is a crash, not a wrong number.**
+    ///
+    /// `InputObserver.currentArrangement()` takes `pixelWidth` from
+    /// `CGDisplayMode.pixelWidth`. `CaptureSource.geometry(scale:displayUUID:)`
+    /// takes it as `SCDisplay.width × scale`. Both feed `GeometryRevision`, and
+    /// `NormalizationContext.denormalize` **preconditions** on revision
+    /// equality — so if a pointer sample and the video segment it belongs to
+    /// carry different revisions for one physical display, the failure is a
+    /// trap in the compositor, not a coordinate that is slightly off.
+    ///
+    /// Nothing wires the two together today; `Task 11`'s `observation-log` is
+    /// the first place they meet. This check exists so that meeting is not the
+    /// first time anyone finds out.
+    ///
+    /// **Two halves, and the second is what stops the first being vacuous.**
+    /// The agreement holds *conditionally* — only when the caller hands
+    /// `CaptureSource.geometry` the same scale the display's current mode
+    /// implies. So this asserts both that they agree at that scale, and that
+    /// they **disagree** at a different one. Without the second half, a
+    /// version of `GeometryRevision` that ignored its inputs entirely would
+    /// pass.
+    ///
+    /// Runs without any permission: `SCShareableContent.currentProcess` needs
+    /// neither Screen Recording nor a picker, the same route § 6 already uses.
+    static func theTwoDerivationsOfADisplayAgree() async {
+        let mainID = CGMainDisplayID()
+        guard let identity = Minting.displayIdentity(of: mainID) else {
+            check(false, "could not read the main display's identity")
+            return
+        }
+        guard let content = try? await SCShareableContent.currentProcess,
+              let scDisplay = content.displays.first(where: { $0.displayID == mainID }) else {
+            print("        SKIPPED — SCShareableContent.currentProcess did not return the main display")
+            return
+        }
+        let arrangement = InputObserver.currentArrangement()
+        guard let observed = arrangement.placements
+            .first(where: { $0.geometry.displayUUID == identity })?.geometry else {
+            check(false, "the main display is not in currentArrangement()'s output")
+            return
+        }
+        // The scale a real caller would pass: the one the display's CURRENT
+        // mode implies, which is what `CaptureSession` re-derives on every
+        // reconfiguration (Task 8, finding 6) precisely because a session's
+        // constructor value cannot follow a mode change.
+        guard let mode = CGDisplayCopyDisplayMode(mainID), mode.width > 0 else {
+            check(false, "could not read the main display's current mode")
+            return
+        }
+        let modeScale = Double(mode.pixelWidth) / Double(mode.width)
+        let captured = CaptureSource.display(scDisplay).geometry(scale: modeScale, displayUUID: identity)
+
+        print("        observation path : \(observed.pixelWidth)×\(observed.pixelHeight) "
+              + "@\(observed.scale)  from CGDisplayMode.pixelWidth")
+        print("        capture path     : \(captured.pixelWidth)×\(captured.pixelHeight) "
+              + "@\(captured.scale)  from SCDisplay.width × \(modeScale)")
+        check(observed.revision == captured.revision,
+              "one physical display, two derivations, the SAME GeometryRevision — a mismatch is a "
+              + "precondition trap downstream, not a coordinate that is slightly off",
+              actual: "\(observed.revision) vs \(captured.revision)")
+
+        // The anti-vacuity half. The agreement above is conditional on the
+        // caller's scale; at a different one the revisions MUST differ, or
+        // `GeometryRevision` is not reading its inputs at all.
+        let wrongScale = modeScale == 1 ? 2.0 : 1.0
+        let atWrongScale = CaptureSource.display(scDisplay)
+            .geometry(scale: wrongScale, displayUUID: identity)
+        check(atWrongScale.revision != observed.revision,
+              "and they DIFFER when the capture path is handed scale \(wrongScale) instead of "
+              + "\(modeScale) — so the agreement above is a fact about the derivations, not about "
+              + "a revision that ignores its inputs",
+              actual: "\(atWrongScale.revision) vs \(observed.revision)")
+    }
+
     static func theProductionSecureInputPredicateIsRead() {
         check(!IsSecureEventInputEnabled(),
               "precondition: secure input is off before this check starts — otherwise the toggle "
