@@ -463,3 +463,86 @@ design the whole phase before planning any of it — a better reason than the on
 Undesigned as of this document: `capture-source`, `capture-stream`, `audio-tracks`, `render-core`,
 `cursor-render`, `export-basic`, `app-shell`, `preview-playback`, `render-parity`, and the
 degradation behaviour half of `capture-permissions`.
+
+---
+
+## D2-6 — One compositor, and `render-parity` says so already
+
+Preview and export run the **same** `AVVideoCompositing` compositor. Preview drives it through
+`AVPlayer` + `AVMutableVideoComposition` into a `CADisplayLink`; export drives it through
+`AVAssetWriter`. `render-parity` stops being a long-running source of pain and becomes a test that
+the wiring has not come apart.
+
+The question was put as *"what would force them to be two paths?"* rather than *"should they
+share one?"*, because `render-parity` existing at all already answers the second — a row demanding
+identical frames for the same input would not have been written if two paths were acceptable. Three
+candidate reasons, none of which survives:
+
+| Claim | Why it fails |
+| --- | --- |
+| preview must be real-time, export can be slow | argues for different **budgets**, not different paths. One compositor can drop resolution or quality tier for preview. What diverges is a parameter |
+| `AVPlayer` gives seek and scrub for free | true, and it is the path `a native editor` took. It buys convenience with two paths that can never be shown to agree — the trade `render-parity` exists to refuse |
+| export runs VideoToolbox hardware encode | encoding happens *after* compositing. An output-stage difference, not a compositing-stage one |
+
+**The neighbouring project is the evidence, and precisely.** `a native editor` has
+`Preview/VideoEngine.swift` on `AVPlayerLayer` and `Compositing/CustomVideoCompositor.swift` for
+export — two paths — across 534 Swift files and 149 test files. It is not that the project does not
+write parity tests: `VisualEmbedderParityTests` and `TextTokenizerGoldens` exist. It writes them for
+search and not for render, which is a stronger statement than an absence would be.
+
+### `render-parity` is under-specified in three ways, and each would report as a false failure
+
+None of these is a reason to split the path. All three are reasons the row must say more than
+*"identical frames for the same input"*, or an implementer will chase a bug that is not there.
+
+**1. Where in the pipeline the comparison happens.** Preview goes through the display pipeline —
+sRGB or Display P3, EDR, system colour management. Export writes a file with explicit primaries,
+transfer and matrix, typically Rec.709 for H.264. The **same pixel buffer from the same compositor
+can look different in those two places**, and if the compositor's working colour space is not
+pinned, export carries a cast preview never showed. So parity compares the **compositor's output
+buffer, before colour management** — testable — not final appearance, which is not.
+
+**2. Which instants are compared.** `SCStream` is variable frame rate. Confirmed in the SDK:
+`minimumFrameInterval` is documented as *"the desired minimum time between frame updates, allowing
+you to throttle… at or up to 60fps"* — a floor, not a cadence — and `SCFrameStatusIdle` exists
+precisely for *"new frame was not generated because the display did not change"*. Source PTS are
+therefore irregular by nature. Preview is driven by `CADisplayLink` at a fixed 60 or 120 Hz and
+export by composition time, so the two **sample at different instants, and that is not a defect**.
+The parity test must name an explicit set of composition times and render both paths at those.
+
+**3. What is inside the compositor and what is on top of it.** Preview-only chrome — selection
+handles, safe-area guides, the crop box — must live in a layer **above** the compositor. Inside, it
+gets baked into the export, silently, discoverable only by opening the file. This makes the first
+point concrete: parity compares the compositor's output, not the screen's contents, and an
+implementer who screenshots the preview to compare is testing the wrong thing.
+
+**Consequence for `capture-stream`.** `SCFrameStatusIdle` means a sample buffer can arrive carrying
+no new frame. "The display did not change" and "we received nothing" must stay distinguishable in
+the observation log — the same rule as truncation in D2-2 and the truncated tail in `JSONLReader`.
+Silence is not a value.
+
+## D2-7 — The cursor is drawn inside the compositor, so the pointer track is kept whole
+
+D2-6 answers the pointer sampling rate that the previous section left open, and it answers it twice
+over.
+
+**Where the spring runs is forced.** If the cursor were composited in the preview layer, the
+two-path problem returns one level down: a preview cursor and an export cursor that can never be
+shown to agree — or worse, a cursor that appears in preview and is missing from the file. So the
+cursor is drawn **inside** the compositor, the spring integrates at composite time, and the sampling
+rate answers to the composite frame rate rather than to the tap.
+
+**And the track is recorded whole, not thinned.** Two reasons, and the second is the one that
+matters:
+
+*Cheap.* A pointer sample is roughly 24 bytes. 120 Hz for five minutes is about 36,000 samples,
+around 1 MB, against several GB of video. As with the AX chain, storage is not the constraint.
+
+*Thinning at capture time bakes a producer's judgement into the evidence.* "How dense is dense
+enough to avoid aliasing under this spring" is a property of the spring, and `camera-motion`
+explicitly requires motion that *settles without overshoot* — a calibration that will be tuned. A
+thinned track cannot be re-tuned; the samples are gone.
+
+This is the identical argument to D2-1, one row over: **record everything, judge in derivation,
+because re-recording a demo is expensive.** That it arrives independently at the same answer for a
+different subsystem is the argument's strength, not a coincidence.
