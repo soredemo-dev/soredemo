@@ -261,21 +261,17 @@ public enum CapturePermissions {
     /// Invoked from `Soredemo/App/SoredemoApp.swift`'s `init()` via
     /// `--dump-permissions`, run as the app's own executable — see that
     /// file for why, and why it is not the probe.
+    ///
+    /// **Extended in Task 7's fix round 3, not duplicated.** `--present-picker`
+    /// (also in `SoredemoApp.swift`) needs the identical "which build, which
+    /// process" preamble for the identical reason — a stale `.app` at a
+    /// remembered path answers just as confidently and just as wrongly as
+    /// the misattributed TCC reads this block was built to catch. Both entry
+    /// points call `subjectBlockLines()` below rather than each formatting
+    /// their own, so the two cannot drift apart on what "the subject" means.
     public static func dumpText() -> String {
-        let v = ProcessInfo.processInfo.operatingSystemVersion
-        let bundle = Bundle.main
-        let bundleIdentifier = bundle.bundleIdentifier ?? "nil"
-        let executablePath = bundle.executablePath ?? "nil"
-        let insideAnApp = bundle.bundlePath.hasSuffix(".app")
-
-        var lines = [
-            "macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)",
-            "bundle identifier : \(bundleIdentifier)",
-            "executable path   : \(executablePath)",
-            "inside a .app     : \(insideAnApp ? "yes" : "no")",
-            "pid               : \(ProcessInfo.processInfo.processIdentifier)",
-            "──",
-        ]
+        var lines = subjectBlockLines()
+        lines.append("──")
         for o in observations() {
             lines.append(
                 "\(o.permission.rawValue): \(o.status.rawValue)"
@@ -283,6 +279,40 @@ public enum CapturePermissions {
                 + "  (absence -> \(o.degradation.rawValue))")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// The "which build, which process" preamble shared by every diagnostic
+    /// dump in this app. Two families of fact, and both were added only
+    /// after a wrong answer without them was actually observed, not out of
+    /// caution:
+    ///
+    /// - **`build`/`commit`** (`BuildProvenance`, Task 7 fix round 3) — a
+    ///   diagnosis built from a stale binary looks identical to one built
+    ///   from the code actually on disk, because both are confident and
+    ///   inside the legal range of a real answer. See that file's doc
+    ///   comment for why these two fields are baked in at build time rather
+    ///   than read at launch.
+    /// - **`bundle identifier`/`executable path`/`inside a .app`/`pid`**
+    ///   (Task 6) — TCC attributes a permission read to the *responsible
+    ///   process*, not to whoever asked, so a bare probe with no bundle
+    ///   identity reported the terminal's grants as though they were
+    ///   `Soredemo`'s. `bundle identifier: nil` is the single-line tell.
+    ///
+    /// Both are the same shape one level apart: a confident, in-range answer
+    /// to the wrong question, and a subject line that makes the question
+    /// visible instead of assumed.
+    public static func subjectBlockLines() -> [String] {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        let bundle = Bundle.main
+        return [
+            "build             : \(BuildProvenance.builtAt)",
+            "commit            : \(BuildProvenance.commit)",
+            "macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)",
+            "bundle identifier : \(bundle.bundleIdentifier ?? "nil")",
+            "executable path   : \(bundle.executablePath ?? "nil")",
+            "inside a .app     : \(bundle.bundlePath.hasSuffix(".app") ? "yes" : "no")",
+            "pid               : \(ProcessInfo.processInfo.processIdentifier)",
+        ]
     }
 }
 

@@ -111,16 +111,23 @@ struct SoredemoApp: App {
     /// TCC identity, and the picker needs Screen Recording granted to
     /// `video.soredemo.Soredemo` specifically, not to whatever launched it.
     ///
-    /// Prints, in order: the raw filter (`style`, `contentRect`,
-    /// `pointPixelScale`) via `CaptureSourcePicker`'s `debugFilterObserver`
-    /// hook, then the derived `CaptureSource` — a `.window` case prints its
-    /// display-sized `bufferSize` beside the filter's own (smaller)
-    /// `contentRect`, so the two numbers are visible on the same lines a
-    /// person is already reading. Exits after exactly one selection,
-    /// cancellation, or picker-start failure — see `task-7-report.md` for
-    /// what to expect from each of the three cases this is meant to cover.
+    /// Prints, in order: the same subject block `--dump-permissions` prints
+    /// (`CapturePermissions.subjectBlockLines()` — which build, which
+    /// process, extended in Task 7's fix round 3 rather than duplicated),
+    /// then the raw filter (`style`, `contentRect`, `pointPixelScale`) via
+    /// `CaptureSourcePicker`'s `debugFilterObserver` hook, then the derived
+    /// `CaptureSource` — a `.window` case prints its display-sized
+    /// `bufferSize` beside the filter's own (smaller) `contentRect`, so the
+    /// two numbers are visible on the same lines a person is already
+    /// reading. Exits after exactly one selection, cancellation, or
+    /// picker-start failure — see `task-7-report.md` for what to expect
+    /// from each of the three cases this is meant to cover, and for why the
+    /// subject block's `build`/`commit` lines are the first thing to check
+    /// before trusting anything printed after them.
     @MainActor
     private static func presentPickerForVerification() {
+        print(CapturePermissions.subjectBlockLines().joined(separator: "\n"))
+        print("──")
         let picker = CaptureSourcePicker(
             onSelect: { source in
                 switch source {
