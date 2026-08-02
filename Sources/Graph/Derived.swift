@@ -39,6 +39,24 @@ public struct Derived<Value: CanonicallyEncodable & Codable & Hashable & Sendabl
     /// The only mutable field, and the only one `approvalBytes` does not cover.
     public var review: ReviewState
 
+    /// **This initialiser is what architecture rule 7 will have to constrain, and
+    /// today nothing does.**
+    ///
+    /// Rule 7 — `applyingProduced` is the sole writer of a `Derived` — is recorded
+    /// as inert in `ARCHITECTURE.md` D6 because the producers it governs do not
+    /// exist yet. But the hole is not that there is no producer; it is that when
+    /// one arrives it can write `Derived(value: v, origin: .generated(d), review:
+    /// .approved)` and never touch the guarded path below. The default
+    /// `review: .pending` makes the honest call short and the dishonest one only
+    /// one argument longer.
+    ///
+    /// It stays public because the app mints authored values through it and the
+    /// decoder needs it. So rule 7 cannot be "make `init` internal"; it has to be
+    /// a check that a producer does not name it — the same shape as rule 5, over
+    /// `Sources/` instead of `Soredemo/`, and it belongs with **Phase 3's
+    /// `framing-targets`**, the first row that writes a producer. Until then this
+    /// comment and the one on `applyingProduced` are the whole of the enforcement,
+    /// which is convention, not a rule.
     public init(value: Value, origin: Origin, review: ReviewState = .pending) {
         self.value = value
         self.origin = origin
@@ -94,13 +112,18 @@ public struct Derived<Value: CanonicallyEncodable & Codable & Hashable & Sendabl
         return Data(bytes)
     }
 
-    /// The only way a producer may write a result (design doc D-P4, plugin rule
-    /// 7).
+    /// The way a producer is **meant** to write a result (design doc D-P4,
+    /// architecture rule 7 — `ARCHITECTURE.md` D6).
+    ///
+    /// It said "the only way" and "the enforced write path" until Task 19, and
+    /// neither was true: `init` above is public, so a producer can bypass this
+    /// entirely. Nothing checks that it does not, because rule 7 is inert. Read
+    /// this as the correct path, not as a guarded one.
     ///
     /// The type system guarantees that anything generated cites evidence. It
-    /// does **not** by itself stop a producer overwriting a human's value, so
-    /// this is the enforced write path: producers never assign to a `Derived`
-    /// directly, they hand their result here.
+    /// does **not** by itself stop a producer overwriting a human's value, which
+    /// is what the three rules below are for: producers should never assign to a
+    /// `Derived` directly, they hand their result here.
     ///
     /// Three rules, in order:
     ///

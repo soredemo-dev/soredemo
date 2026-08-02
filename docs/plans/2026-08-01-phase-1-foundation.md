@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 6.4 compiler · macOS 26.0 deployment · macOS 27 SDK (Xcode 27 beta 4, `27A5228h`) · SwiftPM **tools-version 6.3** · Swift Testing · SwiftUI + AppKit
 
-Four version numbers, deliberately spelled out — D2 in the design doc exists because conflating them has already cost this project a day. The compiler is 6.4; the manifest declares 6.3, because Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest outright. This header said 6.4 until Task 5, contradicting the Global Constraints section directly below it.
+Four version numbers, deliberately spelled out — D2 in the design doc exists because conflating them has already cost this project a day. The compiler is 6.4; the manifest declares 6.3, because a tools version is a floor on the reader and 6.3 is what keeps Xcode 26 — kept installed on purpose per `TOOLCHAIN.md` § 1 — able to open the package. This header said 6.4 until Task 5, contradicting the Global Constraints section directly below it; and it said "Xcode 26.6 … refuses a 6.4 manifest outright" until Task 19, which named the wrong toolchain, since the *selected* one accepts it. Both measured — see F6.
 
 **Task order.** Revised after Task 2, with reasons — a plan that says one thing while the work does another is the failure mode `AGENTS.md` names:
 
@@ -69,7 +69,7 @@ At Task 5: **290 green** — 107 Geometry · 97 Graph · 31 Project · 25 Checke
 
 ## Global Constraints
 
-- `// swift-tools-version: 6.3`, `platforms: [.macOS(.v26)]`. No `if #available` anywhere. **Not 6.4** — Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest; 6.3 builds under both toolchains with no feature loss.
+- `// swift-tools-version: 6.3`, `platforms: [.macOS(.v26)]`. No `if #available` anywhere. **Not 6.4** — the *selected* toolchain (Xcode 27 beta 4) accepts a 6.4 manifest, but Xcode 26, which `TOOLCHAIN.md` § 1 keeps installed on purpose, refuses it: `package 'soredemo-main' is using Swift tools version 6.4.0 but the installed version is 6.3.3`. A tools version is a floor on the reader, and 6.3 is what keeps both able to open the package. Both directions measured at Task 19; see F6.
 - `swiftSettings: [.swiftLanguageMode(.v6), .strictMemorySafety()]` on **every** target. **`.strictConcurrency` is not a `SwiftSetting`** and will fail the manifest (F6).
 - The package imports **Foundation only**. No AppKit, ScreenCaptureKit, AVFoundation, SwiftUI, CryptoKit, CoreGraphics.
 - No `CGPoint`, `CGRect`, `CGSize`, `CGFloat` anywhere in the package.

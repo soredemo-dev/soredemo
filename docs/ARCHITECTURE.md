@@ -148,6 +148,23 @@ nothing reads it. A framing origin that nothing consumes is a pure function with
 completion rule. This is also what `explain_framing` and the review UI read, so it has to be durable,
 not recomputed.
 
+### Rule 7's target is `Derived.init`, and the first row that has to close it is `framing-targets`
+
+Rule 7 — `applyingProduced` is the sole writer of a `Derived` — is inert in D6 because no producer
+exists. When one does, **the gap will not be the missing producer; it will be `Derived`'s public
+initialiser.** `Sources/Graph/Derived.swift` declares
+`public init(value:origin:review: = .pending)`, so a producer can write
+`Derived(value: v, origin: .generated(d), review: .approved)` and never touch the guarded path. The
+default makes the honest call short and the dishonest one one argument longer. Held today by two doc
+comments and nothing else, and the comment on `applyingProduced` claimed to be "the enforced write
+path" until Task 19, when it was not.
+
+The initialiser cannot simply be closed: the app mints authored values through it and the decoder
+needs it. So rule 7 has to be a check that a *producer* does not name it — the same shape as rule 5,
+over `Sources/` instead of `Soredemo/`. **Phase 3's `framing-targets` is the first row that writes a
+producer, and therefore the row that must bring the mechanism with it.** A producer landing before
+the check would make the producer-value rule a convention on the exact code it exists to constrain.
+
 ---
 
 ## D5 — Project format: a document, not a database
@@ -195,6 +212,35 @@ user has the document open.**
 ## D6 — Architecture rules, enforced by the build
 
 Rules that are not executable stop being true. Three mechanisms, in descending order of strength.
+
+### The numbering, stated once
+
+**This table is the one numbering.** Other documents point at it; they do not restate it. There were
+two schemes in circulation until Task 19 — this one, and a different `1…6` in `AGENTS.md` where 3 was
+`geometryRevision` and 5 was strict concurrency — and both were cited from source, twice in the same
+file two lines apart, with `CGGeometryBridge.swift` carrying a parenthetical to say which 5 it meant.
+A rule you have to disambiguate by document name is a rule nobody can cite.
+
+"Enforces these" was also broader than the truth: of the rules below, the plugin enforces **three**.
+
+| # | Rule | Enforced by | Fails |
+| --- | --- | --- | --- |
+| 1 | The package imports Foundation only, plus each target's declared siblings | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
+| 2 | No `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package** — not merely in its public API | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
+| 3 | No ambient time or randomness | `Tests/DeterminismTests`, link-time symbols (package) · `Tests/AppSourceTests`, source text (app) | `swift test` only |
+| 4 | No manifest declares a package dependency — this is what keeps rule 1's allow-list complete | `Plugins/ArchitectureCheck`, scans every `Package*.swift` | `swift build` **and** `xcodebuild` |
+| 5 | CG types in the app appear only in `Soredemo/Capture/CGGeometryBridge.swift` | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
+| 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
+| 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
+
+Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
+target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
+write.
+
+The project's other binding rules are **not** in this numbering and never were: comparing
+`NormalizedFrame` across `geometryRevision` is a precondition failure (D3), Swift 6 strict
+concurrency (D2), and native-only Liquid Glass (D7). They are decisions with their own letters, and
+giving them numbers in a second list is what produced the collision.
 
 **1. A build-tool plugin — not the compiler.** `SoredemoCore` imports Foundation only. `import AppKit`
 in the package is a build failure, not a review comment — but the *compiler does not produce that

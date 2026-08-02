@@ -144,8 +144,10 @@ func violations(
 
 // MARK: - rule 5: the CoreGraphics bridge
 
-/// `AGENTS.md` rule 2 keeps `CGRect`, `CGPoint`, `CGSize` and `CGFloat` out of the
-/// PACKAGE, enforced by the plugin. This is the app-side half: they may appear in
+/// **Rule 2** (`ARCHITECTURE.md` D6, the only numbering) keeps `CGRect`, `CGPoint`,
+/// `CGSize` and `CGFloat` out of the
+/// PACKAGE, enforced by the plugin. This is the app-side half — **rule 5**, and
+/// both numbers are D6's: they may appear in
 /// exactly one file, the bridge, where CoreGraphics geometry is converted into
 /// this project's own types on entry and back out on exit. Nothing in between
 /// speaks in pixels (ARCHITECTURE.md D3).
@@ -192,9 +194,66 @@ func violations(
 /// at length that the package COMPARES digests and never computes one, because
 /// computing needs CryptoKit and rule 1 forbids it. The producer is `Minting`,
 /// and it must stay the only one.
+///
+/// **The list below is derived from `bannedSymbols` in
+/// `Tests/DeterminismTests/SymbolDeterminismTests.swift`, one text spelling per
+/// construct, and it was four entries long until Task 19.** Those four —
+/// `UUID(`, `Date(`, `SHA256`, `SystemRandomNumberGenerator` — caught none of
+/// `Date.now`, `Int.random(in:)`, `UUID.init()`, `Date.init()`, `Bool.random()`
+/// or `arc4random()`, all six of which were appended to `ContentView.swift` and
+/// observed passing. The package side had already enumerated every one of them;
+/// this side was a strictly smaller subset of a problem solved next door, and the
+/// row in `ROADMAP.md` that reads "ambient time, randomness and hashing confined
+/// to `Minting.swift`" was broader than the check under it. The doc comment above
+/// warns about a true-sounding sentence with nothing underneath it, which is what
+/// that sentence had become.
+///
+/// **This is a text scan, and the design doc rejected text scanning for exactly
+/// this rule** (F7, § Determinism): it is a proxy for a semantic question and it
+/// leaks. That verdict stands and is not being reversed here — the package side
+/// reads link-time symbols and always will. The app target has no test target and
+/// its object files are not where `nm` can be pointed from a package test, so text
+/// is what is available on this side of the boundary. What text cannot reach is
+/// therefore a **known gap with a reachability row**, in the design doc's
+/// `ArchitectureCheck` gap table, alongside every other gap in this repository.
+/// It shipped without one, which is why nobody noticed the list was short.
 @Test func ambientTimeRandomnessAndHashingEnterOnlyThroughMinting() throws {
     let found = try violations(
-        banned: ["UUID(", "Date(", "SHA256", "SystemRandomNumberGenerator"],
+        banned: [
+            // ── ambient time ────────────────────────────────────────────────
+            // `Date(` covers `Date()` and `Date(timeIntervalSinceNow:)`, and
+            // `NSDate(` besides; `Date.init` covers the explicit spelling, which
+            // shares no substring with it.
+            "Date(", "Date.init", "Date.now",
+            "timeIntervalSinceNow", "timeIntervalSinceReferenceDate",
+            "DispatchTime.now", "DispatchWallTime.now",
+            // The clock TYPES, not just their `now` — obtaining one at all is the
+            // step that has to happen somewhere auditable.
+            "ContinuousClock", "SuspendingClock",
+            "CFAbsoluteTimeGetCurrent",
+            "mach_absolute_time", "mach_approximate_time",
+            // Subsumes `clock_gettime_nsec_np`.
+            "clock_gettime", "gettimeofday",
+            // C `time()`. Broad on purpose: Swift's camelCase means a lowercase
+            // `time` immediately before `(` is close to unwritable by accident.
+            "time(",
+            "NSDate", "systemUptime",
+
+            // ── ambient randomness ──────────────────────────────────────────
+            "UUID(", "UUID.init",
+            // `.random(` catches `Int.random(in:)`, `Double.random(in:)` and
+            // `Bool.random()`. It does NOT catch `.randomElement(`, because the
+            // character after `random` is `E` — hence the separate entry.
+            ".random(", "randomElement",
+            // Subsumes `shuffled()`.
+            "shuffle",
+            "SystemRandomNumberGenerator",
+            // Subsumes `arc4random_uniform` and `arc4random_buf`.
+            "arc4random",
+
+            // ── ambient hashing ─────────────────────────────────────────────
+            "SHA256",
+        ],
         permittedPath: "Soredemo/Support/Minting.swift",
         in: try appSourceFiles())
 

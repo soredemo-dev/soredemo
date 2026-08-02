@@ -2,14 +2,17 @@ import CoreGraphics
 import Geometry
 
 /// **The only file in this repository allowed to name a CoreGraphics geometry
-/// type.** `AGENTS.md` architecture rule 2 keeps `CGRect`, `CGPoint`, `CGSize`
-/// and `CGFloat` out of the package entirely — `Plugins/ArchitectureCheck`
-/// fails the build on one. Keeping them out of the rest of the **app** is a
-/// different rule with a different mechanism: rule 5 in the design doc's
-/// `ArchitectureCheck` table (not `AGENTS.md`'s rule 5, which is strict
-/// concurrency), enforced by a package **test** rather than by the plugin,
-/// because the plugin attaches to SwiftPM targets and cannot see the Xcode app
-/// target at all. That test allow-lists this path and no other.
+/// type.** Architecture **rule 2** keeps `CGRect`, `CGPoint`, `CGSize` and
+/// `CGFloat` out of the package entirely — `Plugins/ArchitectureCheck` fails the
+/// build on one. Keeping them out of the rest of the **app** is a different rule
+/// with a different mechanism: **rule 5**, enforced by a package **test** rather
+/// than by the plugin, because the plugin attaches to SwiftPM targets and cannot
+/// see the Xcode app target at all. That test allow-lists this path and no other.
+///
+/// Both numbers are `ARCHITECTURE.md` D6's, which is now the only numbering.
+/// This comment used to carry a parenthetical distinguishing that rule 5 from a
+/// different rule 5 in `AGENTS.md`; the second scheme is gone, and a rule that
+/// needs its source document named to be identified was the reason.
 ///
 /// So: capture converts on entry, render converts on exit, and nothing in
 /// between speaks in pixels. Every CoreGraphics rectangle the app receives —

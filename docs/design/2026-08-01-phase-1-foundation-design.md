@@ -1,6 +1,8 @@
 # Phase 1 — Foundation: design
 
-*Covers `repo-skeleton`, `architecture-plugin`, `geometry`, `project-format`, `derivation-graph`.*
+*Covers `repo-skeleton`, `architecture-plugin`, `geometry-types`, `project-format`, `derivation-graph`.*
+*(`geometry` was renamed `geometry-types` at Task 19 — "all conversion in one place" moved to
+`input-observation`/`ax-observation`, whose code is the first to call `NormalizationContext`.)*
 
 Every SDK claim below was tested against the macOS 27 SDK (Xcode 27 beta 4, `27A5228h`, Swift 6.4)
 by compiling or building, not read from documentation. Findings that contradict an existing
@@ -156,10 +158,27 @@ one-off.
   concurrency checking. `.strictMemorySafety()` is available and also enabled.
 - **`swift-tools-version: 6.3`, not 6.4.** 6.4 is required only for `.macOS(.v27)`, which this
   design no longer targets, so it buys nothing — and it costs compatibility with the Xcode the
-  project is actually opened in. Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest outright
-  (`unexpectedly did not find the new dependency in the package graph`), while the command line
-  points at Xcode-beta 27 and never showed it. Verified: tools 6.3 builds under **both** toolchains,
-  and `.macOS(.v26)`, `.swiftLanguageMode(.v6)` and `.strictMemorySafety()` all survive at 6.3.
+  project is also opened in. `.macOS(.v26)`, `.swiftLanguageMode(.v6)` and `.strictMemorySafety()`
+  all survive at 6.3.
+
+  **Re-measured at Task 19, because the reason stated here had gone stale in two ways.** It said
+  "Xcode 26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest", which describes a toolchain that is
+  not the selected one — `xcode-select -p` points at `Xcode-beta.app` — and it quoted the wrong
+  error. Setting `Package.swift` to `// swift-tools-version: 6.4` and running `swift package
+  dump-package` under each:
+
+  | Toolchain | Result |
+  | --- | --- |
+  | Xcode 27 beta 4 · Swift 6.4 · **selected** | **exit 0** — a 6.4 manifest is *accepted* |
+  | `/Applications/Xcode.app` · Swift 6.3.3 | **exit 1** — `error: 'soredemo-main': package 'soredemo-main' is using Swift tools version 6.4.0 but the installed version is 6.3.3` |
+
+  So the conclusion holds on the *other* toolchain, not this one. The previously quoted message,
+  `unexpectedly did not find the new dependency in the package graph`, is not what SwiftPM 6.3.3
+  prints for this condition; two documents quoted two different messages for one measurement, which
+  is the tell that neither had been run recently. `ARCHITECTURE.md` D2 carries the same correction.
+  A tools version is a floor on the reader: 6.3 is what keeps Xcode 26 — which `TOOLCHAIN.md` § 1
+  keeps installed on purpose — able to open the package. Raise it only when Xcode 26 is deliberately
+  dropped.
 
   The general shape is the one this document keeps running into: a check that only exercises one of
   two environments. `swift build` was green throughout while the environment the owner uses could
@@ -779,6 +798,42 @@ only way to obtain the system generator is `SystemRandomNumberGenerator.init()`,
 
 The residual is the first row, and it is a codegen-configuration miss rather than a source-level one.
 
+#### Rule 3's app-side half is a TEXT scan, and here is what text cannot reach
+
+The mechanism above — link-time symbols — covers the **package**. `Soredemo/Support/Minting.swift`
+is in the **app** target, which has no test target and whose object files a package test cannot be
+pointed at, so the app-side half (`Tests/AppSourceTests`,
+`ambientTimeRandomnessAndHashingEnterOnlyThroughMinting`) is a substring scan over the shared code
+view. **That is the mechanism this document rejected for this rule**, in F7 and § Determinism, on
+the grounds that a text scan is a proxy for a semantic question and leaks. The verdict has not been
+reversed; text is simply what is available on that side of the boundary. So the leaks get a
+reachability table, which this rule shipped without — and the absence of the table is why nobody
+noticed, until Task 19, that the banned list was **four entries long** and caught none of
+`Date.now`, `Int.random(in:)`, `UUID.init()`, `Date.init()`, `Bool.random()` or `arc4random()`.
+The list is now derived entry-by-entry from `bannedSymbols`; all 23 constructs in
+`bannedConstructFixture` that an app source could name were observed caught.
+
+Every row below **compiles** — checked with `swiftc -typecheck -swift-version 6 -target
+arm64-apple-macos26.0` — so unlike rule 1's row 5, none of these is excused by "the source does not
+build".
+
+| Construction | Direction | Reachable how |
+| --- | --- | --- |
+| `Date .init()` — a space between the type and `.init` | miss | Deliberate authorship. It is also **precisely the leak F7 names** as the reason the package side reads symbols instead of text; recorded here as the same leak, unclosed, on the side that cannot read symbols |
+| `Date` newline `.init()` | miss | Deliberate. The scan is line-by-line over the code view, so no substring can span the break |
+| `typealias Moment = Date` then `Moment()` | miss | **The reachable one, and it is not deliberate-only.** `typealias Timestamp = Date` is a thing people write for readability, and the call site through it looks innocent. Nothing in the app does this today; the rule would not see it if it did |
+| `"\(Date())"` — the interpolated form | **caught** | Listed because it is the form the package's text-scan predecessor let through. The shared code view keeps interpolation *bodies* as code while blanking string content, so it fires here |
+| `Int.random(in:)` as an unapplied function reference | **caught** | Same reason — `.random(` is present in the spelling |
+
+The residual is row 3. It is closed by the same fix as the standing structural gap below —
+SwiftSyntax, or an app test target that lets `nm` do here what it does for the package — and by
+nothing cheaper, since banning `.init` outright would fire on idiomatic SwiftUI on every line.
+
+**The list is mirrored, not shared, and nothing enforces the agreement.** The package's 37 mangled
+symbols and the app's substrings describe the same rule over two bodies of source that cannot import
+each other's test targets. A construct added to one side does not appear on the other, and no test
+compares them. Same shape as `bannedCGTypes`, recorded below.
+
 #### `CheckerLexer` is outside rules 1 and 3, and both exclusions are held by hand
 
 One library target is not covered by either mechanism, and neither exclusion is enforced by anything:
@@ -807,6 +862,29 @@ residual: not a target drifting out of coverage by accident, but the list of per
 growing on purpose and taking two rules with it each time. And `CheckerLexer`'s own compliance —
 Foundation only, no ambient time or randomness, the code view a pure function of its input string —
 rests on review alone.
+
+#### The two banned-name lists are mirrored, and the reasoning lives only in a test file
+
+Rule 2 exists twice. `ArchitectureChecker.bannedCGTypes` in `Sources/architecture-checker/main.swift`
+holds `CGRect`, `CGPoint`, `CGSize`, `CGFloat` for the **package**;
+`coreGraphicsGeometryTypesAppearOnlyInTheBridge` in `Tests/AppSourceTests` holds the same four for
+the **app**, permitting one file. Rule 3 has the same split — 37 mangled symbols on the package side,
+the substring list on the app side. In both cases **nothing enforces that the two halves agree**, and
+adding a fifth banned name means remembering to edit both.
+
+Mirroring is deliberate rather than an oversight, and the argument is worth having in a document
+instead of only in a doc comment where the next person will not find it:
+
+- They are two rules over two different bodies of source. Either side may legitimately gain a name
+  the other must not — the app will name `CMTime` and `SCStream` types the package may never see,
+  and the package's list is about its own public vocabulary.
+- The only target both sides can import is `CheckerLexer` — which is, per the subsection above, the
+  one target outside plugin enforcement. A shared list would therefore sit in the least-guarded
+  place in the package, to remove a duplication that is four strings long.
+
+The cost is accepted, not unnoticed: **the failure mode is one side silently enforcing less than the
+other**, exactly as happened to rule 3's app half before Task 19. If a third mirror ever appears, or
+either list grows past a handful of entries, that trade stops being obviously right.
 
 ### Rule 4 reads source text too, so it needs its own evasion list
 

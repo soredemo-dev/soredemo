@@ -202,9 +202,19 @@ path and `swift build --build-tests` from nothing.
 
 ## Architecture rules — enforced, not aspirational
 
-`Plugins/ArchitectureCheck` enforces these. If you change a rule, change the plugin in the same commit.
+**The numbering below is `ARCHITECTURE.md` D6's, which is the only one.** Do not restate it
+elsewhere and do not renumber it here; this section is a reader's copy, and D6 is the authority. Two
+schemes were in circulation until Task 19, both cited from source — `CGGeometryBridge.swift` had to
+carry a parenthetical saying which "rule 5" it meant.
 
-1. **The `SoredemoCore` package imports Foundation only** — `Package.swift` and `Sources/` sit at the repository root — no AppKit, no ScreenCaptureKit, no
+**Each rule says what enforces it, because the mechanisms differ and the difference matters.** The
+plugin enforces rules 1, 2 and 4 — those fail `swift build` and `xcodebuild`, on every build. Rules
+3 and 5 are tests: they fail `swift test` and **not** an `xcodebuild` of the app, because the Xcode
+project has no test target. Rules 6 and 7 are inert; the code they constrain does not exist yet.
+If you change a rule, change its mechanism in the same commit — and if it has no mechanism, say so
+rather than writing it as though it had one.
+
+1. **The `SoredemoCore` package imports Foundation only** — *plugin; fails both builds* — — `Package.swift` and `Sources/` sit at the repository root — no AppKit, no ScreenCaptureKit, no
    AVFoundation. **The compiler does not enforce this.** It constrains edges *between package
    targets*, and even that degrades to a warning on a warm `.build`; it places no restriction at all
    on system frameworks, so a target with no declared dependencies can import AppKit and build fine.
@@ -228,14 +238,31 @@ path and `swift build --build-tests` from nothing.
    permissions, and no display — and derivation stays a deterministic function of its input, which is
    what makes staleness and content-hash approval mean anything.
 
-2. **No `CGPoint` or `CGRect` in the package's public API.** Capture converts on entry, render converts
-   on exit. Nothing in between speaks in pixels.
-3. **`NormalizedFrame` carries `geometryRevision`.** Comparing across revisions is a precondition
-   failure, never a silent coercion. Displays get reconfigured mid-recording.
-4. **One owner for the observation-log → graph join.**
-5. **Swift 6.4 strict concurrency, no exceptions.**
-6. **App chrome is 100% standard SwiftUI.** Never `.glassEffect()`, never `NSGlassEffectView`. Content
-   surfaces are opaque. Custom glass does not respond to the system Liquid Glass slider.
+2. **No `CGRect`, `CGPoint`, `CGSize` or `CGFloat` anywhere in the package** — *plugin; fails both
+   builds.* **Anywhere, not just in the public API** — the checker scans every line of every file,
+   and the weaker "public API" wording that stood here until Task 19 stated the rule two ways
+   looser than the one that fails the build. Capture converts on entry, render converts on exit.
+   Nothing in between speaks in pixels. And the compiler is no help: Foundation on Darwin
+   re-exports these types, so `let r: CGRect? = nil` compiles clean in a Foundation-only target.
+3. **No ambient time or randomness** — *tests; fails `swift test` only.* `Tests/DeterminismTests`
+   reads link-time symbols for the package; `Tests/AppSourceTests` scans text for the app, where
+   ambient values enter at `Soredemo/Support/Minting.swift` and nowhere else.
+4. **No manifest declares a package dependency** — *plugin; fails both builds.* Every
+   `Package*.swift`, not just `Package.swift`. This is what keeps rule 1's import allow-list
+   complete: with zero dependencies there is no unlisted module to smuggle one in through.
+5. **CG types in the app appear only in `Soredemo/Capture/CGGeometryBridge.swift`** — *test; fails
+   `swift test` only.* A test rather than a plugin rule because the plugin attaches to SwiftPM
+   targets and cannot see the Xcode app target at all.
+6. **One owner for the observation-log → graph join** — *inert.* No mechanism; the code does not
+   exist. Becomes real in Phase 3.
+7. **`applyingProduced` is the sole writer of a `Derived`** — *inert.* `Derived`'s public
+   initialiser is what this will have to constrain; see `ARCHITECTURE.md` D4.
+
+**Not in this numbering, deliberately** — these are decisions with letters, not architecture rules
+with mechanisms, and giving them numbers here is what produced two colliding schemes:
+comparing `NormalizedFrame` across `geometryRevision` is a precondition failure (D3) · Swift 6
+strict concurrency, no exceptions (D2) · app chrome is 100% standard SwiftUI, never
+`.glassEffect()`, never `NSGlassEffectView`, content surfaces opaque (D7).
 
 ---
 

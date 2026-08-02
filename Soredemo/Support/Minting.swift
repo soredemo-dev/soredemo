@@ -5,7 +5,7 @@ import Graph
 /// The three things `SoredemoCore` is forbidden to do, done here — once, in one
 /// file, on the app side of the line.
 ///
-/// `AGENTS.md` architecture rule 1 keeps the package on `import Foundation`
+/// Architecture rule 1 (`ARCHITECTURE.md` D6) keeps the package on `import Foundation`
 /// alone, and the design doc § Determinism keeps ambient time and randomness out
 /// of it entirely (enforced at link time by `Tests/DeterminismTests`, which
 /// scans the package's object files for `UUID` and `Date` symbols). That rule is

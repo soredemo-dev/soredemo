@@ -214,8 +214,10 @@ final class ProjectDocument: NSDocument {
 /// Phase 1's document window: enough to show that a `.soredemo` package opened
 /// and what came out of its manifest.
 ///
-/// Standard SwiftUI, opaque, no `.glassEffect()` — `AGENTS.md` architecture
-/// rule 6.
+/// Standard SwiftUI, opaque, no `.glassEffect()` — `ARCHITECTURE.md` **D7**.
+/// (It cited "`AGENTS.md` architecture rule 6" until Task 19, under a second
+/// numbering that no longer exists; native-only Liquid Glass is a decision with
+/// a letter, not one of D6's numbered rules.)
 ///
 /// Takes a snapshot **value**, not the document: `ProjectSnapshot` is `Sendable`
 /// and this view is main-actor, whereas the document's state deliberately is
