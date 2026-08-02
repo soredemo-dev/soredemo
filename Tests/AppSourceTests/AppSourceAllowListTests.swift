@@ -258,6 +258,14 @@ func violations(
             "SystemRandomNumberGenerator",
             // Subsumes `arc4random_uniform` and `arc4random_buf`.
             "arc4random",
+            // `Security`'s CSPRNG — a distinct source from `arc4random`, not a
+            // spelling of it. `arc4random` reads the kernel's PRNG directly;
+            // `SecRandomCopyBytes` goes through `Security`'s own CSPRNG. Both are
+            // Minting-shaped ambient randomness, and `SecRandomCopyBytes` compiles
+            // and links with plain `import Foundation` — no `import Security`
+            // needed on Darwin — so nothing about the app's imports would flag it.
+            // Task 5.5.
+            "SecRandomCopyBytes",
 
             // ── ambient hashing ─────────────────────────────────────────────
             "SHA256",

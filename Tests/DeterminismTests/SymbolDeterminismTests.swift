@@ -85,6 +85,11 @@ let bannedSymbols: [String: String] = [
     "_CFAbsoluteTimeGetCurrent":                                "CFAbsoluteTimeGetCurrent()",
     "_mach_absolute_time":                                      "mach_absolute_time()",
     "_mach_approximate_time":                                   "mach_approximate_time()",
+    // Sibling of `mach_absolute_time`, introduced the same day by the same author
+    // (`Minting.continuousNow()`, Task 5) and missed by this table until Task 5.5.
+    // Advances during sleep where `mach_absolute_time` does not (D2-4) — a
+    // different reading, not a spelling variant.
+    "_mach_continuous_time":                                    "mach_continuous_time()",
     "_clock_gettime_nsec_np":                                   "clock_gettime_nsec_np()",
     "_clock_gettime":                                           "clock_gettime()",
     "_gettimeofday":                                            "gettimeofday()",
@@ -114,6 +119,18 @@ let bannedSymbols: [String: String] = [
     "_arc4random":                                              "arc4random()",
     "_arc4random_uniform":                                      "arc4random_uniform()",
     "_arc4random_buf":                                          "arc4random_buf()",
+    // `Security`'s CSPRNG, reachable with plain `import Foundation` — Foundation
+    // re-exports it on Darwin the same way it re-exports `Security`'s other C API,
+    // so no package target has to name `Security` to reach it and rule 1's import
+    // scan never sees it arrive. Distinct source from `arc4random`, not a spelling
+    // of it: `arc4random` reads the kernel's `/dev/random`-backed PRNG directly;
+    // `SecRandomCopyBytes` goes through `Security`'s own CSPRNG plumbing. Both are
+    // Minting-shaped ambient randomness. `kSecRandomDefault` is the parameter that
+    // selects the default generator — inert by itself, but named separately because
+    // it is its own undefined symbol and the fixture invariant is one call site per
+    // table entry.
+    "_SecRandomCopyBytes":                                      "SecRandomCopyBytes()",
+    "_kSecRandomDefault":                                       "kSecRandomDefault (any reference)",
 ]
 
 /// One call site per entry in `bannedSymbols`, and nothing else. Compiled and read
@@ -164,6 +181,12 @@ public func t33() -> UInt64 { var g = SystemRandomNumberGenerator(); return g.ne
 public func t34(_ p: UnsafeMutableRawPointer) { arc4random_buf(p, 8) }
 public func t35() -> UInt32 { arc4random() }
 public func t36() -> UInt32 { arc4random_uniform(10) }
+public func t37() -> UInt64 { mach_continuous_time() }
+public func t38() -> OSStatus {
+    var bytes = [UInt8](repeating: 0, count: 8)
+    return SecRandomCopyBytes(kSecRandomDefault, 8, &bytes)
+}
+public func t39() -> SecRandomRef { kSecRandomDefault }
 """
 
 /// The other side of the rule, and the one that decides whether it is usable. Every
