@@ -35,7 +35,7 @@ this table and `git log --oneline 7419058..HEAD`, a new session has what it need
 | 2.5 · does the plugin run under Xcode? | ☑ | (spike) | `ENABLE_USER_SCRIPT_SANDBOXING = YES` does not suppress it; violation ⇒ `xcodebuild` exit 65 |
 | 3 · rules 2 and 4 | ☑ | `23ba054` | banned CG types (substring, not tokens), no manifest dependencies |
 | 4 · rule 3, determinism | ☑ | `2ca8bfc` | link-time symbols, 37 mangled names derived not guessed |
-| 5 · rule 5, CG bridge | ☐ | — | **deferred into Task 18** — `CGGeometryBridge.swift` does not exist yet |
+| 5 · CG bridge + app determinism allow-lists | ☐ | — | pulled back OUT of Task 18: needs the checker's lexer extracted to a library target, which is independently rejectable |
 | 6 · canonical encoding + digest | ☑ | `2e60445` | 41 pinned bytes, revision `0xbcf4_9ed7_dcb4_2be0` |
 | 7 · geometry registry | ☑ | `d65fc5c` | two failure modes, decode throws rather than traps |
 | 8 · normalized types + cross-revision trap | ☑ | `50c13ef` | guard is uncoverable in-process; see the task's ledger entry |
@@ -49,7 +49,7 @@ this table and `git log --oneline 7419058..HEAD`, a new session has what it need
 | 15 · reverse index + cache pairing | ☑ | `09a6d5c` | `rebuild` replaces, never merges; no self-triggering staleness detection |
 | 16 · project snapshot + upgrade chain | ☑ | `2a30000` + `ace903c` | `SchemaProbe` reads the version without decoding the document; `tooNew` throws before any field lands |
 | 17 · package I/O + truncated tail | ☑ | `46e31ae` + `3180653` | four mutations passed and the mechanism was still untested; see the ledger |
-| 18 · NSDocument coordinator | ☐ | — | absorbs Task 5, plus Step 2.5 from **Open items** §1 |
+| 18 · NSDocument coordinator | ☑ | `2f46c33` + `9ea17ac` + `7eebe6a` | Task 5 pulled OUT, see below. Step 2 outcome 1: `xcodebuild` exit 65 with the package actually compiled |
 | 19 · close out the phase | ☐ | — | **must not** tick `geometry`; see **Open items** §2 |
 
 **Test count, and how to count it.** `swift test` prints one summary line per test target, and the
@@ -62,7 +62,7 @@ and add them yourself:
 swift test 2>&1 | grep -oE "^✔ Test run with ([0-9]+) tests?" | grep -oE '[0-9]+' | paste -sd+ - | bc
 ```
 
-At Task 17: **259 green** — 107 Geometry · 93 Graph · 31 Project · 18 Timeline · 8 Determinism ·
+At Task 18: **263 green** — 107 Geometry · 97 Graph · 31 Project · 18 Timeline · 8 Determinism ·
 1 Framing · 1 Variants (the last two are placeholders that assert the target builds).
 
 ## Global Constraints
