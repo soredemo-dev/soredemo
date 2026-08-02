@@ -50,7 +50,7 @@ enum CGGeometryBridge {
     /// rectangle dragged up and to the left would otherwise trap here rather
     /// than convert. Standardizing moves the origin and takes the magnitude,
     /// which is the same rectangle.
-    static func pixelRect(from rect: CGRect) -> PixelRect {
+    nonisolated static func pixelRect(from rect: CGRect) -> PixelRect {
         let r = rect.standardized
         return PixelRect(x: Double(r.origin.x), y: Double(r.origin.y),
                          width: Double(r.size.width), height: Double(r.size.height))
@@ -59,7 +59,24 @@ enum CGGeometryBridge {
     /// Interprets `rect` as **points** — what `CGDisplayBounds`,
     /// `CGEventGetLocation` and AX `kAXPositionAttribute` actually report.
     /// Standardized for the same reason as `pixelRect(from:)`.
-    static func pointRect(from rect: CGRect) -> PointRect {
+    ///
+    /// **`nonisolated` on every function in this file, added in Task 8, not
+    /// part of this file's original shape.** Unannotated, each of these four
+    /// functions is implicitly `@MainActor` under this target's
+    /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — harmless while every
+    /// caller was itself MainActor, which stopped being true once
+    /// `CaptureSession` (Task 8) needed to bridge a `ScreenCaptureKit`
+    /// frame's `ContentRect`/`ScreenRect` attachment from inside an
+    /// `SCStreamOutput` callback, which `ScreenCaptureKit` delivers on a
+    /// queue this app owns and which must stay synchronous, non-`async`.
+    /// Verified by compiling `CaptureSession.swift`: `xcrun swiftc` rejected
+    /// `CGGeometryBridge.pointRect(from:)` called from a `nonisolated`
+    /// function with the identical error shape `Minting.swift` hit for the
+    /// same reason — see that file's own note on `newIdentifier()`. None of
+    /// these four functions reads AppKit or UI state; they are pure
+    /// coordinate math, so `nonisolated` matches what was already true of
+    /// the implementation.
+    nonisolated static func pointRect(from rect: CGRect) -> PointRect {
         let r = rect.standardized
         return PointRect(x: Double(r.origin.x), y: Double(r.origin.y),
                          width: Double(r.size.width), height: Double(r.size.height))
@@ -70,11 +87,11 @@ enum CGGeometryBridge {
     /// The render-side exit. Overloaded on the argument type rather than named
     /// `cgRect(fromPixels:)`/`cgRect(fromPoints:)`, because the argument type
     /// already carries the unit and a second spelling of it could disagree.
-    static func rect(from pixels: PixelRect) -> CGRect {
+    nonisolated static func rect(from pixels: PixelRect) -> CGRect {
         CGRect(x: pixels.x, y: pixels.y, width: pixels.width, height: pixels.height)
     }
 
-    static func rect(from points: PointRect) -> CGRect {
+    nonisolated static func rect(from points: PointRect) -> CGRect {
         CGRect(x: points.x, y: points.y, width: points.width, height: points.height)
     }
 }

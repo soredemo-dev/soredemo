@@ -27,12 +27,35 @@ import Timeline
 /// injected by whoever produced the evidence. That producer is this enum.
 enum Minting {
     /// A fresh v4 UUID. The package cannot call `UUID()`; it can hold the result.
-    static func newIdentifier() -> UUID {
+    ///
+    /// **`nonisolated`, added in Task 8, not part of Task 5's original
+    /// shape.** Every function in this file is unannotated, so under this
+    /// target's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` each one is
+    /// implicitly `@MainActor` — harmless while every caller was itself
+    /// MainActor, which was true until `CaptureSession`'s `SCStreamOutput`
+    /// callbacks (Task 8), which `ScreenCaptureKit` delivers on a queue this
+    /// app owns and which must stay synchronous, non-`async` (they override
+    /// a plain ObjC protocol method). Verified by compiling
+    /// `CaptureSession.swift` against the unmodified file: `xcrun swiftc`
+    /// rejected `Minting.hostNow()` called from a `nonisolated` function
+    /// with "call to main actor-isolated static method 'hostNow()' in a
+    /// synchronous nonisolated context" — the exact shape
+    /// `CaptureSource.swift`'s own header describes hitting for
+    /// `.geometry()`/`.filter()` while building Task 7, for the identical
+    /// reason: "a function pinned to the main actor is not free of the
+    /// concurrency domain it claims independence from, whatever thread
+    /// happens to call it in practice today." None of these functions reads
+    /// AppKit or UI state — they are thin reads of `sysctl`/`mach_*`/`UUID`/
+    /// `Date`/`SHA256`, ambient but context-free — so `nonisolated` is the
+    /// correct annotation, not a workaround: it makes the isolation match
+    /// what was already true of the implementation, for every function in
+    /// this file, not only the one Task 8 happened to need first.
+    nonisolated static func newIdentifier() -> UUID {
         UUID()
     }
 
     /// The current wall-clock instant. Same reasoning as `newIdentifier()`.
-    static func now() -> Date {
+    nonisolated static func now() -> Date {
         Date()
     }
 
@@ -50,7 +73,7 @@ enum Minting {
     /// Pinned across the package boundary by `Tests/GraphTests/CrossBoundaryDigestVectorTests.swift`
     /// plus `scripts/cross-boundary-digest-probe.swift` — see those files for
     /// why the vector is split in two.
-    static func digest(of bytes: some DataProtocol) -> ContentDigest {
+    nonisolated static func digest(of bytes: some DataProtocol) -> ContentDigest {
         ContentDigest(Array(SHA256.hash(data: bytes)))
     }
 }
@@ -65,7 +88,12 @@ extension Minting {
     /// and `mach_continuous_time` ticks to nanoseconds. Measured on this machine
     /// (F2-1): `numer = 125, denom = 3`, i.e. 1 tick = 41.667 ns. Fetched once —
     /// it is a property of the CPU, fixed for the life of the process.
-    private static let timebase: mach_timebase_info_data_t = {
+    /// `nonisolated`, alongside the functions below — it must be reachable
+    /// from `hostNow()`/`continuousNow()`'s own `nonisolated` context, and
+    /// no `unsafe` is needed: `mach_timebase_info_data_t` is `Sendable` and
+    /// a `static let` is initialised exactly once regardless of which
+    /// isolation domain first touches it.
+    private nonisolated static let timebase: mach_timebase_info_data_t = {
         var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t
     }()
 
@@ -93,7 +121,7 @@ extension Minting {
     /// would be exactly `AGENTS.md`'s "measurement with a safe default" one
     /// level up: a plausible-looking `BootEpoch` for a question the type exists
     /// to answer correctly.
-    public static func bootEpoch() -> BootEpoch {
+    public nonisolated static func bootEpoch() -> BootEpoch {
         var size = 0
         sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0)
         precondition(size > 0, "kern.bootsessionuuid is unavailable; there is no honest fallback")
@@ -112,7 +140,7 @@ extension Minting {
     /// The host clock, in nanoseconds — the same base as
     /// `CMClockGetHostTimeClock()` and `CGEventTimestamp`, measured (F2-1).
     /// Stops advancing while the system sleeps (D2-4); see `continuousNow()`.
-    public static func hostNow() -> Nanoseconds {
+    public nonisolated static func hostNow() -> Nanoseconds {
         Nanoseconds(Int64(mach_absolute_time() &* UInt64(timebase.numer) / UInt64(timebase.denom)))
     }
 
@@ -131,7 +159,7 @@ extension Minting {
     /// documented — here and in `EpochAnchor` — as display and rough placement,
     /// never an ordering key. `hostNow()` and `continuousNow()`, which order
     /// things, do not go through `Double` at any point.
-    public static func epochAnchor() -> EpochAnchor {
+    public nonisolated static func epochAnchor() -> EpochAnchor {
         EpochAnchor(epoch: bootEpoch(), hostTime: hostNow(),
                     wallClockUnixNanos: Int64(Date().timeIntervalSince1970 * 1e9))
     }
@@ -143,7 +171,7 @@ extension Minting {
     /// against a `hostNow()` reading from a different moment as an ordering
     /// key; it exists to detect sleep, not to replace the host clock F2-1
     /// established `CMClockGetHostTimeClock()` and `CGEventTimestamp` are on.
-    public static func continuousNow() -> Nanoseconds {
+    public nonisolated static func continuousNow() -> Nanoseconds {
         Nanoseconds(Int64(mach_continuous_time() &* UInt64(timebase.numer) / UInt64(timebase.denom)))
     }
 }

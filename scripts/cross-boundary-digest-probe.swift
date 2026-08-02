@@ -179,6 +179,9 @@ enum CrossBoundaryProbe {
         print("5. CaptureSource.geometry() — D2-13: a window's frame is extrinsic")
         try await captureSourceGeometry()
 
+        print("6. SegmentLedger — segment lifecycle against a fake frame source (Task 8)")
+        segmentLedgerLifecycle()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -594,5 +597,173 @@ enum CrossBoundaryProbe {
         let noDisplaysSource = CaptureSource(pickerFilter: windowFilter, availableDisplays: [])
         check(noDisplaysSource == nil,
               "CaptureSource(pickerFilter:) with no available displays returns nil for a window, not a fallback size")
+    }
+
+    /// `SegmentLedger` (`Soredemo/Capture/CaptureSession.swift`) is Task 8's
+    /// "yours" half: segment lifecycle bookkeeping with no
+    /// `ScreenCaptureKit`, no `AVFoundation`, no permission, no picker. A
+    /// "fake frame source" here is nothing more than a sequence of
+    /// synthetic `HostInstant`s and `SegmentBoundary`s fed straight to
+    /// `openSegment`/`closeSegment` — there is no real stream to fake,
+    /// because this type never touches one; every value it holds is a
+    /// parameter its caller supplied (see the type's own doc comment).
+    ///
+    /// **Correction to the task brief's own Step 4 sample.** The brief's
+    /// spike checklist includes `table.segments.allSatisfy { $0.endedBy !=
+    /// nil }`. `MasterSegment.endedBy` is typed `SegmentBoundary`, not
+    /// `SegmentBoundary?` (`Sources/Project/SegmentTable.swift`) — that line
+    /// does not compile as written, and the property it is testing for is
+    /// not a runtime condition at all: `MasterSegment`'s initialiser
+    /// requires `endedBy` unconditionally, so "every segment has a boundary
+    /// reason" is a compile-time guarantee, not something a test needs to
+    /// observe — a gap here would be a type the compiler refuses to build,
+    /// not a value at runtime. What is worth checking instead, and what
+    /// actually distinguishes correct code from a plausible mutation, is
+    /// that the RIGHT boundary reason lands on the RIGHT segment — which is
+    /// what every check below asserts directly, rather than re-deriving a
+    /// vacuous one the type system already guarantees.
+    @MainActor
+    static func segmentLedgerLifecycle() {
+        let epoch = Minting.bootEpoch()
+        func instant(_ nanos: Int64) -> HostInstant {
+            HostInstant(epoch: epoch, hostTime: Nanoseconds(nanos))
+        }
+        // Two DISTINCT, non-zero revisions — `id: 0` would be scale/identity
+        // territory (`AGENTS.md`'s fixture-diversity table), and the whole
+        // point of the reconfiguration segment below is that segment 2
+        // carries a DIFFERENT revision from segments 0 and 1.
+        let revisionA = GeometryRevision(id: 0xAAAA_AAAA)
+        let revisionB = GeometryRevision(id: 0xBBBB_BBBB)
+
+        var ledger = SegmentLedger()
+        check(!ledger.isSegmentOpen, "a fresh ledger has no open segment")
+
+        // Segment 0: opened at t=0s, paused at t=1s.
+        ledger.openSegment(at: instant(0), revision: revisionA, mediaFilename: "master-00.mov")
+        check(ledger.isSegmentOpen, "openSegment makes isSegmentOpen true")
+        let seg0 = ledger.closeSegment(at: instant(1_000_000_000), endedBy: .paused)
+        check(!ledger.isSegmentOpen, "closeSegment makes isSegmentOpen false again")
+        check(seg0.index == 0, "the first segment is index 0", actual: "\(seg0.index)")
+        check(seg0.endedBy == .paused, "segment 0 closed with the boundary it was given",
+              actual: "\(seg0.endedBy)")
+        check(seg0.revision == revisionA, "segment 0 carries the revision it was opened with")
+        check(seg0.hostRange.start == Nanoseconds(0) && seg0.hostRange.duration == Nanoseconds(1_000_000_000),
+              "segment 0's HostRange is exactly [start, end) as given",
+              actual: "start=\(seg0.hostRange.start.rawValue) duration=\(seg0.hostRange.duration.rawValue)")
+
+        // Segment 1: resumed at t=2s — a real one-second GAP while paused,
+        // legal (`SegmentTable` forbids overlap, not gaps) — closed by a
+        // display reconfiguration that mints revisionB.
+        ledger.openSegment(at: instant(2_000_000_000), revision: revisionA, mediaFilename: "master-01.mov")
+        let seg1 = ledger.closeSegment(at: instant(3_000_000_000),
+                                        endedBy: .displayReconfigured(newRevision: revisionB))
+        check(seg1.index == 1, "the second segment is index 1", actual: "\(seg1.index)")
+        check(seg1.endedBy == .displayReconfigured(newRevision: revisionB),
+              "segment 1 closed with the reconfiguration boundary and the new revision it was given")
+
+        // Segment 2: opened with the NEW revision — mirroring what
+        // `CaptureSession.handleReconfiguration` actually does, immediately
+        // after closing with `.displayReconfigured` — closed by `.stopped`.
+        ledger.openSegment(at: instant(3_000_000_000), revision: revisionB, mediaFilename: "master-02.mov")
+        let seg2 = ledger.closeSegment(at: instant(4_000_000_000), endedBy: .stopped)
+        check(seg2.revision == revisionB,
+              "segment 2 carries the NEW revision minted by the reconfiguration boundary, not the old one")
+        check(seg2.endedBy == .stopped, "segment 2 closed with .stopped")
+
+        let table: SegmentTable
+        do {
+            table = try ledger.finish()
+        } catch {
+            check(false, "finish() on a well-formed ledger does not throw", actual: "\(error)")
+            return
+        }
+        check(table.segments.count == 3, "three closeSegment calls produce a three-segment SegmentTable",
+              actual: "\(table.segments.count)")
+        check(table.segments.map(\.index) == [0, 1, 2],
+              "indices are sequential, assigned by the ledger itself, not the caller")
+        check(table.segments.map(\.endedBy) == [.paused, .displayReconfigured(newRevision: revisionB), .stopped],
+              "all three boundary reasons round-trip to the SegmentTable, in order",
+              actual: "\(table.segments.map(\.endedBy))")
+        check(table.contentDuration == Nanoseconds(3_000_000_000),
+              "contentDuration sums the three segments' OWN durations (3s), not the wall-clock span, " +
+              "which includes the 1s paused gap and would be 4s",
+              actual: "\(table.contentDuration.rawValue)")
+        // t=2.5s falls inside segment 1's [2s, 3s) — contentTime must report
+        // it as 1.5s of CONTENT time (1s from segment 0 + 0.5s into segment
+        // 1), not 2.5s of host time. This is the whole point of the
+        // gapless-concatenation mapping `SegmentTable.contentTime(of:)`
+        // exists for (D2-12 Q1) — it is what makes the 1s paused gap
+        // disappear from the exported timeline while staying exactly
+        // recoverable from the table.
+        let midSegment1 = table.contentTime(of: instant(2_500_000_000))
+        check(midSegment1 == Nanoseconds(1_500_000_000),
+              "contentTime(of:) maps an instant inside segment 1 through the paused gap correctly",
+              actual: "\(String(describing: midSegment1?.rawValue))")
+        // t=1.5s — inside the paused GAP itself, between segment 0's end
+        // and segment 1's start — is not covered by any segment's
+        // HostRange, and must answer `nil`, not a nearest-edge guess
+        // (`AGENTS.md`: a measurement has no safe default).
+        let insideTheGap = table.contentTime(of: instant(1_500_000_000))
+        check(insideTheGap == nil, "an instant inside the paused gap has no content time — nil, not a guess",
+              actual: "\(String(describing: insideTheGap?.rawValue))")
+
+        // ---- mixedEpochs: two INDIVIDUALLY well-formed segments from
+        // different boot epochs must not silently produce a table with a
+        // meaningless combined duration. Each segment's own open/close pair
+        // is internally consistent — `SegmentLedger.closeSegment` traps if
+        // `end`'s epoch does not match its own segment's `start` (see that
+        // method's doc comment), so there is no way to construct an
+        // internally-mismatched segment through this type at all — so this
+        // is a genuine CROSS-segment check, reaching `SegmentTable.init`'s
+        // own guard exactly the way two segments spliced from different
+        // recordings would (D2-11).
+        let otherEpoch = BootEpoch(id: UUID())
+        func otherInstant(_ nanos: Int64) -> HostInstant {
+            HostInstant(epoch: otherEpoch, hostTime: Nanoseconds(nanos))
+        }
+        var mixedLedger = SegmentLedger()
+        mixedLedger.openSegment(at: instant(0), revision: revisionA, mediaFilename: "master-00.mov")
+        _ = mixedLedger.closeSegment(at: instant(1_000_000_000), endedBy: .stopped)
+        mixedLedger.openSegment(at: otherInstant(0), revision: revisionA, mediaFilename: "master-01.mov")
+        _ = mixedLedger.closeSegment(at: otherInstant(1_000_000_000), endedBy: .stopped)
+        do {
+            _ = try mixedLedger.finish()
+            check(false, "finish() across two boot epochs must throw, not silently succeed")
+        } catch SegmentTableError.mixedEpochs {
+            check(true, "finish() surfaces SegmentTableError.mixedEpochs rather than computing a meaningless duration")
+        } catch {
+            check(false, "finish() threw the wrong error for two segments from different boot epochs",
+                  actual: "\(error)")
+        }
+
+        // ---- overlapping: `SegmentLedger` has no notion of "now" — every
+        // instant is supplied by the caller — so it does not itself prevent
+        // opening the next segment before the previous one's own end
+        // instant. That guard belongs to `SegmentTable`; this confirms it
+        // is actually reached through the ledger, not bypassed by it.
+        var overlapLedger = SegmentLedger()
+        overlapLedger.openSegment(at: instant(0), revision: revisionA, mediaFilename: "master-00.mov")
+        _ = overlapLedger.closeSegment(at: instant(2_000_000_000), endedBy: .paused)
+        overlapLedger.openSegment(at: instant(1_000_000_000), revision: revisionA, mediaFilename: "master-01.mov")
+        _ = overlapLedger.closeSegment(at: instant(3_000_000_000), endedBy: .stopped)
+        do {
+            _ = try overlapLedger.finish()
+            check(false, "finish() with an overlapping second segment must throw, not silently succeed")
+        } catch SegmentTableError.overlapping(1) {
+            check(true, "finish() surfaces SegmentTableError.overlapping(1) for a segment starting before " +
+                        "the previous one ended")
+        } catch {
+            check(false, "finish() threw the wrong error for an overlapping segment", actual: "\(error)")
+        }
+
+        // ---- .failed(reason:) — the fourth `SegmentBoundary` case,
+        // exercised separately so all four are proven to round-trip through
+        // the ledger, not just the three the happy path above used.
+        var failedLedger = SegmentLedger()
+        failedLedger.openSegment(at: instant(0), revision: revisionA, mediaFilename: "master-00.mov")
+        let failureReason = "frames are uniformly black; screen recording may have been revoked"
+        let failedSeg = failedLedger.closeSegment(at: instant(500_000_000), endedBy: .failed(reason: failureReason))
+        check(failedSeg.endedBy == .failed(reason: failureReason),
+              ".failed(reason:) round-trips its reason string exactly, through the ledger and back out")
     }
 }
