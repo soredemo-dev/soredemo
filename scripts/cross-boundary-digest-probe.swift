@@ -77,15 +77,26 @@ func bytes(fromHex string: String) -> [UInt8] {
 /// same `URL` binding returns the identical value across a replace that
 /// genuinely changed the inode — and the stale read makes a *correct*
 /// implementation look broken. `attributesOfItem(atPath:)` re-`stat`s.
+///
+/// A missing `.systemFileNumber` returns **no value**, never a sentinel:
+/// falling back to `0` would make every inode comparison in this file read
+/// `0 == 0` and pass vacuously — `AGENTS.md`'s vacuous-pass shape, inside the
+/// one function written to satisfy the instrument rule. An instrument that
+/// cannot read must say so, not read zero.
 func inode(of url: URL) throws -> UInt64 {
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    return (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+    let number = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+    precondition(number != nil, "no .systemFileNumber for \(url.path) — the instrument cannot read")
+    precondition(number != 0, "systemFileNumber 0 for \(url.path) — no real inode is 0")
+    return number!
 }
 
 @MainActor var failures = 0
+@MainActor var checksRun = 0
 
 @MainActor
 func check(_ condition: Bool, _ label: String, actual: String = "", expected: String = "") {
+    checksRun += 1
     if condition {
         print("  ok    \(label)")
     } else {
@@ -121,7 +132,12 @@ enum CrossBoundaryProbe {
         print("3. CGGeometryBridge")
         bridgeConverts()
 
-        print(failures == 0 ? "PROBE PASSED" : "PROBE FAILED (\(failures))")
+        // The count is printed, never written down: a hand-maintained total in
+        // a report goes stale the first time a check is added and nobody
+        // notices, which is what happened to this one.
+        print(failures == 0
+              ? "PROBE PASSED (\(checksRun) checks)"
+              : "PROBE FAILED (\(failures) of \(checksRun) checks)")
         if failures != 0 { exit(1) }
     }
 
@@ -177,12 +193,22 @@ enum CrossBoundaryProbe {
 
         // **The pair is the point, not either half.** The manifest's inode must
         // change, because `replaceItemAt` is what makes the write atomic; the
-        // media's must not, because a whole-package copy would rewrite it into
-        // a new directory. Something that changes BOTH is copying everything —
-        // `super`'s path. Something that changes NEITHER is not replacing
-        // atomically. Only the two together pin the mechanism, which is the
-        // Task 17 lesson: four mutations all went red there and the mechanism
-        // was still unverified because none of them aimed at it.
+        // media's must not, because a save that rewrote it would be copying
+        // footage it was supposed to leave alone.
+        //
+        // Each half is reddened by exactly one mutation and neither can stand
+        // in for the other. A save that copies media into place — same name,
+        // same bytes, new inode — passes every other check in this function and
+        // fails only the first. A save that writes the manifest in place
+        // instead of replacing it fails only the second. Both were run; see the
+        // report's mutation table.
+        //
+        // What does NOT reach either of them is `super.writeSafely`: it does
+        // not copy `media/`, it *empties* it, so the existence check above
+        // fires and the `guard` returns before these two ever execute. That is
+        // precisely why they needed their own mutations — the Task 17 failure
+        // was four mutations all going red while the mechanism under test was
+        // never aimed at.
         check(try inode(of: sidecarURL) == sidecarInodeBefore,
               "the media sidecar is the same file, not a copy",
               actual: "\(try inode(of: sidecarURL))", expected: "\(sidecarInodeBefore)")

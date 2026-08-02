@@ -1,9 +1,10 @@
 #!/bin/bash
 # Builds and runs `scripts/cross-boundary-digest-probe.swift`.
 #
-# The probe compiles the REAL app sources — `Soredemo/Support/Minting.swift` and
-# `Soredemo/UI/ProjectDocument.swift`, not copies — against the package's debug
-# build products, so it can never pass while the shipping code is wrong.
+# The probe compiles the REAL app sources — not copies — against the package's
+# debug build products, so it can never pass while the shipping code is wrong.
+# The authoritative list is the `swiftc` invocation below; do not restate it
+# here, where it would drift out of date without failing anything.
 #
 # Nothing runs this automatically. See the probe's header for why, and the
 # Task 18 report for the observation it was run to produce.

@@ -98,6 +98,22 @@ final class ProjectDocument: NSDocument {
     /// the bytes reached the platter, which would need `fcntl(F_FULLFSYNC)`.
     /// D-P3 records that as a decision — one save's edit state is an acceptable
     /// loss because the media it references is already durable.)
+    ///
+    /// **File coordination is dropped too, and that one is unresolved rather
+    /// than decided.** `super.writeSafely` does not only copy — it performs the
+    /// write inside an `NSFileCoordinator` coordinated write, which is what
+    /// tells other coordinated readers (Finder previews, iCloud/Dropbox-style
+    /// sync daemons, another instance of this app) to stand off while the
+    /// document changes. Bypassing `super` bypasses that, and nothing here
+    /// replaces it. It is called out rather than left silent because the two
+    /// losses above are deliberate and this one is not yet: unlike atomicity,
+    /// it has no substitute in `ProjectPackageIO`, and unlike durability, the
+    /// argument for declining it has not been made. Phase 1 gets away with it —
+    /// `save` is single-writer by construction and `autosavesInPlace` is
+    /// `false`, so there is one writer and it is the user pressing Save. It
+    /// stops being free as soon as a project package lives in a synced folder,
+    /// which is a normal place to keep one. Revisit before Phase 2 ships a
+    /// recording path that writes while the user has the document open.
     override nonisolated func writeSafely(to url: URL,
                                           ofType typeName: String,
                                           for saveOperation: NSDocument.SaveOperationType) throws {
@@ -133,20 +149,39 @@ final class ProjectDocument: NSDocument {
     ///
     /// Returns the name, which is what the caller stores in whatever references
     /// the media.
+    ///
+    /// **`updateChangeCount` is load-bearing here, not boilerplate.** This is
+    /// the one method in this class that puts a file on disk and records the
+    /// only reference to it in memory, and the window between the two closes
+    /// only when the manifest is saved. `autosavesInPlace` is `false`, so
+    /// nothing saves on its own; without marking the document dirty, closing it
+    /// takes the no-unsaved-changes path with no prompt, the reference is lost,
+    /// and the sidecar becomes an orphan that the next `compactMedia()`
+    /// correctly identifies as unreferenced and **deletes**. That is D-P3's "a
+    /// save must never be able to destroy media" arriving by the back door: not
+    /// through the save path, which is careful, but through a change that was
+    /// never offered a save at all.
     @MainActor
     func addMedia(_ data: Data, fileExtension: String) throws -> String {
         guard let packageURL = fileURL else { throw MediaError.documentHasNoURL }
         let name = "\(Minting.newIdentifier().uuidString.lowercased()).\(fileExtension)"
         try ProjectPackageIO.writeSidecar(data, named: name, into: packageURL)
         state.withLock { $0.mediaFilenames.append(name) }
+        updateChangeCount(.changeDone)
         return name
     }
 
     /// Names under `media/` this document no longer references. Reports only;
     /// deleting is `compactMedia()`.
+    ///
+    /// Throws rather than returning `[]` when the document has no URL, for the
+    /// same reason `addMedia` does: there is no package to scan, so "no
+    /// unreferenced sidecars" would be an answer to a question that could not
+    /// be asked. An empty array here is indistinguishable from a genuinely
+    /// clean package, and the caller acting on it is `compactMedia`.
     @MainActor
     func unreferencedMedia() throws -> [String] {
-        guard let packageURL = fileURL else { return [] }
+        guard let packageURL = fileURL else { throw MediaError.documentHasNoURL }
         return try ProjectPackageIO.unreferencedSidecars(in: packageURL, snapshot: snapshot)
     }
 
@@ -156,13 +191,13 @@ final class ProjectDocument: NSDocument {
     @MainActor
     @discardableResult
     func compactMedia() throws -> [String] {
-        guard let packageURL = fileURL else { return [] }
+        guard let packageURL = fileURL else { throw MediaError.documentHasNoURL }
         return try ProjectPackageIO.compact(packageURL, snapshot: snapshot)
     }
 
     enum MediaError: Error {
         /// The document has never been saved, so there is no package to write
-        /// a sidecar into.
+        /// a sidecar into, scan, or compact.
         case documentHasNoURL
     }
 

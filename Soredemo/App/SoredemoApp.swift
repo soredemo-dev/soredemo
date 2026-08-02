@@ -11,6 +11,11 @@ import SwiftUI
 @main
 struct SoredemoApp: App {
     var body: some Scene {
+        // Kept deliberately: `repo-skeleton`'s completion criterion is an app
+        // that **launches to a window**, and document windows come from
+        // `ProjectDocument.makeWindowControllers()`, which produces nothing
+        // until a document is opened. This is the scratch window that makes a
+        // bare launch observable; `app-shell` replaces it.
         WindowGroup {
             ContentView()
         }
