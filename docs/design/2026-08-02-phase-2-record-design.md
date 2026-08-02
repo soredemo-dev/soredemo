@@ -878,3 +878,61 @@ inviting the fourth. Existing lines, from the code:
 | toolchain (compiler 6.4, tools 6.3, deployment 26.0, SDK 27.0) | `ARCHITECTURE.md` D2's four, a different family |
 
 They move independently, and the table is the only place that says so.
+
+---
+
+## D2-13 — Window capture: the window's frame is extrinsic, exactly like the display arrangement
+
+`capture-source` allows capturing a window rather than a display, and a window moves and resizes.
+`DisplayGeometry`'s digest is `(displayUUID, pixelWidth, pixelHeight, scale)` and has no field for
+that. The answer is a pattern already decided in Phase 1, not a new one.
+
+D-P2 already ruled on the same shape:
+
+> **Global arrangement must stay out.** … `CGDisplayBounds` origins shift when the arrangement
+> changes … so rearranging display B would silently invalidate footage from display A.
+
+**A moving window is a moving display arrangement.** It changes constantly, it does not change the
+captured surface, and digesting it would mint a new revision on every drag — the exact failure
+D-P2 rejected.
+
+| | Display capture | Window capture |
+| --- | --- | --- |
+| **Intrinsic** — in the digest, defines the revision | `displayUUID`, pixels, `scale` | source identity + **output buffer size** + `scale` |
+| **Extrinsic** — never digested, applied at the capture boundary | the global origin, via `DisplayArrangement` | the window's current screen frame |
+
+The pivot is that **the output buffer's size is fixed for the whole recording** — it has to be,
+because a QuickTime track cannot change dimensions mid-track (D2-9). So the basis for normalisation
+is the *captured image*, not the window's frame on screen. What varies is the mapping from screen
+coordinates into that image, which is extrinsic and belongs beside `DisplayArrangement.route`.
+
+**So dragging a window does not mint a revision**, and D2-10's single trigger — display
+reconfiguration — still holds.
+
+### Resizing is the real question, and it is measurable rather than arguable
+
+When the window is *resized*, the output buffer stays the same size but the content maps into it
+differently.
+
+- If ScreenCaptureKit **scales to fill**, `(0.5, 0.5)` is still the window's centre and normalised
+  coordinates stay comparable across the resize — no new revision needed.
+- If it **letterboxes**, changing the window's aspect ratio moves the bars, so `(0.5, 0.5)` points
+  at something different — and that does need a new revision.
+
+Record a window, change its aspect ratio mid-recording, and see whether content shifts within the
+frame. Folded into `capture-source`'s implementation rather than run as a separate spike, for the
+reason D2-10 gives: the answer arrives while there is code in hand to act on it.
+
+### Genuinely open: a window has no stable identity
+
+Source identity cannot be dropped — two same-sized buffers capturing *different* windows is the
+"two identical monitors side by side" case D-P2 kept display identity for.
+
+But `SCWindow.windowID` is not stable across a restart of the target app, and bundle identifier plus
+window title is not stable either. D-P2's second property — *"two sessions that shared a display
+agree without coordination, which `selective-rerecord` (Phase 4) needs"* — is one that window
+capture currently cannot provide.
+
+The likely conclusion is that **a window-capture revision is session-scoped**, stated as an explicit
+limitation rather than discovered. That has to be checked against `selective-rerecord`'s actual
+requirement before it is written down, and that row is in Phase 4.
