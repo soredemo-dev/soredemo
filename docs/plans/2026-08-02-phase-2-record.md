@@ -838,6 +838,40 @@ git commit -m "Add the segment table: the master is a sequence, and gaps are rec
 
 ---
 
+## Task 4.5: Close decode validation on the types `ProjectSnapshot` already reaches
+
+**Files:**
+- Modify: `Sources/Geometry/{DisplayGeometry,Normalized,PixelRect,PointRect}.swift`, `Sources/Graph/Derivation.swift` (`Authorship`), `Sources/Timeline/{TimeRange,HostRange}.swift`
+- Test: the corresponding existing test files
+
+Read D2-14 first. These are on a **live** decode path — `ProjectPackageIO` decodes `ProjectSnapshot`
+today, and it reaches `DisplayGeometry`, `NormalizedFrame`, `Authorship`, `TimeRange`, and
+`HostRange` through `SegmentTable`. A hand-edited `project.json` can produce a `NormalizedPoint`
+with `x = 2.5` right now.
+
+**`HostInstant` and the observation-record types are NOT in this task.** They belong to the log,
+whose failure semantics differ — a malformed record there may be discardable and counted rather than
+fatal, and that question is answered in Task 11 when the log is first read back.
+
+**`throw`, never `precondition`.** A `precondition` on decoded input is the wrong instrument
+regardless of whether it runs: it turns a corrupt document into a crash instead of an error. Each
+type gets an explicit `init(from:)` that decodes, validates, and throws
+`DecodingError.dataCorrupted` — `ProjectFormatError.malformed` already wraps that at the boundary.
+
+- [ ] **Step 1: One type first, end to end** — `NormalizedPoint`, the smallest. Test that a
+      hand-built JSON literal with `x: 2.5` throws, and that a valid one still decodes.
+- [ ] **Step 2: Check the encoded shape did not change.** `SegmentTable`'s fix changed its wire form
+      from a keyed container to a bare array, which was fine only because nothing depended on it.
+      Several of these **are** inside `ProjectSnapshot`, and one is inside `Derived.approvalBytes`'s
+      neighbourhood. Round-trip an existing document fixture before and after.
+- [ ] **Step 3: The remaining types**, same shape each time.
+- [ ] **Step 4: Verify by reversion, not by inspection.** For each, revert the validation while
+      keeping the wire shape, and confirm the test reddens for the right reason. Task 4's first
+      attempt at this passed on a fuller revert for an unrelated reason.
+- [ ] **Step 5: Commit.**
+
+---
+
 ## Task 5: `Minting` gains the epoch and the host clock
 
 **Files:**
