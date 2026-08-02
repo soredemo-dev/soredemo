@@ -105,8 +105,9 @@ public struct SecureInputInterval: Hashable, Codable, Sendable {
     }
 }
 
-/// Why the system switched the tap off. Two causes with two different
-/// diagnoses, and collapsing them would hide which.
+/// Why the system switched the tap off, **when that is knowable at all**.
+/// Two causes with two different diagnoses, and collapsing them would hide
+/// which.
 ///
 /// `.timeout` is **this app's own fault**: the callback took too long, and
 /// `ax-observation` is what makes that possible — a hit-test into a busy
@@ -122,19 +123,59 @@ public enum TapDisableReason: String, Codable, Sendable {
     case timeout
     case userInput
 }
+// **`TapDisabledInterval.disabledBy` is optional, and that is this measurement
+// made structural.** The reason arrives only on the notification, and the
+// notification is exactly what a `.listenOnly` tap never receives. A poll can
+// see that the tap is off; nothing tells it why. Defaulting that to `.timeout`
+// would be an accusation — "this app's callback was too slow" — minted by a
+// code path that measured nothing, in the one field a reader uses to decide
+// whether to go and optimise something.
 
-/// How the **lower** edge of a `TapDisabledInterval` was derived, because the
-/// two possibilities differ by orders of magnitude in tightness.
+/// How the **lower** edge of a `TapDisabledInterval` was derived. The three
+/// possibilities differ by orders of magnitude in tightness, and which one
+/// applies is not a detail: it is how much of the interval's width is the gap
+/// and how much is ignorance.
 ///
-/// `.lastObservedEvent` — the last event the observer saw before the silence.
-/// With a moving pointer that is within a frame or two of the true disable.
-/// `.observationStart` — no event had been observed at all, so the only
-/// defensible lower bound is the moment observing began. The interval is then
-/// as wide as the run so far, and a consumer must treat it as "we do not
-/// know", not as a measurement.
+/// `.lastEnabledPoll` — the most recent poll that read the tap as *enabled*.
+/// This is normally the tightest, and it is the one that matters, because of
+/// what a disabled tap does to the alternative: **no events arrive while the
+/// tap is off**, so `lastObservedEvent` freezes at the moment of the disable
+/// and stops improving. The poll keeps ticking regardless, so its own
+/// timestamps are what bound the window from below during exactly the period
+/// nothing else can.
+///
+/// `.lastObservedEvent` — the last event the observer saw. Tighter than the
+/// poll when input is dense and the disable happened between two polls.
+///
+/// `.observationStart` — nothing had been observed and nothing had been
+/// polled, so the only defensible lower bound is the moment observing began.
+/// The interval is then as wide as the run so far, and a consumer must treat
+/// it as "we do not know", not as a measurement.
 public enum TapBlindWindowLowerBound: String, Codable, Sendable {
+    case lastEnabledPoll
     case lastObservedEvent
     case observationStart
+}
+
+/// Which channel noticed that the tap had been switched off.
+///
+/// **Two channels because one of them does not work for the tap this app
+/// creates, and that was measured rather than assumed.** A `.listenOnly` tap
+/// is disabled by the system **without `kCGEventTapDisabledByTimeout` ever
+/// being delivered to its callback**. Swept with a deliberate stall in the
+/// callback — 10, 50, 100, 200, 400, 800, 1600 ms, three seconds a rung, mouse
+/// moving throughout — the notification count was **0 at every rung**, while
+/// `CGEvent.tapIsEnabled(tap:)` read `false` from 50 ms upward. A `.defaultTap`
+/// positive control in the same run received the notification at 400 ms, so
+/// the channel itself is real; it is the tap *kind* that never sees it.
+///
+/// So `.notification` is retained and is not dead code — `.tapDisabledByUserInput`
+/// may still arrive, and other tap kinds get both — but `.enabledPoll` is what
+/// actually catches the case this app is exposed to. A recording whose blind
+/// windows are all `.enabledPoll` is the expected shape, not a fallback.
+public enum TapDisableDetection: String, Codable, Sendable {
+    case notification
+    case enabledPoll
 }
 
 /// An interval that **contains** a window during which the event tap was
@@ -169,17 +210,30 @@ public enum TapBlindWindowLowerBound: String, Codable, Sendable {
 /// itself over-states the loss, which for a refusal code is the safe
 /// direction — but it is still not what was measured, and this comment is
 /// where that is said.
+/// **An empty list of these means nothing on its own.** Whether any window
+/// happened and whether anything was looking are different questions, and
+/// `InputObserver.Diagnostics.tapEnabledPolls` is the answer to the second —
+/// see `tapAccounting`. This type deliberately has no "and we checked N times"
+/// field: that is a property of the run, not of a window, and putting it here
+/// would make it absent from precisely the run that recorded no windows.
 public struct TapDisabledInterval: Hashable, Codable, Sendable {
     public let kind: String
     public let interval: HostRange
-    public let disabledBy: TapDisableReason
+    /// `nil` when the window was found by polling, which cannot know why —
+    /// never defaulted to `.timeout`. See the note above `TapDisableReason`.
+    public let disabledBy: TapDisableReason?
     public let lowerBoundFrom: TapBlindWindowLowerBound
+    /// Which channel noticed. For this app's `.listenOnly` tap this is
+    /// expected to be `.enabledPoll` every time; see `TapDisableDetection`.
+    public let detectedBy: TapDisableDetection
 
-    public init(interval: HostRange, disabledBy: TapDisableReason,
-                lowerBoundFrom: TapBlindWindowLowerBound) {
+    public init(interval: HostRange, disabledBy: TapDisableReason?,
+                lowerBoundFrom: TapBlindWindowLowerBound,
+                detectedBy: TapDisableDetection) {
         self.kind = "tapDisabled"
         self.interval = interval
         self.disabledBy = disabledBy
         self.lowerBoundFrom = lowerBoundFrom
+        self.detectedBy = detectedBy
     }
 }

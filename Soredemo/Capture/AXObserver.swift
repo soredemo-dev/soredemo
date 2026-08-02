@@ -117,8 +117,9 @@ public final class AXObserver: @unchecked Sendable {
     /// same reason: a filter's output taken without its input says nothing
     /// about what the filter removed. Here the three are:
     ///
-    /// 1. every click either produced a record or is counted as one that could
-    ///    not be converted back to a global point;
+    /// 1. every click either produced a record, or is counted as one that
+    ///    could not be converted back to a global point, or as one dropped
+    ///    because the AX queue was already full;
     /// 2. every record carries exactly one truncation reason, and the four
     ///    counters sum to the number of records;
     /// 3. every record falls into exactly one containment case — and
@@ -161,6 +162,21 @@ public final class AXObserver: @unchecked Sendable {
         /// own epoch. Counted, never corrected: the record uses the click's
         /// epoch, so the interval and the instant stay on one clock.
         public internal(set) var clicksFromAnotherEpoch = 0
+        /// Clicks refused because `maximumQueuedClicks` were already waiting —
+        /// one hung application, and a person still clicking.
+        ///
+        /// **A term in the conservation law, not a footnote.** These clicks
+        /// happened and produced no record, which is the one outcome that must
+        /// never be inferred from an absence: without this term the law would
+        /// balance by simply not counting them, and a recording made against a
+        /// beachballed app would show a shorter click list with nothing
+        /// saying why.
+        public internal(set) var clicksDroppedByBacklog = 0
+        /// The deepest the AX queue ever got. Zero-to-one is the healthy
+        /// shape; anything approaching `maximumQueuedClicks` says the walk is
+        /// not keeping up with the clicking, before any click is actually
+        /// dropped.
+        public internal(set) var deepestBacklog = 0
 
         public internal(set) var truncatedReachedRoot = 0
         public internal(set) var truncatedDepthCapReached = 0
@@ -276,7 +292,7 @@ public final class AXObserver: @unchecked Sendable {
         /// counted as unconvertible — across the whole run, which is where
         /// `merge` can lose one.
         public var everyClickIsAccountedFor: Bool {
-            clicksObserved == chainsRecorded + clicksWithNoGlobalPoint
+            clicksObserved == chainsRecorded + clicksWithNoGlobalPoint + clicksDroppedByBacklog
         }
 
         /// Every record carries exactly one of the four truncation reasons.
@@ -297,6 +313,7 @@ public final class AXObserver: @unchecked Sendable {
         public var accounting: String {
             """
             clicks \(clicksObserved) = recorded \(chainsRecorded) + no global point \(clicksWithNoGlobalPoint)\
+             + dropped by backlog \(clicksDroppedByBacklog)\
               → \(everyClickIsAccountedFor ? "balances" : "DOES NOT BALANCE")
             recorded \(chainsRecorded) = root \(truncatedReachedRoot) + depth \(truncatedDepthCapReached)\
              + budget \(truncatedBudgetExceeded) + no hit \(hitTestsReturnedNothing)\
@@ -317,6 +334,10 @@ public final class AXObserver: @unchecked Sendable {
     private let arrangement: DisplayArrangement
     private let epoch: BootEpoch
     private let accessibilityIsGranted: @Sendable () -> Bool
+    /// The queue every AX call runs on — **never the caller's, and never the
+    /// main one**. See `enqueue(_:onRecord:)`.
+    private let queue = DispatchQueue(label: "video.soredemo.ax-observation", qos: .userInitiated)
+    private nonisolated(unsafe) var queuedClicks = 0
     private nonisolated(unsafe) var _diagnostics = Diagnostics()
 
     /// `arrangement` and `epoch` are supplied by the caller and never read
@@ -469,6 +490,27 @@ public final class AXObserver: @unchecked Sendable {
     /// `Diagnostics.hitTestsReturnedNothingWithoutAccessibility` is what tells
     /// that apart from a click on empty desktop.
     ///
+    /// **Do not call this from `InputObserver`'s tap callback.** Use
+    /// `enqueue(_:onRecord:)`, which is what that path is for.
+    ///
+    /// Measured, and it overturned this file's first design: a `.listenOnly`
+    /// tap whose callback takes longer than somewhere between **10 ms and
+    /// 50 ms** is disabled by the system, **without** the
+    /// `kCGEventTapDisabledByTimeout` notification ever being delivered — so
+    /// the tap stops producing events and nothing in the callback path finds
+    /// out. Spike A's hit-test is 1.05 ms at p50 but **21.25 ms at p90** and
+    /// 125.47 ms at worst, which is inside that band on more than one click in
+    /// ten. Calling this synchronously from the callback therefore kills the
+    /// pointer track, silently, under ordinary use.
+    ///
+    /// The cost of deferring is real and is the lesser one: the hit-test
+    /// happens later than the click, which adds to exactly the staleness
+    /// D2-2a exists to record. **A stale hit-test is recorded staleness; a
+    /// disabled tap is silence.** And the added delay is not lost — it is
+    /// `AXChainRecord.clickToHitTestStartNanos`, a recorded quantity of the
+    /// same kind as `hitTestInterval`, so a derivation can reject on it
+    /// instead of inheriting it.
+    ///
     /// **`phase` is not filtered here.** A caller that wants only `.down` —
     /// which is the one that pairs with "the click" in
     /// `ROADMAP.md`'s sense — filters before calling. This file records what
@@ -487,6 +529,89 @@ public final class AXObserver: @unchecked Sendable {
     /// exactly that reason.
     public nonisolated func chain(at click: ButtonEvent) -> AXChainRecord? {
         chain(at: click, source: LiveAXElementSource())
+    }
+
+    /// The **production entry point**: hands `click` to this observer's own
+    /// serial queue and returns immediately.
+    ///
+    /// This exists because the synchronous form cannot be called from where
+    /// the clicks come from. `InputObserver`'s sink runs inside the tap
+    /// callback, and a callback that blocks for longer than the 10–50 ms band
+    /// measured on this machine gets the tap switched off with no notification
+    /// — see `chain(at:source:)`'s own note. Everything AX is therefore moved
+    /// off that thread, and what stays on it is this function: two lock
+    /// acquisitions and a `DispatchQueue.async`.
+    ///
+    /// **Serial, not concurrent.** A hung application blocks an AX call for
+    /// seconds; a concurrent queue would answer that by opening more
+    /// simultaneous IPCs into the same hung application, which is the standard
+    /// way to turn one stuck responder into a thread explosion. Serial also
+    /// keeps records in click order, which is what a reader joining them
+    /// against the pointer track expects.
+    ///
+    /// **Bounded, and the drop is counted.** With a serial queue a hung target
+    /// means clicks arrive faster than they are consumed, so the backlog is
+    /// capped at `maximumQueuedClicks` and everything past it is dropped and
+    /// counted in `Diagnostics.clicksDroppedByBacklog` — never silently
+    /// enqueued to be answered a minute later, which would produce records
+    /// whose `clickToHitTestStartNanos` is larger than anything a derivation
+    /// could use, at the cost of unbounded memory. A dropped click is still a
+    /// click that happened: it stays in `clicksObserved`, and the conservation
+    /// law has a third term for it.
+    ///
+    /// `onRecord` is called **on the AX queue**, not the caller's.
+    public nonisolated func enqueue(_ click: ButtonEvent,
+                                    onRecord: @escaping @Sendable (AXChainRecord) -> Void) {
+        enqueue(click, source: LiveAXElementSource(), onRecord: onRecord)
+    }
+
+    /// The same, over an injected source — so a caller whose output has to
+    /// **name** the source that produced its numbers can pass one and print
+    /// `String(describing: type(of:))` of that value rather than a literal.
+    /// `spikes/2026-08-02-pairing-latency/main.swift` does exactly that; the
+    /// synthetic source answers with the same AX role vocabulary as the live
+    /// one, so a log cannot otherwise tell a real run from a fixture run.
+    public nonisolated func enqueue<Source: AXElementSource>(
+        _ click: ButtonEvent, source: Source,
+        onRecord: @escaping @Sendable (AXChainRecord) -> Void
+    ) {
+        let accepted = lock.withLock { () -> Bool in
+            guard queuedClicks < Self.maximumQueuedClicks else {
+                // Counted here rather than in `chain`, which this click never
+                // reaches — and counted into `clicksObserved` too, or the
+                // conservation law would quietly absorb the drop.
+                _diagnostics.clicksObserved += 1
+                _diagnostics.clicksDroppedByBacklog += 1
+                return false
+            }
+            queuedClicks += 1
+            if queuedClicks > _diagnostics.deepestBacklog { _diagnostics.deepestBacklog = queuedClicks }
+            return true
+        }
+        guard accepted else { return }
+        queue.async { [self] in
+            lock.withLock { queuedClicks -= 1 }
+            if let record = chain(at: click, source: source) { onRecord(record) }
+        }
+    }
+
+    /// How many clicks may be waiting for the AX queue before further ones are
+    /// dropped.
+    ///
+    /// Eight, which at F2-2's p90 whole-walk of 32 ms is about a quarter of a
+    /// second of backlog. Not a D4 threshold — nothing rejects on it — but it
+    /// is a placeholder in the weaker sense that no distribution of *click
+    /// arrival* rates has been measured yet. What it must not be is unbounded:
+    /// the failure it exists for is one hung application, where the queue
+    /// grows for as long as the person keeps clicking.
+    public nonisolated static let maximumQueuedClicks = 8
+
+    /// Blocks until every enqueued click has been observed. **For the probe
+    /// and the spike**, which need the asynchronous path to have finished
+    /// before they can assert anything about it; not part of a recording's
+    /// normal flow, where nothing waits for AX.
+    public nonisolated func waitForQueuedClicks() {
+        queue.sync {}
     }
 
     /// The walk itself, over an injected `AXElementSource`.
@@ -742,6 +867,7 @@ public final class AXObserver: @unchecked Sendable {
             _diagnostics.chainsRecorded += tally.chainsRecorded
             _diagnostics.clicksWithNoGlobalPoint += tally.clicksWithNoGlobalPoint
             _diagnostics.clicksFromAnotherEpoch += tally.clicksFromAnotherEpoch
+            _diagnostics.clicksDroppedByBacklog += tally.clicksDroppedByBacklog
             _diagnostics.truncatedReachedRoot += tally.truncatedReachedRoot
             _diagnostics.truncatedDepthCapReached += tally.truncatedDepthCapReached
             _diagnostics.truncatedBudgetExceeded += tally.truncatedBudgetExceeded

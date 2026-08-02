@@ -216,7 +216,7 @@ private func topLevelKeys(from json: Data) -> [String] {
 @Test func aTapDisabledIntervalRoundTripsAndCarriesItsOwnKind() throws {
     let record = TapDisabledInterval(
         interval: HostRange(epoch: ep, start: Nanoseconds(1_000), duration: Nanoseconds(9_000)),
-        disabledBy: .timeout, lowerBoundFrom: .lastObservedEvent)
+        disabledBy: .timeout, lowerBoundFrom: .lastObservedEvent, detectedBy: .notification)
     let line = try ObservationLog.encode(record)
     #expect(try ObservationLog.kind(of: line) == "tapDisabled")
     let back: TapDisabledInterval = try ObservationLog.decode(line)
@@ -238,19 +238,48 @@ private func topLevelKeys(from json: Data) -> [String] {
 @Test func aBlindWindowsCauseAndItsTrustworthinessAreBothOnDisk() throws {
     let range = HostRange(epoch: ep, start: Nanoseconds(7), duration: Nanoseconds(11))
     var lines: Set<Data> = []
-    for reason in [TapDisableReason.timeout, .userInput] {
-        for bound in [TapBlindWindowLowerBound.lastObservedEvent, .observationStart] {
-            let record = TapDisabledInterval(interval: range, disabledBy: reason,
-                                             lowerBoundFrom: bound)
-            let line = try ObservationLog.encode(record)
-            lines.insert(line)
-            #expect(try ObservationLog.decode(line) as TapDisabledInterval == record)
+    let reasons: [TapDisableReason?] = [.timeout, .userInput, nil]
+    for reason in reasons {
+        for bound in [TapBlindWindowLowerBound.lastEnabledPoll, .lastObservedEvent, .observationStart] {
+            for channel in [TapDisableDetection.notification, .enabledPoll] {
+                let record = TapDisabledInterval(interval: range, disabledBy: reason,
+                                                 lowerBoundFrom: bound, detectedBy: channel)
+                let line = try ObservationLog.encode(record)
+                lines.insert(line)
+                #expect(try ObservationLog.decode(line) as TapDisabledInterval == record)
+            }
         }
     }
-    #expect(lines.count == 4, """
-            the same interval with different causes and different lower bounds must not collapse \
-            to fewer than four distinct records on disk
+    #expect(lines.count == 18, """
+            the same interval with different causes, lower bounds and detection channels must not \
+            collapse to fewer than 3 × 3 × 2 distinct records on disk
             """)
+}
+
+/// **A window found by polling reports no reason, and `nil` must survive the
+/// round trip as `nil`.**
+///
+/// The reason arrives only on the notification, and a `.listenOnly` tap was
+/// measured never to receive one — 0 notifications across a
+/// 10/50/100/200/400/800/1600 ms stall sweep, while `CGEvent.tapIsEnabled` read
+/// false from 50 ms up. So in this app's own configuration every window is
+/// expected to look like this one. Defaulting the field to `.timeout` on the
+/// way in or out would mint an accusation — "this app's callback was too slow"
+/// — from a code path that measured nothing.
+@Test func aPolledBlindWindowReportsNoReasonRatherThanGuessingOne() throws {
+    let record = TapDisabledInterval(
+        interval: HostRange(epoch: ep, start: Nanoseconds(20), duration: Nanoseconds(100_000_000)),
+        disabledBy: nil, lowerBoundFrom: .lastEnabledPoll, detectedBy: .enabledPoll)
+    let line = try ObservationLog.encode(record)
+    let text = String(decoding: line, as: UTF8.self)
+    #expect(!text.contains("disabledBy"),
+            "an unknown reason encodes as an absent key, not as a value: \(text)")
+
+    let back: TapDisabledInterval = try ObservationLog.decode(line)
+    #expect(back == record)
+    #expect(back.disabledBy == nil, "and it decodes back to nothing, not to a default")
+    #expect(back.detectedBy == .enabledPoll)
+    #expect(back.lowerBoundFrom == .lastEnabledPoll)
 }
 
 /// A zero-width interval is legal — secure input can be observed on and then

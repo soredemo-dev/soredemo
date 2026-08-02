@@ -215,6 +215,9 @@ enum CrossBoundaryProbe {
         await theTwoDerivationsOfADisplayAgree()
         print("7.9 a disabled tap produces an interval, not a count (D6a)")
         aDisabledTapProducesAnInterval()
+        print("7.10 the poll finds what the notification cannot, from a thread of its own")
+        thePollFindsADisabledTap()
+        thePollRunsWhileTheMainThreadIsStuck()
 
         print("8. AXObserver — the bounded walk that records and does not judge (Task 10)")
         print("8.1 the reverse conversion is the exact inverse of the forward one")
@@ -231,6 +234,8 @@ enum CrossBoundaryProbe {
         theAXDiagnosticsBalance()
         print("8.6 every counter that partitions a decision, driven both ways")
         theAXCountersAreDrivenInBothDirections()
+        print("8.7 the AX work is off the callback thread, and the delay that buys is recorded")
+        theAXWorkIsDeferredAndTheDelayIsRecorded()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -1021,6 +1026,27 @@ enum CrossBoundaryProbe {
         event.flags = flags
         event.timestamp = CGEventTimestamp(stamp.rawValue)
         return event
+    }
+
+    /// Collects `AXChainRecord`s from `AXObserver.enqueue`'s `@Sendable`
+    /// callback, which is called on the AX queue rather than this one.
+    nonisolated final class Collected: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [AXChainRecord] = []
+        var all: [AXChainRecord] { lock.withLock { storage } }
+        func append(_ record: AXChainRecord) { lock.withLock { storage.append(record) } }
+    }
+
+    /// A `Bool` the probe can flip and a `@Sendable` closure can read — the
+    /// stand-in for a tap that goes down mid-run.
+    nonisolated final class MutableFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: Bool
+        init(_ value: Bool) { storage = value }
+        var value: Bool {
+            get { lock.withLock { storage } }
+            set { lock.withLock { storage = newValue } }
+        }
     }
 
     /// Collects observations from `InputObserver`'s `@Sendable` callback.
@@ -2557,6 +2583,11 @@ enum CrossBoundaryProbe {
             check(false, "a disabled tap emits exactly one interval", actual: "\(windows.count)")
             return
         }
+        check(windows[0].detectedBy == .notification,
+              "this one came from the notification channel — which the control in the coordinator's "
+              + "sweep proved is real for a .defaultTap, and which a .listenOnly tap was measured "
+              + "never to receive",
+              actual: "\(windows[0].detectedBy)")
         check(windows[0].disabledBy == .timeout,
               "the reason is recorded: .timeout is THIS app's fault (a slow callback — which "
               + "ax-observation is what makes possible) and .userInput is not",
@@ -2626,5 +2657,243 @@ enum CrossBoundaryProbe {
               + "TAP's liveness this records, not whether anything was emitted",
               actual: "\(secureWindows.first?.interval.start.rawValue as Int64??)",
               expected: "\(duringPassword.rawValue)")
+    }
+
+    /// **The channel that actually works for this app's tap kind.**
+    ///
+    /// Measured by the coordinator, and it overturned the previous version of
+    /// this section: a `.listenOnly` tap is disabled by the system **without**
+    /// `kCGEventTapDisabledByTimeout` being delivered to its callback — 0
+    /// notifications at every rung of a 10/50/100/200/400/800/1600 ms stall
+    /// sweep, while `CGEvent.tapIsEnabled(tap:)` read false from 50 ms upward,
+    /// with a `.defaultTap` control receiving the notification in the same run.
+    ///
+    /// So `§ 7.9`'s interval, which is fed by the notification, is guaranteed
+    /// empty in exactly the situation it was built for — and an empty list of
+    /// gaps reads as "no gaps". These checks cover the poll, which is what
+    /// finds it.
+    ///
+    /// The tap itself cannot exist here (Input Monitoring), so the enabled
+    /// flag is read through `tapIsEnabledOverride`. That is the same seam, for
+    /// the same reason, as `secureInputIsEnabled` — and the reason it is worth
+    /// having is this whole episode: the previous two runs of the sweep
+    /// concluded "the concern disappears quantitatively" from a number that
+    /// counted notifications, which is the channel that does not fire.
+    @MainActor
+    static func thePollFindsADisabledTap() {
+        let (arrangement, _, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        let collector = Collector()
+        // The tap reads as enabled until this flips, which is what a stall in
+        // the callback does to a real one.
+        let enabled = MutableFlag(true)
+        let observer = InputObserver(arrangement: arrangement, epoch: epoch,
+                                     secureInputIsEnabled: { false },
+                                     tapIsEnabledOverride: { enabled.value })
+        observer.setObservationSink(collector.append)
+
+        // Two polls while it is up: these are the evidence of looking, and the
+        // second one is the tight lower bound for the window below.
+        observer.pollTapEnabled()
+        observer.pollTapEnabled()
+        check(observer.diagnostics.tapEnabledPolls == 2
+                && observer.diagnostics.tapDisabledIntervals == 0,
+              "polls while the tap is up are counted and produce no window — 'nothing was wrong' "
+              + "and 'nothing was looking' are different numbers now",
+              actual: observer.diagnostics.tapAccounting)
+
+        enabled.value = false
+        observer.pollTapEnabled()
+
+        let windows = collector.observations.compactMap { observation -> TapDisabledInterval? in
+            if case .tapDisabled(let interval) = observation { return interval }
+            return nil
+        }
+        guard windows.count == 1 else {
+            check(false, "the poll must emit exactly one window for one disable",
+                  actual: "\(windows.count)")
+            return
+        }
+        check(windows[0].detectedBy == .enabledPoll,
+              "the window is attributed to the POLL — for this app's .listenOnly tap that is the "
+              + "only channel that ever fires, so this is the expected shape and not a fallback",
+              actual: "\(windows[0].detectedBy)")
+        check(windows[0].disabledBy == nil,
+              "and no reason is invented: the poll saw that the tap was off, nothing told it why, "
+              + "and .timeout would be an accusation that this app's own callback was too slow",
+              actual: "\(windows[0].disabledBy as TapDisableReason??)")
+        check(windows[0].lowerBoundFrom == .lastEnabledPoll,
+              "the lower edge came from the last poll that read ENABLED — not from the last event, "
+              + "which is the bound that stops improving the moment the tap goes off, because a "
+              + "disabled tap delivers no events",
+              actual: "\(windows[0].lowerBoundFrom)")
+        check(observer.diagnostics.tapDisabledIntervalsFoundByPolling == 1,
+              "and the run-level summary says how it was found",
+              actual: observer.diagnostics.tapAccounting)
+
+        // The tap was re-enabled by the poll that found it, so the next poll
+        // reads up again and produces no second window for the same outage.
+        enabled.value = true
+        observer.pollTapEnabled()
+        let after = collector.observations.compactMap { observation -> TapDisabledInterval? in
+            if case .tapDisabled(let interval) = observation { return interval }
+            return nil
+        }
+        check(after.count == 1,
+              "one outage is one window: the poll re-enables what it finds disabled, so a recovered "
+              + "tap does not keep reporting the same gap",
+              actual: "\(after.count)")
+
+        // ---- the anti-vacuity half. A poll that never reads the flag would
+        // pass every check above by producing nothing at all.
+        let blind = InputObserver(arrangement: arrangement, epoch: epoch,
+                                  secureInputIsEnabled: { false },
+                                  tapIsEnabledOverride: { false })
+        let blindCollector = Collector()
+        blind.setObservationSink(blindCollector.append)
+        blind.pollTapEnabled()
+        check(blind.diagnostics.tapDisabledIntervals == 1,
+              "a tap that is already down when the first poll runs is still found — the detection "
+              + "does not depend on having seen it up first")
+        check(blind.diagnostics.tapDisabledIntervalsWithNoObservedLowerBound == 1,
+              "and with no event, no earlier poll and no start() behind it, it is flagged as "
+              + "having no lower bound at all rather than reporting a width it cannot know",
+              actual: blind.diagnostics.tapAccounting)
+        check(blindCollector.observations.isEmpty,
+              "with nothing to anchor it, NO interval is emitted — a zero-width one anchored at "
+              + "'now' would read as 'no time was lost', which is the reading this whole mechanism "
+              + "exists to make impossible",
+              actual: "\(blindCollector.observations.count) observations")
+    }
+
+    /// **The check that fails when the poll is put on the wrong thread**, which
+    /// is the mistake this mechanism exists to survive and the one that is
+    /// invisible in every green run.
+    ///
+    /// What is being detected is the callback thread being stuck. A poll
+    /// scheduled on the main run loop — where the tap's own callback runs — is
+    /// blocked at exactly the moment it is needed, and is never blocked while
+    /// anyone is testing, because nothing is stuck then. So this holds the
+    /// main thread for several poll intervals and asserts that the count went
+    /// up anyway. On a main-queue timer it does not move at all.
+    @MainActor
+    static func thePollRunsWhileTheMainThreadIsStuck() {
+        let (arrangement, _, _, _) = fixtureArrangement()
+        let observer = InputObserver(arrangement: arrangement, epoch: Minting.bootEpoch(),
+                                     secureInputIsEnabled: { false },
+                                     tapIsEnabledOverride: { true })
+        observer.startPolling()
+        defer { observer.stopPolling() }
+
+        let before = observer.diagnostics.tapEnabledPolls
+        // 500 ms of a completely blocked main thread — five poll intervals,
+        // and about four times the worst hit-test Spike A measured. `usleep`
+        // rather than a run-loop spin on purpose: a spin would keep servicing
+        // main-queue work and the wrong design would pass.
+        usleep(500_000)
+        let after = observer.diagnostics.tapEnabledPolls
+
+        print("        polls during 500 ms of a blocked main thread: \(after - before)")
+        check(after - before >= 3,
+              "the poll kept running while the main thread was stuck — it is on a queue of its "
+              + "own, and a main-queue timer would have recorded ZERO polls across this window, "
+              + "which is precisely when the tap is disabled",
+              actual: "\(after - before) polls", expected: "at least 3 in 500 ms")
+        check(observer.diagnostics.tapPollingSpanNanos > 0,
+              "and the span those polls cover is recorded, so 'N polls' cannot be read without "
+              + "knowing over how long",
+              actual: "\(Double(observer.diagnostics.tapPollingSpanNanos) / 1e9) s")
+
+        observer.stopPolling()
+        let stopped = observer.diagnostics.tapEnabledPolls
+        usleep(300_000)
+        check(observer.diagnostics.tapEnabledPolls == stopped,
+              "and stopPolling() actually stops it — a timer that outlives its observer polls a "
+              + "port that has been invalidated",
+              actual: "\(observer.diagnostics.tapEnabledPolls) vs \(stopped)")
+    }
+
+    /// **The consequence of the tap-timeout measurement, checked.**
+    ///
+    /// A `.listenOnly` tap whose callback blocks past 10–50 ms is switched off
+    /// with no notification delivered, and Spike A's hit-test is 21.25 ms at
+    /// p90 — so AX cannot run on the callback thread, and
+    /// `AXObserver.enqueue(_:onRecord:)` is the entry point that exists
+    /// because of it. What that costs is a hit-test later than the click, and
+    /// the point of these checks is that the cost is **recorded** rather than
+    /// absorbed into an unexplained drift between the verb and the object.
+    @MainActor
+    static func theAXWorkIsDeferredAndTheDelayIsRecorded() {
+        let (arrangement, _, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
+            check(false, "the fixture click must convert"); return
+        }
+
+        // ---- the delay is a recorded quantity, and it is the queue's, not the
+        // target application's.
+        let observer = axObserver(arrangement, epoch)
+        let records = Collected()
+        observer.enqueue(click, onRecord: records.append)
+        observer.waitForQueuedClicks()
+
+        guard let record = records.all.first else {
+            check(false, "the enqueued click must produce a record"); return
+        }
+        check(records.all.count == 1, "one click, one record", actual: "\(records.all.count)")
+        guard let toStart = record.clickToHitTestStartNanos,
+              let toAnswer = record.clickToHitTestAnswerNanos else {
+            check(false, "both delays must be computable from the record"); return
+        }
+        print("        click → hit-test start \(Double(toStart) / 1e6) ms, "
+              + "→ answer \(Double(toAnswer) / 1e6) ms")
+        check(toStart >= 0 && toAnswer >= toStart,
+              "the record decomposes the wait into the part this app chose (the queue) and the "
+              + "part the target imposed (the IPC) — a gate that rejects stale observations needs "
+              + "them apart, because raising a budget fixes one and not the other",
+              actual: "start \(toStart) ns, answer \(toAnswer) ns")
+        check(toAnswer - toStart == record.hitTestInterval.duration.rawValue,
+              "and the two parts sum to the whole, so neither can drift without the other showing "
+              + "it",
+              actual: "\(toAnswer - toStart) vs \(record.hitTestInterval.duration.rawValue)")
+
+        // ---- the caller's thread is not where the AX work happened.
+        let threads = MutableFlag(false)
+        let onMain = axObserver(arrangement, epoch)
+        onMain.enqueue(click) { _ in threads.value = Thread.isMainThread }
+        onMain.waitForQueuedClicks()
+        check(!threads.value,
+              "the record is produced OFF the main thread — which is where InputObserver's tap "
+              + "callback runs, and a synchronous walk there is what disables the tap",
+              actual: "isMainThread \(threads.value)")
+
+        // ---- the backlog is bounded and the drop is counted.
+        //
+        // One hung target: every AX call blocks for 40 ms, so the queue cannot
+        // keep up with a burst of clicks and the ones past the cap must be
+        // refused rather than accumulated.
+        let hung = axObserver(arrangement, epoch)
+        let hungRecords = Collected()
+        let burst = AXObserver.maximumQueuedClicks + 6
+        for _ in 0..<burst {
+            hung.enqueue(click, onRecord: hungRecords.append)
+        }
+        hung.waitForQueuedClicks()
+        let d = hung.diagnostics
+        print("        " + d.accounting.replacingOccurrences(of: "\n", with: "\n        "))
+        check(d.clicksDroppedByBacklog > 0,
+              "a burst deeper than the cap drops clicks rather than growing without bound — one "
+              + "beachballed application and a person still clicking is the case",
+              actual: "\(d.clicksDroppedByBacklog) of \(burst) dropped")
+        check(d.clicksObserved == burst,
+              "every click in the burst is counted as having HAPPENED, including the dropped ones",
+              actual: "\(d.clicksObserved)", expected: "\(burst)")
+        check(d.everyClickIsAccountedFor,
+              "clicks = recorded + no global point + dropped by backlog — the third term is what "
+              + "stops the law balancing by simply not counting the drops",
+              actual: d.accounting)
+        check(d.deepestBacklog <= AXObserver.maximumQueuedClicks,
+              "and the queue never went deeper than the cap",
+              actual: "\(d.deepestBacklog)", expected: "≤ \(AXObserver.maximumQueuedClicks)")
     }
 }

@@ -56,10 +56,14 @@ nonisolated final class Samples: @unchecked Sendable {
     private var storage: [AXChainRecord] = []
     private var clicks = 0
 
+    private var windows: [TapDisabledInterval] = []
+
     var records: [AXChainRecord] { lock.withLock { storage } }
     var clicksSeen: Int { lock.withLock { clicks } }
+    var blindWindows: [TapDisabledInterval] { lock.withLock { windows } }
 
     func append(_ record: AXChainRecord) { lock.withLock { storage.append(record) } }
+    func appendBlindWindow(_ window: TapDisabledInterval) { lock.withLock { windows.append(window) } }
     func countClick() { lock.withLock { clicks += 1 } }
 }
 
@@ -100,14 +104,18 @@ enum SpikeA {
         let arrangement = InputObserver.currentArrangement()
         step.expect([
             ("AX source", "\(String(describing: type(of: axSource))) — the value passed to "
-                          + "chain(at:source:) below, not a literal"),
+                          + "enqueue(_:source:onRecord:) below, not a literal"),
             ("depth cap", "\(AXObserver.depthCap) — fixed (D2-5), expected to bind only on web content"),
             ("walk budget", "\(Double(AXObserver.walkBudgetNanos) / 1e6) ms — a D4 PLACEHOLDER"),
             ("displays", "\(arrangement.placements.count) in the arrangement under test"),
         ] + f2_2.map { ($0.name, String(format: "p50 %.2f  p90 %.2f  max %.2f  (F2-2, 118 samples)",
                                         $0.p50, $0.p90, $0.max)) }
           + [("containment", "NOT all clicks outside their element — a uniform miss is the "
-                             + "coordinate path, not AX staleness")])
+                             + "coordinate path, not AX staleness"),
+             ("tap poll", "non-zero, and covering the window — an unpolled run cannot tell "
+                          + "'no blind windows' from 'nothing was looking'"),
+             ("blind windows", "any found are expected to say detectedBy: enabledPoll — the "
+                               + "notification is measured never to arrive for a .listenOnly tap")])
 
         controlRow(step, arrangement)
         guard CapturePermissions.status(of: .accessibility) == .granted else {
@@ -128,15 +136,34 @@ enum SpikeA {
 
         do {
             try inputObserver.start { observation in
+                // The tap-disabled interval is an observation too, and it is
+                // the one that says a stretch of this run was not observed at
+                // all. Collected before the click filter, so a window that
+                // arrives between clicks is not dropped on the floor.
+                if case .tapDisabled(let window) = observation {
+                    samples.appendBlindWindow(window)
+                    if let line = try? ObservationLog.encode(window) {
+                        out?.write(line); out?.write(Data("\n".utf8))
+                    }
+                    return
+                }
                 // `.down` only. The verb half of "click the Save button" is
                 // the press; hit-testing the release as well would double the
                 // AX cost for a second answer to the same question.
                 guard case .button(let event) = observation, event.phase == .down else { return }
                 samples.countClick()
-                guard let record = axObserver.chain(at: event, source: axSource) else { return }
-                samples.append(record)
-                if let line = try? ObservationLog.encode(record) {
-                    out?.write(line); out?.write(Data("\n".utf8))
+                // **`enqueue`, not `chain`.** This closure runs inside the tap
+                // callback, and a `.listenOnly` tap whose callback blocks past
+                // 10–50 ms is switched off by the system with no notification
+                // delivered — measured, and Spike A's own hit-test is 21.25 ms
+                // at p90. Calling the synchronous walk here would kill the tap
+                // this spike is measuring with, which is a fine way to produce
+                // a confident, empty distribution.
+                axObserver.enqueue(event, source: axSource) { record in
+                    samples.append(record)
+                    if let line = try? ObservationLog.encode(record) {
+                        out?.write(line); out?.write(Data("\n".utf8))
+                    }
                 }
             }
         } catch CaptureError.inputMonitoringUnavailable {
@@ -157,6 +184,10 @@ enum SpikeA {
             content while it is scrolling. \(seconds)s.
             """)
         inputObserver.stop()
+        // Clicks land on the AX queue and are answered there, so a run that
+        // reads its records the instant the window closes is missing whatever
+        // was still in flight — and would report it as a shorter click list.
+        axObserver.waitForQueuedClicks()
         out?.closeFile()
 
         // ---- what came back
@@ -207,16 +238,26 @@ enum SpikeA {
                 .map { "\($0.key) ×\($0.value.count)" }.sorted().joined(separator: ", ")
             print("  \(reason.rawValue): \(matching.count) — tops: \(tops)")
         }
+        // The deferral this run paid to keep the tap alive, as a distribution
+        // rather than an assurance.
+        let queueMs = records.compactMap { $0.clickToHitTestStartNanos }.map { Double($0) / 1e6 }
+        if !queueMs.isEmpty {
+            print(String(format: "  click → AX queue pickup:  p50 %.2f  p90 %.2f  max %.2f ms",
+                         percentile(queueMs, 0.50), percentile(queueMs, 0.90), queueMs.max() ?? 0))
+            print("  (the price of moving AX off the callback thread. It is added to every "
+                  + "hit-test's staleness and it is recorded, not absorbed.)")
+        }
+
         print("\n---- diagnostics ----")
         print("  " + diagnostics.accounting.replacingOccurrences(of: "\n", with: "\n  "))
         let tap = inputObserver.diagnostics
-        print("  tap disabled and re-armed: \(tap.tapDisabledIntervals) times, "
-              + String(format: "%.1f ms", Double(tap.tapBlindNanos) / 1e6)
-              + " of enclosing blind window"
-              + (tap.tapDisabledIntervalsWithNoObservedLowerBound > 0
-                 ? " (\(tap.tapDisabledIntervalsWithNoObservedLowerBound) with no observed lower bound — "
-                   + "those widths are not measurements)"
-                 : ""))
+        print("  " + tap.tapAccounting.replacingOccurrences(of: "\n", with: "\n  "))
+        for window in samples.blindWindows {
+            print(String(format: "    blind window %.1f ms, found by %@, lower bound %@, reason %@",
+                         Double(window.interval.duration.rawValue) / 1e6,
+                         window.detectedBy.rawValue, window.lowerBoundFrom.rawValue,
+                         window.disabledBy?.rawValue ?? "not reported"))
+        }
         print("  AX log: \(logURL.path()) — NOT to be committed; it carries window titles.")
 
         // ---- the checks

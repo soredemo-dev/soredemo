@@ -199,10 +199,26 @@ public final class InputObserver: @unchecked Sendable {
         /// **one per `TapDisabledInterval` emitted**, and the count is here
         /// only to pair with the sum below.
         ///
-        /// A `.listenOnly` tap is still disabled if the callback is too slow
-        /// (`kCGEventTapDisabledByTimeout`). Left un-rearmed, everything
-        /// afterwards is silence that looks exactly like a person who stopped
-        /// moving.
+        /// A `.listenOnly` tap is still disabled if the callback is too slow.
+        /// Left un-rearmed, everything afterwards is silence that looks
+        /// exactly like a person who stopped moving.
+        ///
+        /// **It is disabled WITHOUT `kCGEventTapDisabledByTimeout` being
+        /// delivered, and the budget is between 10 ms and 50 ms.** Measured:
+        /// a deliberate stall in the callback, swept 10/50/100/200/400/800/
+        /// 1600 ms, three seconds a rung, mouse moving throughout —
+        ///
+        /// | stall | notifications | `CGEvent.tapIsEnabled` |
+        /// | --- | --- | --- |
+        /// | 10 ms | 0 | enabled |
+        /// | 50 ms and every rung above | 0 | **NOT enabled** |
+        ///
+        /// with a `.defaultTap` positive control in the same run receiving the
+        /// notification at 400 ms, so the channel is real and it is this tap
+        /// *kind* that never sees it. That is why `pollTapEnabled()` exists
+        /// and why it, not the callback, is what populates these numbers. It
+        /// is also why AX work does not belong on the callback thread: Spike
+        /// A's hit-test is 21.25 ms at p90, inside the 10–50 ms band.
         ///
         /// **This used to be the whole record and that was the defect**
         /// (`ARCHITECTURE.md` D6a): a count says the loss happened N times and
@@ -222,10 +238,44 @@ public final class InputObserver: @unchecked Sendable {
         /// direction for "how much of this recording is unobserved" is up.
         public internal(set) var tapBlindNanos: Int64 = 0
         /// Blind windows whose lower edge is `.observationStart` rather than a
-        /// real event — the ones whose width is not a measurement of anything.
-        /// Kept apart so `tapBlindNanos` can be read without one unbounded
-        /// window silently dominating it.
+        /// real event or a poll — the ones whose width is not a measurement of
+        /// anything. Kept apart so `tapBlindNanos` can be read without one
+        /// unbounded window silently dominating it.
         public internal(set) var tapDisabledIntervalsWithNoObservedLowerBound = 0
+        /// Blind windows found by the **poll**, as opposed to by a
+        /// notification. For this app's `.listenOnly` tap every one is
+        /// expected to be found this way; see `TapDisableDetection`.
+        public internal(set) var tapDisabledIntervalsFoundByPolling = 0
+
+        /// **How many times anything actually looked**, and over how long.
+        ///
+        /// **Without this pair, `tapDisabledIntervals == 0` is not a
+        /// measurement.** It has two readings — there were no blind windows,
+        /// or nothing was ever checking — and they are the same zero. That is
+        /// this project's oldest failure shape, and the version of this file
+        /// that shipped an hour ago had it in a worse form than the count it
+        /// replaced: an empty interval list looks more thoroughly checked than
+        /// a zero count, while being fed by a channel that was measured never
+        /// to deliver for this tap kind.
+        ///
+        /// Read them together, which `tapAccounting` prints:
+        ///
+        /// ```
+        /// tap disabled windows : 0
+        /// tap enabled polls    : 1247 over 124.7 s
+        /// ```
+        ///
+        /// The first line alone says nothing. The second is what makes it a
+        /// statement about the tap rather than about the observer.
+        public internal(set) var tapEnabledPolls = 0
+        /// First poll to last poll, in nanoseconds — the span the count above
+        /// covers. A count with no span cannot distinguish 1247 polls over two
+        /// minutes from 1247 polls in the first second before the timer died.
+        public internal(set) var tapPollingSpanNanos: Int64 = 0
+        /// Polls that could not read the tap at all (there was none to read).
+        /// Counted rather than folded into `tapEnabledPolls`, because a poll
+        /// that did not look is not evidence of looking.
+        public internal(set) var tapPollsWithNoTap = 0
 
         /// No legitimate violation: every `keyDown` this observer saw either
         /// produced one `KeySample` or was refused by the filter.
@@ -242,6 +292,27 @@ public final class InputObserver: @unchecked Sendable {
             "keyDown \(keyDownsSeen) = recorded \(keySamples) + refused \(keyDownsRefused)"
                 + "  → \(everyKeyDownIsAccountedFor ? "balances" : "DOES NOT BALANCE")"
         }
+
+        /// The two numbers that only mean something together. Never print the
+        /// first without the second.
+        public var tapAccounting: String {
+            let seconds = Double(tapPollingSpanNanos) / 1e9
+            let blindMs = Double(tapBlindNanos) / 1e6
+            var windows = "tap disabled windows : \(tapDisabledIntervals)"
+                + " (\(tapDisabledIntervalsFoundByPolling) found by polling), "
+                + String(format: "%.1f", blindMs) + " ms of enclosing blind window"
+            if tapDisabledIntervalsWithNoObservedLowerBound > 0 {
+                windows += "  (\(tapDisabledIntervalsWithNoObservedLowerBound) with no lower bound"
+                    + " at all — those contribute no width to the total above)"
+            }
+            var polls = "tap enabled polls    : \(tapEnabledPolls) over "
+                + String(format: "%.1f", seconds) + " s"
+            if tapPollsWithNoTap > 0 { polls += "  (+\(tapPollsWithNoTap) with no tap to read)" }
+            if tapEnabledPolls == 0 {
+                polls += "  ← NOTHING WAS LOOKING; the line above is not a measurement"
+            }
+            return windows + "\n" + polls
+        }
     }
 
     public nonisolated var diagnostics: Diagnostics { lock.withLock { _diagnostics } }
@@ -256,9 +327,14 @@ public final class InputObserver: @unchecked Sendable {
     // `lock`, and `withLock`'s closure is what makes concurrent access safe.
 
     private let lock = NSLock()
+    /// The poll's queue. **Never the main queue**, and created here rather
+    /// than reached for at use so there is exactly one place to check that.
+    private let pollQueue = DispatchQueue(label: "video.soredemo.input-observer.tap-poll",
+                                          qos: .utility)
     private let arrangement: DisplayArrangement
     private let epoch: BootEpoch
     private let secureInputIsEnabled: @Sendable () -> Bool
+    private let tapIsEnabledOverride: (@Sendable () -> Bool)?
 
     private nonisolated(unsafe) var _diagnostics = Diagnostics()
     private nonisolated(unsafe) var handler: (@Sendable (Observation) -> Void)?
@@ -276,6 +352,17 @@ public final class InputObserver: @unchecked Sendable {
     /// When `start()` armed the tap — the only defensible lower bound for a
     /// blind window that opens before any event has arrived.
     private nonisolated(unsafe) var observationBegan: HostInstant?
+    /// The most recent poll that read the tap as **enabled**.
+    ///
+    /// This is the lower bound that keeps working during a blind window.
+    /// `lastObservedInstant` cannot: a disabled tap delivers no events, so it
+    /// freezes at the disable and every extra second of silence widens the
+    /// interval by a second of pure ignorance.
+    private nonisolated(unsafe) var lastEnabledPollInstant: HostInstant?
+    private nonisolated(unsafe) var firstPollInstant: HostInstant?
+    /// The timer that does the polling, and the queue it runs on — **not** the
+    /// main run loop. See `startPolling()`.
+    private nonisolated(unsafe) var pollTimer: (any DispatchSourceTimer)?
 
     // MARK: - Init
 
@@ -305,17 +392,40 @@ public final class InputObserver: @unchecked Sendable {
     /// reasons, the suppression) checkable in `§ 7.4` of the probe; that the
     /// real predicate is wired up and reads true at the right moment is the
     /// human step's job, and it is the only part of this that needs one.
+    /// **`tapIsEnabledOverride` exists because the poll cannot otherwise be
+    /// checked at all**, and it is `nil` — meaning "read the real tap" — in
+    /// every shipping path.
+    ///
+    /// Reading the real one needs a `CFMachPort` from `CGEvent.tapCreate`,
+    /// which needs Input Monitoring, which TCC grants to a signed bundle and
+    /// not to `scripts/cross-boundary-digest-probe.swift`. Without the
+    /// override the entire detection path — the thing this whole mechanism
+    /// exists to be — would be reachable only by a human step, which is how a
+    /// dead channel went unnoticed for two rounds of this task. Same argument,
+    /// same shape, as `secureInputIsEnabled` above.
+    ///
+    /// It is an optional override rather than a defaulted closure because the
+    /// real read needs `self`'s tap, which does not exist when the default
+    /// argument is evaluated. `AppSourceAllowListTests` pins that
+    /// `CGEvent.tapIsEnabled` is still named exactly once, in this file — the
+    /// failure mode for an override is that the real read is deleted and
+    /// everything stays green.
     public init(arrangement: DisplayArrangement, epoch: BootEpoch,
-                secureInputIsEnabled: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() }) {
+                secureInputIsEnabled: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() },
+                tapIsEnabledOverride: (@Sendable () -> Bool)? = nil) {
         self.arrangement = arrangement
         self.epoch = epoch
         self.secureInputIsEnabled = secureInputIsEnabled
+        self.tapIsEnabledOverride = tapIsEnabledOverride
     }
 
     deinit {
         // No lock: by the time `deinit` runs there is no other reference
         // through which a concurrent access could occur. Same reasoning as
-        // `CaptureSession.deinit`.
+        // `CaptureSession.deinit`. The timer holds `self` weakly, so it cannot
+        // be what kept this object alive, but it must still be cancelled or it
+        // keeps firing against a freed port.
+        pollTimer?.cancel()
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
             CFMachPortInvalidate(tap)
@@ -446,6 +556,8 @@ public final class InputObserver: @unchecked Sendable {
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: created, enable: true)
+        // After the tap exists, so the first poll has something to read.
+        startPolling()
     }
 
     /// Tears the tap down and closes an open secure-input interval with
@@ -457,6 +569,11 @@ public final class InputObserver: @unchecked Sendable {
     /// interval is precisely the one where the log has no samples to show for
     /// the time, which is the state a reader most needs told.
     public func stop() {
+        // Before the port is cleared, so a poll cannot be mid-read when it is
+        // invalidated. `cancel()` does not wait for an in-flight handler, but
+        // that handler holds `lock` for the whole of its CoreGraphics work and
+        // the clearing below takes the same lock.
+        stopPolling()
         let (existingTap, existingSource, pending) = lock.withLock {
             () -> (CFMachPort?, CFRunLoopSource?, HostInstant?) in
             let values = (tap, runLoopSource, secureInputBegan)
@@ -753,6 +870,174 @@ public final class InputObserver: @unchecked Sendable {
     /// a real instant rather than a zero-width interval, which would read as
     /// "no time was lost" — the exact "measurement with a safe default" this
     /// project keeps being bitten by.
+    // MARK: - The poll, and why there is one
+
+    /// How often the tap's own enabled flag is read, in nanoseconds.
+    ///
+    /// **100 ms, and the consequence rather than the number is what matters.**
+    /// This is not a D4 threshold — nothing rejects on it — it is a direct
+    /// exchange of a negligible amount of CPU for the tightness of a blind
+    /// window's lower edge. Two properties follow from it:
+    ///
+    ///   * a blind window is **detected** within one interval of starting, so
+    ///     the tap is re-enabled ~100 ms after being switched off rather than
+    ///     staying off for the rest of the recording;
+    ///   * the window's lower edge is within ~100 ms of the truth **even when
+    ///     no events are arriving**, which is exactly the situation a disabled
+    ///     tap creates. `lastObservedInstant` cannot do this: it freezes at
+    ///     the disable, so with only that bound a 30-second silence produces a
+    ///     30-second "blind window" of which 29.9 seconds is ignorance.
+    ///
+    /// Tightening it is cheap and the only argument against is CPU; loosening
+    /// it widens every recorded window by the same amount.
+    private nonisolated static let pollIntervalNanos: Int64 = 100_000_000
+
+    /// Starts the poll, on a **dedicated queue that is not the callback's**.
+    ///
+    /// **The thread matters more than the poll does.** What is being detected
+    /// is the callback thread being stuck — the tap is disabled *because* the
+    /// callback took too long — so a poll scheduled on the same run loop is
+    /// blocked at exactly the moment it is needed, and is never blocked while
+    /// anyone is testing it, because nothing is stuck then. That failure is
+    /// invisible in every green run. `§ 7.9` of the probe holds the main
+    /// thread for several poll intervals and asserts the count advanced
+    /// anyway, which is the only form of this check that can fail.
+    ///
+    /// A `DispatchSourceTimer` on a private serial queue rather than a
+    /// `Thread` with a sleep loop: the queue is not the main one by
+    /// construction, and cancellation is a property of the source instead of a
+    /// flag another thread has to notice.
+    nonisolated func startPolling() {
+        let timer = DispatchSource.makeTimerSource(queue: pollQueue)
+        timer.schedule(deadline: .now() + .nanoseconds(Int(Self.pollIntervalNanos)),
+                       repeating: .nanoseconds(Int(Self.pollIntervalNanos)))
+        timer.setEventHandler { [weak self] in self?.pollTapEnabled() }
+        lock.withLock {
+            pollTimer?.cancel()
+            pollTimer = timer
+        }
+        timer.resume()
+    }
+
+    nonisolated func stopPolling() {
+        let existing = lock.withLock { () -> (any DispatchSourceTimer)? in
+            let value = pollTimer
+            pollTimer = nil
+            return value
+        }
+        existing?.cancel()
+    }
+
+    /// One poll. **The only place `CGEvent.tapIsEnabled` is read**, and the
+    /// seam `§ 7.9` drives directly.
+    ///
+    /// Reads the flag, and if the tap has been switched off, switches it back
+    /// on and closes the blind window it just found.
+    ///
+    /// **Everything CoreGraphics touches happens under the lock**, which is
+    /// unusual in this file and is deliberate: `stop()` clears `tap` under the
+    /// same lock and only invalidates the port afterwards, so holding it here
+    /// is what makes "the port is still alive while this reads it" true rather
+    /// than probable. Both calls are flag reads on a Mach port and do not
+    /// block; the handler, which is caller code of unknown cost, is called
+    /// outside.
+    nonisolated func pollTapEnabled() {
+        let now = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
+
+        let window: TapDisabledInterval? = lock.withLock {
+            if firstPollInstant == nil { firstPollInstant = now }
+            defer {
+                if let first = firstPollInstant {
+                    _diagnostics.tapPollingSpanNanos = now.hostTime.rawValue - first.hostTime.rawValue
+                }
+            }
+
+            let enabled: Bool
+            if let tapIsEnabledOverride {
+                enabled = tapIsEnabledOverride()
+            } else if let tap {
+                enabled = CGEvent.tapIsEnabled(tap: tap)
+            } else {
+                // Nothing to read. NOT counted as a poll: a poll that did not
+                // look is not evidence of looking, and this counter's whole
+                // job is to say whether anything was.
+                _diagnostics.tapPollsWithNoTap += 1
+                return nil
+            }
+
+            _diagnostics.tapEnabledPolls += 1
+            guard !enabled else {
+                lastEnabledPollInstant = now
+                return nil
+            }
+
+            // The tap is off. Re-enable it first — that is the only action
+            // here that shortens the loss.
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            let reEnabled = Minting.hostNow()
+
+            let (began, source) = lowerBoundLocked()
+            guard let began else {
+                // **No instant in this process's history bounds the window
+                // from below**, so there is no interval to emit — a zero-width
+                // one anchored at "now" would read as "no time was lost",
+                // which is the safe-default failure this whole mechanism
+                // exists to avoid. Counted in both totals instead, and
+                // `tapAccounting` prints the second beside the first so the
+                // outage is not invisible.
+                //
+                // Unreachable through `start()`, which records
+                // `observationBegan` before the tap is enabled; reachable when
+                // `pollTapEnabled()` is driven directly, which is what the
+                // probe does.
+                _diagnostics.tapDisabledIntervals += 1
+                _diagnostics.tapDisabledIntervalsFoundByPolling += 1
+                _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
+                return nil
+            }
+            let width = max(0, reEnabled.rawValue - began.hostTime.rawValue)
+            _diagnostics.tapDisabledIntervals += 1
+            _diagnostics.tapDisabledIntervalsFoundByPolling += 1
+            _diagnostics.tapBlindNanos += width
+            if source == .observationStart {
+                _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
+            }
+            lastEnabledPollInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
+            lastObservedInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
+            return TapDisabledInterval(
+                interval: HostRange(epoch: epoch, start: began.hostTime,
+                                    duration: Nanoseconds(width)),
+                // **Not `.timeout`.** The poll saw that the tap was off and
+                // nothing told it why; naming a reason here would be an
+                // accusation this code did not measure.
+                disabledBy: nil,
+                lowerBoundFrom: source,
+                detectedBy: .enabledPoll)
+        }
+
+        if let window { emit(.tapDisabled(window)) }
+    }
+
+    /// The tightest defensible lower bound for a blind window closing now, and
+    /// which of the three it came from. **Call under the lock.**
+    ///
+    /// `max` of the two live bounds rather than a fixed preference: which one
+    /// is tighter depends on whether input was dense (the event wins) or the
+    /// tap had been quiet (the poll wins), and picking one statically would
+    /// throw away the better bound in half of all runs.
+    private nonisolated func lowerBoundLocked() -> (HostInstant?, TapBlindWindowLowerBound) {
+        let event = lastObservedInstant
+        let poll = lastEnabledPollInstant
+        switch (event, poll) {
+        case let (event?, poll?):
+            return event.hostTime.rawValue >= poll.hostTime.rawValue
+                ? (event, .lastObservedEvent) : (poll, .lastEnabledPoll)
+        case let (event?, nil):  return (event, .lastObservedEvent)
+        case let (nil, poll?):   return (poll, .lastEnabledPoll)
+        case (nil, nil):         return (observationBegan, .observationStart)
+        }
+    }
+
     /// **The tap's presence gates only the re-arming, not the recording.**
     /// An earlier version returned immediately when `tap == nil`, which made
     /// the entire blind-window path unreachable from `§ 7.9` of the probe —
@@ -768,10 +1053,7 @@ public final class InputObserver: @unchecked Sendable {
         }
         let reEnabled = Minting.hostNow()
 
-        let (began, source) = lock.withLock { () -> (HostInstant?, TapBlindWindowLowerBound) in
-            if let last = lastObservedInstant { return (last, .lastObservedEvent) }
-            return (observationBegan, .observationStart)
-        }
+        let (began, source) = lock.withLock { lowerBoundLocked() }
         guard let began else {
             // No event has ever been observed AND no tap was ever armed —
             // there is no instant in this process's history that bounds the
@@ -801,7 +1083,8 @@ public final class InputObserver: @unchecked Sendable {
             lastObservedInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
         }
         emit(.tapDisabled(TapDisabledInterval(interval: interval, disabledBy: reason,
-                                              lowerBoundFrom: source)))
+                                              lowerBoundFrom: source,
+                                              detectedBy: .notification)))
     }
 
     /// Step 1 of the conversion — and the only place in this file that a

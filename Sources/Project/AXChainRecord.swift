@@ -393,9 +393,35 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
         return inside ? .containsTheClick : .doesNotContainTheClick
     }
 
+    /// How long the click waited **before anyone asked AX anything**: from the
+    /// instant the window server stamped the button event to the instant the
+    /// hit-test began.
+    ///
+    /// **This is the price of not doing AX work on the tap callback thread,
+    /// and it is recorded rather than absorbed.** A `.listenOnly` tap whose
+    /// callback blocks for longer than 10–50 ms (measured on this machine) is
+    /// switched off by the system with no notification delivered, and Spike
+    /// A's hit-test is 21.25 ms at p90 — so the observation is dispatched to
+    /// another queue, which makes it later than the click by whatever this
+    /// says. A stale hit-test is recorded staleness; a disabled tap is
+    /// silence, and this field is what keeps the trade visible instead of
+    /// turning it into an unexplained drift between the verb and the object.
+    ///
+    /// Together with `hitTestInterval.duration` it decomposes
+    /// `clickToHitTestAnswerNanos` into the part this app chose (the queue)
+    /// and the part the target application imposed (the IPC). A gate that
+    /// wants to reject stale observations needs them apart: raising a budget
+    /// fixes one and does nothing for the other.
+    public var clickToHitTestStartNanos: Int64? {
+        guard hitTestInterval.epoch == instant.epoch else { return nil }
+        return hitTestInterval.start.rawValue - instant.hostTime.rawValue
+    }
+
     /// How long the click waited for the hit-test to answer: from the instant
     /// the window server stamped the button event to the instant
-    /// `AXUIElementCopyElementAtPosition` returned.
+    /// `AXUIElementCopyElementAtPosition` returned. The sum of
+    /// `clickToHitTestStartNanos` (the queue) and `hitTestInterval.duration`
+    /// (the IPC).
     ///
     /// `nil` across a boot-epoch mismatch rather than a wrong number — the two
     /// instants are then not on one clock, and subtracting them would produce

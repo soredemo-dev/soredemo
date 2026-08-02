@@ -501,6 +501,44 @@ func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: St
             """)
 }
 
+/// **The tap's own enabled flag must still be read, and read in one place.**
+///
+/// `InputObserver` polls `CGEvent.tapIsEnabled(tap:)` because the notification
+/// channel it used to rely on was measured never to fire for a `.listenOnly`
+/// tap: a deliberate callback stall swept 10/50/100/200/400/800/1600 ms
+/// produced 0 `kCGEventTapDisabledByTimeout` notifications at every rung, while
+/// the flag read false from 50 ms up, with a `.defaultTap` control receiving
+/// the notification in the same run.
+///
+/// The poll is injectable (`tapIsEnabledOverride`) so the probe can drive it
+/// without Input Monitoring, and that injection has a failure mode this scan
+/// exists for: **delete the real read and every check stays green**, because
+/// the probe always passes its own. Zero occurrences means nothing in the
+/// shipping app ever asks the OS whether the tap is alive, which is precisely
+/// the state that shipped an hour ago; more than one means two policies about
+/// what "the tap is up" means.
+///
+/// It pins the count and the file, not the line — the read sits inside a
+/// `lock.withLock` block whose surrounding text is not a stable thing to
+/// assert on.
+@Test func theTapsEnabledFlagIsReadExactlyOnceAndOnlyInTheObserver() throws {
+    let readers = try codeLinesNaming("CGEvent.tapIsEnabled", in: try appSourceFiles())
+
+    #expect(readers.count == 1,
+            """
+            expected exactly one app source line reading CGEvent.tapIsEnabled, found \(readers.count):
+            \(readers.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+            Zero means nothing in the shipping app asks the OS whether the tap is still alive, and \
+            a .listenOnly tap is disabled WITHOUT the notification being delivered — so the blind \
+            windows would all be found by a channel that was measured never to fire, and an empty \
+            list of them reads as 'no gaps'.
+            """)
+
+    guard let reader = readers.first else { return }
+    #expect(reader.location.hasPrefix("Soredemo/Capture/InputObserver.swift:"),
+            "the tap's enabled flag is read at \(reader.location), not in InputObserver: \(reader.text)")
+}
+
 /// The same shape one row over: **`AXObserver`'s accessibility predicate is
 /// injected, and the default has to stay the real reader.**
 ///

@@ -365,7 +365,7 @@ sixth site missing from it is visible, and a row that says *a count* next to fou
 | `AXObserver` ancestor walk | levels beyond the depth cap or the time budget | an explicit truncation reason on the record | yes: the record says it stopped and why, so a short chain is not read as a shallow tree |
 | `CaptureSession` video | frames the display did not produce | `SCFrameStatusIdle`, counted separately from `.complete` | yes: "nothing changed" is distinguishable from "nothing arrived" |
 | `InputObserver` secure input | every event while another app holds a password field | `SecureInputInterval`, with `.secureInputDisabled` vs `.observationStopped` as its two end reasons | yes: a measured span, and the end reason says whether its end was observed or merely assumed |
-| `InputObserver` tap disabled, by timeout or by user input | every event between the disable and the re-arm | `TapDisabledInterval` — an interval **containing** the blind window, with `disabledBy` (whose fault) and `lowerBoundFrom` (how tight its left edge is); `tapBlindNanos` sums them | yes, with one caveat stated on the type: it is an enclosing bound, not the window itself. The instant the system disabled the tap is reported to nobody, so the earliest it could have happened is just after the last event that did arrive. The over-estimate is the safe direction for a refusal code |
+| `InputObserver` tap disabled, by timeout or by user input | every event between the disable and the re-arm | `TapDisabledInterval`, populated by **polling `CGEvent.tapIsEnabled` from a queue that is not the callback's**, with `detectedBy`, `disabledBy` (nil when polled — the poll cannot know why) and `lowerBoundFrom`; **paired with `tapEnabledPolls` over `tapPollingSpanNanos`, without which an empty list is not a measurement** | yes, with two caveats on the type: it is an enclosing bound rather than the window itself, and the poll interval (100 ms) is the floor on how tight its left edge can be |
 
 **Why "enough?" is a column.** Each row's mechanism was adequate when written and the question is
 whether it still is. The last row was the one that was not, and it was visible here in a way it was
@@ -378,6 +378,26 @@ is busy, and F2-2 measured one at 125.47 ms against a tap timeout the header doe
 *contained within* the true interval; `TapDisabledInterval` *contains* it. Neither is the interval.
 Both say so on the type, and a consumer that treats either as exact is wrong in a direction the type
 names.
+
+**A row must say what is looking, not only what is recorded.** The tap row was written once as an
+interval and was still wrong, because the interval was fed by
+`kCGEventTapDisabledByTimeout` — and a `.listenOnly` tap is disabled **without that notification
+ever being delivered**. Measured: a deliberate callback stall swept 10/50/100/200/400/800/1600 ms
+produced **0 notifications at every rung**, while `CGEvent.tapIsEnabled(tap:)` read false from 50 ms
+upward, with a `.defaultTap` control receiving the notification in the same run. So the mechanism in
+that row could not fire, and its output — an empty list of gaps — reads as *no gaps*. That is worse
+than the count it replaced: it looks more thoroughly checked and the blind spot is the same size.
+
+The general form, and the reason this paragraph is in the register rather than in a task report:
+
+> **An empty gap record and an absent gap detector produce the same bytes.** Every row here must
+> therefore carry evidence that something was looking — a poll count over a span, a frame count, a
+> sample count — beside the gaps it found. `tapEnabledPolls: 1247 over 124.7 s` is what makes
+> `tapDisabledIntervals: []` a measurement.
+
+This is the seventh time in this project that a check has read a proxy for its subject rather than
+the subject: the number consulted was *notifications our callback received*, whose subject is our
+callback, not the tap.
 
 **The consumer this exists for.** `framing-gates` refuses a beat with `observation stale` (D4). "This
 beat spans a gap in the pointer record" is that refusal, and it needs a range to compare against — a
