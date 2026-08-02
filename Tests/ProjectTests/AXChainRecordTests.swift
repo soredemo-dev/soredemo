@@ -190,6 +190,95 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     #expect(mismatched.clickToHitTestAnswerNanos == nil)
 }
 
+// MARK: - a damaged file must not read as a coordinate fault
+
+/// **The failure this guards against is silent and it lands in the one type
+/// whose job is telling faults apart.** `NormalizedPoint` and `NormalizedSize`
+/// `precondition` on finiteness, and their *synthesised* `Decodable`
+/// conformances bypass it — so a non-finite coordinate cannot be built in
+/// memory but could be read off disk, and every comparison against `NaN` is
+/// `false`, which makes `clickContainment` answer `.doesNotContainTheClick`:
+/// a confident coordinate-fault verdict for a file that is merely damaged.
+///
+/// **Measured, and it changes what this test can claim.** Foundation's
+/// `JSONDecoder` refuses every route to a non-finite `Double` before this
+/// type's own validation runs — checked against this SDK with four payloads,
+/// `1e400`, `-1e400`, a bare `NaN` token and the string `"NaN"`, all four
+/// `DecodingError`. So through `ObservationLog`, which is a plain
+/// `JSONDecoder`, the hole is already closed one layer down and a JSON-based
+/// test here would pass for Foundation's reason, not this type's.
+///
+/// This test therefore uses a property list, which **does** carry infinity
+/// through (measured: encode `.infinity`, decode, `isFinite == false`). That
+/// makes the guard's own behaviour observable instead of shadowed, which is
+/// the difference between a check and a check-shaped statement.
+@Test func aNonFiniteClickPositionIsRefusedByThisTypeAndNotOnlyByFoundation() throws {
+    let valid = try PropertyListEncoder().encode(record())
+    var object = try #require(PropertyListSerialization.propertyList(
+        from: valid, options: [], format: nil) as? [String: Any])
+    object["clickPosition"] = ["x": Double.infinity, "y": 0.5]
+    let damaged = try PropertyListSerialization.data(fromPropertyList: object,
+                                                     format: .binary, options: 0)
+
+    // The property-list layer really does deliver it — without this the test
+    // below could pass because the payload never got that far.
+    struct JustThePoint: Decodable { let clickPosition: NormalizedPoint }
+    let delivered = try PropertyListDecoder().decode(JustThePoint.self, from: damaged)
+    #expect(!delivered.clickPosition.x.isFinite,
+            "the fixture must actually carry a non-finite value, or the refusal below means nothing")
+
+    #expect(throws: DecodingError.self) {
+        _ = try PropertyListDecoder().decode(AXChainRecord.self, from: damaged)
+    }
+}
+
+/// A negative dimension is ordinary, legal JSON — Foundation has no opinion on
+/// it — so this one is reachable through the real path and the refusal can
+/// only be this type's own.
+@Test func aFrameWithANegativeDimensionIsRefused() throws {
+    let valid = try ObservationLog.encode(record(hit: element()))
+    var object = try #require(try JSONSerialization.jsonObject(with: valid) as? [String: Any])
+    var hit = try #require(object["hit"] as? [String: Any])
+    hit["frame"] = ["origin": ["x": 0.4, "y": 0.4],
+                    "size": ["width": 0.2, "height": -1.0],
+                    "revision": ["id": rev.id]]
+    object["hit"] = hit
+    let damaged = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(throws: DecodingError.self) {
+        _ = try ObservationLog.decode(damaged) as AXChainRecord
+    }
+}
+
+/// `axCalls` is arithmetic a reader divides and compares — against F2-2's
+/// distribution, against the depth cap. A negative one is not a value this
+/// producer can emit, and it is legal JSON.
+@Test func aNegativeCallCountIsRefused() throws {
+    let valid = try ObservationLog.encode(record())
+    var object = try #require(try JSONSerialization.jsonObject(with: valid) as? [String: Any])
+    object["axCalls"] = -1
+    let damaged = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(throws: DecodingError.self) {
+        _ = try ObservationLog.decode(damaged) as AXChainRecord
+    }
+}
+
+/// The hand-written conformance must not have changed the wire form — the
+/// same guarantee `HostRange` and `DisplayGeometry` state for theirs.
+@Test func validationDidNotChangeTheEncodedShape() throws {
+    let full = record(hit: element(), ancestors: [element(role: "AXGroup", title: nil)],
+                      children: [element(role: "AXStaticText", title: nil)])
+    #expect(try roundTrip(full) == full)
+
+    let keys = try #require(try JSONSerialization.jsonObject(
+        with: ObservationLog.encode(full)) as? [String: Any]).keys.sorted()
+    #expect(keys == ["ancestors", "axCalls", "children", "clickPosition", "clickRevision",
+                     "depthCap", "hit", "hitTestGlobalX", "hitTestGlobalY", "hitTestInterval",
+                     "instant", "kind", "truncation", "walkBudgetNanos"],
+            "the encoded key set is the synthesised one: \(keys)")
+}
+
 // MARK: - the log can route it without decoding it
 
 @Test func theRecordAnnouncesItsKindToTheLogReader() throws {

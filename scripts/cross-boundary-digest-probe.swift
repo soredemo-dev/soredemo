@@ -213,6 +213,8 @@ enum CrossBoundaryProbe {
         theProductionSecureInputPredicateIsRead()
         print("7.8 the observation path and the capture path agree on a display's revision")
         await theTwoDerivationsOfADisplayAgree()
+        print("7.9 a disabled tap produces an interval, not a count (D6a)")
+        aDisabledTapProducesAnInterval()
 
         print("8. AXObserver — the bounded walk that records and does not judge (Task 10)")
         print("8.1 the reverse conversion is the exact inverse of the forward one")
@@ -227,6 +229,8 @@ enum CrossBoundaryProbe {
         theRecordedElementIsCheckableAgainstTheClick()
         print("8.5 the diagnostics balance")
         theAXDiagnosticsBalance()
+        print("8.6 every counter that partitions a decision, driven both ways")
+        theAXCountersAreDrivenInBothDirections()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -850,23 +854,42 @@ enum CrossBoundaryProbe {
     /// [1920, 5760). Comparing a global point against the pixel width was the
     /// Task 10.5 defect; the arrangement below is built so a regression of it
     /// changes which display a point routes to.
+    ///
+    /// **The third display has a NEGATIVE global origin, and that is a second
+    /// deliberate non-identity.** A display placed to the left of or above the
+    /// main one is an ordinary macOS arrangement, and `DisplayArrangement
+    /// .Placement` documents that its origin is a plain `Double` for exactly
+    /// that reason — but until Task 10 every fixture in this file put every
+    /// display at a non-negative origin, where a conversion that *subtracts*
+    /// the origin and one that *adds* it are hard to tell apart by sign, and
+    /// where an origin of zero (the main display) makes the step vanish
+    /// entirely. `AXObserver.globalPoint` adds the origin back and
+    /// `normalizedFrame` subtracts it, so this is the placement that makes
+    /// both steps observable. It needs no hardware, which is the same argument
+    /// `theAXValueDecoders` makes for decoding a negative AX coordinate.
     @MainActor
     static func fixtureArrangement() -> (arrangement: DisplayArrangement,
-                                         main: DisplayGeometry, retina: DisplayGeometry) {
+                                         main: DisplayGeometry, retina: DisplayGeometry,
+                                         left: DisplayGeometry) {
         let main = DisplayGeometry(displayUUID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
                                    pixelWidth: 1920, pixelHeight: 1080, scale: 1)
         let retina = DisplayGeometry(displayUUID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
                                      pixelWidth: 3840, pixelHeight: 2160, scale: 2)
+        // 1440×900 points at scale 2 = 2880×1800 pixels, sitting up and to the
+        // left: global points [-1440, 0) on X and [-900, 0) on Y.
+        let left = DisplayGeometry(displayUUID: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!,
+                                   pixelWidth: 2880, pixelHeight: 1800, scale: 2)
         let arrangement = DisplayArrangement(placements: [
             .init(geometry: main, globalOriginX: 0, globalOriginY: 0),
             .init(geometry: retina, globalOriginX: 1920, globalOriginY: 0),
+            .init(geometry: left, globalOriginX: -1440, globalOriginY: -900),
         ])
-        return (arrangement, main, retina)
+        return (arrangement, main, retina, left)
     }
 
     @MainActor
     static func theConversionOrder() {
-        let (arrangement, main, retina) = fixtureArrangement()
+        let (arrangement, main, retina, _) = fixtureArrangement()
 
         // ---- The expectation, computed from the fixture rather than typed.
         //
@@ -1016,7 +1039,7 @@ enum CrossBoundaryProbe {
 
     @MainActor
     static func theCallbackBody() {
-        let (arrangement, _, retina) = fixtureArrangement()
+        let (arrangement, _, retina, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         let collector = Collector()
         let observer = InputObserver(arrangement: arrangement, epoch: epoch)
@@ -1129,7 +1152,7 @@ enum CrossBoundaryProbe {
     /// alike.
     @MainActor
     static func keystrokesAreNotStored() {
-        let (arrangement, _, _) = fixtureArrangement()
+        let (arrangement, _, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         let stamp = Minting.hostNow()
 
@@ -1228,7 +1251,7 @@ enum CrossBoundaryProbe {
     /// human step's job.
     @MainActor
     static func secureInputProducesAnInterval() {
-        let (arrangement, _, _) = fixtureArrangement()
+        let (arrangement, _, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         let base = Minting.hostNow().rawValue
 
@@ -1594,7 +1617,7 @@ enum CrossBoundaryProbe {
 
         // Everything that can be built, built first. Nothing but the three
         // calls between Enable and Disable happens inside the window.
-        let (arrangement, _, _) = fixtureArrangement()
+        let (arrangement, _, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         let collector = Collector()
         // DEFAULT-INITIALISED. No `secureInputIsEnabled:` argument — that is
@@ -1689,28 +1712,51 @@ enum CrossBoundaryProbe {
         let nodes: [FakeNode]
         let hitIndex: Int?
         let microsecondsPerCall: UInt32
+        /// Delay only the elements at or past this index.
+        ///
+        /// **Needed because "slow everywhere" cannot reach some states.** A
+        /// uniformly slow source exhausts the budget during the ancestor walk,
+        /// so the children phase is never entered and
+        /// `childrenReadsCutShortByBudget` and the depth-cap-then-overrun case
+        /// are both unreachable — the second of which is the one that shows
+        /// `truncation` being overwritten. Children live at the end of the
+        /// node array, so an index threshold makes the walk fast and the
+        /// children slow without the fake needing to know which phase it is in.
+        let slowElementsFrom: Int?
         private let lock = NSLock()
         private var _calls = 0
         var calls: Int { lock.withLock { _calls } }
 
-        init(nodes: [FakeNode], hitIndex: Int?, microsecondsPerCall: UInt32 = 0) {
+        init(nodes: [FakeNode], hitIndex: Int?, microsecondsPerCall: UInt32 = 0,
+             slowElementsFrom: Int? = nil) {
             self.nodes = nodes
             self.hitIndex = hitIndex
             self.microsecondsPerCall = microsecondsPerCall
+            self.slowElementsFrom = slowElementsFrom
         }
 
-        private func charge() {
+        private func charge(_ element: Int? = nil) {
             lock.withLock { _calls += 1 }
-            if microsecondsPerCall > 0 { usleep(microsecondsPerCall) }
+            guard microsecondsPerCall > 0 else { return }
+            if let threshold = slowElementsFrom {
+                guard let element, element >= threshold else { return }
+            }
+            usleep(microsecondsPerCall)
         }
 
-        func hitTest(globalTopLeftX: Double, globalTopLeftY: Double) -> Int? { charge(); return hitIndex }
-        func role(of element: Int) -> String? { charge(); return nodes[element].role }
-        func title(of element: Int) -> String? { charge(); return nodes[element].title }
-        func position(of element: Int) -> (x: Double, y: Double)? { charge(); return nodes[element].position }
-        func size(of element: Int) -> (width: Double, height: Double)? { charge(); return nodes[element].size }
-        func parent(of element: Int) -> Int? { charge(); return nodes[element].parent }
-        func children(of element: Int) -> [Int]? { charge(); return nodes[element].children }
+        func hitTest(globalTopLeftX: Double, globalTopLeftY: Double) -> Int? {
+            charge(hitIndex); return hitIndex
+        }
+        func role(of element: Int) -> String? { charge(element); return nodes[element].role }
+        func title(of element: Int) -> String? { charge(element); return nodes[element].title }
+        func position(of element: Int) -> (x: Double, y: Double)? {
+            charge(element); return nodes[element].position
+        }
+        func size(of element: Int) -> (width: Double, height: Double)? {
+            charge(element); return nodes[element].size
+        }
+        func parent(of element: Int) -> Int? { charge(element); return nodes[element].parent }
+        func children(of element: Int) -> [Int]? { charge(element); return nodes[element].children }
     }
 
     /// A hit element with `ancestorDepth` ancestors above it and `children`
@@ -1786,7 +1832,7 @@ enum CrossBoundaryProbe {
 
     @MainActor
     static func theReverseConversion() {
-        let (arrangement, main, retina) = fixtureArrangement()
+        let (arrangement, main, retina, left) = fixtureArrangement()
         check(retina.scale == 2 && main.scale == 1,
               "fixture sanity: the reverse conversion is checked against the scale: 2 display, where "
               + "the pixels→points step is not the identity",
@@ -1835,6 +1881,42 @@ enum CrossBoundaryProbe {
                                      in: arrangement) == nil,
               "a click whose revision names no attached display yields NO point — a guessed one "
               + "would hit-test a real element at a place the click never was")
+
+        // ---- the display placed UP AND LEFT of the main one, where the
+        // origin step has a sign. On the two non-negative displays above, a
+        // conversion that added the origin where it should subtract is off in
+        // a direction that still lands on a plausible desktop coordinate; here
+        // it lands on the wrong side of zero.
+        let negativeX = -1000.0, negativeY = -500.0
+        guard let onLeft = InputObserver.normalizedPosition(globalTopLeftX: negativeX,
+                                                            globalTopLeftY: negativeY,
+                                                            in: arrangement) else {
+            check(false, "a point on the display at (-1440, -900) must route there")
+            return
+        }
+        check(onLeft.revision == left.revision,
+              "a negative global point routes to the display placed left of and above the main one",
+              actual: "\(onLeft.revision)", expected: "\(left.revision)")
+        check((0...1).contains(onLeft.position.x) && (0...1).contains(onLeft.position.y),
+              "and normalises into [0, 1] like any other display",
+              actual: "(\(onLeft.position.x), \(onLeft.position.y))")
+        guard let backOnLeft = AXObserver.globalPoint(of: onLeft.position,
+                                                      revision: onLeft.revision,
+                                                      in: arrangement) else {
+            check(false, "the reverse conversion must find the negative-origin display")
+            return
+        }
+        check(backOnLeft.x == negativeX && backOnLeft.y == negativeY,
+              "the round trip returns the NEGATIVE global point unchanged — the origin step is "
+              + "signed, and every other fixture display in this file hides that",
+              actual: "(\(backOnLeft.x), \(backOnLeft.y))", expected: "(\(negativeX), \(negativeY))")
+        // The sign mistake, computed: adding the origin where the forward
+        // direction subtracts it. On the main display (origin 0) this is the
+        // identity and catches nothing.
+        let wrongSign = -1440.0 - (negativeX - -1440.0)
+        check(backOnLeft.x != wrongSign,
+              "and getting the origin's sign wrong gives a different, plausible desktop coordinate",
+              actual: "correct \(backOnLeft.x) vs sign-flipped \(wrongSign)")
     }
 
     /// `CGGeometryBridge.point(fromAXValue:)` and `.size(fromAXValue:)`, against
@@ -1894,7 +1976,7 @@ enum CrossBoundaryProbe {
 
     @MainActor
     static func theFrameConversion() {
-        let (arrangement, _, retina) = fixtureArrangement()
+        let (arrangement, _, retina, _) = fixtureArrangement()
 
         // The expectation, computed from the fixture rather than typed. An AX
         // frame is global top-left POINTS, like CGEventGetLocation.
@@ -1949,11 +2031,32 @@ enum CrossBoundaryProbe {
               "a negative dimension from a misbehaving application yields nil — PointRect.init "
               + "would trap on it, and a trap in a walk that reads another process's UI is not a "
               + "failure mode this row can have")
+
+        // ---- an element on the display placed up and to the left. Its AX
+        // frame is reported in NEGATIVE global points, which is what a window
+        // on that display actually looks like to the accessibility API.
+        let (_, _, _, left) = fixtureArrangement()
+        guard let onLeft = AXObserver.normalizedFrame(globalTopLeftX: -1000, globalTopLeftY: -500,
+                                                      width: 200, height: 100,
+                                                      in: arrangement) else {
+            check(false, "an AX frame with a negative origin must route to the display it is on")
+            return
+        }
+        let leftLocalX = (-1000.0 - -1440.0) * left.scale
+        let leftLocalY = (-500.0 - -900.0) * left.scale
+        check(onLeft.revision == left.revision
+                && onLeft.origin.x == leftLocalX / Double(left.pixelWidth)
+                && onLeft.origin.y == 1 - ((leftLocalY + 100 * left.scale) / Double(left.pixelHeight)),
+              "an AX frame in negative global coordinates normalises against the display it is on, "
+              + "with the origin subtracted rather than added",
+              actual: "(\(onLeft.origin.x), \(onLeft.origin.y)) on \(onLeft.revision)",
+              expected: "(\(leftLocalX / Double(left.pixelWidth)), "
+                      + "\(1 - ((leftLocalY + 100 * left.scale) / Double(left.pixelHeight)))) on \(left.revision)")
     }
 
     @MainActor
     static func theWalkIsBounded() {
-        let (arrangement, _, _) = fixtureArrangement()
+        let (arrangement, _, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
             check(false, "the fixture click must convert"); return
@@ -2098,7 +2201,7 @@ enum CrossBoundaryProbe {
 
     @MainActor
     static func theRecordedElementIsCheckableAgainstTheClick() {
-        let (arrangement, main, _) = fixtureArrangement()
+        let (arrangement, main, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
             check(false, "the fixture click must convert"); return
@@ -2187,7 +2290,7 @@ enum CrossBoundaryProbe {
 
     @MainActor
     static func theAXDiagnosticsBalance() {
-        let (arrangement, _, _) = fixtureArrangement()
+        let (arrangement, _, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         let observer = axObserver(arrangement, epoch)
         guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
@@ -2219,14 +2322,15 @@ enum CrossBoundaryProbe {
               actual: "observed \(d.clicksObserved), recorded \(d.chainsRecorded), "
                     + "no point \(d.clicksWithNoGlobalPoint)")
         check(d.everyClickIsAccountedFor,
-              "clicks = records + clicks with no global point — the conservation law that makes "
-              + "'the arrangement went stale' a statement rather than a gap in the log")
+              "clicks = records + clicks with no global point — accumulated over four calls, which "
+              + "is where a dropped line in merge would show up")
         check(d.everyRecordHasATruncationReason,
               "records = reachedRoot + depthCapReached + budgetExceeded + hitTestReturnedNothing",
               actual: d.accounting)
         check(d.everyRecordHasAContainmentVerdict,
-              "records = inside + outside + not comparable + no frame + no element — the coordinate "
-              + "instrument covers every record, so a run cannot be silently missing verdicts",
+              "records = inside + outside + not comparable + no frame + no element. Within one "
+              + "call this is structurally true (finish switches exhaustively); what it checks is "
+              + "merge's hand-copied accumulation across the four calls above",
               actual: d.accounting)
         check(d.hitTestsReturnedNothing == 1 && d.recordsWithNoHitElement == 1,
               "the empty hit-test appears in both laws, once each",
@@ -2234,5 +2338,293 @@ enum CrossBoundaryProbe {
         check(d.nonMonotonicClockReadings == 0,
               "and no interval was measured backwards — the readings come from one monotonic clock",
               actual: "\(d.nonMonotonicClockReadings)")
+    }
+
+    /// **Every counter in `AXObserver.Diagnostics` that partitions a real
+    /// decision, driven to non-zero — and its neighbour held at zero in the
+    /// same call.**
+    ///
+    /// Six of these counters had no check in either direction after the first
+    /// round of this task, and two more were only ever asserted at zero, which
+    /// passes trivially. The concrete cost, and the reason this section exists
+    /// rather than a note: `describe`'s unusable/unroutable split is what
+    /// tells "an Electron app reported a NaN size" from "the element is on a
+    /// display this arrangement does not cover" — two different faults with
+    /// two different fixes — and **inverting that condition turned nothing
+    /// red**. Every real run would then have attributed both to the wrong
+    /// cause, which is coordinate-fault-versus-timing-fault (§ 8.4) one level
+    /// down.
+    ///
+    /// So each check below pins the counter that must fire **and** the ones
+    /// that must not. A counter checked only in the direction that fires
+    /// cannot tell a partition from a constant.
+    @MainActor
+    static func theAXCountersAreDrivenInBothDirections() {
+        let (arrangement, _, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
+            check(false, "the fixture click must convert"); return
+        }
+
+        // ---- elementsDescribed: exact, not merely non-zero.
+        let counted = axObserver(arrangement, epoch)
+        _ = counted.chain(at: click,
+                          source: FakeAXSource(nodes: fakeTree(ancestorDepth: 3, children: 2),
+                                               hitIndex: 0))
+        check(counted.diagnostics.elementsDescribed == 6,
+              "one hit element + three ancestors + two children were described, and the counter "
+              + "says exactly that rather than merely being non-zero",
+              actual: "\(counted.diagnostics.elementsDescribed)", expected: "6")
+
+        // ---- the three ways a frame fails, each pinned against the other two.
+        //
+        // The hit element is the only node varied; the ancestor above it keeps
+        // a good frame, so a counter that fired for the wrong element would
+        // show up as a count of 2 rather than 1.
+        func hitElementFrame(position: (x: Double, y: Double)?,
+                             size: (width: Double, height: Double)?) -> [FakeNode] {
+            var nodes = fakeTree(ancestorDepth: 1, children: 0)
+            nodes[0].position = position
+            nodes[0].size = size
+            return nodes
+        }
+
+        let unavailable = axObserver(arrangement, epoch)
+        let noFrame = unavailable.chain(at: click,
+                                        source: FakeAXSource(nodes: hitElementFrame(position: nil,
+                                                                                    size: (100, 100)),
+                                                             hitIndex: 0))
+        check(unavailable.diagnostics.elementFramesUnavailable == 1
+                && unavailable.diagnostics.elementFramesUnusable == 0
+                && unavailable.diagnostics.elementFramesUnroutable == 0,
+              "an element whose position attribute did not answer counts as UNAVAILABLE and as "
+              + "neither of the other two",
+              actual: "unavailable \(unavailable.diagnostics.elementFramesUnavailable), "
+                    + "unusable \(unavailable.diagnostics.elementFramesUnusable), "
+                    + "unroutable \(unavailable.diagnostics.elementFramesUnroutable)")
+        check(noFrame?.hit?.frame == nil && noFrame?.clickContainment == .noFrameRecorded,
+              "and the record carries no frame at all — never a zero rectangle, which would be an "
+              + "element at the corner of the main display",
+              actual: "\(noFrame?.clickContainment as ClickContainment??)")
+
+        let unusable = axObserver(arrangement, epoch)
+        _ = unusable.chain(at: click,
+                           source: FakeAXSource(nodes: hitElementFrame(position: (2380, 250),
+                                                                       size: (.nan, 100)),
+                                                hitIndex: 0))
+        check(unusable.diagnostics.elementFramesUnusable == 1
+                && unusable.diagnostics.elementFramesUnroutable == 0
+                && unusable.diagnostics.elementFramesUnavailable == 0,
+              "an element that answered with a NaN dimension counts as UNUSABLE — the target "
+              + "application misreported itself, which is not the same fault as being off-display",
+              actual: "unavailable \(unusable.diagnostics.elementFramesUnavailable), "
+                    + "unusable \(unusable.diagnostics.elementFramesUnusable), "
+                    + "unroutable \(unusable.diagnostics.elementFramesUnroutable)")
+
+        let unroutable = axObserver(arrangement, epoch)
+        _ = unroutable.chain(at: click,
+                             source: FakeAXSource(nodes: hitElementFrame(position: (9000, 9000),
+                                                                         size: (100, 100)),
+                                                  hitIndex: 0))
+        check(unroutable.diagnostics.elementFramesUnroutable == 1
+                && unroutable.diagnostics.elementFramesUnusable == 0
+                && unroutable.diagnostics.elementFramesUnavailable == 0,
+              "an element whose frame is on no display in this arrangement counts as UNROUTABLE — "
+              + "a well-formed frame somewhere this observer cannot place",
+              actual: "unavailable \(unroutable.diagnostics.elementFramesUnavailable), "
+                    + "unusable \(unroutable.diagnostics.elementFramesUnusable), "
+                    + "unroutable \(unroutable.diagnostics.elementFramesUnroutable)")
+
+        // ---- a click stamped in another boot session.
+        let otherEpoch = BootEpoch(id: UUID(uuidString: "44444444-4444-4444-8444-444444444444")!)
+        let crossEpoch = axObserver(arrangement, epoch)
+        let fromAnotherBoot = ButtonEvent(
+            instant: HostInstant(epoch: otherEpoch, hostTime: Minting.hostNow()),
+            position: click.position, revision: click.revision, button: .left, phase: .down)
+        let crossRecord = crossEpoch.chain(at: fromAnotherBoot,
+                                           source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1,
+                                                                                children: 0),
+                                                                hitIndex: 0))
+        check(crossEpoch.diagnostics.clicksFromAnotherEpoch == 1,
+              "a click stamped in a different boot session is counted, not corrected",
+              actual: "\(crossEpoch.diagnostics.clicksFromAnotherEpoch)", expected: "1")
+        check(crossRecord?.hitTestInterval.epoch == otherEpoch,
+              "and the record is stamped with the CLICK's epoch, not the observer's — otherwise "
+              + "clickToHitTestAnswerNanos would subtract two instants from two clocks",
+              actual: "\(crossRecord?.hitTestInterval.epoch as BootEpoch??)")
+        check(crossRecord?.clickToHitTestAnswerNanos != nil,
+              "so the timing exposure is still computable for it",
+              actual: "\(crossRecord?.clickToHitTestAnswerNanos as Int64??)")
+
+        // ---- the depth cap reached AND the budget exhausted afterwards.
+        //
+        // This is the case where the record's single `truncation` field cannot
+        // hold both facts: it ends as `.budgetExceeded`, so the final-verdict
+        // counter never sees the cap. `ancestorWalksStoppedAtTheDepthCap` is
+        // counted at the walk instead, which is the only place the fact
+        // exists.
+        //
+        // 40 ancestors walked at full speed, then children at 5 ms a call:
+        // children live from index 41 upward in `fakeTree`'s layout.
+        let both = axObserver(arrangement, epoch)
+        let cappedThenStarved = both.chain(
+            at: click,
+            source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 4),
+                                 hitIndex: 0, microsecondsPerCall: 5_000, slowElementsFrom: 41))
+        let d = both.diagnostics
+        check(cappedThenStarved?.truncation == .budgetExceeded,
+              "the record's truncation is the LAST thing that stopped it — the children read",
+              actual: "\(cappedThenStarved?.truncation as ChainTruncation??)")
+        check(cappedThenStarved?.ancestors.count == AXObserver.depthCap,
+              "and the walk did reach the cap: \(AXObserver.depthCap) ancestors are recorded",
+              actual: "\(cappedThenStarved?.ancestors.count as Int??)")
+        check(d.truncatedDepthCapReached == 0 && d.truncatedBudgetExceeded == 1,
+              "the final-verdict counters see only .budgetExceeded, which is why they are not the "
+              + "place to read 'is the depth cap starting to bind'",
+              actual: "depth \(d.truncatedDepthCapReached), budget \(d.truncatedBudgetExceeded)")
+        check(d.ancestorWalksStoppedAtTheDepthCap == 1,
+              "the walk-phase counter sees the cap anyway — the instrument that would show "
+              + "hierarchies outgrowing 30, which a field another phase overwrites cannot",
+              actual: "\(d.ancestorWalksStoppedAtTheDepthCap)", expected: "1")
+        check(d.childrenReadsCutShortByBudget == 1 && d.childrenNotRead == 0,
+              "and the children list was read but not finished — 'cut short' rather than 'never "
+              + "asked', which are different facts about the same nil-shaped absence",
+              actual: "cut short \(d.childrenReadsCutShortByBudget), not read \(d.childrenNotRead)")
+        check((cappedThenStarved?.children?.count ?? 4) < 4,
+              "the recorded children are fewer than the element has, and truncation says so rather "
+              + "than the list quietly claiming to be complete",
+              actual: "\(cappedThenStarved?.children?.count as Int??) of 4")
+        check(d.everyRecordHasATruncationReason && d.everyRecordHasAContainmentVerdict,
+              "and the conservation laws still balance with the walk-phase counter outside them",
+              actual: d.accounting)
+
+        // ---- the other nil-shaped absence: the budget gone before the
+        // children attribute was even asked for.
+        let starvedBeforeChildren = axObserver(arrangement, epoch)
+        let noAsk = starvedBeforeChildren.chain(
+            at: click,
+            source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 4),
+                                 hitIndex: 0, microsecondsPerCall: 5_000))
+        check(starvedBeforeChildren.diagnostics.childrenNotRead == 1
+                && starvedBeforeChildren.diagnostics.childrenReadsCutShortByBudget == 0,
+              "a walk that spends the whole budget on ancestors never asks for children, and that "
+              + "is counted apart from asking and stopping",
+              actual: "not read \(starvedBeforeChildren.diagnostics.childrenNotRead), cut short "
+                    + "\(starvedBeforeChildren.diagnostics.childrenReadsCutShortByBudget)")
+        check(noAsk?.children == nil,
+              "both spell the same nil in the record, which is why the counters carry the split",
+              actual: "\(noAsk?.children as [AXElementRecord]??)")
+    }
+
+    /// **`ARCHITECTURE.md` D6a's last unclosed row.** The tap being switched
+    /// off used to be recorded as `tapReArmedCount` — a count, which says the
+    /// loss happened N times and cannot say for how long, so a recording that
+    /// lost 400 ms of pointer track read identically to one that lost 4 ms.
+    /// `framing-gates`' `observation stale` refusal needs a range to test a
+    /// beat against; a count gives it nothing.
+    ///
+    /// Checked here rather than in the spike because it needs no tap: `handle`
+    /// is driven directly with the two out-of-band event types, which is the
+    /// same seam `§ 7.2` uses. What it cannot check is that the system ever
+    /// sends them — that is the human half, and the coordinator's own sweep
+    /// (10 ms to 1600 ms of deliberate callback stall, seven rungs, three
+    /// seconds each) did not trip a `.listenOnly` tap once, which is why this
+    /// is checked for correctness rather than assumed to be common.
+    @MainActor
+    static func aDisabledTapProducesAnInterval() {
+        let (arrangement, _, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        let collector = Collector()
+        let observer = InputObserver(arrangement: arrangement, epoch: epoch,
+                                     secureInputIsEnabled: { false })
+        observer.setObservationSink(collector.append)
+
+        // One real event first: it is the lower bound of any window that
+        // follows, because the tap cannot have been disabled before the last
+        // event it delivered.
+        let firstStamp = Minting.hostNow()
+        observer.handle(type: .mouseMoved,
+                        event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270), stamp: firstStamp))
+        observer.handle(type: .tapDisabledByTimeout,
+                        event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270),
+                                          stamp: Minting.hostNow()))
+
+        let windows = collector.observations.compactMap { observation -> TapDisabledInterval? in
+            if case .tapDisabled(let interval) = observation { return interval }
+            return nil
+        }
+        guard windows.count == 1 else {
+            check(false, "a disabled tap emits exactly one interval", actual: "\(windows.count)")
+            return
+        }
+        check(windows[0].disabledBy == .timeout,
+              "the reason is recorded: .timeout is THIS app's fault (a slow callback — which "
+              + "ax-observation is what makes possible) and .userInput is not",
+              actual: "\(windows[0].disabledBy)")
+        check(windows[0].lowerBoundFrom == .lastObservedEvent,
+              "and the lower edge came from a real event, so its width is close to the true window",
+              actual: "\(windows[0].lowerBoundFrom)")
+        check(windows[0].interval.start == firstStamp,
+              "the interval starts at the last event the tap delivered — the earliest instant the "
+              + "disable could have happened",
+              actual: "\(windows[0].interval.start.rawValue)", expected: "\(firstStamp.rawValue)")
+        check(windows[0].interval.duration.rawValue > 0,
+              "and it has a width, which is the whole difference from the count it replaced",
+              actual: "\(windows[0].interval.duration.rawValue) ns")
+        check(observer.diagnostics.tapDisabledIntervals == 1
+                && observer.diagnostics.tapBlindNanos == windows[0].interval.duration.rawValue
+                && observer.diagnostics.tapDisabledIntervalsWithNoObservedLowerBound == 0,
+              "the run-level summary is the sum of the intervals, in the unit that was lost",
+              actual: "\(observer.diagnostics.tapDisabledIntervals) windows, "
+                    + "\(observer.diagnostics.tapBlindNanos) ns, "
+                    + "\(observer.diagnostics.tapDisabledIntervalsWithNoObservedLowerBound) unbounded")
+
+        // ---- a second window must not reach back past the first. If
+        // `lastObservedInstant` were not moved forward on re-arming, every
+        // subsequent window would start at the same stale event and
+        // `tapBlindNanos` would grow quadratically while looking plausible.
+        observer.handle(type: .tapDisabledByUserInput,
+                        event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270),
+                                          stamp: Minting.hostNow()))
+        let second = collector.observations.compactMap { observation -> TapDisabledInterval? in
+            if case .tapDisabled(let interval) = observation { return interval }
+            return nil
+        }
+        guard second.count == 2 else {
+            check(false, "the second disable emits its own interval", actual: "\(second.count)")
+            return
+        }
+        check(second[1].disabledBy == .userInput,
+              "the second window records the OTHER reason — user input is not this app being slow, "
+              + "and reading it as such would send someone to optimise the wrong thing",
+              actual: "\(second[1].disabledBy)")
+        check(second[1].interval.start.rawValue >= second[0].interval.end.rawValue,
+              "and it starts at or after the first one ended, rather than reaching back to the "
+              + "stale event before it",
+              actual: "second starts \(second[1].interval.start.rawValue), first ended "
+                    + "\(second[0].interval.end.rawValue)")
+
+        // ---- an event suppressed by secure input still proves the tap was
+        // delivering. If `lastObservedInstant` were updated after the
+        // secure-input branch instead of before it, a password field would
+        // masquerade as a blind window — two different gaps in D6a, conflated.
+        let suppressed = Collector()
+        let secure = InputObserver(arrangement: arrangement, epoch: epoch,
+                                   secureInputIsEnabled: { true })
+        secure.setObservationSink(suppressed.append)
+        let duringPassword = Minting.hostNow()
+        secure.handle(type: .mouseMoved,
+                      event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270), stamp: duringPassword))
+        secure.handle(type: .tapDisabledByTimeout,
+                      event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270), stamp: Minting.hostNow()))
+        let secureWindows = suppressed.observations.compactMap { observation -> TapDisabledInterval? in
+            if case .tapDisabled(let interval) = observation { return interval }
+            return nil
+        }
+        check(secureWindows.first?.interval.start == duringPassword,
+              "an event suppressed by secure input still bounds the next blind window — it is the "
+              + "TAP's liveness this records, not whether anything was emitted",
+              actual: "\(secureWindows.first?.interval.start.rawValue as Int64??)",
+              expected: "\(duringPassword.rawValue)")
     }
 }

@@ -209,6 +209,50 @@ private func topLevelKeys(from json: Data) -> [String] {
     #expect(try ObservationLog.decode(boundedLine) as SecureInputInterval == bounded)
 }
 
+/// **The record that replaced a count** (`ARCHITECTURE.md` D6a). A tap that was
+/// switched off and back on is a span of unobserved time; `tapReArmedCount`
+/// said it happened N times and could not say for how long, so 400 ms of lost
+/// pointer track and 4 ms of it were the same number.
+@Test func aTapDisabledIntervalRoundTripsAndCarriesItsOwnKind() throws {
+    let record = TapDisabledInterval(
+        interval: HostRange(epoch: ep, start: Nanoseconds(1_000), duration: Nanoseconds(9_000)),
+        disabledBy: .timeout, lowerBoundFrom: .lastObservedEvent)
+    let line = try ObservationLog.encode(record)
+    #expect(try ObservationLog.kind(of: line) == "tapDisabled")
+    let back: TapDisabledInterval = try ObservationLog.decode(line)
+    #expect(back == record)
+    #expect(back.interval.end == Nanoseconds(10_000),
+            "the width is the point: a consumer asks whether a beat spans this range")
+}
+
+/// **Four records, one interval, four different meanings.** `disabledBy` says
+/// whose fault it was — `.timeout` is this app's own slow callback, which
+/// `ax-observation` is what makes possible, and `.userInput` is the system's
+/// doing and no amount of optimising will change it. `lowerBoundFrom` says how
+/// much the left edge can be trusted: an interval bounded by a real event is
+/// within a frame or two of the true window, one bounded by the start of
+/// observation is as wide as the run so far and is not a measurement of
+/// anything. Collapsing either pair would put two different facts in one field
+/// with nothing to tell them apart — the failure `SecureInputIntervalEnd`
+/// already refuses next door.
+@Test func aBlindWindowsCauseAndItsTrustworthinessAreBothOnDisk() throws {
+    let range = HostRange(epoch: ep, start: Nanoseconds(7), duration: Nanoseconds(11))
+    var lines: Set<Data> = []
+    for reason in [TapDisableReason.timeout, .userInput] {
+        for bound in [TapBlindWindowLowerBound.lastObservedEvent, .observationStart] {
+            let record = TapDisabledInterval(interval: range, disabledBy: reason,
+                                             lowerBoundFrom: bound)
+            let line = try ObservationLog.encode(record)
+            lines.insert(line)
+            #expect(try ObservationLog.decode(line) as TapDisabledInterval == record)
+        }
+    }
+    #expect(lines.count == 4, """
+            the same interval with different causes and different lower bounds must not collapse \
+            to fewer than four distinct records on disk
+            """)
+}
+
 /// A zero-width interval is legal — secure input can be observed on and then
 /// off between two consecutive pointer samples — and it is still a record,
 /// not a reason to emit nothing. Emitting nothing here would restore the

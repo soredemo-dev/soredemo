@@ -104,3 +104,82 @@ public struct SecureInputInterval: Hashable, Codable, Sendable {
         self.endedBy = endedBy
     }
 }
+
+/// Why the system switched the tap off. Two causes with two different
+/// diagnoses, and collapsing them would hide which.
+///
+/// `.timeout` is **this app's own fault**: the callback took too long, and
+/// `ax-observation` is what makes that possible — a hit-test into a busy
+/// application is a synchronous IPC on the callback thread, and F2-2 measured
+/// one at 125.47 ms. A run with these in it is a run whose observation cost
+/// has to come down.
+///
+/// `.userInput` is not ours: the system disables taps on some user actions
+/// (the secure-input path among them). Nothing about the observer changes it,
+/// and reading it as "we were too slow" would send the next person to optimise
+/// code that was never the problem.
+public enum TapDisableReason: String, Codable, Sendable {
+    case timeout
+    case userInput
+}
+
+/// How the **lower** edge of a `TapDisabledInterval` was derived, because the
+/// two possibilities differ by orders of magnitude in tightness.
+///
+/// `.lastObservedEvent` — the last event the observer saw before the silence.
+/// With a moving pointer that is within a frame or two of the true disable.
+/// `.observationStart` — no event had been observed at all, so the only
+/// defensible lower bound is the moment observing began. The interval is then
+/// as wide as the run so far, and a consumer must treat it as "we do not
+/// know", not as a measurement.
+public enum TapBlindWindowLowerBound: String, Codable, Sendable {
+    case lastObservedEvent
+    case observationStart
+}
+
+/// An interval that **contains** a window during which the event tap was
+/// switched off and this observer therefore saw nothing (`ARCHITECTURE.md`
+/// D6a).
+///
+/// **This replaced a count, and the replacement is the whole point.** A count
+/// says the loss happened N times and cannot say for how long: a recording
+/// that lost 400 ms of pointer track read identically to one that lost 4 ms,
+/// and `framing-gates`' `observation stale` refusal — "this beat spans a gap
+/// in the pointer record" — had nothing to test against. The number of lost
+/// events is genuinely unknowable, because nothing counts what never arrived.
+/// The lost *time range* is not, and the time range is what the consumer
+/// needs.
+///
+/// **An enclosing bound, not the window itself, and the direction is the
+/// opposite of `SecureInputInterval`'s.** That type's interval is contained
+/// *within* the true one (its start is the first observed instant *inside*
+/// it). This one contains the true one: the instant the system disabled the
+/// tap is not reported to anybody, so the earliest moment it could have
+/// happened is just after the last event that did arrive. So:
+///
+/// ```
+///        │← true blind window →│
+/// ───────┼─────────────────────┼──────
+///   last event observed    tap re-enabled
+///        │←   this interval   →│
+/// ```
+///
+/// A consumer must read `interval` as *"the gap is somewhere in here"*, and
+/// `lowerBoundFrom` as how much to trust its left edge. Reading it as the gap
+/// itself over-states the loss, which for a refusal code is the safe
+/// direction — but it is still not what was measured, and this comment is
+/// where that is said.
+public struct TapDisabledInterval: Hashable, Codable, Sendable {
+    public let kind: String
+    public let interval: HostRange
+    public let disabledBy: TapDisableReason
+    public let lowerBoundFrom: TapBlindWindowLowerBound
+
+    public init(interval: HostRange, disabledBy: TapDisableReason,
+                lowerBoundFrom: TapBlindWindowLowerBound) {
+        self.kind = "tapDisabled"
+        self.interval = interval
+        self.disabledBy = disabledBy
+        self.lowerBoundFrom = lowerBoundFrom
+    }
+}

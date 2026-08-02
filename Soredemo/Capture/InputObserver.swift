@@ -102,10 +102,11 @@ public final class InputObserver: @unchecked Sendable {
 
     // MARK: - What the observer produces
 
-    /// One thing worth recording. A discriminated union rather than four
-    /// callbacks, so a caller cannot wire up three of them and silently drop
-    /// the fourth — which for `.secureInput` would restore exactly the
-    /// silence that case exists to break.
+    /// One thing worth recording. A discriminated union rather than five
+    /// callbacks, so a caller cannot wire up four of them and silently drop
+    /// the fifth — which for `.secureInput` would restore exactly the
+    /// silence that case exists to break, and for `.tapDisabled` would turn a
+    /// blind window back into an unexplained gap in the pointer track.
     public enum Observation: Sendable, Equatable {
         case pointer(PointerSample)
         case button(ButtonEvent)
@@ -115,6 +116,18 @@ public final class InputObserver: @unchecked Sendable {
         /// an open one with `.observationStopped` so a recording that ends
         /// mid-password still reports the interval rather than losing it.
         case secureInput(SecureInputInterval)
+        /// A window during which the tap was switched off and this observer
+        /// saw nothing — emitted at the moment it is re-enabled, which is the
+        /// first moment its end is known.
+        ///
+        /// **A case in the union rather than a counter, for the reason the
+        /// union exists.** A caller can wire up four of these and drop the
+        /// fifth, but it cannot *fail to notice* the fifth the way it could
+        /// fail to read a diagnostics field nobody prints. Unobserved time is
+        /// the one thing a downstream producer must not infer from an absence
+        /// of samples, which is exactly what a gap in the pointer track looks
+        /// like (`ARCHITECTURE.md` D6a).
+        case tapDisabled(TapDisabledInterval)
     }
 
     // MARK: - Diagnostics
@@ -182,13 +195,37 @@ public final class InputObserver: @unchecked Sendable {
         /// its samples — that direction has never legitimately occurred. See
         /// `plausibleSkewNanos` for where 50 ms comes from.
         public internal(set) var implausibleEventTimestampCount = 0
-        /// Times the system disabled the tap and this observer re-armed it.
+        /// Times the system disabled the tap and this observer re-armed it —
+        /// **one per `TapDisabledInterval` emitted**, and the count is here
+        /// only to pair with the sum below.
         ///
         /// A `.listenOnly` tap is still disabled if the callback is too slow
         /// (`kCGEventTapDisabledByTimeout`). Left un-rearmed, everything
         /// afterwards is silence that looks exactly like a person who stopped
         /// moving.
-        public internal(set) var tapReArmedCount = 0
+        ///
+        /// **This used to be the whole record and that was the defect**
+        /// (`ARCHITECTURE.md` D6a): a count says the loss happened N times and
+        /// cannot say for how long, so 400 ms of lost pointer track and 4 ms
+        /// of it read identically. The measurement is now
+        /// `Observation.tapDisabled`, an interval per occurrence; this counter
+        /// and `tapBlindNanos` are the run-level summary of those intervals,
+        /// not a substitute for them.
+        public internal(set) var tapDisabledIntervals = 0
+        /// The **sum of the enclosing bounds** of every blind window, in
+        /// nanoseconds — a quantity in the unit that was lost, which is what
+        /// D6a's other four rows all have and this one did not.
+        ///
+        /// An over-estimate by construction: each interval contains the true
+        /// window rather than being it (see `TapDisabledInterval`). Summed
+        /// anyway, because the alternative summary is a count, and the safe
+        /// direction for "how much of this recording is unobserved" is up.
+        public internal(set) var tapBlindNanos: Int64 = 0
+        /// Blind windows whose lower edge is `.observationStart` rather than a
+        /// real event — the ones whose width is not a measurement of anything.
+        /// Kept apart so `tapBlindNanos` can be read without one unbounded
+        /// window silently dominating it.
+        public internal(set) var tapDisabledIntervalsWithNoObservedLowerBound = 0
 
         /// No legitimate violation: every `keyDown` this observer saw either
         /// produced one `KeySample` or was refused by the filter.
@@ -229,6 +266,16 @@ public final class InputObserver: @unchecked Sendable {
     private nonisolated(unsafe) var runLoopSource: CFRunLoopSource?
     /// The start of the open secure-input interval, if one is open.
     private nonisolated(unsafe) var secureInputBegan: HostInstant?
+    /// The instant of the last event this observer saw — **any** event,
+    /// including one suppressed by secure input, because what this records is
+    /// that the tap was still delivering, not that anything was emitted.
+    ///
+    /// This is the lower edge of a blind window: the tap cannot have been
+    /// disabled before the last event it delivered.
+    private nonisolated(unsafe) var lastObservedInstant: HostInstant?
+    /// When `start()` armed the tap — the only defensible lower bound for a
+    /// blind window that opens before any event has arrived.
+    private nonisolated(unsafe) var observationBegan: HostInstant?
 
     // MARK: - Init
 
@@ -363,7 +410,8 @@ public final class InputObserver: @unchecked Sendable {
     ///
     /// `onObservation` is called on the main thread as a consequence, and is
     /// therefore not a place to do work: `CGEvent` taps that take too long are
-    /// disabled by the system (see `Diagnostics.tapReArmedCount`).
+    /// disabled by the system (see `Observation.tapDisabled` and
+    /// `Diagnostics.tapBlindNanos`).
     public func start(onObservation: @escaping @Sendable (Observation) -> Void) throws {
         guard lock.withLock({ tap == nil }) else { throw CaptureError.alreadyObserving }
 
@@ -391,6 +439,10 @@ public final class InputObserver: @unchecked Sendable {
         lock.withLock {
             self.tap = created
             self.runLoopSource = source
+            // Recorded before the tap is enabled, so it is a true lower bound
+            // on any blind window: nothing can have been missed before the tap
+            // existed.
+            self.observationBegan = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: created, enable: true)
@@ -591,11 +643,19 @@ public final class InputObserver: @unchecked Sendable {
         // saying the tap has been switched off. Handled before anything reads
         // a location, because they carry none.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            reArmTap()
+            // `callbackInstant` is NOT the end of the blind window — the tap
+            // is still off at this point. `reArmTap` takes the end reading
+            // itself, after `CGEvent.tapEnable` has returned.
+            reArmTap(disabledBy: type == .tapDisabledByTimeout ? .timeout : .userInput)
             return
         }
 
         guard let instant = instant(of: event, callbackInstant: callbackInstant) else { return }
+        // Before the secure-input branch, deliberately: a suppressed event is
+        // still proof the tap was delivering, and it is the tap's liveness
+        // this records. Placing it after the branch would make a password
+        // field look like a blind window.
+        lock.withLock { lastObservedInstant = instant }
 
         // Secure input, before anything is read off the event. `IsSecure
         // EventInputEnabled()` is true while a password field has focus;
@@ -679,11 +739,69 @@ public final class InputObserver: @unchecked Sendable {
     /// dropped for being implausible, it is only counted.
     private nonisolated static let plausibleSkewNanos: Int64 = 50_000_000
 
-    private nonisolated func reArmTap() {
-        let existing = lock.withLock { tap }
-        guard let existing else { return }
-        CGEvent.tapEnable(tap: existing, enable: true)
-        lock.withLock { _diagnostics.tapReArmedCount += 1 }
+    /// Re-enables the tap and emits the blind window it closes.
+    ///
+    /// **The order is: re-arm first, measure second, emit third.** Re-arming
+    /// is the only thing here that shortens the loss, so it happens before any
+    /// bookkeeping; the end instant is read immediately after
+    /// `CGEvent.tapEnable` returns, because that call *is* the end of the
+    /// window; and the handler — caller code of unknown cost — runs last, so
+    /// nothing it does is inside the interval it is being told about.
+    ///
+    /// A blind window with no lower bound at all is impossible: `start()`
+    /// records `observationBegan` before enabling the tap, so the fallback is
+    /// a real instant rather than a zero-width interval, which would read as
+    /// "no time was lost" — the exact "measurement with a safe default" this
+    /// project keeps being bitten by.
+    /// **The tap's presence gates only the re-arming, not the recording.**
+    /// An earlier version returned immediately when `tap == nil`, which made
+    /// the entire blind-window path unreachable from `§ 7.9` of the probe —
+    /// that check drives `handle(type:event:)` directly and never creates a
+    /// tap, because creating one needs Input Monitoring. A gap that is
+    /// recorded only in code no check can reach is the shape this whole
+    /// register exists to avoid. It is also the more honest order: a disable
+    /// event arriving *is* the evidence that a window happened, whether or not
+    /// this observer still holds the port to re-enable.
+    private nonisolated func reArmTap(disabledBy reason: TapDisableReason) {
+        if let existing = lock.withLock({ tap }) {
+            CGEvent.tapEnable(tap: existing, enable: true)
+        }
+        let reEnabled = Minting.hostNow()
+
+        let (began, source) = lock.withLock { () -> (HostInstant?, TapBlindWindowLowerBound) in
+            if let last = lastObservedInstant { return (last, .lastObservedEvent) }
+            return (observationBegan, .observationStart)
+        }
+        guard let began else {
+            // No event has ever been observed AND no tap was ever armed —
+            // there is no instant in this process's history that bounds the
+            // window from below, so there is no interval to report. Counted,
+            // never emitted as a zero-width one: a zero-width interval reads
+            // as "no time was lost", which is the safe-default failure this
+            // whole register exists to avoid. Reachable only when `handle` is
+            // driven directly, which is what the probe does.
+            lock.withLock { _diagnostics.tapDisabledIntervals += 1 }
+            return
+        }
+        // Clamped at zero for the reason `emitSecureInterval` documents:
+        // `HostRange` traps on a negative duration, and an out-of-order pair
+        // must not kill a recording in progress. Unlike that one, both
+        // endpoints here are this process's own readings of one monotonic
+        // clock, so the clamp is not expected to fire.
+        let width = max(0, reEnabled.rawValue - began.hostTime.rawValue)
+        let interval = HostRange(epoch: epoch, start: began.hostTime, duration: Nanoseconds(width))
+        lock.withLock {
+            _diagnostics.tapDisabledIntervals += 1
+            _diagnostics.tapBlindNanos += width
+            if source == .observationStart {
+                _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
+            }
+            // The window is closed; the next one starts from here, not from
+            // the stale event that preceded this one.
+            lastObservedInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
+        }
+        emit(.tapDisabled(TapDisabledInterval(interval: interval, disabledBy: reason,
+                                              lowerBoundFrom: source)))
     }
 
     /// Step 1 of the conversion — and the only place in this file that a

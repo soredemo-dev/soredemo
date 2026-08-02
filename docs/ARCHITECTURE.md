@@ -348,6 +348,41 @@ constraints on that one module are **held by hand**. `Package.swift` says so; so
 
 ---
 
+## D6a — The gap register: every place this app can fail to observe
+
+**A registry, not a rule.** "Record a gap as an interval, not a count" was written as prose in
+`AGENTS.md` and was then missed by the very next task, whose author had the correct implementation
+open one file away. A prose rule is checked against memory. A table is checked against itself: the
+sixth site missing from it is visible, and a row that says *a count* next to four rows that say
+*an interval* is conspicuous.
+
+**Add a row here when you add any new source of unobserved time or lost data.** Not a paragraph in
+`AGENTS.md` — a row.
+
+| Site | What is unobserved | How it is recorded | Enough? |
+| --- | --- | --- | --- |
+| `Sources/Project` JSONL reader | bytes in a truncated or corrupt record | `droppedBytes` — a byte count, and the reader continues | yes: the loss is bounded and quantified in the unit that was lost |
+| `AXObserver` ancestor walk | levels beyond the depth cap or the time budget | an explicit truncation reason on the record | yes: the record says it stopped and why, so a short chain is not read as a shallow tree |
+| `CaptureSession` video | frames the display did not produce | `SCFrameStatusIdle`, counted separately from `.complete` | yes: "nothing changed" is distinguishable from "nothing arrived" |
+| `InputObserver` secure input | every event while another app holds a password field | `SecureInputInterval`, with `.secureInputDisabled` vs `.observationStopped` as its two end reasons | yes: a measured span, and the end reason says whether its end was observed or merely assumed |
+| `InputObserver` tap disabled, by timeout or by user input | every event between the disable and the re-arm | `TapDisabledInterval` — an interval **containing** the blind window, with `disabledBy` (whose fault) and `lowerBoundFrom` (how tight its left edge is); `tapBlindNanos` sums them | yes, with one caveat stated on the type: it is an enclosing bound, not the window itself. The instant the system disabled the tap is reported to nobody, so the earliest it could have happened is just after the last event that did arrive. The over-estimate is the safe direction for a refusal code |
+
+**Why "enough?" is a column.** Each row's mechanism was adequate when written and the question is
+whether it still is. The last row was the one that was not, and it was visible here in a way it was
+not in prose: the four rows above it all record a *span* or a *quantity in the unit that was lost*,
+and it recorded neither. It was closed in Task 10 (`ax-observation`), which is also the task that
+made it matter — an AX hit-test on the callback thread is a synchronous IPC into an application that
+is busy, and F2-2 measured one at 125.47 ms against a tap timeout the header does not quantify.
+
+**The remaining honest gap in this table is the direction of the bound.** `SecureInputInterval` is
+*contained within* the true interval; `TapDisabledInterval` *contains* it. Neither is the interval.
+Both say so on the type, and a consumer that treats either as exact is wrong in a direction the type
+names.
+
+**The consumer this exists for.** `framing-gates` refuses a beat with `observation stale` (D4). "This
+beat spans a gap in the pointer record" is that refusal, and it needs a range to compare against — a
+count gives it nothing to test.
+
 ## D7 — Liquid Glass: native only, never custom
 
 App chrome is 100% standard SwiftUI. `.glassEffect()` is never called to build chrome.

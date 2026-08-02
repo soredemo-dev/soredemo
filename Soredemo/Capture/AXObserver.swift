@@ -71,8 +71,18 @@ public final class AXObserver: @unchecked Sendable {
     /// content.
     public nonisolated static let depthCap = 30
 
-    /// 35 ms, in nanoseconds — the wall-clock budget for the walk, measured
-    /// from the moment the hit-test **returns**.
+    /// 35 ms, in nanoseconds — the wall-clock budget for the walk.
+    ///
+    /// **The clock starts after the hit element has been described**, not when
+    /// the hit-test returns, matching how F2-2 timed the distribution these
+    /// numbers are fitted to. So a worst case is not 35 ms: it is the
+    /// hit-test (F2-2 max 125.47 ms) **plus** four unbounded attribute reads
+    /// on the hit element **plus** this budget plus one final level, and the
+    /// first two of those are what `AXChainRecord.hitTestInterval` and
+    /// `hit.readInterval` are recorded for. An earlier version of this comment
+    /// said "from the moment the hit-test returns", which understated the
+    /// worst case by the entire hit-element describe — on F2-2's tail that is
+    /// not a rounding term.
     ///
     /// **A D4 placeholder, labelled as one, and the only one in this file.**
     /// F2-2's truncation table has no knee: 20 ms → 15% truncated, 35 ms → 9%,
@@ -115,6 +125,16 @@ public final class AXObserver: @unchecked Sendable {
     ///    `clickOutsideTheHitFrame` is the standing instrument on the
     ///    coordinate path, below.
     ///
+    /// **What those three laws can and cannot catch is set out where they are
+    /// declared**, and it is narrower than "these numbers are right": within
+    /// one call they are structurally true, so what they check is `merge`'s
+    /// hand-copied lines and the accumulation across a run. The counters that
+    /// are genuine instruments are the ones partitioning a real decision — the
+    /// unusable/unroutable frame split, the two ways to end up with no
+    /// children list, and the containment verdicts — and each of those is
+    /// driven to non-zero in both directions by `§ 8` of the probe, rather
+    /// than checked at zero, which passes trivially.
+    ///
     /// **`clickOutsideTheHitFrame` is this file's `implausibleEventTimestamp
     /// Count`.** If the reverse conversion were wrong — off by a display's
     /// scale, or by its global origin — every hit-test would be performed at
@@ -145,6 +165,22 @@ public final class AXObserver: @unchecked Sendable {
         public internal(set) var truncatedReachedRoot = 0
         public internal(set) var truncatedDepthCapReached = 0
         public internal(set) var truncatedBudgetExceeded = 0
+        /// Ancestor walks that ran all the way to `depthCap` — counted **at
+        /// the walk**, not from the record's final `truncation`.
+        ///
+        /// The two differ, and the difference is the reason this exists. A
+        /// chain that hits the cap and then overruns the budget while reading
+        /// children ends with `truncation == .budgetExceeded`, so
+        /// `truncatedDepthCapReached` never sees it. Since the cap binding is
+        /// the signal that hierarchies are getting deeper than 30 — the one
+        /// thing that would justify revisiting a bound D2-5 fixed — reading it
+        /// off a field another phase can overwrite would understate it
+        /// silently, and most often on exactly the deep web content where it
+        /// matters.
+        ///
+        /// Deliberately outside every conservation law below: it is a
+        /// statement about a phase, not a partition of the records.
+        public internal(set) var ancestorWalksStoppedAtTheDepthCap = 0
         public internal(set) var hitTestsReturnedNothing = 0
         /// Of `hitTestsReturnedNothing`, those observed while Accessibility
         /// was not granted to this process.
@@ -198,16 +234,54 @@ public final class AXObserver: @unchecked Sendable {
         /// Structurally impossible on a monotonic clock; counted rather than
         /// clamped in silence, because the clamp is what would make it
         /// invisible.
+        ///
+        /// **The one counter here that is only ever checked at zero, and that
+        /// is the honest maximum rather than an omission.** Every other
+        /// counter partitions a decision this code makes, so a synthetic
+        /// source can drive it in both directions. This one reports a property
+        /// of `mach_absolute_time`, which no fixture can make run backwards —
+        /// driving it would mean injecting a clock, and a clock seam exists
+        /// nowhere else in this app because `Minting` is deliberately the one
+        /// unmocked boundary. So it is asserted at zero, which proves only
+        /// that the clamp did not fire; if it ever does, the counter is what
+        /// says so rather than a silently zero-width interval.
         public internal(set) var nonMonotonicClockReadings = 0
 
-        /// No legitimate violation: every click this observer was handed
-        /// either produced a record or is counted as unconvertible.
+        // MARK: - The three laws, and exactly what they can catch
+        //
+        // **They are not general instruments, and the first version of these
+        // comments over-claimed.** Within one `chain(at:source:)` call each
+        // law is structurally true: the tally sets `clicksObserved = 1` and
+        // exactly one outcome, and `finish` switches exhaustively over
+        // `ChainTruncation` and `ClickContainment`, so a single call cannot
+        // produce a record with no verdict however the walk is edited. Saying
+        // "a run cannot be quietly missing verdicts" was therefore a claim
+        // about the compiler's exhaustiveness check wearing a runtime check's
+        // clothes.
+        //
+        // What they do catch is the accumulation, and that is a real bug class
+        // rather than a theoretical one: `merge` copies two dozen fields by
+        // hand, one line each, and a missing or misdirected line is invisible
+        // at the call site, compiles, and produces plausible totals. A law
+        // breaks the moment `merge` drops any of the terms in it. That is the
+        // guarantee, and it is worth having — the same shape as
+        // `InputObserver.Diagnostics.everyKeyDownIsAccountedFor`, which also
+        // exists to catch a bookkeeping slip rather than a logic error.
+        //
+        // They are also live checks on the accumulated numbers a person reads:
+        // a run that prints `accounting` and does not balance means the totals
+        // beside it should not be quoted, whatever produced the imbalance.
+
+        /// Every click this observer was handed either produced a record or is
+        /// counted as unconvertible — across the whole run, which is where
+        /// `merge` can lose one.
         public var everyClickIsAccountedFor: Bool {
             clicksObserved == chainsRecorded + clicksWithNoGlobalPoint
         }
 
-        /// No legitimate violation: every record carries exactly one of the
-        /// four truncation reasons.
+        /// Every record carries exactly one of the four truncation reasons.
+        /// `ancestorWalksStoppedAtTheDepthCap` is deliberately NOT a term
+        /// here — it counts a phase, not a record.
         public var everyRecordHasATruncationReason: Bool {
             chainsRecorded == truncatedReachedRoot + truncatedDepthCapReached
                 + truncatedBudgetExceeded + hitTestsReturnedNothing
@@ -399,6 +473,18 @@ public final class AXObserver: @unchecked Sendable {
     /// which is the one that pairs with "the click" in
     /// `ROADMAP.md`'s sense — filters before calling. This file records what
     /// it is handed (D2-1).
+    ///
+    /// **A caller whose output has to name the source it used should call
+    /// `chain(at:source:)` and pass one**, rather than this convenience. The
+    /// distinction is not pedantic: this overload hard-codes
+    /// `LiveAXElementSource`, so anything printed about "which source produced
+    /// these numbers" beside it can only be a literal, and a literal is the
+    /// same unearned claim whether the code beneath it is right or not. The
+    /// synthetic source answers with the same AX role vocabulary — `AXButton`,
+    /// `AXGroup`, `AXApplication` — so a live run and a fixture run are
+    /// otherwise indistinguishable in a log.
+    /// `spikes/2026-08-02-pairing-latency/main.swift` passes its source for
+    /// exactly that reason.
     public nonisolated func chain(at click: ButtonEvent) -> AXChainRecord? {
         chain(at: click, source: LiveAXElementSource())
     }
@@ -496,10 +582,20 @@ public final class AXObserver: @unchecked Sendable {
 
         let hit = describe(hitElement, source: source, epoch: epoch, into: &tally)
 
-        // The budget starts when the hit-test RETURNS, matching how F2-2
-        // measured the distribution these numbers are fitted to. The hit-test
-        // itself is not bounded by anything this process can impose; see
-        // `walkBudgetNanos`.
+        // The budget clock starts HERE — after the hit element has been
+        // described, not when the hit-test returned — matching how F2-2
+        // measured the distribution these numbers are fitted to ("whole walk"
+        // was timed from the start of the walk, not from the click).
+        //
+        // **So two things sit outside the budget entirely**, and anyone
+        // budgeting a worst case has to add them by hand: the hit-test itself
+        // (F2-2 max 125.47 ms) and the hit element's own four attribute reads.
+        // Neither can be bounded by anything this process can impose —
+        // `AXUIElementCopyAttributeValue` is a synchronous IPC with no timeout
+        // parameter, so the smallest unit this code can decline to start is a
+        // whole element. What it can do instead is record them:
+        // `hitTestInterval` is the first, `hit.readInterval` is the second,
+        // and both are per-record rather than averaged into a walk time.
         let walkStart = Minting.hostNow()
         func budgetSpent() -> Bool {
             Minting.hostNow().rawValue - walkStart.rawValue > Self.walkBudgetNanos
@@ -518,7 +614,19 @@ public final class AXObserver: @unchecked Sendable {
             // Set only after a level was actually appended: a walk whose last
             // parent lookup came back empty reached the root, it did not hit
             // the cap.
-            if depth == Self.depthCap - 1 { truncation = .depthCapReached }
+            if depth == Self.depthCap - 1 {
+                truncation = .depthCapReached
+                // Counted HERE as well as in `finish`, and the duplication is
+                // the point. `truncation` is one field and the children phase
+                // below may overwrite it with `.budgetExceeded`, so a chain
+                // that hits the cap and then overruns increments
+                // `truncatedBudgetExceeded` and NOT `truncatedDepthCapReached`
+                // — which would make the final-verdict counter unable to show
+                // the cap starting to bind on web content, the one thing it is
+                // there for. This counter is the walk-phase fact and does not
+                // participate in any conservation law.
+                tally.ancestorWalksStoppedAtTheDepthCap = 1
+            }
         }
 
         // ---- down: one level (D2-3), under what is left of the same budget.
@@ -637,6 +745,7 @@ public final class AXObserver: @unchecked Sendable {
             _diagnostics.truncatedReachedRoot += tally.truncatedReachedRoot
             _diagnostics.truncatedDepthCapReached += tally.truncatedDepthCapReached
             _diagnostics.truncatedBudgetExceeded += tally.truncatedBudgetExceeded
+            _diagnostics.ancestorWalksStoppedAtTheDepthCap += tally.ancestorWalksStoppedAtTheDepthCap
             _diagnostics.hitTestsReturnedNothing += tally.hitTestsReturnedNothing
             _diagnostics.hitTestsReturnedNothingWithoutAccessibility
                 += tally.hitTestsReturnedNothingWithoutAccessibility
@@ -758,8 +867,27 @@ public struct LiveAXElementSource: AXElementSource {
         return (value as! AXUIElement)
     }
 
+    /// **Type-ID guarded, member by member, like `parent(of:)` above.**
+    ///
+    /// `as? [AXUIElement]` alone is the same shape as the `as? NSValue` cast
+    /// that silently failed on every frame of every recording one file over —
+    /// a conditional bridge over a CoreFoundation type, whose failure is
+    /// indistinguishable from the attribute having nothing to say. Here it is
+    /// worse in one way: a *partial* success would drop members without
+    /// anything counting the loss.
+    ///
+    /// So: the value must be a CFArray, and **every** member must be an
+    /// `AXUIElement`. Anything else returns `nil` — "the attribute did not
+    /// answer in a form this code understands", which the caller counts as
+    /// `childrenAttributeUnavailable` — rather than a filtered list that
+    /// silently claims to be complete. All-or-nothing is the loud direction,
+    /// and it is the one `parent(of:)` already takes.
     public nonisolated func children(of element: AXUIElement) -> [AXUIElement]? {
-        copyAttribute(kAXChildrenAttribute, of: element) as? [AXUIElement]
+        guard let value = copyAttribute(kAXChildrenAttribute, of: element),
+              CFGetTypeID(value) == CFArrayGetTypeID(),
+              let members = value as? [CFTypeRef] else { return nil }
+        guard members.allSatisfy({ CFGetTypeID($0) == AXUIElementGetTypeID() }) else { return nil }
+        return members.map { $0 as! AXUIElement }
     }
 
     /// One `AXUIElementCopyAttributeValue`, which is one synchronous IPC into

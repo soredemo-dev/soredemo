@@ -40,6 +40,69 @@ public struct AXElementRecord: Hashable, Codable, Sendable {
     }
 }
 
+extension AXElementRecord {
+    private enum CodingKeys: String, CodingKey {
+        case role, title, frame, readInterval
+    }
+
+    /// Untrusted input, validated — the same stance `HostRange.init(from:)`
+    /// and `DisplayGeometry.init(from:)` take, and here for a sharper reason
+    /// than either.
+    ///
+    /// **`NormalizedPoint` and `NormalizedSize` `precondition` on finiteness
+    /// in their memberwise initialisers and their synthesised `Decodable`
+    /// conformances bypass it**, assigning the stored properties directly. So
+    /// a `NaN` in a frame's origin cannot be constructed in memory and can be
+    /// read off disk — and it does not look like corruption when it arrives:
+    /// every comparison against `NaN` is `false`, so
+    /// `AXChainRecord.clickContainment` would return `.doesNotContainTheClick`
+    /// for it. That is the coordinate-fault verdict, reported confidently, for
+    /// a file that is merely damaged, **in the one type whose job is telling
+    /// faults apart**.
+    ///
+    /// Throwing rather than trapping, because this is document content: a
+    /// `.soredemo` package's bytes are attacker-influenced by
+    /// `agentic-threat-model`'s assumption, and killing the process on a
+    /// malformed one is a worse answer than refusing the record.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let role = try container.decodeIfPresent(String.self, forKey: .role)
+        let title = try container.decodeIfPresent(String.self, forKey: .title)
+        let frame = try container.decodeIfPresent(NormalizedFrame.self, forKey: .frame)
+        let readInterval = try container.decode(HostRange.self, forKey: .readInterval)
+        if let frame {
+            let fields = [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height]
+            guard fields.allSatisfy({ $0.isFinite }) else {
+                throw DecodingError.dataCorrupted(DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "AXElementRecord.frame has a non-finite field: \(fields)"))
+            }
+            guard frame.size.width >= 0, frame.size.height >= 0 else {
+                throw DecodingError.dataCorrupted(DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: """
+                        AXElementRecord.frame has a negative dimension: \
+                        \(frame.size.width)×\(frame.size.height)
+                        """))
+            }
+        }
+        self.init(role: role, title: title, frame: frame, readInterval: readInterval)
+    }
+
+    /// Matches the synthesised shape exactly, so this hand-written
+    /// conformance changes validation and not the wire form. `encodeIfPresent`
+    /// on the three optionals is what keeps `nil` as an **absent key** rather
+    /// than `null` — the distinction `AXChainRecord.children` depends on one
+    /// level up.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(role, forKey: .role)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(frame, forKey: .frame)
+        try container.encode(readInterval, forKey: .readInterval)
+    }
+}
+
 /// Why the walk stopped. "There were no more ancestors" and "I stopped asking"
 /// are otherwise the same bytes on disk (D2-2).
 ///
@@ -219,6 +282,87 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
         self.axCalls = axCalls
         self.depthCap = depthCap
         self.walkBudgetNanos = walkBudgetNanos
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, instant, clickPosition, clickRevision, hitTestGlobalX, hitTestGlobalY
+        case hitTestInterval, hit, ancestors, children, truncation, axCalls
+        case depthCap, walkBudgetNanos
+    }
+
+    /// Untrusted input, validated. See `AXElementRecord.init(from:)` for the
+    /// full argument; the short version is that a `NaN` in `clickPosition`
+    /// decodes cleanly through `NormalizedPoint`'s synthesised conformance and
+    /// then makes `clickContainment` answer `.doesNotContainTheClick` — a
+    /// confident coordinate-fault verdict produced by a damaged file.
+    ///
+    /// `hitTestGlobalX`/`Y` are checked for the same reason one level out:
+    /// they are the record's statement of *where the question was asked*, and
+    /// a non-finite one would make every after-the-fact comparison against the
+    /// click's own position meaningless while looking like data.
+    ///
+    /// The three counts are checked for non-negativity because they are
+    /// arithmetic a reader does subtraction and division on — `axCalls` per
+    /// click, `ancestors.count` against `depthCap` — and a negative one is not
+    /// a value this producer can emit.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try container.decode(String.self, forKey: .kind)
+        self.instant = try container.decode(HostInstant.self, forKey: .instant)
+        self.clickPosition = try container.decode(NormalizedPoint.self, forKey: .clickPosition)
+        self.clickRevision = try container.decode(GeometryRevision.self, forKey: .clickRevision)
+        self.hitTestGlobalX = try container.decode(Double.self, forKey: .hitTestGlobalX)
+        self.hitTestGlobalY = try container.decode(Double.self, forKey: .hitTestGlobalY)
+        self.hitTestInterval = try container.decode(HostRange.self, forKey: .hitTestInterval)
+        self.hit = try container.decodeIfPresent(AXElementRecord.self, forKey: .hit)
+        self.ancestors = try container.decode([AXElementRecord].self, forKey: .ancestors)
+        self.children = try container.decodeIfPresent([AXElementRecord].self, forKey: .children)
+        self.truncation = try container.decode(ChainTruncation.self, forKey: .truncation)
+        self.axCalls = try container.decode(Int.self, forKey: .axCalls)
+        self.depthCap = try container.decode(Int.self, forKey: .depthCap)
+        self.walkBudgetNanos = try container.decode(Int64.self, forKey: .walkBudgetNanos)
+
+        let coordinates = [clickPosition.x, clickPosition.y, hitTestGlobalX, hitTestGlobalY]
+        guard coordinates.allSatisfy({ $0.isFinite }) else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: """
+                    AXChainRecord has a non-finite coordinate: clickPosition \
+                    (\(clickPosition.x), \(clickPosition.y)), hit-test point \
+                    (\(hitTestGlobalX), \(hitTestGlobalY)). Every comparison against NaN is false, \
+                    so this record would report .doesNotContainTheClick — a coordinate fault — for \
+                    what is a damaged file.
+                    """))
+        }
+        guard axCalls >= 0, depthCap >= 0, walkBudgetNanos >= 0 else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: """
+                    AXChainRecord has a negative count: axCalls \(axCalls), depthCap \(depthCap), \
+                    walkBudgetNanos \(walkBudgetNanos)
+                    """))
+        }
+    }
+
+    /// Matches the synthesised shape exactly — validation changes, the wire
+    /// form does not. `encodeIfPresent` on `hit` and `children` is what keeps
+    /// "no children list was read" an absent key rather than `null`.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(instant, forKey: .instant)
+        try container.encode(clickPosition, forKey: .clickPosition)
+        try container.encode(clickRevision, forKey: .clickRevision)
+        try container.encode(hitTestGlobalX, forKey: .hitTestGlobalX)
+        try container.encode(hitTestGlobalY, forKey: .hitTestGlobalY)
+        try container.encode(hitTestInterval, forKey: .hitTestInterval)
+        try container.encodeIfPresent(hit, forKey: .hit)
+        try container.encode(ancestors, forKey: .ancestors)
+        try container.encodeIfPresent(children, forKey: .children)
+        try container.encode(truncation, forKey: .truncation)
+        try container.encode(axCalls, forKey: .axCalls)
+        try container.encode(depthCap, forKey: .depthCap)
+        try container.encode(walkBudgetNanos, forKey: .walkBudgetNanos)
     }
 
     /// Whether `clickPosition` falls inside the hit element's own recorded

@@ -84,8 +84,23 @@ enum SpikeA {
         var step = VerificationStep(name: "Spike A — pairing latency against the real AXObserver")
         step.begin(repositoryPath: repositoryPath)
 
+        // **Bound here and passed explicitly, so the name printed below comes
+        // from the value that produced the numbers.**
+        //
+        // `chain(at:)` would hardcode the live source and the output would say
+        // so from a string literal — an unearned claim of exactly the class
+        // this spike exists to avoid making. It matters because the printed
+        // role vocabulary does not distinguish the two: the synthetic source
+        // in the probe answers `AXButton`, `AXGroup` and `AXApplication` too,
+        // so "PASS" and "PASS against a fixture" would otherwise be
+        // indistinguishable in the record. Today only one conformer exists;
+        // the print is derived rather than asserted so it stays true when a
+        // second one does.
+        let axSource = LiveAXElementSource()
         let arrangement = InputObserver.currentArrangement()
         step.expect([
+            ("AX source", "\(String(describing: type(of: axSource))) — the value passed to "
+                          + "chain(at:source:) below, not a literal"),
             ("depth cap", "\(AXObserver.depthCap) — fixed (D2-5), expected to bind only on web content"),
             ("walk budget", "\(Double(AXObserver.walkBudgetNanos) / 1e6) ms — a D4 PLACEHOLDER"),
             ("displays", "\(arrangement.placements.count) in the arrangement under test"),
@@ -118,7 +133,7 @@ enum SpikeA {
                 // AX cost for a second answer to the same question.
                 guard case .button(let event) = observation, event.phase == .down else { return }
                 samples.countClick()
-                guard let record = axObserver.chain(at: event) else { return }
+                guard let record = axObserver.chain(at: event, source: axSource) else { return }
                 samples.append(record)
                 if let line = try? ObservationLog.encode(record) {
                     out?.write(line); out?.write(Data("\n".utf8))
@@ -164,6 +179,8 @@ enum SpikeA {
         ]
 
         print("\n---- MEASURED, \(records.count) samples on this machine ----")
+        print("  AX source: \(String(describing: type(of: axSource)))"
+              + " — read off the value handed to chain(at:source:), not written down")
         func column(_ text: String, _ width: Int) -> String {
             text.count >= width ? text
                 : String(repeating: " ", count: width - text.count) + text
@@ -192,7 +209,14 @@ enum SpikeA {
         }
         print("\n---- diagnostics ----")
         print("  " + diagnostics.accounting.replacingOccurrences(of: "\n", with: "\n  "))
-        print("  tap re-armed after a timeout: \(inputObserver.diagnostics.tapReArmedCount)")
+        let tap = inputObserver.diagnostics
+        print("  tap disabled and re-armed: \(tap.tapDisabledIntervals) times, "
+              + String(format: "%.1f ms", Double(tap.tapBlindNanos) / 1e6)
+              + " of enclosing blind window"
+              + (tap.tapDisabledIntervalsWithNoObservedLowerBound > 0
+                 ? " (\(tap.tapDisabledIntervalsWithNoObservedLowerBound) with no observed lower bound — "
+                   + "those widths are not measurements)"
+                 : ""))
         print("  AX log: \(logURL.path()) — NOT to be committed; it carries window titles.")
 
         // ---- the checks
@@ -239,11 +263,45 @@ enum SpikeA {
         step.finish(remedy: """
         A p50 an order of magnitude above F2-2's means AXObserver is doing more work per click \
         than the inline walk F2-2 measured — compare `axCalls` first, which is exact.
-        All clicks landing outside their element means the reverse conversion \
-        (AXObserver.globalPoint) is wrong, NOT that AX is stale: staleness moves an element by a \
-        frame of animation, it does not move it out of its own coordinate space. Probe § 8.1 is \
-        the same claim against a fixture and would still be green, because it does not use this \
-        machine's arrangement.
+
+        IF EVERY CLICK LANDED OUTSIDE ITS ELEMENT, start from what this run already proved. The \
+        control above took a point on this machine's own main display through the forward \
+        conversion and back through AXObserver.globalPoint and got the same coordinate, and it \
+        exits before measuring anything if it does not. So the two conversions ARE mutually \
+        inverse on this arrangement, and auditing globalPoint is auditing code this run has \
+        already exercised. (Probe § 8.1 says the same thing against a fixture, and would be green \
+        either way — it never touches this machine's arrangement.)
+
+        Two causes survive that control, and they are distinguishable:
+
+          (i)  kAXPositionAttribute is not in the space this code assumes. AXObserver treats an \
+               element frame as GLOBAL, TOP-LEFT POINTS — the same space CGEventGetLocation \
+               reports in. If a target reports window-relative or bottom-left coordinates \
+               instead, the hit-test is asked at the right place and the frame comes back \
+               describing somewhere else.
+          (ii) Forward and reverse are inverse to each other and both wrong against the real \
+               display. A composition can be an identity and still map to the wrong point: a \
+               scale from currentArrangement() that does not match the display's actual mode \
+               cancels exactly in the round trip. The control cannot see this — it validates the \
+               composition, not either half.
+
+        THE MEASUREMENT THAT SEPARATES THEM, at a known screen landmark: click something whose \
+        real position you can state independently — the close button of a window you have just \
+        placed at a known origin, or a menu bar item — and read the record's hit.frame beside its \
+        clickPosition. Both are NormalizedFrame/NormalizedPoint on the same display, so compare \
+        them directly against the landmark's true fraction of the screen:
+
+          * clickPosition is right for the landmark and hit.frame is not  ->  (i). The click was \
+            converted correctly; the AX frame is in a space this code does not handle. Confirm by \
+            reading hitTestGlobalX/Y from the record: it will be the correct global point.
+          * clickPosition is ALSO wrong for the landmark, by a constant factor (the display scale) \
+            or a constant offset (its global origin)  ->  (ii). Check currentArrangement()'s \
+            scale against CGDisplayCopyDisplayMode's pixelWidth/width for that display; probe \
+            § 7.8 pins those two derivations against each other but only for the display it can \
+            reach.
+
+        A landmark is required for this and the control cannot supply one: nothing this process \
+        can compute knows where anything on screen actually is.
         """)
     }
 
