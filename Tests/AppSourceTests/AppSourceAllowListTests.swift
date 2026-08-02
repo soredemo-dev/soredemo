@@ -361,7 +361,41 @@ func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] 
     let found = try violationsEverywhere(
         banned: [
             // CoreGraphics: the event's own characters.
+            //
+            // **`keyboardGetUnicodeString` is the entry that does the work,
+            // and it was missing.** The C symbol below it is the spelling the
+            // header uses and the one this list originally carried alone —
+            // but it does not exist in Swift, so it was dead text guarding
+            // nothing while the natural Swift call sailed through. Measured,
+            // both spellings compiled against this SDK:
+            //
+            //     CGEventKeyboardGetUnicodeString(e, 4, &n, &buf)
+            //       error: 'CGEventKeyboardGetUnicodeString' has been replaced
+            //       by instance method 'CGEvent.keyboardGetUnicodeString(
+            //       maxStringLength:actualStringLength:unicodeString:)'
+            //
+            //     e.keyboardGetUnicodeString(maxStringLength: 4,
+            //                                actualStringLength: &n,
+            //                                unicodeString: &buf)
+            //       compiles.
+            //
+            // The C spelling is kept anyway, labelled: it costs a line, it is
+            // what someone reading `CGEvent.h` will try first, and a rule
+            // whose ban list omits the name in the documentation invites the
+            // ban to be read as narrower than it is. But it is NOT what makes
+            // this test bite — for that spelling the compiler is the
+            // enforcement, and for the Swift one this list is.
+            "keyboardGetUnicodeString",
             "CGEventKeyboardGetUnicodeString",
+            // **The setter, banned too.** Writing text into a keyboard event
+            // is not reading one, so it is not literally the leak this test
+            // is named for — but it is the same capability from the other
+            // side, and it is worse in two ways. A process that sets a
+            // keystroke's text is holding that text, which is the state this
+            // rule exists to make unreachable; and a `.listenOnly` tap that
+            // modifies an event is not listen-only, so the ban also protects
+            // the claim that this app never alters someone else's input.
+            "keyboardSetUnicodeString",
             "keyboardEventUnicodeString",
             // AppKit: `.characters` also covers `.charactersIgnoringModifiers`,
             // which begins with the same substring including the dot.
@@ -382,5 +416,87 @@ func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] 
             identifier. Nothing in this app is permitted to learn what was typed \
             — including in order to discard it, because a value that existed can \
             be logged, and there is then something to redact later.
+            """)
+}
+
+// MARK: - a required-presence scan: the mirror image of the three bans above
+
+/// Every code line under `Soredemo/` containing `needle`, in `file:line:` form
+/// with the line's own code-view text attached.
+///
+/// Read through `SwiftSourceLexer.codeViewLines` like every other scan here,
+/// so a mention in a doc comment does not count — which matters more for this
+/// scan than for the bans: the file this one is about documents the call at
+/// length, and a scan that counted prose would report the requirement
+/// satisfied by the sentence describing it.
+func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: String, text: String)] {
+    try #require(!files.isEmpty, "no app sources were scanned — this scan would pass vacuously")
+    var found: [(location: String, text: String)] = []
+    var linesScanned = 0
+    for file in files {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for (index, line) in SwiftSourceLexer.codeViewLines(of: text).enumerated() {
+            linesScanned += 1
+            if line.contains(needle) {
+                found.append((location: "\(pathRelativeToRepositoryRoot(file)):\(index + 1)",
+                              text: line.trimmingCharacters(in: .whitespaces)))
+            }
+        }
+    }
+    try #require(linesScanned > 0, "no lines were examined — the scan would pass vacuously")
+    return found
+}
+
+/// **The other three scans in this file say where something may not happen.
+/// This one says that something must.**
+///
+/// `InputObserver` takes its secure-input predicate as an injected argument so
+/// the interval logic — open, close, the two end reasons, the suppression —
+/// can be exercised without another application's password field, which is the
+/// only thing that makes `IsSecureEventInputEnabled()` true. That injection
+/// buys real coverage and it opens a hole exactly one character wide:
+/// defaulting the parameter to `{ false }` disables the privacy guarantee
+/// outright, and every test in this package and every behavioural check that
+/// passes its own predicate in stays green, because none of them ever
+/// evaluates the default.
+///
+/// So both halves are pinned:
+///
+/// 1. `IsSecureEventInputEnabled` appears on **exactly one** code line. Zero
+///    means nothing reads the real predicate. More than one means there is a
+///    second reader, and a second reader is a second policy — the thing this
+///    file exists to prevent for `UUID()` and for CoreGraphics geometry.
+/// 2. That line is the **default argument** of the injection point. Moving the
+///    read anywhere else — into `handle`, into a helper — would satisfy (1)
+///    while making the injected predicate no longer the single source of the
+///    answer, which is the property `§ 7.4` of the probe relies on.
+///
+/// **This is strictly weaker than the probe's `§ 7.7`**, which enables secure
+/// input for real and asserts the observer goes silent. It pins spelling; that
+/// one pins behaviour. It is here because it fires under `swift test` without
+/// anyone running the probe, and the probe is documented as running nothing
+/// automatically — the same trade this file already accepts for `Minting`,
+/// where a text scan stands next to a link-time symbol check.
+@Test func theSecureInputPredicateIsReadExactlyOnceAndOnlyAtTheInjectionPoint() throws {
+    let readers = try codeLinesNaming("IsSecureEventInputEnabled", in: try appSourceFiles())
+
+    #expect(readers.count == 1,
+            """
+            expected exactly one app source line reading IsSecureEventInputEnabled, found \(readers.count):
+            \(readers.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+            Zero means the real predicate is never read and the secure-input guarantee is off. \
+            More than one means there are two policies about when capture is suppressed, and \
+            nothing keeps them in step.
+            """)
+
+    guard let reader = readers.first else { return }
+    #expect(reader.text.contains("secureInputIsEnabled:"),
+            """
+            IsSecureEventInputEnabled is read at \(reader.location), which is not the injection \
+            point's default argument:
+            \(reader.text)
+            It belongs on the `secureInputIsEnabled:` parameter of InputObserver.init and nowhere \
+            else — that parameter is what lets the interval logic be tested without a password \
+            field, and it only means anything while the default IS the real predicate.
             """)
 }

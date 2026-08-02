@@ -124,20 +124,38 @@ public final class InputObserver: @unchecked Sendable {
         /// and the samples are **dropped, not clamped**. A clamped sample is
         /// a pointer position on a display it was never on, which reads as
         /// real motion; the absence is at least visible here.
+        ///
+        /// **Pointer motion only.** A click that could not be routed lands in
+        /// `unroutableButtonLocations` instead, because the two are
+        /// reconciled by different people looking for different things.
         public internal(set) var unroutablePointerLocations = 0
+        /// The same, for a **click** — a click that produced no
+        /// `ButtonEvent`.
+        ///
+        /// Split out on review. Folded into the counter above, which it was,
+        /// someone reconciling "two button events for three clicks" would be
+        /// looking for the missing click under a pointer-shaped name, which
+        /// is where it would not be found.
+        public internal(set) var unroutableButtonLocations = 0
         /// Events whose `CGEventTimestamp` would not fit `Int64` nanoseconds.
         /// Structurally impossible before the year 2262; counted anyway,
         /// because the alternative to counting is truncating.
         public internal(set) var unconvertibleTimestamps = 0
-        /// Events whose timestamp was more than a second away from
-        /// `Minting.hostNow()` at callback entry, in either direction.
+        /// Events whose timestamp was **in the future**, or more than
+        /// `plausibleSkewNanos` (50 ms) in the past, relative to
+        /// `Minting.hostNow()` at callback entry.
         ///
         /// **This is the standing check on the unit.** A `CGEventTimestamp`
         /// misread as `mach_absolute_time` ticks would put every single event
-        /// here, by a margin of hours. A handful is a slow callback or a
-        /// coalesced event; a run where this equals the event count is the
-        /// unit being wrong, and it is visible without anyone re-deriving
-        /// F2-1.
+        /// here, by a margin of hours. A handful is a slow callback; a run
+        /// where this equals the event count is the unit being wrong, and it
+        /// is visible without anyone re-deriving the ratio.
+        ///
+        /// The window is one-sided: the window server stamps the event before
+        /// this callback runs, so any future stamp is a different clock, not
+        /// latency. Spike A measured `tapLatencyNegative` false in all 118 of
+        /// its samples — that direction has never legitimately occurred. See
+        /// `plausibleSkewNanos` for where 50 ms comes from.
         public internal(set) var implausibleEventTimestampCount = 0
         /// Times the system disabled the tap and this observer re-armed it.
         ///
@@ -254,7 +272,16 @@ public final class InputObserver: @unchecked Sendable {
     /// recorded at the moment it fires; key-up and modifier transitions would
     /// add timing detail about typing rhythm for no gain in what the log can
     /// say.
-    private nonisolated static let eventTypes: [CGEventType] = [
+    /// **Internal, not `private`, and that is the review finding it exists to
+    /// close.** While this was `private`, deleting `.mouseMoved` from the list
+    /// left all 338 tests and all 83 probe checks green while the shipped app
+    /// recorded clicks and shortcuts and **no pointer track at all** — because
+    /// the probe drives `handle(type:event:)` directly and so never consults
+    /// the mask. The mask is the one piece of this file that only the tap
+    /// reads, which is exactly why it needed a check of its own rather than
+    /// being trusted because everything downstream of it is tested. `§ 7.5`
+    /// pins it against `category(of:)` in both directions.
+    nonisolated static let eventTypes: [CGEventType] = [
         .mouseMoved,
         .leftMouseDown, .leftMouseUp, .leftMouseDragged,
         .rightMouseDown, .rightMouseUp, .rightMouseDragged,
@@ -262,8 +289,42 @@ public final class InputObserver: @unchecked Sendable {
         .keyDown,
     ]
 
-    private nonisolated static var eventMask: CGEventMask {
+    nonisolated static var eventMask: CGEventMask {
         eventTypes.reduce(into: CGEventMask(0)) { $0 |= CGEventMask(1) << CGEventMask($1.rawValue) }
+    }
+
+    /// What `handle` does with an event type — the dispatch table, lifted out
+    /// of the `switch` that used to hold it.
+    ///
+    /// **Lifted so it can be enumerated.** A `switch` is not a value: nothing
+    /// could ask "which types does this handle?", so nothing could check that
+    /// the answer matches `eventTypes`. The two lists drifting apart is silent
+    /// in both directions — a type asked for but not handled is a wasted
+    /// callback, and a type handled but not asked for is a feature that never
+    /// fires — and one of those two is the `.mouseMoved` deletion above.
+    ///
+    /// Returning `nil` covers `tapDisabledByTimeout`/`tapDisabledByUserInput`
+    /// (handled earlier, before any location is read, since they carry none)
+    /// and anything the OS widens delivery to later.
+    public enum EventCategory: Equatable, Sendable {
+        case pointerMotion
+        case button(PointerButton, ButtonPhase)
+        case key
+    }
+
+    public nonisolated static func category(of type: CGEventType) -> EventCategory? {
+        switch type {
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return .pointerMotion
+        case .leftMouseDown:  return .button(.left, .down)
+        case .leftMouseUp:    return .button(.left, .up)
+        case .rightMouseDown: return .button(.right, .down)
+        case .rightMouseUp:   return .button(.right, .up)
+        case .otherMouseDown: return .button(.other, .down)
+        case .otherMouseUp:   return .button(.other, .up)
+        case .keyDown:        return .key
+        default:              return nil
+        }
     }
 
     /// Creates the tap and starts delivering to `onObservation`.
@@ -529,16 +590,14 @@ public final class InputObserver: @unchecked Sendable {
             emitSecureInterval(from: began, to: instant, endedBy: .secureInputDisabled)
         }
 
-        switch type {
-        case .keyDown:
+        switch Self.category(of: type) {
+        case .key:
             handleKeyDown(event, at: instant)
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+        case .pointerMotion:
             handlePointerMotion(event, at: instant)
-        case .leftMouseDown, .leftMouseUp,
-             .rightMouseDown, .rightMouseUp,
-             .otherMouseDown, .otherMouseUp:
-            handleButton(event, type: type, at: instant)
-        default:
+        case .button(let button, let phase):
+            handleButton(event, button: button, phase: phase, at: instant)
+        case nil:
             // The mask asks for nothing else. A type arriving here is the OS
             // widening what it delivers, not an event to guess about.
             break
@@ -552,20 +611,48 @@ public final class InputObserver: @unchecked Sendable {
             lock.withLock { _diagnostics.unconvertibleTimestamps += 1 }
             return nil
         }
+        // Non-negative, not symmetric. The event is stamped by the window
+        // server BEFORE this callback runs, so a stamp in the future is not a
+        // slow callback — it is a different clock. The previous version of
+        // this line accepted anything within a second in either direction,
+        // which silently admitted the whole future half of that window.
         let skew = callbackInstant.rawValue - stampNanos
-        if skew < -Self.plausibleSkewNanos || skew > Self.plausibleSkewNanos {
+        if skew < 0 || skew > Self.plausibleSkewNanos {
             lock.withLock { _diagnostics.implausibleEventTimestampCount += 1 }
         }
         return HostInstant(epoch: epoch, hostTime: Nanoseconds(stampNanos))
     }
 
-    /// One second, in nanoseconds. **A placeholder threshold, labelled as
-    /// D4 requires**: no distribution has been fitted to it. It is chosen to
-    /// be far outside anything a tap callback plausibly costs (F2-1 measured
-    /// the tap path in milliseconds) and far inside the ~24× error a
-    /// unit mistake produces, so it discriminates the failure it exists for
-    /// without needing to be right about latency.
-    private nonisolated static let plausibleSkewNanos: Int64 = 1_000_000_000
+    /// 50 ms, in nanoseconds — the upper bound on `hostNow() - event.timestamp`
+    /// before an event is counted implausible.
+    ///
+    /// **Derived from Spike A, and the citation matters because the first
+    /// version of this comment credited the wrong measurement.** F2-1
+    /// established the *timebase ratio*; it says nothing about how long the
+    /// tap path takes. The tap-latency distribution is Spike A's, in
+    /// `docs/design/2026-08-02-phase-2-record-design.md` § "Tap latency is not
+    /// the hazard": 118 samples on real targets, including clicks during menu,
+    /// Dock and window animations —
+    ///
+    /// | p50 | p90 | p95 | max |
+    /// | --- | --- | --- | --- |
+    /// | 0.41 ms | 1.64 ms | 2.57 ms | **5.46 ms** |
+    ///
+    /// 50 ms is ~9× that worst case, so a healthy run does not trip it, and it
+    /// is ~200× tighter than the failure it exists to catch: a stamp misread
+    /// as `mach_absolute_time` ticks sits *hours* from `hostNow()`, since it
+    /// would be 3/125 of the true value on this machine's timebase. The old
+    /// value, 1 s, was ~180× the observed max and therefore discriminated
+    /// nothing except the unit error — it could not have distinguished a
+    /// genuinely pathological callback from a normal one.
+    ///
+    /// **Still a D4 placeholder, and labelled as one** — but derived rather
+    /// than picked. The design doc's own caveat on that table stands: "one
+    /// machine, one session, an uncontrolled app mix … this is the first
+    /// distribution, not the answer." What changes if it is refitted is the
+    /// sensitivity of a diagnostic, never a recorded value: nothing is
+    /// dropped for being implausible, it is only counted.
+    private nonisolated static let plausibleSkewNanos: Int64 = 50_000_000
 
     private nonisolated func reArmTap() {
         let existing = lock.withLock { tap }
@@ -576,13 +663,22 @@ public final class InputObserver: @unchecked Sendable {
 
     /// Step 1 of the conversion — and the only place in this file that a
     /// CoreGraphics value is handed across.
-    private nonisolated func position(of event: CGEvent)
+    ///
+    /// `isButton` picks which counter a failure lands in. **Two counters, not
+    /// one**, because a click and a pointer sample are reconciled by different
+    /// people looking for different things: a reader who counts two button
+    /// events for three clicks needs to find the missing click, and it was
+    /// previously hiding under a pointer-shaped name.
+    private nonisolated func position(of event: CGEvent, isButton: Bool = false)
         -> (position: NormalizedPoint, revision: GeometryRevision)? {
         let location = CGGeometryBridge.location(from: event.location)
         guard let converted = Self.normalizedPosition(globalTopLeftX: location.x,
                                                       globalTopLeftY: location.y,
                                                       in: arrangement) else {
-            lock.withLock { _diagnostics.unroutablePointerLocations += 1 }
+            lock.withLock {
+                if isButton { _diagnostics.unroutableButtonLocations += 1 }
+                else { _diagnostics.unroutablePointerLocations += 1 }
+            }
             return nil
         }
         return converted
@@ -599,19 +695,9 @@ public final class InputObserver: @unchecked Sendable {
                                     revision: converted.revision)))
     }
 
-    private nonisolated func handleButton(_ event: CGEvent, type: CGEventType, at instant: HostInstant) {
-        guard let converted = position(of: event) else { return }
-        let button: PointerButton
-        let phase: ButtonPhase
-        switch type {
-        case .leftMouseDown:   button = .left;  phase = .down
-        case .leftMouseUp:     button = .left;  phase = .up
-        case .rightMouseDown:  button = .right; phase = .down
-        case .rightMouseUp:    button = .right; phase = .up
-        case .otherMouseDown:  button = .other; phase = .down
-        case .otherMouseUp:    button = .other; phase = .up
-        default: return
-        }
+    private nonisolated func handleButton(_ event: CGEvent, button: PointerButton,
+                                          phase: ButtonPhase, at instant: HostInstant) {
+        guard let converted = position(of: event, isButton: true) else { return }
         lock.withLock { _diagnostics.buttonEvents += 1 }
         emit(.button(ButtonEvent(instant: instant, position: converted.position,
                                  revision: converted.revision, button: button, phase: phase)))
@@ -693,6 +779,39 @@ public final class InputObserver: @unchecked Sendable {
 
         var placements: [DisplayArrangement.Placement] = []
         for id in ids.prefix(Int(displayCount)) {
+            // **Mirrors are skipped; the display being mirrored is kept.**
+            //
+            // `CGGetActiveDisplayList` returns every member of a *software*
+            // mirror set, and members of a mirror set share a
+            // `CGDisplayBounds` — so a laptop mirrored to a projector, which
+            // is an ordinary configuration for a demo recorder, yields two
+            // placements over one global rectangle with two different
+            // `displayUUID`s and therefore two different `GeometryRevision`s.
+            // `DisplayArrangement.route` returns the first match, so which
+            // revision a `PointerSample` carries would be decided by the
+            // order `CGGetActiveDisplayList` happened to return, silently.
+            //
+            // That is not a cosmetic wrong answer. `NormalizationContext
+            // .denormalize` **preconditions** on revision equality, so a
+            // sample stamped with the projector's revision reaching a
+            // derivation built against the laptop's is a trap, not a number
+            // that is slightly off.
+            //
+            // Skipping the mirror rather than folding the set to its primary
+            // by hand: `CGDisplayMirrorsDisplay` already names the primary,
+            // and that primary is in the active list too, so dropping the
+            // mirrors leaves exactly one placement per distinct rectangle
+            // with no reconstruction step to get wrong. It is also the one
+            // that matches what is being captured — `CaptureSource` is built
+            // from an `SCDisplay`/`CGMainDisplayID`, which is the mirrored-
+            // from display, not its mirror.
+            //
+            // Hardware mirroring is invisible here (the window server
+            // presents one display), so this branch is about the software
+            // case only. **Not verified against real mirrored hardware** —
+            // this machine has one display; see the task report's
+            // could-not-verify table.
+            guard CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay else { continue }
             guard let mode = CGDisplayCopyDisplayMode(id) else { continue }
             let pointWidth = mode.width
             let pointHeight = mode.height

@@ -195,6 +195,12 @@ enum CrossBoundaryProbe {
         keystrokesAreNotStored()
         print("7.4 secure input produces an interval, not silence")
         secureInputProducesAnInterval()
+        print("7.5 the event mask asks for exactly what handle() dispatches on")
+        theEventMaskMatchesTheDispatchTable()
+        print("7.6 currentArrangement() — the ambient reader, against AppKit")
+        theAmbientArrangement()
+        print("7.7 the PRODUCTION secure-input predicate is really read")
+        theProductionSecureInputPredicateIsRead()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -843,6 +849,15 @@ enum CrossBoundaryProbe {
         //   pixels  -> (960, 540) PIXELS            (× scale 2)
         //   normalize -> x = 960/3840 = 0.25
         //               y = 1 - 540/2160 = 0.75     (the Y flip)
+        // Fixture sanity, stated rather than emergent. Degrading the fixture
+        // to `scale: 1` turns `skippingThePixelStep` below red — the guard is
+        // real either way — but a reader should not have to derive that from
+        // two other assertions to know the fixture is the load-bearing part.
+        check(retina.scale == 2 && main.scale == 1,
+              "fixture sanity: the second display is at scale 2, which is what makes the "
+              + "points→pixels step non-vacuous",
+              actual: "main \(main.scale), retina \(retina.scale)", expected: "1 and 2")
+
         let globalX = 2400.0, globalY = 270.0
         let localPointsX = globalX - 1920, localPointsY = globalY - 0
         let localPixelsX = localPointsX * retina.scale, localPixelsY = localPointsY * retina.scale
@@ -1017,6 +1032,32 @@ enum CrossBoundaryProbe {
         check(observer.diagnostics.implausibleEventTimestampCount == 1,
               "a tick-valued (unconverted) timestamp is counted as implausible, not accepted silently",
               actual: "\(observer.diagnostics.implausibleEventTimestampCount)")
+
+        // ---- The other direction, which a symmetric window silently
+        // admitted. The window server stamps the event BEFORE this callback
+        // runs, so a stamp in the future is a different clock, not latency —
+        // and Spike A measured `tapLatencyNegative` false in all 118 of its
+        // samples, so it has never legitimately occurred. 100 ms ahead is
+        // inside the old ±1 s window and outside the new one.
+        observer.handle(type: .mouseMoved,
+                        event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270),
+                                          stamp: Nanoseconds(Minting.hostNow().rawValue + 100_000_000)))
+        check(observer.diagnostics.implausibleEventTimestampCount == 2,
+              "a timestamp in the FUTURE is counted — the plausibility window is one-sided, "
+              + "because an event cannot be stamped after the callback that received it ran",
+              actual: "\(observer.diagnostics.implausibleEventTimestampCount)", expected: "2")
+
+        // ---- And the healthy band is not so tight that a real callback
+        // trips it. Spike A's worst of 118 samples was 5.46 ms; 20 ms of
+        // simulated latency must still be accepted, or the instrument would
+        // fire on ordinary recordings and be relaxed into uselessness.
+        let latencyObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        latencyObserver.handle(type: .mouseMoved,
+                               event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270),
+                                                 stamp: Nanoseconds(Minting.hostNow().rawValue - 20_000_000)))
+        check(latencyObserver.diagnostics.implausibleEventTimestampCount == 0,
+              "20 ms of tap latency — ~4x Spike A's worst of 118 samples — is still plausible",
+              actual: "\(latencyObserver.diagnostics.implausibleEventTimestampCount)", expected: "0")
 
         // ---- A click is a down and an up. Both carry a position.
         let clicks = Collector()
@@ -1239,5 +1280,235 @@ enum CrossBoundaryProbe {
         check(stopIntervals.count == 1 && stopIntervals.first?.endedBy == .observationStopped,
               "stopping mid-interval still reports it, marked .observationStopped rather than dropped",
               actual: "\(stopIntervals.map { $0.endedBy.rawValue })")
+    }
+
+    /// **The mask is the one piece of this file only the tap reads.**
+    ///
+    /// Everything downstream of it is checked by driving
+    /// `handle(type:event:)` directly, which bypasses the mask entirely — so
+    /// deleting `.mouseMoved` from `eventTypes` left every test and every
+    /// check in this file green while the shipped app would have recorded
+    /// clicks and shortcuts and no pointer track at all. That is the mutation
+    /// this section exists for, and it is pinned in **both** directions:
+    /// a type asked for but not handled is a wasted callback, and a type
+    /// handled but not asked for is a code path that never runs.
+    @MainActor
+    static func theEventMaskMatchesTheDispatchTable() {
+        check(!InputObserver.eventTypes.isEmpty,
+              "the mask asks for at least one event type — an empty list would pass the rest vacuously",
+              actual: "\(InputObserver.eventTypes.count)")
+
+        let unhandled = InputObserver.eventTypes.filter { InputObserver.category(of: $0) == nil }
+        check(unhandled.isEmpty,
+              "every event type the mask asks for is one handle() dispatches on",
+              actual: "\(unhandled.map(\.rawValue))", expected: "[]")
+
+        // The reverse sweep. `CGEventType` is a fixed C enum, so
+        // `init(rawValue:)` returns nil for anything that is not a real type
+        // — which bounds this to the types that actually exist rather than to
+        // an arbitrary integer range. The two out-of-band types
+        // (`tapDisabledByTimeout`/`tapDisabledByUserInput`, 0xFFFFFFFE/F) are
+        // handled before dispatch and are deliberately not in `eventTypes`:
+        // a tap is delivered them regardless of its mask.
+        var handledButNotRequested: [UInt32] = []
+        for raw in UInt32(0)...UInt32(255) {
+            guard let type = CGEventType(rawValue: raw) else { continue }
+            guard InputObserver.category(of: type) != nil else { continue }
+            if !InputObserver.eventTypes.contains(where: { $0.rawValue == raw }) {
+                handledButNotRequested.append(raw)
+            }
+        }
+        check(handledButNotRequested.isEmpty,
+              "every event type handle() dispatches on is one the mask asks for — deleting a type "
+              + "from eventTypes fails HERE, where nothing else would notice",
+              actual: "\(handledButNotRequested)", expected: "[]")
+
+        check(InputObserver.eventMask.nonzeroBitCount == InputObserver.eventTypes.count,
+              "the mask has exactly one bit set per requested type — no type is dropped or doubled "
+              + "by the shift that builds it",
+              actual: "\(InputObserver.eventMask.nonzeroBitCount) bits for "
+                      + "\(InputObserver.eventTypes.count) types")
+        for type in InputObserver.eventTypes where type.rawValue < 64 {
+            check(InputObserver.eventMask & (CGEventMask(1) << CGEventMask(type.rawValue)) != 0,
+                  "the mask's bit for event type \(type.rawValue) is set")
+        }
+    }
+
+    /// **`currentArrangement()` is the ambient input to every conversion in
+    /// the file, and it had no machine-checked coverage.**
+    ///
+    /// The mutation it is written against: invert the scale to
+    /// `Double(pointWidth) / Double(mode.pixelWidth)`. Every pointer sample
+    /// then lands at half its true position, every value stays inside [0, 1],
+    /// no precondition fires anywhere, and every other check in this file and
+    /// every package test stays green — because they all run against the
+    /// *fixture* arrangement, which this function does not build.
+    ///
+    /// The check is the spike's own positive control, brought down to where it
+    /// runs without a permission: `NSScreen.main.frame` is the main display's
+    /// size in **points**, from AppKit; `pixelWidth / scale` is the same
+    /// quantity derived from `CGDisplayMode` and `CGDisplayBounds`. Two APIs
+    /// over the same window-server state, and an inverted scale makes them
+    /// disagree by a factor of `scale²`.
+    ///
+    /// It reads real hardware, so it asserts nothing about *which* displays
+    /// are attached — only that what it built agrees with a second source.
+    @MainActor
+    static func theAmbientArrangement() {
+        let arrangement = InputObserver.currentArrangement()
+        check(!arrangement.placements.isEmpty,
+              "currentArrangement() found at least one display — an empty arrangement would make "
+              + "every check below vacuous",
+              actual: "\(arrangement.placements.count) placements")
+        guard let screen = NSScreen.main else {
+            check(false, "NSScreen.main is nil — there is no independent source to check against")
+            return
+        }
+        guard let mainIdentity = Minting.displayIdentity(of: CGMainDisplayID()),
+              let main = arrangement.placements.first(where: { $0.geometry.displayUUID == mainIdentity })
+        else {
+            check(false, "the main display is not in the arrangement currentArrangement() built")
+            return
+        }
+
+        let derivedPointWidth = Double(main.geometry.pixelWidth) / main.geometry.scale
+        let derivedPointHeight = Double(main.geometry.pixelHeight) / main.geometry.scale
+        print("        AppKit  : \(screen.frame.width)×\(screen.frame.height) points, "
+              + "backingScaleFactor \(screen.backingScaleFactor)")
+        print("        derived : \(derivedPointWidth)×\(derivedPointHeight) points, "
+              + "from \(main.geometry.pixelWidth)×\(main.geometry.pixelHeight) px at "
+              + "scale \(main.geometry.scale)")
+        check(derivedPointWidth == Double(screen.frame.width)
+                && derivedPointHeight == Double(screen.frame.height),
+              "the main display's size in points, derived from CGDisplayMode, equals AppKit's — "
+              + "an inverted scale disagrees here by scale squared",
+              actual: "\(derivedPointWidth)×\(derivedPointHeight)",
+              expected: "\(screen.frame.width)×\(screen.frame.height)")
+        check(main.geometry.scale == Double(screen.backingScaleFactor),
+              "the scale derived from pixelWidth/width equals AppKit's backingScaleFactor",
+              actual: "\(main.geometry.scale)", expected: "\(screen.backingScaleFactor)")
+
+        // `CGDisplayBounds` puts the main display at the global origin. Not a
+        // tautology of the line above: it checks the placement half of what
+        // `currentArrangement()` builds, which is read from a different API
+        // than the geometry half.
+        check(main.globalOriginX == 0 && main.globalOriginY == 0,
+              "the main display sits at the global origin, as CGDisplayBounds defines it",
+              actual: "(\(main.globalOriginX), \(main.globalOriginY))")
+
+        // Every placement is distinct in identity AND rectangle. A software
+        // mirror set shares a `CGDisplayBounds` across members with different
+        // UUIDs, so an arrangement holding both would let `route` pick a
+        // revision by list order — and `NormalizationContext.denormalize`
+        // preconditions on revision equality, making the downstream failure a
+        // trap rather than a wrong number. On a single-display machine this
+        // passes trivially; it is here so a mirrored setup fails loudly.
+        let identities = Set(arrangement.placements.map(\.geometry.displayUUID))
+        check(identities.count == arrangement.placements.count,
+              "no display appears twice in the arrangement",
+              actual: "\(identities.count) identities for \(arrangement.placements.count) placements")
+        let rectangles = arrangement.placements.map {
+            "\($0.globalOriginX),\($0.globalOriginY),\(Double($0.geometry.pixelWidth) / $0.geometry.scale),"
+                + "\(Double($0.geometry.pixelHeight) / $0.geometry.scale)"
+        }
+        check(Set(rectangles).count == rectangles.count,
+              "no two placements occupy the same global rectangle — mirrored displays are folded "
+              + "to the display being mirrored, not both kept",
+              actual: "\(Set(rectangles).count) rectangles for \(rectangles.count) placements")
+
+        // Finally: a point in the middle of the real main display routes and
+        // normalises. `currentArrangement()` feeding `normalizedPosition` is
+        // the pairing the app actually ships, and nothing else here runs it.
+        let centreX = derivedPointWidth / 2
+        let centreY = derivedPointHeight / 2
+        guard let centre = InputObserver.normalizedPosition(globalTopLeftX: centreX,
+                                                            globalTopLeftY: centreY,
+                                                            in: arrangement) else {
+            check(false, "the centre of the main display must route somewhere")
+            return
+        }
+        check(centre.position.x == 0.5 && centre.position.y == 0.5,
+              "the centre of the real main display normalises to (0.5, 0.5)",
+              actual: "(\(centre.position.x), \(centre.position.y))", expected: "(0.5, 0.5)")
+        check(centre.revision == main.geometry.revision,
+              "and carries that display's own revision")
+    }
+
+    /// **`§ 7.4` proves the default predicate is not `{ true }`. Nothing
+    /// proved it is not `{ false }` — and `{ false }` silently disables the
+    /// privacy guarantee with every test and every other check still green.**
+    ///
+    /// `IsSecureEventInputEnabled()` appears on exactly one executable line
+    /// under `Soredemo/`: the default argument of
+    /// `InputObserver.init(arrangement:epoch:secureInputIsEnabled:)`. Every
+    /// other check in `§ 7.4` passes its own predicate in, so none of them
+    /// touches that line. This one takes the default and makes the real thing
+    /// true, with no seam anywhere in the path.
+    ///
+    /// **Here, and deliberately NOT in `swift test`.** Secure event input is
+    /// held by the window server against the *enabling process* and released
+    /// when that process dies. This probe is a standalone binary that runs
+    /// and exits in under a second, so the worst case is bounded by its own
+    /// lifetime. `swift test` is one long-lived process running the whole
+    /// suite; a hang, a breakpoint or a crash-loop there is the case that
+    /// actually strands the machine's keyboard until a reboot, and "it looks
+    /// more at home in the test suite" is not worth that. The lexical half of
+    /// this claim — that the line exists and is the only one — is in
+    /// `Tests/AppSourceTests`, where it costs nothing to run.
+    ///
+    /// The window is kept microseconds wide and contains no run loop, no
+    /// printing, no I/O, no permission-requiring call and no `check()`. Every
+    /// assertion below runs after secure input has been released, because a
+    /// failing `check` must never be the thing that leaves it on.
+    @MainActor
+    static func theProductionSecureInputPredicateIsRead() {
+        check(!IsSecureEventInputEnabled(),
+              "precondition: secure input is off before this check starts — otherwise the toggle "
+              + "below measures someone else's state and the release at the end is not ours to make")
+        guard !IsSecureEventInputEnabled() else { return }
+
+        // Everything that can be built, built first. Nothing but the three
+        // calls between Enable and Disable happens inside the window.
+        let (arrangement, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        let collector = Collector()
+        // DEFAULT-INITIALISED. No `secureInputIsEnabled:` argument — that is
+        // the entire point of this check, and passing one here would make it
+        // a slower copy of § 7.4.
+        let observer = InputObserver(arrangement: arrangement, epoch: epoch)
+        observer.setObservationSink(collector.append)
+        let event = mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270), stamp: Minting.hostNow())
+
+        var released = false
+        func release() {
+            guard !released else { return }
+            DisableSecureEventInput()
+            released = true
+        }
+
+        // ---- window opens
+        EnableSecureEventInput()
+        defer { release() }
+        let readInsideWindow = IsSecureEventInputEnabled()
+        observer.handle(type: .mouseMoved, event: event)
+        let observations = collector.observations
+        let diagnostics = observer.diagnostics
+        release()
+        // ---- window closed
+
+        check(readInsideWindow,
+              "EnableSecureEventInput() actually took effect — without this the rest measures nothing")
+        check(!IsSecureEventInputEnabled(),
+              "the probe released secure input again before asserting anything")
+        check(observations.isEmpty,
+              "with the PRODUCTION predicate and secure input genuinely enabled, the observer emitted "
+              + "nothing — the default argument is IsSecureEventInputEnabled(), not { false }",
+              actual: "\(observations.count) observations", expected: "0")
+        check(diagnostics.eventsSuppressedBySecureInput == 1,
+              "and the suppressed event was counted, so the silence is attributable",
+              actual: "\(diagnostics.eventsSuppressedBySecureInput)", expected: "1")
+        check(diagnostics.pointerSamples == 0,
+              "no pointer sample was recorded even in the diagnostics",
+              actual: "\(diagnostics.pointerSamples)")
     }
 }
