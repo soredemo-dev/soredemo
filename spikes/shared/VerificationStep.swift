@@ -95,6 +95,34 @@ struct VerificationStep {
     /// something must check it. If it states what was configured before the
     /// run began, it is a `given`.
     ///
+    /// **A `given` may only appear before this step's `expect`, and a scan
+    /// enforces that.** `theGivenBlockCannotHoldAMeasuredResult` in
+    /// `Tests/AppSourceTests` fails the build otherwise.
+    ///
+    /// The rule is about *position*, not about which labels are allowed. A
+    /// name whitelist is an open set: it gets widened, each time for a
+    /// legitimate new source of provenance, until it permits everything —
+    /// which is `AGENTS.md`'s "a hand-written list rots by omission", one
+    /// scope over. Position cannot be widened by argument. Configuration
+    /// exists before the run; a measured result does not exist until after
+    /// it, so the abuse this guards against — *measure something, then park it
+    /// here rather than assert it* — is syntactically unreachable.
+    ///
+    /// It also settles a question that was argued out by hand: **"which
+    /// `AXElementSource` actually ran" is not a `given`.** Under any dynamic
+    /// selection that value is only known after the action, so the position
+    /// rule refuses it here and forces it to be an expectation with an
+    /// assertion. That was the right answer and it took a conversation; now it
+    /// falls out of the structure.
+    ///
+    /// **Why this was scanned immediately rather than left to the ledger.**
+    /// The test is whether a violation announces itself. Abuse of `given`
+    /// **passes, and prints** — there is no trigger, so "wait until it happens
+    /// once" is waiting for someone to happen to look. This project has the
+    /// measurement: Spike B's step 2 kept its four assertions in a `print`
+    /// block the harness could not read, and it passed. What found it was a
+    /// migration, not the guard.
+    ///
     /// Before this existed, `expect` carried both kinds, and the provenance
     /// rows — which no assertion can discharge — were the majority in some
     /// steps. Keeping them in `expect` under the new guard would have meant
@@ -105,7 +133,12 @@ struct VerificationStep {
         let width = rows.map(\.0.count).max() ?? 0
         print("\n---- GIVEN, the setup this run happened under (recorded, asserted nowhere) ----")
         for (label, value) in rows {
-            print("  \(label.padding(toLength: width, withPad: " ", startingAt: 0))  \(value)")
+            // The prefix is per row, not only on the header. A row quoted out
+            // of this block — into a report, a commit message, a message to
+            // someone — otherwise looks exactly like a discharged expectation.
+            // Printed is not checked, and the line has to say so wherever it
+            // ends up.
+            print("  [not checked] \(label.padding(toLength: width, withPad: " ", startingAt: 0))  \(value)")
         }
         print("-------------------------------------------------------------------------------")
     }
