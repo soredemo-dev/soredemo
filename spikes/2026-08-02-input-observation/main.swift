@@ -98,6 +98,21 @@ nonisolated final class Collected: @unchecked Sendable {
 /// spike's own tap being disabled.
 nonisolated(unsafe) var stallMilliseconds = 0
 nonisolated(unsafe) var tapOptionUnderTest: CGEventTapOptions = .listenOnly
+/// When true, `stallingTapCallback` stalls only on `.leftMouseDown`.
+///
+/// **Step 5's sweep stalls on every `mouseMoved`, and that is the wrong
+/// distribution.** Pointer motion arrives at 60–120 Hz — one event every 8–16
+/// ms — so stalling 20 ms on each of them cannot keep up by construction: the
+/// queue grows without bound and the system disables a tap that is
+/// persistently overloaded. That is a different mechanism from "one callback
+/// took too long", and step 5 measured the first while its conclusion was
+/// written about the second.
+///
+/// Real AX work happens on **clicks**, one to three seconds apart. Spike A's
+/// worst hit-test of 125.47 ms at one click every two seconds is a 6% duty
+/// cycle. Whether that survives is the question this task's design actually
+/// turns on, and step 5 never asked it.
+nonisolated(unsafe) var stallOnlyOnClicks = false
 nonisolated(unsafe) var timeoutDisableInstants: [(disabled: Int64, reArmed: Int64)] = []
 nonisolated(unsafe) var pendingDisableAt: Int64?
 nonisolated(unsafe) var callbacksSeen = 0
@@ -126,7 +141,9 @@ nonisolated func stallingTapCallback(_ proxy: CGEventTapProxy, _ type: CGEventTy
         return nil
     }
     if type != .mouseMoved { unexpectedCallbackTypes.append(type.rawValue) }
-    if stallMilliseconds > 0 { usleep(UInt32(stallMilliseconds) * 1000) }
+    if stallMilliseconds > 0 && (!stallOnlyOnClicks || type == .leftMouseDown) {
+        usleep(UInt32(stallMilliseconds) * 1000)
+    }
     return Unmanaged.passUnretained(event)
 }
 
@@ -143,6 +160,7 @@ enum SpikeC {
         case 3: theKeyboardFilter()
         case 4: secureInput()
         case 5: tapTimeoutThreshold()
+        case 6: clickRateStallAndReArm()
         default:
             print("""
             usage: SoredemoSpikeC <step>
@@ -152,6 +170,9 @@ enum SpikeC {
               4  secure input      — focus a password field, wiggle the mouse, dismiss it
               5  tap timeout       — how long may a callback take before the OS
                                     disables the tap? Move the mouse continuously.
+              6  click-rate stall  — the SAME stall, but only on clicks, at the
+                                    rate AX work actually happens. Then: does a
+                                    re-armed tap survive? Click ~12 times.
 
             Run one at a time and record each step's output separately. Step 4
             changes what the system does with keyboard events while it runs.
@@ -395,6 +416,162 @@ enum SpikeC {
 
         step.finish(remedy: "If a rung shows zero callbacks the mouse stopped moving there; "
                             + "re-run before reading the threshold.")
+    }
+
+    /// Step 6 — the two questions step 5 could not answer, and one it answered
+    /// about the wrong mechanism.
+    ///
+    /// **Part A: the click-rate stall.** Step 5 found the tap disabled at a
+    /// 20 ms stall and the design conclusion "AX must leave the callback
+    /// thread" was drawn from it. But step 5 stalls on every `mouseMoved` at
+    /// 60–120 Hz, which cannot keep up at 20 ms by construction — that is
+    /// sustained overload, not a single slow callback, and real taps
+    /// (Karabiner, BetterTouchTool) do far more than 20 ms of work per event
+    /// and run fine. This part stalls **only on `.leftMouseDown`**, at 125 ms,
+    /// which is Spike A's measured worst hit-test at the rate clicks actually
+    /// arrive. If the tap survives, the conclusion drawn from step 5 was drawn
+    /// from the wrong distribution.
+    ///
+    /// **Part B: does a re-armed tap stay armed?** The only question that
+    /// genuinely requires a real timeout-induced disable, because it is the
+    /// only one whose answer could depend on *why* the tap was disabled — a
+    /// backlog may still be queued, or the system may hold a record. It
+    /// decides whether "re-arm" is a sufficient strategy or has to become
+    /// "re-arm with backoff". Induced with the every-event stall, which step 5
+    /// showed reliably produces a disable.
+    ///
+    /// **What this step deliberately does NOT test:** whether the product's
+    /// polling detects a real disable through a real `CFMachPort`. That needs
+    /// no timeout at all — `CGEventTapEnable(tap, false)` disables through the
+    /// same mechanism and the detector reads the same flag off the same port.
+    /// Keeping it out of here is what lets the product ship with no stall seam,
+    /// and a seam is an opportunity to verify the wrong implementation.
+    @MainActor
+    static func clickRateStallAndReArm() {
+        var step = VerificationStep(name: "6 — a click-rate stall, and whether a re-arm survives")
+        step.begin(repositoryPath: repositoryPath)
+        step.expect([
+            ("part A stall", "125 ms, on .leftMouseDown ONLY — Spike A's worst hit-test"),
+            ("part A duration", "30 s; click about a dozen times, keep the mouse moving between"),
+            ("part A asks", "does a 6% duty cycle disable the tap, or was step 5's 20 ms a "
+                            + "sustained-overload artefact of stalling every pointer event?"),
+            ("part B", "induce a disable with an every-event stall, re-arm it, then poll: "
+                       + "does it STAY armed, or die again immediately?"),
+            ("part B decides", "whether 're-arm' suffices or must become 're-arm with backoff'"),
+        ])
+
+        let mask = (1 << CGEventType.mouseMoved.rawValue)
+            | (1 << CGEventType.leftMouseDown.rawValue)
+            | (1 << CGEventType.leftMouseUp.rawValue)
+
+        func runTap(seconds: Int, stall: Int, clicksOnly: Bool,
+                    poll: (CFMachPort, Int) -> Void) -> (callbacks: Int, enabledAtEnd: Bool)? {
+            stallMilliseconds = stall
+            stallOnlyOnClicks = clicksOnly
+            timeoutDisableInstants.removeAll()
+            guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+                                               options: .listenOnly, eventsOfInterest: CGEventMask(mask),
+                                               callback: { proxy, type, event, info in
+                                                   callbacksSeen += 1
+                                                   return stallingTapCallback(proxy, type, event, info)
+                                               },
+                                               userInfo: nil) else { return nil }
+            activeTap = tap
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            callbacksSeen = 0
+            for elapsed in 0..<seconds {
+                CFRunLoopRunInMode(.defaultMode, 1, false)
+                poll(tap, elapsed)
+            }
+            let enabled = CGEvent.tapIsEnabled(tap: tap)
+            let calls = callbacksSeen
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CFMachPortInvalidate(tap)
+            activeTap = nil
+            stallMilliseconds = 0
+            stallOnlyOnClicks = false
+            return (calls, enabled)
+        }
+
+        // ---- part A ----
+        print("\n>>> PART A — click about a DOZEN times over 30 seconds, and keep the mouse moving "
+              + "between clicks. One beep starts, two end.")
+        for remaining in stride(from: 3, to: 0, by: -1) {
+            print("    starting in \(remaining)…")
+            CFRunLoopRunInMode(.defaultMode, 1, false)
+        }
+        VerificationStep.beepStart()
+        var firstDisabledSecondA: Int?
+        let a = runTap(seconds: 30, stall: 125, clicksOnly: true) { tap, elapsed in
+            if firstDisabledSecondA == nil, !CGEvent.tapIsEnabled(tap: tap) {
+                firstDisabledSecondA = elapsed
+            }
+        }
+        VerificationStep.beepStop()
+        guard let a else {
+            step.preconditionFailed("tapCreate returned nil — Input Monitoring is not granted to "
+                                    + "video.soredemo.SpikeC.")
+        }
+        print(String(format: "    part A: %d callbacks, enabled at end: %@, first seen disabled at: %@",
+                     a.callbacks, a.enabledAtEnd ? "yes" : "NO",
+                     firstDisabledSecondA.map { "t+\($0)s" } ?? "never"))
+
+        // ---- part B ----
+        print("\n>>> PART B — keep the mouse moving for 20 more seconds. No clicking needed.")
+        VerificationStep.beepStart()
+        var reArmSurvivedSeconds = 0
+        var reArmedAt: Int?
+        let b = runTap(seconds: 20, stall: 50, clicksOnly: false) { tap, elapsed in
+            if CGEvent.tapIsEnabled(tap: tap) {
+                if reArmedAt != nil { reArmSurvivedSeconds += 1 }
+            } else if reArmedAt == nil {
+                // Induced disable observed. Re-arm once, then stop stalling so
+                // the question is "does a re-armed tap stay armed", not "does
+                // it survive continued overload" — a different question, and
+                // the strategy under test is re-arm, not re-arm-and-keep-abusing.
+                CGEvent.tapEnable(tap: tap, enable: true)
+                stallMilliseconds = 0
+                reArmedAt = elapsed
+            }
+        }
+        VerificationStep.beepStop()
+
+        guard a.callbacks > 0 else {
+            step.didNotHappen("no callback arrived in part A — nothing was clicked and the mouse "
+                              + "was not moved, so neither part measured anything.")
+        }
+        print(String(format: "    part B: re-armed at %@, then stayed enabled for %d of the "
+                             + "remaining seconds, enabled at end: %@",
+                     reArmedAt.map { "t+\($0)s" } ?? "never — no disable was induced",
+                     reArmSurvivedSeconds, (b?.enabledAtEnd ?? false) ? "yes" : "NO"))
+
+        step.check("part A saw \(a.callbacks) callbacks — the stall path was exercised. Zero would "
+                   + "mean nothing was clicked or moved, not that the tap survived",
+                   a.callbacks > 0)
+        step.check("PART A: a 125 ms stall on CLICKS ONLY — Spike A's worst hit-test at the rate "
+                   + "clicks actually arrive — left the tap "
+                   + (a.enabledAtEnd ? "ENABLED. Step 5's 20 ms figure was a sustained-overload "
+                                       + "artefact of stalling every pointer event at 60–120 Hz, and "
+                                       + "the budget for a per-click cost is larger than it"
+                                     : "DISABLED at \(firstDisabledSecondA.map { "t+\($0)s" } ?? "?"). "
+                                       + "A single slow callback is enough, so AX must leave the "
+                                       + "callback thread and step 5's conclusion holds for the "
+                                       + "right reason"),
+                   a.enabledAtEnd)
+        if let reArmedAt {
+            step.check("PART B: after a real timeout-induced disable at t+\(reArmedAt)s, a single "
+                       + "CGEventTapEnable(true) left the tap enabled for \(reArmSurvivedSeconds) "
+                       + "further seconds — so re-arm is sufficient and does not need backoff",
+                       reArmSurvivedSeconds > 0 && (b?.enabledAtEnd ?? false))
+        } else {
+            step.check("PART B did not run: no disable was induced in 20 s of every-event stalling, "
+                       + "so whether a re-armed tap survives is UNMEASURED. Not a pass",
+                       false)
+        }
+        step.finish(remedy: "If part A shows few callbacks, click more and re-run before reading it.")
     }
 
     // MARK: - shared scaffolding
