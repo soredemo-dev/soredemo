@@ -25,6 +25,36 @@
 - **Stage explicit paths.** Never `git add -A` — subagents run in this checkout and it has already once swallowed another task's files.
 - Count tests with `grep -oE "^✔ Test run with ([0-9]+) tests?"` — a hardcoded plural drops single-test targets and has already put a wrong number into a committed document here.
 
+## Progress — read this, not the step checkboxes
+
+**The per-step `- [ ]` checkboxes below were never maintained.** All 86 sit unchecked while seven
+tasks are done, so anything reading them as progress reads 0%. This happened in Phase 1's plan too,
+was found and fixed there, and then recurred here — which is why the table is the first thing in the
+document rather than a footnote.
+
+| Task | | Landed at | Note |
+| --- | --- | --- | --- |
+| 1 · `BootEpoch` and epoch-stamped time | ☑ | `0f270ca` + `16747f8` | `GeometryRevision` on the time axis; two preconditions covered out of process |
+| 2 · `EvidenceRef` carries the epoch | ☑ | `4489514` … `f6581a1` | first change to move bytes Phase 8's approval gate rests on |
+| 3 · observation records and the log's schema | ☑ | `67d3eb0` + `1ea6771` | `.sortedKeys` proven by a deterministic assertion, not a 24-way sample |
+| 4 · segment table | ☑ | `0648e4d` + `795f06c` | decode bypassed the validating initialiser; found by review, not by tests |
+| 4.5 · decode validation on the live path | ☑ | `bd7d480` | two types, not the seven first scoped — reachability traced rather than asserted |
+| 5 · `Minting` gains epoch and host clock | ☑ | `f999630` + `8e37617` | sleep gap 59.68 h against 176 h uptime |
+| 5.5 · determinism list gaps | ☑ | `8e7aa6a` | and four more found, deferred to 11.5 |
+| 6 · `capture-permissions` | ☑ | `0cde8bb` + `75d8e54` | the blind ordering caught a dump measuring the terminal |
+| 7 · `capture-source` | ☑ | `ed86e48` … `52b3763` | buffer is display-sized, proven on two windows; picker restriction proven with a red first |
+| 8 · `capture-stream` + `audio-tracks` | ☐ | — | in flight |
+| 9 · `input-observation` | ☐ | — | |
+| 10 · `ax-observation` | ☐ | — | |
+| 11 · `observation-log` | ☐ | — | |
+| 11.5 · architecture rule 8 | ☐ | — | plus the four gaps from 5.5 |
+| 12 · close out | ☐ | — | |
+
+**324 tests green** across nine targets; cross-boundary probe **28/28**. Count with
+`swift test 2>&1 | grep -oE "^✔ Test run with ([0-9]+) tests?" | grep -oE '[0-9]+' | paste -sd+ - | bc`.
+
+---
+
 ## Three things Phase 1 did not have
 
 Phase 1 ran nineteen tasks through subagents with one objective gate each: `swift test`. **Phase 2
