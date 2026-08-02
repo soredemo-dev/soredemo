@@ -132,6 +132,9 @@ enum CrossBoundaryProbe {
         print("3. CGGeometryBridge")
         bridgeConverts()
 
+        print("4. boot epoch and the host clock")
+        epochAndClock()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -319,5 +322,43 @@ enum CrossBoundaryProbe {
         check(geometry.pixels(from: points) == PixelRect(x: 24, y: 68, width: 1600, height: 1200),
               "pointRect(from:) yields points, which scale to different pixels",
               actual: "\(geometry.pixels(from: points))")
+    }
+
+    /// `Minting.bootEpoch()`, `hostNow()` and `continuousNow()` — Task 5. No
+    /// test target can reach these; they read `sysctlbyname` and
+    /// `mach_absolute_time`/`mach_continuous_time` directly, on the app side
+    /// of the boundary `Tests/AppSourceTests` enforces.
+    ///
+    /// **Left in a shape Task 6 can extend**: one `print` header per numbered
+    /// section, one function per section, `check(_:_:actual:expected:)` for
+    /// each assertion. Task 6's permission checks are the next section after
+    /// this one, following the same pattern.
+    @MainActor
+    static func epochAndClock() {
+        check(Minting.bootEpoch() == Minting.bootEpoch(),
+              "bootEpoch is stable across reads")
+
+        let before = Minting.hostNow()
+        usleep(1000)
+        let after = Minting.hostNow()
+        check(after.rawValue > before.rawValue,
+              "hostNow advances",
+              actual: "\(after.rawValue) vs \(before.rawValue)")
+
+        let hostTime = Minting.hostNow()
+        let continuousTime = Minting.continuousNow()
+        check(continuousTime.rawValue >= hostTime.rawValue,
+              "continuousNow is at or ahead of hostNow",
+              actual: "continuousNow=\(continuousTime.rawValue) hostNow=\(hostTime.rawValue)")
+
+        // The gap IS the sleep (D2-4): mach_absolute_time stops during sleep,
+        // mach_continuous_time does not, so continuousNow - hostNow is exactly
+        // how long this machine has slept since boot. Printed, not asserted to
+        // a value — the report quotes it, and a fresh boot with a gap of zero
+        // is a legitimate (if suspicious) reading, not a probe failure.
+        let gapNanos = continuousTime.rawValue - hostTime.rawValue
+        let gapHours = Double(gapNanos) / 1e9 / 3600
+        print("        continuousNow - hostNow = \(gapNanos) ns (\(String(format: "%.2f", gapHours)) h)")
+        print("        bootEpoch = \(Minting.bootEpoch())")
     }
 }
