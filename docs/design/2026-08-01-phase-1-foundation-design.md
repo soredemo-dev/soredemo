@@ -212,9 +212,15 @@ enforcement is D-P1's target boundaries, not the directory layout.
 
 ```
 soredemo-main/
-├── Package.swift              SoredemoCore · swift-tools-version: 6.4 · .macOS(.v26)
+├── Package.swift              SoredemoCore · swift-tools-version: 6.3 · .macOS(.v26)
 ├── Sources/{Geometry,Timeline,Graph,Framing,Variants,Project}/
+├── Sources/architecture-checker/   executableTarget · the plugin's tool · no plugin on itself
+├── Sources/CheckerLexer/      the checker's code view, shared with Tests/AppSourceTests
+│                              · no plugin on it either: that would close a dependency cycle
 ├── Tests/{Geometry,Timeline,Graph,Framing,Variants,Project}Tests/
+├── Tests/DeterminismTests/    rule 3, over link-time symbols
+├── Tests/CheckerLexerTests/   the code view, tested directly for the first time
+├── Tests/AppSourceTests/      rule 5 and its determinism twin, over Soredemo/
 ├── Plugins/ArchitectureCheck/
 ├── Metal/                     .metal sources, outside the Swift tree (Phase 2 render-core)
 ├── scripts/                   entitlements, bundle/release scripts (Phase 7)

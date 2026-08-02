@@ -119,6 +119,30 @@ func blankingPreservesColumnCount(line: String) {
     #expect(!view[0].contains("a"))     // the literal text around it is gone
 }
 
+/// The `.paren` frame, whose ONLY job is to make a `)` that closes a nested call
+/// pop the paren rather than the interpolation. Nothing else in this file
+/// distinguishes it: disabling the push leaves every other test green.
+///
+/// It is not cosmetic. Without it the first `)` inside the interpolation ends the
+/// interpolation early, and everything after it on that line goes back to being
+/// blanked string content — so a banned name sitting after a nested call, in code
+/// the compiler really does evaluate, becomes INVISIBLE to every rule. That is a
+/// miss on source that compiles, which is the one failure direction the design
+/// doc does not treat as survivable.
+@Test func aNestedCallInsideAnInterpolationDoesNotEndTheInterpolation() {
+    let view = SwiftSourceLexer.codeViewLines(of: "let s = \"w=\\(round(scale) + CGRect.zero.width)\"\n")
+    #expect(view[0] == "let s =      round(scale) + CGRect.zero.width  ")
+    #expect(view[0].contains("CGRect"),
+            "the nested call's `)` ended the interpolation and hid real code")
+}
+
+/// The same mechanism at depth, pinned exactly: three closing parens in a row,
+/// all of them belonging to the call and none to the interpolation.
+@Test func nestedParenthesesInsideAnInterpolationBalanceToAnyDepth() {
+    #expect(SwiftSourceLexer.codeViewLines(of: "let s = \"\\(f(g(h(1)))) tail\"\n")[0]
+            == "let s =    f(g(h(1)))       ")
+}
+
 /// The mirror image, and the reason the escape must carry the delimiter's exact
 /// pound count: inside `#"…"#` the sequence `\(` is ORDINARY TEXT, not an
 /// interpolation. Reading it as one would put the scanner into code inside a
@@ -160,10 +184,22 @@ func blankingPreservesColumnCount(line: String) {
     #expect(view[1] == "import AppKit", "the quote inside `…` swallowed the rest of the file")
 }
 
-/// Nor do the comment openers. Same reasoning, different opener.
+/// Nor do the comment openers. Same reasoning, different opener — and the same
+/// insufficiency as above, which is why the assertion is on the line itself.
+///
+/// This was measured, not assumed. Against a copy of the lexer with the
+/// raw-identifier branch disabled, the next-line assertion alone passes for two
+/// of these three fixtures: `//` is popped by the newline, and `#"` is closed by
+/// the defensive single-line-string close. Only `/*` survives a newline and so
+/// only `/*` discriminates. Two thirds of the fixtures were passing vacuously,
+/// and a one-of-three red in the mutation log is what that looks like from the
+/// outside.
 @Test(arguments: ["`a//b`", "`a/*b`", "`a#\"b`"])
 func commentAndRawStringOpenersInsideARawIdentifierAreContent(identifier: String) {
     let view = SwiftSourceLexer.codeViewLines(of: "let \(identifier) = 1\nimport AppKit\n")
+    // Each opener is two non-identifier characters between `a` and `b`, so all
+    // three normalise to the same interior.
+    #expect(view[0] == "let `a__b` = 1", "\(identifier) blanked the rest of its own line")
     #expect(view[1] == "import AppKit", "\(identifier) swallowed the rest of the file")
 }
 

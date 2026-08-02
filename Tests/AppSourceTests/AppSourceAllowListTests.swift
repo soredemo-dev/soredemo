@@ -13,9 +13,27 @@ import Testing
 // literal does not fire. That sharing is the whole point of the `CheckerLexer`
 // target: a second copy of the lexer written here would start at round zero of
 // the four evasion-closing rounds the real one has been through, and would then
-// drift away from the enforcement it exists to mirror. A scanner that fires on a
-// comment is a scanner people route around, and every file below has prose about
-// `CGRect` and `UUID` in it precisely because that is what those files are for.
+// drift away from the enforcement it exists to mirror.
+//
+// A scanner that fires on a comment is a scanner people route around. Being
+// precise about what that buys TODAY, because the obvious-sounding version of
+// this sentence is false: the files actually scanned here — everything under
+// `Soredemo/` except the one permitted file — carry almost no prose about these
+// names. `ProjectDocument.swift:146` mentions "a UUID collision" in a `///`
+// line, and that is the lot; it would not match `UUID(` in any case. The two
+// files thick with such prose are `CGGeometryBridge.swift` and `Minting.swift`,
+// which are the PERMITTED files and are never scanned at all.
+//
+// So comment-immunity is not load-bearing on today's sources. What it buys is
+// that the rule stays DOCUMENTABLE: the first person to write
+// `// mint identifiers in Minting, never `UUID()` here` at the top of
+// `ProjectDocument.swift` — the most natural thing to write, and a thing that
+// makes the codebase better — would trip a naive scan on the documentation of
+// the rule itself, and the fix they would reach for is deleting the check. The
+// evidence that it holds is the mutation pair in this task's report, not the
+// current contents of these files: the same banned text was placed in a `//`
+// comment, a `/* */` comment, a plain string, a raw string and a `"""` string,
+// and the scan stayed green in all five.
 //
 // SUBSTRING, NOT TOKEN EQUALITY, deliberately — settled for rule 2 in Task 3.
 // `contains("CGRect")` matches `` `CGRect` ``, a backtick-escaped identifier
@@ -80,23 +98,34 @@ func pathRelativeToRepositoryRoot(_ url: URL) -> String {
 
 /// One violation, in the `file:line:` form the checker prints, so a failure here
 /// reads the same way a plugin failure does.
+/// `permittedPath` is repository-relative and matched WHOLE, not by file name.
+///
+/// Matching on `lastPathComponent` would allow-list the file wherever it moved
+/// to. `#require(count == 1)` blocks a *second* file of that name, so the hole is
+/// relocation rather than duplication: moving `Minting.swift` into
+/// `Soredemo/UI/` would keep it permitted while destroying the thing the test
+/// stands for — that these values enter at one place you can point at. The
+/// permitted path is part of the claim, so it is part of the assertion.
 func violations(
     banned: [String],
-    permittedFile: String,
+    permittedPath: String,
     in files: [URL]
 ) throws -> [String] {
-    // The permitted file must exist. If it were renamed away, this scan would
-    // still pass — the rename direction is the safe one, because the file's
-    // contents would then be scanned and fail loudly — but the CLAIM the test
-    // stands for ("this happens at exactly one audited place") would be about a
-    // place that no longer exists.
-    let permitted = files.filter { $0.lastPathComponent == permittedFile }
+    // The permitted file must exist AT THAT PATH. If it were renamed or moved
+    // away, this scan would still pass — the rename direction is the safe one,
+    // because the file's contents would then be scanned and fail loudly — but the
+    // CLAIM the test stands for would be about a place that no longer exists.
+    let permitted = files.filter { pathRelativeToRepositoryRoot($0) == permittedPath }
     try #require(permitted.count == 1,
-                 "expected exactly one \(permittedFile) under \(appSourceDirectory.path(percentEncoded: false)), found \(permitted.count)")
+                 """
+                 expected exactly one \(permittedPath), found \(permitted.count). \
+                 If it moved, move the allow-list entry with it — the path is part \
+                 of the claim, not an implementation detail of the scan.
+                 """)
 
-    let scanned = files.filter { $0.lastPathComponent != permittedFile }
+    let scanned = files.filter { pathRelativeToRepositoryRoot($0) != permittedPath }
     try #require(!scanned.isEmpty,
-                 "only \(permittedFile) exists — nothing outside the allow-list was scanned")
+                 "only \(permittedPath) exists — nothing outside the allow-list was scanned")
 
     var found: [String] = []
     var linesScanned = 0
@@ -121,13 +150,19 @@ func violations(
 /// this project's own types on entry and back out on exit. Nothing in between
 /// speaks in pixels (ARCHITECTURE.md D3).
 ///
-/// The four names are the same four the plugin bans, mirrored rather than shared
-/// because they are two rules over two different bodies of source and either may
-/// change without the other.
+/// **The mirror: `ArchitectureChecker.bannedCGTypes` in
+/// `Sources/architecture-checker/main.swift` holds the same four names for the
+/// package.** `grep bannedCGTypes` finds both sides, which is the point of naming
+/// it here. They are mirrored rather than shared deliberately — two rules over
+/// two different bodies of source, either of which may gain a name the other must
+/// not — but a fifth banned type means editing both, and nothing enforces that.
+/// The only target both sides can reach is `CheckerLexer`, which is the one
+/// target outside plugin enforcement, so a shared list would sit in the
+/// least-guarded place in the package.
 @Test func coreGraphicsGeometryTypesAppearOnlyInTheBridge() throws {
     let found = try violations(
         banned: ["CGRect", "CGPoint", "CGSize", "CGFloat"],
-        permittedFile: "CGGeometryBridge.swift",
+        permittedPath: "Soredemo/Capture/CGGeometryBridge.swift",
         in: try appSourceFiles())
 
     #expect(found.isEmpty,
@@ -160,7 +195,7 @@ func violations(
 @Test func ambientTimeRandomnessAndHashingEnterOnlyThroughMinting() throws {
     let found = try violations(
         banned: ["UUID(", "Date(", "SHA256", "SystemRandomNumberGenerator"],
-        permittedFile: "Minting.swift",
+        permittedPath: "Soredemo/Support/Minting.swift",
         in: try appSourceFiles())
 
     #expect(found.isEmpty,
