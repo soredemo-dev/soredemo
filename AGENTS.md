@@ -232,6 +232,26 @@ impossible, and then does not check it on the only path where that state arrives
 And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
 for a question the invariant says cannot arise.
 
+**Invert every hand-written check list.** A list of *what we check* rots by **omission**, and an
+omission is silent. A list of *what we skip* rots by **inclusion**, and an inclusion is loud. Write
+the second.
+
+Two live instances in this repository, both currently the wrong way round:
+
+- **The cross-boundary probe compiles four of the app's eight files**, from a hand-written include
+  list. A file added to the app is simply absent from the probe, and nothing says so — that is how
+  a closure-isolation defect in `SoredemoApp.swift` reached `xcodebuild` unchallenged. Inverted:
+  compile `Soredemo/**/*.swift` and enumerate the **exclusions**, each with a reason. A new file
+  then either compiles or fails loudly.
+- **The determinism rule's banned-symbol list went stale three times in one session** —
+  `mach_continuous_time`, `NSUUID`, `clock` — and every time the missing symbol was the *sibling of
+  one already banned*. Adding three more names does not change that shape; see the next entry for
+  what does.
+
+The general form: when a check enumerates what it looks at, the failure mode is a thing nobody
+listed. When it enumerates what it ignores, the failure mode is a thing somebody has to write down.
+Only the second one announces itself.
+
 **Every output a human is asked to read starts with an identity block.** Three things have gone
 wrong in this project's manual verification, and all three were the same omission wearing different
 clothes:
