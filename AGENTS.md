@@ -597,6 +597,26 @@ with no permission and no human: assert they agree, **and** assert they disagree
 wrong input, so the agreement is a fact about the derivations and not about a digest that ignores
 them. A landmine someone has to remember is worse than a red light.
 
+**A rule with more than two instances should become a table, and new instances go in the table
+rather than in this file.** Measured over this project's own history, rules have two fates:
+
+| Rule | What it became | Held? |
+| --- | --- | --- |
+| a hand-written list rots by omission | the exemption list, as an artefact | held |
+| a number in a report must be executable | `scripts/count-tests.sh` | held |
+| a vacuous pass must have its own vocabulary | `VerificationStep.didNotHappen` and its exit code | held |
+| a check nobody watched fail is not a check | prose, here | **missed twice in Task 9** |
+| a gap is recorded as an interval, not a count | prose, here | **missed once in Task 10** |
+
+The three that became artefacts have not failed again. The two that stayed prose were missed by
+authors who had the correct implementation open one file away — Task 10's author had
+`SecureInputInterval` in the neighbouring file and prose did not send them to look at it.
+
+This file is over six hundred lines. Nobody re-reads six hundred lines at the start of a task, and
+that length is itself the evidence. A table is checked against itself: the missing sixth row is
+visible, and a row that disagrees with its neighbours is conspicuous. The first such table is
+`docs/ARCHITECTURE.md`'s **D6a — the gap register**.
+
 ---
 
 ## Architecture rules — enforced, not aspirational

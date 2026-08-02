@@ -59,6 +59,78 @@ nonisolated final class Collected: @unchecked Sendable {
     }
 }
 
+
+// ------------------------------------------------- Step 5: the timeout threshold
+
+/// Where a `.listenOnly` tap's callback budget actually is, in milliseconds.
+///
+/// **Why this is a spike and not a production observation.** `AXObserver.chain`
+/// runs inside `InputObserver`'s tap callback, and Spike A measured the worst
+/// hit-test at **125.47 ms**, with 14 of 118 exceeding one 60 fps frame. If the
+/// system's callback budget is below that, the OS disables the tap
+/// (`kCGEventTapDisabledByTimeout`) and every event until it is re-armed is
+/// gone. The shipped design defers that question to "observe it in the field" —
+/// and the field is the middle of a real recording, where what is lost is real
+/// evidence.
+///
+/// **The header does not settle it.** `CGEvent.h:322` says only "If a tap
+/// becomes unresponsive or a user requests taps be disabled, an appropriate
+/// `kCGEventTapDisabled...` event is passed to the registered callback", with
+/// no exemption for `.listenOnly`, and `kCGEventTapOptionListenOnly` is
+/// documented only as "a passive listener". Checked before writing this: it is
+/// neither confirmed nor excluded, so it is a measurement.
+///
+/// **The threshold decides the design, and the three outcomes are not close.**
+///
+///     ~1 s      the concern disappears quantitatively; AX stays in the callback
+///     ~200 ms   the 12% tail clips it occasionally; "observe it" is defensible
+///     ~100 ms   it must move off the callback thread NOW, not later
+///
+/// It also measures the second thing the count cannot: **how long the tap stays
+/// disabled**. If the disable-to-re-arm interval is milliseconds, recording it
+/// as an interval is enough. If it is hundreds of milliseconds, the events lost
+/// inside it are numerous enough that a segment spanning one may have to be
+/// refused outright rather than annotated — and that too is decided by a
+/// number, not by judgement.
+///
+/// Costs nothing to be wrong about: no permission beyond the pointer tap this
+/// spike already has, a throwaway process, and the worst failure is this
+/// spike's own tap being disabled.
+nonisolated(unsafe) var stallMilliseconds = 0
+nonisolated(unsafe) var tapOptionUnderTest: CGEventTapOptions = .listenOnly
+nonisolated(unsafe) var timeoutDisableInstants: [(disabled: Int64, reArmed: Int64)] = []
+nonisolated(unsafe) var pendingDisableAt: Int64?
+nonisolated(unsafe) var callbacksSeen = 0
+nonisolated(unsafe) var unexpectedCallbackTypes: [UInt32] = []
+nonisolated(unsafe) var activeTap: CFMachPort?
+
+/// The tap callback under test. Stalls for `stallMilliseconds`, exactly as an
+/// AX hit-test inside `InputObserver`'s callback would.
+nonisolated func stallingTapCallback(_ proxy: CGEventTapProxy, _ type: CGEventType,
+                                      _ event: CGEvent,
+                                      _ userInfo: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    if type == .tapDisabledByTimeout {
+        pendingDisableAt = Minting.hostNow().rawValue
+        if let tap = activeTap { CGEvent.tapEnable(tap: tap, enable: true) }
+        // The re-arm instant is taken immediately AFTER tapEnable returns, so
+        // the recorded interval is the window this process could not observe,
+        // not the time it took to notice.
+        if let disabled = pendingDisableAt {
+            timeoutDisableInstants.append((disabled: disabled, reArmed: Minting.hostNow().rawValue))
+            pendingDisableAt = nil
+        }
+        return nil
+    }
+    if type == .tapDisabledByUserInput {
+        unexpectedCallbackTypes.append(type.rawValue)
+        return nil
+    }
+    if type != .mouseMoved { unexpectedCallbackTypes.append(type.rawValue) }
+    if stallMilliseconds > 0 { usleep(UInt32(stallMilliseconds) * 1000) }
+    return Unmanaged.passUnretained(event)
+}
+
+
 @main
 enum SpikeC {
 
@@ -70,6 +142,7 @@ enum SpikeC {
         case 2: aClick()
         case 3: theKeyboardFilter()
         case 4: secureInput()
+        case 5: tapTimeoutThreshold()
         default:
             print("""
             usage: SoredemoSpikeC <step>
@@ -77,12 +150,251 @@ enum SpikeC {
               2  a click           — click once, anywhere
               3  keyboard filter   — press ⌘C once, then type an ordinary sentence
               4  secure input      — focus a password field, wiggle the mouse, dismiss it
+              5  tap timeout       — how long may a callback take before the OS
+                                    disables the tap? Move the mouse continuously.
 
             Run one at a time and record each step's output separately. Step 4
             changes what the system does with keyboard events while it runs.
             """)
             exit(2)
         }
+    }
+
+    /// Step 5 — see `stallingTapCallback` for why this is a spike.
+    @MainActor
+    static func tapTimeoutThreshold() {
+        var step = VerificationStep(name: "5 — the tap callback's timeout budget")
+        step.begin(repositoryPath: repositoryPath)
+
+        // A ladder, not an interactive binary search: the operator does one
+        // thing — keep the mouse moving — for the whole sweep. Each rung is
+        // three seconds, which at the ~79 samples/second measured in step 1 is
+        // hundreds of callbacks per rung, so a rung that does not trip did not
+        // merely go unsampled.
+        // Overridable so the 10–50 ms band can be narrowed without a rebuild:
+        //   SoredemoSpikeC 5 10,20,30,40,50
+        let ladder = CommandLine.arguments.dropFirst(2).first
+            .map { $0.split(separator: ",").compactMap { Int($0) } }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? [10, 50, 100, 200, 400, 800, 1600]
+        step.expect([
+            ("positive control", "the SAME ladder with .default (an active filter), which SHOULD "
+                                 + "trip — without it, \"listenOnly never tripped\" is "
+                                 + "indistinguishable from \"this experiment cannot detect a trip\""),
+            ("stall values swept (ms)", ladder.map(String.init).joined(separator: ", ")),
+            ("seconds per rung", "3"),
+            ("what is being found", "the largest stall that does NOT trip "
+                                    + "kCGEventTapDisabledByTimeout, and the smallest that does"),
+            ("Spike A's worst hit-test", "125.47 ms — the number this budget has to be compared to"),
+            ("also measured", "the disable-to-re-arm interval, which is what a bare count cannot say"),
+        ])
+
+        var tripped: [Int: Int] = [:]
+        var callbacksPerRung: [Int: Int] = [:]
+        var controlTripped: [Int: Int] = [:]
+        var controlSampled = 0
+        var enabledPerOS: [Int: Bool] = [:]
+        var controlDisabledPerOS = false
+
+        print("\n>>> keep the mouse moving CONTINUOUSLY for the whole sweep — "
+              + "\(ladder.count * 3) seconds. One beep starts it, two end it.")
+        for remaining in stride(from: 3, to: 0, by: -1) {
+            print("    starting in \(remaining)…")
+            CFRunLoopRunInMode(.defaultMode, 1, false)
+        }
+        VerificationStep.beepStart()
+        // The spike times itself. "How long does this step take?" was estimated
+        // by adding the rung durations — 21 s, then 27 s — and both were wrong,
+        // because a callback that sleeps overruns the run loop's own timeout by
+        // up to one stall, and the `.defaultTap` rungs stall the whole machine
+        // so the operator's sense of it stretches further still. A duration a
+        // person has to plan around is a number, and this project's rule for
+        // numbers is that something computes them.
+        let sweepStart = Minting.hostNow().rawValue
+
+        for stall in ladder {
+            stallMilliseconds = stall
+            timeoutDisableInstants.removeAll()
+            var callbacks = 0
+
+            let mask = (1 << CGEventType.mouseMoved.rawValue)
+            var tapBox: CFMachPort?
+            // `userInfo` must be the tap itself so the callback can re-arm it.
+            // Two-phase: create with nil, then patch is impossible, so the
+            // callback reads a global instead — set below, before the loop.
+            guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+                                               options: tapOptionUnderTest, eventsOfInterest: CGEventMask(mask),
+                                               callback: { proxy, type, event, info in
+                                                   callbacksSeen += 1
+                                                   return stallingTapCallback(proxy, type, event, info)
+                                               },
+                                               userInfo: nil) else {
+                step.preconditionFailed("CGEvent.tapCreate returned nil at stall \(stall) ms — "
+                                        + "Input Monitoring is not granted to video.soredemo.SpikeC.")
+            }
+            tapBox = tap
+            activeTap = tap
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            callbacksSeen = 0
+
+            CFRunLoopRunInMode(.defaultMode, 3, false)
+            callbacks = callbacksSeen
+            // Asked of the OS, not of our own callback. "The tap was never
+            // disabled" and "the tap was disabled and our notification path
+            // missed it" are the same output from the callback's point of
+            // view; this is a second, independent source for the same fact.
+            let stillEnabledPerOS = CGEvent.tapIsEnabled(tap: tap)
+
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CFMachPortInvalidate(tap)
+            _ = tapBox
+            activeTap = nil
+
+            tripped[stall] = timeoutDisableInstants.count
+            callbacksPerRung[stall] = callbacks
+            let gaps = timeoutDisableInstants.map {
+                Double($0.reArmed - $0.disabled) / 1_000_000
+            }
+            enabledPerOS[stall] = stillEnabledPerOS
+            print(String(format: "    stall %5d ms  callbacks %5d  disabled %d time(s)  OS says enabled: %@%@",
+                         stall, callbacks, timeoutDisableInstants.count,
+                         stillEnabledPerOS ? "yes" : "NO  <- disabled without our callback seeing it",
+                         gaps.isEmpty ? "" : "  disable→re-arm: "
+                            + gaps.map { String(format: "%.2f ms", $0) }.joined(separator: ", ")))
+        }
+        // ---- POSITIVE CONTROL ----
+        //
+        // The same ladder with `.default`. A `.listenOnly` tap does not block
+        // event delivery, so there may be nothing for the system to time out;
+        // an active filter does block, and is the case the timeout exists for.
+        // Without this, "no rung tripped" and "this experiment cannot detect a
+        // trip" are the same output — and the whole point of the sweep is a
+        // number someone will design against.
+        print("\n    --- positive control: the same ladder with .default (an ACTIVE filter) ---")
+        tapOptionUnderTest = .defaultTap
+        for stall in [400, 1600] {
+            stallMilliseconds = stall
+            timeoutDisableInstants.removeAll()
+            let mask = (1 << CGEventType.mouseMoved.rawValue)
+            guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+                                               options: .defaultTap, eventsOfInterest: CGEventMask(mask),
+                                               callback: { proxy, type, event, info in
+                                                   callbacksSeen += 1
+                                                   return stallingTapCallback(proxy, type, event, info)
+                                               },
+                                               userInfo: nil) else {
+                print("    control: tapCreate returned nil for .default — cannot run the control")
+                break
+            }
+            activeTap = tap
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            callbacksSeen = 0
+            CFRunLoopRunInMode(.defaultMode, 3, false)
+            let controlStillEnabled = CGEvent.tapIsEnabled(tap: tap)
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CFMachPortInvalidate(tap)
+            activeTap = nil
+            controlTripped[stall] = timeoutDisableInstants.count
+            if !controlStillEnabled { controlDisabledPerOS = true }
+            if callbacksSeen > 0 { controlSampled += 1 }
+            let gaps = timeoutDisableInstants.map { Double($0.reArmed - $0.disabled) / 1_000_000 }
+            print(String(format: "    .default  stall %5d ms  callbacks %5d  disabled %d time(s)  OS says enabled: %@%@",
+                         stall, callbacksSeen, timeoutDisableInstants.count,
+                         controlStillEnabled ? "yes" : "NO",
+                         gaps.isEmpty ? "" : "  disable→re-arm: "
+                            + gaps.map { String(format: "%.2f ms", $0) }.joined(separator: ", ")))
+        }
+        tapOptionUnderTest = .listenOnly
+
+        VerificationStep.beepStop()
+        stallMilliseconds = 0
+        let sweepSeconds = Double(Minting.hostNow().rawValue - sweepStart) / 1_000_000_000
+        print(String(format: "\n    the sweep took %.1f s wall clock (the sum of the rung "
+                             + "durations alone is %.1f s — a stalling callback overruns the run "
+                             + "loop's timeout by up to one stall, and the .defaultTap rungs stall "
+                             + "the machine)",
+                     sweepSeconds,
+                     Double(ladder.count * 3 + 6)))
+
+        let sampled = ladder.filter { (callbacksPerRung[$0] ?? 0) > 0 }
+        guard !sampled.isEmpty else {
+            step.didNotHappen("no callback fired at any stall value — the mouse was not moving, "
+                              + "so no rung was sampled and no rung's result means anything.")
+        }
+
+        // **The subject is the OS, not our callback.** The first two runs of
+        // this step asserted on `tripped[stall]`, which counts
+        // `kCGEventTapDisabledByTimeout` notifications received — and for a
+        // `.listenOnly` tap that notification never arrives at all. Both runs
+        // therefore reported "no rung tripped, the concern disappears", while
+        // `CGEvent.tapIsEnabled` on the same taps in the same runs said the tap
+        // had been disabled from 50 ms upward. Two sources, one question,
+        // opposite answers; only the second is about the question.
+        let notDisabled = sampled.filter { enabledPerOS[$0] == true }
+        let disabled = sampled.filter { enabledPerOS[$0] == false }
+        print("\n    PER THE OS (CGEvent.tapIsEnabled), which is the subject:")
+        print("      largest stall still ENABLED after the rung: "
+              + "\(notDisabled.max().map { "\($0) ms" } ?? "none — even the smallest was disabled")")
+        print("      smallest stall found DISABLED after the rung: "
+              + "\(disabled.min().map { "\($0) ms" } ?? "none — no rung was disabled")")
+
+        step.check("every rung was sampled — \(sampled.count) of \(ladder.count) saw at least one "
+                   + "callback. A rung with zero callbacks did not fail to trip; it was not tested",
+                   sampled.count == ladder.count)
+
+        let controlEverTripped = controlTripped.values.contains { $0 > 0 }
+        // The message names WHICH channel carried the control's evidence. An
+        // earlier version printed the notification counts and passed on the OS
+        // signal, so it read "did trip (400ms:0)" — zero, while passing. Same
+        // subject error as the assertion it exists to validate, one level up.
+        let controlEvidence = controlEverTripped
+            ? "the callback channel (notifications "
+              + "\(controlTripped.map { "\($0.key)ms:\($0.value)" }.sorted().joined(separator: " ")) )"
+            : controlDisabledPerOS
+              ? "the OS only (CGEvent.tapIsEnabled reported it disabled; the notification did NOT "
+                + "arrive even for an ACTIVE tap this run — so the notification channel is "
+                + "unreliable in general, not merely absent for .listenOnly)"
+              : "NOTHING"
+        step.check("POSITIVE CONTROL: an ACTIVE (.defaultTap) tap stalling for the same durations "
+                   + "WAS disabled, detected via \(controlEvidence) — so a disable is detectable, "
+                   + "and \"listenOnly was never disabled\" would be a finding rather than a blind "
+                   + "instrument",
+                   controlSampled > 0 && (controlEverTripped || controlDisabledPerOS))
+
+        // Recorded as its own finding, not as noise. For a `.listenOnly` tap
+        // the OS disables the tap and does NOT deliver the notification —
+        // confirmed in the same run by the control, which DID receive it for an
+        // active tap. Anything that re-arms on the notification is dead code
+        // for a listen-only tap, and the only detection left is polling.
+        step.check("the callback channel is SILENT for .listenOnly — non-mouseMoved types seen: "
+                   + (unexpectedCallbackTypes.isEmpty ? "NONE"
+                      : Set(unexpectedCallbackTypes).map { String(format: "0x%X", $0) }.sorted().joined(separator: ", "))
+                   + ". A re-arm that waits for kCGEventTapDisabledByTimeout will never run for this "
+                   + "tap kind; polling CGEvent.tapIsEnabled is the only detection",
+                   unexpectedCallbackTypes.isEmpty)
+
+        if let smallestDisabled = disabled.min() {
+            let largestSafe = notDisabled.max()
+            step.check("the budget is between "
+                       + "\(largestSafe.map { "\($0) ms" } ?? "0 ms") and \(smallestDisabled) ms. "
+                       + "Spike A measured the AX hit-test at p50 1.05 ms, p90 21.25 ms and max "
+                       + "125.47 ms, with 12% over one 60 fps frame — so AX work inside this "
+                       + "callback WILL disable the tap, and this band is the budget for whatever "
+                       + "stays behind after it moves out",
+                       smallestDisabled > 125)
+        } else {
+            step.check("no rung was disabled per the OS up to \(ladder.max()!) ms — the budget is "
+                       + "above that and Spike A's 125.47 ms worst hit-test is inside it", true)
+        }
+
+        step.finish(remedy: "If a rung shows zero callbacks the mouse stopped moving there; "
+                            + "re-run before reading the threshold.")
     }
 
     // MARK: - shared scaffolding
