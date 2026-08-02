@@ -1378,10 +1378,21 @@ enum CrossBoundaryProbe {
         print("        derived : \(derivedPointWidth)×\(derivedPointHeight) points, "
               + "from \(main.geometry.pixelWidth)×\(main.geometry.pixelHeight) px at "
               + "scale \(main.geometry.scale)")
+        // Stated in the printed text, for the same reason as the mirror checks
+        // below: at scale 1 an inverted scale computation (`width / pixelWidth`
+        // instead of `pixelWidth / width`) is 1/1 = 1, arithmetically identical
+        // to the correct one. No check anywhere can catch that mutation on such
+        // a machine. This one catches it at scale 2 — it was verified there —
+        // but a reader on scale-1 hardware seeing "ok" must not read it as
+        // covering the inversion.
+        let scaleCaveat = main.geometry.scale == 1
+            ? "  [SCALE IS 1 ON THIS RUN: an inverted scale computation is arithmetically identical "
+              + "at scale 1, so this cannot catch that mutation here. Verified on scale-2 hardware.]"
+            : ""
         check(derivedPointWidth == Double(screen.frame.width)
                 && derivedPointHeight == Double(screen.frame.height),
               "the main display's size in points, derived from CGDisplayMode, equals AppKit's — "
-              + "an inverted scale disagrees here by scale squared",
+              + "an inverted scale disagrees here by scale squared" + scaleCaveat,
               actual: "\(derivedPointWidth)×\(derivedPointHeight)",
               expected: "\(screen.frame.width)×\(screen.frame.height)")
         check(main.geometry.scale == Double(screen.backingScaleFactor),
@@ -1403,9 +1414,22 @@ enum CrossBoundaryProbe {
         // preconditions on revision equality, making the downstream failure a
         // trap rather than a wrong number. On a single-display machine this
         // passes trivially; it is here so a mirrored setup fails loudly.
+        // The limitation goes in the check's PRINTED TEXT, not only in the
+        // comment above it. A reader watching the console sees "ok ... mirrored
+        // displays are folded" and reasonably concludes the mirror path was
+        // exercised. With one display attached it was not — the check is
+        // vacuously true over a single placement, and nothing in the output
+        // said so. A caveat that lives only in the source is a caveat for
+        // people who are already reading the source, who are not the people
+        // this check misleads.
+        let displayCount = arrangement.placements.count
+        let vacuous = displayCount < 2
+            ? "  [VACUOUS ON THIS RUN: \(displayCount) display attached — this asserts nothing about "
+              + "mirroring. It needs two or more displays, at least two of them mirrored.]"
+            : ""
         let identities = Set(arrangement.placements.map(\.geometry.displayUUID))
         check(identities.count == arrangement.placements.count,
-              "no display appears twice in the arrangement",
+              "no display appears twice in the arrangement" + vacuous,
               actual: "\(identities.count) identities for \(arrangement.placements.count) placements")
         let rectangles = arrangement.placements.map {
             "\($0.globalOriginX),\($0.globalOriginY),\(Double($0.geometry.pixelWidth) / $0.geometry.scale),"
@@ -1413,7 +1437,7 @@ enum CrossBoundaryProbe {
         }
         check(Set(rectangles).count == rectangles.count,
               "no two placements occupy the same global rectangle — mirrored displays are folded "
-              + "to the display being mirrored, not both kept",
+              + "to the display being mirrored, not both kept" + vacuous,
               actual: "\(Set(rectangles).count) rectangles for \(rectangles.count) placements")
 
         // Finally: a point in the middle of the real main display routes and

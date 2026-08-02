@@ -306,13 +306,13 @@ public final class InputObserver: @unchecked Sendable {
     /// Returning `nil` covers `tapDisabledByTimeout`/`tapDisabledByUserInput`
     /// (handled earlier, before any location is read, since they carry none)
     /// and anything the OS widens delivery to later.
-    public enum EventCategory: Equatable, Sendable {
+    enum EventCategory: Equatable, Sendable {
         case pointerMotion
         case button(PointerButton, ButtonPhase)
         case key
     }
 
-    public nonisolated static func category(of type: CGEventType) -> EventCategory? {
+    nonisolated static func category(of type: CGEventType) -> EventCategory? {
         switch type {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             return .pointerMotion
