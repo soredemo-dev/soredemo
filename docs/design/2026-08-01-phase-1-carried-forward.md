@@ -65,23 +65,87 @@ Only `digest(of:)` is live.
 
 ## Defaults this phase depended on and never decided
 
-Distinct from the section above. Those are rules stated and not enforced; these are settings that
-were never stated at all — they are Xcode's defaults for a new macOS app target, and they survived
-into a shipped architecture because nothing ever asked.
+Distinct from the section above. Those are rules stated and not enforced; this is a setting nobody
+ever stated an opinion about. **This is the third instance of one class of problem, and reading it
+beside the other two is the point:**
+
+| | The gap |
+| --- | --- |
+| `applyingProduced`'s doc comments | claimed to be "the only way" and "the enforced write path" while `init` is public with `review` defaulted |
+| architecture rule 7 | written against `applyingProduced`, when what it must constrain is `Derived`'s public initialiser |
+| `ENABLE_APP_SANDBOX = YES` | reads as an architectural decision; no document discusses it and no task chose it |
+
+Each is a distance between what the documents say is true and what is actually enforced or chosen.
 
 **`ENABLE_APP_SANDBOX = YES`, with `com.apple.security.files.user-selected.read-only` as the only
-file entitlement.** Verified against the signed product with `codesign -d --entitlements`. It looks
-like a decision. It is not one; no document in this repository discusses it, and no task chose it.
+file entitlement.** Verified against the signed product with `codesign -d --entitlements`. Precisely:
+it is written explicitly into both configurations of `project.pbxproj` — Xcode puts it there when a
+macOS app target is created — so it is not a fallback default, it is a line nobody read.
 
-Two consequences reach Phase 2 on its first day:
+**Resolved before Phase 2 began: the sandbox is off.** The question that settled it was not "sandbox
+or not" but *"without `ax-observation`, is this still the product?"*, and the answer follows from
+`PRODUCT.md`'s own thesis — one recording is evidence, everything else is derived from it, and every
+derived value is traceable. Semantic evidence is what makes that sentence mean anything.
+
+Measured after flipping it, not assumed: `ENABLE_APP_SANDBOX = NO` in both configurations,
+`plutil -lint` clean, `xcodebuild` exit 0, `com.apple.security.app-sandbox` gone from the signed
+entitlements, hardened runtime still on (`flags=0x10000(runtime)` — notarization needs it), the app
+still launches and opens a `.soredemo` package, and 290 tests unchanged.
+
+Two consequences that made it necessary:
 
 1. **`ax-observation` cannot work under App Sandbox.** The sandbox blocks the Accessibility API
-   against other processes — this is a layer *in front of* TCC, so granting Accessibility does not
-   help. `input-observation`'s `CGEvent.tapCreate` is restricted for the same reason.
-   ScreenCaptureKit is unaffected.
+   against other processes — a layer *in front of* TCC, so granting Accessibility does not help.
+   `input-observation`'s `CGEvent.tapCreate` is restricted for the same reason. ScreenCaptureKit is
+   unaffected.
 2. **`read-only` cannot save a project.** Everything Phase 1 built in `Sources/Project` —
-   `ProjectPackageIO.save`, the atomic manifest replace, write-once sidecars — is denied at a
-   user-selected location. `files.user-selected.read-write` is the floor.
+   `ProjectPackageIO.save`, the atomic manifest replace, write-once sidecars — would be denied at a
+   user-selected location. Moot now the sandbox is off; `files.user-selected.read-only` survives in
+   the entitlements as an inert leftover and should be removed when the signing story is revisited.
+
+### How load-bearing, stated honestly
+
+A dependency-closure count over `ROADMAP.md` says cutting `ax-observation` costs 40 of 69 rows and
+cutting `input-observation` as well costs one more. **Do not use either number.** Both are artefacts
+of `observation-log` being a join node, and a join node distorts in both directions at once: it
+*overstates* a necessary dependency, because everything downstream of the join inherits it, and it
+*understates* a joint dependency, because a second input's marginal contribution is absorbed by the
+first. The 40 was discounted on the first ground and the 1 was then accepted without applying the
+second — the same bias, read once and missed once.
+
+**The honest number is three**, and it is enough:
+
+1. `written-steps` — semantic output. "Click the Save button", not "click at (412, 88)".
+2. `framing-targets` — what the camera should aim at.
+3. The thesis itself — a derived value traceable to evidence. A coordinate is weak evidence for a
+   claim about what a person did.
+
+If the product's argument is that derived values are traceable to evidence, then losing the ability
+to produce semantic evidence is losing the argument, however many rows it touches.
+
+**And the two rows are one mechanism, not two.** `CGEvent.tapCreate` says *when and where* a click
+happened; `AXUIElementCopyElementAtPosition` says *what was there*. In "click the Save button" the
+verb comes from `input-observation` and the object from `ax-observation`; neither produces that
+sentence alone. So `input-observation` is not the cheap one to defer — it is half of a pair, and
+what Phase 2 must verify is **the timing accuracy of the pairing**: the latency between the click
+event and the AX tree snapshot decides whether the hit-test returns the element that was under the
+cursor at click time. That goes wrong during UI animation, which is exactly when people click
+buttons.
+
+### Work that App Sandbox was absorbing, now ours
+
+None of this is in the 69 rows. It arrives with direct distribution and belongs in a plan before
+Phase 5, not discovered during it.
+
+- **Auto-update** — Sparkle or equivalent. The App Store is no longer delivering updates.
+- **Notarization requires hardened runtime**, which is already on. It does not conflict with
+  Accessibility or Input Monitoring, but it blocks JIT, `DYLD_*` environment variables, and loading
+  unsigned dylibs. Audit dependencies for anything needing an exception entitlement before the
+  first notarized build, not after a rejection.
+- **Signing and bundle-ID stability moves from advice to requirement.** With no App Store–managed
+  identity, every TCC grant is bound to this signing identity alone; change it and the Accessibility
+  grant silently stops applying, with the row in System Settings still looking correct.
+- **Crash reporting, and licensing or payment** if the product is ever charged for.
 
 **Phase 1 never exercised any of this**, and the reason is specific: `scripts/cross-boundary-digest-
 probe.swift` is compiled by `swiftc` into a bare executable, so it runs **outside the sandbox** and
