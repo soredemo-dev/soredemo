@@ -269,6 +269,25 @@ private let authoredFrame = Derived(
     #expect(cited(testEpoch) != cited(otherEpoch))
 }
 
+/// The fixed-width invariant itself, asserted directly rather than left to
+/// the pinned vectors to catch incidentally — the same gap this file's epoch
+/// test above closed, applied to width instead of content. `Evidence`'s
+/// `encodeCanonically` prefixes a bare `UInt64` count and nothing else
+/// (`evidenceCountPrefixDefeatsAConstructedCollision` below shows why that is
+/// only safe when every element is the same width); if the present-interval
+/// payload and the absent-interval zero padding ever drifted out of step,
+/// `EvidenceRef` would stop being fixed-width with no compile error and no
+/// runtime check anywhere in this file except a pinned byte count moving for
+/// what would look like the wrong reason.
+@Test func evidenceRefEncodesToTheSameWidthWithAndWithoutAnInterval() {
+    var withInterval: [UInt8] = []
+    refWithInterval.encodeCanonically(into: &withInterval)
+    var withoutInterval: [UInt8] = []
+    refWithoutInterval.encodeCanonically(into: &withoutInterval)
+    #expect(withInterval.count == withoutInterval.count)
+    #expect(withInterval.count == 82)
+}
+
 // MARK: - Length prefixes: adjacent variable-length fields must not run together
 
 /// The classic concatenation collapse. `DisplayGeometry.canonicalBytes` is

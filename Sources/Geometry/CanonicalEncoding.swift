@@ -38,6 +38,19 @@ public enum CanonicalEncoding {
     /// byte makes such a change explicit and detectable. Bump it ONLY as a
     /// deliberate breaking change shipping with a re-approval path.
     ///
+    /// **Exception, and it expires.** Before Phase 8's `approval-gate` exists,
+    /// no `approvalBytes` this package has ever emitted is bound to a stored
+    /// human approval — there is nothing yet for a shape change to silently
+    /// invalidate. `EvidenceRef`'s canonical encoding grew from 66 to 82 bytes
+    /// in Phase 2 Task 2 (`sourceInterval` picked up its `HostRange` epoch) on
+    /// exactly this basis: the pinned test vectors were re-derived and
+    /// re-pinned, not carried across a bump, because there was no approval to
+    /// protect yet. **From Phase 8 onward this exception is gone**: any shape
+    /// change to a digested type bumps this byte and ships a re-approval path,
+    /// full stop, because by then a shape change without one really would
+    /// silently invalidate something. A change made under this exception after
+    /// Phase 8 has shipped is the bug this comment exists to prevent.
+    ///
     /// Deliberately **not** `ProjectSnapshot.schemaVersion`: a document schema
     /// upgrade must leave existing approvals verifiable, so the two version
     /// lines move independently.

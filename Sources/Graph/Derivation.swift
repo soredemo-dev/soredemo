@@ -192,10 +192,17 @@ extension HostRange {
     /// with identical offsets from two different boot sessions point at two
     /// different, unrelated moments. Leaving the epoch out of the encoding
     /// would let a citation be silently re-pointed at a different recording
-    /// entirely with no change to `approvalBytes` — the same failure D-P4
-    /// rejected side tables for, reached a different way. This is why Task 2
-    /// moved every pinned vector in `DerivedTests.swift` rather than treating
-    /// the type change as encoding-neutral.
+    /// entirely with no change to `approvalBytes`. The precedent is two
+    /// declarations up, not D-P4: `Authorship.at`'s "an approval bound to one
+    /// should not validate the other" and `Outcome`'s "a value whose gate
+    /// verdict flipped is not the same thing a person approved" are both a
+    /// digest failing to cover a field it must cover — the same shape as
+    /// leaving the epoch out here, not D-P4's side-table drift (a value with
+    /// no edge pointing at it, or two records of one fact disagreeing) — this
+    /// is one record, correctly pointed at, whose digest would simply be
+    /// blind to part of what it claims to cover. This is why Task 2 moved
+    /// every pinned vector in `DerivedTests.swift` rather than treating the
+    /// type change as encoding-neutral.
     ///
     /// A plain method, deliberately not a `CanonicallyEncodable` conformance:
     /// `HostRange` belongs to `Timeline` and the protocol to `Geometry`, so
@@ -242,9 +249,11 @@ extension EvidenceRef: CanonicallyEncodable {
     /// **Width changed from 66 to 82 in Task 2**, when `sourceInterval` moved
     /// from `TimeRange?` to `HostRange?` and picked up its epoch (see
     /// `HostRange.encodeCanonically`). Every pinned vector in
-    /// `DerivedTests.swift` that cites an `EvidenceRef` moved with it — a real
-    /// signal about approval stability, reported rather than silently
-    /// re-pinned; see the Task 2 report.
+    /// `DerivedTests.swift` that cites an `EvidenceRef` moved with it, and
+    /// `CanonicalEncoding.version` was **not** bumped for it — see that
+    /// property's doc comment for the exact condition under which that was
+    /// permitted, and why it will not be permitted the next time this shape
+    /// changes.
     public func encodeCanonically(into bytes: inout [UInt8]) {
         bytes.append(kind.canonicalTag)
         // Expanded explicitly rather than via `withUnsafeBytes`, because
@@ -295,8 +304,8 @@ extension Outcome: CanonicallyEncodable {
 
 extension Derivation: CanonicallyEncodable {
     /// `producer` (length-prefixed UTF-8) ‖ `producerVersion` (8, little-endian)
-    /// ‖ `evidence` (count-prefixed, 66 bytes each) ‖ `outcome`
-    /// (self-delimiting).
+    /// ‖ `evidence` (count-prefixed, 82 bytes each — see `EvidenceRef.encodeCanonically`)
+    /// ‖ `outcome` (self-delimiting).
     public func encodeCanonically(into bytes: inout [UInt8]) {
         CanonicalEncoding.appendLengthPrefixed(producer.rawValue, to: &bytes)
         CanonicalEncoding.appendInt64(Int64(producerVersion), to: &bytes)
