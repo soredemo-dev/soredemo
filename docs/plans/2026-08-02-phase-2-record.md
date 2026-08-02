@@ -14,6 +14,7 @@
 
 ## Global Constraints
 
+- **App Sandbox is already off** (D2-0, applied at `f5fb652` and merged). `ENABLE_APP_SANDBOX = NO` in both configurations, hardened runtime on. Nothing in this plan turns it on, and `ax-observation` cannot work if anything does — the sandbox blocks the Accessibility API against other processes in a layer *in front of* TCC.
 - **Package targets import Foundation only.** No AppKit, ScreenCaptureKit, AVFoundation, SwiftUI, CryptoKit, CoreGraphics. `Plugins/ArchitectureCheck` fails the build on violation; do not detach it.
 - **No `CGPoint`, `CGRect`, `CGSize`, `CGFloat` in package sources.** In the app they may appear **only** in `Soredemo/Capture/CGGeometryBridge.swift`, enforced by `Tests/AppSourceTests`.
 - **No ambient time or randomness in package library targets** — no `Date()`, `UUID()`, `.random(in:)`, `ContinuousClock`, `arc4random`. Checked at link time over object files by `Tests/DeterminismTests`. In the app they may appear **only** in `Soredemo/Support/Minting.swift`, enforced by `Tests/AppSourceTests`.
@@ -142,11 +143,14 @@ private let epochB = BootEpoch(id: UUID(uuidString: "11111111-2222-3333-4444-555
 /// Wall clock runs backwards under NTP correction, so it is not an ordering key.
 /// Anchors are unordered by construction: there is no Comparable conformance to
 /// reach for, which is the enforcement — a comment would not be.
-@Test func anchorsAreNotComparable() {
-    #expect((EpochAnchor.self as Any) is any Codable.Type)
-    // If EpochAnchor ever conforms to Comparable this file stops compiling at the
-    // line below, which is the intended failure.
-    #expect(!(EpochAnchor.self is any Comparable.Type))
+@Test func anchorsCarryTheirEpochAndAreNotOrdered() {
+    let a = EpochAnchor(epoch: epochA, hostTime: Nanoseconds(1), wallClockUnixNanos: 100)
+    #expect(a.epoch == epochA)
+    // There is deliberately no Comparable conformance, so there is nothing to
+    // sort by. That is the enforcement — a runtime assertion could not express
+    // it, and a comment would not hold. If someone adds Comparable later, this
+    // test still passes and the doc comment on EpochAnchor is what stops them;
+    // recorded here as a known limit rather than a check that looks like one.
 }
 ```
 
@@ -743,7 +747,9 @@ public struct SegmentTable: Hashable, Codable, Sendable {
 
 - [ ] **Step 4: Add `segments` to `ProjectSnapshot`**
 
-Add `public var segments: SegmentTable` as a fourth stored property, extend the initialiser, and give it a default of an empty table so existing v1 documents still decode. Update `ProjectUpgrade`'s v0 migration to insert an empty table, and add a test that a v1 document written **before** this field still loads.
+Add `public var segments: SegmentTable` as a fourth stored property and extend the initialiser.
+
+`SegmentTable.init` throws, so an empty default needs a non-throwing path: add `public static let empty = SegmentTable(unchecked: [])` with a private non-validating initialiser, and a comment saying the empty table is the one case that cannot violate the invariants. Do **not** reach for `try!`. Update `ProjectUpgrade`'s v0 migration to insert an empty table, and add a test that a v1 document written **before** this field still loads.
 
 - [ ] **Step 5: Run the whole suite**
 
@@ -774,7 +780,7 @@ git commit -m "Add the segment table: the master is a sequence, and gaps are rec
 - Modify: `scripts/cross-boundary-digest-probe.swift` (add the epoch checks)
 
 **Interfaces:**
-- Produces: `Minting.bootEpoch() -> BootEpoch`, `Minting.hostNow() -> Nanoseconds`, `Minting.epochAnchor() -> EpochAnchor`, `Minting.sleptNanos(since:) -> Int64`.
+- Produces: `Minting.bootEpoch() -> BootEpoch`, `Minting.hostNow() -> Nanoseconds`, `Minting.continuousNow() -> Nanoseconds`, `Minting.epochAnchor() -> EpochAnchor`.
 
 `Minting` is the app's licence to do what the package cannot. Everything here is a pure mapping from an ambient reading to a package type; nothing that could live in the package belongs here.
 
@@ -899,6 +905,7 @@ The two middle rows are the dangerous pair: capture succeeds and produces a proj
 import AVFoundation
 import ApplicationServices
 import CoreGraphics
+import IOKit.hid          // IOHIDCheckAccess
 
 public enum CapturePermission: String, CaseIterable, Sendable {
     case screenRecording, microphone, inputMonitoring, accessibility
@@ -1077,6 +1084,10 @@ These two rows are one task because they are one object: the writer that takes t
 3. **PTS → callback has an unstable tail.** p50 ~2 ms, p90 ~9 ms, and one run at **175 ms** against 29 ms in three others. Size buffers for the tail, not the median.
 4. **A revoked Screen Recording grant produces black frames, not an error.** A status check at start does not cover this.
 
+- [ ] **Step 0: `showsCursor = false`, and know why**
+
+The master is unprocessed evidence (D2-8), and the cursor is a derived value drawn at composite time from the pointer track. Burning it into the master would put a producer's output into the evidence layer — the same rule as D2-1, and the single ROADMAP rule that the whole principle was generalised from.
+
 - [ ] **Step 1: Segment lifecycle**
 
 `start()` opens segment 0. `pause()` finalises the current segment with `.paused` and stops the stream; `resume()` opens the next. `stop()` finalises with `.stopped` and returns the `SegmentTable`. Each segment gets its own `AVAssetWriter` and its own media filename, written through `ProjectPackageIO.writeSidecar` so the write-once refusal applies.
@@ -1129,7 +1140,7 @@ git commit -m "Write the master with AVAssetWriter: SCRecordingOutput mixes the 
 ## Task 9: `input-observation` — the tap, and the first real caller of the conversion boundary
 
 **Files:**
-- Create: `Soredemo/Capture/InputObserver.swift`
+- Create: `Soredemo/Capture/InputObserver.swift`, `Soredemo/Capture/CaptureError.swift`
 - Modify: `Soredemo/Capture/CGGeometryBridge.swift` if a conversion is missing
 - Modify: `scripts/cross-boundary-digest-probe.swift`
 
@@ -1260,7 +1271,7 @@ Bounded by **depth 30** and a wall-clock budget. Depth 30 is fixed now and not a
 
 Frame costs **two** IPC round trips, not one: `kAXFrameAttribute` is not exposed to Swift, so position and size are read separately.
 
-- [ ] **Step 4: Truncation degrades gracefully — record why, so nobody raises the budget**
+- [ ] **Step 4: Truncation degrades gracefully (F2-3) — record why, so nobody raises the budget**
 
 The hit-test returns the deepest element and the walk goes **up**, so truncation drops the **outermost** ancestors — the ones least likely to be the camera's target. Verified in Spike A: all 107 complete walks topped out at `AXApplication`, while the 11 truncated ones stopped at `AXGroup`, `AXWebArea` or `AXWindow`. So 7% truncated is not 7% of clicks lost.
 
