@@ -2,6 +2,34 @@ import Foundation
 import Geometry
 import Timeline
 
+/// One line of an observation log.
+///
+/// **`epochs` is the whole reason this protocol exists.** `ObservationLog` is
+/// keyed on a single `BootEpoch` (see `ObservationLogHeader.epoch`), and the
+/// only way a writer can refuse a record from another boot session is to be
+/// able to ask a record, without knowing its type, which epochs its instants
+/// carry. Every record type answers with **every** epoch it holds, not just
+/// the one on its primary instant: `AXChainRecord` alone carries the click's
+/// epoch, the hit-test interval's, and one per element read interval, and a
+/// record whose hit-test straddles a reboot is exactly the record whose
+/// `clickToHitTestAnswerNanos` silently returns `nil` forever afterwards.
+///
+/// `kind` is a `get` requirement matching the stored property every record
+/// already has — it is not a new field, and no record gains a wire key from
+/// conforming.
+public protocol ObservationRecord: Codable, Sendable {
+    /// The `kind` discriminator this record writes, and the one
+    /// `ObservationLog.kind(of:)` reads back without decoding the record.
+    var kind: String { get }
+
+    /// Every boot epoch any instant in this record is stamped with, in the
+    /// order the fields are declared. **Never empty**: a record with no
+    /// instant at all cannot be placed on the log's clock, and
+    /// `ObservationLog.checkEpoch(of:against:)` reports that as a fault
+    /// rather than vacuously accepting it.
+    var epochs: [BootEpoch] { get }
+}
+
 /// A pointer position sample. The whole track is kept, never thinned — how
 /// dense is dense enough is a property of `cursor-render`'s spring, which will
 /// be tuned, and a thinned track cannot be re-tuned (D2-7).
@@ -244,4 +272,32 @@ public struct TapDisabledInterval: Hashable, Codable, Sendable {
         self.lowerBoundFrom = lowerBoundFrom
         self.detectedBy = detectedBy
     }
+}
+
+// MARK: - `ObservationRecord` conformances
+//
+// One extension per type, each stating only `epochs` — `kind` is already a
+// stored property on every one of them. Written out per type rather than
+// derived, because "which instants does this record hold" is a fact about the
+// type's fields and a new field carrying a new instant must show up here as a
+// compile-time edit rather than being silently missed by a reflection walk.
+
+extension PointerSample: ObservationRecord {
+    public var epochs: [BootEpoch] { [instant.epoch] }
+}
+
+extension ButtonEvent: ObservationRecord {
+    public var epochs: [BootEpoch] { [instant.epoch] }
+}
+
+extension KeySample: ObservationRecord {
+    public var epochs: [BootEpoch] { [instant.epoch] }
+}
+
+extension SecureInputInterval: ObservationRecord {
+    public var epochs: [BootEpoch] { [interval.epoch] }
+}
+
+extension TapDisabledInterval: ObservationRecord {
+    public var epochs: [BootEpoch] { [interval.epoch] }
 }

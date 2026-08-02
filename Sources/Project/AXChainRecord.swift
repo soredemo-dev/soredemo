@@ -440,3 +440,29 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
         return hitTestInterval.end.rawValue - instant.hostTime.rawValue
     }
 }
+
+extension AXElementRecord {
+    /// Not an `ObservationRecord` itself — it is never a line of its own — but
+    /// it carries an instant, so the epochs of a chain include one per
+    /// element. See `AXChainRecord.epochs`.
+    public var epochs: [BootEpoch] { [readInterval.epoch] }
+}
+
+extension AXChainRecord: ObservationRecord {
+    /// The click's epoch, the hit-test's, and one per element read interval.
+    ///
+    /// **All of them, not just `instant.epoch`.** `clickToHitTestStartNanos`
+    /// and `clickToHitTestAnswerNanos` already return `nil` across an epoch
+    /// mismatch rather than a wrong number — which is correct, and is also
+    /// silent. This is the loud half: a chain whose element reads landed in
+    /// another boot session is refused at the writer instead of decaying into
+    /// a record whose two most useful derived fields are permanently `nil`
+    /// with nothing on disk saying why.
+    public var epochs: [BootEpoch] {
+        var all = [instant.epoch, hitTestInterval.epoch]
+        if let hit { all.append(contentsOf: hit.epochs) }
+        for ancestor in ancestors { all.append(contentsOf: ancestor.epochs) }
+        for child in children ?? [] { all.append(contentsOf: child.epochs) }
+        return all
+    }
+}

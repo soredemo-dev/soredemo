@@ -361,10 +361,10 @@ sixth site missing from it is visible, and a row that says *a count* next to fou
 
 | Site | What is unobserved | How it is recorded | Enough? |
 | --- | --- | --- | --- |
-| `Sources/Project` JSONL reader | bytes in a truncated or corrupt record | `droppedBytes` — a byte count, and the reader continues | yes: the loss is bounded and quantified in the unit that was lost |
-| `AXObserver` ancestor walk | levels beyond the depth cap or the time budget | an explicit truncation reason on the record | yes: the record says it stopped and why, so a short chain is not read as a shallow tree |
-| `CaptureSession` video | frames the display did not produce | `SCFrameStatusIdle`, counted separately from `.complete` | yes: "nothing changed" is distinguishable from "nothing arrived" |
-| `InputObserver` secure input | every event while another app holds a password field | `SecureInputInterval`, with `.secureInputDisabled` vs `.observationStopped` as its two end reasons | yes: a measured span, and the end reason says whether its end was observed or merely assumed |
+| `Sources/Project` JSONL reader | bytes in a truncated or corrupt record | `droppedBytes` — a byte count, and the reader continues — **paired since Task 11 with `bytesScanned`, without which `droppedBytes: 0` reads the same over a clean log and over no file at all** | yes: the loss is bounded and quantified in the unit that was lost, and the pair says whether anything was read |
+| `AXObserver` ancestor walk | levels beyond the depth cap or the time budget | an explicit truncation reason on the record, plus the `depthCap`/`walkBudgetNanos` in force — the record carries the bounds it was measured against | yes: the record says it stopped and why, so a short chain is not read as a shallow tree; and a run with no chains at all is `GapWatch(site: .axAncestorWalk).looks == 0`, not an empty list |
+| `CaptureSession` video | frames the display did not produce | `SCFrameStatusIdle`, counted separately from `.complete`, over `frameStatusCounts` — the count of callbacks that arrived at all is the companion | yes: "nothing changed" is distinguishable from "nothing arrived", and both from "the stream never delivered" |
+| `InputObserver` secure input | every event while another app holds a password field | `SecureInputInterval`, with `.secureInputDisabled` vs `.observationStopped` as its two end reasons — **paired since Task 11 with `secureInputChecks` over `secureInputCheckSpanNanos`**, because the predicate is consulted per event and a run that received no events asks zero times and reports zero intervals | yes: a measured span, the end reason says whether its end was observed or merely assumed, and the check pair says whether anything asked |
 | `InputObserver` tap disabled, by timeout or by user input | every event between the disable and the re-arm | `TapDisabledInterval`, populated by **polling `CGEvent.tapIsEnabled` from a queue that is not the callback's**, with `detectedBy`, `disabledBy` (nil when polled — the poll cannot know why) and `lowerBoundFrom`; **paired with `tapEnabledPolls` over `tapPollingSpanNanos`, without which an empty list is not a measurement** | yes, with two caveats on the type: it is an enclosing bound rather than the window itself, and the poll interval (100 ms) is the floor on how tight its left edge can be. **Verified against real hardware** (Task 10 human half): a window brackets a known `T_off` with a 4.9 ms lead, 601 of 601 windows under a real OS timeout were found by *polling* and none by notification, and under a persistent cause the record reaches 8 windows/second with 81% of the span marked blind |
 
 **The magnitudes are a requirement on the log format, not a footnote.** A `.listenOnly` tap that
@@ -413,6 +413,17 @@ The general form, and the reason this paragraph is in the register rather than i
 > therefore carry evidence that something was looking — a poll count over a span, a frame count, a
 > sample count — beside the gaps it found. `tapEnabledPolls: 1247 over 124.7 s` is what makes
 > `tapDisabledIntervals: []` a measurement.
+
+**That rule became a schema rule in Task 11, which is why the four rows above gained companions in
+one edit rather than four.** `observation-log`'s trailer carries a `GapWatch` for **every** row of
+this table, every time, and refuses to decode if one is missing — so a site this project knows about
+and did not report is not expressible. Each row carries `looks` (how many times the detector ran) and
+`watchedSpanNanos` (over what span) beside `gapsFound` and `lost`, and `GapWatch.isAMeasurement`
+answers `false` when `looks == 0`. The three states a reader must be able to tell apart — *the site
+is absent*, *nothing looked*, *something looked and found none* — are three different things on disk.
+
+The consequence for this table: **a sixth row here needs a sixth `GapSite` case**, and adding one
+makes every log written before it fail to decode. That is deliberate and it is the loud direction.
 
 This is the seventh time in this project that a check has read a proxy for its subject rather than
 the subject: the number consulted was *notifications our callback received*, whose subject is our
