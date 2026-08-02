@@ -185,26 +185,39 @@ the one path carrying untrusted input.** Swift's synthesised `init(from:)` assig
 directly. It never calls your `init`, so every `precondition` and every `throw` you wrote to define
 the type's invariant is skipped exactly when a value arrives from disk.
 
-Measured across this repository, not inferred — **eleven public types have a validating initialiser
-and synthesised `Codable`**:
+Measured across this repository — **ten public types have a validating initialiser and no explicit
+`init(from:)`**:
 
 ```
-DisplayGeometry  NormalizedPoint  NormalizedSize  NormalizedFrame  PixelRect  PointRect
-Authorship       HostInstant      HostRange       TimeRange        SegmentTable
+DisplayGeometry  NormalizedPoint  NormalizedSize  NormalizedFrame  PixelRect
+PointRect        Authorship       HostInstant     HostRange        TimeRange
 ```
 
-All eleven are reachable from disk, through `ProjectSnapshot`, the observation log, or
-`EvidenceRef`. `NormalizedPoint` documents a 0–1 range and will decode 2.5 without complaint.
+All ten are reachable from disk. `ProjectPackageIO` decodes `ProjectSnapshot` today, and that
+carries `GeometryRegistry` → `DisplayGeometry`, `Derived` → `NormalizedFrame`, `Evidence`,
+`Authorship` and `TimeRange`. A hand-edited or corrupted `project.json` can produce a
+`NormalizedPoint` with `x = 2.5` right now, and nothing complains. The input is untrusted by design:
+a `.soredemo` package is a shareable document, and `agentic-threat-model` assumes foreign content is
+attacker-influenced.
+
+**The first count of this was wrong, and the method was worse than the number.** It scanned for
+`Codable` on the declaration line, so it missed every type conforming in an extension — which is
+exactly how `GeometryRegistry`, `ContentDigest` and `Evidence` are written. Those three happened to
+be closed, so the count survived; a type that was open and conformed in an extension would have been
+missed silently. Scan the whole file for the type, not one line of it.
+
+**And the eight closed ones show why the ten are open.** Phase 1 hand-wrote `Codable` for
+`GeometryRegistry`, `ContentDigest`, `ProducerID`, `GateCode`, `Evidence` and `NodeID` — the types
+whose *bytes are digested or whose identity must be checked*. That is a criterion about the
+encoding. "Does the initialiser validate" is a different criterion, and the ten sit in the gap
+between them. They are not ten separate oversights; they are one criterion applied consistently and
+a second one never asked.
 
 The `precondition` cases are the more deceptive half: the type has written down that a state is
-impossible, and then does not check it on the only path where the state can arrive from outside.
+impossible, and then does not check it on the only path where that state arrives from outside.
 
 And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
-for a question the invariant says cannot arise. That is this document's rule about measurements,
-applied to types.
-
-Found while reviewing one type, which is the point: the shape repeats wherever validation lives in
-an initialiser, so it is worth grepping for rather than noticing eleven times.
+for a question the invariant says cannot arise.
 
 **A probabilistic test presented as reliable is a measurement with a safe default, one level up.**
 Say the miss rate, and say whether a deterministic form was available.
