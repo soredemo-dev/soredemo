@@ -49,6 +49,8 @@ xcrun swiftc \
   Soredemo/Capture/CaptureSource.swift \
   Soredemo/Capture/AudioInterleave.swift \
   Soredemo/Capture/CaptureSession.swift \
+  Soredemo/Capture/CaptureError.swift \
+  Soredemo/Capture/InputObserver.swift \
   Soredemo/UI/ProjectDocument.swift \
   scripts/cross-boundary-digest-probe.swift
 

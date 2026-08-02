@@ -73,6 +73,10 @@
 // phrased.
 
 import AppKit
+// `kVK_ANSI_*` for § 7's keyboard fixtures — the same layout-independent key
+// positions `InputObserver.approvedShortcuts` is written against, so the two
+// cannot drift into disagreeing about which key is which.
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 import Geometry
@@ -181,6 +185,16 @@ enum CrossBoundaryProbe {
 
         print("6. SegmentLedger — segment lifecycle against a fake frame source (Task 8)")
         segmentLedgerLifecycle()
+
+        print("7. InputObserver — the conversion boundary's first caller (Task 9)")
+        print("7.1 the four-step conversion, against a scale: 2 fixture display")
+        theConversionOrder()
+        print("7.2 the callback body, driven by synthetic CGEvents")
+        theCallbackBody()
+        print("7.3 keystrokes are not stored")
+        keystrokesAreNotStored()
+        print("7.4 secure input produces an interval, not silence")
+        secureInputProducesAnInterval()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -369,6 +383,17 @@ enum CrossBoundaryProbe {
         check(geometry.pixels(from: points) == PixelRect(x: 24, y: 68, width: 1600, height: 1200),
               "pointRect(from:) yields points, which scale to different pixels",
               actual: "\(geometry.pixels(from: points))")
+
+        // `location(from:)` — Task 9's addition, the entry point for a
+        // `CGEvent`'s global position. Fractional and negative on purpose: a
+        // display placed above or to the left of the main one has a negative
+        // global origin (`DisplayArrangement.Placement` says so explicitly),
+        // and a truncation to `Int` somewhere in the conversion would survive
+        // any whole-number fixture.
+        let location = CGGeometryBridge.location(from: CGPoint(x: 12.5, y: -34.25))
+        check(location.x == 12.5 && location.y == -34.25,
+              "location(from:) carries a fractional, negative CGPoint across unchanged",
+              actual: "(\(location.x), \(location.y))", expected: "(12.5, -34.25)")
     }
 
     /// `Minting.bootEpoch()`, `hostNow()` and `continuousNow()` — Task 5. No
@@ -765,5 +790,454 @@ enum CrossBoundaryProbe {
         let failedSeg = failedLedger.closeSegment(at: instant(500_000_000), endedBy: .failed(reason: failureReason))
         check(failedSeg.endedBy == .failed(reason: failureReason),
               ".failed(reason:) round-trips its reason string exactly, through the ledger and back out")
+    }
+
+    // MARK: - § 7  InputObserver (Task 9)
+    //
+    // Why here and not in a test target: `InputObserver` lives in the app,
+    // names `CGEvent`, `CGEventFlags` and `CGDirectDisplayID`, and its
+    // conversion begins at a `CGPoint` — four things no package test may
+    // touch. The four functions below are the machine-checkable half of the
+    // `input-observation` row. The half that needs a person is
+    // `spikes/2026-08-02-input-observation/`: creating the tap needs Input
+    // Monitoring, and only a real password field makes
+    // `IsSecureEventInputEnabled()` true.
+
+    /// The fixture arrangement: a `scale: 1` display at the origin and a
+    /// `scale: 2` display immediately to its right.
+    ///
+    /// **The `scale: 2` display is the whole point of the fixture.** The
+    /// conversion has a points → pixels step in the middle
+    /// (`DisplayGeometry.pixels(from:)`) that is the *identity* at `scale: 1`;
+    /// against a `scale: 1` fixture the step can be deleted and every
+    /// assertion still passes. This project has written three expectation
+    /// tables whose fixture made the check vacuous in exactly that way.
+    ///
+    /// The second display is 3840×2160 native pixels at `scale: 2`, which is
+    /// **1920 points wide**, so it occupies global points [1920, 3840) — not
+    /// [1920, 5760). Comparing a global point against the pixel width was the
+    /// Task 10.5 defect; the arrangement below is built so a regression of it
+    /// changes which display a point routes to.
+    @MainActor
+    static func fixtureArrangement() -> (arrangement: DisplayArrangement,
+                                         main: DisplayGeometry, retina: DisplayGeometry) {
+        let main = DisplayGeometry(displayUUID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+                                   pixelWidth: 1920, pixelHeight: 1080, scale: 1)
+        let retina = DisplayGeometry(displayUUID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
+                                     pixelWidth: 3840, pixelHeight: 2160, scale: 2)
+        let arrangement = DisplayArrangement(placements: [
+            .init(geometry: main, globalOriginX: 0, globalOriginY: 0),
+            .init(geometry: retina, globalOriginX: 1920, globalOriginY: 0),
+        ])
+        return (arrangement, main, retina)
+    }
+
+    @MainActor
+    static func theConversionOrder() {
+        let (arrangement, main, retina) = fixtureArrangement()
+
+        // ---- The expectation, computed from the fixture rather than typed.
+        //
+        // Global (2400, 270) points:
+        //   route   -> retina, local (480, 270) POINTS
+        //   pixels  -> (960, 540) PIXELS            (× scale 2)
+        //   normalize -> x = 960/3840 = 0.25
+        //               y = 1 - 540/2160 = 0.75     (the Y flip)
+        let globalX = 2400.0, globalY = 270.0
+        let localPointsX = globalX - 1920, localPointsY = globalY - 0
+        let localPixelsX = localPointsX * retina.scale, localPixelsY = localPointsY * retina.scale
+        let expectedX = localPixelsX / Double(retina.pixelWidth)
+        let expectedY = 1 - (localPixelsY / Double(retina.pixelHeight))
+        print("        expected, computed from the fixture: (\(expectedX), \(expectedY))")
+
+        guard let converted = InputObserver.normalizedPosition(globalTopLeftX: globalX,
+                                                               globalTopLeftY: globalY,
+                                                               in: arrangement) else {
+            check(false, "a point on the scale: 2 display must route somewhere")
+            return
+        }
+        check(converted.position == NormalizedPoint(x: expectedX, y: expectedY),
+              "the four-step conversion lands a scale: 2 global point at its computed position",
+              actual: "(\(converted.position.x), \(converted.position.y))",
+              expected: "(\(expectedX), \(expectedY))")
+        check(converted.revision == retina.revision,
+              "the sample carries the revision of the display it was normalised against, not the main one",
+              actual: "\(converted.revision)", expected: "\(retina.revision)")
+
+        // ---- The two ways to get the order wrong, computed explicitly.
+        //
+        // Neither fails to compile and neither produces an out-of-range
+        // value, which is why they are written out here: an assertion whose
+        // failure mode is unstated is an assertion nobody can tell is
+        // load-bearing. Both are off by a factor tied to `scale`, and both
+        // collapse onto the right answer at `scale: 1`.
+        let skippingThePixelStep = NormalizedPoint(
+            x: localPointsX / Double(retina.pixelWidth),
+            y: 1 - (localPointsY / Double(retina.pixelHeight)))
+        check(converted.position != skippingThePixelStep,
+              "wiring route's POINTS straight into normalize gives a different, plausible answer",
+              actual: "correct \(converted.position.x) vs point-valued \(skippingThePixelStep.x)")
+        let skippingTheRouteStep = NormalizedPoint(
+            x: globalX / Double(retina.pixelWidth),
+            y: 1 - (globalY / Double(retina.pixelHeight)))
+        check(converted.position != skippingTheRouteStep,
+              "feeding an unrouted GLOBAL point to normalize gives a different, plausible answer",
+              actual: "correct \(converted.position.x) vs unrouted \(skippingTheRouteStep.x)")
+
+        // ---- The same conversion on the scale: 1 display, to show the
+        // fixture is not simply always returning the retina display.
+        guard let onMain = InputObserver.normalizedPosition(globalTopLeftX: 192, globalTopLeftY: 108,
+                                                            in: arrangement) else {
+            check(false, "a point on the main display must route somewhere")
+            return
+        }
+        check(onMain.revision == main.revision && onMain.position == NormalizedPoint(x: 0.1, y: 0.9),
+              "a point on the scale: 1 display routes to it and normalises against its own geometry",
+              actual: "\(onMain.revision) (\(onMain.position.x), \(onMain.position.y))",
+              expected: "\(main.revision) (0.1, 0.9)")
+
+        // ---- The half-open boundary. Global x = 1920 is the retina
+        // display's first column, not the main display's last: a closed
+        // interval on both sides would let placement order decide, silently.
+        let atSeam = InputObserver.normalizedPosition(globalTopLeftX: 1920, globalTopLeftY: 10,
+                                                      in: arrangement)
+        check(atSeam?.revision == retina.revision,
+              "a point exactly on the shared edge belongs to the display whose origin it is",
+              actual: "\(String(describing: atSeam?.revision))", expected: "\(retina.revision)")
+
+        // ---- Every point on either display normalises into [0, 1].
+        // The plan flags the trap: a sample on a second display fails this if
+        // the global point was not routed first. It is routed, so it does not.
+        var sweep: [NormalizedPoint] = []
+        for x in stride(from: 0.0, through: 3839.0, by: 137.0) {
+            for y in stride(from: 0.0, through: 1079.0, by: 97.0) {
+                if let p = InputObserver.normalizedPosition(globalTopLeftX: x, globalTopLeftY: y,
+                                                            in: arrangement) {
+                    sweep.append(p.position)
+                }
+            }
+        }
+        check(!sweep.isEmpty, "the sweep produced samples — an empty one would pass the next check vacuously",
+              actual: "\(sweep.count)")
+        check(sweep.allSatisfy { (0...1).contains($0.x) && (0...1).contains($0.y) },
+              "every normalised coordinate across BOTH displays is in [0, 1]",
+              actual: "\(sweep.filter { !(0...1).contains($0.x) || !(0...1).contains($0.y) }.count) outside")
+
+        // ---- A point on no display is nil, never a clamp. A clamped sample
+        // is a pointer position on a display the pointer was never on, which
+        // reads downstream as real motion.
+        check(InputObserver.normalizedPosition(globalTopLeftX: 9000, globalTopLeftY: 9000,
+                                               in: arrangement) == nil,
+              "a location on no known display returns nil rather than being clamped onto one")
+    }
+
+    /// A synthetic `CGEvent`, positioned and stamped.
+    ///
+    /// `CGEvent(mouseEventSource:…)` and `CGEvent(keyboardEventSource:…)`
+    /// build events with the same fields a tapped one carries, and the tap
+    /// callback body reads nothing else. What they cannot stand in for is the
+    /// tap itself — that is the human step.
+    ///
+    /// **The timestamp is set explicitly on every event here, because a
+    /// constructed `CGEvent` has `timestamp == 0`** (measured: `CGEvent(source:
+    /// nil)!.timestamp` is 0 on this OS build, unlike a tapped event, whose
+    /// stamp the window server fills in). Leaving it at 0 would drive the
+    /// implausibility instrument on every event and mask a real one.
+    @MainActor
+    static func mouseEvent(_ type: CGEventType, at point: CGPoint, stamp: Nanoseconds) -> CGEvent {
+        let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                            mouseCursorPosition: point, mouseButton: .left)!
+        event.timestamp = CGEventTimestamp(stamp.rawValue)
+        return event
+    }
+
+    @MainActor
+    static func keyEvent(_ keyCode: Int, flags: CGEventFlags, stamp: Nanoseconds) -> CGEvent {
+        let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(keyCode), keyDown: true)!
+        event.flags = flags
+        event.timestamp = CGEventTimestamp(stamp.rawValue)
+        return event
+    }
+
+    /// Collects observations from `InputObserver`'s `@Sendable` callback.
+    ///
+    /// A class with a lock rather than a captured `var`: the handler is
+    /// `@Sendable` and cannot capture a mutable MainActor binding, which is
+    /// the same constraint the real callback path lives under.
+    nonisolated final class Collector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [InputObserver.Observation] = []
+        var observations: [InputObserver.Observation] { lock.withLock { storage } }
+        func append(_ observation: InputObserver.Observation) {
+            lock.withLock { storage.append(observation) }
+        }
+    }
+
+    @MainActor
+    static func theCallbackBody() {
+        let (arrangement, _, retina) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        let collector = Collector()
+        let observer = InputObserver(arrangement: arrangement, epoch: epoch)
+        // `start()` is deliberately NOT called: that creates the real tap and
+        // needs Input Monitoring. The sink is installed through the seam
+        // `start()` itself uses, and `handle(type:event:)` — the whole
+        // callback body — is driven directly.
+        observer.setObservationSink(collector.append)
+        let stamp = Minting.hostNow()
+
+        observer.handle(type: .mouseMoved,
+                        event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270), stamp: stamp))
+        guard case .pointer(let sample)? = collector.observations.first else {
+            check(false, "a mouseMoved event produces exactly one pointer sample",
+                  actual: "\(collector.observations)")
+            return
+        }
+        check(collector.observations.count == 1, "a mouseMoved event produces exactly one observation",
+              actual: "\(collector.observations.count)")
+        check(sample.position == NormalizedPoint(x: 0.25, y: 0.75) && sample.revision == retina.revision,
+              "the emitted pointer sample carries the converted position and the display's revision",
+              actual: "(\(sample.position.x), \(sample.position.y)) \(sample.revision)")
+        check(sample.instant == HostInstant(epoch: epoch, hostTime: stamp),
+              "the sample's instant is the EVENT's own timestamp, taken as nanoseconds and not converted",
+              actual: "\(sample.instant.hostTime.rawValue)", expected: "\(stamp.rawValue)")
+        check(observer.diagnostics.implausibleEventTimestampCount == 0,
+              "a CGEventTimestamp read as nanoseconds sits within a second of hostNow()",
+              actual: "\(observer.diagnostics.implausibleEventTimestampCount)")
+
+        // ---- The unit instrument, driven the other way. This is the standing
+        // check that `CGEventTimestamp` is nanoseconds: a stamp that is not on
+        // `hostNow()`'s base lands here. A tick-valued stamp (the mistake the
+        // plan warns about) is ~24× smaller than the nanosecond value and so
+        // sits hours away from `hostNow()` — far outside the one-second
+        // window, exactly like the 0 below.
+        let ticksNotNanos = Nanoseconds(stamp.rawValue * 3 / 125)   // what mach ticks would read as
+        observer.handle(type: .mouseMoved,
+                        event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270), stamp: ticksNotNanos))
+        check(observer.diagnostics.implausibleEventTimestampCount == 1,
+              "a tick-valued (unconverted) timestamp is counted as implausible, not accepted silently",
+              actual: "\(observer.diagnostics.implausibleEventTimestampCount)")
+
+        // ---- A click is a down and an up. Both carry a position.
+        let clicks = Collector()
+        let clickObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        clickObserver.setObservationSink(clicks.append)
+        clickObserver.handle(type: .leftMouseDown,
+                             event: mouseEvent(.leftMouseDown, at: CGPoint(x: 2400, y: 270), stamp: stamp))
+        clickObserver.handle(type: .leftMouseUp,
+                             event: mouseEvent(.leftMouseUp, at: CGPoint(x: 2400, y: 270),
+                                               stamp: Nanoseconds(stamp.rawValue + 80_000_000)))
+        let buttons = clicks.observations.compactMap { observation -> ButtonEvent? in
+            if case .button(let event) = observation { return event }
+            return nil
+        }
+        check(buttons.count == 2 && buttons[0].phase == .down && buttons[1].phase == .up
+                && buttons.allSatisfy { $0.button == .left },
+              "a click produces a down and an up, in that order, both on the left button",
+              actual: "\(buttons.map { "\($0.button.rawValue).\($0.phase.rawValue)" })")
+        check(buttons.allSatisfy { $0.position == NormalizedPoint(x: 0.25, y: 0.75) },
+              "both halves of the click carry the converted position")
+
+        // ---- A location on no display is dropped and counted, not clamped.
+        let offscreen = Collector()
+        let offscreenObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        offscreenObserver.setObservationSink(offscreen.append)
+        offscreenObserver.handle(type: .mouseMoved,
+                                 event: mouseEvent(.mouseMoved, at: CGPoint(x: 9000, y: 9000), stamp: stamp))
+        check(offscreen.observations.isEmpty
+                && offscreenObserver.diagnostics.unroutablePointerLocations == 1,
+              "a pointer location on no known display emits nothing and is counted",
+              actual: "\(offscreen.observations.count) observations, "
+                      + "\(offscreenObserver.diagnostics.unroutablePointerLocations) unroutable")
+    }
+
+    /// **The privacy claim, as a negative assertion — the category this
+    /// project has repeatedly passed vacuously.**
+    ///
+    /// Observed red before being reported green: with the two gates removed
+    /// from `InputObserver.approvedShortcut(forKeyCode:flags:)` so that it
+    /// returns an identifier for every key, the first two checks below fail.
+    /// The failure text is quoted in the Task 9 report; without it, "ordinary
+    /// typing is never recorded" and "this check tests nothing" read exactly
+    /// alike.
+    @MainActor
+    static func keystrokesAreNotStored() {
+        let (arrangement, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        let stamp = Minting.hostNow()
+
+        // A password, typed. Key POSITIONS, never characters — this probe has
+        // no more business holding the text than the observer does.
+        let typedKeys = [kVK_ANSI_H, kVK_ANSI_U, kVK_ANSI_N, kVK_ANSI_T,
+                         kVK_ANSI_E, kVK_ANSI_R, kVK_ANSI_2, kVK_ANSI_Period]
+        let collector = Collector()
+        let observer = InputObserver(arrangement: arrangement, epoch: epoch)
+        observer.setObservationSink(collector.append)
+        for key in typedKeys {
+            observer.handle(type: .keyDown,
+                            event: keyEvent(key, flags: [.maskNonCoalesced], stamp: stamp))
+        }
+        // Held shift, because that is how the capitals in a password are
+        // typed, and because a filter keyed on "any modifier" would let them
+        // through.
+        for key in typedKeys {
+            observer.handle(type: .keyDown,
+                            event: keyEvent(key, flags: [.maskShift, .maskNonCoalesced], stamp: stamp))
+        }
+        check(observer.diagnostics.keyDownsSeen == typedKeys.count * 2,
+              "the observer saw every synthetic keystroke — a filter tested against no input passes vacuously",
+              actual: "\(observer.diagnostics.keyDownsSeen)", expected: "\(typedKeys.count * 2)")
+        check(collector.observations.isEmpty,
+              "ordinary typing, shifted and unshifted, produces NO observation of any kind",
+              actual: "\(collector.observations.count) observations")
+        check(observer.diagnostics.everyKeyDownIsAccountedFor,
+              "every keyDown is accounted for as recorded or refused",
+              actual: observer.diagnostics.keyAccounting)
+
+        // ---- The allow-list admits what it says it admits, so the checks
+        // above are not passing because nothing at all gets through.
+        let approved = Collector()
+        let approvedObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        approvedObserver.setObservationSink(approved.append)
+        approvedObserver.handle(type: .keyDown,
+                                event: keyEvent(kVK_ANSI_C, flags: [.maskCommand, .maskNonCoalesced],
+                                                stamp: stamp))
+        guard case .key(let sample)? = approved.observations.first else {
+            check(false, "cmd+C is on the allow-list and must produce a KeySample",
+                  actual: "\(approved.observations)")
+            return
+        }
+        check(sample.shortcut == "cmd+c",
+              "an approved shortcut is recorded under the table's own identifier",
+              actual: sample.shortcut, expected: "cmd+c")
+
+        // ---- Modifiers are matched exactly, not by subset.
+        check(InputObserver.approvedShortcut(forKeyCode: Int64(kVK_ANSI_Z),
+                                             flags: [.maskCommand, .maskNonCoalesced]) == "cmd+z"
+                && InputObserver.approvedShortcut(
+                    forKeyCode: Int64(kVK_ANSI_Z),
+                    flags: [.maskCommand, .maskShift, .maskNonCoalesced]) == "cmd+shift+z",
+              "⌘Z and ⇧⌘Z are different entries, not one entry with a spare flag")
+        check(InputObserver.approvedShortcut(forKeyCode: Int64(kVK_ANSI_C),
+                                             flags: [.maskCommand, .maskAlternate,
+                                                     .maskNonCoalesced]) == nil,
+              "⌥⌘C is not ⌘C — an unlisted modifier combination is refused, not rounded to the nearest entry")
+
+        // ---- A command chord that is not in the table is still refused. The
+        // allow-list is closed; it is not "anything with ⌘".
+        check(InputObserver.approvedShortcut(forKeyCode: Int64(kVK_ANSI_H),
+                                             flags: [.maskCommand, .maskNonCoalesced]) == nil,
+              "⌘H is a real shortcut and is not on the list, so it is not recorded")
+
+        // ---- `maskNonCoalesced` is set on every real event, so an exact
+        // comparison against the raw flags would match nothing, ever — a
+        // filter indistinguishable from a working one until someone presses
+        // ⌘C and looks for it. Every check above passes it deliberately; this
+        // one states why.
+        check(InputObserver.approvedShortcut(forKeyCode: Int64(kVK_ANSI_C),
+                                             flags: [.maskCommand]) == "cmd+c"
+                && InputObserver.approvedShortcut(
+                    forKeyCode: Int64(kVK_ANSI_C),
+                    flags: [.maskCommand, .maskNonCoalesced, .maskNumericPad]) == "cmd+c",
+              "the filter masks to the four modifiers it considers, so incidental flags do not defeat it")
+
+        // ---- Nothing that leaves the filter is a keystroke. Every
+        // identifier is a literal from the table; this states the property
+        // rather than trusting the eleven literals above it.
+        check(InputObserver.approvedShortcuts.allSatisfy { $0.identifier.contains("+") }
+                && !InputObserver.approvedShortcuts.isEmpty,
+              "every approved identifier names a chord, and none is a single character",
+              actual: "\(InputObserver.approvedShortcuts.count) entries")
+    }
+
+    /// **An interval with no samples is otherwise indistinguishable from an
+    /// interval where nothing happened.** That is the whole reason the record
+    /// exists, and this is the check that it is produced.
+    ///
+    /// The secure-input predicate is injected (see `InputObserver.init`):
+    /// `IsSecureEventInputEnabled()` is true only while another
+    /// application's password field has focus, so a check that waited for the
+    /// real one would never run. That the real predicate is wired up is the
+    /// human step's job.
+    @MainActor
+    static func secureInputProducesAnInterval() {
+        let (arrangement, _, _) = fixtureArrangement()
+        let epoch = Minting.bootEpoch()
+        let base = Minting.hostNow().rawValue
+
+        nonisolated final class Toggle: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = false
+            var isOn: Bool {
+                get { lock.withLock { value } }
+                set { lock.withLock { value = newValue } }
+            }
+        }
+        let secure = Toggle()
+        let collector = Collector()
+        let observer = InputObserver(arrangement: arrangement, epoch: epoch,
+                                     secureInputIsEnabled: { secure.isOn })
+        observer.setObservationSink(collector.append)
+
+        func move(at offset: Int64) {
+            observer.handle(type: .mouseMoved,
+                            event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270),
+                                              stamp: Nanoseconds(base + offset)))
+        }
+
+        move(at: 0)                                   // before: an ordinary sample
+        secure.isOn = true
+        move(at: 1_000_000_000)                       // the interval opens here
+        move(at: 2_000_000_000)
+        move(at: 3_000_000_000)
+        check(collector.observations.count == 1,
+              "while secure input is on the observer emits NOTHING — not a redacted sample, not a placeholder",
+              actual: "\(collector.observations.count) observations after 3 suppressed events")
+        check(observer.diagnostics.eventsSuppressedBySecureInput == 3,
+              "the suppressed events are counted, so the silence is not itself silent",
+              actual: "\(observer.diagnostics.eventsSuppressedBySecureInput)")
+
+        secure.isOn = false
+        move(at: 4_000_000_000)                       // the interval closes here
+        let intervals = collector.observations.compactMap { observation -> SecureInputInterval? in
+            if case .secureInput(let interval) = observation { return interval }
+            return nil
+        }
+        check(intervals.count == 1, "leaving secure input emits exactly one interval record",
+              actual: "\(intervals.count)")
+        guard let interval = intervals.first else { return }
+        check(interval.interval.start == Nanoseconds(base + 1_000_000_000)
+                && interval.interval.end == Nanoseconds(base + 4_000_000_000),
+              "the interval spans the first suppressed event to the first one emitted again",
+              actual: "start +\(interval.interval.start.rawValue - base) "
+                      + "end +\(interval.interval.end.rawValue - base)",
+              expected: "start +1000000000 end +4000000000")
+        check(interval.endedBy == .secureInputDisabled,
+              "an interval the observer watched end is marked as measured, not as a bound",
+              actual: "\(interval.endedBy.rawValue)")
+        check(interval.interval.epoch == epoch, "the interval carries the recording's boot epoch")
+
+        // ---- A recording that ends mid-password still reports the interval,
+        // marked as the lower bound it is. Dropping it would lose exactly the
+        // stretch the log has no samples for.
+        let atStop = Collector()
+        let stoppingObserver = InputObserver(arrangement: arrangement, epoch: epoch,
+                                             secureInputIsEnabled: { true })
+        stoppingObserver.setObservationSink(atStop.append)
+        stoppingObserver.handle(type: .mouseMoved,
+                                event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270),
+                                                  stamp: Nanoseconds(base)))
+        check(atStop.observations.isEmpty, "nothing is emitted while secure input is on")
+        // The real `stop()`, not a stand-in: with no tap created it does
+        // nothing to the run loop and takes exactly the path that closes an
+        // open interval.
+        stoppingObserver.stop()
+        let stopIntervals = atStop.observations.compactMap { observation -> SecureInputInterval? in
+            if case .secureInput(let interval) = observation { return interval }
+            return nil
+        }
+        check(stopIntervals.count == 1 && stopIntervals.first?.endedBy == .observationStopped,
+              "stopping mid-interval still reports it, marked .observationStopped rather than dropped",
+              actual: "\(stopIntervals.map { $0.endedBy.rawValue })")
     }
 }

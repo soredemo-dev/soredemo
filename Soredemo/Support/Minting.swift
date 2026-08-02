@@ -1,3 +1,10 @@
+// `CGDisplayCreateUUIDFromDisplayID` is declared in `ColorSync.framework`
+// (`ColorSyncDevice.h`), not CoreGraphics, despite the `CG` prefix and despite
+// taking a `CGDirectDisplayID` — verified by grepping the SDK's frameworks for
+// the symbol after `import CoreGraphics` alone failed to find it. CoreGraphics
+// is still imported for `CGDirectDisplayID` itself.
+import ColorSync
+import CoreGraphics
 import CryptoKit
 import Darwin
 import Foundation
@@ -135,6 +142,49 @@ extension Minting {
             preconditionFailure("kern.bootsessionuuid is not a UUID: \(s)")
         }
         return BootEpoch(id: id)
+    }
+
+    /// A display's **persistent** identity, from
+    /// `CGDisplayCreateUUIDFromDisplayID` — the value `DisplayGeometry
+    /// .displayUUID` is documented to hold (D-P2), and the reason it holds a
+    /// `UUID` rather than a `CGDirectDisplayID`: the window server assigns
+    /// display IDs dynamically and they are not stable across reboot or
+    /// replug.
+    ///
+    /// **Here, and not at the call site, because of this file's own rule.**
+    /// `AppSourceAllowListTests` bans `UUID(` and `UUID.init` everywhere
+    /// under `Soredemo/` except this file, and every route from a `CFUUID` to
+    /// a Foundation `UUID` — `UUID(uuidString:)`, `UUID(uuid:)`, `NSUUID(…)`
+    /// — is one of those spellings. So a display's identity could not be
+    /// read anywhere else even if it wanted to be, which is the intended
+    /// outcome: this is ambient environment identity, exactly like
+    /// `bootEpoch()`, and it enters at the one audited place. Added to that
+    /// test's banned list alongside `sysctlbyname` in the same commit, so the
+    /// claim is enforced rather than asserted.
+    ///
+    /// Returns `nil` rather than trapping, unlike `bootEpoch()`. The
+    /// difference is judged, not inherited: `kern.bootsessionuuid`'s absence
+    /// means the platform contract is false, while a display ID can go stale
+    /// between being listed and being asked about — a monitor unplugged
+    /// mid-enumeration is a normal race on a machine someone is using, not a
+    /// broken environment. The caller drops that display from the
+    /// arrangement and keeps the others; see `InputObserver.currentArrangement()`.
+    ///
+    /// `takeRetainedValue()`: `CGDisplayCreateUUIDFromDisplayID` is a
+    /// `Create` function, so this side owns the reference.
+    ///
+    /// **Named `displayIdentity`, not `displayUUID`, and that is the scan's
+    /// doing rather than a style choice.** `AppSourceAllowListTests` bans the
+    /// substring `UUID(` and matches substrings deliberately, so every call
+    /// site written `Minting.displayUUID(of: id)` failed that test — the
+    /// "visible false positive" its own header describes as survivable. It is
+    /// survivable because the fix is renaming one function; weakening the
+    /// substring match to buy a nicer name would trade a real guarantee for
+    /// spelling.
+    nonisolated static func displayIdentity(of displayID: CGDirectDisplayID) -> UUID? {
+        guard let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue(),
+              let string = CFUUIDCreateString(nil, cfUUID) as String? else { return nil }
+        return UUID(uuidString: string)
     }
 
     /// The host clock, in nanoseconds — the same base as

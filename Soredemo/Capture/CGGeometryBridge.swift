@@ -88,6 +88,42 @@ enum CGGeometryBridge {
                          width: Double(r.size.width), height: Double(r.size.height))
     }
 
+    /// Interprets `point` as a location in **points** — what
+    /// `CGEventGetLocation` (`CGEvent.location`) reports, in the global,
+    /// top-left-origin space — and hands back bare scalars.
+    ///
+    /// **Scalars, not a package type, and this is the one place in the
+    /// repository where that is the *right* answer rather than a shortcut.**
+    /// There is no package type for an un-normalised point: `NormalizedPoint`
+    /// is 0…1 bottom-left and would be a lie at this end of the pipeline, and
+    /// `PointRect` is a rectangle — `DisplayArrangement`'s own documentation
+    /// rejects wrapping a routed point in a zero-size rect for exactly this
+    /// reason ("a point is not a degenerate rect"). `DisplayArrangement
+    /// .route`, the very next step, takes two `Double`s. So the honest return
+    /// type here is the pair, labelled, with the unit stated in this comment
+    /// and nowhere else to state it.
+    ///
+    /// That is also this boundary's known weakness, named rather than
+    /// papered over: nothing in the type system distinguishes these points
+    /// from pixels, and `route` cannot either (Task 10.5 left that gap
+    /// deliberately). The check that catches a caller feeding pixels where
+    /// points belong is `§ 7`'s `scale: 2` fixture in
+    /// `scripts/cross-boundary-digest-probe.swift`, where the wrong unit
+    /// changes the answer by exactly the scale factor. At `scale: 1` — the
+    /// identity element — nothing catches it at all.
+    ///
+    /// **Why the argument is a `CGPoint` and not a `CGEvent`.** Taking the
+    /// event would keep one more CoreGraphics name out of the call site, but
+    /// it would put event handling inside a geometry bridge, and the next
+    /// caller (AX frames, Task 10) has a point and no event. `CGEvent
+    /// .location` is passed straight in, which is the same shape
+    /// `CaptureSource.destinationRect` already uses for `window.frame`: the
+    /// CG value is produced and consumed in one expression and is never bound
+    /// to a name outside this file.
+    nonisolated static func location(from point: CGPoint) -> (x: Double, y: Double) {
+        (Double(point.x), Double(point.y))
+    }
+
     /// Decodes a `PointRect` from a ScreenCaptureKit frame attachment,
     /// whichever way ScreenCaptureKit encoded it.
     ///
