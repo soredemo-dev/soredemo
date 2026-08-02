@@ -391,7 +391,7 @@ the blind spot is the same size.
 
 A later run corrected what that sweep's *thresholds* meant — it stalled every `mouseMoved` at
 60–120 Hz, which is sustained overload, and 125 ms of stall on clicks alone leaves the tap enabled
-across 1928 callbacks — but not this row: the notification was absent whether the tap was up or
+across 18 such stalls in 30 s — but not this row: the notification was absent whether the tap was up or
 down, so polling is what this row rests on either way.
 
 The general form, and the reason this paragraph is in the register rather than in a task report:

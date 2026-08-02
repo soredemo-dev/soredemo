@@ -1317,8 +1317,17 @@ than quietly replaced:
 > one click in ten.~~
 
 Measured, spike C **step 6 part A**: a **125 ms** stall — Spike A's *worst* observed hit-test —
-imposed on `.leftMouseDown` **only**, 30 s, **1928 callbacks**. The tap was enabled at the end and
-**never once seen disabled**.
+imposed on `.leftMouseDown` **only**. **18 stalls performed** across 30 s; the tap was enabled at the
+end and **never once seen disabled**.
+
+**That number was first published as "1928 callbacks", and the correction is a finding in itself.**
+The run's anti-vacuity guard — the check that existed to stop a vacuous pass — was `callbacks > 0`,
+and the tap mask includes `mouseMoved`. So it counted pointer motion, which is exactly what the
+stall was *not* applied to: a run with no clicks would have performed zero stalls, recorded ~1900
+callbacks, and passed while claiming the tap had survived a stall it never took. The guard read a
+proxy for its own subject. It now counts stalls performed and requires at least eight, and the
+finding held under the corrected instrument — but the evidence changed subject, from 1928 pointer
+callbacks to 18 clicks, and only the second supports the claim.
 
 The 10–50 ms figure came from **step 5**, which stalled on every `mouseMoved`. Those arrive at
 60–120 Hz, so a 20 ms stall cannot keep up by construction: the backlog grows without bound and the

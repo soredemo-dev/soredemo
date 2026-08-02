@@ -82,8 +82,19 @@ import Timeline
 /// ### Measured: a 125 ms cost per click does **not** disable the tap
 ///
 /// Spike C step 6, part A: a 125 ms stall — Spike A's *worst* observed
-/// hit-test — imposed on `.leftMouseDown` **only**, 30 s, 1928 callbacks. The
-/// tap was still enabled at the end and was **never once seen disabled**.
+/// hit-test — imposed on `.leftMouseDown` **only**. **18 stalls performed**
+/// across 30 s; the tap was still enabled at the end and was **never once seen
+/// disabled**.
+///
+/// **The evidence is 18 stalls, and it was first written down as 1928
+/// callbacks.** That run's anti-vacuity guard was `callbacks > 0`, and the tap
+/// mask includes `mouseMoved` — so the number it reported was pointer motion,
+/// which is precisely what the stall was *not* applied to. A guard against a
+/// vacuous pass read a proxy for its own subject: with no clicks at all it
+/// would have recorded ~1900 callbacks, performed zero stalls, and passed. It
+/// now counts stalls and requires at least eight. The finding survived the
+/// correction; the number that supports it did not, and 18 is the one to
+/// quote.
 ///
 /// ### Falsified, and recorded as falsified rather than replaced
 ///
@@ -572,7 +583,7 @@ public final class AXObserver: @unchecked Sendable {
     /// per-callback time budget. An earlier version of this comment said the
     /// latter, citing a 10–50 ms figure that was an artefact of stalling every
     /// `mouseMoved`; measured since, a 125 ms stall on clicks alone leaves the
-    /// tap enabled across 1928 callbacks.
+    /// tap enabled across 18 such stalls in 30 s.
     ///
     /// The cost of deferring is real: the hit-test happens later than the
     /// click, which adds to exactly the staleness D2-2a exists to record. It
@@ -612,9 +623,10 @@ public final class AXObserver: @unchecked Sendable {
     /// and a `DispatchQueue.async`.
     ///
     /// It is **not** here because a slow callback disables the tap — measured,
-    /// it does not: 125 ms on clicks only, 30 s, 1928 callbacks, tap still
-    /// enabled. The header records why that figure was believed and why it was
-    /// wrong.
+    /// it does not: 125 ms on clicks only, 18 stalls over 30 s, tap still
+    /// enabled. The header records why the opposite was believed, why it was
+    /// wrong, and why the supporting number is 18 rather than the 1928 first
+    /// quoted.
     ///
     /// **Serial, not concurrent.** A hung application blocks an AX call for
     /// seconds; a concurrent queue would answer that by opening more

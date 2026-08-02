@@ -154,8 +154,8 @@ enum SpikeA {
                 samples.countClick()
                 // **`enqueue`, not `chain`.** This closure runs inside the tap
                 // callback. A slow callback does not by itself disable the tap
-                // — measured, 125 ms on clicks only across 1928 callbacks does
-                // not — but a target that HANGS would take the tap down with
+                // — measured, 125 ms on clicks only, 18 stalls over 30 s,
+                // does not — but a target that HANGS would take the tap down with
                 // it, and with it the whole pointer track this spike is also
                 // measuring. Behind the queue the same hang costs the AX
                 // chains of the affected clicks, counted. See `AXObserver`'s

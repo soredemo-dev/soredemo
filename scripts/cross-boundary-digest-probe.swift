@@ -2847,7 +2847,7 @@ enum CrossBoundaryProbe {
     /// thread a hung target costs the **whole pointer track**, behind the
     /// queue it costs the **AX chains of the affected clicks**, counted. Not
     /// because a slow callback disables the tap — measured, 125 ms on clicks
-    /// only across 1928 callbacks does not, and the 10–50 ms figure this
+    /// only across 18 such stalls does not, and the 10–50 ms figure this
     /// comment used to cite was an artefact of stalling every `mouseMoved`.
     ///
     /// What the queue costs is a hit-test later than the click, and the point

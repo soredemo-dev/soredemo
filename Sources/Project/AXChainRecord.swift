@@ -408,9 +408,9 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
     /// affected clicks, counted — and **not** a per-callback time budget. An
     /// earlier version of this comment cited a 10–50 ms budget that was an
     /// artefact of stalling every `mouseMoved`; 125 ms of stall on clicks
-    /// alone was later measured to leave the tap enabled across 1928
-    /// callbacks. `Soredemo/Capture/AXObserver.swift`'s header carries the
-    /// argument and the correction.
+    /// alone — 18 stalls over 30 s — was later measured to leave the tap
+    /// enabled. `Soredemo/Capture/AXObserver.swift`'s header carries the
+    /// argument, that correction, and a second one about the number itself.
     ///
     /// A stale hit-test is recorded staleness; a dead pointer track is
     /// silence. This field is what keeps the trade visible instead of turning

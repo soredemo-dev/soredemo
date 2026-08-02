@@ -171,8 +171,8 @@ public enum TapBlindWindowLowerBound: String, Codable, Sendable {
 ///
 /// **What that sweep is not.** It stalled on every `mouseMoved`, at 60–120 Hz,
 /// so the rungs where the flag read false are *sustained overload* and not a
-/// per-callback budget — a later run stalling 125 ms on clicks alone left the
-/// tap enabled across 1928 callbacks. The dead-notification finding above is
+/// per-callback budget — a later run stalling 125 ms on clicks alone, 18
+/// stalls over 30 s, left the tap enabled. The dead-notification finding above is
 /// unaffected (it held at every rung, disabled or not); only the threshold
 /// reading of the same table was wrong, and it is corrected at length in
 /// `Soredemo/Capture/AXObserver.swift`'s header.

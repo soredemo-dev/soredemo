@@ -220,8 +220,8 @@ public final class InputObserver: @unchecked Sendable {
         /// backlog grows without bound and the system disables a persistently
         /// overloaded tap. That is sustained overload, not one slow callback.
         /// Step 6 part A measured the case that matters — 125 ms of stall on
-        /// `.leftMouseDown` **only**, 30 s, 1928 callbacks — and the tap was
-        /// **never seen disabled**. So "the callback must return within
+        /// `.leftMouseDown` **only**, **18 stalls performed** across 30 s — and
+        /// the tap was **never seen disabled**. So "the callback must return within
         /// 10–50 ms" was never a fact, and neither was the claim it was used
         /// for, that Spike A's 21.25 ms p90 hit-test would kill the tap. See
         /// `AXObserver`'s header for why the AX work is nevertheless off this
