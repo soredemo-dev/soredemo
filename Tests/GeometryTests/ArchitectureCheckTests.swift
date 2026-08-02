@@ -512,7 +512,7 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     #expect(regularNames.isSuperset(of: libraryModules),
             "expected at least \(libraryModules) among the regular targets, got \(regularNames.sorted())")
 
-    for target in regular {
+    for target in regular where !pluginExemptTargets.contains(target["name"] as? String ?? "") {
         let name = target["name"] as? String ?? "<unnamed>"
         let usages = target["pluginUsages"] as? [[String: Any]] ?? []
         let plugins = usages.compactMap { ($0["plugin"] as? [Any])?.first as? String }
@@ -526,7 +526,43 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     let checkerPlugins = (checker["pluginUsages"] as? [[String: Any]] ?? [])
         .compactMap { ($0["plugin"] as? [Any])?.first as? String }
     #expect(!checkerPlugins.contains("ArchitectureCheck"))
+
+    // And the exemption is real, not aspirational: `CheckerLexer` must be present
+    // and must NOT carry the plugin. An exemption list whose members have vanished
+    // silently exempts nothing.
+    //
+    // Honest note on reachability, since a claim of coverage is worth no more than
+    // its reason: the SECOND assertion here can almost certainly never fire.
+    // Attaching the plugin to `CheckerLexer` was tried, and SwiftPM refuses to
+    // resolve the package at all — `cyclic dependency declaration found:
+    // AppSourceTests -> CheckerLexer -> ArchitectureCheck -> architecture-checker
+    // -> CheckerLexer` — so the failure arrives before any test runs. It is kept
+    // because it costs a line and states the invariant where a reader will look
+    // for it. The load-bearing assertion is the FIRST one, and the loop above,
+    // whose red was observed by removing `plugins: archCheck` from `Timeline`.
+    for name in pluginExemptTargets {
+        let target = try #require(targets.first { $0["name"] as? String == name },
+                                  "\(name) is exempt from the plugin but no longer exists")
+        let plugins = (target["pluginUsages"] as? [[String: Any]] ?? [])
+            .compactMap { ($0["plugin"] as? [Any])?.first as? String }
+        #expect(!plugins.contains("ArchitectureCheck"),
+                "\(name) is listed as plugin-exempt but now uses the plugin — remove it from the list")
+    }
 }
+
+/// The one regular target the `ArchitectureCheck` plugin is deliberately not
+/// attached to.
+///
+/// `CheckerLexer` holds the checker's code view. `ArchitectureCheck` depends on
+/// `architecture-checker`, which depends on `CheckerLexer`, so attaching the
+/// plugin to `CheckerLexer` closes a dependency cycle and SwiftPM refuses to
+/// resolve the package. Same reason `architecture-checker` carries no plugin —
+/// that one is an `executableTarget`, so it never reaches the `regular` filter
+/// above and needs no entry here.
+///
+/// Rule 1 is therefore kept BY HAND in `Sources/CheckerLexer`. A single-name list
+/// is the point: anything else added without the plugin still fails.
+let pluginExemptTargets: Set<String> = ["CheckerLexer"]
 
 // MARK: - unreadable must never mean compliant
 
