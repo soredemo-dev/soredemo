@@ -281,3 +281,99 @@ rather than infer it from a suspicious gap.
 
 Sampling frequency and what the recorder does on detection — abort, mark, or split — are open, and
 belong with the `capture-stream` work rather than here.
+
+---
+
+## F2-2 — Spike A: the pairing hazard is entirely on the AX side
+
+118 clicks, one machine (Apple Silicon, macOS 26.6), one session, mixed native AppKit / Electron /
+web content, deliberately including clicks during menu, Dock and window animations.
+
+**These are not calibrated thresholds.** One machine, one session, an uncontrolled app mix, and no
+labelling of which target each sample hit. D4 still applies; this is the first distribution, not the
+answer. The raw log is **not committed** — it carries window titles from real work — so what follows
+is the analysis, reproducible by re-running the spike.
+
+```
+                      p50      p90      p95      max
+tap latency          0.41     1.64     2.57     5.46 ms
+hit-test interval    1.05    21.25    42.03   125.47 ms
+whole AX walk        5.10    32.22    55.46   173.53 ms
+AX calls               41      106      110      131
+chain depth             3       12       20       20
+chain-inconsistency  3.90    30.00    50.24   109.57 ms
+   in 60 fps frames    0.2      1.8      3.0      6.6
+```
+
+### 1. Tap latency is not the hazard, and D2-2 said otherwise
+
+D2-2 described the click-to-hit-test pairing as a risk shared between the two halves. It is not.
+The tap arrives in **0.41 ms at p50 and 5.46 ms at the worst of 118 samples** — well inside a single
+frame, every time. Essentially all of the pairing uncertainty is on the AX side, where the same
+statistic runs to 125 ms.
+
+The framing was wrong in a way that would have spread effort evenly across two problems of very
+different size.
+
+### 2. The hit-test spreads by 120×, and 12% of clicks exceed a frame
+
+p50 1.05 ms, max 125.47 ms. **14 of 118 hit-tests (12%) took longer than one 60 fps frame**, so on
+one click in eight the layout could already have moved before the answer came back. The slowest
+were exactly where predicted: an `AXMenuItem` during a menu animation (51 ms), an `AXDockItem` while
+the Dock was moving (49 ms), and `AXGroup`/`AXScrollArea` in web content (125 ms, 42 ms).
+
+### 3. The chain that never simultaneously existed, measured
+
+D2-2 argued that an unbounded walk records a chain whose levels were sampled at different moments.
+Measured from the start of the hit-test to the last ancestor read:
+
+**p90 is 1.8 frames. p95 is 3.0 frames. The worst is 6.6 frames.**
+
+At p95 the UI has had three frames to move between the top and bottom of a chain that will be stored
+as one observation. This is why every item carries its own interval (D2-2a) rather than the chain
+carrying one timestamp — and it is why a later gate needs the interval, not a number.
+
+### 4. Depth and time are independent axes, which is why both bounds are needed
+
+D2-2 asked for a depth cap *and* a wall-clock budget. The data says these catch **different
+things**, which is a better reason than the one originally given:
+
+- The 10 samples that hit the depth cap of 20 mostly completed in **4–13 ms**. Their chain tops were
+  `AXWebArea` — web and Electron hierarchies are cheap per level and simply deep.
+- The 1 sample that exceeded the budget took **173 ms across 131 calls** and was not the deepest.
+
+Deep is not slow and slow is not deep. A depth cap alone misses a blocked responder; a budget alone
+misses a 25-level web hierarchy that answers quickly.
+
+### 5. No budget removes truncation, so recording it is structural
+
+| Depth cap | truncated | | Budget | truncated |
+| --- | --- | --- | --- | --- |
+| 12 | 13% | | 5 ms | 51% |
+| 16 | 9% | | 10 ms | 25% |
+| 20 | 8% | | 20 ms | 15% |
+| 25 | 0% | | 35 ms | 9% |
+| 30 | 0% | | 50 ms | 7% |
+
+Depth has a clean knee — 25 covers everything seen here. **Time does not.** The tail flattens and
+never reaches zero: even at 50 ms, 7% of clicks are still cut off. So D2-2's "truncation is itself a
+record" is not defensive habit, it is the only honest way to store this: some proportion of every
+recording will be truncated, permanently, and the derivation stage has to be able to tell that from
+"the chain ended here".
+
+### 6. The units guard never fired
+
+`tapLatencyNegative` is false in all 118 samples. The `CGEventTimestamp`-in-nanoseconds finding from
+F2-1 holds under load, and the guard that would have caught a regression was present and silent for
+the right reason — which is only knowable because it reports rather than defaults (`AGENTS.md`, a
+measurement has no safe default).
+
+### Still open
+
+- Per-target distributions. The sample was not labelled by application, so "Electron is slower" is
+  visible in the chain-top roles but not measured. Spike A should record the frontmost bundle
+  identifier before this feeds a threshold.
+- Whether one level of children (D2-3) is enough. Not answered here; needs the derivation stage to
+  exist before it can be judged.
+- Everything above is one machine. A slower or busier machine moves the whole distribution, and the
+  budget is the parameter that will move most.
