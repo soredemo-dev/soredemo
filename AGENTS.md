@@ -180,6 +180,32 @@ measurement that reads stale is not the safe kind of wrong. When an assertion is
 standing between you and an unverified mechanism, prove it fails against the mutation *and* passes
 against the real code, in a throwaway probe, before you keep it.
 
+**A validating initialiser plus synthesised `Codable` is an invariant that holds everywhere except
+the one path carrying untrusted input.** Swift's synthesised `init(from:)` assigns stored properties
+directly. It never calls your `init`, so every `precondition` and every `throw` you wrote to define
+the type's invariant is skipped exactly when a value arrives from disk.
+
+Measured across this repository, not inferred — **eleven public types have a validating initialiser
+and synthesised `Codable`**:
+
+```
+DisplayGeometry  NormalizedPoint  NormalizedSize  NormalizedFrame  PixelRect  PointRect
+Authorship       HostInstant      HostRange       TimeRange        SegmentTable
+```
+
+All eleven are reachable from disk, through `ProjectSnapshot`, the observation log, or
+`EvidenceRef`. `NormalizedPoint` documents a 0–1 range and will decode 2.5 without complaint.
+
+The `precondition` cases are the more deceptive half: the type has written down that a state is
+impossible, and then does not check it on the only path where the state can arrive from outside.
+
+And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
+for a question the invariant says cannot arise. That is this document's rule about measurements,
+applied to types.
+
+Found while reviewing one type, which is the point: the shape repeats wherever validation lives in
+an initialiser, so it is worth grepping for rather than noticing eleven times.
+
 **A probabilistic test presented as reliable is a measurement with a safe default, one level up.**
 Say the miss rate, and say whether a deterministic form was available.
 
