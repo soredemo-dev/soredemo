@@ -779,6 +779,35 @@ only way to obtain the system generator is `SystemRandomNumberGenerator.init()`,
 
 The residual is the first row, and it is a codegen-configuration miss rather than a source-level one.
 
+#### `CheckerLexer` is outside rules 1 and 3, and both exclusions are held by hand
+
+One library target is not covered by either mechanism, and neither exclusion is enforced by anything:
+
+| Rule | Why `CheckerLexer` is outside it | What holds it |
+| --- | --- | --- |
+| 1 · imports | It cannot carry `plugins: archCheck` — the plugin's own `architecture-checker` executable depends on `CheckerLexer`, so attaching the plugin to it closes a dependency cycle | A comment in `Package.swift`, and review |
+| 3 · determinism | `Tests/DeterminismTests` derives its module list from the **plugin-attached** targets, so a target outside rule 1 is automatically outside rule 3 | The same comment, and this table |
+
+The coupling in the second row is the part worth seeing: rule 3's coverage is *defined by* rule 1's
+attachment list — `scannedModules()` reads the plugin-attached targets out of the resolved manifest —
+so the two exclusions are not independent decisions that happen to agree. One causes the other.
+
+**What is guarded, stated precisely, because "held by hand" overstates it in one direction.** A
+seventh regular target added without `plugins: archCheck` does *not* slip through:
+`everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` fails on any regular target outside
+the exemption set, and asserts the six known modules as a floor so the filter cannot match nothing.
+Attaching the plugin to `CheckerLexer` is not merely discouraged either — it is impossible; SwiftPM
+refuses to resolve the package (`cyclic dependency declaration found: AppSourceTests -> CheckerLexer
+-> ArchitectureCheck -> architecture-checker -> CheckerLexer`).
+
+**What is genuinely held by hand is the exemption set itself.** `pluginExemptTargets` is a literal
+in the test — today `["CheckerLexer"]`. Adding a name to it removes that target from rule 1 and,
+through the coupling above, from rule 3 as well, in one edit, with nothing going red. That is the
+residual: not a target drifting out of coverage by accident, but the list of permitted exceptions
+growing on purpose and taking two rules with it each time. And `CheckerLexer`'s own compliance —
+Foundation only, no ambient time or randomness, the code view a pure function of its input string —
+rests on review alone.
+
 ### Rule 4 reads source text too, so it needs its own evasion list
 
 The rules that read source text are 1, 2 **and 4**. Rule 4 currently sits where rules 1 and 2 sat
@@ -899,7 +928,7 @@ each is verified separately.
 | --- | --- |
 | `repo-skeleton` | `xcodebuild` succeeds **and the app launches to an empty window** — now performable, since a `.macOS(.v26)` binary runs on this machine |
 | `architecture-plugin` | **all five active rules observed red**, individually — see below |
-| `geometry` | cross-revision comparison traps, observed out-of-process |
+| `geometry-types` | cross-revision comparison traps, observed out-of-process. **Renamed** — "all conversion in one place" moved to `input-observation`/`ax-observation`, whose code is the first to call `NormalizationContext` |
 | `project-format` | a v1 document round-trips and a synthetic v0 upgrades |
 | `derivation-graph` | the producer-value rule holds under test |
 
@@ -948,6 +977,21 @@ undoes the decision.
 | `FEATURES.md` header | `Target: macOS 27` | macOS 26, built against the 27 SDK |
 | `ROADMAP.md` `project-format` | lists `ReadableDocument`/`WritableDocument` | `NSDocument` coordinator; the row spans the package/app boundary |
 | `TOOLCHAIN.md` § 2 | macOS 27 beta volume required | not required at a 26 floor. Xcode 27 beta stays — it is the SDK |
+
+**Applied at Task 19**, the last two outstanding rows: `ARCHITECTURE.md` D1 — three copies of
+`Packages/SoredemoCore/`, in a repo tree, a data-flow diagram and the module map — and
+`TOOLCHAIN.md` § 2 together with its target-state table. Every other row above had already been
+applied by an earlier task; checked one by one against the files rather than assumed.
+
+Two further stale claims were found in the same sweep and are not in the table above, because
+nothing had noticed them: **D2's
+body still argued the floor it no longer has** — "27 is a stability release … this project ships when
+27 is roughly a year old", under a heading reading `D2 — macOS 26` — and **D2's reason for the 6.3
+tools version named a toolchain that is not the selected one**. Both conclusions were right, both
+reasons were false, and a false reason under a right conclusion is the shape this document keeps
+recording. `PRODUCT.md` § Distribution still calls the floor "the macOS 27 floor" twice; it is left
+alone deliberately, because § What must NOT be changed names `PRODUCT.md` as part of the reasoning
+record and the distinction between a record and a stale claim needs a decision, not a sweep.
 
 ### What must NOT be changed
 

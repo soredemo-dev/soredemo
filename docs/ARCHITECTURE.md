@@ -9,9 +9,13 @@
 Pure logic lives in a SwiftPM package. The app is an Xcode target that consumes it.
 
 ```
-Packages/SoredemoCore/     Foundation only — derivation graph, framing, timeline, variants, project
+Package.swift + Sources/   Foundation only — derivation graph, framing, timeline, variants, project
 Soredemo.xcodeproj         App bundle, entitlements, Info.plist, assets, Sparkle, signing
 ```
+
+**The package sits at the repository root, not under `Packages/SoredemoCore/`** (design doc D-P0).
+One manifest, one `Sources/`, one `Tests/`; the Xcode project references the package by relative
+path from the same directory.
 
 The boundary is load-bearing, not cosmetic: a package that *cannot* import AppKit or ScreenCaptureKit
 is a build-enforced version of the pure-domain rule. The enforcement is a build-tool plugin, not the
@@ -38,19 +42,42 @@ correct settings look stale:
 | Swift compiler | **6.4** | language version |
 
 Building against the newest SDK and deploying to an older system is the normal arrangement, so
-`otool -l` reporting `minos 26.0 / sdk 27.0` is correct, not a leftover. Likewise "Swift 6.4 strict
-concurrency" is current — only the *manifest format* is 6.3, because Xcode 26.6 ships SwiftPM 6.3.3
-and refuses a 6.4 manifest.
+`otool -l` reporting `minos 26.0 / sdk 27.0` is correct, not a leftover — measured on
+`Soredemo.app/Contents/MacOS/Soredemo`. Likewise "Swift 6.4 strict concurrency" is current; only the
+*manifest format* is 6.3.
 
-macOS 27 is Apple Silicon only — Intel and Rosetta 2 are ended, so this is Apple's position rather
-than just ours. It is a stability release, so adoption risk is low. This project ships when 27 is
-roughly a year old.
+**Why 6.3 and not 6.4, restated — the old reason had gone stale.** It used to read "because Xcode
+26.6 ships SwiftPM 6.3.3 and refuses a 6.4 manifest", which describes a toolchain that is no longer
+the selected one: `xcode-select -p` points at `Xcode-beta.app` (Xcode 27 beta 4, Swift 6.4), and
+that toolchain **accepts** a 6.4 manifest — `swift package dump-package` exits 0 with
+`// swift-tools-version: 6.4`, measured. The reason to stay at 6.3 is the *other* toolchain:
+`TOOLCHAIN.md` § 1 keeps Xcode 26 installed on purpose, and its SwiftPM refuses the same manifest —
+`error: package 'soredemo-main' is using Swift tools version 6.4.0 but the installed version is
+6.3.3`, also measured. A tools version is a floor on the reader, so 6.3 is what keeps both
+toolchains able to open the package. Raise it only when Xcode 26 is deliberately dropped.
 
-What the floor buys: no two-tier material code, no `if #available` on ScreenCaptureKit, Speech, or
-Accessibility, and full access to Liquid Glass, the Document API, and `SpeechAnalyzer`.
+macOS 26 is Apple Silicon only — Intel and Rosetta 2 are ended, so that part is Apple's position
+rather than just ours.
 
-**Known cost:** a macOS-27-only free tier cannot be a mass-market distribution channel. See
-`PRODUCT.md` § Distribution — the channels are built deliberately instead.
+**The ship-date argument that used to sit here is gone, and its removal is the point.** The floor
+was `.macOS(.v27)` and the justification was "27 is a stability release, and this project ships when
+it is roughly a year old". The floor came down to 26; the argument stayed, and for a while it read
+as a live reason for a decision that had already been reversed. `AGENTS.md` cites exactly this as
+the worked example of a justification outliving its reason. The real reason for 26 is smaller and
+duller: a macOS 27 binary cannot be launched on this machine, so every "it builds" would have gone
+unpaired with an "it runs".
+
+What the floor buys: no two-tier material code and no `if #available` on ScreenCaptureKit, Speech,
+or Accessibility. `SCContentSharingPicker`, `SCRecordingOutput`, `SpeechAnalyzer`,
+`SpeechTranscriber` and `AssetInventory` are all available at 26 (design doc F5), as is native
+Liquid Glass.
+
+**What it costs, measured rather than assumed.** The SwiftUI `Document` API is **not** available at
+this floor: `ReadableDocument` and `WritableDocument` are `@available(macOS 27, *)`, which is why D5
+is a hand-written `NSDocument` coordinator (design doc F3, F4). `FEATURES.md` names Music
+Understanding, generated subtitles and the Evaluations framework in the same position. Phase 4 and
+Phase 5 must not be planned on any of them without either raising the floor or finding a macOS 26
+equivalent.
 
 ---
 
@@ -148,6 +175,19 @@ state therefore lives in a `Mutex` instead of behind the class's own main-actor 
 piece of state this coordinator grows pays that tax. The newer protocol avoided it by making
 `snapshot(contentType:)` `@MainActor` and handing a `sending` value to a `@concurrent` writer.
 
+**File coordination is unresolved, not decided — the one open item in this decision.**
+`super.writeSafely` does two things: it copies the whole package, and it performs the write inside an
+`NSFileCoordinator` coordinated write, which tells other coordinated readers — Finder previews, a
+sync daemon, a second instance of this app — to stand off while the document changes. The override
+drops both. Dropping the copy is the point, and atomicity was *relocated* to
+`ProjectPackageIO`'s `replaceItemAt` rather than lost. Durability was *declined* on a stated
+argument (D-P3: one save's edit state is an acceptable loss, the media it references is already
+durable). Coordination was neither relocated nor argued — it was simply dropped, and nothing
+replaces it. Phase 1 gets away with it because `save` is single-writer by construction and
+`autosavesInPlace` is `false`. It bites first when a project package sits in a synced folder, which
+is a normal place to keep one. **Revisit before Phase 2 ships a recording path that writes while the
+user has the document open.**
+
 *Rejected:* SwiftData. The project is a document users open, move, and version — not a store.
 
 ---
@@ -223,7 +263,7 @@ Soredemo.xcodeproj   Capture/ Render/ Editor/ Agent/ UI/   ← ScreenCaptureKit,
 observation log → evidence (plain data)
      │
      ▼
-Packages/SoredemoCore   Graph/ Framing/ Timeline/ Variants/ Project/   ← Foundation only
+Sources/                Graph/ Framing/ Timeline/ Variants/ Project/   ← Foundation only
 ```
 
 **The core does not record; it reasons about a recording.** Three reasons this line matters:
@@ -235,8 +275,22 @@ Packages/SoredemoCore   Graph/ Framing/ Timeline/ Variants/ Project/   ← Found
   content-hash approval all stop meaning anything.
 - The boundary cannot be violated by accident, only by deleting the rule.
 
-**2. `Plugins/ArchitectureCheck`** for what the compiler cannot see: no `CGPoint`/`CGRect` in the
-package's public API; exactly one owner for the log→graph join; the timeline consumer allow-list.
+**2. `Plugins/ArchitectureCheck`** for what the compiler cannot see. As of Phase 1 that is rule 2 —
+no `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package**, not merely in its public API,
+because the conversion belongs at the app boundary — and rule 4, no package dependency in any
+`Package*.swift`, which is what keeps rule 1's allow-list complete. Rule 6 (one owner for the
+log→graph join) and rule 7 (`applyingProduced` is the sole writer of a `Derived`) are **inert**: the
+code they constrain does not exist yet, and an unwritten rule is not an enforced one.
+
+`CGRect` in the package is worth a sentence on its own, because the compiler is no help and it looks
+like it should be. Foundation on Darwin re-exports the CG geometry **types**, so
+`let r: CGRect? = nil` in a Foundation-only target compiles with no diagnostic at all; only the
+plugin fails that build. This is F1's shape a second time — measured, not assumed.
+
+`CheckerLexer` sits outside rules 1 and 3. It cannot carry `plugins: archCheck` without closing a
+dependency cycle (the plugin's own executable depends on it), and `Tests/DeterminismTests` derives
+its module list from plugin-attached targets, so it is outside rule 3 for the same reason. Both
+constraints on that one module are **held by hand**. `Package.swift` says so; so does this.
 
 **3. Tests as specification.** Two forms are mandatory and are the ones most likely to be skipped:
 
@@ -290,7 +344,7 @@ bugs and a class of "it looked different when I exported it" reports that cannot
 ## Module map
 
 ```
-Packages/SoredemoCore/           Foundation only
+Sources/                         Foundation only, at the repository root
   Geometry/                      NormalizedPoint, NormalizedFrame, geometryRevision
   Graph/                         observations → actions → beats → outputs; origin + review state
   Framing/                       AX targets, named rejections, depth, zoom blocks
