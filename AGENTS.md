@@ -43,6 +43,12 @@ This project uses the [a skill chain](https://github.com/a skill chain) skill ch
 
 Design documents from `brainstorming` land in `docs/design/`. They are the durable record of *why*.
 
+The SDD ledger that drives `subagent-driven-development` lives under `a skill chain/`, which
+`.gitignore` excludes — it does not survive a clone. **At the end of a phase, promote what later
+phases need into `docs/design/<date>-phase-N-carried-forward.md`** before the branch merges.
+Phase 1's is the worked example: code with no caller yet, rules held by convention rather than
+enforcement, and verification that runs only when a person runs it.
+
 ---
 
 ## Rules
