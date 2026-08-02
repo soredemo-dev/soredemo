@@ -114,6 +114,18 @@ private func topLevelKeys(from json: Data) -> [String] {
     #expect(r.droppedBytes == 23)
 }
 
+/// The deterministic half of closing the gap the brief names for mutation 2
+/// (dropping `.sortedKeys`): asserts the actual flag on the actual code
+/// path, not sampled output. Reddens 100% of the time if
+/// `ObservationLog.outputFormatting` stops containing `.sortedKeys`,
+/// independent of any per-process hash seed — see
+/// `encodedKeysAreInSortedOrderNotJustRoundTrippable` below for the
+/// complementary byte-order check, and its doc comment for why that one
+/// alone is not this project's bar for "reliably catches this mutation."
+@Test func sortedKeysIsSetOnTheEncoder() {
+    #expect(ObservationLog.outputFormatting.contains(.sortedKeys))
+}
+
 /// Closes the gap the brief names for mutation 2 (dropping `.sortedKeys`):
 /// a round trip through `decode` cannot see key order because
 /// `JSONDecoder` matches keys by name, not position. This test inspects the
@@ -138,9 +150,23 @@ private func topLevelKeys(from json: Data) -> [String] {
 /// Darwin regardless of the type's own shape, so `.sortedKeys` is load-
 /// bearing for every `Codable` struct going through it, not only ones
 /// wrapping a `Dictionary`.
+///
+/// **Probabilistic, and this is a real limit, not a rounding error.**
+/// `PointerSample` has 4 top-level keys, so 4! = 24 orderings; with
+/// `.sortedKeys` dropped, roughly 1 run in 24 (~4%) coincidentally emits
+/// alphabetical order and passes on wrong code, because what varies is a
+/// per-process hash seed, not the code under test. Five clean runs — what
+/// was actually run before this test was first reported as catching the
+/// mutation "reliably" — cannot distinguish "always red" from a 90–99%
+/// catch rate; that word overstated what five trials establish, and is
+/// corrected here and in the task report. This test stays because it
+/// catches a class `sortedKeysIsSetOnTheEncoder` cannot — an encoder built
+/// somewhere else without `ObservationLog.outputFormatting` — but the
+/// deterministic test above is what carries the mutation-2 guarantee.
 @Test func encodedKeysAreInSortedOrderNotJustRoundTrippable() throws {
     let s = PointerSample(instant: at(1), position: NormalizedPoint(x: 0.1, y: 0.2), revision: rev)
     let keys = topLevelKeys(from: try ObservationLog.encode(s))
-    #expect(keys == ["instant", "kind", "position", "revision"])
-    #expect(keys == keys.sorted())
+    let expectedKeys = ["instant", "kind", "position", "revision"]
+    #expect(expectedKeys == expectedKeys.sorted(), "fixture sanity: the expected literal must itself be sorted")
+    #expect(keys == expectedKeys)
 }
