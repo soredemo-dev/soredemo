@@ -1,0 +1,294 @@
+import ApplicationServices
+import AVFoundation
+import CoreGraphics
+import Foundation
+import IOKit.hid
+
+/// The four TCC-gated permissions capture depends on. `ROADMAP.md`'s
+/// `capture-permissions` row: each one's absence must degrade the product
+/// *precisely* — a stated, distinct consequence that is what actually
+/// happens, not an inference drawn later from a gap.
+public enum CapturePermission: String, CaseIterable, Sendable {
+    case screenRecording, microphone, inputMonitoring, accessibility
+}
+
+/// What one of the four permission APIs can say about its own permission,
+/// modelled from what each API can actually distinguish rather than from a
+/// flat granted/denied guess.
+///
+/// TCC's real state space, per the design doc's F2-4/carried-forward TCC
+/// section and Apple's own headers, has at least: never asked (the only
+/// state where prompting is appropriate), granted, denied by the user, and
+/// restricted by MDM or parental controls (which the user cannot fix, unlike
+/// a plain denial). A fifth state — granted in TCC while the *running*
+/// process still behaves as though it is not (Spike B; see the note on
+/// `CapturePermissions` below) — is not a TCC state at all and cannot be
+/// reported by any of these four functions; it is documented, not modelled
+/// as a case here, because no query this file can make distinguishes it.
+///
+/// Not every permission's API can report all four TCC-level cases. Where an
+/// API answers only "granted" or "not granted" (Screen Recording,
+/// Accessibility — both `Bool`), collapsing that into `.denied` would be
+/// exactly `AGENTS.md`'s "measurement with a safe default": `.denied` is a
+/// legal answer, it would look plausible, and it would be wrong whenever the
+/// true state was `.notDetermined` — the one case where prompting, rather
+/// than telling the user to go to System Settings, is the right move.
+/// `.notGrantedIndeterminate` exists so that ambiguity is never silently
+/// resolved into a specific wrong answer; it is a value outside the range of
+/// "here is what TCC recorded", which is the honest thing to report when the
+/// API cannot say. `CapturePermissions.distinguishableStates(for:)` states,
+/// per permission, which of these cases its API can actually produce.
+public enum PermissionStatus: String, Codable, Sendable {
+    /// Never asked. Reachable only where the API reports it as a distinct
+    /// case (microphone, input monitoring) — the only state in which calling
+    /// the permission's request API is the correct move.
+    case notDetermined
+    case granted
+    /// The user was asked and explicitly refused. For input monitoring this
+    /// also covers "denied for a reason `IOHIDAccessType` does not further
+    /// distinguish" — see the per-permission note in `status(of:)`.
+    case denied
+    /// Denied by MDM or parental controls, not by the user — the user
+    /// cannot fix this by clicking anything. Reachable only where the API
+    /// reports it as a distinct case (microphone, today the only one).
+    case restricted
+    /// The API answered only "granted" or "not granted", with nothing more.
+    /// The true TCC state could be `.notDetermined`, `.denied`, or
+    /// `.restricted` — this code cannot tell which, and does not guess.
+    case notGrantedIndeterminate
+}
+
+/// What the product still does when a `CapturePermission` is absent. Every
+/// case is a state meant to be written into the observation log once
+/// `observation-log` exists, so a project produced without a permission is
+/// **distinguishable on disk** from one produced with it, rather than
+/// inferred later from an empty log — the same "silence is not a value"
+/// discipline the design doc applies to `SCFrameStatusIdle` and chain
+/// truncation (D2-6, D2-2). `Codable` is what makes that possible: this type
+/// is data ready to be persisted, not merely reasoned about in memory.
+///
+/// **Not yet recorded anywhere.** `observation-log` (the row that owns the
+/// on-disk format) has not been built. This type and
+/// `CapturePermissions.degradation(for:)` are the code with no caller yet,
+/// in the sense Phase 1's carried-forward doc uses that phrase: the shape
+/// that row's writer needs to consult is decided here, so degradation is
+/// modelled once rather than re-derived per caller. Its first caller is
+/// `capture-stream` (this row's dependent, per `ROADMAP.md`) — refusing to
+/// start on `.blocksRecording`, and later `observation-log`, writing the
+/// other three into every recording they apply to.
+public enum Degradation: String, Codable, Sendable {
+    case blocksRecording
+    case noMicrophoneTrack
+    case observationBlind
+    case noElementIdentity
+}
+
+/// One permission's status, degradation, and the API's confidence in that
+/// status, together — what `CapturePermissions.dumpText()` reports one row
+/// of.
+public struct PermissionObservation: Sendable {
+    public let permission: CapturePermission
+    public let status: PermissionStatus
+    public let degradation: Degradation
+}
+
+public enum CapturePermissions {
+    /// Reads each permission's own API directly — no caching, no derived
+    /// state. `AGENTS.md`'s "the instrument can have state" warns that a
+    /// cached read can make a correct implementation look broken; this
+    /// function has no cache to go stale, at the cost of re-touching all
+    /// four APIs on each call, which for a background TCC query is cheap.
+    ///
+    /// **Screen Recording — `CGPreflightScreenCaptureAccess()`.** `Bool`
+    /// only. Per the design doc's TCC section: a revoked grant produces
+    /// black frames rather than an error, so this check is a start-of-run
+    /// gate, not a guarantee — `capture-stream` (Task 8) must detect
+    /// revocation *during* recording, which this function structurally
+    /// cannot do because it is a point-in-time read.
+    ///
+    /// **Microphone — `AVCaptureDevice.authorizationStatus(for: .audio)`.**
+    /// The one permission of the four whose API distinguishes all of
+    /// `.notDetermined`, `.restricted`, `.denied` and `.authorized` as
+    /// named, separate cases (verified against `AVCaptureDevice.h`:
+    /// `AVAuthorizationStatus` is `NS_ENUM` with exactly those four raw
+    /// values 0–3). Full fidelity, mapped straight across.
+    ///
+    /// **Input Monitoring — `IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)`.**
+    /// `IOHIDAccessType` has three cases — `Granted`, `Denied`, `Unknown` —
+    /// verified against `IOKit/hidsystem/IOHIDLib.h` (the header lives under
+    /// the `hidsystem` submodule; `import IOKit.hid` still resolves it,
+    /// checked by compiling a standalone probe against this SDK). `Unknown`
+    /// is the never-asked case, mapped to `.notDetermined`. There is no
+    /// fourth case for MDM restriction — `Denied` is IOHID's only "not
+    /// granted, and someone made that decision" bucket, so it may contain
+    /// what a finer API would call `.restricted`; that collapse is real and
+    /// is recorded in `distinguishableStates(for:)`, not hidden by minting a
+    /// `.restricted` value this API never actually returns.
+    ///
+    /// **Accessibility — `AXIsProcessTrusted()`.** `Bool` only, exactly like
+    /// Screen Recording, and exactly as collapsible: this cannot tell "never
+    /// asked" from "denied" from "restricted", so `false` maps to
+    /// `.notGrantedIndeterminate`, never to `.denied`.
+    public static func status(of p: CapturePermission) -> PermissionStatus {
+        switch p {
+        case .screenRecording:
+            return CGPreflightScreenCaptureAccess() ? .granted : .notGrantedIndeterminate
+
+        case .microphone:
+            switch AVCaptureDevice.authorizationStatus(for: .audio) {
+            case .notDetermined: return .notDetermined
+            case .restricted:    return .restricted
+            case .denied:        return .denied
+            case .authorized:    return .granted
+            @unknown default:
+                preconditionFailure(
+                    "AVAuthorizationStatus produced a case this project's mapping does not name")
+            }
+
+        case .inputMonitoring:
+            switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+            case kIOHIDAccessTypeGranted: return .granted
+            case kIOHIDAccessTypeDenied:  return .denied
+            case kIOHIDAccessTypeUnknown: return .notDetermined
+            default:
+                // IOHIDAccessType is a plain C enum, not `NS_ENUM` — Swift
+                // gives no `@unknown default` exhaustiveness check for it,
+                // so an unrecognised raw value falls here. Trap rather than
+                // guess which of the three named cases it must have meant;
+                // `AGENTS.md`: failure must land outside the value range.
+                preconditionFailure(
+                    "IOHIDCheckAccess returned a value this project's IOHIDAccessType mapping does not name")
+            }
+
+        case .accessibility:
+            return AXIsProcessTrusted() ? .granted : .notGrantedIndeterminate
+        }
+    }
+
+    /// Which `PermissionStatus` cases a given permission's API can actually
+    /// produce — the answer to "which of these can this API not tell
+    /// apart", made queryable rather than left in prose alone.
+    ///
+    /// `.notGrantedIndeterminate` appearing here is the honest marker that
+    /// `.notDetermined`, `.denied` and `.restricted` are *not* individually
+    /// reachable for that permission — not that they cannot occur in TCC,
+    /// only that this API cannot report which one did.
+    public static func distinguishableStates(for p: CapturePermission) -> Set<PermissionStatus> {
+        switch p {
+        case .screenRecording, .accessibility:
+            // Bool-only APIs: granted vs. everything else, undivided.
+            return [.granted, .notGrantedIndeterminate]
+        case .microphone:
+            // AVAuthorizationStatus names all four.
+            return [.notDetermined, .granted, .denied, .restricted]
+        case .inputMonitoring:
+            // IOHIDAccessType names three: never-asked, granted, and one
+            // "not granted" bucket with no MDM/user split.
+            return [.notDetermined, .granted, .denied]
+        }
+    }
+
+    /// What the product still does without `p` — see `Degradation`'s doc
+    /// comment for where this is meant to be recorded.
+    public static func degradation(for p: CapturePermission) -> Degradation {
+        switch p {
+        case .screenRecording: return .blocksRecording
+        case .microphone:      return .noMicrophoneTrack
+        case .inputMonitoring: return .observationBlind
+        case .accessibility:   return .noElementIdentity
+        }
+    }
+
+    /// Permissions whose absence stops a recording rather than degrading it.
+    /// Today this is exactly `.screenRecording` when not granted — the only
+    /// permission whose `degradation(for:)` is `.blocksRecording` — but it
+    /// is written as a filter over all four so a future permission with a
+    /// blocking degradation is picked up without this function changing.
+    public static func blockingFailures() -> [CapturePermission] {
+        CapturePermission.allCases.filter {
+            degradation(for: $0) == .blocksRecording && status(of: $0) != .granted
+        }
+    }
+
+    /// All four permissions, read once, paired with their degradation.
+    public static func observations() -> [PermissionObservation] {
+        CapturePermission.allCases.map {
+            PermissionObservation(permission: $0, status: status(of: $0), degradation: degradation(for: $0))
+        }
+    }
+
+    /// Flat text, OS version first — the repeatable check `AGENTS.md`'s
+    /// completion rule and the design doc's TCC section both ask for. TCC's
+    /// behaviour has already changed inside one macOS point release, 26.0.1
+    /// to 26.1 (carried-forward doc), so a claim about what one of these
+    /// four functions reports is only as good as the OS version it was read
+    /// under, printed beside it rather than assumed stable.
+    ///
+    /// Deliberately plain text, not JSON: the reader is a person standing at
+    /// System Settings comparing two short lists, not another program.
+    /// Invoked from `scripts/cross-boundary-digest-probe.swift` via
+    /// `--dump-permissions`; see that file for why the dump is behind a flag
+    /// and not part of the default run.
+    public static func dumpText() -> String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        var lines = ["macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"]
+        for o in observations() {
+            lines.append(
+                "\(o.permission.rawValue): \(o.status.rawValue)"
+                + "  [distinguishable: \(distinguishableStates(for: o.permission).map(\.rawValue).sorted().joined(separator: ", "))]"
+                + "  (absence -> \(o.degradation.rawValue))")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+// MARK: - the state `status(of:)` cannot see
+
+/// Documented rather than coded, deliberately — see the task-6 report for
+/// why building this now is out of order.
+///
+/// Spike B (design doc, § Spike B / F2-4) measured a fifth state that is not
+/// a TCC state at all: **granted while the process is already running**, the
+/// switch flipped ON in System Settings for a process that was already
+/// launched before the grant, which keeps failing until it relaunches. This
+/// is the dangerous case named in the task brief, because
+/// `CGPreflightScreenCaptureAccess()` reads the TCC database directly —
+/// nothing in `status(of:)` caches — so the moment a human flips the switch,
+/// `status(of: .screenRecording)` is expected to read `.granted`
+/// immediately, before any relaunch, while the running process's actual
+/// capture capability has not caught up. The interface says permission is
+/// fine; nothing downstream is fine yet.
+///
+/// This cannot be folded into `PermissionStatus` as a case, because no query
+/// available to this file distinguishes it from ordinary `.granted` — the
+/// whole finding is that the two read identically through this API. It can
+/// only be produced empirically, by an experiment that changes machine
+/// state, which is why it is not implemented here.
+///
+/// What that experiment needs, so it does not have to be re-derived when it
+/// is finally run (`capture-stream`, Task 8, per this row's `ROADMAP.md`
+/// dependent):
+///
+/// 1. Start from a process with Screen Recording **not** granted —
+///    `status(of: .screenRecording)` reading `.notGrantedIndeterminate`.
+/// 2. A human flips Screen Recording ON for that running process in System
+///    Settings, without relaunching it.
+/// 3. Re-read `status(of: .screenRecording)` in the same process. Predicted
+///    `.granted`, per the reasoning above — this step confirms the
+///    prediction rather than assumes it.
+/// 4. Attempt an actual `SCStream` capture in that same, unrelaunched
+///    process, and record which of three distinct symptoms shows up:
+///    `SCStream.startCapture` throwing, frames simply not arriving, or
+///    frames arriving black (the separate, already-measured failure mode
+///    for a *revoked* grant, F2-4/TCC section — capture succeeding
+///    structurally while producing black frames). These are three different
+///    bugs with three different fixes, and only a live run distinguishes
+///    them.
+/// 5. Relaunch and repeat step 4, to confirm the same permission now works —
+///    isolating the variable to "already running" rather than something
+///    else being wrong with the harness.
+///
+/// Must run **last**, after this task's Step 3 blind comparison: it is the
+/// one measurement in this row that changes the machine's permission state,
+/// and every other measurement here depends on that state staying untouched
+/// until the comparison is recorded.

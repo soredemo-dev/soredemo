@@ -26,7 +26,8 @@ xcrun swiftc \
   -o "$OUT/probe" \
   Soredemo/Support/Minting.swift \
   Soredemo/Capture/CGGeometryBridge.swift \
+  Soredemo/Capture/CapturePermissions.swift \
   Soredemo/UI/ProjectDocument.swift \
   scripts/cross-boundary-digest-probe.swift
 
-"$OUT/probe"
+"$OUT/probe" "$@"
