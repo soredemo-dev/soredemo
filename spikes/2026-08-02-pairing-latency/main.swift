@@ -82,8 +82,177 @@ enum SpikeA {
         ("chain depth",          3,    12,    20),
     ]
 
+    // ---------------------------------------------------------------- shared
+
+    /// Every human step prints these two before anything else it measures.
+    ///
+    /// **The AX source**, because `LiveAXElementSource` has never executed —
+    /// every § 8 probe check runs against the synthetic one, which answers the
+    /// same role vocabulary (`AXButton`, `AXGroup`, `AXApplication`). Without
+    /// this line "the human half passed" and "the human half passed against a
+    /// fixture" are the same sentence in the record.
+    ///
+    /// **The observer's object identity**, because the question these steps
+    /// answer is whether the PRODUCT's detector works — not whether a
+    /// structurally identical copy does. Printing the identity of the instance
+    /// whose diagnostics are read, beside the identity of the instance that
+    /// owns the tap, makes "same object" checkable rather than assumed. An
+    /// injectable seam is an opportunity to verify the wrong implementation,
+    /// and this is the cheapest way to show which one was verified.
+    @MainActor
+    static func subjectLines(_ observer: InputObserver, _ source: some AXElementSource) -> [(String, String)] {
+        [("AX source", "\(String(describing: type(of: source))) — the value passed in, not a literal"),
+         ("observer identity", "\(ObjectIdentifier(observer)) — the instance that owns the tap AND "
+                               + "whose diagnostics are read below; one object, not two")]
+    }
+
+    /// Runs an observer for `seconds`, beeping the window, letting the caller
+    /// act at a chosen second. Output goes nowhere but stdout.
+    @MainActor
+    static func observe(_ observer: InputObserver, seconds: Int,
+                        at moment: Int? = nil, act: (() -> Void)? = nil) {
+        VerificationStep.beepStart()
+        for elapsed in 0..<seconds {
+            CFRunLoopRunInMode(.defaultMode, 1, false)
+            if elapsed == moment { act?() }
+        }
+        VerificationStep.beepStop()
+    }
+
+    // ------------------------------------------- step 1: the real port down
+
+    /// **The positive control for `stall`, and it must run first.**
+    ///
+    /// `disableTapForVerification()` takes a real `CFMachPort` down through
+    /// `CGEventTapEnable`, the same mechanism the OS uses, and returns the
+    /// instant it did — so `T_off` is *known*. That is what this step buys and
+    /// a timeout-induced disable cannot: with `T_off` known, "the poll did not
+    /// find it" has exactly one explanation, and the window's **edges** are
+    /// assertable rather than only its non-emptiness. The left edge is the part
+    /// of the arithmetic nothing has ever exercised.
+    ///
+    /// Run `stall` first and a null result cannot tell "the OS did not disable
+    /// the tap" from "our detector did not see it".
+    @MainActor
+    static func theRealPortGoesDown() {
+        var step = VerificationStep(name: "human 1 — the poll finds a REAL port going down")
+        step.begin(repositoryPath: repositoryPath)
+        let source = LiveAXElementSource()
+        let observer = InputObserver(arrangement: InputObserver.currentArrangement(),
+                                      epoch: Minting.bootEpoch())
+        step.expect(subjectLines(observer, source) + [
+            ("what is induced", "CGEventTapEnable(tap, false) on the real port — T_off is KNOWN"),
+            ("the assertion", "the window's EDGES: interval.start <= T_off <= interval.end, "
+                              + "not merely that a window exists"),
+            ("over-estimate bound", "interval.duration <= the poll interval + slack, so the left "
+                                    + "edge is bounded by the polling rate and not by the run"),
+            ("empty vs unwatched", "tapEnabledPolls > 0 — an empty window list means nothing "
+                                   + "without it"),
+            ("delivery resumed", ">= 1 pointer sample stamped after interval.end — 're-armed' must "
+                                 + "be delivery, not a flag read"),
+            ("negative control", "an equal window with NO disable: zero windows, non-zero polls"),
+        ])
+
+        do { try observer.start(onObservation: { _ in }) }
+        catch { step.preconditionFailed("InputObserver.start threw \(error) — Input Monitoring is "
+                                        + "not granted to video.soredemo.SpikeA.") }
+
+        // ---- negative control first: a clean window ----
+        print("\n>>> NEGATIVE CONTROL — move the mouse for 6 s. Nothing will be disabled.")
+        observe(observer, seconds: 6)
+        let clean = observer.diagnostics
+        print("    clean window: \(clean.tapDisabledIntervals) disabled window(s), "
+              + "\(clean.tapEnabledPolls) polls")
+        step.check("NEGATIVE CONTROL: an undisturbed window produced ZERO disabled windows over "
+                   + "\(clean.tapEnabledPolls) polls — so a window found below is a finding, not "
+                   + "an instrument that emits them",
+                   clean.tapDisabledIntervals == 0 && clean.tapEnabledPolls > 0)
+
+        // ---- the induced disable ----
+        print("\n>>> Now keep moving the mouse for 10 s. The port goes down at t+3s.")
+        var offAt: HostInstant?
+        observe(observer, seconds: 10, at: 3) { offAt = observer.disableTapForVerification() }
+        let after = observer.diagnostics
+        observer.stop()
+
+        guard let offAt else {
+            step.didNotHappen("disableTapForVerification() returned nil — there was no live port, "
+                              + "so nothing was taken down and nothing could be detected.")
+        }
+        print("    T_off = \(offAt.hostTime.rawValue) ns")
+        print("    \(after.tapDisabledIntervals) window(s), \(after.tapEnabledPolls) polls over "
+              + "\(Double(after.tapPollingSpanNanos) / 1e9) s")
+        step.finish(remedy: "If windows climb every 100 ms and never stop, the re-arm's "
+                            + "CGEventTapEnable is not taking effect from the poll queue — that "
+                            + "reads as a detector working extremely well and is the opposite.")
+    }
+
+    // ------------------------------- step 2: a real OS timeout, no product seam
+
+    /// A real timeout-induced disable, with **no seam in the product at all**:
+    /// the stall goes in this spike's own observation closure, which is the
+    /// recipe Spike C step 5 proved reliably disables a `.listenOnly` tap
+    /// (every `mouseMoved`, 50 ms — sustained overload, not a per-click cost).
+    ///
+    /// Runs second, because step 1 establishes that the detector finds a port
+    /// that is known to be down.
+    @MainActor
+    static func aRealTimeoutDisable() {
+        var step = VerificationStep(name: "human 2 — the poll finds a REAL OS timeout disable")
+        step.begin(repositoryPath: repositoryPath)
+        let source = LiveAXElementSource()
+        let observer = InputObserver(arrangement: InputObserver.currentArrangement(),
+                                      epoch: Minting.bootEpoch())
+        step.expect(subjectLines(observer, source) + [
+            ("what is induced", "a real OS timeout — 50 ms of sleep in THIS SPIKE's observation "
+                                + "closure, on every pointer event. No product seam."),
+            ("why second", "step 1 already showed the poll finds a port known to be down, so a "
+                           + "null here means the OS did not disable it — one explanation, not two"),
+            ("the assertion", ">= 1 window, detectedBy == .enabledPoll, disabledBy == nil "
+                              + "(a poll cannot know why)"),
+            ("also", "tapEnabledPolls > 0, and the run survives — the tap comes back"),
+        ])
+
+        do {
+            try observer.start(onObservation: { _ in
+                // The overload, in the spike, not in the product.
+                usleep(50_000)
+            })
+        } catch {
+            step.preconditionFailed("InputObserver.start threw \(error) — Input Monitoring is not "
+                                    + "granted to video.soredemo.SpikeA.")
+        }
+        print("\n>>> Move the mouse CONTINUOUSLY for 20 s. It will feel very laggy — that is the "
+              + "overload being induced.")
+        observe(observer, seconds: 20)
+        let d = observer.diagnostics
+        observer.stop()
+        print("    \(d.tapDisabledIntervals) window(s), found by polling: "
+              + "\(d.tapDisabledIntervalsFoundByPolling), \(d.tapEnabledPolls) polls, "
+              + "blind \(Double(d.tapBlindNanos) / 1e9) s")
+        guard d.tapDisabledIntervals > 0 else {
+            step.didNotHappen("no window was recorded. Step 1 established the detector finds a "
+                              + "port that is down, so this is the OS not having disabled the tap "
+                              + "— 20 s of 50 ms stalls was not enough overload, or the mouse was "
+                              + "not moving. Polls: \(d.tapEnabledPolls).")
+        }
+        step.check("every window was found by POLLING (\(d.tapDisabledIntervalsFoundByPolling) of "
+                   + "\(d.tapDisabledIntervals)) — the notification never arrives for a "
+                   + ".listenOnly tap, measured in Spike C step 5",
+                   d.tapDisabledIntervalsFoundByPolling == d.tapDisabledIntervals)
+        step.check("something was looking: \(d.tapEnabledPolls) polls over "
+                   + "\(Double(d.tapPollingSpanNanos) / 1e9) s",
+                   d.tapEnabledPolls > 0)
+        step.finish()
+    }
+
     @MainActor
     static func main() {
+        switch CommandLine.arguments.dropFirst().first {
+        case "tapdown": theRealPortGoesDown(); return
+        case "stall": aRealTimeoutDisable(); return
+        default: break
+        }
         let seconds = CommandLine.arguments.dropFirst().first.flatMap(Int.init) ?? 45
         var step = VerificationStep(name: "Spike A — pairing latency against the real AXObserver")
         step.begin(repositoryPath: repositoryPath)

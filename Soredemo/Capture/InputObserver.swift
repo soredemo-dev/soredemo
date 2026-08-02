@@ -599,6 +599,43 @@ public final class InputObserver: @unchecked Sendable {
     /// would otherwise drop the interval on the floor — and the dropped
     /// interval is precisely the one where the log has no samples to show for
     /// the time, which is the state a reader most needs told.
+    /// Disables the tap through the **real** `CFMachPort`, and returns the
+    /// instant it did so. Verification only.
+    ///
+    /// **Why this exists, and why it is not the seam it resembles.** The
+    /// polling detector has never observed a real disable: every probe check
+    /// drives `pollTapEnabled()` against an override, because `start()` needs
+    /// Input Monitoring and the probe asks TCC nothing. So the one thing that
+    /// has never run is the detector noticing a genuine port going down.
+    ///
+    /// `CGEventTapEnable(tap, false)` disables through the same mechanism the
+    /// OS uses, and `CGEventTapIsEnabled` reads one bit set by one setter — a
+    /// manually disabled tap is indistinguishable, to the reader, from a
+    /// timeout-disabled one. That indistinguishability is *why* polling works,
+    /// and it is what makes this a valid stand-in.
+    ///
+    /// **It touches nothing on the detection path.** It does not set a flag the
+    /// poll reads, does not shorten the poll interval, does not synthesise an
+    /// interval. The poll still has to notice, on its own timer, by asking the
+    /// OS — exactly as it would for a timeout. Contrast `secureInputIsEnabled`,
+    /// whose injection point could be pointed at a fake and verify the wrong
+    /// implementation: there is no wrong implementation to point this at.
+    ///
+    /// **The returned instant is the ground truth this buys.** A
+    /// timeout-induced disable cannot say when it happened, so a verification
+    /// driven by one can only assert the window is non-empty. With `T_off`
+    /// known, the window's *edges* are assertable — and the left edge is the
+    /// part of the arithmetic nothing has ever exercised.
+    ///
+    /// Called from no product code, which
+    /// `theVerificationOnlyTapDisableIsNeverCalledFromProductCode` enforces
+    /// rather than this comment promising it.
+    internal nonisolated func disableTapForVerification() -> HostInstant? {
+        guard let existingTap = lock.withLock({ tap }) else { return nil }
+        CGEvent.tapEnable(tap: existingTap, enable: false)
+        return HostInstant(epoch: epoch, hostTime: Minting.hostNow())
+    }
+
     public func stop() {
         // Before the port is cleared, so a poll cannot be mid-read when it is
         // invalidated. `cancel()` does not wait for an in-flight handler, but

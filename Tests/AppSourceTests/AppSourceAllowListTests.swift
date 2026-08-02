@@ -537,6 +537,31 @@ func lineNumber(of location: String) -> Int {
 ///    `CGEvent.tapCreate`, the first poll reads a `nil` tap, takes the
 ///    `tapPollsWithNoTap` path, and the timer then polls a tap it never sees
 ///    — green everywhere, and blind.
+/// `disableTapForVerification()` exists so a human step can take a real
+/// `CFMachPort` down and watch the poll find it. It must never be reachable
+/// from anything the product runs.
+///
+/// **A scan, not a promise in a doc comment.** This project has twice written
+/// "keep these the same" or "never call this" in prose and had it missed one
+/// file away; the three scans below it are the mechanism that held where prose
+/// did not. Zero call sites, one declaration.
+@Test func theVerificationOnlyTapDisableIsNeverCalledFromProductCode() throws {
+    let files = try appSourceFiles()
+    let mentions = try codeLinesNaming("disableTapForVerification", in: files)
+    let declarations = mentions.filter { $0.text.contains("func disableTapForVerification") }
+    let calls = mentions.filter { !$0.text.contains("func disableTapForVerification") }
+
+    #expect(declarations.count == 1,
+            "expected one disableTapForVerification declaration, found \(declarations.count)")
+    #expect(calls.isEmpty,
+            """
+            disableTapForVerification() is called from product code at:
+            \(calls.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+            It disables the event tap through the real port. Nothing the product runs may call it; \
+            only a spike, which is outside this scan.
+            """)
+}
+
 @Test func theTapPollIsStartedByStartAndNotOnlyDefined() throws {
     let files = try appSourceFiles()
     let mentions = try codeLinesNaming("startPolling", in: files)
