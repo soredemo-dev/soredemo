@@ -180,6 +180,28 @@ measurement that reads stale is not the safe kind of wrong. When an assertion is
 standing between you and an unverified mechanism, prove it fails against the mutation *and* passes
 against the real code, in a throwaway probe, before you keep it.
 
+**A probabilistic test presented as reliable is a measurement with a safe default, one level up.**
+Say the miss rate, and say whether a deterministic form was available.
+
+Phase 2 Task 3 closed a real gap — `JSONEncoder` without `.sortedKeys` emits per-process key orders,
+measured across six processes — with a test that pins the encoded key order. It reddened five times
+out of five under the mutation and was written up as reddening "reliably". But `PointerSample` has
+four keys, so there are 24 orderings and roughly one run in 24 emits alphabetical order by chance
+and passes on wrong code. Five red runs is consistent with "always" and equally consistent with
+"96% of the time"; five trials cannot separate them.
+
+The deterministic form was available and cheap: expose the encoder's `outputFormatting` as a
+constant and assert it contains `.sortedKeys`. That checks the code path rather than sampling a hash
+seed.
+
+**And the miss happened during the verification of the fix.** Re-running the mutation eight times:
+the deterministic assertion went red 8 of 8, and the byte-order test went red **7 of 8** — one run
+passed on mutated code. The failure mode was not argued into existence; it appeared inside the
+experiment run to check it.
+
+So: a green light with a probability attached is not the same kind of evidence as one without, and
+the difference is invisible in a report unless someone writes the number down.
+
 **"Uncoverable in process" is not "unverifiable", and this project has the difference.** Swift
 Testing has no crash expectation, so a `precondition` cannot be observed by `swift test`. That is a
 fact about one tool, not about the guard. Phase 1 built the alternative and used it at least six
