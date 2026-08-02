@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Project
 import Geometry
+import Timeline
 
 // MARK: - Fixtures
 //
@@ -23,6 +24,7 @@ import Geometry
 
 private let displayA = UUID(uuidString: "6BA7B810-9DAD-11D1-80B4-00C04FD430C8")!
 private let displayB = UUID(uuidString: "F47AC10B-58CC-4372-A567-0E02B2C3D479")!
+private let bootEpoch = BootEpoch(id: UUID(uuidString: "9E107D9D-372B-4826-9D9D-2A1F4E7A6D9A")!)
 
 private func richRegistry() -> GeometryRegistry {
     var registry = GeometryRegistry()
@@ -31,11 +33,29 @@ private func richRegistry() -> GeometryRegistry {
     return registry
 }
 
-private func richSnapshot() -> ProjectSnapshot {
+/// Non-empty, per the fixture rule: `SegmentTable.empty` is the identity
+/// value for this field, so a `richSnapshot()` that carried the empty table
+/// would round-trip whether or not `ProjectSnapshot`'s new `segments` field
+/// actually encoded and decoded correctly. Two segments with a real gap
+/// between them (2,000..5,000 is unaccounted for), so this also isn't the
+/// single-segment, no-gap shape that would hide an ordering bug.
+private func richSegments() throws -> SegmentTable {
+    try SegmentTable(segments: [
+        MasterSegment(index: 0, mediaFilename: "clip-01.mov",
+                      hostRange: HostRange(epoch: bootEpoch, start: Nanoseconds(1_000), duration: Nanoseconds(1_000)),
+                      revision: GeometryRevision(id: 0x1111_0000_0000_0001), endedBy: .paused),
+        MasterSegment(index: 1, mediaFilename: "clip-02.mov",
+                      hostRange: HostRange(epoch: bootEpoch, start: Nanoseconds(5_000), duration: Nanoseconds(1_500)),
+                      revision: GeometryRevision(id: 0x1111_0000_0000_0001), endedBy: .stopped),
+    ])
+}
+
+private func richSnapshot() throws -> ProjectSnapshot {
     ProjectSnapshot(
         schemaVersion: ProjectSnapshot.currentSchemaVersion,
         geometries: richRegistry(),
-        mediaFilenames: ["clip-03.mov", "clip-01.mov", "clip-02.mov"]
+        mediaFilenames: ["clip-03.mov", "clip-01.mov", "clip-02.mov"],
+        segments: try richSegments()
     )
 }
 
@@ -46,14 +66,14 @@ private func richSnapshot() -> ProjectSnapshot {
 }
 
 @Test func roundTripPreservesAllFields() throws {
-    let snapshot = richSnapshot()
+    let snapshot = try richSnapshot()
     let data = try ProjectSnapshot.makeEncoder().encode(snapshot)
     let decoded = try JSONDecoder().decode(ProjectSnapshot.self, from: data)
     #expect(decoded == snapshot)
 }
 
 @Test func roundTripPreservesMediaFilenameOrder() throws {
-    let snapshot = richSnapshot()
+    let snapshot = try richSnapshot()
     let data = try ProjectSnapshot.makeEncoder().encode(snapshot)
     let decoded = try JSONDecoder().decode(ProjectSnapshot.self, from: data)
     #expect(decoded.mediaFilenames == ["clip-03.mov", "clip-01.mov", "clip-02.mov"])
@@ -66,7 +86,7 @@ private func richSnapshot() -> ProjectSnapshot {
 /// `ProjectSnapshot` is not digested, but an encoder that varies its output
 /// makes every future diff and "did this change?" question unanswerable.
 @Test func topLevelKeysEncodeInSortedOrder() throws {
-    let data = try ProjectSnapshot.makeEncoder().encode(richSnapshot())
+    let data = try ProjectSnapshot.makeEncoder().encode(try richSnapshot())
     let text = String(decoding: data, as: UTF8.self)
     let g = try #require(text.range(of: "\"geometries\""))
     let m = try #require(text.range(of: "\"mediaFilenames\""))
@@ -98,7 +118,7 @@ private func richSnapshot() -> ProjectSnapshot {
 // MARK: - SchemaProbe: reads the version without decoding the document
 
 @Test func probeReadsVersionOfAWellFormedV1Document() throws {
-    let data = try ProjectSnapshot.makeEncoder().encode(richSnapshot())
+    let data = try ProjectSnapshot.makeEncoder().encode(try richSnapshot())
     #expect(try SchemaProbe.version(of: data) == 1)
 }
 
@@ -157,7 +177,7 @@ private func richSnapshot() -> ProjectSnapshot {
 // MARK: - ProjectUpgrade: v0 migrates, v1 decodes, future throws
 
 @Test func loadDecodesAWellFormedV1DocumentDirectly() throws {
-    let snapshot = richSnapshot()
+    let snapshot = try richSnapshot()
     let data = try ProjectSnapshot.makeEncoder().encode(snapshot)
     let loaded = try ProjectUpgrade.load(data)
     #expect(loaded == snapshot)
@@ -211,6 +231,31 @@ private func richSnapshot() -> ProjectSnapshot {
     } catch {
         Issue.record("expected ProjectFormatError, got \(error)")
     }
+}
+
+/// A v1 document written *before* `segments` existed — a literal, hand-built
+/// wire shape (three keys, in the sorted order `topLevelKeysEncodeInSortedOrder`
+/// pins: geometries, mediaFilenames, schemaVersion), not `richSnapshot()` run
+/// through today's encoder with `"segments"` stripped afterward. The
+/// stripped-after-the-fact version would only prove today's decode logic can
+/// tolerate a key it just removed from its own output — a much weaker claim
+/// than "a document nobody has rebuilt since `segments` was added still
+/// opens", which is the actual requirement (a real pre-existing project on a
+/// user's disk). Same reasoning as `loadMigratesASyntheticV0DocumentInsertingEmptyMediaFilenames`'s
+/// hand-built v0 fixture just above.
+@Test func aV1DocumentWrittenBeforeSegmentsExistedStillDecodes() throws {
+    let registry = richRegistry()
+    let registryData = try JSONEncoder().encode(registry)
+    let registryJSON = String(decoding: registryData, as: UTF8.self)
+    let preSegmentsV1JSON = Data("""
+    {"geometries":\(registryJSON),"mediaFilenames":["clip-01.mov"],"schemaVersion":1}
+    """.utf8)
+
+    let loaded = try ProjectUpgrade.load(preSegmentsV1JSON)
+    #expect(loaded.schemaVersion == 1)
+    #expect(loaded.geometries == registry)
+    #expect(loaded.mediaFilenames == ["clip-01.mov"])
+    #expect(loaded.segments == SegmentTable.empty)
 }
 
 @Test func loadThrowsUnsupportedLegacyVersionForANegativeSchemaVersion() {
