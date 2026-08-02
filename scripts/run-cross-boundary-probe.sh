@@ -47,6 +47,7 @@ xcrun swiftc \
   Soredemo/Support/Minting.swift \
   Soredemo/Capture/CGGeometryBridge.swift \
   Soredemo/Capture/CaptureSource.swift \
+  Soredemo/Capture/AudioInterleave.swift \
   Soredemo/Capture/CaptureSession.swift \
   Soredemo/UI/ProjectDocument.swift \
   scripts/cross-boundary-digest-probe.swift

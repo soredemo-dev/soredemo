@@ -28,6 +28,7 @@ xcrun swiftc -O -target arm64-apple-macos26.0 -parse-as-library \
     "$REPO/Soredemo/Support/Minting.swift" \
     "$REPO/Soredemo/Capture/CGGeometryBridge.swift" \
     "$REPO/Soredemo/Capture/CaptureSource.swift" \
+    "$REPO/Soredemo/Capture/AudioInterleave.swift" \
     "$REPO/Soredemo/Capture/CaptureSession.swift" \
     "$HERE/main.swift"
 codesign --force --options runtime --sign "$IDENTITY" "$APP"

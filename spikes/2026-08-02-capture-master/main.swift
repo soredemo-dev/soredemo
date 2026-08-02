@@ -72,7 +72,17 @@ func printIdentityBlock(step: String) {
     """)
 }
 
-let verificationDir = URL(filePath: NSHomeDirectory())
+// A temporary directory, NOT the home directory. Standing constraint: a
+// spike's capture output goes to temp only and is deleted afterwards —
+// screen recordings and frame dumps never land somewhere a person keeps
+// their own files, and never anywhere a `git add` could reach. Fixed after
+// this file wrote ~/Soredemo-Task8-Verification for three runs.
+//
+// Not `NSTemporaryDirectory()` directly: `removeItem` on it at the start of
+// each step would delete the whole per-user temp directory, including the
+// scratch `.mov` files `CaptureSession` deliberately retains when a segment
+// is discarded — the evidence this spike exists to collect.
+let verificationDir = FileManager.default.temporaryDirectory
     .appending(path: "Soredemo-Task8-Verification", directoryHint: .isDirectory)
 let packageDir = verificationDir.appending(path: "verify.soredemo", directoryHint: .isDirectory)
 
@@ -235,6 +245,49 @@ func printDiagnostics(_ d: CaptureSession.Diagnostics) {
         print(String(format: "  PTS->callback  p50 %.2f ms  p90 %.2f ms  max %.2f ms  (n=%d)",
                      p(0.5), p(0.9), Double(s.last!)/1e6, s.count))
     }
+    // Printed UNCONDITIONALLY, including when it is zero. The other
+    // conditional lines above are ranges and lists that read as noise when
+    // empty; this one is a count of frames the OS delivered and the session
+    // threw away. Printed only when non-zero, its absence would be
+    // indistinguishable from "this build does not report it" — and a reader
+    // six weeks from now cannot tell those apart.
+    // "complete frames" is about the STREAM. These are about the FILE. They
+    // were one number until a run reported 309 complete frames over a
+    // zero-byte file.
+    print("  video appends accepted: \(d.appendedVideoFrameCount)   refused: \(d.failedVideoAppendCount)")
+    print("  audio appends accepted: \(d.appendedAudioSampleCount)   refused: \(d.failedAudioAppendCount)")
+    if let first = d.firstAppendFailure { print("  FIRST append failure: \(first)") }
+    print("  complete frames dropped, PTS not convertible: \(d.unconvertiblePresentationTimeCount)")
+    // A conservation law, not a diagnostic. Two numbers in a report have to
+    // be compared by a person; this one is compared by the machine, every run.
+    print("  FRAME ACCOUNTING: \(d.frameAccounting)")
+    if !d.everyCompleteFrameIsAccountedFor {
+        print("  ^^ DOES NOT BALANCE — a frame left handleScreenSample by a path nothing counts. " +
+              "That is the exact hiding place of the defect this check exists for.")
+    }
+    // Measured, not inferred. The claim "ScreenCaptureKit delivers planar
+    // audio" was reached by matching an error code; this is the OS saying so.
+    print("  system audio layout: \(d.systemAudioLayout ?? "(no system audio buffer arrived)")")
+    print("  microphone layout:   \(d.microphoneLayout ?? "(no microphone buffer arrived)")")
+    print("  system audio  \(d.systemAudioAccounting.accounting)")
+    print("  microphone    \(d.microphoneAccounting.accounting)")
+    for (name, a) in [("system audio", d.systemAudioAccounting), ("microphone", d.microphoneAccounting)] {
+        if !a.balances {
+            print("  ^^ \(name) DOES NOT BALANCE — a buffer left appendAudio by a path nothing counts.")
+        }
+        if a.deliveredButWroteNothing {
+            print("  ^^ \(name): \(a.delivered) buffers delivered, NONE written. That track will be " +
+                  "absent from the file, and this line is the only place it says so before you open it.")
+        }
+    }
+    print("  frames whose ContentRect could not be decoded: \(d.unreadableContentRectCount)   " +
+          "ScreenRect: \(d.unreadableScreenRectCount)")
+    print("  segments discarded (media never reached the package): \(d.discardedSegments.count)")
+    for s in d.discardedSegments {
+        print("    - \(s.mediaFilename)  writer status: \(s.writerStatus)")
+        print("      writer error: \(s.writerError)")
+        print("      bytes retained at: \(s.retainedScratchPath)")
+    }
     if !d.blackFrameDetections.isEmpty {
         print("  black-frame detections (LOGGED ONLY, uncalibrated threshold — see CaptureSession doc comment): \(d.blackFrameDetections)")
     }
@@ -325,14 +378,56 @@ func runVideoOnly(seconds: Int) async throws {
     let windowSourceIdentity = UUID()
     let session = CaptureSession(source: source, scale: scale, displayUUID: windowSourceIdentity,
                                   packageURL: packageDir, epoch: bootEpoch())
+    // ---- EXPECTATION TABLE, computed and printed BEFORE the recording ----
+    //
+    // Every value below is derived from the configuration, not chosen by
+    // hand. The three identity-element mistakes this project has made in
+    // expectation tables (a scale of 1, a `tooNew` fixture at the wrong
+    // identity, recording a display where ContentScale == 1 is necessarily
+    // true) were all hand-written guesses in a table written by the person
+    // who knew the implementation. A derived table cannot degrade into "a
+    // black bar was visible, so it passed".
+    let expected = source.destinationRect(scale: scale)
+    print("""
+
+    ---- EXPECTED, computed before recording ----
+      buffer (pixels)            \(bufferSize.width) x \(bufferSize.height)
+      destinationRect being set  x \(Int(expected.x)) y \(Int(expected.y)) \
+    w \(Int(expected.width)) h \(Int(expected.height))
+      content will span          x ∈ [\(Int(expected.x)), \(Int(expected.x + expected.width))], \
+    y ∈ [\(Int(expected.y)), \(Int(expected.y + expected.height))]
+      right-edge samples at      x = \(Int(expected.x + expected.width) - 4) (inside, NOT black) \
+    and \(Int(expected.x + expected.width) + 4) (outside, black)
+      per-frame contentRect      must come back as \(Int(expected.width / scale)) x \
+    \(Int(expected.height / scale)) points at (\(Int(expected.x / scale)), \(Int(expected.y / scale)))
+      ContentScale               1.0 on every frame — the destination matches the source size,
+                                 so there is nothing to resample
+      frame accounting           must balance, and every audio track's too
+    ---------------------------------------------
+    """)
+
     try await session.start()
     print("\nrecording \(seconds)s, video only, WINDOW capture, to \(packageDir.path()) ...")
     for s in stride(from: seconds, to: 0, by: -5) {
         try await Task.sleep(for: .seconds(min(5, s)))
         print("  t-\(max(0, s-5))s  \(session.diagnostics.completeFrameCount) complete frames so far")
     }
-    let table = try await session.stop()
+    // `stop()` returns `CaptureSession.Outcome`, not a bare `SegmentTable`,
+    // so this switch is the type making the reader state which case they are
+    // in. Reading `table` without it is no longer possible — which is the
+    // whole point, because the run that produced this fix printed a perfectly
+    // well-formed table for a segment whose file did not exist.
+    let outcome = try await session.stop()
     testWindow.orderOut(nil)
+    let table: SegmentTable
+    switch outcome {
+    case .complete(let t):
+        table = t
+    case .incomplete(let t, let discarded):
+        table = t
+        print("\nINCOMPLETE — \(discarded.count) segment(s) never reached the package. " +
+              "The table below is what was recorded, not what was saved.")
+    }
 
     print("\n--- step 1 result ---")
     print("segments: \(table.segments.count)  first mediaFilename: \(table.segments.first?.mediaFilename ?? "none")")
@@ -346,16 +441,206 @@ func runVideoOnly(seconds: Int) async throws {
     if checked == 0 {
         print("\nFAIL — checked 0 frames for ContentScale. Zero is not a pass; nothing was verified.")
     } else if passing == checked {
-        print("\nPASS — checked \(checked) frames, \(checked) > 0, of which \(passing) had ContentScale == 1.")
+        // The subject is named in the sentence, deliberately. The previous
+        // wording — "PASS — checked 112 frames, 112 > 0, of which 112 had
+        // ContentScale == 1" — was true of a run whose output file was zero
+        // bytes. Every frame the STREAM delivered was unresampled; not one
+        // of them reached a FILE. Both halves have to appear or the pass
+        // reads as something it never claimed.
+        print("\nPASS (about the STREAM, not the file) — of the frames ScreenCaptureKit delivered, " +
+              "checked \(checked), \(checked) > 0, of which \(passing) had ContentScale == 1.")
+        print("Whether any of them were written is the `video appends accepted` line above, " +
+              "and whether the file exists is the check below.")
     } else {
         print("\nFAIL — checked \(checked) frames, of which only \(passing) had ContentScale == 1 " +
               "(\(checked - passing) were resampled). The master was NOT unresampled here — see D2-8.")
     }
 
     let mediaURL = packageDir.appending(path: "media/master-00.mov")
+    // Checked rather than left to `analyse` throwing out of `main`. When the
+    // file was missing, the top-level error was an AVFoundation -11800 about
+    // `assetProperty_Tracks` — which reads as "the movie is malformed" and
+    // sent the first diagnosis at the writer. The file did not exist at all.
+    guard FileManager.default.fileExists(atPath: mediaURL.path()) else {
+        print("\nFAIL — no file at \(mediaURL.path()). The recording did not reach the package. " +
+              "The `segments discarded` lines above say why; if that count is 0 too, then nothing " +
+              "in this process knows, which is itself the finding.")
+        exit(8)
+    }
     try await analyse(mediaURL)
-    print("\nCHECK BY EYE: open \"\(mediaURL.path())\" and confirm a solid blue rectangle, padded by black " +
-          "on the sides — NOT a stretched or cropped full-frame image.")
+    try await checkPaddingGeometry(mediaURL, contentRect: session.diagnostics.lastContentRect,
+                                   scale: scale, bufferSize: bufferSize,
+                                   chosen: session.diagnostics.configuredDestinationRect)
+    print("\nOptional, and NOT the check: open \"\(mediaURL.path())\" if you want to see it. " +
+          "The eye is good at noticing things and bad at confirming them — the padding was verified " +
+          "against computed coordinates above, not by looking.")
+}
+
+
+// ------------------------------------------------- padding, measured
+
+/// Verifies that the black padding is where D2-13a's buffer layout says it
+/// is — not merely that black padding exists.
+///
+/// **Why the eye is the wrong instrument here.** "I can see black bars" is
+/// satisfied by a frame whose content starts 40 px from where `contentRect`
+/// claims. The picture looks exactly as expected and the mapping is wrong,
+/// which is the failure that matters: every later derivation reads
+/// `contentRect` to locate the window inside the buffer. This project has
+/// been caught three times by something that looked right — colour
+/// saturation, a picker tab that was not there, a Settings pane showing a
+/// grant that the API refused. Looking is for finding; measuring is for
+/// confirming.
+///
+/// The check samples FOUR points, and the pairs are what make it fail when
+/// the mapping is off:
+///   * well inside the padding, and well inside the content — the weak
+///     check, which "there are black bars" already satisfies;
+///   * a few pixels either side of a content edge computed from
+///     `contentRect × scale` — one must be black and the other must not. A
+///     content rectangle displaced in either direction breaks exactly one of
+///     those two, which is the whole point of straddling the edge.
+///
+/// **Which edge is not a free choice, and the first version got it wrong.**
+/// It straddled the LEFT edge unconditionally. Measured, ScreenCaptureKit
+/// anchors window content at the buffer's origin — `contentRect` came back
+/// as `(0, 0) 800x532` in a 3024x1964 buffer — so there is no left padding
+/// at all; all of it is to the right and below. The old guard then printed
+/// "the content spans the full buffer width", which was simply false (1600
+/// of 3024) and would have sent the next reader after the wrong thing. The
+/// edge under test is now chosen from where the padding actually is, and the
+/// refusal message says which edges were considered.
+func checkPaddingGeometry(_ url: URL, contentRect: PointRect?, scale: Double,
+                          bufferSize: (width: Int, height: Int),
+                          chosen: PixelRect?) async throws {
+    print("\n--- padding geometry, measured against contentRect ---")
+    guard let contentRect else {
+        print("FAIL — no ContentRect was ever read from a frame attachment, so there is nothing to " +
+              "check the padding AGAINST. Black bars alone would not be a finding.")
+        return
+    }
+    let asset = AVURLAsset(url: url)
+    let generator = AVAssetImageGenerator(asset: asset)
+    generator.appliesPreferredTrackTransform = false
+    generator.requestedTimeToleranceBefore = .zero
+    generator.requestedTimeToleranceAfter = .zero
+    let (cgImage, _) = try await generator.image(at: CMTime(value: 1, timescale: 2))
+
+    // `contentRect` is in points (D2-13a: it is the window's own frame, the
+    // extrinsic mapping); the buffer is in pixels. One multiplication, the
+    // same one `CaptureSource.geometry()` performs, stated here so the
+    // number being checked has a derivation and not just a value.
+    let left = Int((contentRect.x * scale).rounded())
+    let right = Int(((contentRect.x + contentRect.width) * scale).rounded())
+    let top = Int((contentRect.y * scale).rounded())
+    let bottom = Int(((contentRect.y + contentRect.height) * scale).rounded())
+    print("contentRect (points): origin (\(contentRect.x), \(contentRect.y)) " +
+          "size \(contentRect.width)x\(contentRect.height)")
+    print("buffer (pixels): \(bufferSize.width)x\(bufferSize.height)   " +
+          "content spans x ∈ [\(left), \(right)], y ∈ [\(top), \(bottom)] after × \(scale)")
+    guard cgImage.width == bufferSize.width, cgImage.height == bufferSize.height else {
+        print("FAIL — decoded frame is \(cgImage.width)x\(cgImage.height), not the " +
+              "\(bufferSize.width)x\(bufferSize.height) buffer the coordinates above are in. " +
+              "Every sample below would be at the wrong place.")
+        return
+    }
+
+    // **The contract check, and it is stronger than the pixel sampling
+    // below.** `destinationRect` is no longer inherited from
+    // ScreenCaptureKit's undocumented placement — `CaptureSource` chooses it.
+    // So the window's reported `contentRect`, scaled to pixels, must equal
+    // the rectangle we asked for. Sampling pixels can only show that SOME
+    // edge is where SOME rectangle says; this shows it is where OURS says.
+    // TWO INDEPENDENT SOURCES, and the check is worthless without that:
+    //   `configuredDestinationRect` — recorded by CaptureSession at the moment
+    //       it set the value. What was ASKED.
+    //   `contentRect` — per-frame SCStreamFrameInfoContentRect. What SCK
+    //       DELIVERED.
+    // Recomputing the request here from `SCWindow.frame` would compare a
+    // calculation against its own inputs: an assertion that cannot fail,
+    // reported as the strongest check passing.
+    guard let chosen else {
+        print("FAIL — the session never recorded a configured destinationRect, so there is nothing " +
+              "to compare the delivered contentRect against.")
+        return
+    }
+    let matchesChosen = left == Int(chosen.x) && top == Int(chosen.y)
+        && right == Int(chosen.x + chosen.width) && bottom == Int(chosen.y + chosen.height)
+    print("destinationRect ASKED FOR (recorded at configure time): x \(Int(chosen.x)) y \(Int(chosen.y)) " +
+          "w \(Int(chosen.width)) h \(Int(chosen.height))")
+    print("  \(matchesChosen ? "ok  " : "FAIL") the per-frame contentRect × scale equals it — " +
+          "ScreenCaptureKit honoured the anchor this process chose")
+
+    // The margin each vertical edge has outside it. `nil` means that edge is
+    // flush against the buffer and cannot be straddled.
+    let margin = 8
+    let leftPadding = left >= margin ? left : nil
+    let rightPadding = right <= bufferSize.width - margin ? bufferSize.width - right : nil
+    guard leftPadding != nil || rightPadding != nil else {
+        print("FAIL — content is flush against BOTH vertical edges of the buffer " +
+              "(left \(left), right \(right), buffer width \(bufferSize.width)), so there is no " +
+              "vertical edge with padding beside it. This check would pass vacuously — which is " +
+              "exactly the identity-transform case D2-13a's ContentScale check also has to avoid.")
+        return
+    }
+    // Prefer the right edge when both have padding, because the measured
+    // layout puts all of it there — but state which was used, so a future
+    // run against a differently-anchored buffer is not silently checking
+    // something else.
+    let (edgeName, edgeX, outsideDirection) = rightPadding != nil
+        ? ("RIGHT", right, 1)
+        : ("LEFT", left, -1)
+    print("padding is beside the \(edgeName) edge (left margin " +
+          "\(leftPadding.map(String.init) ?? "none"), right margin " +
+          "\(rightPadding.map(String.init) ?? "none")) — straddling x=\(edgeX)")
+
+    // Sample row: the vertical middle of the content, so the horizontal
+    // edges are the only thing under test.
+    let y = (top + bottom) / 2
+    guard let samples = sampleRow(cgImage, y: min(max(y, 0), cgImage.height - 1)) else {
+        print("FAIL — could not read pixels from the decoded frame.")
+        return
+    }
+    func isBlack(_ x: Int) -> Bool {
+        let p = samples[min(max(x, 0), samples.count - 1)]
+        return p.r < 12 && p.g < 12 && p.b < 12
+    }
+    let farPadding = outsideDirection > 0 ? (edgeX + bufferSize.width) / 2 : edgeX / 2
+    let farContent = (left + right) / 2
+    let justOutside = edgeX + 4 * outsideDirection
+    let justInside = edgeX - 4 * outsideDirection
+
+    let checks: [(String, Bool)] = [
+        ("padding at x=\(farPadding) (well outside the window) is black", isBlack(farPadding)),
+        ("content at x=\(farContent) (well inside the window) is NOT black", !isBlack(farContent)),
+        ("x=\(justOutside), 4 px OUTSIDE the computed \(edgeName) edge, is black", isBlack(justOutside)),
+        ("x=\(justInside), 4 px INSIDE the computed \(edgeName) edge, is NOT black", !isBlack(justInside)),
+    ]
+    for (what, ok) in checks { print("  \(ok ? "ok  " : "FAIL") \(what)") }
+    print(checks.allSatisfy { $0.1 } && matchesChosen
+          ? "PASS — the padding is where contentRect × scale says it is, not merely present. " +
+            "Content is anchored at the buffer origin; the padding is to the \(edgeName.lowercased())."
+          : "FAIL — padding exists but is not at the computed boundary. The buffer layout and " +
+            "contentRect disagree; D2-13a's mapping is what is wrong, not the picture.")
+}
+
+func sampleRow(_ image: CGImage, y: Int) -> [(r: Int, g: Int, b: Int)]? {
+    let width = image.width
+    var bytes = [UInt8](repeating: 0, count: width * 4)
+    guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+    let ok: Bool = bytes.withUnsafeMutableBytes { raw -> Bool in
+        guard let ctx = CGContext(data: raw.baseAddress, width: width, height: 1,
+                                  bitsPerComponent: 8, bytesPerRow: width * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        // Draw the whole image translated so that row `y` lands on row 0 of
+        // this 1-pixel-tall context. CoreGraphics' origin is bottom-left, so
+        // the offset is measured from the bottom.
+        ctx.draw(image, in: CGRect(x: 0, y: -(CGFloat(image.height - 1 - y)),
+                                   width: CGFloat(width), height: CGFloat(image.height)))
+        return true
+    }
+    guard ok else { return nil }
+    return (0..<width).map { (Int(bytes[$0 * 4]), Int(bytes[$0 * 4 + 1]), Int(bytes[$0 * 4 + 2])) }
 }
 
 // ------------------------------------------------------------- Step 2: audio
@@ -448,7 +733,14 @@ func runAudioTones(seconds: Int) async throws {
         print("  t-\(max(0, s-5))s  \(session.diagnostics.completeFrameCount) complete frames so far")
     }
     engine.stop()
-    let table = try await session.stop()
+    let table: SegmentTable
+    switch try await session.stop() {
+    case .complete(let t): table = t
+    case .incomplete(let t, let discarded):
+        table = t
+        print("\nINCOMPLETE — \(discarded.count) segment(s) never reached the package.")
+        for d in discarded { print("  \(d.mediaFilename): \(d.writerStatus) — \(d.writerError)") }
+    }
     print("\n--- step 2 result ---")
     print("segments: \(table.segments.count)")
     printDiagnostics(session.diagnostics)
@@ -519,7 +811,14 @@ func runReconfig(seconds: Int) async throws {
         print("  t-\(max(0, s-5))s  \(session.diagnostics.completeFrameCount) complete frames, " +
               "OS-level reconfigurations observed: \(displayReconfigurations)")
     }
-    let table = try await session.stop()
+    let table: SegmentTable
+    switch try await session.stop() {
+    case .complete(let t): table = t
+    case .incomplete(let t, let discarded):
+        table = t
+        print("\nINCOMPLETE — \(discarded.count) segment(s) never reached the package.")
+        for d in discarded { print("  \(d.mediaFilename): \(d.writerStatus) — \(d.writerError)") }
+    }
     print("\n--- step 3 result ---")
     print("segments: \(table.segments.count)")
     for seg in table.segments {

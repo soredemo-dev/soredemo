@@ -476,6 +476,58 @@ plan asked for one and there is no CI to run one unasked. The gap was real wheth
 defect: a verification never performed covers nothing. Every phase ends with `rm -rf` on a scratch
 path and `swift build --build-tests` from nothing.
 
+**A total counted after a filter cannot show what the filter removed.** `CaptureSession` reported 310
+complete frames over a zero-byte file, and 1045 lost audio buffers under a single number that could
+not say which of two tracks lost them. Both were the same mistake: the count of "how many were
+there" was taken downstream of the thing that discarded them, so what was discarded never existed on
+the books. Any check for "did something go missing" needs its total incremented **before the first
+filter**, and every path out counted by name, so the paths sum to the total exactly. Prefer the
+conservation law (`delivered == appended + refused + skipped-A + skipped-B + …`) to the tempting
+equality (`delivered == appended`): the equality is violated legitimately — a real-time input under
+backpressure refuses frames — so it fires on healthy runs and gets relaxed rather than fixed, and a
+relaxed assertion still looks like a check. The conservation law has no legitimate violation. Count
+per subject, not summed: a law that cannot name the track it broke on is a smoke alarm without a
+location.
+
+**`_ =` is a claim, and it needs a reason beside it.** Swift warns on an unused return value;
+`@discardableResult` and `_ =` are the two ways to silence that warning, and this project was bitten
+by each of them within one task. `_ = videoInputRef.append(sampleBuffer)` made a run in which every
+append failed indistinguishable from a perfect one; `@discardableResult` on `stop()` made "throw away
+the entire record of what was just recorded" the shortest thing a caller could write. A bare `_ =`
+with no comment is a defect. Measured before adopting this: ten non-test occurrences repo-wide, none
+in the app target — the rule is nearly free.
+
+**A failure value must not land inside the success type's legal range.** `stop()` returned a
+`SegmentTable` naming `master-00.mov` when no such file existed: structurally perfect, factually a
+lie, and nothing downstream could tell. The fix is not a log line, it is a type the caller cannot read
+without saying which case they are in — the same move as `Evidence`'s non-empty requirement and
+`NormalizedPoint`'s validating initialiser. Make the bad state impossible to hold by accident.
+
+**Every fixture set needs a positive control, and it runs first.** A malformed synthetic
+`CMSampleBuffer` — one with no data buffer at all — produced `-16122`, a real AVFoundation error code
+that reads like a verdict on the thing under test and was in fact a verdict on the input. Three of
+four rows in that experiment were unanchored and it took a later run to notice. So: one row per
+fixture set whose answer is known **independently** of anything under test (here, the exact error a
+real run had already produced). Run it first; if it does not match, stop and fix the fixture, and read
+nothing below it. Synthetic CoreMedia and AVFoundation fixtures are especially easy to get subtly
+wrong.
+
+**A refusal message may state only what was measured.** A check has three outputs — pass, fail, and
+*refused to run* — and the third is the only one nobody writes a test for, because it fires only when
+something is already wrong. That is exactly when a person begins investigating, so a wrong refusal
+message misdirects at maximum leverage. A padding check declined with "the content spans the full
+buffer width"; the content spanned 1600 of 3024 pixels, and the next hour would have gone to
+investigating something that never happened. Write "left margin 0 px, right margin 1424 px; the
+chosen edge has no padding beside it" instead. A measurement cannot lie the same way an inference can.
+
+**An observed default is not a contract.** ScreenCaptureKit anchors window content at the output
+buffer's origin; `SCStream.h` says only "if not set, then the entire output surface is used" and
+promises nothing about placement. Building the buffer-to-window mapping on that measured behaviour is
+the same footing this project already refused twice — decimal rendering of floating-point, and
+Unicode normalisation resting on the current OS's ICU tables. Set the value (`destinationRect`) so the
+anchor is chosen rather than inherited. The test of the difference: if the OS changed it tomorrow,
+would anything fail? An inherited default displaces every derived coordinate silently.
+
 ---
 
 ## Architecture rules — enforced, not aspirational

@@ -1,4 +1,10 @@
 import CoreGraphics
+// For `NSValue`/`NSDictionary` in `pointRect(fromFrameAttachment:)`. A
+// ScreenCaptureKit frame attachment arrives as one of those two Objective-C
+// types, and this file is the only place allowed to name the CoreGraphics
+// type either of them decodes into — so the import belongs here rather than
+// at a call site that would then be handling a `CGRect`.
+import Foundation
 import Geometry
 
 /// **The only file in this repository allowed to name a CoreGraphics geometry
@@ -80,6 +86,34 @@ enum CGGeometryBridge {
         let r = rect.standardized
         return PointRect(x: Double(r.origin.x), y: Double(r.origin.y),
                          width: Double(r.size.width), height: Double(r.size.height))
+    }
+
+    /// Decodes a `PointRect` from a ScreenCaptureKit frame attachment,
+    /// whichever way ScreenCaptureKit encoded it.
+    ///
+    /// **This lives here and not at the call site because the architecture
+    /// check said so, and the check was right.** The first version sat in
+    /// `CaptureSession` and returned a `CGRect`;
+    /// `AppSourceAllowListTests.coreGraphicsGeometryTypesAppearOnlyInTheBridge`
+    /// failed it immediately. Decoding a platform representation into a
+    /// package type is exactly what this file is for, and a `CGRect` briefly
+    /// held elsewhere is how that boundary erodes.
+    ///
+    /// **Two encodings, deliberately.** The prior code was `as? NSValue`
+    /// alone and it never once succeeded: a rect attachment arrives as a
+    /// CGRect *dictionary representation*, so the cast failed silently on
+    /// every frame of a whole recording. `SCStream.h` distinguishes the two
+    /// in the same header — `SCStreamFrameInfoDirtyRects` is documented as
+    /// "an array of CGRect **in NSValue**", `SCStreamFrameInfoContentRect`
+    /// is not — which is the difference the original cast read past.
+    /// Returns `nil` when neither form applies, so the caller can count it.
+    nonisolated static func pointRect(fromFrameAttachment attachment: Any?) -> PointRect? {
+        if let value = attachment as? NSValue { return pointRect(from: value.rectValue) }
+        if let dictionary = attachment as? NSDictionary,
+           let rect = CGRect(dictionaryRepresentation: dictionary as CFDictionary) {
+            return pointRect(from: rect)
+        }
+        return nil
     }
 
     // MARK: - package → CoreGraphics

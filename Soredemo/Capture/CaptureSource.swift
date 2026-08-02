@@ -117,6 +117,58 @@ public enum CaptureSource: Sendable {
         }
     }
 
+    /// Where inside the output buffer this source's content is placed, in
+    /// pixels, for `SCStreamConfiguration.destinationRect`.
+    ///
+    /// **Set explicitly because the default is a behaviour, not a contract.**
+    /// `SCStream.h` says only "if not set, then the entire output surface is
+    /// used" — it does not say where content that does not fill the surface
+    /// ends up. Measured, ScreenCaptureKit anchors a window at the buffer's
+    /// origin: a 800x532-point window in a 3024x1964-pixel buffer came back
+    /// with `contentRect` `(0, 0) 800x532`. That is a fact about this OS
+    /// build, and nothing published makes it a promise.
+    ///
+    /// This project has twice refused to build on exactly that footing —
+    /// decimal rendering of floating-point (stability resting on an
+    /// uncontracted implementation detail) and Unicode normalisation
+    /// (resting on the current OS's ICU tables). This is the third, and it
+    /// is worse than either: if the anchor moves, the buffer-to-window
+    /// mapping is silently displaced, and every later derivation that reads
+    /// `contentRect` to locate the window — every zoom — lands off-target
+    /// with nothing failing.
+    ///
+    /// Choosing the value also makes the padding *computable* rather than
+    /// discoverable: its position is now a consequence of this function, not
+    /// something a verification step has to detect.
+    ///
+    /// **A snapshot, deliberately.** For `.window`, this is the window's
+    /// frame at the moment the segment opens. The frame is extrinsic (D-P2,
+    /// D2-13) and it can change mid-recording; the destination does not
+    /// follow it. A window resized past this rectangle is therefore *scaled*
+    /// into it, which `SCStreamFrameInfoContentScale` reports as `!= 1` and
+    /// `Diagnostics.resampledFrameCount` counts. That is the point: a resize
+    /// becomes an observable event instead of an invisible re-anchoring.
+    public nonisolated func destinationRect(scale: Double) -> PixelRect {
+        switch self {
+        case .display(let display):
+            // The identity case, stated anyway. Writing it out costs one
+            // line and removes the question of whether the display path was
+            // considered.
+            return PixelRect(x: 0, y: 0,
+                             width: Double((Double(display.width) * scale).rounded()),
+                             height: Double((Double(display.height) * scale).rounded()))
+        case .window(let window, let bufferSize):
+            let frame = CGGeometryBridge.pointRect(from: window.frame)
+            // Clamped to the buffer. A window larger than the display it is
+            // being captured against is a real case (a window can extend past
+            // a screen edge), and a destination rectangle outside the surface
+            // is not something `SCStream.h` defines either.
+            return PixelRect(x: 0, y: 0,
+                             width: min((frame.width * scale).rounded(), Double(bufferSize.width)),
+                             height: min((frame.height * scale).rounded(), Double(bufferSize.height)))
+        }
+    }
+
     /// The `SCContentFilter` this source captures through — the direction
     /// `capture-stream` needs: what actually gets handed to `SCStream(filter:
     /// configuration:delegate:)`. The reverse of `init(pickerFilter:availableDisplays:)`.

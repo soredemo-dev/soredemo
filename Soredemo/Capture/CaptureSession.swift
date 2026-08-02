@@ -158,6 +158,192 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// is what lets that be reproduced from a real run rather than only
         /// quoted from the spike.
         public internal(set) var ptsToCallbackLatencyNanos: [Int64] = []
+        /// Complete frames dropped because their presentation timestamp could
+        /// not be expressed as `Nanoseconds` — a non-positive timescale, or a
+        /// value too large for `Int64` nanoseconds.
+        ///
+        /// It is counted, not merely dropped, and it is counted *separately*
+        /// from `completeFrameCount` rather than folded into it. A silent
+        /// drop presents to a reader as "this frame never arrived", which is
+        /// indistinguishable from the stream being idle — the shape
+        /// `AGENTS.md` calls a measurement with no safe default. A non-zero
+        /// value here means the master is missing frames the OS did deliver.
+        ///
+        /// This should stay at zero on every real run: `SCStream` uses host
+        /// time at timescale 1e9, which is always convertible. It is a
+        /// diagnostic against the assumption, not a expected-to-fire path.
+        public internal(set) var unconvertiblePresentationTimeCount = 0
+
+        /// A segment whose media never reached the package, and everything
+        /// still knowable about why at the moment it happened.
+        ///
+        /// `SegmentTable` names a `mediaFilename` per segment. If this array
+        /// is non-empty, at least one of those names has no file behind it —
+        /// which the table itself cannot express, and which nothing else in
+        /// the process will notice.
+        public struct DiscardedSegment: Sendable {
+            public let mediaFilename: String
+            public let writerStatus: String
+            /// `AVAssetWriter.error`, stringified at the point of failure.
+            /// The writer is released immediately afterwards; this is the
+            /// only moment the underlying `OSStatus` is still reachable.
+            public let writerError: String
+            /// The scratch file, deliberately **not** deleted. These are the
+            /// captured bytes; whatever went wrong, they are recoverable
+            /// from here until the OS reclaims the temporary directory.
+            public let retainedScratchPath: String
+        }
+        public internal(set) var discardedSegments: [DiscardedSegment] = []
+
+        /// Frames `AVAssetWriterInput.append(_:)` **accepted**, as distinct
+        /// from `completeFrameCount`, which counts frames that arrived.
+        ///
+        /// These were one number until Task 8's step 1 reported "309
+        /// complete frames, all with ContentScale == 1" over a scratch file
+        /// containing **zero bytes**. Every statement in that report was
+        /// true; none of them was about writing. `append(_:)` returns a
+        /// `Bool` and the call site discarded it with `_ =`, so a run in
+        /// which every single append failed was indistinguishable from a
+        /// perfect one. Splitting the counts is what makes the subject of
+        /// each number explicit — `completeFrameCount` is about the stream,
+        /// this is about the file.
+        public internal(set) var appendedVideoFrameCount = 0
+        public internal(set) var appendedAudioSampleCount = 0
+        /// Appends that returned `false`, by media type.
+        public internal(set) var failedVideoAppendCount = 0
+        public internal(set) var failedAudioAppendCount = 0
+        /// The writer's status and error captured at the **first** append
+        /// that returned `false`, not the last.
+        ///
+        /// `AVAssetWriter` latches the first failure and then rejects
+        /// everything afterwards, so by the end of a run the error describes
+        /// a consequence rather than the cause. This is the cause.
+        public internal(set) var firstAppendFailure: String?
+
+        /// The layout of the first audio buffer each source delivered.
+        public internal(set) var systemAudioLayout: String?
+        public internal(set) var microphoneLayout: String?
+
+        /// The same conservation law as the video path, **per audio track.**
+        ///
+        /// Per track, not summed, because the two sources are not alike: a
+        /// real run measured system audio as `2ch 32-bit float @48000Hz,
+        /// PLANAR` and the microphone as `1ch 32-bit float @44100Hz,
+        /// INTERLEAVED`, and only the planar one was being dropped. A single
+        /// total said "1045 buffers lost" and could not say by which source,
+        /// while the answer — *the one that needed converting* — was the
+        /// whole diagnosis.
+        ///
+        /// `delivered` is incremented at the top of `appendAudio`, before any
+        /// filter, for the same structural reason `completeFrameCount` had to
+        /// move: a total taken after a filter cannot show what the filter
+        /// removed.
+        public struct AudioTrackAccounting: Sendable {
+            public internal(set) var delivered = 0
+            public internal(set) var appended = 0
+            public internal(set) var refused = 0
+            public internal(set) var skippedWriterNotWriting = 0
+            public internal(set) var skippedInputNotReady = 0
+            /// Buffers that arrived before the first complete video frame
+            /// opened the writer's session. Normal at the head of a
+            /// recording; a large value means video never started.
+            public internal(set) var skippedSessionNotStarted = 0
+            /// Buffers `AudioInterleave` could not re-lay-out.
+            public internal(set) var uninterleavable = 0
+
+            /// No legitimate violation. Every delivered buffer leaves
+            /// `appendAudio` by exactly one of the six paths below.
+            public var balances: Bool {
+                delivered == appended + refused + skippedWriterNotWriting
+                    + skippedInputNotReady + skippedSessionNotStarted + uninterleavable
+            }
+            public var accounting: String {
+                "delivered \(delivered) = appended \(appended) + refused \(refused)"
+                    + " + writer-not-writing \(skippedWriterNotWriting)"
+                    + " + input-not-ready \(skippedInputNotReady)"
+                    + " + session-not-started \(skippedSessionNotStarted)"
+                    + " + uninterleavable \(uninterleavable)"
+                    + "  → \(balances ? "balances" : "DOES NOT BALANCE")"
+            }
+            /// A track that was delivered buffers and wrote none of them.
+            /// This is the state that produced a file with one audio track
+            /// where two were expected — and it was only visible by counting
+            /// tracks in the finished file, hours later.
+            public var deliveredButWroteNothing: Bool { delivered > 0 && appended == 0 }
+        }
+        public internal(set) var systemAudioAccounting = AudioTrackAccounting()
+        public internal(set) var microphoneAccounting = AudioTrackAccounting()
+
+        /// Frames whose rect attachments could not be decoded at all.
+        ///
+        /// Non-zero here means `lastContentRect`/`lastScreenRect` are stale
+        /// or absent for a reason inside this process, not because
+        /// ScreenCaptureKit withheld them — a distinction that cost a whole
+        /// verification run when an `as? NSValue` cast silently failed on
+        /// every single frame.
+        public internal(set) var unreadableContentRectCount = 0
+        public internal(set) var unreadableScreenRectCount = 0
+
+        /// The `destinationRect` this session actually configured, recorded
+        /// **at the moment it was set**.
+        ///
+        /// Recorded rather than recomputed, and that is the whole point. A
+        /// caller checking "did ScreenCaptureKit put the content where we
+        /// asked?" needs two independent sources: this, which is what was
+        /// asked, and `lastContentRect`, which is per-frame
+        /// `SCStreamFrameInfoContentRect` — what was delivered. Recomputing
+        /// the request at check time from `SCWindow.frame` would read a
+        /// value that may have changed since (the frame is extrinsic and the
+        /// window can move), and comparing a fresh computation against its
+        /// own inputs is an assertion that cannot fail — reported, worst of
+        /// all, as the strongest check passing.
+        public internal(set) var configuredDestinationRect: PixelRect?
+
+        /// Complete frames the video path skipped without appending, by the
+        /// reason it skipped them.
+        ///
+        /// These exist to make `everyCompleteFrameIsAccountedFor` provable
+        /// rather than hopeful. Skipping is legitimate — an input under
+        /// backpressure returns `isReadyForMoreMediaData == false` and
+        /// dropping is what `expectsMediaDataInRealTime` asks for — but a
+        /// skip that no counter names is indistinguishable from a frame that
+        /// never arrived, which is how a run in which the writer had already
+        /// failed still reported 310 complete frames.
+        public internal(set) var skippedWriterNotWritingCount = 0
+        public internal(set) var skippedInputNotReadyCount = 0
+
+        /// **A conservation law, and the invariant the zero-byte file broke.**
+        ///
+        /// Every complete video frame leaves the handler exactly one way:
+        /// appended, refused, or skipped for one of three named reasons.
+        /// The counts must therefore sum to `completeFrameCount` — always,
+        /// on every run, with no tolerance.
+        ///
+        /// Stating it as a sum rather than as `completeFrameCount ==
+        /// appendedVideoFrameCount` is deliberate. That simpler equality is
+        /// not actually an invariant: a real-time input under backpressure
+        /// legitimately refuses frames, so the equality would fire on a
+        /// healthy recording and get relaxed into uselessness within a week.
+        /// This one has no legitimate violation. If it fails, a frame took a
+        /// path through `handleScreenSample` that nothing counts, and the
+        /// next defect of this family will hide exactly there.
+        public var everyCompleteFrameIsAccountedFor: Bool {
+            completeFrameCount == appendedVideoFrameCount
+                + failedVideoAppendCount
+                + skippedWriterNotWritingCount
+                + skippedInputNotReadyCount
+                + unconvertiblePresentationTimeCount
+        }
+
+        /// The same law, as the numbers, for a report a human reads.
+        public var frameAccounting: String {
+            "complete \(completeFrameCount) = appended \(appendedVideoFrameCount)"
+                + " + refused \(failedVideoAppendCount)"
+                + " + writer-not-writing \(skippedWriterNotWritingCount)"
+                + " + input-not-ready \(skippedInputNotReadyCount)"
+                + " + pts-unconvertible \(unconvertiblePresentationTimeCount)"
+                + "  → \(everyCompleteFrameIsAccountedFor ? "balances" : "DOES NOT BALANCE")"
+        }
     }
 
     public nonisolated var diagnostics: Diagnostics { lock.withLock { _diagnostics } }
@@ -273,13 +459,46 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         try await beginSegment(geometry: geometry)
     }
 
+    /// The result of stopping a recording.
+    ///
+    /// **Why this is not just a `SegmentTable`.** It was, and that was the
+    /// defect. A `SegmentTable` names a `mediaFilename` per segment; nothing
+    /// in it can say whether a file exists behind that name. When Task 8's
+    /// step 1 produced a segment whose media never reached the package,
+    /// `stop()` returned a table that was structurally perfect and
+    /// factually a lie — the failure value landed *inside the legal range of
+    /// the success type*, which is the shape this project has been bitten by
+    /// before and now refuses by construction.
+    ///
+    /// The fix is the same one `Evidence`'s non-empty requirement and
+    /// `NormalizedPoint`'s validating initialiser use: make the bad state
+    /// impossible to hold accidentally. A caller cannot reach the table
+    /// without first writing down which case they are in. They may still
+    /// choose to use an incomplete table — that is a legitimate thing to
+    /// want, since it is the only record of what was recorded — but it is
+    /// now a decision in their source, not a default.
+    public enum Outcome: Sendable {
+        /// Every segment's media is in the package.
+        case complete(SegmentTable)
+        /// At least one segment's media never reached the package. The
+        /// discarded entries carry the writer's error and the retained
+        /// scratch path for each.
+        case incomplete(SegmentTable, discarded: [Diagnostics.DiscardedSegment])
+    }
+
     /// Finalises the current segment with `.stopped`, unregisters the
-    /// reconfiguration observer, and returns the `SegmentTable` — the
-    /// validated, ordered record `SegmentTable.init(segments:)` (Task 4)
-    /// throws out of if anything is out of order, overlapping, or spans two
-    /// boot epochs.
-    @discardableResult
-    public nonisolated func stop() async throws -> SegmentTable {
+    /// reconfiguration observer, and returns an `Outcome` carrying the
+    /// `SegmentTable` — the validated, ordered record
+    /// `SegmentTable.init(segments:)` (Task 4) throws out of if anything is
+    /// out of order, overlapping, or spans two boot epochs.
+    ///
+    /// **Deliberately not `@discardableResult`**, which it used to be. That
+    /// attribute belongs to the same family as the defect `Outcome` exists
+    /// to close: it made "ignore the entire record of what was just
+    /// recorded" the shortest thing a caller could write. Stopping a
+    /// recording has exactly one interesting output and every caller has a
+    /// use for it.
+    public nonisolated func stop() async throws -> Outcome {
         guard lock.withLock({ isRunning }) else { throw SessionError.notRunning }
 
         // A stop with no segment open (e.g. called again after a stream
@@ -292,7 +511,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             lock.withLock { isRunning = false }
         }
 
-        return try lock.withLock { try ledger.finish() }
+        let table = try lock.withLock { try ledger.finish() }
+        let discarded = lock.withLock { _diagnostics.discardedSegments }
+        return discarded.isEmpty ? .complete(table) : .incomplete(table, discarded: discarded)
     }
 
     // MARK: - Segment open/close
@@ -365,6 +586,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         configuration.showsCursor = false                 // Step 0 / D2-8
         configuration.scalesToFit = false                  // D2-13a
         configuration.preservesAspectRatio = true           // D2-13a
+        // D2-13a, and NOT a default. Unset, where ScreenCaptureKit places
+        // content that does not fill the surface is undocumented — measured
+        // as origin-anchored on this OS build and promised nowhere. See
+        // `CaptureSource.destinationRect(scale:)` for why an uncontracted
+        // anchor is the same failure this project already refused twice.
+        let destination = source.destinationRect(scale: scale)
+        configuration.destinationRect = CGGeometryBridge.rect(from: destination)
+        lock.withLock { _diagnostics.configuredDestinationRect = destination }
         configuration.capturesAudio = true
         configuration.captureMicrophone = true
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
@@ -439,8 +668,40 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             let bytes = try Data(contentsOf: tempURL, options: .mappedIfSafe)
             try ProjectPackageIO.writeSidecar(bytes, named: mediaFilename, into: packageURL)
             try? FileManager.default.removeItem(at: tempURL)
-        } else if let tempURL = snapshot.tempURL {
-            try? FileManager.default.removeItem(at: tempURL)
+        } else {
+            // The recording for this segment did not make it into the
+            // package. This branch used to delete the scratch file and say
+            // nothing — `stop()` returned a `SegmentTable` naming a
+            // `mediaFilename` that did not exist, and the first thing to
+            // notice was whatever tried to open the file, minutes or weeks
+            // later, with no way left to say why. Task 8's step 1 hit it and
+            // the only evidence was an absent directory.
+            //
+            // Two changes, and both are the same principle: a failure must
+            // leave more behind than a success, not less.
+            //   * the writer's own status and error are recorded, because
+            //     `AVAssetWriter.error` is populated exactly here and
+            //     nowhere else — once the writer is released it is gone;
+            //   * the scratch file is NOT deleted, and its path is recorded.
+            //     Those bytes are the only copy of what the user recorded.
+            //     Leaking one file into `NSTemporaryDirectory` (which the OS
+            //     reclaims) is the cheaper mistake by a wide margin.
+            let statusDescription: String
+            switch snapshot.writer?.status {
+            case .none: statusDescription = "no writer"
+            case .some(.unknown): statusDescription = "unknown (startWriting never returned)"
+            case .some(.writing): statusDescription = "writing (finishWriting did not complete it)"
+            case .some(.completed): statusDescription = "completed"     // then tempURL/filename was nil
+            case .some(.failed): statusDescription = "failed"
+            case .some(.cancelled): statusDescription = "cancelled"
+            case .some: statusDescription = "unrecognised status"
+            }
+            let discarded = Diagnostics.DiscardedSegment(
+                mediaFilename: snapshot.mediaFilename ?? "(none minted)",
+                writerStatus: statusDescription,
+                writerError: snapshot.writer?.error.map { String(describing: $0) } ?? "nil",
+                retainedScratchPath: snapshot.tempURL?.path() ?? "(none)")
+            lock.withLock { _diagnostics.discardedSegments.append(discarded) }
         }
 
         lock.withLock {
@@ -511,13 +772,42 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // across four runs) — append only `.complete`.
         guard statusRaw == SCFrameStatus.complete.rawValue else { return }
 
+        // Counted HERE, at the moment the frame is known to be complete —
+        // not further down, after the timestamp checks. It used to be
+        // incremented alongside the append bookkeeping, which meant a frame
+        // dropped for an unreadable timestamp was never a "complete frame"
+        // at all, and `everyCompleteFrameIsAccountedFor` could not be
+        // stated, let alone hold. A conservation law only means something if
+        // the total is fixed before the branches start.
+        lock.withLock { _diagnostics.completeFrameCount += 1 }
+
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        guard pts.isValid, pts.timescale > 0 else { return }
+        // An invalid `CMTime` is the same loss as an unconvertible one — the
+        // frame has no place on the timeline — and is counted with it rather
+        // than returning uncounted, which is what this line used to do.
+        guard pts.isValid else {
+            lock.withLock { _diagnostics.unconvertiblePresentationTimeCount += 1 }
+            return
+        }
         // Integer nanoseconds, not `CMTimeGetSeconds(pts) * 1e9` — `Nanoseconds`
         // is deliberately never a `Double` (its own doc comment), and this is
         // the one place a `CMTime` crosses into that type.
-        let ptsNanos = Int64(pts.value) * 1_000_000_000 / Int64(pts.timescale)
-        let frameInstant = HostInstant(epoch: epoch, hostTime: Nanoseconds(ptsNanos))
+        //
+        // The arithmetic itself lives in `Nanoseconds` rather than here, and
+        // that is not tidiness. Written inline it was
+        // `Int64(pts.value) * 1_000_000_000 / Int64(pts.timescale)`, which
+        // trapped on `Int64` overflow for every frame after 9.2 s of uptime
+        // — the whole capture path, on every run — and no test could reach
+        // it, because reaching it needed a real `SCStream` sample buffer.
+        // Moved into a Foundation-only leaf module, the part that was wrong
+        // is covered by `Tests/TimelineTests/RationalConversionTests.swift`
+        // and the part that needs ScreenCaptureKit is just these two reads.
+        guard let ptsNanoseconds = Nanoseconds(rationalSeconds: pts.value, timescale: pts.timescale) else {
+            lock.withLock { _diagnostics.unconvertiblePresentationTimeCount += 1 }
+            return
+        }
+        let ptsNanos = ptsNanoseconds.rawValue
+        let frameInstant = HostInstant(epoch: epoch, hostTime: ptsNanoseconds)
         let latencyNanos = callbackInstant.rawValue - ptsNanos
 
         recordContentScale(from: attachments)
@@ -525,7 +815,6 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         let (shouldCheckBlack, writerRef, videoInputRef, sessionAlreadyStarted) = lock.withLock {
             () -> (Bool, AVAssetWriter?, AVAssetWriterInput?, Bool) in
-            _diagnostics.completeFrameCount += 1
             if latencyNanos >= 0 { _diagnostics.ptsToCallbackLatencyNanos.append(latencyNanos) }
             lastFrameInstant = frameInstant
             frameCounterForBlackCheck += 1
@@ -537,30 +826,127 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             checkForBlackFrame(pixelBuffer)
         }
 
-        guard let writerRef, writerRef.status == .writing,
-              let videoInputRef, videoInputRef.isReadyForMoreMediaData else { return }
+        // Each exit counted separately. Both are legitimate — a writer that
+        // has already failed, and a real-time input under backpressure — and
+        // both used to leave through one anonymous `return`, which is how
+        // 308 frames vanished between "complete" and "written" while the
+        // report said nothing was wrong.
+        guard let writerRef, writerRef.status == .writing else {
+            lock.withLock { _diagnostics.skippedWriterNotWritingCount += 1 }
+            return
+        }
+        guard let videoInputRef, videoInputRef.isReadyForMoreMediaData else {
+            lock.withLock { _diagnostics.skippedInputNotReadyCount += 1 }
+            return
+        }
         if !sessionAlreadyStarted {
             writerRef.startSession(atSourceTime: pts)
             lock.withLock { writerSessionStarted = true }
         }
-        _ = videoInputRef.append(sampleBuffer)
+        recordAppend(videoInputRef.append(sampleBuffer), of: writerRef, isVideo: true)
+    }
+
+    /// Records whether an append was accepted, and captures the writer's
+    /// error at the first refusal.
+    ///
+    /// The `Bool` this consumes used to be dropped with `_ =`. That is why
+    /// this exists as a named function rather than an inline `if`: the whole
+    /// defect was that the value looked ignorable.
+    private nonisolated func recordAppend(_ accepted: Bool, of writer: AVAssetWriter, isVideo: Bool) {
+        lock.withLock {
+            if accepted {
+                if isVideo { _diagnostics.appendedVideoFrameCount += 1 }
+                else { _diagnostics.appendedAudioSampleCount += 1 }
+                return
+            }
+            if isVideo { _diagnostics.failedVideoAppendCount += 1 }
+            else { _diagnostics.failedAudioAppendCount += 1 }
+            guard _diagnostics.firstAppendFailure == nil else { return }
+            let statusName: String
+            switch writer.status {
+            case .unknown: statusName = "unknown"
+            case .writing: statusName = "writing"
+            case .completed: statusName = "completed"
+            case .failed: statusName = "failed"
+            case .cancelled: statusName = "cancelled"
+            @unknown default: statusName = "unrecognised"
+            }
+            _diagnostics.firstAppendFailure =
+                "\(isVideo ? "video" : "audio") append refused; writer status: \(statusName); "
+                + "writer error: \(writer.error.map { String(describing: $0) } ?? "nil")"
+        }
     }
 
     private nonisolated func appendAudio(_ sampleBuffer: CMSampleBuffer, isSystemAudio: Bool) {
+        // Counted FIRST, before any filter — the same structural requirement
+        // the video path had to be rearranged for. A total taken after a
+        // filter cannot show what the filter removed, and what the filter
+        // removed is the entire question. This is what makes
+        // `AudioTrackAccounting.balances` a statement rather than a hope.
+        //
+        // Per source, not summed. The first version of this counted every
+        // dropped audio buffer into one number, and that number (1045) could
+        // not say whether the loss was system audio or the microphone — while
+        // the two sources had different layouts, different sample rates, and
+        // only one of them was broken. A conservation law that cannot name
+        // the track it broke on is a smoke alarm without a location.
+        updateAudioAccounting(isSystemAudio) { $0.delivered += 1 }
+
+        // Recorded before anything is done to the buffer, and only once per
+        // source. This is the layout ScreenCaptureKit actually delivered —
+        // the fact `AudioInterleave` was written against, stated by the OS
+        // rather than inferred from an error code.
+        lock.withLock {
+            if isSystemAudio, _diagnostics.systemAudioLayout == nil {
+                _diagnostics.systemAudioLayout = AudioInterleave.layoutDescription(of: sampleBuffer)
+            } else if !isSystemAudio, _diagnostics.microphoneLayout == nil {
+                _diagnostics.microphoneLayout = AudioInterleave.layoutDescription(of: sampleBuffer)
+            }
+        }
+
         let (writerRef, inputRef, sessionAlreadyStarted) = lock.withLock {
             () -> (AVAssetWriter?, AVAssetWriterInput?, Bool) in
             (writer, isSystemAudio ? systemAudioInput : micInput, writerSessionStarted)
         }
-        guard let writerRef, writerRef.status == .writing,
-              let inputRef, inputRef.isReadyForMoreMediaData,
-              // Audio arriving before the first complete video frame has
-              // opened the writer's session has nowhere valid to land —
-              // dropped rather than starting the session off an audio PTS,
-              // keeping "the master's session starts at the first video
-              // frame" a single, simple rule instead of a race between
-              // three streams.
-              sessionAlreadyStarted else { return }
-        _ = inputRef.append(sampleBuffer)
+        guard let writerRef, writerRef.status == .writing else {
+            updateAudioAccounting(isSystemAudio) { $0.skippedWriterNotWriting += 1 }
+            return
+        }
+        guard let inputRef, inputRef.isReadyForMoreMediaData else {
+            updateAudioAccounting(isSystemAudio) { $0.skippedInputNotReady += 1 }
+            return
+        }
+        // Audio arriving before the first complete video frame has nowhere
+        // valid to land — dropped rather than starting the session off an
+        // audio PTS, keeping "the master's session starts at the first video
+        // frame" a single, simple rule instead of a race between three
+        // streams. Counted, because at the head of a recording this is the
+        // normal case and a silent version of it would look like the source
+        // producing nothing.
+        guard sessionAlreadyStarted else {
+            updateAudioAccounting(isSystemAudio) { $0.skippedSessionNotStarted += 1 }
+            return
+        }
+
+        // A `.mov` cannot store non-interleaved LPCM, and a passthrough
+        // input cannot re-lay-out what it is given: without this, the first
+        // audio append is refused and the refusal fails the writer for the
+        // video track too. See `AudioInterleave`.
+        guard let writable = AudioInterleave.interleaved(sampleBuffer) else {
+            updateAudioAccounting(isSystemAudio) { $0.uninterleavable += 1 }
+            return
+        }
+        let accepted = inputRef.append(writable)
+        updateAudioAccounting(isSystemAudio) { if accepted { $0.appended += 1 } else { $0.refused += 1 } }
+        recordAppend(accepted, of: writerRef, isVideo: false)
+    }
+
+    private nonisolated func updateAudioAccounting(_ isSystemAudio: Bool,
+                                                    _ change: (inout Diagnostics.AudioTrackAccounting) -> Void) {
+        lock.withLock {
+            if isSystemAudio { change(&_diagnostics.systemAudioAccounting) }
+            else { change(&_diagnostics.microphoneAccounting) }
+        }
     }
 
     // MARK: - `SCStreamFrameInfoContentScale` — D2-13a: recorded, not asserted
@@ -624,13 +1010,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// diagnostic value, never fed into `GeometryRevision` computation
     /// anywhere in this file.
     private nonisolated func recordExtrinsicRects(from attachments: [SCStreamFrameInfo: Any]) {
-        if let value = attachments[.contentRect] as? NSValue {
-            let point = CGGeometryBridge.pointRect(from: value.rectValue)
+        if let point = CGGeometryBridge.pointRect(fromFrameAttachment: attachments[.contentRect]) {
             lock.withLock { _diagnostics.lastContentRect = point }
+        } else {
+            lock.withLock { _diagnostics.unreadableContentRectCount += 1 }
         }
-        if let value = attachments[.screenRect] as? NSValue {
-            let point = CGGeometryBridge.pointRect(from: value.rectValue)
+        if let point = CGGeometryBridge.pointRect(fromFrameAttachment: attachments[.screenRect]) {
             lock.withLock { _diagnostics.lastScreenRect = point }
+        } else {
+            lock.withLock { _diagnostics.unreadableScreenRectCount += 1 }
         }
     }
 
