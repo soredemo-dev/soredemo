@@ -232,6 +232,32 @@ impossible, and then does not check it on the only path where that state arrives
 And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
 for a question the invariant says cannot arise.
 
+**A verification that ran before the last edit did not verify it.** The probe's isolation flags were
+added, the probe was run, 26 of 26 passed. Then an explanatory comment was added to the same file and
+the result committed without re-running. The comment sat inside a backslash-continued `xcrun swiftc`
+invocation, and bash treats `#` after a continuation as commenting out the rest of the *logical*
+line:
+
+```
+$ echo A \
+    # a comment
+    B \
+    C
++ echo A          <- the continuation is gone
++ B C             <- the remainder is executed as a command
+```
+
+So the committed script ran `xcrun swiftc` with **zero arguments**. The build failed with `no input
+files` and `set -e` stopped it before anything else ran. Every check the commit message claimed
+still passed had passed before the edit that broke them.
+
+The ordering is the whole failure: verify, then edit, then commit is three steps in the wrong order,
+and it feels identical to the right one. **The green light belongs to the bytes you commit**, not to
+a state that existed a minute earlier — so the last thing before staging is the run, not the polish.
+
+Related and worth knowing on its own: a comment cannot live inside a line continuation in bash. Put
+it above the command.
+
 **The probe is not the app, and it differs in more ways each time someone looks.** Three found so
 far, and they are not variations of one thing:
 
