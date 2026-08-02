@@ -151,7 +151,8 @@ enum SpikeC {
     /// cannot half-work by starting on a thread whose loop later stops.
     @MainActor
     static func observe(for seconds: Double, into collected: Collected,
-                        _ step: VerificationStep) -> InputObserver {
+                        _ step: VerificationStep,
+                        eachSecond: (Int) -> Void = { _ in }) -> InputObserver {
         let arrangement = InputObserver.currentArrangement()
         let observer = InputObserver(arrangement: arrangement, epoch: Minting.bootEpoch())
         do {
@@ -167,12 +168,29 @@ enum SpikeC {
         } catch {
             step.preconditionFailed("InputObserver.start threw \(error)")
         }
-        CFRunLoopRunInMode(.defaultMode, seconds, false)
+        // The observation window itself is bracketed by the audible signal, so
+        // the person at the machine knows when it is open. The tap is created
+        // BEFORE the beep — a tap that takes a moment to arm must not eat the
+        // first thing the operator does.
+        VerificationStep.beepStart()
+        // One-second slices rather than one long run, so a caller can sample
+        // ambient state through the window instead of only at its ends.
+        for elapsed in 0..<Int(seconds.rounded(.up)) {
+            CFRunLoopRunInMode(.defaultMode, 1, false)
+            eachSecond(elapsed)
+        }
+        VerificationStep.beepStop()
         observer.stop()
         return observer
     }
 
     @MainActor
+    /// Kept as a thin wrapper so every call site reads the same, but the
+    /// signalling now belongs to `VerificationStep.humanWindow` — the
+    /// operator never sees this stdout, so a printed countdown was an
+    /// instruction delivered to the only party that cannot act on it. Three
+    /// consecutive click-window runs failed on timing alone before that was
+    /// noticed, and each looked like it might be a defect in the tap.
     static func countdown(_ seconds: Int, _ instruction: String) {
         print("\n>>> \(instruction)")
         for remaining in stride(from: seconds, to: 0, by: -1) {
@@ -279,6 +297,20 @@ enum SpikeC {
         guard !buttons.isEmpty else {
             step.didNotHappen("no button events arrived — nothing was clicked.")
         }
+        // Printed unconditionally, because "8 events" has two indistinguishable
+        // causes — eight real clicks, or one click delivered four times — and
+        // the run that produced 8 and then 10 could be either. The gaps
+        // separate them: duplicates of one press sit within a frame of each
+        // other, four presses by a hand are tens of milliseconds apart at the
+        // very least. Measure to discriminate before diagnosing.
+        let firstInstant = buttons.first?.instant.hostTime.rawValue ?? 0
+        print("        button events, ms since the first, in arrival order:")
+        for b in buttons {
+            let msSinceFirst = Double(b.instant.hostTime.rawValue - firstInstant) / 1_000_000
+            print(String(format: "          %-12s %8.2f ms   at (%.4f, %.4f)",
+                         ("\(b.button).\(b.phase)" as NSString).utf8String!, msSinceFirst,
+                         b.position.x, b.position.y))
+        }
         step.check("\(buttons.count) button events for one click — exactly two",
                    buttons.count == 2)
         step.check("the first is .down and the second is .up (observed "
@@ -323,7 +355,26 @@ enum SpikeC {
         let diagnostics = observer.diagnostics
 
         guard diagnostics.keyDownsSeen > 0 else {
-            step.didNotHappen("no keyDown events arrived — nothing was typed.")
+            // The refusal states MEASUREMENTS, not the inference "nothing was
+            // typed". Zero keyDowns has two causes that look identical from
+            // here — nobody typed, or keyboard events do not reach this tap
+            // because Input Monitoring is not granted — and the second is the
+            // interesting one. A pointer tap needs no grant and a keyboard tap
+            // does, so this step is the first place the two diverge, and the
+            // run that found this had 395 pointer samples and 2 button events
+            // from the same tap minutes earlier.
+            let monitoring = CapturePermissions.status(of: .inputMonitoring)
+            let pointerEvidence = diagnostics.pointerSamples > 0 || diagnostics.buttonEvents > 0
+            let tapVerdict = pointerEvidence
+                ? "SOME arrived in this same window, from the same tap — so the tap is live and it "
+                  + "is specifically KEYBOARD events that are absent"
+                : "none either — either the tap is not delivering at all, or nothing was done in "
+                  + "the window"
+            step.didNotHappen("no keyDown events reached the tap. Measured, not concluded:\n"
+                + "  Input Monitoring status : \(monitoring)\n"
+                + "  keyDowns seen           : \(diagnostics.keyDownsSeen)\n"
+                + "  pointer/button events   : \(tapVerdict)\n"
+                + "\"nothing was typed\" is one explanation and this run cannot tell it from the other.")
         }
         guard diagnostics.keyDownsSeen >= 20 else {
             step.preconditionFailed("only \(diagnostics.keyDownsSeen) keyDown events — fewer than the "
@@ -382,16 +433,35 @@ enum SpikeC {
         for two more seconds.
             Do not type into the field. The interval is about focus, not about typing.
         """)
-        let observer = observe(for: 14, into: collected, step)
+        // Sampled once a second THROUGH the window, because "no event arrived
+        // while secure input was on" has two causes that look identical from
+        // the counters: secure input never turned on at all, or it did and
+        // nothing moved. The first is by far the more likely — a `sudo` prompt
+        // in Terminal does NOT enable system-wide secure input unless
+        // Terminal's own "Secure Keyboard Entry" is switched on, which it is
+        // not by default. Without this sample the refusal names two causes and
+        // measures neither.
+        var secondsSecureInputWasOn = 0
+        let observer = observe(for: 14, into: collected, step) { _ in
+            if IsSecureEventInputEnabled() { secondsSecureInputWasOn += 1 }
+        }
         let diagnostics = observer.diagnostics
+        print("        secure input was ON during \(secondsSecureInputWasOn) of the 14 sampled seconds")
 
         guard diagnostics.eventsSuppressedBySecureInput > 0 else {
-            step.didNotHappen("""
-            no event was ever observed while secure input was enabled. Either the password field \
-            never took focus, or the mouse was not moving while it did — with no event arriving, \
-            this observer has nothing to ask the question on. It is not a failure of the code and \
-            must not be recorded as one; it is also a real, known limitation, and the report says so.
-            """)
+            step.didNotHappen("no event was observed while secure input was enabled. "
+                + "Measured, not concluded:\n"
+                + "  seconds secure input was ON : \(secondsSecureInputWasOn) of 14\n"
+                + "  pointer samples in total    : \(diagnostics.pointerSamples)\n"
+                + (secondsSecureInputWasOn == 0
+                   ? "  -> secure input NEVER turned on. The password field did not take focus, or it "
+                     + "was one that does not enable system-wide secure input — a `sudo` prompt in "
+                     + "Terminal does not, unless Terminal's own Secure Keyboard Entry is on. Use a "
+                     + "native sheet: System Settings' unlock, or a Keychain prompt."
+                   : "  -> secure input WAS on for part of the window, and no event arrived during "
+                     + "it. The mouse was not moving while the field had focus.")
+                + "\nThis observer needs an event to arrive while the flag is set; with none, it has "
+                + "nothing to ask the question on.")
         }
 
         let intervals = collected.intervals

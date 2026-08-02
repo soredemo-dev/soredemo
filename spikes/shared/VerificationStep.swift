@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// The shared skeleton every human-in-the-loop verification step in this
@@ -115,6 +116,61 @@ struct VerificationStep {
             exit(ExitCode.controlFailed.rawValue)
         }
         print("   → validated; the checks below are readable.\n")
+    }
+
+    // MARK: - 3b. Signalling a human who cannot see this output
+
+    /// Marks the start and end of a window in which a person must do
+    /// something, **audibly**.
+    ///
+    /// **Because the printed countdown is not where the human is.** These
+    /// steps run as a tool invocation whose stdout the operator never sees;
+    /// they read a summary afterwards. So `print("starting in 3…")` is an
+    /// instruction delivered to the one party that cannot act on it. Three
+    /// consecutive runs of a five-second click window failed on timing alone —
+    /// eight events, then ten, then zero, then zero — and each failure looked
+    /// like it might be a defect in the tap.
+    ///
+    /// The same rule as a check's printed caveat, applied to instructions
+    /// rather than results: say it where the audience that must act on it
+    /// actually is. For a person at the machine, that is a sound.
+    ///
+    /// One beep at GO, two at STOP. `NSSound.beep()` is not used: it is
+    /// AppKit, needs an app to be foregrounded to be reliable, and these
+    /// spikes are `LSUIElement` background tools. `afplay` on a system sound
+    /// plays regardless.
+    func humanWindow(_ seconds: Int, _ instruction: String,
+                     during: (Int) -> Void = { _ in }) {
+        print("\n>>> \(instruction)")
+        print("    (one beep = start, two beeps = stop — the countdown below is for the log,")
+        print("     the beeps are for you)")
+        for remaining in stride(from: 3, to: 0, by: -1) {
+            print("    starting in \(remaining)…")
+            CFRunLoopRunInMode(.defaultMode, 1, false)
+        }
+        Self.beep()
+        print("    GO — \(seconds)s\n")
+        for elapsed in 0..<seconds {
+            CFRunLoopRunInMode(.defaultMode, 1, false)
+            during(elapsed)
+        }
+        Self.beep(); Self.beep()
+        print("    STOP\n")
+    }
+
+    /// One beep: the window is open, do the thing now.
+    static func beepStart() { beep() }
+    /// Two beeps: the window is closed, stop.
+    static func beepStop() { beep(); beep() }
+
+    private static func beep() {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/afplay")
+        process.arguments = ["/System/Library/Sounds/Tink.aiff"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
     }
 
     // MARK: - 4. Checks
