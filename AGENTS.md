@@ -232,6 +232,32 @@ impossible, and then does not check it on the only path where that state arrives
 And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
 for a question the invariant says cannot arise.
 
+**Every output a human is asked to read starts with an identity block.** Three things have gone
+wrong in this project's manual verification, and all three were the same omission wearing different
+clothes:
+
+| The wrong answer | The subject nobody stated |
+| --- | --- |
+| four permissions reported granted, for the terminal | **which process** |
+| code passed the probe and failed `xcodebuild` | **which language rules** |
+| a fix about to be checked against a three-hour-old build | **which build** |
+
+The third is the meanest, because the check *works* — it just answers about a binary nobody meant.
+`open` launches whatever sits at a path, and a rebuild landing in different DerivedData leaves the
+old one there, silently. An expectation of the form *"if X, the fix did not land"* is then satisfied
+by a stale binary, and the resulting diagnosis is confident and entirely wrong about code that is
+fine.
+
+So: build time, commit, bundle identifier, path — printed above the values, in every
+`AWAITING_HUMAN` output, from one shared helper. **A commit line that does not match what was just
+pushed is caught on sight**, with nobody needing to remember whether they rebuilt.
+
+The commit must be injected at build time rather than read by running `git` at launch, or it reports
+the checkout's current state instead of the binary's provenance — the same error one level down.
+
+Manual verification is the most expensive and least repeatable kind this project has. It is the last
+place that should leave its subject implicit.
+
 **A verification that ran before the last edit did not verify it.** The probe's isolation flags were
 added, the probe was run, 26 of 26 passed. Then an explanatory comment was added to the same file and
 the result committed without re-running. The comment sat inside a backslash-continued `xcrun swiftc`
