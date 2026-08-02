@@ -1281,3 +1281,89 @@ would churn and be rubber-stamped. That is not what `Sources/` is.
   time". Two questions, two mechanisms.
 - The `nm -u` plumbing already exists in `Tests/DeterminismTests`, including the guard that an empty
   object-file set fails rather than passes vacuously.
+
+---
+
+## D2-18 — AX work runs off the tap callback thread, and the reason is not the one we first had
+
+`ax-observation` (Task 10) hands each `ButtonEvent` to a bounded serial queue rather than doing the
+hit-test inside `InputObserver`'s `CGEvent` tap callback. The decision stands; the **justification
+changed after a measurement, and both versions are recorded** because the wrong one is the one a
+future reader is most likely to re-derive.
+
+### The reason: the asymmetry of what is lost when a target application hangs
+
+| | what is lost |
+| --- | --- |
+| AX **inside** the callback | the tap is disabled → the **whole pointer track** goes empty, for a span nothing bounds |
+| AX **off** the callback | the bounded queue fills → the **AX chain for the affected clicks only**, and `clicksDroppedByBacklog` counts them |
+
+The pointer track is the skeleton of the evidence. An AX chain is per-click enrichment on top of it,
+and it is an input to a derivation `framing-gates` can refuse (D2-1, and `framing-gates`' seven
+rejection codes). **Losing something a gate can refuse beats losing the skeleton**, and the two
+losses are not merely different sizes — they are different kinds of thing.
+
+This argument does not depend on how likely a hang is, which is why it does not move when the
+numbers below are re-measured. The argument it replaced did depend on that, which is how it came to
+be wrong.
+
+### Rejected: keep the hit-test in the callback
+
+**The original reasoning for rejecting this was itself wrong**, and is recorded here as wrong rather
+than quietly replaced:
+
+> ~~A `.listenOnly` tap whose callback exceeds a 10–50 ms budget is disabled by the system, and
+> Spike A's hit-test is 21.25 ms at p90, so AX in the callback kills the pointer track on more than
+> one click in ten.~~
+
+Measured, spike C **step 6 part A**: a **125 ms** stall — Spike A's *worst* observed hit-test —
+imposed on `.leftMouseDown` **only**, 30 s, **1928 callbacks**. The tap was enabled at the end and
+**never once seen disabled**.
+
+The 10–50 ms figure came from **step 5**, which stalled on every `mouseMoved`. Those arrive at
+60–120 Hz, so a 20 ms stall cannot keep up by construction: the backlog grows without bound and the
+system disables a *persistently overloaded* tap. That is sustained overload; the conclusion was
+written about a single slow callback. Real AX work happens on clicks, one to three seconds apart —
+125 ms every two seconds is a **6% duty cycle**, two orders of magnitude below what step 5 imposed.
+
+**This is the fixture-distribution mismatch this project has now made three times**, at a new scope:
+not a fixture value that was the identity element of the transform, but a fixture whose *rate* did
+not match the subject's. The generalisation is in `AGENTS.md`; the specific lesson is that a load
+test must reproduce the **duty cycle** of the real workload, not only its per-event cost.
+
+**What from step 5 still stands**, because only the threshold reading was an artefact: a
+`.listenOnly` tap is disabled **without** `kCGEventTapDisabledByTimeout` being delivered — 0
+notifications at every rung, including rungs where `CGEvent.tapIsEnabled(tap:)` showed it disabled,
+with a `.defaultTap` control receiving the notification in the same run. That is why `InputObserver`
+polls the flag, and none of the above touches it (`ARCHITECTURE.md` D6a).
+
+So the honest statement of this rejection today is the asymmetry, not a threshold: in-callback is
+rejected because *when* a target hangs the loss is the whole pointer track, not because a hang is
+common or because ordinary AX cost is near a limit. It is not.
+
+### Rejected: `AXUIElementSetMessagingTimeout`
+
+It bounds an AX call, which would make keeping the hit-test in the callback viable again, and it is
+the clever-looking answer someone will propose.
+
+It trades *"a call with no upper bound"* for *"a bounded call that **fails by timing out**"* — and a
+timeout failure is data loss of exactly the kind the queue drop already is. The same loss, in a
+worse place:
+
+- the bounded delay is still spent **on the callback thread**, so the cost is paid where the
+  asymmetry above is worst;
+- there is **no queue to absorb a burst**, so a run of slow clicks pays the timeout on every one of
+  them rather than once;
+- and the loss is harder to account for: `clicksDroppedByBacklog` is one counter with a conservation
+  law over it, where a per-call timeout produces a partial chain that has to be distinguished from a
+  short one — which is D2-2's truncation problem re-created for a different reason.
+
+### Re-arming needs no backoff, and that is measured
+
+Spike C **step 6 part B**: after inducing a real disable by overloading the tap, a single
+`CGEventTapEnable(true)` left it enabled for **19 of the following 20 seconds** of continued polling.
+So both re-arm sites in `InputObserver` — the notification path and the poll — are one call with no
+retry loop and no exponential backoff. Backoff is the obvious defensive addition and it would
+silently lengthen every blind window it touched, so it is not added on speculation. A future run
+showing a tap that will not stay armed is a new finding, and belongs beside that note rather than
+instead of it.

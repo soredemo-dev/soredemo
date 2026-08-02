@@ -153,12 +153,13 @@ enum SpikeA {
                 guard case .button(let event) = observation, event.phase == .down else { return }
                 samples.countClick()
                 // **`enqueue`, not `chain`.** This closure runs inside the tap
-                // callback, and a `.listenOnly` tap whose callback blocks past
-                // 10–50 ms is switched off by the system with no notification
-                // delivered — measured, and Spike A's own hit-test is 21.25 ms
-                // at p90. Calling the synchronous walk here would kill the tap
-                // this spike is measuring with, which is a fine way to produce
-                // a confident, empty distribution.
+                // callback. A slow callback does not by itself disable the tap
+                // — measured, 125 ms on clicks only across 1928 callbacks does
+                // not — but a target that HANGS would take the tap down with
+                // it, and with it the whole pointer track this spike is also
+                // measuring. Behind the queue the same hang costs the AX
+                // chains of the affected clicks, counted. See `AXObserver`'s
+                // header; the asymmetry is the reason, not a time budget.
                 axObserver.enqueue(event, source: axSource) { record in
                     samples.append(record)
                     if let line = try? ObservationLog.encode(record) {

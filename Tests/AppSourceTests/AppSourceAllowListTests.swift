@@ -506,9 +506,12 @@ func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: St
 /// `InputObserver` polls `CGEvent.tapIsEnabled(tap:)` because the notification
 /// channel it used to rely on was measured never to fire for a `.listenOnly`
 /// tap: a deliberate callback stall swept 10/50/100/200/400/800/1600 ms
-/// produced 0 `kCGEventTapDisabledByTimeout` notifications at every rung, while
-/// the flag read false from 50 ms up, with a `.defaultTap` control receiving
-/// the notification in the same run.
+/// produced 0 `kCGEventTapDisabledByTimeout` notifications at every rung —
+/// including the rungs where the flag showed the tap really was disabled —
+/// with a `.defaultTap` control receiving the notification in the same run.
+/// (Those rungs are sustained overload rather than a per-callback budget; that
+/// correction is in `AXObserver`'s header and does not affect this scan, which
+/// is about the channel and not the threshold.)
 ///
 /// The poll is injectable (`tapIsEnabledOverride`) so the probe can drive it
 /// without Input Monitoring, and that injection has a failure mode this scan

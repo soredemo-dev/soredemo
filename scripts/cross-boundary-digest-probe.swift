@@ -2552,10 +2552,12 @@ enum CrossBoundaryProbe {
     /// Checked here rather than in the spike because it needs no tap: `handle`
     /// is driven directly with the two out-of-band event types, which is the
     /// same seam `§ 7.2` uses. What it cannot check is that the system ever
-    /// sends them — that is the human half, and the coordinator's own sweep
-    /// (10 ms to 1600 ms of deliberate callback stall, seven rungs, three
-    /// seconds each) did not trip a `.listenOnly` tap once, which is why this
-    /// is checked for correctness rather than assumed to be common.
+    /// sends them — that is the human half, and the sweep that looked for them
+    /// (10 ms to 1600 ms of deliberate callback stall, seven rungs) received
+    /// **zero** notifications on a `.listenOnly` tap at every rung, including
+    /// the rungs where the tap really was disabled. So this path is checked
+    /// for correctness and is not expected to fire for this app's own tap;
+    /// `§ 7.10` covers the channel that does.
     @MainActor
     static func aDisabledTapProducesAnInterval() {
         let (arrangement, _, _, _) = fixtureArrangement()
@@ -2661,12 +2663,18 @@ enum CrossBoundaryProbe {
 
     /// **The channel that actually works for this app's tap kind.**
     ///
-    /// Measured by the coordinator, and it overturned the previous version of
-    /// this section: a `.listenOnly` tap is disabled by the system **without**
+    /// Measured, and it overturned the previous version of this section: a
+    /// `.listenOnly` tap is disabled by the system **without**
     /// `kCGEventTapDisabledByTimeout` being delivered to its callback — 0
     /// notifications at every rung of a 10/50/100/200/400/800/1600 ms stall
     /// sweep, while `CGEvent.tapIsEnabled(tap:)` read false from 50 ms upward,
     /// with a `.defaultTap` control receiving the notification in the same run.
+    ///
+    /// (The rungs at which that sweep saw the tap go down are **sustained
+    /// overload** — it stalled every `mouseMoved` at 60–120 Hz — and not a
+    /// per-callback budget. That correction does not touch these checks: the
+    /// notification was absent at every rung either way, which is the fact the
+    /// poll exists for.)
     ///
     /// So `§ 7.9`'s interval, which is fed by the notification, is guaranteed
     /// empty in exactly the situation it was built for — and an empty list of
@@ -2815,13 +2823,17 @@ enum CrossBoundaryProbe {
 
     /// **The consequence of the tap-timeout measurement, checked.**
     ///
-    /// A `.listenOnly` tap whose callback blocks past 10–50 ms is switched off
-    /// with no notification delivered, and Spike A's hit-test is 21.25 ms at
-    /// p90 — so AX cannot run on the callback thread, and
-    /// `AXObserver.enqueue(_:onRecord:)` is the entry point that exists
-    /// because of it. What that costs is a hit-test later than the click, and
-    /// the point of these checks is that the cost is **recorded** rather than
-    /// absorbed into an unexplained drift between the verb and the object.
+    /// AX runs behind a bounded queue rather than on the tap callback thread,
+    /// because of the asymmetry in `AXObserver`'s header: on the callback
+    /// thread a hung target costs the **whole pointer track**, behind the
+    /// queue it costs the **AX chains of the affected clicks**, counted. Not
+    /// because a slow callback disables the tap — measured, 125 ms on clicks
+    /// only across 1928 callbacks does not, and the 10–50 ms figure this
+    /// comment used to cite was an artefact of stalling every `mouseMoved`.
+    ///
+    /// What the queue costs is a hit-test later than the click, and the point
+    /// of these checks is that the cost is **recorded** rather than absorbed
+    /// into an unexplained drift between the verb and the object.
     @MainActor
     static func theAXWorkIsDeferredAndTheDelayIsRecorded() {
         let (arrangement, _, _, _) = fixtureArrangement()

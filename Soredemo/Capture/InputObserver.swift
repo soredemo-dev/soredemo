@@ -199,26 +199,34 @@ public final class InputObserver: @unchecked Sendable {
         /// **one per `TapDisabledInterval` emitted**, and the count is here
         /// only to pair with the sum below.
         ///
-        /// A `.listenOnly` tap is still disabled if the callback is too slow.
-        /// Left un-rearmed, everything afterwards is silence that looks
-        /// exactly like a person who stopped moving.
+        /// A `.listenOnly` tap is disabled when it is **persistently
+        /// overloaded**. Left un-rearmed, everything afterwards is silence
+        /// that looks exactly like a person who stopped moving.
         ///
         /// **It is disabled WITHOUT `kCGEventTapDisabledByTimeout` being
-        /// delivered, and the budget is between 10 ms and 50 ms.** Measured:
-        /// a deliberate stall in the callback, swept 10/50/100/200/400/800/
-        /// 1600 ms, three seconds a rung, mouse moving throughout —
+        /// delivered.** Measured (spike C step 5): a deliberate stall in the
+        /// callback, swept 10/50/100/200/400/800/1600 ms, three seconds a
+        /// rung — 0 notifications at every rung, while `CGEvent.tapIsEnabled`
+        /// read false from 50 ms upward, with a `.defaultTap` positive control
+        /// in the same run receiving the notification at 400 ms. The channel
+        /// is real; this tap *kind* never sees it. **That is why
+        /// `pollTapEnabled()` exists**, and it is unaffected by the correction
+        /// below.
         ///
-        /// | stall | notifications | `CGEvent.tapIsEnabled` |
-        /// | --- | --- | --- |
-        /// | 10 ms | 0 | enabled |
-        /// | 50 ms and every rung above | 0 | **NOT enabled** |
-        ///
-        /// with a `.defaultTap` positive control in the same run receiving the
-        /// notification at 400 ms, so the channel is real and it is this tap
-        /// *kind* that never sees it. That is why `pollTapEnabled()` exists
-        /// and why it, not the callback, is what populates these numbers. It
-        /// is also why AX work does not belong on the callback thread: Spike
-        /// A's hit-test is 21.25 ms at p90, inside the 10–50 ms band.
+        /// **The "budget" that sweep appeared to show does not exist, and the
+        /// correction is recorded here rather than replacing the sentence.**
+        /// Step 5 stalled on every `mouseMoved`, at 60–120 Hz: a 20 ms stall
+        /// against a 120 Hz stream cannot keep up by construction, so the
+        /// backlog grows without bound and the system disables a persistently
+        /// overloaded tap. That is sustained overload, not one slow callback.
+        /// Step 6 part A measured the case that matters — 125 ms of stall on
+        /// `.leftMouseDown` **only**, 30 s, 1928 callbacks — and the tap was
+        /// **never seen disabled**. So "the callback must return within
+        /// 10–50 ms" was never a fact, and neither was the claim it was used
+        /// for, that Spike A's 21.25 ms p90 hit-test would kill the tap. See
+        /// `AXObserver`'s header for why the AX work is nevertheless off this
+        /// thread; the reason is the asymmetry of what is lost when a target
+        /// hangs, not a time budget.
         ///
         /// **This used to be the whole record and that was the defect**
         /// (`ARCHITECTURE.md` D6a): a count says the loss happened N times and
@@ -973,6 +981,17 @@ public final class InputObserver: @unchecked Sendable {
 
             // The tap is off. Re-enable it first — that is the only action
             // here that shortens the loss.
+            //
+            // **One call, no backoff, no retry loop, and that is measured
+            // rather than assumed** (spike C step 6, part B): after inducing a
+            // real disable by overloading the tap, a single
+            // `CGEventTapEnable(true)` left it enabled for **19 of the next
+            // 20 seconds** of continued polling. So the re-arm sticks, and
+            // adding exponential backoff — the obvious defensive move, and one
+            // that would silently lengthen every blind window it touched —
+            // would be speculation against a measurement. If a future run
+            // shows a tap that will not stay armed, that is a new finding and
+            // it belongs beside this note, not instead of it.
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             let reEnabled = Minting.hostNow()
 
@@ -1048,6 +1067,12 @@ public final class InputObserver: @unchecked Sendable {
     /// event arriving *is* the evidence that a window happened, whether or not
     /// this observer still holds the port to re-enable.
     private nonisolated func reArmTap(disabledBy reason: TapDisableReason) {
+        // One `tapEnable`, exactly as in `pollTapEnabled()` and for the same
+        // measured reason — step 6 part B: a re-armed tap stayed enabled for
+        // 19 of the following 20 seconds. Both re-arm sites are one call and
+        // neither has a backoff; keep them the same, or a tap disabled twice
+        // in one recording recovers differently depending on which channel
+        // happened to notice.
         if let existing = lock.withLock({ tap }) {
             CGEvent.tapEnable(tap: existing, enable: true)
         }

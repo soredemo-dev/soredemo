@@ -383,10 +383,16 @@ names.
 interval and was still wrong, because the interval was fed by
 `kCGEventTapDisabledByTimeout` — and a `.listenOnly` tap is disabled **without that notification
 ever being delivered**. Measured: a deliberate callback stall swept 10/50/100/200/400/800/1600 ms
-produced **0 notifications at every rung**, while `CGEvent.tapIsEnabled(tap:)` read false from 50 ms
-upward, with a `.defaultTap` control receiving the notification in the same run. So the mechanism in
-that row could not fire, and its output — an empty list of gaps — reads as *no gaps*. That is worse
-than the count it replaced: it looks more thoroughly checked and the blind spot is the same size.
+produced **0 notifications at every rung**, including the rungs where `CGEvent.tapIsEnabled(tap:)`
+showed the tap really was disabled, with a `.defaultTap` control receiving the notification in the
+same run. So the mechanism in that row could not fire, and its output — an empty list of gaps —
+reads as *no gaps*. That is worse than the count it replaced: it looks more thoroughly checked and
+the blind spot is the same size.
+
+A later run corrected what that sweep's *thresholds* meant — it stalled every `mouseMoved` at
+60–120 Hz, which is sustained overload, and 125 ms of stall on clicks alone leaves the tap enabled
+across 1928 callbacks — but not this row: the notification was absent whether the tap was up or
+down, so polling is what this row rests on either way.
 
 The general form, and the reason this paragraph is in the register rather than in a task report:
 

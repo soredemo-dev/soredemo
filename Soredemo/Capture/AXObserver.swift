@@ -52,6 +52,81 @@ import Timeline
 /// machine. See `walkBudgetNanos` for why raising it is not the improvement it
 /// looks like.
 ///
+/// ## Why the AX work is not on the tap callback thread
+///
+/// **This section is the one justification; `enqueue(_:onRecord:)` and
+/// `chain(at:source:)` point here rather than restating it.** It is written at
+/// length because the reasoning that used to be here was wrong, was acted on,
+/// and would be re-derived by the next person to measure the thing it got
+/// wrong.
+///
+/// ### The reason it is off-thread: the asymmetry of what is lost
+///
+/// Not "an AX call has no upper bound". That argument needs the reader to
+/// believe a hung application is likely, and its force therefore moves every
+/// time someone re-measures how likely that is. The argument that does not
+/// move is what happens **when one does hang**:
+///
+/// | | what is lost |
+/// | --- | --- |
+/// | AX **inside** the callback | the tap is disabled → the **whole pointer track** goes empty, for a span nothing bounds |
+/// | AX **off** the callback | the bounded queue fills → the **AX chain for the affected clicks only**, and `clicksDroppedByBacklog` counts them |
+///
+/// The pointer track is the skeleton of the evidence; an AX chain is per-click
+/// enrichment sitting on top of it, and it is an input to a derivation that
+/// `framing-gates` can refuse. **Losing something a gate can refuse beats
+/// losing the skeleton**, however unlikely the trigger — and the second loss
+/// is not merely smaller, it is a different kind of thing. That is why the
+/// design does not change when the threshold below changes.
+///
+/// ### Measured: a 125 ms cost per click does **not** disable the tap
+///
+/// Spike C step 6, part A: a 125 ms stall — Spike A's *worst* observed
+/// hit-test — imposed on `.leftMouseDown` **only**, 30 s, 1928 callbacks. The
+/// tap was still enabled at the end and was **never once seen disabled**.
+///
+/// ### Falsified, and recorded as falsified rather than replaced
+///
+/// This file used to say, twice, that a callback exceeding a **10–50 ms**
+/// budget gets the tap switched off, and that Spike A's p90 hit-test of
+/// 21.25 ms therefore killed the pointer track on more than one click in ten.
+/// **That is not true, and the number it rested on was measuring something
+/// else.**
+///
+/// Step 5 stalled on **every `mouseMoved`**, which arrives at 60–120 Hz. A
+/// 20 ms stall against a 120 Hz stream cannot keep up by construction: the
+/// backlog grows without bound and the system disables a *persistently
+/// overloaded* tap. The conclusion drawn from that was written about a
+/// **single slow callback**, which is a different thing. Real AX work happens
+/// on clicks, one to three seconds apart — 125 ms every two seconds is a **6%
+/// duty cycle**, two orders of magnitude below what step 5 imposed.
+///
+/// It is the same mistake as a fixture whose distribution does not match its
+/// subject, which this project has now made three times, here at a new scope:
+/// the *rate* was the part of the fixture that did not match.
+///
+/// So: if you are reading this because you have just measured that a slow
+/// callback is survivable — that is correct, it is above, and it is not a
+/// reason to move this work back into the callback. The reason is the
+/// asymmetry, not the threshold.
+///
+/// **What from step 5 still stands**, because only its threshold was an
+/// artefact: a `.listenOnly` tap is disabled **without**
+/// `kCGEventTapDisabledByTimeout` being delivered to its callback — 0
+/// notifications at every rung, while `CGEvent.tapIsEnabled(tap:)` read false,
+/// with a `.defaultTap` control receiving the notification in the same run.
+/// That is why `InputObserver` polls, and it is untouched by any of the above.
+///
+/// ### Rejected: `AXUIElementSetMessagingTimeout`
+///
+/// It bounds an AX call, which would make "keep it in the callback" viable
+/// again, and it looks like the clever answer. It trades "a call with no upper
+/// bound" for "a bounded call that **fails by timing out**" — and a timeout
+/// failure is data loss of exactly the kind `clicksDroppedByBacklog` already
+/// is. The same loss, in a worse place: it still spends its bounded delay on
+/// the callback thread, and it has no queue to absorb a burst, so a run of
+/// slow clicks pays the timeout every time instead of once.
+///
 /// ## `nonisolated` on everything
 ///
 /// Under this target's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` an
@@ -491,22 +566,17 @@ public final class AXObserver: @unchecked Sendable {
     /// that apart from a click on empty desktop.
     ///
     /// **Do not call this from `InputObserver`'s tap callback.** Use
-    /// `enqueue(_:onRecord:)`, which is what that path is for.
+    /// `enqueue(_:onRecord:)`, and see this type's header — "Why the AX work
+    /// is not on the tap callback thread" — for the argument, which is about
+    /// what is lost when a target application hangs and **not** about a
+    /// per-callback time budget. An earlier version of this comment said the
+    /// latter, citing a 10–50 ms figure that was an artefact of stalling every
+    /// `mouseMoved`; measured since, a 125 ms stall on clicks alone leaves the
+    /// tap enabled across 1928 callbacks.
     ///
-    /// Measured, and it overturned this file's first design: a `.listenOnly`
-    /// tap whose callback takes longer than somewhere between **10 ms and
-    /// 50 ms** is disabled by the system, **without** the
-    /// `kCGEventTapDisabledByTimeout` notification ever being delivered — so
-    /// the tap stops producing events and nothing in the callback path finds
-    /// out. Spike A's hit-test is 1.05 ms at p50 but **21.25 ms at p90** and
-    /// 125.47 ms at worst, which is inside that band on more than one click in
-    /// ten. Calling this synchronously from the callback therefore kills the
-    /// pointer track, silently, under ordinary use.
-    ///
-    /// The cost of deferring is real and is the lesser one: the hit-test
-    /// happens later than the click, which adds to exactly the staleness
-    /// D2-2a exists to record. **A stale hit-test is recorded staleness; a
-    /// disabled tap is silence.** And the added delay is not lost — it is
+    /// The cost of deferring is real: the hit-test happens later than the
+    /// click, which adds to exactly the staleness D2-2a exists to record. It
+    /// is the lesser cost, and it is not lost — it is
     /// `AXChainRecord.clickToHitTestStartNanos`, a recorded quantity of the
     /// same kind as `hitTestInterval`, so a derivation can reject on it
     /// instead of inheriting it.
@@ -534,13 +604,17 @@ public final class AXObserver: @unchecked Sendable {
     /// The **production entry point**: hands `click` to this observer's own
     /// serial queue and returns immediately.
     ///
-    /// This exists because the synchronous form cannot be called from where
-    /// the clicks come from. `InputObserver`'s sink runs inside the tap
-    /// callback, and a callback that blocks for longer than the 10–50 ms band
-    /// measured on this machine gets the tap switched off with no notification
-    /// — see `chain(at:source:)`'s own note. Everything AX is therefore moved
-    /// off that thread, and what stays on it is this function: two lock
-    /// acquisitions and a `DispatchQueue.async`.
+    /// This exists because of the asymmetry set out in this type's header: AX
+    /// work inside `InputObserver`'s tap callback risks the **whole pointer
+    /// track** when a target application hangs, where AX work behind this
+    /// queue risks **the AX chains of the affected clicks**, counted. What
+    /// stays on the callback thread is this function: two lock acquisitions
+    /// and a `DispatchQueue.async`.
+    ///
+    /// It is **not** here because a slow callback disables the tap — measured,
+    /// it does not: 125 ms on clicks only, 30 s, 1928 callbacks, tap still
+    /// enabled. The header records why that figure was believed and why it was
+    /// wrong.
     ///
     /// **Serial, not concurrent.** A hung application blocks an AX call for
     /// seconds; a concurrent queue would answer that by opening more

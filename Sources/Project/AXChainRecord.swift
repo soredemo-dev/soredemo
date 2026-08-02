@@ -398,14 +398,23 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
     /// hit-test began.
     ///
     /// **This is the price of not doing AX work on the tap callback thread,
-    /// and it is recorded rather than absorbed.** A `.listenOnly` tap whose
-    /// callback blocks for longer than 10–50 ms (measured on this machine) is
-    /// switched off by the system with no notification delivered, and Spike
-    /// A's hit-test is 21.25 ms at p90 — so the observation is dispatched to
-    /// another queue, which makes it later than the click by whatever this
-    /// says. A stale hit-test is recorded staleness; a disabled tap is
-    /// silence, and this field is what keeps the trade visible instead of
-    /// turning it into an unexplained drift between the verb and the object.
+    /// and it is recorded rather than absorbed.** The observation is
+    /// dispatched to another queue, which makes it later than the click by
+    /// whatever this says.
+    ///
+    /// The reason for that dispatch is the asymmetry of what is lost when a
+    /// target application hangs — AX on the callback thread risks the whole
+    /// pointer track, AX behind a bounded queue risks the AX chains of the
+    /// affected clicks, counted — and **not** a per-callback time budget. An
+    /// earlier version of this comment cited a 10–50 ms budget that was an
+    /// artefact of stalling every `mouseMoved`; 125 ms of stall on clicks
+    /// alone was later measured to leave the tap enabled across 1928
+    /// callbacks. `Soredemo/Capture/AXObserver.swift`'s header carries the
+    /// argument and the correction.
+    ///
+    /// A stale hit-test is recorded staleness; a dead pointer track is
+    /// silence. This field is what keeps the trade visible instead of turning
+    /// it into an unexplained drift between the verb and the object.
     ///
     /// Together with `hitTestInterval.duration` it decomposes
     /// `clickToHitTestAnswerNanos` into the part this app chose (the queue)

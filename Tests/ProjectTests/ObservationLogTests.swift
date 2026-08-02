@@ -261,8 +261,9 @@ private func topLevelKeys(from json: Data) -> [String] {
 ///
 /// The reason arrives only on the notification, and a `.listenOnly` tap was
 /// measured never to receive one — 0 notifications across a
-/// 10/50/100/200/400/800/1600 ms stall sweep, while `CGEvent.tapIsEnabled` read
-/// false from 50 ms up. So in this app's own configuration every window is
+/// 10/50/100/200/400/800/1600 ms stall sweep, including the rungs where
+/// `CGEvent.tapIsEnabled` showed the tap disabled. So in this app's own
+/// configuration every window is
 /// expected to look like this one. Defaulting the field to `.timeout` on the
 /// way in or out would mint an accusation — "this app's callback was too slow"
 /// — from a code path that measured nothing.
