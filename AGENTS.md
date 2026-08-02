@@ -232,6 +232,23 @@ impossible, and then does not check it on the only path where that state arrives
 And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
 for a question the invariant says cannot arise.
 
+**The probe is not the app, and it differs in more ways each time someone looks.** Three found so
+far, and they are not variations of one thing:
+
+| Layer | How the probe differs | What it cost |
+| --- | --- | --- |
+| TCC identity | bare `swiftc` executable, no bundle identity, so TCC attributes it to the responsible process up the chain | reported four permissions granted for the terminal, as though for the app |
+| responsibility attribution | `Bundle.main.bundleIdentifier` reads `Info.plist`, which is the binary's claim about itself rather than TCC's attribution | a *correct-looking* subject block over misattributed values |
+| **compile-time language semantics** | the app builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`; the probe's `swiftc` line had neither that nor `SWIFT_APPROACHABLE_CONCURRENCY` | code passed the probe and failed `xcodebuild`, because unannotated declarations were nonisolated in one and MainActor-isolated in the other |
+
+The third is the least visible: the first two are about the environment at run time, this one is
+about **what the language means** at compile time. A probe with different language rules is not
+checking the same program.
+
+Fixed by mirroring the isolation flags in `scripts/run-cross-boundary-probe.sh`, which cost nothing —
+26 of 26 checks still pass. **Keep them in step with the pbxproj**, and when the probe and the app
+disagree, suspect this before suspecting the code.
+
 **Read the primary source before running anything.** SDK headers, availability annotations and
 `swift package dump-package` answer *what an API is specified to do*, in seconds, and they answered
 two of Spike B's three questions before it was ever run: `pause` appears zero times in the whole of

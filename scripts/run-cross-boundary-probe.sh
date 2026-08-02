@@ -18,7 +18,15 @@ OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
 xcrun swiftc \
+  # These two mirror the app target's SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor and
+  # SWIFT_APPROACHABLE_CONCURRENCY = YES. Without them the probe compiles under
+  # DIFFERENT LANGUAGE SEMANTICS from the code it is checking: unannotated
+  # declarations are nonisolated here and MainActor-isolated there, so code can
+  # pass this probe and fail `xcodebuild`, which is exactly what happened in
+  # Task 7. Keep them in step with the pbxproj.
   -swift-version 6 \
+  -default-isolation MainActor \
+  -enable-upcoming-feature NonisolatedNonsendingByDefault \
   -target arm64-apple-macos26.0 \
   -I .build/debug \
   -L .build/debug \
