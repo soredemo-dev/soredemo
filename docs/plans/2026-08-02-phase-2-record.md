@@ -1539,7 +1539,14 @@ the type. A scan keyed on the declaration line misses `GeometryRegistry`, `Conte
       one literal list, so an eleventh added later still fails. Do not exempt by predicate.
 - [ ] **Step 4: Confirm the build fails** when a new violating type is added, and passes when it is
       given an explicit `init(from:)`.
-- [ ] **Step 5: Commit.**
+- [ ] **Step 5: Close the four verified gaps Task 5.5 found and did not fix** — `NSUUID` (both
+      lists, `_OBJC_CLASS_$_NSUUID`), `CCRandomGenerateBytes` (app side; the package side is already
+      blocked by rule 1's import allow-list), `clock()` (package side, `_clock`, distinct from the
+      already-banned `_clock_gettime`), and `drand48()` (package side, lower confidence — it is
+      deterministic unseeded and the risk is shared process-global state; say whether you agree).
+      Each needs a fixture call site, and each must be **observed reddening by name** before it is
+      kept. See D2-16 for why a pattern scan is not the fix.
+- [ ] **Step 6: Commit.**
 
 The exemption list is the remaining work, in a form that cannot rot: closing a type means deleting
 its line, and the plugin says so on every build.

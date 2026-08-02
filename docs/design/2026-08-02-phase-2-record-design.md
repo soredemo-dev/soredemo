@@ -1108,3 +1108,55 @@ judge in derivation" rule as D2-1 and D2-7 — but that needs measuring, not ass
 
 One recording answers all three. Fold it into `capture-stream` rather than a separate spike, per the
 reasoning in D2-10: the answer arrives while there is code in hand to act on it.
+
+
+---
+
+## D2-16 — The banned-symbol enumeration stays, and here is the measurement that settles it
+
+Rule 3's list of banned symbols was found stale **three times in one session**, each time by someone
+specifically asked to look for gaps:
+
+| Missing | Present | Shape |
+| --- | --- | --- |
+| `mach_continuous_time` | `mach_absolute_time` | sibling, added the same day by the same author |
+| `SecRandomCopyBytes` | `arc4random` | same category, different API |
+| `NSUUID` | `NSDate` | sibling, and `NSDate` is already banned as *any reference* |
+
+Task 5.5's sweep then found four more that are verified and still open: `NSUUID` on both sides,
+`CCRandomGenerateBytes` app-side, `clock()` package-side, and `drand48()` package-side.
+
+Three findings by three different people is not a mechanism. So the structural alternative was
+tried: **scan undefined symbols by pattern instead of by name**, which cannot go stale.
+
+### It does not work, and the numbers say why
+
+```
+undefined symbols across six library modules      575
+pattern hits: random|clock|uuid|entropy|arc4|time   9
+of those, actual ambient reads                      0
+```
+
+All nine are `Foundation.UUID`'s **type metadata and protocol conformances** — `BootEpoch` has a
+`UUID` field, so `Timeline` legitimately references `UUID`'s metadata, its `Codable` witnesses, its
+`==`, its byte accessor. `Date` produces nine more of the same kind.
+
+A pattern scan cannot separate *referencing a type* from *calling an ambient constructor on it*.
+Naming specific mangled symbols is precisely what does separate them — so the enumeration is not
+laziness, it is the thing doing the work.
+
+**And a false positive is worse than a stale entry in a check that fails the build.** A rule that
+cries wolf gets disabled; a rule with a gap gets extended. Recorded so this is not re-proposed:
+it was tried, measured, and rejected on the measurement.
+
+### What actually helps, given that
+
+- **A sibling check when a symbol is added.** Every one of the three staleness findings was a
+  sibling of something already banned. That is a review question — *what is the obvious neighbour of
+  what you just added* — not a mechanism, and it would have caught all three.
+- **A recorded candidate list, including what was ruled out and why.** Task 5.5's sweep confirmed
+  `getentropy` is not exposed to Swift on this toolchain by compiling a probe. Writing that down
+  saves the next sweep the experiment, and the value of a sweep is mostly in its negatives.
+- The file already over-approximates where it can: `_OBJC_CLASS_$_NSDate` is banned as *any
+  reference*, because for an ObjC class any reference is suspicious. That is the pattern approach
+  applied exactly where it does not produce false positives.
