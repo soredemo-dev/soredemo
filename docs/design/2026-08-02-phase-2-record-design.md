@@ -546,3 +546,82 @@ thinned track cannot be re-tuned; the samples are gone.
 This is the identical argument to D2-1, one row over: **record everything, judge in derivation,
 because re-recording a demo is expensive.** That it arrives independently at the same answer for a
 different subsystem is the argument's strength, not a coincidence.
+
+---
+
+## D2-8 — The master is unprocessed evidence, and the compositor reads it from disk
+
+`PRODUCT.md`: one recording is evidence, everything else is derived from it. So the master file is
+raw screen capture. Background, card, shadow, corner radius, cursor spring, camera motion — all
+derived, all applied later by the compositor reading the master **plus** the observation log.
+
+**This principle is already in the ROADMAP as a single rule.** `capture-stream` says
+`showsCursor = false`, and the reason the cursor is not burned into the master is exactly that the
+master is unprocessed evidence. What is written here is that rule generalised, not a new idea.
+
+Consequences:
+
+- **The compositor reads from a file, not from the live stream.** Preview and export therefore
+  consume the same input by construction, which makes D2-6's parity cheaper again.
+- **`media/`'s write-once rule becomes structural rather than conventional.** D-P3 stated it as a
+  discipline; with the compositor read-only over the master there is no code path that can modify
+  it. D-P3 should cite this rather than rest on care.
+- **There is no live composited preview while recording**, and that is a **choice**, recorded here
+  so nobody later discovers it as an unexplained limit. Nothing in the ROADMAP asks for one, and
+  Presenter Overlay comes free from `SCContentSharingPicker` if a talking head is wanted. If a live
+  composited preview is ever proposed, this is the decision it has to overturn.
+
+## D2-9 — The master is a sequence of files, and the API leaves no choice
+
+The question "which recording API" is downstream of a bigger one: **is the evidence one file or
+several?** Three things force a boundary, and the first is already settled by the SDK.
+
+**1. Pause. There is no pause.** `pause` and `resume` appear **zero times** in the entire
+ScreenCaptureKit headers. `audio-tracks` requires audio "retimed across pause", so pause is a
+committed feature — and implementing it means stopping one file and starting the next. The master is
+a sequence. Not a design preference; the API offers nothing else.
+
+**2. Display reconfiguration mid-recording.** A QuickTime video track cannot change dimensions
+part-way through. Plugging in an external display or changing resolution therefore forces one of:
+scale (which pollutes the evidence), split the file, or corrupt it. Phase 1 built `geometryRevision`
+for the *coordinate* side of exactly this event; the *file* side has no answer yet. To be measured.
+
+**3. Audio separation.** Settled to the point of a decision, from the SDK:
+
+`SCStream` delivers `SCStreamOutputTypeScreen`, `SCStreamOutputTypeAudio` and
+`SCStreamOutputTypeMicrophone` as three separate streams, with `captureMicrophone` available from
+macOS 15.0 — below our floor. Separation at the source is not in question.
+
+The question is what `SCRecordingOutput` does with them. Its `mixesAudioWithMicrophone` property is
+`API_AVAILABLE(macos(27.0))`. **A switch for "do not mix" added in 27 is strong evidence that 26
+mixes**, which would destroy the separation `audio-tracks` requires — in the evidence layer, at
+step one. That is inference, not measurement, and it is Spike B's job.
+
+So the fork is not "which API is nicer":
+
+| | Audio evidence |
+| --- | --- |
+| `SCRecordingOutput` | writes the file for you; on macOS 26 you cannot control mixing |
+| `AVAssetWriter` | you receive the three streams and write separate tracks yourself |
+
+### What this moves if it is not settled now
+
+The answer changes D-P3's `media/` layout — `master-01H….mov` becomes a set, each member carrying
+its position on the overall timeline — and it changes `timeline-core`'s source mapping and how
+`observation-log` spans a file boundary. All three are cheap to shape now and expensive to reshape
+in Phase 3.
+
+## Spike B — now worth more than its original justification
+
+Two sections ago, B was judged low value: frame PTS → callback latency does not corrupt evidence,
+only throughput. **That judgement is out of date.** One `SCStream` run answers three questions that
+each decide the shape of a currently-undesigned row:
+
+1. `AVAsset.tracks(withMediaType: .audio).count` on an `SCRecordingOutput` file at our floor — 1 or 2.
+2. What happens on display reconfiguration mid-recording. One external-display plug is the whole
+   experiment.
+3. The original PTS → callback distribution, taken along the way.
+
+Requires Screen Recording. Per F2-2's method: fixed install path, own bundle identifier, signed —
+and per the same reasoning as Spike A, **not** the product's identifier, so that
+`capture-permissions`' first-run flow stays testable.
