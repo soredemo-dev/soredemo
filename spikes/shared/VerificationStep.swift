@@ -45,6 +45,7 @@ struct VerificationStep {
     let name: String
     private var checks: [(id: String, description: String, passed: Bool)] = []
     private var expectations: [Expectation] = []
+    private var inducesNothingReason: String?
 
     init(name: String) {
         self.name = name
@@ -387,6 +388,43 @@ struct VerificationStep {
     /// `remedy` is printed only on failure: the first thing to suspect when
     /// this particular step fails, which is usually the physical setup rather
     /// than the code.
+    /// Declares that this step induces no condition, and why.
+    ///
+    /// **Every step must either declare an `induced-…` expectation or call
+    /// this.** The rule sits on the declaration, not on detecting induction:
+    /// spotting "this step stimulates something" needs a list of stimulus
+    /// calls, and a list of calls is an open set that widens for good reasons
+    /// until it matches nothing — the same failure as a permitted-label list.
+    /// Asking every step the question has no list in it.
+    ///
+    /// **What it prevents.** Spike A's step 2 stalled 50 ms in its own
+    /// observation closure and asserted nothing about whether that stall ever
+    /// ran. Without a stimulus control, "no reaction was observed" is ambiguous
+    /// between *there was no stimulus* and *there was a stimulus and it was not
+    /// detected* — which is exactly the ambiguity step 1 was wrongly claimed to
+    /// have removed. Not a stray gap: the general form of that mistake, so it
+    /// gets a general mechanism.
+    ///
+    /// The reason is a parameter rather than a comment for the same reason an
+    /// expectation's identifier is a declaration — a comment cannot be
+    /// required.
+    mutating func inducesNothing(_ reason: String) {
+        inducesNothingReason = reason
+        print("\n---- INDUCES NOTHING ----\n  \(reason)\n-------------------------\n")
+    }
+
+    /// `nil` when the step declares a stimulus control or declares it has none.
+    static func stimulusVerdict(expected: [String], inducesNothingReason: String?) -> String? {
+        let declaresInduction = expected.contains { $0.hasPrefix("induced-") || $0 == "induced" }
+        if declaresInduction || inducesNothingReason != nil { return nil }
+        return """
+        NO STIMULUS CONTROL — this step declares no `induced-…` expectation and did not call \
+        `inducesNothing(_:)`. If it induces a condition, nothing establishes that the stimulus \
+        actually happened, and "no reaction observed" cannot be told from "no stimulus applied". \
+        If it induces nothing, say so.
+        """
+    }
+
     func finish(remedy: String? = nil) -> Never {
         print("\n\(checks.count) ASSERTION\(checks.count == 1 ? "" : "S") — \(name):")
         for check in checks {
@@ -438,7 +476,10 @@ struct VerificationStep {
             print("Two rows sharing an identifier are discharged by one assertion, which is the "
                   + "count problem again at a smaller scale.")
         }
-        if result.passed {
+        let stimulus = Self.stimulusVerdict(expected: expectations.map(\.id),
+                                            inducesNothingReason: inducesNothingReason)
+        if let stimulus { print("\n\(stimulus)") }
+        if result.passed && stimulus == nil {
             print("\nPASS — \(name)  (\(expectations.count) expectations, every one discharged)")
             exit(ExitCode.passed.rawValue)
         }
@@ -545,6 +586,29 @@ extension VerificationStep {
         // Without this the guard could have degraded into failing everything
         // and cases 1 and 2 would still read as green — which is the same
         // "passes for the wrong reason" shape one level up.
+        // ---- the stimulus rule's own regression case ----
+        //
+        // Spike A's step 2 as it was written: it stalled 50 ms in its own
+        // observation closure and declared nothing about whether that stall
+        // ever ran. Without that control, "no reaction observed" cannot be told
+        // from "no stimulus applied" — the general form of a mistake this
+        // project made once by hand, so it gets a general mechanism.
+        print("\n5. replaying Spike A step 2 as written — it induces a condition and declares no")
+        print("   control that the stimulus happened:")
+        let stepTwoAsWritten = ["detection", "polls", "poll-found", "persistent-cause"]
+        let missing = Self.stimulusVerdict(expected: stepTwoAsWritten, inducesNothingReason: nil)
+        print("   declared: \(stepTwoAsWritten.joined(separator: ", "))")
+        print("   verdict:  \(missing == nil ? "PASSES — the rule did not fire" : "NO STIMULUS CONTROL")")
+        if missing == nil { failures.append("a step that induces and declares no control passed") }
+        if Self.stimulusVerdict(expected: ["induced-stall-applied", "polls"],
+                                inducesNothingReason: nil) != nil {
+            failures.append("an induced-… expectation did not satisfy the stimulus rule")
+        }
+        if Self.stimulusVerdict(expected: ["polls"],
+                                inducesNothingReason: "observes a human, induces nothing") != nil {
+            failures.append("inducesNothing(_:) did not satisfy the stimulus rule")
+        }
+
         let clean = Self.verdict(expected: ["a", "b"], checks: [("a", true), ("b", true)])
         print("\n3. positive control — a fully discharged step must still PASS:")
         print("   declared [a, b], cited [a, b] → passed: \(clean.passed)")

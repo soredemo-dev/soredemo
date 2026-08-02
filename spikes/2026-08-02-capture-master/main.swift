@@ -552,7 +552,7 @@ func runVideoOnly(seconds: Int) async throws {
               "at (\(Int(expected.x / scale)), \(Int(expected.y / scale)))"),
         .init("content-scale", "ContentScale",
               "1.0 on every frame — the destination matches the source size"),
-        .init("frame-accounting", "frame accounting", "must balance"),
+        .init("induced-frame-accounting", "frame accounting", "must balance"),
         .init("master-file", "a master file",
               "master-00.mov exists under the package's media directory — without it the " +
               "AVFoundation error that follows reads as 'the movie is malformed' and is " +
@@ -599,7 +599,7 @@ func runVideoOnly(seconds: Int) async throws {
                "no resampled frame reached the MASTER — \(appendedResampled) appended, of " +
                "\(session.diagnostics.resampledFrameCount) delivered resampled",
                appendedResampled == 0)
-    step.check("frame-accounting",
+    step.check("induced-frame-accounting",
                "every complete frame is accounted for — \(session.diagnostics.frameAccounting)",
                session.diagnostics.everyCompleteFrameIsAccountedFor)
     // The row that was printed in the table and never compared against
@@ -932,7 +932,7 @@ func runAudioTones(seconds: Int) async throws {
     step.expect([
         .init("master-file", "a master file",
               "master-00.mov exists under the package's media directory"),
-        .init("two-tracks", "audio track count",
+        .init("induced-two-tracks", "audio track count",
               "exactly 2 — the WEAK precondition, since 2 tracks prove neither separation " +
               "nor that either carries signal. It is declared because the four rows below " +
               "are unreadable without it, not because it is a result"),
@@ -1094,12 +1094,12 @@ func runAudioTones(seconds: Int) async throws {
     try await analyse(mediaURL, preRead: tones)
 
     guard audioTracks.count == 2 else {
-        step.check("two-tracks",
+        step.check("induced-two-tracks",
                    "the file has 2 audio tracks, not \(audioTracks.count) — the WEAK check, since 2 " +
                    "tracks would not have proved separation either", false)
         step.finish()
     }
-    step.check("two-tracks", "the file has 2 audio tracks — the WEAK check, recorded on the passing " +
+    step.check("induced-two-tracks", "the file has 2 audio tracks — the WEAK check, recorded on the passing " +
                "path too, because a row that only appears in a refusal branch is not a row a " +
                "successful run has anything to say about", true)
 
@@ -1262,7 +1262,7 @@ func runReconfig(seconds: Int) async throws {
         .init("observer-registered", "the session's observer",
               "CGError.success — the session registered its own reconfiguration callback; " +
               "without it the split below would have to come from somewhere else"),
-        .init("os-reconfigured", "the OS reconfigured the display",
+        .init("induced-os-reconfigured", "the OS reconfigured the display",
               "≥ 1, counted by THIS SPIKE's own callback — an independent source from the " +
               "session's, so 'the change did not happen' and 'the session did not see it' " +
               "stay distinguishable"),
@@ -1349,7 +1349,7 @@ func runReconfig(seconds: Int) async throws {
          "the session registered its observer successfully — CGError " +
          "\(session.diagnostics.reconfigurationObserverRegistration?.rawValue.description ?? "not recorded")",
          session.diagnostics.reconfigurationObserverRegistration == CGError.success),
-        ("os-reconfigured",
+        ("induced-os-reconfigured",
          "the OS reported \(displayReconfigurations) reconfiguration(s)", displayReconfigurations >= 1),
         ("session-handled",
          "the session HANDLED \(handled) of them — an OS callback the session never acted on would " +

@@ -392,7 +392,7 @@ enum SpikeA {
         // clause only, and "tapEnabledPolls > 0, and the run survives" by one
         // about the first. Split, so the guard can see the halves.
         step.expect([
-            .init("stall-applied", "what is induced",
+            .init("induced-stall-applied", "what is induced",
                   "a real OS timeout — 50 ms of sleep in THIS SPIKE's observation "
                   + "closure, on every pointer event. No product seam. The stall must be "
                   + "shown to have RUN: a window found without it is a different finding"),
@@ -474,7 +474,7 @@ enum SpikeA {
         // notification-found windows in a long run is the OS being consistent,
         // not a defect. What matters is that the POLL found them, because the
         // poll is the path that had never executed against a real port.
-        step.check("stall-applied",
+        step.check("induced-stall-applied",
                    "the overload RAN: \(stalls.performed) observations were each stalled 50 ms, "
                    + "which is \(String(format: "%.1f", Double(stalls.performed) * 0.05)) s of "
                    + "deliberate lateness. A run where the mouse did not move performs zero stalls "
@@ -580,7 +580,7 @@ enum SpikeA {
             .init($0.id, $0.name, String(format: "p50 %.2f  p90 %.2f  max %.2f  (F2-2, 118 samples)",
                                          $0.p50, $0.p90, $0.max))
         } + [
-            .init("chains-recorded", "chains recorded",
+            .init("induced-chains-recorded", "chains recorded",
                   "> 0 — a run with no chain is didNotHappen, and every distribution "
                   + "below would otherwise be a percentile of the empty set"),
             .init("clicks-accounted", "click accounting",
@@ -758,7 +758,7 @@ enum SpikeA {
         print("  AX log: \(logURL.path()) — NOT to be committed; it carries window titles.")
 
         // ---- the checks
-        step.check("chains-recorded",
+        step.check("induced-chains-recorded",
                    "\(records.count) chains recorded from \(samples.clicksSeen) clicks",
                    records.count > 0)
         step.check("clicks-accounted",

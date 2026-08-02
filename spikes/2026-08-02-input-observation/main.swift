@@ -231,7 +231,7 @@ enum SpikeC {
                   "the SAME ladder with .default (an active filter), which SHOULD "
                   + "trip — without it, \"listenOnly never tripped\" is "
                   + "indistinguishable from \"this experiment cannot detect a trip\""),
-            .init("every-rung-sampled", "every rung was sampled",
+            .init("induced-every-rung-sampled", "every rung was sampled",
                   "≥ 1 callback on each of the \(ladder.count) rungs — a rung with zero "
                   + "callbacks did not fail to trip, it was not tested"),
             .init("notification-silent", "the callback channel",
@@ -408,7 +408,7 @@ enum SpikeC {
         print("      smallest stall found DISABLED after the rung: "
               + "\(disabled.min().map { "\($0) ms" } ?? "none — no rung was disabled")")
 
-        step.check("every-rung-sampled",
+        step.check("induced-every-rung-sampled",
                    "every rung was sampled — \(sampled.count) of \(ladder.count) saw at least one "
                    + "callback. A rung with zero callbacks did not fail to trip; it was not tested",
                    sampled.count == ladder.count)
@@ -541,7 +541,7 @@ enum SpikeC {
                                + "a consequence of the rows below, not a claim about this run"),
         ])
         step.expect([
-            .init("part-a-stall", "part A stall",
+            .init("induced-part-a-stall", "part A stall",
                   "125 ms, on .leftMouseDown ONLY — Spike A's worst hit-test. The subject "
                   + "is STALLS PERFORMED, not callbacks: the mask includes mouseMoved, so a "
                   + "run with zero clicks records ~1900 callbacks and takes no stall at all"),
@@ -645,7 +645,7 @@ enum SpikeC {
         // The subject is STALLS, not callbacks. Eight is a floor for "about a
         // dozen clicks" that still leaves room for a miscount, and any number
         // below it means part A's verdict is about a run that barely stalled.
-        step.check("part-a-stall",
+        step.check("induced-part-a-stall",
                    "part A performed \(a.callbacks) stalls of 125 ms — the path under test was "
                    + "exercised. Callbacks are NOT the subject: the mask includes mouseMoved, so a "
                    + "run with zero clicks records ~1900 callbacks, performs no stall at all, and "
@@ -850,7 +850,7 @@ enum SpikeC {
         // one row — two rows saying one thing means an assertion discharges
         // both, which is the count problem at a smaller scale.
         step.expect([
-            .init("sample-rate", "pointer samples in 5 s",
+            .init("induced-sample-rate", "pointer samples in 5 s",
                   "> 300 — the plan's floor is 60 in 1 s, measured IN the first second "
                   + "rather than divided out of the total"),
             .init("normalised-range", "every normalised coordinate", "in [0, 1]"),
@@ -892,7 +892,7 @@ enum SpikeC {
         // not the quantity the floor is about.
         let firstInstant = samples[0].instant.hostTime.rawValue
         let inFirstSecond = samples.filter { $0.instant.hostTime.rawValue - firstInstant < 1_000_000_000 }.count
-        step.check("sample-rate",
+        step.check("induced-sample-rate",
                    "\(inFirstSecond) pointer samples in the first second of movement "
                    + "(\(samples.count) over the whole 5 s) — the plan's floor is 60 in 1 s",
                    inFirstSecond > 60)
@@ -950,7 +950,7 @@ enum SpikeC {
         // tolerance would fail a correct run. A number this project cannot
         // derive is a number it does not assert.
         step.expect([
-            .init("two-events", "button events", "2 per click — one .down, one .up"),
+            .init("induced-two-events", "button events", "2 per click — one .down, one .up"),
             .init("down-before-up", "order", ".down strictly before .up, by instant"),
             .init("normalised-range", "positions", "both inside [0, 1]"),
             .init("known-revisions", "revisions belong to attached displays",
@@ -981,10 +981,10 @@ enum SpikeC {
                          ("\(b.button).\(b.phase)" as NSString).utf8String!, msSinceFirst,
                          b.position.x, b.position.y))
         }
-        step.check("two-events",
+        step.check("induced-two-events",
                    "\(buttons.count) button events for one click — exactly two",
                    buttons.count == 2)
-        step.check("two-events",
+        step.check("induced-two-events",
                    "the first is .down and the second is .up (observed "
                    + "\(buttons.map { "\($0.button.rawValue).\($0.phase.rawValue)" }.joined(separator: ", ")))",
                    buttons.first?.phase == .down && buttons.last?.phase == .up)
@@ -1020,7 +1020,7 @@ enum SpikeC {
         // making two claims — a count and an identity — with two assertions
         // under it. Split.
         step.expect([
-            .init("non-vacuous-input", "the filter was given real input",
+            .init("induced-non-vacuous-input", "the filter was given real input",
                   "≥ 20 keyDown events seen — 'nothing was recorded' is nearly true of an "
                   + "empty input as well, so the rows below cannot be read without this"),
             .init("one-keysample", "KeySamples recorded", "exactly 1"),
@@ -1075,7 +1075,7 @@ enum SpikeC {
                                     + "empty input as well, so this cannot be read.")
         }
 
-        step.check("non-vacuous-input",
+        step.check("induced-non-vacuous-input",
                    "\(diagnostics.keyDownsSeen) keyDown events were seen — the filter was given "
                    + "real input, so a zero result below is not vacuous",
                    diagnostics.keyDownsSeen >= 20)
@@ -1121,7 +1121,7 @@ enum SpikeC {
         // "SecureInputInterval records: exactly 1, endedBy .secureInputDisabled"
         // was one row making two claims with two assertions under it. Split.
         step.expect([
-            .init("events-arrived-while-secure", "events arrived while it was true",
+            .init("induced-events-arrived-while-secure", "events arrived while it was true",
                   "> 0 — the observer needs an event to arrive while the flag is set, or "
                   + "it has nothing to ask the question on and the row below is vacuous"),
             .init("no-observations-while-secure", "observations while it is true",
@@ -1187,7 +1187,7 @@ enum SpikeC {
         }
 
         let intervals = collected.intervals
-        step.check("events-arrived-while-secure",
+        step.check("induced-events-arrived-while-secure",
                    "\(diagnostics.eventsSuppressedBySecureInput) events arrived while secure input "
                    + "was enabled — so the zero-observation rows below are about a window in which "
                    + "something WAS delivered. The old wording here also claimed \"and NONE of them "

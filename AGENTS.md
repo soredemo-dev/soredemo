@@ -617,6 +617,34 @@ that length is itself the evidence. A table is checked against itself: the missi
 visible, and a row that disagrees with its neighbours is conspicuous. The first such table is
 `docs/ARCHITECTURE.md`'s **D6a — the gap register**.
 
+### The conjunction register — one expectation, two claims, one assertion
+
+Eight rows in the identifier migration were a single expectation stating **two or more** things,
+discharged by an assertion covering one of them. Enumerated rather than summarised, because the
+claim that follows can only be tested against a list:
+
+| Spike / step | id | the claims in one row | which went unchecked |
+| --- | --- | --- | --- |
+| A `aRealTimeoutDisable` | detection | `detectedBy == .enabledPoll` **and** `disabledBy == nil` | `disabledBy` |
+| A `aRealTimeoutDisable` | polls | `tapEnabledPolls > 0` **and** the run survives | the run surviving |
+| A `theRealPortGoesDown` | (was) edges | the window contains `T_off` **and** the over-estimate is bounded | the bound |
+| B `runReconfig` | after-the-change | a different revision, a second segment, `.displayReconfigured`, no resampled frame | three of the four |
+| B `runVideoOnly` | destination | the rect was set **and** the frames came back at the buffer size | the frame size |
+| B `runAudioTones` | tracks | two tracks **and** they are distinguishable by format | distinguishability |
+| C `pointerTrack` | coordinates | every value in [0, 1] **and** the track spans more than a point | the span |
+| C step 5 | budget | the largest stall that survives **and** the smallest that trips | the smallest |
+
+**This is a measurement, not an archive.** The claim behind the identifier migration is that
+*naming an expectation forces it to be atomic, so this stops happening* — and that claim currently
+has no evidence, because all eight predate the migration. Tasks 11 and 12 will write a fresh batch
+of expectations under the new rules. Scan that batch with the same criterion:
+
+- **zero conjunctions in the new ones** — naming solved it, and this register closes;
+- **any conjunctions in the new ones** — naming did not solve it, and a scan now has its
+  justifying condition rather than being written on suspicion.
+
+A claim cannot be re-verified. An enumeration can.
+
 ---
 
 ## Architecture rules — enforced, not aspirational
