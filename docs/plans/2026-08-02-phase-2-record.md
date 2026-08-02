@@ -1355,19 +1355,47 @@ A revoked grant yields frames, not an error. Sample the luminance of a small fix
 
 **The threshold is a placeholder and must be labelled as one.** A genuinely black screen exists — a screensaver, a full-screen dark video — and D4 applies: this is fitted to measured recordings, not chosen. Until then, log the detection rather than aborting on it.
 
-- [ ] **Step 4: Verify with the spike, not by inspection**
+- [ ] **Step 4: The human half is THREE ordered steps, not one session**
 
-Extend `spikes/2026-08-02-capture-master/main.swift` to drive `CaptureSession` instead of `SCRecordingOutput`, and assert on the output:
+Three independent verifications. Bundled, a failure in one makes the other two unreadable. Each gets
+its expected result **written down before it runs**.
+
+| | Step | What it establishes | Expected |
+| --- | --- | --- | --- |
+| 1 | **video only, no audio** | the `AVAssetWriter` path works at all | file exists, plays, frame count plausible against the observed rate, `ContentScale == 1` on every frame |
+| 2 | **two audio sources, each with a distinguishable signal** | the tracks are separated, not merely counted | see below |
+| 3 | **display reconfiguration** | the segment closes deliberately | a new segment, `endedBy == .displayReconfigured`, a new `geometryRevision` |
+
+**Step 3 runs last**, because it perturbs system state and invalidates the conditions the first two
+ran under — the same ordering as Task 6's toggle-a-permission-while-running experiment.
+
+**Step 2's assertion is four things, not a count.**
+
+`tracks.count == 2` returns the same answer for three different worlds: separated, microphone silent,
+and both tracks carrying system audio. That is the failure value landing inside the legal range, and
+this project has already paid for it once — Spike B's first three runs produced unreadable audio
+because a single-track count could not distinguish *mixed* from *microphone dropped*.
+
+So, following the method that worked on Spike B's fourth run:
 
 ```
-check("two audio tracks", audioTracks.count == 2)
-check("system tone in track 0 only", has440(track0) && !has440(track1))
-check("microphone tone in track 1 only", has1k(track1) && !has1k(track0))
-check("segment count matches pause count", table.segments.count == 3)
-check("no gap is unexplained", table.segments.allSatisfy { $0.endedBy != nil })
+system audio  = a steady 440 Hz tone
+microphone    = 1 kHz from a phone beside it
+
+assert   track A contains 440 Hz   AND   track A does NOT contain 1 kHz
+         track B contains 1 kHz    AND   track B does NOT contain 440 Hz
 ```
 
-The tone check is the whole point and it needs both tones playing. **The spike measures that precondition before recording** — microphone authorisation via `AVCaptureDevice.authorizationStatus(for:)` and eight seconds of live mic RMS, aborting rather than producing a result that cannot be read. Three earlier runs were wasted on preconditions that were requested rather than measured; do not remove those guards.
+**The two negatives are the half that distinguishes separation from duplication.** A Goertzel at each
+frequency, against a third reference frequency where nothing is played, gives the numbers;
+`spikes/2026-08-02-capture-master/main.swift` already does exactly this — read it rather than writing
+a second one.
+
+**And measure the preconditions rather than asking for them.** Three of Spike B's four runs were
+wasted because the tones were requested of a human instead of verified by the instrument. Its final
+version checked `AVCaptureDevice.authorizationStatus(for: .audio)` and sampled eight seconds of live
+microphone RMS, **aborting** rather than recording an experiment that could not be read. Do the same:
+if the microphone is silent when step 2 begins, refuse to record.
 
 - [ ] **Step 5: Commit**
 
