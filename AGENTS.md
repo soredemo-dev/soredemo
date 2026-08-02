@@ -232,6 +232,34 @@ impossible, and then does not check it on the only path where that state arrives
 And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
 for a question the invariant says cannot arise.
 
+**State a measurement's subject as explicitly as its value.** "Screen recording: granted" — *for
+whom?* The sentence omits its subject, and a measurement will quietly supply a different one.
+
+Phase 2 Task 6 built a repeatable permission check that reported all four permissions granted while
+the app under test appeared in none of the four System Settings panes. Both cannot describe one
+process. The check ran from a bare `swiftc` executable with no bundle identity, so TCC attributed it
+to the responsible process up the chain — `zsh → claude → zsh → login → cmux.app` — and `cmux` holds
+those grants. It measured the terminal.
+
+So: `granted, granted, granted, granted` is not a claim. `granted ×4, for pid 1234, bundle
+video.soredemo.Soredemo` is one, because it can be wrong. **The dump prints its own subject —
+bundle identifier, executable path, whether it is inside a `.app`, pid — beside the values.** A
+`bundle identifier: nil` line catches this class on sight, with no pane to consult. And the class
+recurs: an app launched from Xcode can have Xcode as its responsible process, which differs from
+launching it from Finder. Moving the check inside the app ended this instance, not the category.
+
+**And the reconciliation went the wrong way by default.** The failure presented as four greens —
+output that invites no question. Had the program been run before the human was asked, the
+comfortable path was to doubt what the pane showed rather than what the probe measured, because the
+pane is visible and concrete while "which process are we measuring" is invisible and abstract.
+
+> When two sources disagree, the path of least resistance is to doubt the one that is harder to
+> check. So name which side that is *before* reconciling, and check it **last** — cheap doubt is
+> where you will stop.
+
+This is why the human answer was recorded first, in a file the implementing agent was forbidden to
+read. The ordering costs nothing and it is the only reason this was found.
+
 **A probabilistic test presented as reliable is a measurement with a safe default, one level up.**
 Say the miss rate, and say whether a deterministic form was available.
 
