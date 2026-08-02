@@ -377,3 +377,64 @@ measurement has no safe default).
   exist before it can be judged.
 - Everything above is one machine. A slower or busier machine moves the whole distribution, and the
   budget is the parameter that will move most.
+
+---
+
+## F2-3 — Truncation degrades gracefully, because the walk runs the right way
+
+The 7%-at-50 ms figure in F2-2 reads worse than it is, and the reason is in the same data.
+
+`AXUIElementCopyElementAtPosition` returns the **deepest** element at the point, and the walk goes
+up through `kAXParentAttribute`. So the chain is ordered:
+
+```
+hit element → parent → grandparent → … → window → application
+most likely to be the target ─────────────────→ least likely
+```
+
+Truncation therefore drops the **outermost** ancestors — the ones least likely to be what the camera
+should frame.
+
+Verified in the code (`cur = start`, walk up, `break` on cap or budget) and independently in the
+data:
+
+| | Top of chain |
+| --- | --- |
+| 107 complete walks | `AXApplication`, all of them |
+| 11 truncated walks | `AXGroup` ×7, `AXWebArea` ×2, `AXWindow` ×2 — mid-level containers |
+
+So the 7% is not "7% of clicks lost". It is "7% of clicks are missing some outer ancestors", and an
+outer ancestor is almost never the zoom target.
+
+**Recorded so that nobody later reads 7% and raises the budget.** The tail does not converge, so
+raising it buys progressively less of something that was not worth much to begin with.
+
+### But it needs a rejection code that does not exist yet
+
+`framing-gates` lists seven: *confidence absent, confidence low, observation stale, does not contain
+the click, degenerate rectangle, partly offscreen, too large*. None of them can say:
+
+> **The best candidate sits on the truncation boundary** — so I cannot know whether one more level
+> out would have been better.
+
+On disk that case is **identical** to "the chain was complete and the best candidate happened to be
+outermost", unless the producer reads the truncation record. It can — truncation is stored (D2-2) —
+but nothing currently requires it to, and an eighth code is what would force the question.
+
+At 7–8% this is not an edge case. It is part of the normal path.
+
+## D2-5 — The two bounds are different kinds of number and only one needs calibrating
+
+F2-2 called both placeholders. That was one word too coarse.
+
+**The depth cap has a clean knee and is nearly free.** 25 covers every sample seen; the walks that
+hit a cap of 20 completed in 4–13 ms, because deep hierarchies are web content — cheap per level,
+simply tall. Fix it now at **30**, and expect it to bind rarely.
+
+**The wall-clock budget has no knee.** 20 ms → 15% truncated, 35 ms → 9%, 50 ms → 7%: a direct
+exchange of coverage for latency with no natural stopping point. It is the one number in this design
+that genuinely requires D4 calibration against recorded demos, and the one that will move most on a
+slower or busier machine.
+
+So: three thresholds were called placeholders; **one of them is.** Saying so now saves rediscovering
+it twice.
