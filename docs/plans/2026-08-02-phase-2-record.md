@@ -1417,6 +1417,38 @@ git commit -m "observation-log: one file per segment, and Phase 1's dead symbols
 
 ---
 
+## Task 11.5: Architecture rule 8 — validating initialiser plus synthesised `Codable`
+
+**Files:**
+- Modify: `Sources/architecture-checker/main.swift`, `Sources/CheckerLexer/SwiftSourceLexer.swift` if the scan needs a lexer capability it lacks
+- Test: `Tests/GeometryTests/ArchitectureCheckTests.swift`
+
+Read D2-14 first. Ten types currently violate this and they are the rule's negative fixtures — no
+fixture needs inventing.
+
+**The rule:** a type with an initialiser that `throws` or contains a `precondition`, **and** a
+`Codable`/`Decodable` conformance, **and** no explicit `init(from decoder:)`, is a violation.
+
+**Two things the first hand-written scan got wrong**, both of which the plugin must not repeat: the
+conformance may be declared on an **extension**, and so may `init(from:)`. Scan the whole file for
+the type. A scan keyed on the declaration line misses `GeometryRegistry`, `ContentDigest` and
+`Evidence` — all closed, so the mistake was invisible.
+
+- [ ] **Step 1: Write the rule against the ten known violators as fixtures**, and against the eight
+      known-closed types as negative controls. Both lists are in D2-14.
+- [ ] **Step 2: Observe it red on the real package**, listing exactly the ten. A list that is short
+      or long is the finding, not the count.
+- [ ] **Step 3: Exempt the ten explicitly, by name**, in the same shape as `pluginExemptTargets` —
+      one literal list, so an eleventh added later still fails. Do not exempt by predicate.
+- [ ] **Step 4: Confirm the build fails** when a new violating type is added, and passes when it is
+      given an explicit `init(from:)`.
+- [ ] **Step 5: Commit.**
+
+The exemption list is the remaining work, in a form that cannot rot: closing a type means deleting
+its line, and the plugin says so on every build.
+
+---
+
 ## Task 12: Close out Phase 2A
 
 - [ ] **Step 1: Run everything, from nothing as well as warm**

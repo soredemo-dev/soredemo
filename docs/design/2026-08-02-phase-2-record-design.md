@@ -959,3 +959,58 @@ capture currently cannot provide.
 The likely conclusion is that **a window-capture revision is session-scoped**, stated as an explicit
 limitation rather than discovered. That has to be checked against `selective-rerecord`'s actual
 requirement before it is written down, and that row is in Phase 4.
+
+---
+
+## D2-14 — Decode validation splits by failure semantics, and a rule stops the next one
+
+Ten public types validate in their initialiser and take synthesised `Codable`, which never calls it
+(`AGENTS.md`). The exposure is live: `ProjectPackageIO` decodes `ProjectSnapshot` today, reaching
+`DisplayGeometry`, `NormalizedFrame`, `Evidence`, `Authorship` and `TimeRange`, and a `.soredemo`
+package is a shareable document whose contents `agentic-threat-model` treats as attacker-influenced.
+
+### Why this splits in two, and it is not "wait for a caller"
+
+An earlier draft deferred all ten to Task 11 on the grounds that designing error handling without a
+caller is what left `project-format` at ◐. That reasoning does not apply — most of these already
+have a caller. The real reason to split is that **the two groups fail differently**:
+
+| | manifest (`project.json`) | observation log (`.jsonl`) |
+| --- | --- | --- |
+| one bad record | **fatal** — the document does not open | possibly **discardable**, counted in `droppedBytes` |
+| rule already in place | none | the truncated-tail rule already says "drop it and report" |
+
+A single error policy over both is wrong in one direction or the other: either one bad observation
+destroys a document, or a corrupt manifest is quietly accepted in part.
+
+So:
+
+- **Now** — the types reachable through `ProjectSnapshot`. They have callers and their failure
+  semantics are already settled: fatal, `throw`, never `precondition`. A `precondition` on decoded
+  input is the wrong instrument regardless — it turns a corrupt file into a crash instead of an
+  error.
+- **Task 11** — `HostInstant`, `HostRange` and the observation-record types. Whether one malformed
+  record is discardable or fatal is a question specific to an append-only log, and Task 11 is where
+  the log is first read back.
+
+`SegmentTable` is in the first group and was closed in Task 4's fix round.
+
+### Architecture rule 8, which matters more than the ten
+
+Fixing ten types is stock. The rule is flow, and **Phase 3 will produce a large batch of new derived
+types, every one of which will have a validating initialiser.**
+
+It is text-scannable, so it belongs in `Plugins/ArchitectureCheck` beside rule 2, which already
+scans package sources:
+
+> A type that has an initialiser which `throws` or contains a `precondition`, **and** conforms to
+> `Codable` or `Decodable`, **and** has no explicit `init(from decoder:)`, is a violation.
+
+Two details learned from getting the scan wrong once already: conformance may be declared on an
+**extension** rather than the declaration line, and so may `init(from:)`. Scan the whole file for the
+type, not one line of it — the first attempt missed `GeometryRegistry`, `ContentDigest` and
+`Evidence` for exactly that reason, and only survived because all three were closed.
+
+**The ten existing cases are the rule's negative-test fixtures.** No fixture has to be invented, and
+each one closed is a fixture that must be removed from the expected-violation list — which makes the
+list a live record of the remaining work rather than a comment.
