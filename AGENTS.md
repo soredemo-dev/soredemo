@@ -211,11 +211,13 @@ For the two that are reachable the exposure is real and the input is untrusted b
 attacker-influenced. For the other eight there is no decode path yet, so closing them now would be
 designing error handling with no caller — the thing that left `project-format` at ◐.
 
-**The first count of this was wrong, and the method was worse than the number.** It scanned for
-`Codable` on the declaration line, so it missed every type conforming in an extension — which is
-exactly how `GeometryRegistry`, `ContentDigest` and `Evidence` are written. Those three happened to
-be closed, so the count survived; a type that was open and conformed in an extension would have been
-missed silently. Scan the whole file for the type, not one line of it.
+**This count was got wrong three times by hand, each time differently**, which is why it now lives
+in `scripts/scan-decode-validation.py` and not in a sentence. The three ways: scanning for `Codable`
+on the declaration line, missing every type that conforms in an extension; asserting reachability
+instead of tracing it; and `break`ing after the first type in each file, so `Normalized.swift`'s
+three and `Derivation.swift`'s several counted as one.
+
+Each error survived because its result looked plausible. Run the script.
 
 **And the eight closed ones show why the ten are open.** Phase 1 hand-wrote `Codable` for
 `GeometryRegistry`, `ContentDigest`, `ProducerID`, `GateCode`, `Evidence` and `NodeID` — the types
