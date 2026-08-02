@@ -365,7 +365,20 @@ sixth site missing from it is visible, and a row that says *a count* next to fou
 | `AXObserver` ancestor walk | levels beyond the depth cap or the time budget | an explicit truncation reason on the record | yes: the record says it stopped and why, so a short chain is not read as a shallow tree |
 | `CaptureSession` video | frames the display did not produce | `SCFrameStatusIdle`, counted separately from `.complete` | yes: "nothing changed" is distinguishable from "nothing arrived" |
 | `InputObserver` secure input | every event while another app holds a password field | `SecureInputInterval`, with `.secureInputDisabled` vs `.observationStopped` as its two end reasons | yes: a measured span, and the end reason says whether its end was observed or merely assumed |
-| `InputObserver` tap disabled, by timeout or by user input | every event between the disable and the re-arm | `TapDisabledInterval`, populated by **polling `CGEvent.tapIsEnabled` from a queue that is not the callback's**, with `detectedBy`, `disabledBy` (nil when polled — the poll cannot know why) and `lowerBoundFrom`; **paired with `tapEnabledPolls` over `tapPollingSpanNanos`, without which an empty list is not a measurement** | yes, with two caveats on the type: it is an enclosing bound rather than the window itself, and the poll interval (100 ms) is the floor on how tight its left edge can be |
+| `InputObserver` tap disabled, by timeout or by user input | every event between the disable and the re-arm | `TapDisabledInterval`, populated by **polling `CGEvent.tapIsEnabled` from a queue that is not the callback's**, with `detectedBy`, `disabledBy` (nil when polled — the poll cannot know why) and `lowerBoundFrom`; **paired with `tapEnabledPolls` over `tapPollingSpanNanos`, without which an empty list is not a measurement** | yes, with two caveats on the type: it is an enclosing bound rather than the window itself, and the poll interval (100 ms) is the floor on how tight its left edge can be. **Verified against real hardware** (Task 10 human half): a window brackets a known `T_off` with a 4.9 ms lead, 601 of 601 windows under a real OS timeout were found by *polling* and none by notification, and under a persistent cause the record reaches 8 windows/second with 81% of the span marked blind |
+
+**The magnitudes are a requirement on the log format, not a footnote.** A `.listenOnly` tap that
+the OS disables is **invisible**: the cursor does not lag (it is not in the delivery path), no
+notification is delivered (measured), and nothing surfaces to the operator. Three of the four
+channels a person could notice it through are silent. The only place the hole can ever be found is
+this record — so `observation-log` must carry a blind span as a **first-class field**, not a
+diagnostic counter, and it must hold the shape and the volume measured above:
+
+    { start, end, causeChannel: poll | notification, reArmed: Bool }
+
+Eight per second under a persistent cause is the load the format has to survive, and 81% blind is
+the fraction a reader has to be able to see at a glance. A format that treats these as rare
+annotations is designed against a case that has been measured not to hold.
 
 **Why "enough?" is a column.** Each row's mechanism was adequate when written and the question is
 whether it still is. The last row was the one that was not, and it was visible here in a way it was

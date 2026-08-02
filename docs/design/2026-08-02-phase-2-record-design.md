@@ -1286,6 +1286,37 @@ would churn and be rubber-stamped. That is not what `Sources/` is.
 
 ## D2-18 — AX work runs off the tap callback thread, and the reason is not the one we first had
 
+## D2-19 — No backoff on tap re-arm, and what the measurement actually justifies
+
+**Rejected: exponential backoff between re-arms.** It was the obvious response to what the human
+half measured, and it is the wrong one.
+
+Measured (Spike A, `stall`, Task 10 human half): with the cause of the disable still running, the
+detector re-arms and is disabled again at **8 windows per second**, with **81% of the span recorded
+as blind**. That is the persistent-cause case the earlier note called unmeasured, and it is the only
+condition under which backoff would ever be considered.
+
+**Backoff makes it worse.** The tap is the only source of the pointer track. Waiting longer between
+re-arms does not reduce the loss; it *extends* each blind span, and the blind span is the loss.
+Backoff is a good policy when retrying is expensive to the *other side* — a server, a rate limit —
+and here the other side is the window server telling us it dropped us. Nothing is spared by asking
+later, and the recording is emptier.
+
+**What the measurement justifies instead is a degraded-recording record.** Eight windows a second is
+not a transient to smooth over; it is a statement that this recording's pointer track is mostly
+absent. That belongs in the log as a fact about the recording, and in `framing-gates` as an input to
+`observation stale` — the same shape as `SegmentTable`'s discarded segments and
+`SecureInputInterval`: the loss is recorded, bounded, and refusable downstream, rather than hidden
+behind a policy that makes the counters smaller.
+
+**And the prior question is unanswered.** *Why* eight per second? That is a re-arm succeeding and
+the tap being disabled again within ~125 ms under a callback stalling 50 ms per event — the arithmetic
+is not obvious and nothing has traced it. A retry policy chosen before that is understood would be
+tuned against a number whose mechanism we do not know, which is exactly how the 10–20 ms figure in
+D2-18 came to be wrong. Backoff waits for that answer; it is not blocked on anyone's judgement.
+
+
+
 `ax-observation` (Task 10) hands each `ButtonEvent` to a bounded serial queue rather than doing the
 hit-test inside `InputObserver`'s `CGEvent` tap callback. The decision stands; the **justification
 changed after a measurement, and both versions are recorded** because the wrong one is the one a
