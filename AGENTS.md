@@ -162,6 +162,14 @@ A missing symbol proves the test file names the API. It proves nothing about whe
 discriminates correct behaviour from incorrect. The red that counts is **behavioural**: the code
 compiles, the tests pass, you break the behaviour, and a test goes red.
 
+**A mutation's red set is evidence at the granularity it is recorded.** A parameterised test that
+reddens under a mutation has not been shown to catch it — only that *some* of its cases did. Task 5
+recorded `commentAndRawStringOpenersInsideARawIdentifierAreContent["\`a/*b\`"]` as the red set for
+disabling the raw-identifier branch, and read it as the branch being covered. It named one fixture
+of three; the other two passed with the branch deleted, rescued by unrelated defensive code. The
+disconfirming evidence was inside the artefact being used as proof, one level of detail below where
+it was read. When a mutation reddens fewer cases than a test has, that gap is the finding.
+
 In this workflow, **mutation checks are the only mechanism that produces a behavioural red.** They
 are not a bonus round. A task that shipped without one has tests that were never shown to be able
 to fail, whatever colour they were at the start. Task 16 is the evidence: thirteen tests, all
