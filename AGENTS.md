@@ -121,6 +121,23 @@ absorbed two source files from a task still in flight, and the commit message de
 of what it contained. Stage explicit paths. The damage is not corruption — the files were correct —
 it is that the history stops describing what happened, which is the one thing history is for.
 
+**A measurement has no safe default.** Three times in this project a measurement returned a
+default instead of an error, and each time the default was **inside the valid range of the answer**,
+so nothing looked wrong:
+
+| Construct | Failure value | Why it is invisible |
+| --- | --- | --- |
+| `sort -u \| wc -l` on empty input | `1` | 1 is a legal line count |
+| a `grep` filter matching nothing | silence | silence is a legal "no violations" |
+| `m >= cg ? m - cg : 0` on mismatched units | `0` | 0 is a legal latency |
+
+The last one is the sharpest, because it happened inside a probe written specifically to settle a
+units question — the guard's false branch produced a plausible measurement rather than a complaint.
+
+The constructive form of the rule is not "pick a better default". It is that **failure must land
+outside the value range**: `precondition`, `nil`, or `throw`. A measurement that can fail into a
+legal answer is not a measurement.
+
 **A measurement that counts something must first assert it counted anything.** `sort -u | wc -l`
 returns `1` for empty input, so a probe reporting "1 distinct result" reports the same number
 whether the values agreed or the binary failed to build. This is the vacuous pass, one level up
