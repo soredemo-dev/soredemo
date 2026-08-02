@@ -969,7 +969,28 @@ Ten public types validate in their initialiser and take synthesised `Codable`, w
 `DisplayGeometry`, `NormalizedFrame`, `Evidence`, `Authorship` and `TimeRange`, and a `.soredemo`
 package is a shareable document whose contents `agentic-threat-model` treats as attacker-influenced.
 
-### Why this splits in two, and it is not "wait for a caller"
+### Correction: the grouping criterion, and the reachability
+
+Two things in the first draft of this section were wrong.
+
+**The criterion is not which reader reads the type.** A type's `init(from:)` always throws. Whether
+that becomes a fatal document error or a discarded record counted in `droppedBytes` is the
+**reader's** policy — one type, one behaviour, two call-site policies. So what waits for Task 11 is
+the log reader's catch policy, which does not exist yet, and not the types themselves. What makes a
+type ready now is that **its invariant is settled**: `HostInstant`'s is not — whether an epoch
+mismatch makes an instant invalid is a Phase 2 question still forming — and that, not its reader, is
+why it waits.
+
+**And the reachability was asserted rather than traced.** Traced structurally, exactly **two** of the
+ten are reachable from `ProjectSnapshot`: `DisplayGeometry` via `GeometryRegistry`, and `HostRange`
+via `SegmentTable` → `MasterSegment`. The other eight are not — `Derived` is not in
+`ProjectSnapshot`, which `ROADMAP.md`'s `derivation-graph` row already stated. Several of those
+eight, notably `PixelRect` and `PointRect`, are conversion types that may never be persisted at all.
+
+They belong in a third group the first draft did not have: **no decode path**. Closing them now is
+designing error handling with no caller.
+
+### Why this splits at all, and it is not "wait for a caller"
 
 An earlier draft deferred all ten to Task 11 on the grounds that designing error handling without a
 caller is what left `project-format` at ◐. That reasoning does not apply — most of these already

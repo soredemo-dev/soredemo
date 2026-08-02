@@ -838,36 +838,56 @@ git commit -m "Add the segment table: the master is a sequence, and gaps are rec
 
 ---
 
-## Task 4.5: Close decode validation on the types `ProjectSnapshot` already reaches
+## Task 4.5: Close decode validation on the two types that have a decode path
 
 **Files:**
-- Modify: `Sources/Geometry/{DisplayGeometry,Normalized,PixelRect,PointRect}.swift`, `Sources/Graph/Derivation.swift` (`Authorship`), `Sources/Timeline/{TimeRange,HostRange}.swift`
-- Test: the corresponding existing test files
+- Modify: `Sources/Geometry/DisplayGeometry.swift`, `Sources/Timeline/HostRange.swift`
+- Test: `Tests/GeometryTests/DigestTests.swift`, `Tests/TimelineTests/EpochTests.swift`
 
-Read D2-14 first. These are on a **live** decode path — `ProjectPackageIO` decodes `ProjectSnapshot`
-today, and it reaches `DisplayGeometry`, `NormalizedFrame`, `Authorship`, `TimeRange`, and
-`HostRange` through `SegmentTable`. A hand-edited `project.json` can produce a `NormalizedPoint`
-with `x = 2.5` right now.
+Read D2-14 first, and note that its grouping was corrected before this task was written.
 
-**`HostInstant` and the observation-record types are NOT in this task.** They belong to the log,
-whose failure semantics differ — a malformed record there may be discardable and counted rather than
-fatal, and that question is answered in Task 11 when the log is first read back.
+**Two types, not seven.** Traced structurally from `ProjectSnapshot` through stored properties and
+enum payloads: `DisplayGeometry` is reachable via `GeometryRegistry`, and `HostRange` via
+`SegmentTable` → `MasterSegment`. `NormalizedPoint`, `NormalizedSize`, `NormalizedFrame`,
+`PixelRect`, `PointRect`, `Authorship`, `HostInstant` and `TimeRange` are **not reachable from a
+document today** — `Derived` is not in `ProjectSnapshot`, and `ROADMAP.md`'s `derivation-graph` row
+says so: *"no graph is persisted or read."*
 
-**`throw`, never `precondition`.** A `precondition` on decoded input is the wrong instrument
-regardless of whether it runs: it turns a corrupt document into a crash instead of an error. Each
-type gets an explicit `init(from:)` that decodes, validates, and throws
-`DecodingError.dataCorrupted` — `ProjectFormatError.malformed` already wraps that at the boundary.
+Those eight stay in rule 8's exemption list (Task 11.5) until something decodes them. Closing them
+now would be designing error handling with no caller, which is what left `project-format` at ◐.
 
-- [ ] **Step 1: One type first, end to end** — `NormalizedPoint`, the smallest. Test that a
-      hand-built JSON literal with `x: 2.5` throws, and that a valid one still decodes.
+**The grouping criterion is the type's invariant, not the reader.** A type's `init(from:)` always
+throws; whether that becomes a fatal document error or a discarded record counted in `droppedBytes`
+is the **reader's** policy, not the type's:
+
+```
+manifest reader → let it propagate → the document does not open
+log reader      → catch, droppedBytes += 1, continue
+```
+
+So what waits for Task 11 is the log reader's catch policy, which does not exist yet — not the
+types. And what makes a type ready *now* is that its invariant is settled. `DisplayGeometry`'s and
+`HostRange`'s are: finite positive scale, non-negative duration, both already stated as
+`precondition`s and both already verified out of process.
+
+**`throw`, never `precondition`.** A `precondition` on decoded input is the wrong instrument whether
+or not it runs — it turns a corrupt document into a crash instead of an error.
+
+- [ ] **Step 1: `HostRange` first**, because its invariant is one line. Explicit `init(from:)` that
+      decodes, checks `duration >= 0`, and throws `DecodingError.dataCorrupted`. Test with a
+      hand-built JSON literal carrying a negative duration.
 - [ ] **Step 2: Check the encoded shape did not change.** `SegmentTable`'s fix changed its wire form
-      from a keyed container to a bare array, which was fine only because nothing depended on it.
-      Several of these **are** inside `ProjectSnapshot`, and one is inside `Derived.approvalBytes`'s
-      neighbourhood. Round-trip an existing document fixture before and after.
-- [ ] **Step 3: The remaining types**, same shape each time.
+      from a keyed container to a bare array, which was harmless only because nothing depended on
+      it. `HostRange` **is** inside `ProjectSnapshot` via `SegmentTable`, and it is inside
+      `EvidenceRef`'s canonical encoding. Round-trip a document fixture before and after, and
+      re-run `DerivedTests`' pinned vectors. **If a pinned vector moves, stop and report** — the
+      canonical encoding is hand-written and separate from `Codable`, so it should not move, and if
+      it does that is a finding about the two encodings having drifted together.
+- [ ] **Step 3: `DisplayGeometry`**, same shape. Its invariant is a finite `scale > 0`.
 - [ ] **Step 4: Verify by reversion, not by inspection.** For each, revert the validation while
-      keeping the wire shape, and confirm the test reddens for the right reason. Task 4's first
-      attempt at this passed on a fuller revert for an unrelated reason.
+      keeping the wire shape identical, and confirm the test reddens for the right reason. Task 4's
+      first attempt at this passed under a fuller revert for an unrelated reason, and that was found
+      by running it rather than reading it.
 - [ ] **Step 5: Commit.**
 
 ---
