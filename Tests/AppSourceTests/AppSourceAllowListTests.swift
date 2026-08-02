@@ -232,6 +232,14 @@ func violations(
             "ContinuousClock", "SuspendingClock",
             "CFAbsoluteTimeGetCurrent",
             "mach_absolute_time", "mach_approximate_time",
+            // Advances during sleep where `mach_absolute_time` does not (D2-4)
+            // — a different reading, not a spelling variant of the one above,
+            // and just as ambient. Added Task 5 review round 1: `Minting`
+            // gained `continuousNow()` and this list was not updated with it,
+            // so the claim below ("enters only through Minting") was true by
+            // hand-check, not by test, for exactly the gap this file exists
+            // to close.
+            "mach_continuous_time",
             // Subsumes `clock_gettime_nsec_np`.
             "clock_gettime", "gettimeofday",
             // C `time()`. Broad on purpose: Swift's camelCase means a lowercase
@@ -253,6 +261,16 @@ func violations(
 
             // ── ambient hashing ─────────────────────────────────────────────
             "SHA256",
+
+            // ── ambient identity (boot epoch) ───────────────────────────────
+            // `Minting.bootEpoch()` reads `kern.bootsessionuuid` through this
+            // call. Not time and not randomness, but the same shape of
+            // problem: a value only the environment can supply, entering the
+            // app at one audited place. Added alongside `mach_continuous_time`
+            // in the same review round, for the same reason — this file's
+            // list has to be re-derived every time `Minting` gains a new
+            // ambient source, not assumed to already cover it.
+            "sysctlbyname",
         ],
         permittedPath: "Soredemo/Support/Minting.swift",
         in: try appSourceFiles())
