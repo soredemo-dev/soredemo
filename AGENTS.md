@@ -49,6 +49,21 @@ phases need into `docs/design/<date>-phase-N-carried-forward.md`** before the br
 Phase 1's is the worked example: code with no caller yet, rules held by convention rather than
 enforcement, and verification that runs only when a person runs it.
 
+That file has three required sections and a fourth item that is not a section:
+
+1. **Code with no caller yet**, each with its intended first caller.
+2. **Rules held by convention rather than enforcement.**
+3. **Defaults this phase depended on and never decided.** Not the same as 2. A rule stated and
+   unenforced is a gap someone chose to leave; a default nobody discussed is a decision that never
+   happened, and the two read completely differently to whoever inherits them. Phase 1's example:
+   `ENABLE_APP_SANDBOX = YES` with `files.user-selected.read-only` — Xcode's default for a new
+   macOS app target, which quietly forecloses `ax-observation` and cannot save a document, and
+   which no document in the repository had ever mentioned.
+4. **Propose the next merge point in the same pass.** Phase 1 merged four times and then stopped
+   for eight tasks, because a mid-task "not yet" was never given a condition for becoming "now".
+   Every task that ends green with a completed review is a legitimate merge point; name the next
+   one rather than leaving `main` to drift behind whatever is being worked on.
+
 ---
 
 ## Rules

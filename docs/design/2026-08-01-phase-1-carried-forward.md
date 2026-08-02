@@ -63,6 +63,63 @@ Only `digest(of:)` is live.
    `typealias Moment = Date` followed by `Moment()`, because unlike the other two it is not
    deliberate-authorship-only.
 
+## Defaults this phase depended on and never decided
+
+Distinct from the section above. Those are rules stated and not enforced; these are settings that
+were never stated at all — they are Xcode's defaults for a new macOS app target, and they survived
+into a shipped architecture because nothing ever asked.
+
+**`ENABLE_APP_SANDBOX = YES`, with `com.apple.security.files.user-selected.read-only` as the only
+file entitlement.** Verified against the signed product with `codesign -d --entitlements`. It looks
+like a decision. It is not one; no document in this repository discusses it, and no task chose it.
+
+Two consequences reach Phase 2 on its first day:
+
+1. **`ax-observation` cannot work under App Sandbox.** The sandbox blocks the Accessibility API
+   against other processes — this is a layer *in front of* TCC, so granting Accessibility does not
+   help. `input-observation`'s `CGEvent.tapCreate` is restricted for the same reason.
+   ScreenCaptureKit is unaffected.
+2. **`read-only` cannot save a project.** Everything Phase 1 built in `Sources/Project` —
+   `ProjectPackageIO.save`, the atomic manifest replace, write-once sidecars — is denied at a
+   user-selected location. `files.user-selected.read-write` is the floor.
+
+**Phase 1 never exercised any of this**, and the reason is specific: `scripts/cross-boundary-digest-
+probe.swift` is compiled by `swiftc` into a bare executable, so it runs **outside the sandbox** and
+**without a bundle identity**. It validates logic that the real app may not be permitted to perform.
+
+That second divergence got worse recently. Reported behaviour on **macOS 26.1**: a bare executable
+no longer appears in the Screen Recording list in System Settings at all — it still prompts, and
+still captures once granted, but never appears, and adding it manually with "+" does not work. The
+same was reported for Full Disk Access, working on 26.0.1 and broken on 26.1. *(Researched by the
+project owner; not independently verified here. Verify before designing against it.)*
+
+So a probe binary differs from the product in **two** layers, not one.
+
+## TCC behaviour Phase 2 must design around
+
+*(Researched by the project owner. Marked here because it shapes the development loop, and because
+TCC behaviour already changed once inside a point release — 26.0.1 to 26.1. Record the OS version
+beside every permission observation; do not assume 26 → 27 is stable.)*
+
+- **Screen Recording re-confirms monthly.** Introduced in macOS 15, weekly during beta, reduced to
+  monthly after pushback; the per-reboot re-authorisation was dropped at the same time. Neither the
+  user nor the developer can disable it — only enterprise MDM can pre-authorise. The development
+  loop must assume one unavoidable interruption per month.
+- **The monthly approval state is keyed on the executable's path**, in a plist whose value is a
+  date. A third reason to verify against a build at a fixed installed path rather than DerivedData.
+- **Toggling the switch in System Settings does not take effect until the app fully quits and
+  relaunches.**
+- **A revoked Screen Recording grant does not produce an error. It produces black frames.** This is
+  a failure mode `capture-*` must detect actively. A capture test that only checks "frames arrived"
+  passes on a fully black recording.
+- **Accessibility has no periodic re-confirmation.** Once granted it persists until revoked by hand
+  — or until the app's bundle identifier changes, at which point the grant silently stops applying.
+  The signing identity here is stable (`Apple Development`, team `GJRVCWA2U3`, bundle
+  `video.soredemo.Soredemo`, verified with `codesign -dvv`), which is the good case; keep it that
+  way.
+- **macOS 27 ships during Phase 2.** Announced at WWDC on 2026-06-08, first public beta 2026-07-13,
+  expected release September 2026; Apple Silicon only. Phase 2's permission work will straddle it.
+
 ## Verification that runs only when someone runs it
 
 **The cross-boundary SHA-256 vector is hand-run.** `scripts/run-cross-boundary-probe.sh` checks that
