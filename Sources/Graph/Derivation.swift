@@ -192,8 +192,8 @@ extension HostRange {
     /// with identical offsets from two different boot sessions point at two
     /// different, unrelated moments. Leaving the epoch out of the encoding
     /// would let a citation be silently re-pointed at a different recording
-    /// entirely with no change to `approvalBytes`. The precedent is two
-    /// declarations up, not D-P4: `Authorship.at`'s "an approval bound to one
+    /// entirely with no change to `approvalBytes`. The precedent is elsewhere in this
+    /// file, not D-P4: `Authorship.at`'s "an approval bound to one
     /// should not validate the other" and `Outcome`'s "a value whose gate
     /// verdict flipped is not the same thing a person approved" are both a
     /// digest failing to cover a field it must cover — the same shape as
