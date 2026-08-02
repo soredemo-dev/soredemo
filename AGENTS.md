@@ -180,6 +180,22 @@ measurement that reads stale is not the safe kind of wrong. When an assertion is
 standing between you and an unverified mechanism, prove it fails against the mutation *and* passes
 against the real code, in a throwaway probe, before you keep it.
 
+**"Uncoverable in process" is not "unverifiable", and this project has the difference.** Swift
+Testing has no crash expectation, so a `precondition` cannot be observed by `swift test`. That is a
+fact about one tool, not about the guard. Phase 1 built the alternative and used it at least six
+times — compile the real module against a small driver, run it as a child process, and inspect the
+exit status and stderr; then remove the guard and confirm the probe stops seeing the trap, so the
+probe is known to be sensitive to the thing it is watching.
+
+Phase 2's first task shipped two `precondition`s with no coverage of any kind, one of them
+structurally identical to a guard **three files away in the same module** that Phase 1 had already
+covered this way. The brief was the reason: it recorded "expect nothing red, note it as a known
+blind spot" as though that were a fact about the world. It was half of Phase 1's note — the half
+that said `swift test` cannot see it, without the half that said something else can.
+
+So: when writing that a thing cannot be tested, say **by what**. A blind spot named without its
+instrument is an excuse that outlives its reason.
+
 **A hand-computed constant in a task brief is a guess until something computes it.** Three times in
 Phase 1 an implementer has been handed a wrong number by whoever wrote the brief and has been right
 to override it: an FNV-1a vector for `"foobar"`, a test-suite total of 226 that was 229, and a
