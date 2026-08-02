@@ -1123,17 +1123,55 @@ public enum CapturePermissions {
 }
 ```
 
-- [ ] **Step 2: Verify each status function against a known state**
+- [ ] **Step 2: A dump the check can be repeated from**
 
-This cannot be unit-tested — the app has no test target and the answers are machine state. Instead, extend the probe to **print all four**, run it, and record the four values in the report alongside what System Settings shows. A status function that disagrees with the Settings pane is the bug this step exists to find.
+Before any verification, build the thing that stops this green light rotting. The app needs one
+place — a debug menu item, a command-line flag, a line printed at launch — that **dumps all four
+statuses as this code understands them**, with the OS version beside them.
 
-- [ ] **Step 3: Verify one degradation end to end**
+Without it, every future check has to re-derive what to look at, where, and what to expect, and that
+cost is high enough that nobody pays it twice. With it, the check is: run it, open System Settings,
+compare. Thirty seconds.
 
-Revoke **Microphone** for the app in System Settings, run the probe, confirm `status(of: .microphone) == .denied`, and re-grant. This is the cheapest of the four to toggle and the only one whose grant does not require a relaunch.
+This matters more than the four values themselves. TCC's behaviour changes between macOS releases —
+it already changed inside a point release, 26.0.1 to 26.1 — so permission detection can go quietly
+wrong while the row's claim that each permission degrades precisely goes unre-examined.
 
-Record in the report that the other three were **not** exercised, and why: Screen Recording needs a relaunch cycle, and revoking Accessibility or Input Monitoring mid-session is disruptive to the machine being worked on. A partially-exercised check reported as fully exercised is the failure this project keeps finding.
+- [ ] **Step 3: Verify BLIND, and in this order**
 
-- [ ] **Step 4: Commit**
+The one measurement in Phase 2 that cannot be automated, and confirmation bias is free to remove
+here: a person told what the program expects will find it in the Settings pane.
+
+So: **the human reports the four switch states first, from System Settings, without seeing any
+program output.** Only then is the dump run and compared. Not the other way round.
+
+Record disagreements as findings. A status function that disagrees with the pane is the bug this
+step exists for, and it cannot be seen once the answer has been supplied.
+
+- [ ] **Step 4: The state space is bigger than on and off**
+
+Four permissions × two states is not the space. TCC has at least:
+
+| State | Distinguishable? |
+| --- | --- |
+| never asked (`notDetermined`) | must be — it is the only state where prompting is appropriate |
+| authorised | |
+| denied | |
+| restricted by MDM or parental controls | **different from denied** — the user cannot fix it themselves |
+| **granted while the process is already running** | **the dangerous one** |
+
+The last is measured, not hypothetical: Spike B hit it. **The switch is on and the running process
+still fails; only a relaunch takes effect.** That is where "degrades precisely" is most likely to be
+wrong — the app reports having permission and can do nothing, so the interface says everything is
+fine while nothing happens.
+
+It can only be produced in front of a real machine: start recording, turn the switch on mid-run, and
+see what the code says. **Do this experiment last**, because it changes state and invalidates the
+comparison in Step 3.
+
+- [ ] **Step 5: Do not touch any switch** except the deliberate experiment above.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add Soredemo/Capture/CapturePermissions.swift scripts/cross-boundary-digest-probe.swift
