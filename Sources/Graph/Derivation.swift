@@ -182,12 +182,23 @@ extension EvidenceKind {
     }
 }
 
-extension TimeRange {
-    /// 16 bytes: `start` ‖ `duration`, nanoseconds, two's complement
-    /// little-endian.
+extension HostRange {
+    /// 32 bytes: `epoch.id` (16, RFC 4122 byte order) ‖ `start` ‖ `duration`
+    /// (16, nanoseconds, two's complement little-endian).
+    ///
+    /// **The epoch is digest-significant, not bookkeeping.** That is the whole
+    /// reason `HostRange` replaced `TimeRange` here (D2-11, Task 2): `start`
+    /// and `duration` alone are ambiguous across a reboot, so two citations
+    /// with identical offsets from two different boot sessions point at two
+    /// different, unrelated moments. Leaving the epoch out of the encoding
+    /// would let a citation be silently re-pointed at a different recording
+    /// entirely with no change to `approvalBytes` — the same failure D-P4
+    /// rejected side tables for, reached a different way. This is why Task 2
+    /// moved every pinned vector in `DerivedTests.swift` rather than treating
+    /// the type change as encoding-neutral.
     ///
     /// A plain method, deliberately not a `CanonicallyEncodable` conformance:
-    /// `TimeRange` belongs to `Timeline` and the protocol to `Geometry`, so
+    /// `HostRange` belongs to `Timeline` and the protocol to `Geometry`, so
     /// declaring the conformance here — in a third module that owns neither —
     /// would be a retroactive conformance, which two modules could later declare
     /// incompatibly. `Timeline` cannot declare it either: it depends on nothing,
@@ -198,13 +209,18 @@ extension TimeRange {
     /// the same total extent but a different split are different citations, and
     /// digesting a derived `end` alone would collapse them.
     func encodeCanonically(into bytes: inout [UInt8]) {
+        // Same expansion as `EvidenceRef.id`'s, for the same reason:
+        // `.strictMemorySafety()` forbids `withUnsafeBytes` here.
+        let u = epoch.id.uuid
+        bytes.append(contentsOf: [u.0, u.1, u.2,  u.3,  u.4,  u.5,  u.6,  u.7,
+                                  u.8, u.9, u.10, u.11, u.12, u.13, u.14, u.15])
         CanonicalEncoding.appendInt64(start.rawValue, to: &bytes)
         CanonicalEncoding.appendInt64(duration.rawValue, to: &bytes)
     }
 }
 
 extension EvidenceRef: CanonicallyEncodable {
-    /// 66 bytes, fixed width — which is what lets `Evidence` prefix a count and
+    /// 82 bytes, fixed width — which is what lets `Evidence` prefix a count and
     /// nothing else:
     ///
     /// | offset | bytes | field |
@@ -213,14 +229,22 @@ extension EvidenceRef: CanonicallyEncodable {
     /// | 1 | 16 | `id`, RFC 4122 byte order |
     /// | 17 | 32 | `contentDigest.bytes` |
     /// | 49 | 1 | `sourceInterval` present: `0x00` absent, `0x01` present |
-    /// | 50 | 16 | the interval, or sixteen zero bytes when absent |
+    /// | 50 | 32 | the interval (epoch ‖ start ‖ duration), or 32 zero bytes when absent |
     ///
     /// **The presence byte is not redundant.** `nil` and
-    /// `TimeRange(start: 0, duration: 0)` have identical payload bytes, and Task
-    /// 12 recorded that the distinction is `Hashable`-significant on this type.
-    /// Without the discriminator, evidence could be re-cited as covering a
-    /// whole record instead of an instant of it — narrower or broader than what
-    /// was actually reviewed — with no change to the digest.
+    /// `HostRange(epoch: e, start: 0, duration: 0)` have identical payload
+    /// bytes for a fixed `e`, and Task 12 recorded that the distinction is
+    /// `Hashable`-significant on this type. Without the discriminator, evidence
+    /// could be re-cited as covering a whole record instead of an instant of
+    /// it — narrower or broader than what was actually reviewed — with no
+    /// change to the digest.
+    ///
+    /// **Width changed from 66 to 82 in Task 2**, when `sourceInterval` moved
+    /// from `TimeRange?` to `HostRange?` and picked up its epoch (see
+    /// `HostRange.encodeCanonically`). Every pinned vector in
+    /// `DerivedTests.swift` that cites an `EvidenceRef` moved with it — a real
+    /// signal about approval stability, reported rather than silently
+    /// re-pinned; see the Task 2 report.
     public func encodeCanonically(into bytes: inout [UInt8]) {
         bytes.append(kind.canonicalTag)
         // Expanded explicitly rather than via `withUnsafeBytes`, because
@@ -235,7 +259,7 @@ extension EvidenceRef: CanonicallyEncodable {
             sourceInterval.encodeCanonically(into: &bytes)
         } else {
             bytes.append(0x00)
-            bytes.append(contentsOf: [UInt8](repeating: 0, count: 16))
+            bytes.append(contentsOf: [UInt8](repeating: 0, count: 32))
         }
     }
 }
