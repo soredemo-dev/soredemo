@@ -130,15 +130,101 @@ func goertzel(_ x: [Float], _ freq: Double, _ rate: Double) -> Double {
     return sqrt(s1*s1 + s2*s2 - c*s1*s2) / Double(x.count)
 }
 
+/// **Relative, not absolute.** The previous version was
+/// `a440 > 1e-4 && a440 > noise * 4` — half absolute threshold, half ratio,
+/// and the absolute half is unreadable: amplitude moves with the output
+/// volume, the microphone's gain, and how far the phone is from the mic, and
+/// this process controls none of the three. Only the ratio of the target
+/// frequency to the surrounding noise floor is stable across those.
+///
+/// **The floor is a median of five bins, not one.** A single reference bin
+/// can land near zero by chance, and dividing by it produces a huge ratio
+/// from nothing — the last step-1 run had a 3 kHz reference of 0.000003,
+/// which would make a silent 1 kHz bin read as "7× the floor" purely from
+/// arithmetic noise. The five bins below are deliberately **not** harmonics
+/// of either tone: 440's harmonics fall on 880/1320/1760/2200/2640/3080…,
+/// 1000's on 2000/3000/4000/5000…, and a reference bin sitting on a harmonic
+/// would measure the tone it is supposed to be a baseline for.
+let referenceFrequencies: [Double] = [1523, 2717, 4231, 6133, 7549]
+
+/// **The separation criterion, and its subject is a track — not a frequency
+/// bin.**
+///
+/// The first version asked "is 440 Hz detectable in the microphone track,
+/// relative to the noise floor?" and that question has the wrong subject.
+/// 440 Hz IS detectable there: headphones leak, and leakage is physics. The
+/// question the four assertions exist to answer is whether the two tracks
+/// are *separate or mixed*, and that is a comparison **inside one track**,
+/// between the tone that belongs to it and the tone that does not.
+///
+/// The two regimes are not adjacent, and neither number is chosen:
+///   * acoustic leakage, measured across four runs on this setup — with
+///     headphones the foreign tone lands between 1/1400 and 1/2138 of the
+///     native one in the microphone track, and between 1/6570 and 1/16765 in
+///     the system track. With the headphones off it was **1/1**, which is
+///     why the acoustic condition is now a precondition rather than a
+///     result;
+///   * a range, not one figure, deliberately: a single number would read as
+///     a property of the code, and this is a property of a room. The
+///     pre-flight gate measured 1/174 in the same session whose recording
+///     measured 1/1400 — the eight-second window falls while the tone source
+///     is still being positioned, so the gate is pessimistic. That is the
+///     safe direction, but it is observed, not designed: the gate's own
+///     margin was 1.7x where the recording's was 14x;
+///   * genuine mixing — both sources are summed into one track, so the two
+///     tones sit within about 1/1 to 1/10 of each other.
+/// Three orders of magnitude separate them, so `1/100` is a line drawn in
+/// empty space rather than fitted to either side. The old `20×` had no such
+/// derivation, and it decided assertion 4 by a 20% margin.
+let foreignToneCeiling = 1.0 / 100.0
+
+/// A tone counts as present at 20× the floor. Observed separation for a real
+/// tone in Spike B's own earlier run was 207×, and for a genuinely absent one
+/// under 10×, so 20 sits in a wide gap rather than being fitted to either
+/// side. Both ratios are printed, so a run landing near the line is visible
+/// instead of being silently rounded to a verdict.
+let tonePresenceRatio = 20.0
+
 struct TrackTones {
     let index: Int
     let rms: Double
     let a440: Double
     let a1k: Double
-    let noise: Double
-    var essentiallySilent: Bool { rms < 1e-3 }
-    var has440: Bool { a440 > 1e-4 && a440 > noise * 4 }
-    var has1k: Bool { a1k > 1e-4 && a1k > noise * 4 }
+    let referenceMagnitudes: [Double]
+    let channels: Int
+    let sampleRate: Double
+
+    /// Median of the reference bins.
+    var noiseFloor: Double {
+        let sorted = referenceMagnitudes.sorted()
+        guard !sorted.isEmpty else { return 0 }
+        return sorted[sorted.count / 2]
+    }
+    var ratio440: Double { noiseFloor > 0 ? a440 / noiseFloor : .infinity }
+    var ratio1k: Double { noiseFloor > 0 ? a1k / noiseFloor : .infinity }
+
+    /// Digital silence, and the one place an absolute number is honest: this
+    /// asks whether there are any non-zero samples at all, which no gain
+    /// setting changes. It is a precondition on reading the ratios, not a
+    /// tone verdict — a silent track has no noise floor to be relative to.
+    var essentiallySilent: Bool { rms < 1e-5 }
+    var has440: Bool { !essentiallySilent && ratio440 >= tonePresenceRatio }
+    var has1k: Bool { !essentiallySilent && ratio1k >= tonePresenceRatio }
+
+    var formatDescription: String { "\(channels)ch @\(Int(sampleRate))Hz" }
+
+    /// How loud the tone that does NOT belong to this track is, relative to
+    /// the one that does. Small means separated; near 1 means mixed.
+    ///
+    /// The denominator is this track's own dominant tone — a large, stable
+    /// number — rather than a noise floor of five near-zero bins whose
+    /// median moved by 2× between two reads of the same file, putting the
+    /// same assertion on both sides of its threshold in one run.
+    func foreignToNative(native: Double, foreign: Double) -> Double {
+        native > 0 ? foreign / native : .infinity
+    }
+    var systemViewForeignRatio: Double { foreignToNative(native: a440, foreign: a1k) }
+    var micViewForeignRatio: Double { foreignToNative(native: a1k, foreign: a440) }
 }
 
 func readTones(track: AVAssetTrack, asset: AVAsset) throws -> TrackTones {
@@ -163,12 +249,27 @@ func readTones(track: AVAssetTrack, asset: AVAsset) throws -> TrackTones {
         }
     }
     let rms = sqrt(samples.reduce(0) { $0 + Double($1*$1) } / Double(max(samples.count,1)))
+    // The track's own format, read from the file rather than assumed from its
+    // index. The two sources are distinguishable by it — system audio arrives
+    // 2ch@48k and the microphone 1ch@44.1k on this machine — so "which track
+    // is which" stops being an ordering assumption, which is the one thing a
+    // separation test must not assume.
+    let description = try? awaitFormat(track)
     return TrackTones(index: 0, rms: rms,
                        a440: goertzel(samples, 440, 48000), a1k: goertzel(samples, 1000, 48000),
-                       noise: goertzel(samples, 3000, 48000))
+                       referenceMagnitudes: referenceFrequencies.map { goertzel(samples, $0, 48000) },
+                       channels: description?.channels ?? 0, sampleRate: description?.rate ?? 0)
 }
 
-func analyse(_ url: URL) async throws {
+/// The track's channel count and sample rate, from its format description.
+func awaitFormat(_ track: AVAssetTrack) throws -> (channels: Int, rate: Double) {
+    guard let fd = (track.formatDescriptions as [Any]).first,
+          let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fd as! CMFormatDescription)?.pointee
+    else { return (0, 0) }
+    return (Int(asbd.mChannelsPerFrame), asbd.mSampleRate)
+}
+
+func analyse(_ url: URL, preRead: [TrackTones]? = nil) async throws {
     let asset = AVURLAsset(url: url)
     let video = try await asset.loadTracks(withMediaType: .video)
     let audio = try await asset.loadTracks(withMediaType: .audio)
@@ -187,14 +288,28 @@ func analyse(_ url: URL) async throws {
     }
     print()
     if audio.isEmpty { print("  NO AUDIO TRACK AT ALL."); return }
+    // One read, and the caller may pass the result back in. D-P4 rejected
+    // "two records of one fact that drift apart silently" for storage; this
+    // is the same rule at computation scope. Reading twice is exactly what
+    // produced 34.0x and 16.0x for one quantity in one run.
+    //
+    // Worth writing down: that accidental duplicate WAS a cross-check, and
+    // it is what caught the unstable criterion. Removing it is right, and it
+    // means the new criterion has to be stable on its own — three orders of
+    // magnitude rather than a 20% margin. Deliberately, not by luck.
     for (i, t) in audio.enumerated() {
-        let tones = try readTones(track: t, asset: asset)
-        print("  audio[\(i)]  samples-limited-rms \(String(format:"%.5f", tones.rms))")
-        print(String(format: "     440 Hz %.6f   1000 Hz %.6f   3000 Hz (ref) %.6f", tones.a440, tones.a1k, tones.noise))
+        let tones = try preRead?[i] ?? readTones(track: t, asset: asset)
+        print("  audio[\(i)]  \(tones.formatDescription)  samples-limited-rms \(String(format:"%.5f", tones.rms))")
+        print(String(format: "     440 Hz %.6f  1000 Hz %.6f  noise floor (median of 5 non-harmonic bins) %.6f",
+                     tones.a440, tones.a1k, tones.noiseFloor))
         if tones.essentiallySilent {
-            print("     ESSENTIALLY SILENT — no tone conclusion possible.")
+            print("     ESSENTIALLY SILENT (rms < 1e-5) — no tone conclusion possible. This is NOT " +
+                  "'the tone was absent'; it is 'this track carries no signal at all'.")
         } else {
-            print("     440 present: \(tones.has440)    1k present: \(tones.has1k)")
+            print(String(format: "     440 is %.1fx the floor → present: %@   |   1k is %.1fx the floor → present: %@" +
+                                 "   (threshold %.0fx)",
+                         tones.ratio440, tones.has440 ? "YES" : "no",
+                         tones.ratio1k, tones.has1k ? "YES" : "no", tonePresenceRatio))
         }
     }
 }
@@ -214,6 +329,42 @@ func firstDisplay() async throws -> SCDisplay {
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     guard let display = content.displays.first else { print("no display"); exit(3) }
     return display
+}
+
+/// Phase accumulator for the 440 Hz source node below.
+///
+/// A global with `nonisolated(unsafe)`, for the same reason
+/// `displayReconfigurations` is one: the render block cannot be a closure
+/// that captures local state, because under this build's
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` such a closure is inferred
+/// `@MainActor` — and CoreAudio calls it on a realtime thread, where
+/// `dispatch_assert_queue` fails and the process traps with SIGTRAP.
+///
+/// **This is the "the probe is not the app" rule collecting.** The closure
+/// form ran fine for four earlier Spike B runs. It broke the moment
+/// `build.sh` was changed to compile against the SAME language-mode flags as
+/// `Soredemo.xcodeproj` — which is exactly what that change was for: a spike
+/// built under different isolation semantics can pass while the product
+/// crashes.
+nonisolated(unsafe) var tonePhase = 0.0
+
+/// The 440 Hz generator, as a `nonisolated` free function rather than a
+/// closure — see `tonePhase`.
+nonisolated func renderToneBlock(_ isSilence: UnsafeMutablePointer<ObjCBool>,
+                                  _ timestamp: UnsafePointer<AudioTimeStamp>,
+                                  _ frameCount: AVAudioFrameCount,
+                                  _ audioBufferList: UnsafeMutablePointer<AudioBufferList>) -> OSStatus {
+    let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+    let increment = 2.0 * Double.pi * 440.0 / 48000.0
+    for frame in 0..<Int(frameCount) {
+        let value = Float(sin(tonePhase) * 0.25)
+        tonePhase += increment
+        if tonePhase > 2 * .pi { tonePhase -= 2 * .pi }
+        for buffer in buffers {
+            buffer.mData!.assumingMemoryBound(to: Float.self)[frame] = value
+        }
+    }
+    return noErr
 }
 
 nonisolated(unsafe) var displayReconfigurations = 0
@@ -648,16 +799,37 @@ func sampleRow(_ image: CGImage, y: Int) -> [(r: Int, g: Int, b: Int)]? {
 func runAudioTones(seconds: Int) async throws {
     printIdentityBlock(step: "2 — two audio sources, distinguishable tones")
     print("""
-    Expect BEFORE running:
-      - track identified as "system" contains 440 Hz and NOT 1 kHz
-      - track identified as "mic" contains 1 kHz and NOT 440 Hz
-      - i.e. FOUR assertions, not a track count — see the coordinator's note in
-        the task report for why a count alone cannot tell separation from
-        duplication or from a dropped track
+    ***  USE HEADPHONES.  ***
+    Not a preference — assertion 4 is "the microphone track does NOT contain
+    440 Hz", and if the 440 comes out of the Mac's speakers the microphone
+    WILL pick it up. That assertion then fails for a reason that has nothing
+    to do with the code, and the failure is indistinguishable from real
+    mixing. ScreenCaptureKit captures the audio STREAM, not the speakers, so
+    routing system audio to headphones still gets captured digitally while
+    keeping it out of the room.
+
+    Expect BEFORE running — FOUR assertions, not a track count. A count of 2
+    cannot tell separation from duplication, and cannot tell a live track from
+    a silent one:
+      1. the 2-channel 48 kHz track (system audio) CONTAINS 440 Hz
+      2. the same track does NOT contain 1 kHz
+      3. the 1-channel track (microphone) CONTAINS 1 kHz
+      4. the same track does NOT contain 440 Hz
+
+    Tracks are identified by their FORMAT, not by their index and not by which
+    tone they contain. Identifying them by tone would make assertions 1 and 3
+    tautologies — the previous version of this step did exactly that.
+
+    Presence is a RATIO to a noise floor (%.0fx, floor = median of five
+    non-harmonic reference bins), never an absolute amplitude: output volume,
+    microphone gain and room noise all move amplitude and this process
+    controls none of them.
+
     You must, while this runs:
-      - let it play 440 Hz itself (done automatically, from this process)
-      - hold a phone playing a steady 1 kHz tone NEAR THE MICROPHONE
-    """)
+      - let it play 440 Hz itself (automatic, from this process)
+      - hold a phone playing a steady 1 kHz tone NEAR THE MICROPHONE,
+        for the whole recording, not just the start
+    """.replacingOccurrences(of: "%.0fx", with: String(format: "%.0fx", tonePresenceRatio)))
     requireScreenRecording()
 
     let micAuth = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -674,58 +846,133 @@ func runAudioTones(seconds: Int) async throws {
         exit(4)
     }
 
-    print("\nChecking the microphone is actually receiving signal before spending \(seconds)s…")
-    print("PLAY THE 1 kHz TONE NEAR THE MIC NOW.")
-    let probeEngine = AVAudioEngine()
-    var micRMS = 0.0
-    probeEngine.inputNode.installTap(onBus: 0, bufferSize: 4096,
-                                     format: probeEngine.inputNode.outputFormat(forBus: 0)) { buf, _ in
-        guard let d = buf.floatChannelData?[0] else { return }
-        var sum = 0.0
-        for i in 0..<Int(buf.frameLength) { sum += Double(d[i] * d[i]) }
-        micRMS = max(micRMS, sqrt(sum / Double(max(buf.frameLength, 1))))
+    // Which microphone, printed rather than assumed.
+    //
+    // The choice of input device decides assertion 4. Headphones WITH a
+    // microphone make macOS switch input to that headset — whose microphone
+    // sits centimetres from the earcup now playing the 440 Hz tone, which is
+    // the leakage path headphones were supposed to remove, only shorter. So
+    // the device is named here: if assertion 4 fails, this line says whether
+    // the input was the built-in microphone or something clipped to the
+    // sound source.
+    if let inputDevice = AVCaptureDevice.default(for: .audio) {
+        print("microphone input device: \(inputDevice.localizedName)")
+    } else {
+        print("microphone input device: NONE — no audio capture device is available at all.")
     }
-    try probeEngine.start()
-    for i in (1...8).reversed() {
-        try await Task.sleep(for: .seconds(1))
-        print(String(format: "  %ds  mic peak rms %.5f", i, micRMS))
-    }
-    probeEngine.stop(); probeEngine.inputNode.removeTap(onBus: 0)
-    guard micRMS > 0.01 else {
-        print("ABORTING — the microphone is receiving essentially nothing (peak rms " +
-              "\(String(format: "%.5f", micRMS))); a recording made now could not distinguish 'mixed/dropped' " +
-              "from 'no tone was played'. Play the tone and re-run.")
-        exit(5)
-    }
-    print("  mic is live (peak rms \(String(format: "%.4f", micRMS))) — proceeding\n")
 
-    try? FileManager.default.removeItem(at: verificationDir)
     let display = try await firstDisplay()
     let source = CaptureSource.display(display)
-    let session = CaptureSession(source: source, scale: 2.0, displayUUID: displayUUID(for: display.displayID),
-                                  packageURL: packageDir, epoch: bootEpoch())
 
-    // 440 Hz generated by this process itself — one fewer human step, and
-    // removes the run-3-of-four failure mode the original Spike B hit
-    // (nothing playing at all, "both tones" reported present in silence).
+    // 440 Hz generated by this process itself — one fewer human step, and it
+    // removes the failure the original Spike B hit three runs out of four
+    // (nothing playing at all, with "both tones present" reported over
+    // silence).
     let engine = AVAudioEngine()
     let fmt = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
-    var phase = 0.0
-    let src = AVAudioSourceNode { _, _, frameCount, abl in
-        let bufs = UnsafeMutableAudioBufferListPointer(abl)
-        let inc = 2.0 * Double.pi * 440.0 / 48000.0
-        for f in 0..<Int(frameCount) {
-            let v = Float(sin(phase) * 0.25); phase += inc
-            if phase > 2 * .pi { phase -= 2 * .pi }
-            for b in bufs { b.mData!.assumingMemoryBound(to: Float.self)[f] = v }
-        }
-        return noErr
-    }
+    tonePhase = 0
+    let src = AVAudioSourceNode(renderBlock: renderToneBlock)
     engine.attach(src)
     engine.connect(src, to: engine.mainMixerNode, format: fmt)
     try engine.start()
-    print("playing 440 Hz from this process (captured as system audio)")
+    print("\nplaying 440 Hz from this process (captured as system audio)")
 
+    // ---- PRECONDITION: BOTH sources carrying signal, not just the mic ----
+    //
+    // Two-sided, deliberately. A run where the 440 never played produces
+    // exactly the same file as a run where the system-audio track is broken:
+    // one silent track and one live one. Gating on the microphone alone —
+    // which is what this step used to do — leaves that pair
+    // indistinguishable, and the wrong one of the two is the comfortable
+    // conclusion.
+    //
+    // The gate uses a real `CaptureSession`, not a separate `AVAudioEngine`
+    // tap, so it exercises the same path the recording will. `peakRMS` is
+    // per track and comes from the product's own diagnostics.
+    print("\nPRE-FLIGHT — 8s, checking BOTH sources carry signal before spending \(seconds)s.")
+    print("PLAY THE 1 kHz TONE NEAR THE MIC NOW, and keep it playing.")
+    try? FileManager.default.removeItem(at: verificationDir)
+    let preflightPackage = verificationDir.appending(path: "preflight.soredemo", directoryHint: .isDirectory)
+    let preflight = CaptureSession(source: source, scale: 2.0,
+                                    displayUUID: displayUUID(for: display.displayID),
+                                    packageURL: preflightPackage, epoch: bootEpoch())
+    try await preflight.start()
+    for i in (1...8).reversed() {
+        try await Task.sleep(for: .seconds(1))
+        let d = preflight.diagnostics
+        print(String(format: "  %ds  system peak rms %@   mic peak rms %@", i,
+                     d.systemAudioAccounting.peakRMS.map { String(format: "%.5f", $0) } ?? "(none yet)",
+                     d.microphoneAccounting.peakRMS.map { String(format: "%.5f", $0) } ?? "(none yet)"))
+    }
+    _ = try? await preflight.stop()
+    let pre = preflight.diagnostics
+
+    // An absolute floor, and this is the one place that is honest: the
+    // question here is "are there any non-zero samples", which no gain
+    // setting changes. It is NOT a tone threshold — those are ratios.
+    let silenceFloor = 1e-4
+    let systemLive = (pre.systemAudioAccounting.peakRMS ?? 0) > silenceFloor
+    let micLive = (pre.microphoneAccounting.peakRMS ?? 0) > silenceFloor
+    print(String(format: "  system audio: %@ (peak rms %.5f)   microphone: %@ (peak rms %.5f)   floor %.5f",
+                 systemLive ? "LIVE" : "SILENT", pre.systemAudioAccounting.peakRMS ?? 0,
+                 micLive ? "LIVE" : "SILENT", pre.microphoneAccounting.peakRMS ?? 0, silenceFloor))
+    guard systemLive, micLive else {
+        print("\nABORTING before recording — " +
+              (!systemLive && !micLive ? "NEITHER source is carrying signal."
+               : !systemLive ? "the SYSTEM AUDIO source is silent: either the 440 is not reaching the "
+                             + "capture path, or the output device produces nothing capturable."
+               : "the MICROPHONE is silent: the 1 kHz tone is not reaching it, or the input device is muted.")
+              + "\nA recording made now would produce one silent track, which is exactly what a real " +
+              "failure looks like — and the two would not be distinguishable afterwards.")
+        engine.stop()
+        exit(5)
+    }
+    // ---- PRECONDITION 2: the acoustic path, checked BEFORE spending 30s ----
+    //
+    // Assertion 4 ("the microphone track does not contain 440 Hz") is the one
+    // assertion of the four that is NOT immune to the room. Assertion 2 is:
+    // there is no path by which a sound in the room reaches a digitally
+    // captured system-audio stream, so a failure there can only be the
+    // writer mixing. But the 440 Hz playing out of a speaker reaches the
+    // microphone through the air, and that is physics, not a defect —
+    // measured at 1/2138 of the native tone through headphones and at 1/1
+    // with the speakers audible.
+    //
+    // So the acoustic condition is a precondition, not a result. Checking it
+    // here turns "assertion 4 failed after 30 seconds, and it is ambiguous
+    // whether that means mixing or speakers" into "your speakers are
+    // audible, put the headphones on", before the recording.
+    let preflightMedia = preflightPackage.appending(path: "media/master-00.mov")
+    if FileManager.default.fileExists(atPath: preflightMedia.path()) {
+        let preAsset = AVURLAsset(url: preflightMedia)
+        let preTracks = try await preAsset.loadTracks(withMediaType: .audio)
+        let preTones = try preTracks.map { try readTones(track: $0, asset: preAsset) }
+        if let preMic = preTones.first(where: { $0.channels == 1 }) {
+            let leak = preMic.micViewForeignRatio
+            print(String(format: "  acoustic leakage into the microphone: 440 Hz is %@ of the 1 kHz tone",
+                         leak <= 0 ? "0" : (leak >= 1 ? String(format: "%.2f", leak) : "1/\(Int((1/leak).rounded()))")))
+            guard leak <= foreignToneCeiling else {
+                print("\nABORTING before recording — the 440 Hz this process is playing is reaching the " +
+                      "MICROPHONE loudly enough that assertion 4 could not be read afterwards. " +
+                      "That assertion asks whether the two tracks are mixed; with the speakers audible " +
+                      "it would instead be measuring the room, and a failure would be indistinguishable " +
+                      "from real mixing.")
+                print("Put HEADPHONES on (or mute the speakers) and re-run. Note assertion 2 — the other " +
+                      "direction — needs no such condition: nothing in the room can reach a digitally " +
+                      "captured system stream.")
+                engine.stop()
+                try? FileManager.default.removeItem(at: verificationDir)
+                exit(6)
+            }
+        }
+    }
+    try? FileManager.default.removeItem(at: verificationDir)
+    print("  both sources live, and the acoustic path is quiet enough to read assertion 4 — proceeding\n")
+
+    // ---- the real run ----
+    let session = CaptureSession(source: source, scale: 2.0,
+                                  displayUUID: displayUUID(for: display.displayID),
+                                  packageURL: packageDir, epoch: bootEpoch())
     try await session.start()
     print("recording \(seconds)s, video + system audio + microphone, to \(packageDir.path()) ...")
     for s in stride(from: seconds, to: 0, by: -5) {
@@ -746,40 +993,82 @@ func runAudioTones(seconds: Int) async throws {
     printDiagnostics(session.diagnostics)
 
     let mediaURL = packageDir.appending(path: "media/master-00.mov")
+    guard FileManager.default.fileExists(atPath: mediaURL.path()) else {
+        print("\nFAIL — no file at \(mediaURL.path()); the four assertions have nothing to run against.")
+        exit(8)
+    }
+    // Read ONCE. `analyse` is handed the result rather than re-reading, so
+    // there is one producer for every number below.
     let asset = AVURLAsset(url: mediaURL)
     let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-    print("audio tracks: \(audioTracks.count)")
+    let tones = try audioTracks.map { try readTones(track: $0, asset: asset) }
+    try await analyse(mediaURL, preRead: tones)
+
     guard audioTracks.count == 2 else {
-        print("FAIL — expected 2 audio tracks, got \(audioTracks.count). Cannot run the four tone assertions.")
-        try await analyse(mediaURL)
-        return
+        print("\nFAIL — expected 2 audio tracks, got \(audioTracks.count). The four assertions cannot run. " +
+              "Note this is the WEAK check: 2 tracks would not have proved separation either.")
+        exit(9)
     }
-    let tones = try audioTracks.enumerated().map { i, t -> TrackTones in
-        let raw = try readTones(track: t, asset: asset)
-        return TrackTones(index: i, rms: raw.rms, a440: raw.a440, a1k: raw.a1k, noise: raw.noise)
+
+    // Identified by FORMAT — the layouts the session measured on the way in,
+    // which have nothing to do with which tone is present. Identifying by
+    // tone (what this step used to do) makes assertions 1 and 3 tautologies:
+    // "the track containing 440 contains 440".
+    let d = session.diagnostics
+    print("\nsource layouts measured during capture:")
+    print("  system audio: \(d.systemAudioLayout ?? "(none)")")
+    print("  microphone:   \(d.microphoneLayout ?? "(none)")")
+    guard let systemTrack = tones.first(where: { $0.channels == 2 }),
+          let micTrack = tones.first(where: { $0.channels == 1 }) else {
+        print("\nFAIL — could not tell the two tracks apart by format " +
+              "(\(tones.map(\.formatDescription).joined(separator: ", "))). " +
+              "Identifying them by tone instead would make two of the four assertions circular, " +
+              "so this step refuses rather than falling back.")
+        exit(10)
     }
-    for t in tones {
-        print("  track[\(t.index)] rms \(String(format: "%.5f", t.rms))  " +
-              "440=\(String(format: "%.6f", t.a440)) 1k=\(String(format: "%.6f", t.a1k)) ref=\(String(format: "%.6f", t.noise))  " +
-              "silent=\(t.essentiallySilent)")
+
+    // ---- setup diagnostic, printed whether or not anything fails ----
+    //
+    // The leakage ratio is a measured constant OF THIS PHYSICAL SETUP, not a
+    // property of the code. Printing it means a future run that reports 1/50
+    // is immediately diagnosable as "headphones off" or "speakers audible",
+    // instead of arriving as a mysterious assertion failure. Same purpose as
+    // the identity block at the top: let the output say what conditions
+    // produced it.
+    func ratioText(_ r: Double) -> String {
+        r <= 0 ? "0" : (r >= 1 ? String(format: "%.2f", r) : "1/\(Int((1/r).rounded()))")
     }
-    // Identify by WHICH tone dominates, not by array index (the coordinator's
-    // point: `AVAssetWriter.inputs` order is not a documented guarantee of
-    // file track order).
-    guard let systemTrack = tones.first(where: { $0.has440 && !$0.has1k }),
-          let micTrack = tones.first(where: { $0.has1k && !$0.has440 }),
-          systemTrack.index != micTrack.index else {
-        print("FAIL — could not identify one track as 440-only and a DIFFERENT track as 1k-only. " +
-              "Read the per-track numbers above: this is either mixing, a dropped source, or a silent track.")
-        return
+    print("\nacoustic leakage measured on this setup (a property of the room and the headphones, " +
+          "not of the code):")
+    print("  microphone track: its 440 Hz is \(ratioText(micTrack.micViewForeignRatio)) of its own 1 kHz")
+    print("  system track:     its 1 kHz is \(ratioText(systemTrack.systemViewForeignRatio)) of its own 440 Hz")
+    print("  separation ceiling \(ratioText(foreignToneCeiling)) — leakage sits far below it; " +
+          "genuine mixing would sit between 1/1 and 1/10")
+
+    print("\nFOUR ASSERTIONS (tracks by format; presence vs the noise floor; separation vs the " +
+          "track's OWN dominant tone):")
+    let assertions: [(String, Bool)] = [
+        ("system track (\(systemTrack.formatDescription)) CONTAINS 440 Hz " +
+         "— \(String(format: "%.0fx", systemTrack.ratio440)) the floor", systemTrack.has440),
+        ("system track is not MIXED with the microphone — its 1 kHz is " +
+         "\(ratioText(systemTrack.systemViewForeignRatio)) of its own 440, ceiling " +
+         "\(ratioText(foreignToneCeiling))", systemTrack.systemViewForeignRatio <= foreignToneCeiling),
+        ("mic track (\(micTrack.formatDescription)) CONTAINS 1 kHz " +
+         "— \(String(format: "%.0fx", micTrack.ratio1k)) the floor", micTrack.has1k),
+        ("mic track is not MIXED with system audio — its 440 is " +
+         "\(ratioText(micTrack.micViewForeignRatio)) of its own 1 kHz, ceiling " +
+         "\(ratioText(foreignToneCeiling))", micTrack.micViewForeignRatio <= foreignToneCeiling),
+    ]
+    for (what, ok) in assertions { print("  \(ok ? "ok  " : "FAIL") \(what)") }
+    if assertions.allSatisfy({ $0.1 }) {
+        print("\nPASS — system audio and the microphone are independent tracks, and each carries only " +
+              "its own source. All four assertions hold.")
+    } else {
+        print("\nFAIL — see the ratios above. A foreign tone near 1/1 to 1/10 of the native one is " +
+              "MIXING; one near the leakage figures printed above with the ceiling crossed anyway " +
+              "means the acoustic setup changed — check headphones before checking the code.")
+        exit(11)
     }
-    print("\nFOUR ASSERTIONS:")
-    print("  track \(systemTrack.index) (system) contains 440 Hz:       \(systemTrack.has440)")
-    print("  track \(systemTrack.index) (system) does NOT contain 1kHz: \(!systemTrack.has1k)")
-    print("  track \(micTrack.index) (mic) contains 1 kHz:              \(micTrack.has1k)")
-    print("  track \(micTrack.index) (mic) does NOT contain 440 Hz:     \(!micTrack.has440)")
-    let allPass = systemTrack.has440 && !systemTrack.has1k && micTrack.has1k && !micTrack.has440
-    print(allPass ? "PASS — system audio and microphone are independent tracks." : "FAIL — see above.")
 }
 
 // --------------------------------------------------------- Step 3: reconfig

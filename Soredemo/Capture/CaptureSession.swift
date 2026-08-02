@@ -265,6 +265,17 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                     + " + uninterleavable \(uninterleavable)"
                     + "  → \(balances ? "balances" : "DOES NOT BALANCE")"
             }
+            /// Loudest RMS seen on this track, 0…1, or `nil` if no buffer
+            /// was readable as interleaved Float32.
+            ///
+            /// **The counts below can all balance over silence.** Every
+            /// buffer arriving, converting and appending is compatible with
+            /// every sample being zero — and a track of digital silence is
+            /// exactly what "the microphone was muted" and "the tone was
+            /// never played" both look like. This is the only field here
+            /// that distinguishes "nothing was lost" from "there was nothing".
+            public internal(set) var peakRMS: Double?
+
             /// A track that was delivered buffers and wrote none of them.
             /// This is the state that produced a file with one audio track
             /// where two were expected — and it was only visible by counting
@@ -936,8 +947,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             updateAudioAccounting(isSystemAudio) { $0.uninterleavable += 1 }
             return
         }
+        let level = AudioInterleave.rms(of: writable)
         let accepted = inputRef.append(writable)
-        updateAudioAccounting(isSystemAudio) { if accepted { $0.appended += 1 } else { $0.refused += 1 } }
+        updateAudioAccounting(isSystemAudio) {
+            if accepted { $0.appended += 1 } else { $0.refused += 1 }
+            if let level { $0.peakRMS = max($0.peakRMS ?? 0, level) }
+        }
         recordAppend(accepted, of: writerRef, isVideo: false)
     }
 

@@ -117,6 +117,45 @@ enum AudioInterleave {
         return rebuilt
     }
 
+    /// Root-mean-square amplitude of an interleaved Float32 buffer, 0…1, or
+    /// `nil` if the buffer is not readable as Float32.
+    ///
+    /// The audio counterpart of `CaptureSession.checkForBlackFrame`, and it
+    /// exists for the same reason: a track can be present, well-formed, the
+    /// right length, correctly timed, and carry **nothing**. Every count in
+    /// `AudioTrackAccounting` can balance perfectly over silence — the
+    /// buffers arrived, were converted, and were appended, and every one of
+    /// them was zeros. Accounting answers "did anything get lost"; this
+    /// answers "was there anything to lose".
+    ///
+    /// Recorded, not asserted, exactly like the black-frame detector: a
+    /// genuinely silent recording is legitimate (a demo with no sound), so
+    /// this is a number for a caller to judge, never a reason to fail a
+    /// segment.
+    nonisolated static func rms(of sampleBuffer: CMSampleBuffer) -> Double? {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee,
+              asbd.mFormatID == kAudioFormatLinearPCM,
+              (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0,
+              asbd.mBitsPerChannel == 32,
+              (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0,
+              let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer)
+        else { return nil }
+
+        var length = 0
+        var pointer: UnsafeMutablePointer<Int8>?
+        guard CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil,
+                                           totalLengthOut: &length, dataPointerOut: &pointer) == noErr,
+              let pointer, length >= 4
+        else { return nil }
+        let count = length / 4
+        var sum = 0.0
+        pointer.withMemoryRebound(to: Float.self, capacity: count) { floats in
+            for i in 0..<count { sum += Double(floats[i]) * Double(floats[i]) }
+        }
+        return (sum / Double(count)).squareRoot()
+    }
+
     /// A one-line description of an audio buffer's actual layout, for the
     /// diagnostics.
     ///
