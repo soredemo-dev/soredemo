@@ -713,3 +713,54 @@ The fix was not to ask more carefully. It was to instrument the preconditions:
 
 The generalisable form: **a precondition that is requested rather than measured is a precondition
 that silently did not happen**, and its absence produces a result shaped exactly like a finding.
+
+---
+
+## D2-10 — Display reconfiguration is an observed event, and its handling is already decided
+
+Spike B never tested this, four runs running. It is not going to be tested, and the reason is that
+**it cannot change any decision.**
+
+Two facts are already established and neither is a claim about user behaviour:
+
+1. A QuickTime video track cannot change dimensions part-way through.
+2. Pause does not exist in ScreenCaptureKit (D2-9), so the master is already a **sequence** of files.
+
+The second dissolves the first. If reconfiguration forces a file boundary, that boundary is the
+**same mechanism pause already requires** — close the current segment, open the next, carry the new
+`geometryRevision`. There is no design fork here to measure into.
+
+Measuring the *frequency* would matter only if we were deciding whether to handle it at all. We are
+not: the mechanism exists for another reason and reconfiguration rides it.
+
+### What is genuinely open, and where it gets settled
+
+Whether the stream stops cleanly and reports, or degrades silently. That is `capture-stream`'s error
+handling, and it will surface while writing that row — with real code in hand to fix, which is
+better than observing it in a spike and re-implementing weeks later.
+
+### What this adds to the design now
+
+**Register `CGDisplayRegisterReconfigurationCallback`.** Not as instrumentation for a spike — in the
+product.
+
+| | |
+| --- | --- |
+| registered | reconfiguration is an **observed event**: close the segment deliberately, open the next, record a named boundary |
+| not registered | it is **inferred** from frames stopping or sizes not matching — after the file is already wrong |
+
+This is the same rule as `SCFrameStatusIdle` and as truncation in D2-2: *"nothing changed"* and
+*"we were not told"* must not be the same bytes on disk.
+
+**And it gives `geometryRevision` its trigger.** Phase 1 built the type, made cross-revision
+comparison a precondition failure, and never said what event mints a new revision. This is the
+event. That gap was not visible from inside Phase 1 — the type looked complete because nothing
+called it, which is the same completion-rule blind spot `NormalizationContext` sits in.
+
+### Why the spike was not run, recorded so it is not proposed again
+
+The alternative was to drive the change from code with `CGDisplaySetDisplayMode`. That would be the
+first spike in this project to **alter the machine's state**: the worst case of the previous three
+was a wrong number in a log, and the worst case of this one is a display left in an unexpected mode
+if the process dies between changing and restoring. Small, but it is a real cost on one side of a
+balance whose other side is a measurement that changes nothing.
