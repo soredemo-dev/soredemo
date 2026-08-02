@@ -26,6 +26,44 @@ private let scaledGeometry = DisplayGeometry(
     #expect(decoded == r)
 }
 
+// MARK: - description names its own unit
+//
+// Added after `Soredemo/App/SoredemoApp.swift`'s `--present-picker`
+// diagnostic printed a `.display`'s size as "1512x982 pt" and a `.window`'s
+// buffer as "3024x1964 px" by hand-writing the unit into two separate format
+// strings — silent unit-mixing one layer above the type system that exists
+// to make it a compile error. `description` is the fix: the unit is now
+// part of the type's own printed form, so no caller can print one without
+// the other coming along.
+
+@Test func pointRectDescriptionNamesPoints() {
+    // Off-centre, non-square fixture (`AGENTS.md`'s identity-fixture rule) —
+    // an all-zero rect would still produce a description containing "pt",
+    // but would not prove every field actually made it into the string.
+    let r = PointRect(x: 12, y: 34, width: 800, height: 600)
+    let description = r.description
+    #expect(description.contains("pt"))
+    #expect(description.contains("12"))
+    #expect(description.contains("34"))
+    #expect(description.contains("800"))
+    #expect(description.contains("600"))
+}
+
+@Test func pixelRectDescriptionNamesPixels() {
+    let r = PixelRect(x: 12, y: 34, width: 800, height: 600)
+    #expect(r.description.contains("px"))
+}
+
+@Test func pointRectAndPixelRectDescribeTheSameNumbersDifferently() {
+    // The whole point: two rects with IDENTICAL fields, one of each type,
+    // must not print identically — that would be the exact silent-mixing
+    // bug this pair of types exists to make impossible, reproduced in the
+    // one place (`description`) the type system cannot reach on its own.
+    let points = PointRect(x: 12, y: 34, width: 800, height: 600)
+    let pixels = PixelRect(x: 12, y: 34, width: 800, height: 600)
+    #expect(points.description != pixels.description)
+}
+
 // MARK: - the conversion itself: `scale: 2`, so pixels and points genuinely differ
 
 @Test func pixelsFromPointsMultipliesEveryFieldByScale() {

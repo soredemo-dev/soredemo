@@ -252,10 +252,10 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
     /// this type, unmodified — is worth more than a second, parallel
     /// observer that could drift from what actually ships. See that file for
     /// the three cases a person should check.
-    private let debugFilterObserver: (@Sendable (SCContentFilter) -> Void)?
+    private let debugFilterObserver: (@MainActor @Sendable (SCContentFilter) -> Void)?
 
     public init(onSelect: @escaping @Sendable (CaptureSource?) -> Void,
-                debugFilterObserver: (@Sendable (SCContentFilter) -> Void)? = nil) {
+                debugFilterObserver: (@MainActor @Sendable (SCContentFilter) -> Void)? = nil) {
         self.onSelect = onSelect
         self.debugFilterObserver = debugFilterObserver
         super.init()
@@ -267,24 +267,39 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
     /// UI-presenting API, unlike the callbacks below.
     ///
     /// **`allowedPickerModes` is restricted to `.singleWindow` and
-    /// `.singleDisplay`.** Left at its default (`0`, "no excluded picking
-    /// modes" per the header), the picker can also hand back a whole
-    /// application, multiple windows, or multiple applications — shapes
-    /// `CaptureSource` has no case for. Restricting the picker keeps the
-    /// picker and the type in agreement *by construction*, the same move as
-    /// `Evidence` refusing to be empty and `NormalizedPoint` validating in
-    /// its own initialiser: no downstream "I do not support this" branch has
-    /// to exist, because the shape it would guard against is never offered.
-    /// `init(pickerFilter:availableDisplays:)` still returns `Optional`
-    /// rather than a non-failable value, though — this restriction lives in
-    /// picker *configuration*, which a later caller could change, and the
-    /// derivation function must not assume its own caller left it alone.
+    /// `.singleDisplay`, by default.** Left at its default (`0`, "no
+    /// excluded picking modes" per the header), the picker can also hand
+    /// back a whole application, multiple windows, or multiple applications
+    /// — shapes `CaptureSource` has no case for. Restricting the picker
+    /// keeps the picker and the type in agreement *by construction*, the
+    /// same move as `Evidence` refusing to be empty and `NormalizedPoint`
+    /// validating in its own initialiser: no downstream "I do not support
+    /// this" branch has to exist, because the shape it would guard against
+    /// is never offered. `init(pickerFilter:availableDisplays:)` still
+    /// returns `Optional` rather than a non-failable value, though — this
+    /// restriction lives in picker *configuration*, which a later caller
+    /// could change, and the derivation function must not assume its own
+    /// caller left it alone.
+    ///
+    /// **`restrictModes: false` exists to test the restriction itself, not
+    /// to be used in the product.** "The picker did not offer an
+    /// application" has three indistinguishable-on-screen causes: the
+    /// restriction working, nobody looking carefully, or this OS version
+    /// never offering that mode at all regardless of `allowedPickerModes` —
+    /// the third of which would make the restriction do nothing while
+    /// looking, forever, like it works (`AGENTS.md`: an unobserved red is
+    /// not a check). Presenting once with the default `[]` and once with
+    /// `restrictModes: false` on the identical binary is what tells those
+    /// apart — see `Soredemo/App/SoredemoApp.swift`'s `--present-picker` /
+    /// `--present-picker-unrestricted`.
     @MainActor
-    public func present() {
+    public func present(restrictModes: Bool = true) {
         let picker = SCContentSharingPicker.shared
-        var configuration = picker.defaultConfiguration
-        configuration.allowedPickerModes = [.singleWindow, .singleDisplay]
-        picker.defaultConfiguration = configuration
+        if restrictModes {
+            var configuration = picker.defaultConfiguration
+            configuration.allowedPickerModes = [.singleWindow, .singleDisplay]
+            picker.defaultConfiguration = configuration
+        }
         picker.isActive = true
         picker.add(self)
         picker.present()
@@ -311,9 +326,20 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
     public nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker,
                                                   didUpdateWith filter: SCContentFilter,
                                                   for stream: SCStream?) {
-        debugFilterObserver?(filter)
         let onSelect = self.onSelect
+        let debugFilterObserver = self.debugFilterObserver
+        // `debugFilterObserver` moved inside this hop, not called inline:
+        // `SoredemoApp.swift`'s implementation routes `filter.contentRect`
+        // through `CGGeometryBridge`, which — like
+        // `init(pickerFilter:availableDisplays:)` below — is implicitly
+        // `@MainActor` under this app's `SWIFT_DEFAULT_ACTOR_ISOLATION`, so
+        // calling it from this `nonisolated` method directly is the same
+        // mismatch that method's own doc comment describes (caught by
+        // `xcodebuild`, not by a bare `swiftc` guess, while building this).
+        // Called before `onSelect`, preserving the documented ordering:
+        // print the filter, then the value derived from it.
         Task { @MainActor in
+            debugFilterObserver?(filter)
             let availableDisplays = (try? await SCShareableContent.currentProcess)?.displays ?? []
             onSelect(CaptureSource(pickerFilter: filter, availableDisplays: availableDisplays))
         }

@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import Geometry
 @preconcurrency import ScreenCaptureKit
 import SwiftUI
 
@@ -73,16 +74,26 @@ struct SoredemoApp: App {
         // bare launch observable; `app-shell` replaces it.
         WindowGroup {
             ContentView()
-                // `--present-picker`: Task 7's human verification step.
-                // `SCContentSharingPicker.present()` hands off to Control
-                // Center's own UI, which needs a running app with an active
-                // run loop to call back into — unlike `--dump-permissions`,
-                // this cannot exit from `init()` before `body` ever runs.
-                // `.task` fires once the window (and the run loop pumping
-                // it) is actually up.
+                // `--present-picker` / `--present-picker-unrestricted`: Task 7's
+                // human verification step. `SCContentSharingPicker.present()`
+                // hands off to Control Center's own UI, which needs a running
+                // app with an active run loop to call back into — unlike
+                // `--dump-permissions`, this cannot exit from `init()` before
+                // `body` ever runs. `.task` fires once the window (and the run
+                // loop pumping it) is actually up.
+                //
+                // Two flags, not one, so the *same binary* can be presented
+                // once with `allowedPickerModes` restricted and once with it
+                // left at the SDK's own default — see
+                // `presentPickerForVerification(restricted:)` for why "the
+                // Applications option did not appear" is otherwise ambiguous
+                // between three different causes.
                 .task {
-                    if CommandLine.arguments.dropFirst().contains("--present-picker") {
-                        Self.presentPickerForVerification()
+                    let arguments = CommandLine.arguments.dropFirst()
+                    if arguments.contains("--present-picker") {
+                        Self.presentPickerForVerification(restricted: true)
+                    } else if arguments.contains("--present-picker-unrestricted") {
+                        Self.presentPickerForVerification(restricted: false)
                     }
                 }
         }
@@ -105,39 +116,68 @@ struct SoredemoApp: App {
     /// Task 7's human verification step, run with:
     ///
     ///     open -W -n -a Soredemo.app --stdout <path> --args --present-picker
+    ///     open -W -n -a Soredemo.app --stdout <path> --args --present-picker-unrestricted
     ///
     /// **`open`, not the raw executable path** — Task 6's finding applies
     /// unchanged: a direct `fork`/`exec` does not carry this bundle's own
     /// TCC identity, and the picker needs Screen Recording granted to
     /// `video.soredemo.Soredemo` specifically, not to whatever launched it.
     ///
+    /// `restricted` controls whether `CaptureSourcePicker.present(restrictModes:)`
+    /// leaves `allowedPickerModes` at the SDK's own default (`0`, excludes
+    /// nothing) or narrows it to `.singleWindow`/`.singleDisplay`. Presenting
+    /// the *same binary* both ways is what separates three causes that read
+    /// identically as "I did not see an Applications option": the
+    /// restriction working, nobody looking carefully, or this OS version
+    /// never offering that mode regardless of the restriction — the last of
+    /// which would make the check vacuous forever (`AGENTS.md`: an
+    /// unobserved red is not a check). Printed in the identity block, so a
+    /// transcript cannot be misattributed to the wrong run.
+    ///
     /// Prints, in order: the same subject block `--dump-permissions` prints
     /// (`CapturePermissions.subjectBlockLines()` — which build, which
     /// process, extended in Task 7's fix round 3 rather than duplicated),
-    /// then the raw filter (`style`, `contentRect`, `pointPixelScale`) via
-    /// `CaptureSourcePicker`'s `debugFilterObserver` hook, then the derived
-    /// `CaptureSource` — a `.window` case prints its display-sized
-    /// `bufferSize` beside the filter's own (smaller) `contentRect`, so the
-    /// two numbers are visible on the same lines a person is already
-    /// reading. Exits after exactly one selection, cancellation, or
-    /// picker-start failure — see `task-7-report.md` for what to expect
-    /// from each of the three cases this is meant to cover, and for why the
-    /// subject block's `build`/`commit` lines are the first thing to check
-    /// before trusting anything printed after them.
+    /// then which picker mode this run used, then the raw filter (`style`,
+    /// `contentRect`, `pointPixelScale`) via `CaptureSourcePicker`'s
+    /// `debugFilterObserver` hook, then the derived `CaptureSource`.
+    ///
+    /// **Units come from `PointRect`/`PixelRect`'s own `description`, not
+    /// from a hand-written format string.** An earlier version of this
+    /// function wrote `"\(display.width)x\(display.height) pt"` for
+    /// `.display` and `"\(bufferSize.width)x\(bufferSize.height) px"` for
+    /// `.window` — two independently-typed unit suffixes, side by side in
+    /// one person's terminal, which is exactly the silent-mixing risk
+    /// `PointRect`/`PixelRect` exist to make a compile error one layer
+    /// down (design doc § Geometry: the Y-axis flip, Task 10.5). Routing
+    /// `filter.contentRect` through `CGGeometryBridge.pointRect(from:)`
+    /// here is not a new exception to rule 5 — it is exactly what the
+    /// bridge is for, at the one file allowed to call it.
+    ///
+    /// Exits after exactly one selection, cancellation, or picker-start
+    /// failure — see `task-7-report.md` for what to expect from each of the
+    /// three selection cases, and for why the subject block's `build`/
+    /// `commit` lines are the first thing to check before trusting anything
+    /// printed after them.
     @MainActor
-    private static func presentPickerForVerification() {
+    private static func presentPickerForVerification(restricted: Bool) {
         print(CapturePermissions.subjectBlockLines().joined(separator: "\n"))
+        print("picker mode       : " + (restricted
+            ? "restricted (.singleWindow, .singleDisplay)"
+            : "unrestricted (SDK default — excludes nothing)"))
         print("──")
         let picker = CaptureSourcePicker(
             onSelect: { source in
                 switch source {
                 case .display(let display):
+                    let sizeInPoints = PointRect(x: 0, y: 0,
+                                                  width: Double(display.width), height: Double(display.height))
                     print("derived CaptureSource: .display(displayID: \(display.displayID), " +
-                          "\(display.width)x\(display.height) pt)")
+                          "size: \(sizeInPoints))")
                 case .window(let window, let bufferSize):
+                    let sizeInPixels = PixelRect(x: 0, y: 0,
+                                                  width: Double(bufferSize.width), height: Double(bufferSize.height))
                     print("derived CaptureSource: .window(windowID: \(window.windowID), " +
-                          "title: \(window.title ?? "nil"), bufferSize: " +
-                          "\(bufferSize.width)x\(bufferSize.height) px)")
+                          "title: \(window.title ?? "nil"), bufferSize: \(sizeInPixels))")
                 case nil:
                     print("derived CaptureSource: nil — filter.style was not .display/.window, " +
                           "or no display was available to size a window buffer against")
@@ -145,10 +185,11 @@ struct SoredemoApp: App {
                 exit(0)
             },
             debugFilterObserver: { filter in
-                print("picker filter: style=\(filter.style.rawValue) " +
-                      "contentRect=\(filter.contentRect) pointPixelScale=\(filter.pointPixelScale)")
+                let contentInPoints = CGGeometryBridge.pointRect(from: filter.contentRect)
+                print("picker filter: style=\(filter.style.rawValue) contentRect=\(contentInPoints) " +
+                      "pointPixelScale=\(filter.pointPixelScale) (dimensionless — points-to-pixels ratio)")
             })
         retainedPicker = picker
-        picker.present()
+        picker.present(restrictModes: restricted)
     }
 }
