@@ -368,6 +368,11 @@ public final class InputObserver: @unchecked Sendable {
     /// interval by a second of pure ignorance.
     private nonisolated(unsafe) var lastEnabledPollInstant: HostInstant?
     private nonisolated(unsafe) var firstPollInstant: HostInstant?
+    /// Polling span from every earlier `start()`/`stop()` cycle. The current
+    /// session's span is added to this rather than replacing it, so a
+    /// stop-and-restart neither loses the earlier coverage nor counts the idle
+    /// time between them as covered.
+    private nonisolated(unsafe) var accumulatedPollingSpanNanos: Int64 = 0
     /// The timer that does the polling, and the queue it runs on — **not** the
     /// main run loop. See `startPolling()`.
     private nonisolated(unsafe) var pollTimer: (any DispatchSourceTimer)?
@@ -561,6 +566,24 @@ public final class InputObserver: @unchecked Sendable {
             // on any blind window: nothing can have been missed before the tap
             // existed.
             self.observationBegan = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
+            // **Every instant that bounds a blind window is cleared here, and
+            // `start()` after `stop()` is legal.** Without this, the pattern
+            // "record ten seconds, stop, the user goes to lunch, record again"
+            // produces a first poll that finds the tap disabled and reaches
+            // back to an instant from before lunch: one `TapDisabledInterval`
+            // five minutes wide, `tapBlindNanos` five minutes heavier, and
+            // `framing-gates` refusing the whole second recording on a gap
+            // that was the machine sitting idle with no tap in existence.
+            //
+            // The polling span is carried across as an accumulated base rather
+            // than reset, so `tapEnabledPolls` (which accumulates) and the
+            // span it is quoted over stay about the same period. Assigning the
+            // new session's span alone would make the pair understate coverage
+            // exactly as failing to reset it overstates it.
+            self.lastObservedInstant = nil
+            self.lastEnabledPollInstant = nil
+            self.firstPollInstant = nil
+            self.accumulatedPollingSpanNanos = _diagnostics.tapPollingSpanNanos
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: created, enable: true)
@@ -864,21 +887,15 @@ public final class InputObserver: @unchecked Sendable {
     /// dropped for being implausible, it is only counted.
     private nonisolated static let plausibleSkewNanos: Int64 = 50_000_000
 
-    /// Re-enables the tap and emits the blind window it closes.
-    ///
-    /// **The order is: re-arm first, measure second, emit third.** Re-arming
-    /// is the only thing here that shortens the loss, so it happens before any
-    /// bookkeeping; the end instant is read immediately after
-    /// `CGEvent.tapEnable` returns, because that call *is* the end of the
-    /// window; and the handler — caller code of unknown cost — runs last, so
-    /// nothing it does is inside the interval it is being told about.
-    ///
-    /// A blind window with no lower bound at all is impossible: `start()`
-    /// records `observationBegan` before enabling the tap, so the fallback is
-    /// a real instant rather than a zero-width interval, which would read as
-    /// "no time was lost" — the exact "measurement with a safe default" this
-    /// project keeps being bitten by.
     // MARK: - The poll, and why there is one
+    //
+    // The paragraph that used to sit here documented nothing: it was a doc
+    // comment for `reArmTap` left stranded above this `MARK` by an edit, so it
+    // attached to no declaration and appeared in no generated documentation.
+    // It also carried a claim the code contradicts — "a blind window with no
+    // lower bound at all is impossible" — which is false at both re-arm sites,
+    // where `guard let began else` handles exactly that case. The surviving
+    // parts of it are on `reArmTap` and `pollTapEnabled` themselves.
 
     /// How often the tap's own enabled flag is read, in nanoseconds.
     ///
@@ -907,7 +924,7 @@ public final class InputObserver: @unchecked Sendable {
     /// callback took too long — so a poll scheduled on the same run loop is
     /// blocked at exactly the moment it is needed, and is never blocked while
     /// anyone is testing it, because nothing is stuck then. That failure is
-    /// invisible in every green run. `§ 7.9` of the probe holds the main
+    /// invisible in every green run. `§ 7.10` of the probe holds the main
     /// thread for several poll intervals and asserts the count advanced
     /// anyway, which is the only form of this check that can fail.
     ///
@@ -937,7 +954,7 @@ public final class InputObserver: @unchecked Sendable {
     }
 
     /// One poll. **The only place `CGEvent.tapIsEnabled` is read**, and the
-    /// seam `§ 7.9` drives directly.
+    /// seam `§ 7.10` drives directly.
     ///
     /// Reads the flag, and if the tap has been switched off, switches it back
     /// on and closes the blind window it just found.
@@ -956,7 +973,8 @@ public final class InputObserver: @unchecked Sendable {
             if firstPollInstant == nil { firstPollInstant = now }
             defer {
                 if let first = firstPollInstant {
-                    _diagnostics.tapPollingSpanNanos = now.hostTime.rawValue - first.hostTime.rawValue
+                    _diagnostics.tapPollingSpanNanos = accumulatedPollingSpanNanos
+                        + (now.hostTime.rawValue - first.hostTime.rawValue)
                 }
             }
 
@@ -982,16 +1000,27 @@ public final class InputObserver: @unchecked Sendable {
             // The tap is off. Re-enable it first — that is the only action
             // here that shortens the loss.
             //
-            // **One call, no backoff, no retry loop, and that is measured
-            // rather than assumed** (spike C step 6, part B): after inducing a
-            // real disable by overloading the tap, a single
-            // `CGEventTapEnable(true)` left it enabled for **19 of the next
-            // 20 seconds** of continued polling. So the re-arm sticks, and
-            // adding exponential backoff — the obvious defensive move, and one
-            // that would silently lengthen every blind window it touched —
-            // would be speculation against a measurement. If a future run
-            // shows a tap that will not stay armed, that is a new finding and
-            // it belongs beside this note, not instead of it.
+            // **One call, no backoff — and here is exactly what that rests
+            // on, which is narrower than it first reads.**
+            //
+            // Measured (spike C step 6 part B): a disable was induced by
+            // overloading the tap, a single `CGEventTapEnable(true)` was
+            // issued, **and the stall was then removed**. The tap stayed
+            // enabled for every remaining poll of that run. So the finding is
+            // "a tap that is re-armed and then LEFT ALONE stays armed" —
+            // nothing was trying to disable it after the re-arm.
+            //
+            // **Behaviour under a persistent cause is unmeasured**, and it is
+            // the case that matters, because a persistent cause is the premise
+            // of `AXObserver`'s whole asymmetry argument. Against a target
+            // that keeps the tap down, this becomes a 10 Hz re-arm loop
+            // emitting a `TapDisabledInterval` every 100 ms. That may be the
+            // right behaviour — each window is real, and the alternative is
+            // staying blind — but it is a design choice made without data, not
+            // a measured one, and backoff is the obvious change if it turns
+            // out to be wrong. Backoff is not added now because it would
+            // silently lengthen every window it touched, which is a cost that
+            // IS measured against the thing this file exists to record.
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             let reEnabled = Minting.hostNow()
 
@@ -1067,9 +1096,10 @@ public final class InputObserver: @unchecked Sendable {
     /// event arriving *is* the evidence that a window happened, whether or not
     /// this observer still holds the port to re-enable.
     private nonisolated func reArmTap(disabledBy reason: TapDisableReason) {
-        // One `tapEnable`, exactly as in `pollTapEnabled()` and for the same
-        // measured reason — step 6 part B: a re-armed tap stayed enabled for
-        // 19 of the following 20 seconds. Both re-arm sites are one call and
+        // One `tapEnable`, exactly as in `pollTapEnabled()` and on the same
+        // narrow basis — step 6 part B measured a re-armed tap that was then
+        // left alone, not one under a persistent cause; see that function for
+        // what is and is not established. Both re-arm sites are one call and
         // neither has a backoff; keep them the same, or a tap disabled twice
         // in one recording recovers differently depending on which channel
         // happened to notice.

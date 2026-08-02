@@ -212,7 +212,7 @@ enum SpikeA {
 
         print("\n---- MEASURED, \(records.count) samples on this machine ----")
         print("  AX source: \(String(describing: type(of: axSource)))"
-              + " — read off the value handed to chain(at:source:), not written down")
+              + " — read off the value handed to enqueue(_:source:onRecord:), not written down")
         func column(_ text: String, _ width: Int) -> String {
             text.count >= width ? text
                 : String(repeating: " ", count: width - text.count) + text
@@ -286,6 +286,42 @@ enum SpikeA {
                    diagnostics.clickOutsideTheHitFrame < diagnostics.chainsRecorded)
         step.check("no interval was measured backwards (\(diagnostics.nonMonotonicClockReadings))",
                    diagnostics.nonMonotonicClockReadings == 0)
+
+        // **Evidence of looking, ASSERTED — printing it is not enough, and
+        // this file printed it and nothing else for one round.**
+        //
+        // Without these two, a run where the poll timer never fires (a starved
+        // queue, or `startPolling()` not reached at all) prints
+        // `tap enabled polls : 0 over 0.0 s  ← NOTHING WAS LOOKING` and then
+        // reports PASS, because nothing reads it. This is the only place on
+        // real hardware where "something was looking" can be established at
+        // all, so it is the one place it must be able to fail.
+        step.check("""
+                   \(tap.tapEnabledPolls) polls of the tap's own enabled flag over \
+                   \(String(format: "%.1f", Double(tap.tapPollingSpanNanos) / 1e9)) s — so \
+                   "\(tap.tapDisabledIntervals) blind windows" is a measurement and not a silence
+                   """,
+                   tap.tapEnabledPolls > 0)
+        // The span, separately: a timer that fires twice and dies satisfies
+        // the count above while covering none of the run.
+        let windowNanos = Double(seconds) * 1e9
+        let covered = windowNanos > 0 ? Double(tap.tapPollingSpanNanos) / windowNanos : 0
+        step.check("""
+                   the polling spanned \(String(format: "%.0f", covered * 100))% of the \
+                   \(seconds)s observation window — a poll that stopped early cannot see what \
+                   happened after it, and its count would still look healthy
+                   """,
+                   covered > 0.5)
+        // Every blind window this run found should have come from the poll:
+        // the notification is measured never to arrive for a .listenOnly tap.
+        // Zero windows makes this vacuously true, which is why the two checks
+        // above have to pass first for it to mean anything.
+        step.check("""
+                   \(samples.blindWindows.filter { $0.detectedBy == .enabledPoll }.count) of \
+                   \(samples.blindWindows.count) blind windows were found by the poll rather than \
+                   by a notification that a .listenOnly tap does not receive
+                   """,
+                   samples.blindWindows.allSatisfy { $0.detectedBy == .enabledPoll })
 
         // Order of magnitude, not equality. F2-2 is one machine, one session,
         // an uncontrolled app mix; D4 still applies and this is not a

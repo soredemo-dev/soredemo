@@ -1358,12 +1358,26 @@ worse place:
   law over it, where a per-call timeout produces a partial chain that has to be distinguished from a
   short one — which is D2-2's truncation problem re-created for a different reason.
 
-### Re-arming needs no backoff, and that is measured
+### Re-arming: one call, and exactly what that rests on
 
-Spike C **step 6 part B**: after inducing a real disable by overloading the tap, a single
-`CGEventTapEnable(true)` left it enabled for **19 of the following 20 seconds** of continued polling.
-So both re-arm sites in `InputObserver` — the notification path and the poll — are one call with no
-retry loop and no exponential backoff. Backoff is the obvious defensive addition and it would
-silently lengthen every blind window it touched, so it is not added on speculation. A future run
-showing a tap that will not stay armed is a new finding, and belongs beside that note rather than
-instead of it.
+Spike C **step 6 part B**: a disable was induced by overloading the tap, a single
+`CGEventTapEnable(true)` was issued, **and the stall was then removed** (`stallMilliseconds = 0`, in
+the spike's own re-arm branch). The tap was enabled on every remaining poll of that run.
+
+**So the finding is narrow: a tap that is re-armed and then *left alone* stays armed.** Nothing was
+trying to disable it after the re-arm, which is a different experiment from the one the strategy
+faces in production.
+
+**The number is the instrument's ceiling, not a 95% result.** `reArmSurvivedSeconds` can only
+increment on polls *after* `reArmedAt`, so with `reArmedAt = 0` its maximum is 19 — and it read 19,
+having never seen the tap down. Quoting it as "19 of the next 20 seconds" implies a one-second
+shortfall that does not exist and an instrument that could have shown one. It is 19 of 19 possible,
+saturated.
+
+**Behaviour under a persistent cause is unmeasured, and it is the case that matters**, because a
+persistent cause is the premise of the asymmetry argument above. Against a target that keeps the tap
+down, `pollTapEnabled` becomes a 10 Hz re-arm loop emitting a `TapDisabledInterval` every 100 ms.
+That may well be right — each window is real, and the alternative is staying blind — but it is a
+choice made without data. Backoff is the obvious alternative and is **not** added, because it would
+silently lengthen every blind window it touched, and that cost *is* measured against the thing this
+mechanism exists to record. Both re-arm sites say so, in the same words, so they cannot drift.

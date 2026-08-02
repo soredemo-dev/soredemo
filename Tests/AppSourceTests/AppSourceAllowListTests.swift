@@ -501,6 +501,145 @@ func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: St
             """)
 }
 
+/// The line number out of a `codeLinesNaming` location (`path:line`).
+///
+/// Ordering checks need it: "this call happens inside that function, after
+/// that other call" is a claim about position in the file, and position is
+/// what a text scan can actually see.
+func lineNumber(of location: String) -> Int {
+    Int(location.split(separator: ":").last.map(String.init) ?? "") ?? -1
+}
+
+/// **The poll must actually be started, and started where the tap exists.**
+///
+/// This is the hole the whole polling round would otherwise have left one
+/// level above where it was closed. `InputObserver.startPolling()` and
+/// `pollTapEnabled()` are driven **directly** by `§ 7.10` of the probe,
+/// because `start()` creates a real `CGEvent` tap and that needs Input
+/// Monitoring. So the probe cannot see whether the shipping path ever
+/// schedules the timer, and `theTapsEnabledFlagIsReadExactlyOnceAndOnlyInThe
+/// Observer` cannot either: `CGEvent.tapIsEnabled` stays named exactly once,
+/// inside a `pollTapEnabled()` nobody calls.
+///
+/// Delete the one production call and: 360 tests pass, 222 probe checks pass,
+/// `xcodebuild` succeeds, and the shipping app never polls — so
+/// `tapDisabledIntervals` is permanently empty and `tapEnabledPolls`
+/// permanently zero. That is exactly the "an empty list reads as no gaps"
+/// state this round existed to close, reintroduced at the one point no other
+/// check can reach.
+///
+/// Three claims, because the call can be broken three ways:
+///
+/// 1. it exists, exactly once, and is not merely the declaration;
+/// 2. it sits inside `start(onObservation:)` — after that function begins and
+///    before `stop()` does;
+/// 3. it comes **after** the tap has been created and enabled. Moved above
+///    `CGEvent.tapCreate`, the first poll reads a `nil` tap, takes the
+///    `tapPollsWithNoTap` path, and the timer then polls a tap it never sees
+///    — green everywhere, and blind.
+@Test func theTapPollIsStartedByStartAndNotOnlyDefined() throws {
+    let files = try appSourceFiles()
+    let mentions = try codeLinesNaming("startPolling", in: files)
+    let declarations = mentions.filter { $0.text.contains("func startPolling") }
+    let calls = mentions.filter { !$0.text.contains("func startPolling") }
+
+    #expect(declarations.count == 1, "expected one startPolling declaration, found \(declarations.count)")
+    #expect(calls.count == 1,
+            """
+            expected exactly one call to startPolling() in the app, found \(calls.count):
+            \(calls.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+            Zero means the shipping app never polls the tap's enabled flag, and every check in this \
+            package and in the probe still passes — they drive startPolling()/pollTapEnabled() \
+            directly, because start() needs Input Monitoring.
+            """)
+
+    guard let call = calls.first else { return }
+    #expect(call.location.hasPrefix("Soredemo/Capture/InputObserver.swift:"),
+            "startPolling() is called from \(call.location), not from InputObserver")
+
+    // The three landmarks the call must sit between, each named once so a
+    // rename fails this test loudly rather than silently widening it.
+    let startDeclaration = try codeLinesNaming("public func start(onObservation", in: files)
+    let stopDeclaration = try codeLinesNaming("public func stop()", in: files)
+    let tapCreate = try codeLinesNaming("CGEvent.tapCreate", in: files)
+    let tapEnabled = try codeLinesNaming("CGEvent.tapEnable(tap: created", in: files)
+    for (name, landmark) in [("start(onObservation:)", startDeclaration), ("stop()", stopDeclaration),
+                             ("CGEvent.tapCreate", tapCreate),
+                             ("CGEvent.tapEnable(tap: created", tapEnabled)] {
+        try #require(landmark.count == 1, """
+                     expected exactly one \(name) in the app sources, found \(landmark.count) — \
+                     this scan's landmarks must be unique or its ordering claims mean nothing
+                     """)
+    }
+
+    let callLine = lineNumber(of: call.location)
+    #expect(lineNumber(of: startDeclaration[0].location) < callLine
+                && callLine < lineNumber(of: stopDeclaration[0].location),
+            """
+            startPolling() is called at \(call.location), which is not inside \
+            start(onObservation:) (\(startDeclaration[0].location) … \(stopDeclaration[0].location)).
+            """)
+    #expect(lineNumber(of: tapCreate[0].location) < callLine
+                && lineNumber(of: tapEnabled[0].location) < callLine,
+            """
+            startPolling() is called at \(call.location), before the tap is created \
+            (\(tapCreate[0].location)) or enabled (\(tapEnabled[0].location)). The first poll \
+            would read a nil tap and count itself as tapPollsWithNoTap, and nothing downstream \
+            would look different.
+            """)
+}
+
+/// **A rejected alternative that is only prose is a rejected alternative
+/// nobody is stopped from taking.**
+///
+/// `AXUIElementSetMessagingTimeout` bounds an AX call, which would make
+/// keeping the hit-test on the tap callback thread viable again — it is the
+/// clever-looking answer, and D2-18 rejects it: it trades "a call with no
+/// upper bound" for "a bounded call that fails by timing out", and a timeout
+/// failure is data loss of exactly the kind `clicksDroppedByBacklog` is, in a
+/// worse place. The delay is still spent on the callback thread and there is
+/// no queue to absorb a burst.
+///
+/// This is the zero-occurrence form of the three scans above. It costs one
+/// line and turns a paragraph someone has to have read into a diff someone has
+/// to defend.
+@Test func theRejectedAXTimeoutIsNotReachedFor() throws {
+    let found = try violationsEverywhere(banned: ["AXUIElementSetMessagingTimeout"],
+                                         in: try appSourceFiles())
+    #expect(found.isEmpty,
+            """
+            an app source calls AXUIElementSetMessagingTimeout:
+            \(found.joined(separator: "\n"))
+            Rejected in the Phase 2 design doc, D2-18: bounding the call trades an unbounded wait \
+            for a timeout failure, which is the same data loss as a queue drop, spent on the \
+            callback thread, with no queue to absorb a burst. If this is being reconsidered, the \
+            place to argue it is D2-18.
+            """)
+}
+
+/// **`AXObserver.chain` is the synchronous walk, and only `AXObserver` may
+/// call it.**
+///
+/// Its own doc comment says not to call it from the tap callback, and a doc
+/// comment is what the previous two rounds of this task demonstrated is not a
+/// mechanism. The defect it guards against — a second app file calling the
+/// synchronous walk from a callback — is exactly the one this whole round
+/// exists to prevent, and it would look green everywhere.
+///
+/// `enqueue(_:onRecord:)` is the entry point for everyone else.
+@Test func theSynchronousAXWalkIsCalledOnlyFromWithinAXObserver() throws {
+    let callers = try codeLinesNaming("chain(at:", in: try appSourceFiles())
+    let outside = callers.filter { !$0.location.hasPrefix("Soredemo/Capture/AXObserver.swift:") }
+    #expect(outside.isEmpty,
+            """
+            the synchronous AX walk is called outside AXObserver:
+            \(outside.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+            Use AXObserver.enqueue(_:onRecord:). chain(at:source:) blocks its caller for as long as \
+            the target application takes to answer, and on the tap callback thread a hung target \
+            costs the whole pointer track — see AXObserver's header.
+            """)
+}
+
 /// **The tap's own enabled flag must still be read, and read in one place.**
 ///
 /// `InputObserver` polls `CGEvent.tapIsEnabled(tap:)` because the notification

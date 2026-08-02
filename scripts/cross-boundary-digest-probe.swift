@@ -2739,6 +2739,25 @@ enum CrossBoundaryProbe {
               "and the run-level summary says how it was found",
               actual: observer.diagnostics.tapAccounting)
 
+        // ---- the warning that makes an empty window list legible to a
+        // person, in both directions. It is the one line in `tapAccounting`
+        // aimed at a human reading a spike's output rather than at a check,
+        // which is exactly why nothing was checking it: delete it and every
+        // other assertion in this file stays green while the single output a
+        // human reads loses the sentence that says the zero above it means
+        // nothing.
+        check(!observer.diagnostics.tapAccounting.contains("NOTHING WAS LOOKING"),
+              "with polls on the clock, the accounting does NOT warn that nothing was looking",
+              actual: observer.diagnostics.tapAccounting)
+        let neverPolled = InputObserver(arrangement: arrangement, epoch: epoch,
+                                        secureInputIsEnabled: { false },
+                                        tapIsEnabledOverride: { true })
+        check(neverPolled.diagnostics.tapEnabledPolls == 0
+                && neverPolled.diagnostics.tapAccounting.contains("NOTHING WAS LOOKING"),
+              "and an observer that has never polled says so IN THE OUTPUT — 'tapDisabledIntervals "
+              + "0' is otherwise the same zero whether the tap stayed up or nothing ever checked",
+              actual: neverPolled.diagnostics.tapAccounting)
+
         // The tap was re-enabled by the poll that found it, so the next poll
         // reads up again and produces no second window for the same outage.
         enabled.value = true
@@ -2844,9 +2863,23 @@ enum CrossBoundaryProbe {
 
         // ---- the delay is a recorded quantity, and it is the queue's, not the
         // target application's.
+        // **Through the source-taking overload, always.** `enqueue(_:onRecord:)`
+        // hard-codes `LiveAXElementSource`, and this probe issuing a real
+        // `AXUIElementCopyElementAtPosition` would be wrong twice over: the
+        // timings below would be a fact about a mach round trip rather than
+        // about the queue, so replacing the source with a fast fake — the
+        // obvious later cleanup — would turn them red with nothing broken; and
+        // if the launching shell happens to hold Accessibility, the probe
+        // would walk a third-party application's tree, against the no-grant
+        // premise this file states everywhere else.
         let observer = axObserver(arrangement, epoch)
         let records = Collected()
-        observer.enqueue(click, onRecord: records.append)
+        // 3 ms a call, so the AX half of the wait is measurably distinct from
+        // the queue half rather than lost in scheduling noise.
+        observer.enqueue(click,
+                         source: FakeAXSource(nodes: fakeTree(ancestorDepth: 2, children: 0),
+                                              hitIndex: 0, microsecondsPerCall: 3_000),
+                         onRecord: records.append)
         observer.waitForQueuedClicks()
 
         guard let record = records.all.first else {
@@ -2872,11 +2905,16 @@ enum CrossBoundaryProbe {
         // ---- the caller's thread is not where the AX work happened.
         let threads = MutableFlag(false)
         let onMain = axObserver(arrangement, epoch)
-        onMain.enqueue(click) { _ in threads.value = Thread.isMainThread }
+        onMain.enqueue(click,
+                       source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
+                                            hitIndex: 0)) { _ in
+            threads.value = Thread.isMainThread
+        }
         onMain.waitForQueuedClicks()
         check(!threads.value,
               "the record is produced OFF the main thread — which is where InputObserver's tap "
-              + "callback runs, and a synchronous walk there is what disables the tap",
+              + "callback runs, and where a hung target would cost the whole pointer track rather "
+              + "than one click's AX chain",
               actual: "isMainThread \(threads.value)")
 
         // ---- the backlog is bounded and the drop is counted.
@@ -2887,8 +2925,15 @@ enum CrossBoundaryProbe {
         let hung = axObserver(arrangement, epoch)
         let hungRecords = Collected()
         let burst = AXObserver.maximumQueuedClicks + 6
+        // **The fixture the comment above always claimed and the code did not
+        // have.** Without a slow source the drop happened only because a real
+        // mach round trip is slower than a lock plus a dispatch — true today,
+        // a fact about neither the queue nor the cap, and red the moment
+        // anyone made the source fast.
+        let hungSource = FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
+                                      hitIndex: 0, microsecondsPerCall: 40_000)
         for _ in 0..<burst {
-            hung.enqueue(click, onRecord: hungRecords.append)
+            hung.enqueue(click, source: hungSource, onRecord: hungRecords.append)
         }
         hung.waitForQueuedClicks()
         let d = hung.diagnostics
@@ -2904,8 +2949,10 @@ enum CrossBoundaryProbe {
               "clicks = recorded + no global point + dropped by backlog — the third term is what "
               + "stops the law balancing by simply not counting the drops",
               actual: d.accounting)
-        check(d.deepestBacklog <= AXObserver.maximumQueuedClicks,
-              "and the queue never went deeper than the cap",
-              actual: "\(d.deepestBacklog)", expected: "≤ \(AXObserver.maximumQueuedClicks)")
+        check(d.deepestBacklog > 1 && d.deepestBacklog <= AXObserver.maximumQueuedClicks,
+              "the queue really did back up — deeper than one, and never deeper than the cap. The "
+              + "upper half alone is satisfied by a counter that is never updated at all",
+              actual: "\(d.deepestBacklog)",
+              expected: "between 2 and \(AXObserver.maximumQueuedClicks)")
     }
 }
