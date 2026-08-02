@@ -248,6 +248,27 @@ private let authoredFrame = Derived(
     #expect(cited(1_000, 250) != cited(1_250, 0))
 }
 
+/// Task 2's load-bearing property, tested directly rather than left to the
+/// pinned vectors below to catch incidentally: two citations with identical
+/// `start`/`duration` but different boot epochs are different citations
+/// (D2-11), and an approval bound to one must not validate the other. An
+/// encoder that dropped `epoch` from the encoding — the exact mutation this
+/// test was written to catch — would still pass every other test in this
+/// file; only the pinned-vector byte counts would move, and only because they
+/// happen to pin a fixture that has an epoch at all. This test fails for the
+/// right reason even if the pinned vectors were deleted.
+@Test func approvalBytesChangeWithACitedIntervalsEpoch() {
+    let otherEpoch = BootEpoch(id: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!)
+    func cited(_ epoch: BootEpoch) -> Data {
+        let ref = EvidenceRef(kind: .observation, id: observationID, contentDigest: digest(0x11),
+                              sourceInterval: HostRange(epoch: epoch, start: Nanoseconds(1_000), duration: Nanoseconds(250)))
+        return Derived(value: 42, origin: .generated(
+            Derivation(producer: ProducerID("reference-producer"), producerVersion: 3,
+                       evidence: Evidence(ref, refWithoutInterval), outcome: .accepted))).approvalBytes
+    }
+    #expect(cited(testEpoch) != cited(otherEpoch))
+}
+
 // MARK: - Length prefixes: adjacent variable-length fields must not run together
 
 /// The classic concatenation collapse. `DisplayGeometry.canonicalBytes` is
