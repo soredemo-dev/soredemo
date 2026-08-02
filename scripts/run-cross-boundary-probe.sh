@@ -55,6 +55,7 @@ xcrun swiftc \
   Soredemo/Capture/InputObserver.swift \
   Soredemo/Capture/AXObserver.swift \
   Soredemo/UI/ProjectDocument.swift \
+  Soredemo/Capture/ObservationWriter.swift \
   scripts/cross-boundary-digest-probe.swift
 
 "$OUT/probe" "$@"
