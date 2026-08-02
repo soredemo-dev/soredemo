@@ -117,6 +117,19 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// figure.
         public internal(set) var frameStatusCounts: [Int: Int] = [:]
         public internal(set) var completeFrameCount = 0
+        /// Frames whose `SCStreamFrameInfoContentScale` was successfully
+        /// read at all — distinct from `completeFrameCount` because
+        /// extraction can fail to parse the attachment (see
+        /// `recordContentScale`'s two-cast fallback). **This is the count a
+        /// caller must check is `> 0` before trusting `resampledFrameCount`
+        /// or the min/max fields below** — "N of N checked frames had
+        /// `ContentScale == 1`" is vacuously true at `N == 0`, exactly the
+        /// shape `Tests/DeterminismTests` guards against for the symbol
+        /// check (`#require(!objectFiles.isEmpty, "…would pass vacuously")`)
+        /// and the coordinator's own correction to this task caught here: a
+        /// human verification step that reports "all frames passed" without
+        /// this count first is not a check, whatever the diagnostics claim.
+        public internal(set) var contentScaleCheckedCount = 0
         /// Frames whose `SCStreamFrameInfoContentScale` was not 1 — D2-13a:
         /// "a frame whose content scale is not 1 *was* resampled", which is
         /// what makes "the master is unresampled" (D2-8's core claim)
@@ -595,6 +608,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         guard let scale = scaleValue else { return }
         lock.withLock {
+            _diagnostics.contentScaleCheckedCount += 1
             if scale != 1 { _diagnostics.resampledFrameCount += 1 }
             _diagnostics.minContentScaleObserved = min(_diagnostics.minContentScaleObserved ?? scale, scale)
             _diagnostics.maxContentScaleObserved = max(_diagnostics.maxContentScaleObserved ?? scale, scale)

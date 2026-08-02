@@ -25,6 +25,7 @@
 
 import AVFoundation
 import AVFAudio
+import AppKit
 import ScreenCaptureKit
 import CoreGraphics
 import Darwin
@@ -223,7 +224,8 @@ nonisolated func reconfigCallback(_ id: CGDirectDisplayID, _ flags: CGDisplayCha
 
 func printDiagnostics(_ d: CaptureSession.Diagnostics) {
     print("  frame status counts \(d.frameStatusCounts)  (0=complete,1=idle,2=blank,3=suspended,4=started,5=stopped)")
-    print("  complete frames: \(d.completeFrameCount)   resampled (ContentScale != 1): \(d.resampledFrameCount)")
+    print("  complete frames: \(d.completeFrameCount)   ContentScale checked: \(d.contentScaleCheckedCount)   " +
+          "resampled (ContentScale != 1): \(d.resampledFrameCount)")
     if let lo = d.minContentScaleObserved, let hi = d.maxContentScaleObserved {
         print("  ContentScale observed range: \(lo) ... \(hi)")
     }
@@ -241,34 +243,119 @@ func printDiagnostics(_ d: CaptureSession.Diagnostics) {
 // ------------------------------------------------------------- Step 1: video
 
 func runVideoOnly(seconds: Int) async throws {
-    printIdentityBlock(step: "1 — video only, no audio")
+    printIdentityBlock(step: "1 — video only, no audio, WINDOW capture (D2-13a)")
     print("""
     Expect BEFORE running:
+      - a real NSWindow this process creates, deliberately SMALLER than the
+        display, is what gets captured — NOT the display itself. Capturing
+        the whole display would make ContentScale == 1 NECESSARILY true (the
+        buffer IS the display, nothing to scale) — the identity element of
+        the exact transform this step checks, which would pass for the wrong
+        reason. D2-13a only has content when the window is smaller than a
+        display-sized buffer: padded, not resampled.
+          source        .window
+          bufferSize    the display's own native pixels (NOT the window's)
+          contentRect   the window's own frame, SMALLER than bufferSize
       - a file named master-00.mov appears under \(packageDir.appending(path: "media").path())
-      - it opens and plays in QuickTime Player with picture, no sound track
+      - it opens and plays in QuickTime Player: a solid blue rectangle (the
+        window) surrounded by black padding (the display-sized buffer) — that
+        padding IS D2-13a's decision, on screen, worth more than the number
       - frame count is roughly \(seconds) * (some rate <= 60fps — a floor, not a cadence, F2-4)
-      - ContentScale is reported as 1.0 for effectively all frames (resampledFrameCount ~ 0)
+      - printed as ONE pass/fail statement, not a percentage: "checked N
+        frames, N > 0, of which N had ContentScale == 1" — a checked count of
+        ZERO must FAIL this check, not satisfy it (a vacuous pass over an
+        empty set is exactly what Tests/DeterminismTests' own
+        `#require(!objectFiles.isEmpty, …)` guards against for the symbol
+        check, and what an assertion that only compared min/max against 1
+        would silently be if no frame's ContentScale were ever readable)
       - the printed colour tag is 709/709/709 primaries (the D2-15 placeholder pin)
     """)
     requireScreenRecording()
     try? FileManager.default.removeItem(at: verificationDir)
+
     let display = try await firstDisplay()
-    let source = CaptureSource.display(display)
-    let session = CaptureSession(source: source, scale: 2.0, displayUUID: displayUUID(for: display.displayID),
+    let scale = 2.0
+
+    // A real, on-screen window, deliberately smaller than the display in
+    // both dimensions, filled with a solid, distinctive colour so the
+    // padding is obvious to the eye once the file is opened.
+    let testWindow = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 800, height: 500),
+                               styleMask: [.titled], backing: .buffered, defer: false)
+    testWindow.title = "Soredemo Task 8 Step 1 — smaller than the display, on purpose"
+    testWindow.backgroundColor = .systemBlue
+    testWindow.isReleasedWhenClosed = false
+    testWindow.makeKeyAndOrderFront(nil)
+    // Same technique, and same reason, as
+    // scripts/cross-boundary-digest-probe.swift's captureSourceGeometry():
+    // a moment for the window to register with the window server before
+    // SCShareableContent can see it — measured to work there, reused here.
+    try await Task.sleep(for: .milliseconds(500))
+
+    let content = try await SCShareableContent.currentProcess
+    guard let scWindow = content.windows.first(where: { $0.title == testWindow.title }) else {
+        print("FAIL — the test window did not appear in SCShareableContent.currentProcess; cannot proceed.")
+        exit(6)
+    }
+
+    // D2-13a: the buffer is sized to the DISPLAY's own native pixels, not
+    // the window's. `display.width`/`.height` are points
+    // (`SCShareableContent.h`) — the same multiplication
+    // `CaptureSource.geometry()` performs for the `.display` case, mirrored
+    // here for the BUFFER, never for the digest (the window's own frame
+    // stays extrinsic — see `CaptureSource.swift`'s own header).
+    let bufferSize = (width: Int((Double(display.width) * scale).rounded()),
+                       height: Int((Double(display.height) * scale).rounded()))
+    print("display (points): \(display.width)x\(display.height)  scale: \(scale)  " +
+          "buffer (pixels): \(bufferSize.width)x\(bufferSize.height)")
+    print("window content rect (points): \(Int(testWindow.frame.width))x\(Int(testWindow.frame.height)) " +
+          "— must be SMALLER than the buffer above (in the same units) for this check to mean anything")
+    guard Double(testWindow.frame.width) * scale < Double(bufferSize.width),
+          Double(testWindow.frame.height) * scale < Double(bufferSize.height) else {
+        print("FAIL — the test window is not smaller than the display-sized buffer on this machine; " +
+              "the ContentScale check below would be vacuous (the identity-transform case this step exists " +
+              "to avoid). Shrink the window in this file and re-run.")
+        exit(7)
+    }
+
+    let source = CaptureSource.window(scWindow, bufferSize: bufferSize)
+    // A per-selection identity, not a real display UUID — the same reuse
+    // `CaptureSource.geometry()`'s own doc comment documents for `.window`,
+    // and the same pattern `scripts/cross-boundary-digest-probe.swift`'s
+    // §5 uses for its own `.window` fixtures.
+    let windowSourceIdentity = UUID()
+    let session = CaptureSession(source: source, scale: scale, displayUUID: windowSourceIdentity,
                                   packageURL: packageDir, epoch: bootEpoch())
     try await session.start()
-    print("recording \(seconds)s, video only, to \(packageDir.path()) ...")
+    print("\nrecording \(seconds)s, video only, WINDOW capture, to \(packageDir.path()) ...")
     for s in stride(from: seconds, to: 0, by: -5) {
         try await Task.sleep(for: .seconds(min(5, s)))
         print("  t-\(max(0, s-5))s  \(session.diagnostics.completeFrameCount) complete frames so far")
     }
     let table = try await session.stop()
+    testWindow.orderOut(nil)
+
     print("\n--- step 1 result ---")
     print("segments: \(table.segments.count)  first mediaFilename: \(table.segments.first?.mediaFilename ?? "none")")
     printDiagnostics(session.diagnostics)
+
+    // The non-vacuous assertion, as ONE statement covering the count and
+    // the claim together — a checked count of zero FAILS, it does not
+    // silently satisfy the "all frames had ContentScale == 1" claim.
+    let checked = session.diagnostics.contentScaleCheckedCount
+    let passing = checked - session.diagnostics.resampledFrameCount
+    if checked == 0 {
+        print("\nFAIL — checked 0 frames for ContentScale. Zero is not a pass; nothing was verified.")
+    } else if passing == checked {
+        print("\nPASS — checked \(checked) frames, \(checked) > 0, of which \(passing) had ContentScale == 1.")
+    } else {
+        print("\nFAIL — checked \(checked) frames, of which only \(passing) had ContentScale == 1 " +
+              "(\(checked - passing) were resampled). The master was NOT unresampled here — see D2-8.")
+    }
+
     let mediaURL = packageDir.appending(path: "media/master-00.mov")
     try await analyse(mediaURL)
-    print("\nCHECK BY EYE: open \"\(mediaURL.path())\" and confirm it plays with picture and no audio track.")
+    print("\nCHECK BY EYE: open \"\(mediaURL.path())\" and confirm a solid blue rectangle, padded by black " +
+          "on the sides — NOT a stretched or cropped full-frame image.")
 }
 
 // ------------------------------------------------------------- Step 2: audio

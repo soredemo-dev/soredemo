@@ -1362,12 +1362,39 @@ its expected result **written down before it runs**.
 
 | | Step | What it establishes | Expected |
 | --- | --- | --- | --- |
-| 1 | **video only, no audio** | the `AVAssetWriter` path works at all | file exists, plays, frame count plausible against the observed rate, `ContentScale == 1` on every frame |
+| 1 | **video only, no audio, capturing a WINDOW smaller than the display** | the `AVAssetWriter` path works at all, and the master is unresampled | see below |
 | 2 | **two audio sources, each with a distinguishable signal** | the tracks are separated, not merely counted | see below |
 | 3 | **display reconfiguration** | the segment closes deliberately | a new segment, `endedBy == .displayReconfigured`, a new `geometryRevision` |
 
 **Step 3 runs last**, because it perturbs system state and invalidates the conditions the first two
 ran under — the same ordering as Task 6's toggle-a-permission-while-running experiment.
+
+**Step 1 must capture a window, not the display, and the pass/fail line must carry its own count.**
+Two corrections, both instances of the identity-fixture rule (`AGENTS.md`'s fixture-diversity table):
+
+*The count.* "Every frame had `ContentScale == 1`" is vacuously true of an empty set — the same shape
+`Tests/DeterminismTests` guards against with `#require(!objectFiles.isEmpty, "…would pass
+vacuously")`. The check is one statement carrying its own count, not two separate assertions and not a
+percentage: *checked N frames, N > 0, of which N had `ContentScale == 1`* — a checked count of zero
+must **fail**, not satisfy, the claim.
+
+*The source.* Recording the whole **display** makes `ContentScale == 1` necessarily true: the buffer
+*is* the display, there is nothing to scale, and the assertion cannot fail regardless of whether the
+code is right. That is the identity element of the exact transform being checked. D2-13a only has
+content when the window is **smaller** than a display-sized buffer — padded, not resampled — so step 1
+captures a real window, deliberately sized smaller than the display:
+
+```
+source        .window
+bufferSize    the display's native pixels          (not the window's)
+contentRect   the window's own frame, SMALLER than bufferSize
+frames        N > 0
+ContentScale  == 1 on all N          <- the master was not resampled
+file          exists, plays, duration and frame count plausible
+```
+
+The padding is visible in the recording — a solid-colour window surrounded by black — which is what
+D2-13a's decision looks like on screen, and seeing it is worth more than reading the number.
 
 **Step 2's assertion is four things, not a count.**
 
