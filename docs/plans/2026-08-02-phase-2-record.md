@@ -25,6 +25,71 @@
 - **Stage explicit paths.** Never `git add -A` — subagents run in this checkout and it has already once swallowed another task's files.
 - Count tests with `grep -oE "^✔ Test run with ([0-9]+) tests?"` — a hardcoded plural drops single-test targets and has already put a wrong number into a committed document here.
 
+## Three things Phase 1 did not have
+
+Phase 1 ran nineteen tasks through subagents with one objective gate each: `swift test`. **Phase 2
+does not have that gate**, and the same process will fail in the same three places unless these are
+constraints rather than notes.
+
+### 1 · A third completion state: *implemented, awaiting human verification*
+
+A subagent cannot grant a permission, move a mouse, or confirm that a picture reached a file. So
+"done" and "not done" are not enough, and a task that reports the machine-checkable half as the
+whole is the exact failure this project has caught five times.
+
+**Every task carries the split below. A task is `complete` only when both columns are satisfied**;
+with only the left column it is `awaiting-human`, and it says so in the ledger.
+
+| Task | Machine-checkable, by the subagent | Needs a human at the machine |
+| --- | --- | --- |
+| 1 `BootEpoch` | everything — `swift test` | — |
+| 2 `EvidenceRef` | everything | — |
+| 3 observation records | everything | — |
+| 4 `SegmentTable` | everything | — |
+| 5 `Minting` epoch | `bootEpoch` stability, `hostNow` monotonicity, `continuousNow >= hostNow` | — |
+| 6 permissions | the status functions return *a* value | **yes** — that each value is *correct* against System Settings, and one degradation toggled end to end |
+| 7 `capture-source` | `geometry()` is pure: a dragged window yields the same revision | **yes** — the system picker; the scale-to-fill vs letterbox measurement |
+| 8 `capture-stream` | segment lifecycle against a fake frame source; boundary reasons | **yes** — a real recording, two audio tracks with both tones live, reconfiguration |
+| 9 `input-observation` | the conversion, against fixture points | **yes** — the tap needs Input Monitoring and a moving mouse |
+| 10 `ax-observation` | the record types; truncation encoding | **yes** — the walk against three target classes, clicking during animations |
+| 11 `observation-log` | the writer against a temp directory | **yes** — end to end, with pauses |
+| 12 close out | `swift test`, `xcodebuild`, clean build | **yes** — five negative cases, and the app launching |
+
+### 2 · Mutation checks have no target in code that touches the OS
+
+There is no mutation of "the stream really captured the screen" — not headlessly. Marking it N/A is
+a silent gap, and this project's rule is that mutation checks are the *only* mechanism producing a
+behavioural red.
+
+So the structure carries the weight: **every task states where the line between the pure core and
+the untestable shell falls**, and the shell is kept thin enough that one human verification covers
+it. `SegmentTable`, `ObservationLog`, `AXChainRecord`, `EpochAnchor` and the coordinate routing are
+all pure, testable and mutable. `SCStream`, the event tap and the AX calls are the shell.
+
+**A task whose line cannot be drawn has a shell that is too thick.** Report that rather than
+proceeding — it is a design signal, not an inconvenience.
+
+### 3 · Two kinds of state that outlive a task
+
+**A TCC grant is bound to the signing identity and the bundle identifier.** Any subagent that
+rebuilds the app with a different signature orphans every existing grant — and the *next* subagent
+sees a failure it cannot diagnose, because the checkbox in System Settings still looks correct.
+
+- The app is `video.soredemo.Soredemo`, signed `Apple Development`, team `GJRVCWA2U3`. **Do not change any of the three.**
+- Spikes use their own identifiers (`video.soredemo.SpikeA`, `.SpikeB`) so that `capture-permissions`' first-run flow stays testable. Never run a spike under the product's identifier.
+- Between tasks, the review checks that these did not change.
+- If a grant appears present but the API says otherwise: re-signing invalidated it.
+  `tccutil reset ListenEvent video.soredemo.Soredemo`, then grant again.
+
+**A capture test writes a video of the owner's screen.** This has already cost twice by hand — a
+click log carrying real window titles, and a 32 MB recording left in the home directory.
+
+- Capture tests write to a temporary directory only, and delete on completion. **Never to `$HOME`.**
+- No recording, log or frame dump is ever committed. `.gitignore` already excludes `*.mov` and `*.mp4` outside `Tests/`; that exception exists for golden fixtures and is not a licence to commit a real capture.
+- A report quotes measurements, never window titles or file contents.
+
+---
+
 ## The rules this phase keeps re-deriving
 
 Every one of these was reached independently more than once in the design, in different subsystems. They are constraints on implementation, not commentary:
