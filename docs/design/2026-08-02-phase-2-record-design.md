@@ -129,3 +129,105 @@ Phase 1 and should not re-commit at the start of Phase 2.
   as such wherever they appear.
 - Whether one level of children is enough, or whether a well-bounded control is commonly two levels
   down inside a group. Measure before widening — each extra level is another synchronous IPC.
+
+---
+
+## F2-1 — One clock, three sampling moments, two representations
+
+Measured on this machine (Apple Silicon, macOS 26.6, Xcode-beta 27.0), not read from
+documentation. An earlier draft of this document said the pairing had to span *three clocks*; that
+framing was wrong and would have sent the spike to measure a difference that does not exist.
+
+```
+mach_timebase_info                 numer = 125, denom = 3   →   1 tick = 41.667 ns
+CMClockGetTime(hostTimeClock)      406033136183083   (timescale 1e9, i.e. nanoseconds)
+mach_absolute_time() × 125/3       406033136166250
+                                   ↑ 17 µs apart — the gap between the two reads, not an offset
+CMClockMakeHostTimeFromSystemUnits round-trips to the exact input:  true
+```
+
+`CMClockGetHostTimeClock()` is `mach_absolute_time()`. `CMClockMakeHostTimeFromSystemUnits` and
+`CMClockConvertHostTimeToSystemUnits` are exact conversions, not estimates — verified by round trip.
+
+**So there is no clock skew to measure between a frame's PTS and a `CGEvent`. There is only
+latency**, and every latency is measured on the one clock:
+
+| Latency | From → to |
+| --- | --- |
+| tap | the event's timestamp → the moment the callback runs |
+| AX | the hit-test call → its return |
+| frame | PTS → the sample buffer arriving in the callback |
+
+### `CGEventTimestamp` is in nanoseconds
+
+This was the spike's first target, because it is the failure that does not announce itself. On
+Intel `mach_timebase_info` is 1/1 and ticks *are* nanoseconds, so the question never arises. On
+Apple Silicon the ratio is 125/3, and guessing wrong places every click at 1/24 of its true offset —
+no error, no crash, just a video whose zooms never line up.
+
+Measured with an AppKit window reading **its own** mouse events, which needs no TCC grant at all:
+
+```
+NSEvent.timestamp   406105.627764  seconds since boot
+CGEvent.timestamp   406105627764000
+mach_absolute_time  9746535213658   ×125/3 = 406105633902416
+ratio cg / mach = 41.6667  = 125/3    →  CGEventTimestamp is NANOSECONDS
+```
+
+Three samples, ratio identical in all three. Convert to mach units with `× denom/numer` (`× 3/125`),
+or better, stay in nanoseconds and use the CoreMedia conversions.
+
+### First latency distribution, and what it is not
+
+| Sample | CGEvent (ns) | host time at handler (ns) | event → handler |
+| --- | --- | --- | --- |
+| 0 | 406105627764000 | 406105633902416 | **6.14 ms** |
+| 1 | 406105990179208 | 406105992536416 | **2.36 ms** |
+| 2 | 406106344463416 | 406106345311791 | **0.85 ms** |
+
+**This is the app's own events arriving through its `NSEvent` run loop. It is not a `CGEvent` tap.**
+A tap is a different path with different scheduling, and this figure is a lower bound on that, not a
+measurement of it. Spike A must measure the tap path directly.
+
+### The probe committed the error it was built to detect
+
+Its "event → handler" line read `m >= cg ? m - cg : 0` — written while assuming `cg` was in ticks.
+Since `cg` (ns, 4.06e14) exceeds `m` (ticks, 9.7e12), the guard failed and it **printed `0 µs`**.
+
+A unit assumption that was never measured, inside the probe written to measure unit assumptions,
+failing by printing zero rather than by raising. `AGENTS.md` already carries this shape twice —
+`wc -l` returning 1 for empty input, and a filter reporting silence for a row it does not match.
+This is the third: **a guard whose false branch is a plausible value.**
+
+---
+
+## D2-2a — An AX observation carries an interval, not a timestamp
+
+Amends D2-2. `AXUIElementCopyElementAtPosition` returns no timestamp of its own; all you know is
+when you asked and when it answered. So each AX observation records `mach_absolute_time()`
+**before and after** the call, and the pair is stored.
+
+What you have is not "the moment of the AX snapshot". It is an interval, and **its width is the
+uncertainty**. Recording a single timestamp would be inventing a precision that was never measured —
+the same error as the units question above, one layer up.
+
+This is what finally gives `framing-gates`' `observation stale` rejection code a real input: a gate
+can reject on an interval too wide to place the snapshot against the click, instead of comparing a
+number that only looks exact.
+
+Per D2-2, each item in the chain carries its own pair, not one pair for the whole chain.
+
+---
+
+## Spike A — before any capture code
+
+Split so the dangerous half needs fewer grants. **A needs Input Monitoring and Accessibility, not
+Screen Recording.** B adds `SCStream` and needs Screen Recording. Do A first.
+
+A answers: tap-path latency (the real one, not F2-1's lower bound), AX interval width, and how both
+behave under load.
+
+**Sample against animation, not a static screen.** The pairing fails while the UI is animating,
+which is exactly when a person clicks a button. At least three targets — native AppKit, an Electron
+app (Slack or VS Code), and one known to be slow. Their AX latency distributions differ by a lot,
+and the depth cap in D2-2 must be calibrated against the **worst** of them, not the best.
