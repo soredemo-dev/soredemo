@@ -116,6 +116,17 @@ nonisolated(unsafe) var stallOnlyOnClicks = false
 nonisolated(unsafe) var timeoutDisableInstants: [(disabled: Int64, reArmed: Int64)] = []
 nonisolated(unsafe) var pendingDisableAt: Int64?
 nonisolated(unsafe) var callbacksSeen = 0
+/// Stalls actually performed — NOT callbacks seen.
+///
+/// Part A's guard used to be `callbacks > 0`, and `callbacksSeen` counts every
+/// callback including `mouseMoved`, which the mask includes. So a run where the
+/// operator moved the mouse and clicked ZERO times performed zero stalls,
+/// recorded ~1900 callbacks, and passed with the message "a 125 ms stall on
+/// CLICKS ONLY left the tap ENABLED". The number that came out of that run is
+/// now quoted as a design fact in five files. An anti-vacuity guard that reads
+/// a proxy for its subject is the ninth instance of that shape in this project
+/// and the first one inside a guard written to prevent it.
+nonisolated(unsafe) var stallsPerformed = 0
 nonisolated(unsafe) var unexpectedCallbackTypes: [UInt32] = []
 nonisolated(unsafe) var activeTap: CFMachPort?
 
@@ -142,6 +153,7 @@ nonisolated func stallingTapCallback(_ proxy: CGEventTapProxy, _ type: CGEventTy
     }
     if type != .mouseMoved { unexpectedCallbackTypes.append(type.rawValue) }
     if stallMilliseconds > 0 && (!stallOnlyOnClicks || type == .leftMouseDown) {
+        stallsPerformed += 1
         usleep(UInt32(stallMilliseconds) * 1000)
     }
     return Unmanaged.passUnretained(event)
@@ -402,13 +414,22 @@ enum SpikeC {
 
         if let smallestDisabled = disabled.min() {
             let largestSafe = notDisabled.max()
-            step.check("the budget is between "
-                       + "\(largestSafe.map { "\($0) ms" } ?? "0 ms") and \(smallestDisabled) ms. "
-                       + "Spike A measured the AX hit-test at p50 1.05 ms, p90 21.25 ms and max "
-                       + "125.47 ms, with 12% over one 60 fps frame — so AX work inside this "
-                       + "callback WILL disable the tap, and this band is the budget for whatever "
-                       + "stays behind after it moves out",
-                       smallestDisabled > 125)
+            // **This says what the sweep measured, and nothing about AX.**
+            // The previous wording concluded "so AX work inside this callback
+            // WILL disable the tap" — falsified by STEP 6, which stalls at the
+            // rate clicks actually arrive and finds the tap survives. This
+            // sweep stalls on every mouseMoved at 60–120 Hz, which is roughly
+            // 100x the real duty cycle, so what it measures is the point at
+            // which SUSTAINED OVERLOAD disables a tap. That is a real number
+            // about a real regime; it is not the budget for a per-click cost,
+            // and the assertion must not smuggle a conclusion the experiment
+            // cannot reach. Run step 6 for that question.
+            step.check("under SUSTAINED overload — a stall on every pointer event at 60–120 Hz — "
+                       + "the tap survives \(largestSafe.map { "\($0) ms" } ?? "0 ms") and is "
+                       + "disabled by \(smallestDisabled) ms. This is NOT the budget for a "
+                       + "per-click cost: step 6 stalls 125 ms on clicks only and the tap survives. "
+                       + "Read this number as the overload threshold and nothing else",
+                       true)
         } else {
             step.check("no rung was disabled per the OS up to \(ladder.max()!) ms — the budget is "
                        + "above that and Spike A's 125.47 ms worst hit-test is inside it", true)
@@ -481,12 +502,13 @@ enum SpikeC {
             CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
             callbacksSeen = 0
+            stallsPerformed = 0
             for elapsed in 0..<seconds {
                 CFRunLoopRunInMode(.defaultMode, 1, false)
                 poll(tap, elapsed)
             }
             let enabled = CGEvent.tapIsEnabled(tap: tap)
-            let calls = callbacksSeen
+            let calls = stallsPerformed
             CGEvent.tapEnable(tap: tap, enable: false)
             CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
             CFMachPortInvalidate(tap)
@@ -515,7 +537,7 @@ enum SpikeC {
             step.preconditionFailed("tapCreate returned nil — Input Monitoring is not granted to "
                                     + "video.soredemo.SpikeC.")
         }
-        print(String(format: "    part A: %d callbacks, enabled at end: %@, first seen disabled at: %@",
+        print(String(format: "    part A: %d stalls performed, enabled at end: %@, first seen disabled at: %@",
                      a.callbacks, a.enabledAtEnd ? "yes" : "NO",
                      firstDisabledSecondA.map { "t+\($0)s" } ?? "never"))
 
@@ -540,17 +562,22 @@ enum SpikeC {
         VerificationStep.beepStop()
 
         guard a.callbacks > 0 else {
-            step.didNotHappen("no callback arrived in part A — nothing was clicked and the mouse "
-                              + "was not moved, so neither part measured anything.")
+            step.didNotHappen("part A performed ZERO stalls — nothing was clicked. The mouse may "
+                              + "well have been moved; that is not what this part stalls on.")
         }
         print(String(format: "    part B: re-armed at %@, then stayed enabled for %d of the "
                              + "remaining seconds, enabled at end: %@",
                      reArmedAt.map { "t+\($0)s" } ?? "never — no disable was induced",
                      reArmSurvivedSeconds, (b?.enabledAtEnd ?? false) ? "yes" : "NO"))
 
-        step.check("part A saw \(a.callbacks) callbacks — the stall path was exercised. Zero would "
-                   + "mean nothing was clicked or moved, not that the tap survived",
-                   a.callbacks > 0)
+        // The subject is STALLS, not callbacks. Eight is a floor for "about a
+        // dozen clicks" that still leaves room for a miscount, and any number
+        // below it means part A's verdict is about a run that barely stalled.
+        step.check("part A performed \(a.callbacks) stalls of 125 ms — the path under test was "
+                   + "exercised. Callbacks are NOT the subject: the mask includes mouseMoved, so a "
+                   + "run with zero clicks records ~1900 callbacks, performs no stall at all, and "
+                   + "would otherwise pass claiming the tap survived a stall it never took",
+                   a.callbacks >= 8)
         step.check("PART A: a 125 ms stall on CLICKS ONLY — Spike A's worst hit-test at the rate "
                    + "clicks actually arrive — left the tap "
                    + (a.enabledAtEnd ? "ENABLED. Step 5's 20 ms figure was a sustained-overload "
@@ -562,10 +589,30 @@ enum SpikeC {
                                        + "right reason"),
                    a.enabledAtEnd)
         if let reArmedAt {
-            step.check("PART B: after a real timeout-induced disable at t+\(reArmedAt)s, a single "
-                       + "CGEventTapEnable(true) left the tap enabled for \(reArmSurvivedSeconds) "
-                       + "further seconds — so re-arm is sufficient and does not need backoff",
-                       reArmSurvivedSeconds > 0 && (b?.enabledAtEnd ?? false))
+            // **Two things this cannot say, and used to.**
+            //
+            // `reArmSurvivedSeconds` can only increment on polls AFTER
+            // `reArmedAt`, so with a disable at t+0 its ceiling is 19 — the
+            // reading is the instrument's saturated maximum, not a 95% result
+            // with a one-second shortfall, and it was quoted as the latter.
+            //
+            // And the stall is switched OFF at the moment of re-arm (see the
+            // poll closure above), deliberately, so what is measured is "a tap
+            // re-armed and then LEFT ALONE stays enabled". Nothing was trying
+            // to disable it. Backoff exists for a PERSISTENT cause — which is
+            // the premise of `AXObserver`'s whole asymmetry argument, a hung
+            // target — and under one, a 10 Hz poll becomes a 10 Hz re-arm loop.
+            // That may well be right; it is not what this measured. Same shape
+            // as step 5: a measurement taken at a duty cycle the real case does
+            // not have.
+            let ceiling = 19 - reArmedAt
+            step.check("PART B: after a timeout-induced disable at t+\(reArmedAt)s, one "
+                       + "CGEventTapEnable(true) with the stall REMOVED left the tap enabled for "
+                       + "\(reArmSurvivedSeconds) of \(ceiling) further polls — the instrument's "
+                       + "maximum. So a re-arm sticks when nothing is still trying to disable the "
+                       + "tap. Behaviour under a PERSISTENT cause is UNMEASURED, and that is the "
+                       + "case backoff would exist for",
+                       reArmSurvivedSeconds == ceiling && (b?.enabledAtEnd ?? false))
         } else {
             step.check("PART B did not run: no disable was induced in 20 s of every-event stalling, "
                        + "so whether a re-armed tap survives is UNMEASURED. Not a pass",
