@@ -123,7 +123,11 @@ whole and the symbols were there when nothing imported them. Both readings are f
 neither is the fact that was claimed.
 
 This is the "which build" rule one level down: having picked the right tool and the right state, you
-can still measure the wrong file. Before quoting a number, say which path produced it.
+can still measure the wrong file. Before quoting a number, say which path produced it — **and which
+flags**. The counts above are plain `nm`. The same dylib under `nm -a`, which includes debug
+symbols, gives `Minting` 20, `CGGeometryBridge` 22, `ProjectDocument` 234 and a total of 16662
+against 5192. Both are correct measurements of different things, and this document and Task 18's
+report each quoted one without naming it — the rule unmet by the entry that introduces it.
 
 **The instrument can have state.** Every entry above is about a claim never compared to the thing.
 This is the case where you did compare them and the comparison still lied, because the API answered

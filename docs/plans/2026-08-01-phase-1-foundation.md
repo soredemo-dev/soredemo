@@ -1358,7 +1358,10 @@ What discriminates is the app's **own** new types:
 | `CGGeometryBridge` | 0 | 10 |
 | `ProjectDocument` | 0 | 117 |
 
-Measure those, on `Soredemo.debug.dylib`, found with `find "$DD" -name "Soredemo.debug.dylib"`.
+Measure those with **plain `nm`** on `Soredemo.debug.dylib`, found with
+`find "$DD" -name "Soredemo.debug.dylib"`. State the flag when quoting the number: `nm -a` includes
+debug symbols and gives 20 / 22 / 234 for the same three on the same file, and 2394 rather than 1197
+for `8Geometry`. Neither is wrong; a number without its flag is.
 
 - [ ] **Step 2: Re-verify rule 1 under `xcodebuild` — for the first time meaningfully**
 
