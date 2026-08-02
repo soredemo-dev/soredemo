@@ -128,13 +128,25 @@ not recomputed.
 A versioned `Codable` document with a schema number and an explicit upgrade path. Atomic writes.
 Relative paths only, so a project folder can move. Media lives beside the project file as sidecars.
 
-**I/O:** `WritableDocument`/`ReadableDocument` — asynchronous, incremental disk operations with
-`Subprogress` reporting. For a package holding multi-gigabyte recordings that is the difference
-between a responsive open and a beachball. `DocumentCreationSource` maps onto the entry points: new
-from recording, new from a release, new empty.
+**I/O:** a hand-written `NSDocument` coordinator — `Soredemo/UI/ProjectDocument.swift`.
+`read(from:ofType:)` receives the package **directory** and decodes `project.json` alone, so opening
+a document is independent of how much footage it holds; `writeSafely(to:ofType:for:)` is overridden
+to bypass `NSDocument`'s whole-package copy and let `ProjectPackageIO` make the manifest alone
+atomic.
 
-*Verify first* that these handle a **package** — a directory with large media sidecars — and not only
-single-file documents.
+**Corrected from `WritableDocument`/`ReadableDocument`/`DocumentCreationSource`** (design doc F3,
+F4). Those protocols *do* handle a package — their `Source`/`Destination` associated types merely
+default to `URL` — so the original verification question was answered *yes*. They are unusable
+anyway for a different reason: they live in **SwiftUI**, not Foundation, and are
+`@available(macOS 27, *)`, above this project's macOS 26 floor (D2). `DocumentCreationSource.init(id:)`
+is separately `@available(macOS, unavailable)`, as is its only consumer `NewDocumentButton`, so the
+claim that it maps onto the entry points was never true on macOS.
+
+**The cost of the substitute, recorded rather than discovered later.** `NSDocument`'s `read` and
+`writeSafely` are `nonisolated`; marking an override `@MainActor` is a hard compile error. Document
+state therefore lives in a `Mutex` instead of behind the class's own main-actor isolation, and every
+piece of state this coordinator grows pays that tax. The newer protocol avoided it by making
+`snapshot(contentType:)` `@MainActor` and handing a `sending` value to a `@concurrent` writer.
 
 *Rejected:* SwiftData. The project is a document users open, move, and version — not a store.
 
@@ -325,9 +337,13 @@ Three mitigations, and the design already provides two:
 
 Taken from documentation, not from running code. Two of these change decisions.
 
-- [ ] Do `WritableDocument`/`ReadableDocument` handle a **package** (directory with large media
+- [x] Do `WritableDocument`/`ReadableDocument` handle a **package** (directory with large media
       sidecars), or only single-file documents? *(If single only, D5 needs a hand-written package
-      coordinator.)*
+      coordinator.)* — **Resolved (design doc F3).** They handle a package; `Source`/`Destination`
+      are associated types merely defaulting to `URL`, verified by compilation. It changes the
+      decision anyway, for the reason the question did not anticipate: they are SwiftUI protocols
+      gated at `macOS 27`, above the macOS 26 floor. D5 therefore gets the hand-written coordinator
+      the parenthetical predicted, arriving by a different route.
 - [ ] Does `SpeechAnalyzer` accept an `AVAssetReader` audio track for offline transcription of a
       finished recording, or only live input? *(If live only, the transcript work grows.)*
 - [ ] Is `SCRecordingOutput` sufficient for the master, or is per-frame `AVAssetWriter` control needed
