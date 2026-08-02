@@ -232,6 +232,22 @@ impossible, and then does not check it on the only path where that state arrives
 And the failure is not a crash. **It is an answer** — a plausible number, inside the legal range,
 for a question the invariant says cannot arise.
 
+**Read the primary source before running anything.** SDK headers, availability annotations and
+`swift package dump-package` answer *what an API is specified to do*, in seconds, and they answered
+two of Spike B's three questions before it was ever run: `pause` appears zero times in the whole of
+ScreenCaptureKit, and `mixesAudioWithMicrophone` carries `API_AVAILABLE(macos(27.0))`. Neither
+needed a recording.
+
+The division is not "reading versus measuring", it is which question is being asked:
+
+| Question | Answered by |
+| --- | --- |
+| what the API is *specified* to do | the header, the annotation, the manifest dump |
+| what it *actually* does on this machine, this OS version, this configuration | a measurement |
+
+Measure the second only. Spending a spike on the first is slow, and — worse — a measurement of a
+documented behaviour reads like a discovery.
+
 **State a measurement's subject as explicitly as its value.** "Screen recording: granted" — *for
 whom?* The sentence omits its subject, and a measurement will quietly supply a different one.
 
