@@ -21,6 +21,16 @@
 //      only file that *names* those types; nothing there checks that the
 //      conversion is right.
 //
+// Two more were added after this comment's "three" was written and never
+// renumbered — the boot epoch and host clock (Task 5, § 4 below), and now
+// `CaptureSource.geometry()` (Task 7, § 5): a window's frame must be
+// **absent** from the digest and its output buffer size must be **present**,
+// which is a claim about `Soredemo/Capture/CaptureSource.swift`'s actual
+// behaviour and needs the real `SCDisplay`/`SCWindow` types no package test
+// can name. Left as "three" above rather than silently corrected to "five" —
+// the drift is itself the demonstration of this file's own opening claim,
+// that nothing here runs automatically enough for a stale count to be caught.
+//
 // **This is not a standing regression test.** Nothing runs it automatically:
 // `swift test` cannot see it and there is no app test target to host it. It is
 // run by hand, and the Task 18 report records the observation. Making it a real
@@ -68,6 +78,7 @@ import Foundation
 import Geometry
 import Graph
 import Project
+@preconcurrency import ScreenCaptureKit
 
 // Kept byte-identical to `Tests/GraphTests/CrossBoundaryDigestVectorTests.swift`.
 // The two literals ARE the vector; that file checks the left-hand one against
@@ -133,7 +144,7 @@ func check(_ condition: Bool, _ label: String, actual: String = "", expected: St
 @main
 enum CrossBoundaryProbe {
     @MainActor
-    static func main() throws {
+    static func main() async throws {
         print("1. cross-boundary SHA-256 vector")
         let canonicalBytes = bytes(fromHex: pinnedCanonicalBytesHex)
         check(canonicalBytes.count == 41, "canonical bytes are the frozen 41-byte width",
@@ -157,6 +168,9 @@ enum CrossBoundaryProbe {
 
         print("4. boot epoch and the host clock")
         epochAndClock()
+
+        print("5. CaptureSource.geometry() — D2-13: a window's frame is extrinsic")
+        try await captureSourceGeometry()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -383,5 +397,156 @@ enum CrossBoundaryProbe {
         let gapHours = Double(gapNanos) / 1e9 / 3600
         print("        continuousNow - hostNow = \(gapNanos) ns (\(String(format: "%.2f", gapHours)) h)")
         print("        bootEpoch = \(Minting.bootEpoch())")
+    }
+
+    /// `CaptureSource.geometry()` is a pure function over its own parameters
+    /// — `scale`, `displayUUID`, and (for `.window`) the associated
+    /// `bufferSize` tuple — and never reads the wrapped `SCWindow`'s own
+    /// state. That is the whole claim D2-13 makes: a window's screen frame
+    /// is extrinsic and must not enter the digest, because entering it would
+    /// mint a new `GeometryRevision` on every drag, the exact failure D-P2
+    /// rejected for display arrangement.
+    ///
+    /// Testing it needs a *real* `SCDisplay` and a *real* `SCWindow` —
+    /// `SCWindow.init`/`SCDisplay.init` are `NS_UNAVAILABLE`, so there is no
+    /// way to fabricate one — but the task brief is explicit that this test
+    /// "needs no permission and no picker", and `SCShareableContent.current`
+    /// (the general listing) does. The permission-free source is
+    /// `SCShareableContent.currentProcess`
+    /// (`getCurrentProcessShareableContentWithCompletionHandler:`, macOS
+    /// 14.4+, below this project's floor): its header says outright that it
+    /// returns content "available to capture by current process without
+    /// user consent via TCC". Measured empirically before writing this
+    /// (not assumed from the header alone, per `AGENTS.md`'s primary-source
+    /// rule): a bare `swiftc` binary with no window returns one real
+    /// `SCDisplay` and zero windows; the same binary, after creating and
+    /// ordering front one real `NSWindow`, returns that window too — both
+    /// with no Screen Recording grant, no picker, and no TCC prompt, on this
+    /// machine (macOS 26.6). That is the fixture source below.
+    ///
+    /// "Do not construct a filter by hand except in the probe" (task brief)
+    /// is exercised here too: `init(pickerFilter:)` is tested by handing it
+    /// filters this function builds directly with `SCContentFilter`'s own
+    /// initialisers — the app itself never does this; only the picker
+    /// supplies a filter there.
+    @MainActor
+    static func captureSourceGeometry() async throws {
+        let content = try await SCShareableContent.currentProcess
+        guard let display = content.displays.first else {
+            print("        SKIPPED — SCShareableContent.currentProcess returned no display; " +
+                  "cannot construct a CaptureSource.display without one")
+            return
+        }
+
+        // A real, on-screen window this process owns, so `currentProcess`
+        // has something to report. Ordered front and given a moment to
+        // register with the window server — the same wait used in the
+        // measurement that established this technique works at all.
+        let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 500, height: 360),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.title = "cross-boundary-digest-probe (CaptureSource)"
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(500))
+
+        let beforeMove = try await SCShareableContent.currentProcess
+        guard let scWindowBeforeMove = beforeMove.windows.first(where: { $0.title == window.title }) else {
+            print("        SKIPPED — the probe's own window did not appear in " +
+                  "SCShareableContent.currentProcess; cannot construct a CaptureSource.window")
+            return
+        }
+
+        let displayUUID = UUID()          // a plain test value — the real
+        let windowSourceID = UUID()       // lookup is capture-stream's job, not this pure function's.
+        let bufferSize = (width: 1600, height: 1200)   // arbitrary, fixed — see D2-13.
+
+        // ---- 1. .display — same source, two different scales, two revisions.
+        // `SCDisplay.width`/`.height` come from the window server and this
+        // probe must not change the real display's resolution to test this
+        // (AGENTS.md's D2-10 explains why that spike was rejected). `scale`
+        // is `.geometry()`'s own parameter, decoupled from the display's
+        // actual backing scale, so varying IT is the controllable proxy for
+        // "the captured pixel dimensions changed" — which is what a real
+        // resize changes about the digest.
+        let displaySource = CaptureSource.display(display)
+        let displayGeometryAt1x = displaySource.geometry(scale: 1, displayUUID: displayUUID)
+        let displayGeometryAt2x = displaySource.geometry(scale: 2, displayUUID: displayUUID)
+        check(displayGeometryAt1x.revision != displayGeometryAt2x.revision,
+              ".display: scale 1 vs scale 2 (a resize, in pixel terms) mint different revisions",
+              actual: "\(displayGeometryAt1x.revision) vs \(displayGeometryAt2x.revision)")
+        check(displayGeometryAt1x.pixelWidth == display.width && displayGeometryAt1x.pixelHeight == display.height,
+              ".display at scale 1: pixel dimensions equal SCDisplay's own points (identity scale)",
+              actual: "\(displayGeometryAt1x.pixelWidth)x\(displayGeometryAt1x.pixelHeight)",
+              expected: "\(display.width)x\(display.height)")
+
+        // ---- 2. .window — dragged (moved to a genuinely different screen
+        // location, not the (0,0)-is-translation's-identity trap AGENTS.md
+        // warns about), same bufferSize: identical revision.
+        let windowSourceBeforeMove = CaptureSource.window(scWindowBeforeMove, bufferSize: bufferSize)
+        let geometryBeforeMove = windowSourceBeforeMove.geometry(scale: 2, displayUUID: windowSourceID)
+
+        window.setFrameOrigin(NSPoint(x: 700, y: 40))
+        try await Task.sleep(for: .milliseconds(300))
+        let afterMove = try await SCShareableContent.currentProcess
+        guard let scWindowAfterMove = afterMove.windows.first(where: { $0.windowID == scWindowBeforeMove.windowID }) else {
+            print("        SKIPPED remainder — the probe's window disappeared from " +
+                  "SCShareableContent.currentProcess after being moved")
+            return
+        }
+        check(scWindowAfterMove.frame != scWindowBeforeMove.frame,
+              "the window's frame genuinely changed — not the (0,0)/identity fixture trap",
+              actual: "\(scWindowBeforeMove.frame) -> \(scWindowAfterMove.frame)")
+
+        let windowSourceAfterMove = CaptureSource.window(scWindowAfterMove, bufferSize: bufferSize)
+        let geometryAfterMove = windowSourceAfterMove.geometry(scale: 2, displayUUID: windowSourceID)
+        check(geometryBeforeMove.revision == geometryAfterMove.revision,
+              ".window: dragging to a different screen frame does not change the revision (D2-13)",
+              actual: "\(geometryBeforeMove.revision) vs \(geometryAfterMove.revision)")
+
+        // ---- 3. .window — resized output buffer, same window, different revision.
+        let smallerBufferSource = CaptureSource.window(scWindowAfterMove, bufferSize: (width: 800, height: 600))
+        let smallerBufferGeometry = smallerBufferSource.geometry(scale: 2, displayUUID: windowSourceID)
+        check(geometryAfterMove.revision != smallerBufferGeometry.revision,
+              ".window: a different output buffer size mints a different revision",
+              actual: "\(geometryAfterMove.revision) vs \(smallerBufferGeometry.revision)")
+        check(smallerBufferGeometry.pixelWidth == 800 && smallerBufferGeometry.pixelHeight == 600,
+              ".window: pixel dimensions come from bufferSize, not from the window's own frame",
+              actual: "\(smallerBufferGeometry.pixelWidth)x\(smallerBufferGeometry.pixelHeight)")
+
+        // ---- 4. init(pickerFilter:) — never hand-built in the app; built by
+        // hand here only, per the header comment above.
+        let displayFilter = SCContentFilter(display: display, excludingWindows: [])
+        guard let derivedDisplaySource = CaptureSource(pickerFilter: displayFilter) else {
+            check(false, "CaptureSource(pickerFilter:) derives a .display from a display-style filter")
+            return
+        }
+        if case .display(let derivedDisplay) = derivedDisplaySource {
+            check(derivedDisplay.displayID == display.displayID,
+                  "CaptureSource(pickerFilter:) picked the same SCDisplay the filter names")
+        } else {
+            check(false, "CaptureSource(pickerFilter:) returned .window for a display-style filter")
+        }
+
+        let windowFilter = SCContentFilter(desktopIndependentWindow: scWindowAfterMove)
+        guard let derivedWindowSource = CaptureSource(pickerFilter: windowFilter) else {
+            check(false, "CaptureSource(pickerFilter:) derives a .window from a window-style filter")
+            return
+        }
+        if case .window(let derivedWindow, let derivedBufferSize) = derivedWindowSource {
+            check(derivedWindow.windowID == scWindowAfterMove.windowID,
+                  "CaptureSource(pickerFilter:) picked the same SCWindow the filter names")
+            // The filter's own contentRect/pointPixelScale, not the fixed
+            // 1600x1200/800x600 test values above — this is what the real
+            // picker path derives, unlike the two synthetic sources tested
+            // above it. Printed rather than pinned to an exact value: the
+            // window's true on-screen pixel size depends on this machine's
+            // backing scale and window chrome, neither of which this probe
+            // controls.
+            print("        picker-derived window bufferSize = \(derivedBufferSize.width)x\(derivedBufferSize.height)")
+            check(derivedBufferSize.width > 0 && derivedBufferSize.height > 0,
+                  "CaptureSource(pickerFilter:) derives a positive buffer size from the filter's contentRect")
+        } else {
+            check(false, "CaptureSource(pickerFilter:) returned .display for a window-style filter")
+        }
     }
 }
