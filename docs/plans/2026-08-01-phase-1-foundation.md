@@ -1344,7 +1344,21 @@ Expected: non-zero, meaning Xcode compiled package targets.
 
 If zero *from empty derived data*, **stop and report NEEDS_CONTEXT** — the local package reference has not been added, and everything below depends on it. Do not proceed on a build that silently never compiles the package.
 
-**Compiled is not linked.** This check establishes that the package is in the build graph. It cannot establish that the app links it, because until this task writes the first `import`, nothing references it: measured at the start of Task 18, the app binary contained zero `Geometry` symbols on a build where every package module compiled. Step 4's `nm` on the app binary is what closes that gap, and it only becomes meaningful once `Minting.swift` exists.
+**Compiled is not linked — and `nm` on "the app binary" does not measure it.** Two things about this, both found by measuring rather than reasoning, after this paragraph first stated the opposite.
+
+`Soredemo.app/Contents/MacOS/Soredemo` is a **59 KB launcher stub** with 120 symbols in a Debug build; all app code lives in `Soredemo.debug.dylib`. `nm` on the stub reports **zero** `Geometry` symbols before Task 18 and **zero** after — a check that returns the same answer whether or not the work was done.
+
+On the dylib, the count barely moves: **1191 → 1197**. SwiftPM's static product is force-loaded whole, so the package's symbols were already present when nothing imported it at all. "Zero before" was never true of the app; it was true of the file being measured.
+
+What discriminates is the app's **own** new types:
+
+| Symbols naming | before | after |
+| --- | --- | --- |
+| `Minting` | 0 | 9 |
+| `CGGeometryBridge` | 0 | 10 |
+| `ProjectDocument` | 0 | 117 |
+
+Measure those, on `Soredemo.debug.dylib`, found with `find "$DD" -name "Soredemo.debug.dylib"`.
 
 - [ ] **Step 2: Re-verify rule 1 under `xcodebuild` — for the first time meaningfully**
 

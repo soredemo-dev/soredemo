@@ -114,6 +114,17 @@ table and a task brief before an implementer measured it independently and disag
 of the pattern announces itself: `wc -l` returns 1 for nothing, and `grep` returns silence for a
 row it does not match. Where a number is going into a document, derive it twice.
 
+**Name the artefact, not the concept.** "The app binary" is not a file.
+`Soredemo.app/Contents/MacOS/Soredemo` is a 59 KB launcher stub in a Debug build; the app's code is
+in `Soredemo.debug.dylib`. `nm` on the stub reports zero `Geometry` symbols before the app's first
+`import SoredemoCore` and zero after — the check answers identically whether or not the work
+happened. On the dylib the count moves 1191 → 1197, because SwiftPM's static product is force-loaded
+whole and the symbols were there when nothing imported them. Both readings are facts about a file;
+neither is the fact that was claimed.
+
+This is the "which build" rule one level down: having picked the right tool and the right state, you
+can still measure the wrong file. Before quoting a number, say which path produced it.
+
 **The instrument can have state.** Every entry above is about a claim never compared to the thing.
 This is the case where you did compare them and the comparison still lied, because the API answered
 from its own cache instead of from the world. `URL.resourceValues(forKeys: [.fileResourceIdentifier
