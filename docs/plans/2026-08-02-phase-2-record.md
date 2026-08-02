@@ -1239,7 +1239,18 @@ public enum CaptureSource: Sendable {
 
 Present the system picker, take its `SCContentFilter`, and derive a `CaptureSource` from `filter.style`. Do not construct a filter by hand except in the probe.
 
-- [ ] **Step 3: Measure the resize question, which D2-13 left open**
+- [ ] **Step 3: ~~Measure the resize question~~ — settled from the header, see D2-13a**
+
+No recording needed. `scalesToFit` and `preservesAspectRatio` are documented flags with documented
+defaults, and the decision is a display-sized buffer with `scalesToFit = false`. The window's rect
+within the surface arrives per frame as `SCStreamFrameInfoContentRect`, and
+`SCStreamFrameInfoContentScale` makes "this frame was not resampled" checkable rather than assumed.
+
+Left here rather than deleted, because the reason it was scheduled — and why it did not need to be —
+is the point: two of this phase's questions were answered by reading a header, and one of them had a
+four-run recording spent on it first.
+
+- [ ] **Step 3b (superseded, do not run): Measure the resize question**
 
 Record a window with the spike from `spikes/2026-08-02-capture-master/`, change the window's **aspect ratio** mid-recording, and inspect whether content shifts within the frame:
 

@@ -1160,3 +1160,73 @@ it was tried, measured, and rejected on the measurement.
 - The file already over-approximates where it can: `_OBJC_CLASS_$_NSDate` is banned as *any
   reference*, because for an ObjC class any reference is suspicious. That is the pattern approach
   applied exactly where it does not produce false positives.
+
+---
+
+## D2-13a — Window capture: option D, and the open question was never one
+
+D2-13 left the scale-to-fill versus letterbox behaviour open and scheduled a recording to settle it.
+**The header settles it, and a recording was never needed.** This is `AGENTS.md`'s read-the-primary-
+source rule costing five minutes instead of an afternoon, for the second time in this phase.
+
+```
+scalesToFit           macos(12.3)  "When true, the output scales up and down.
+                                    When false, the output only scales down."
+preservesAspectRatio  macos(14.0)  "By default the aspect ratio is preserved."
+sourceRect            macos(12.3)  subset of the frame INPUT, in points
+destinationRect       macos(12.3)  subset of the output IOSurface, in pixels
+```
+
+Letterbox versus scale-to-fill is a flag with a documented default, not emergent behaviour.
+
+### The decision: a display-sized buffer, `scalesToFit = false`
+
+Four options were weighed. Two collapse:
+
+**"Do not support resizing mid-recording" is not a design, because it cannot be implemented.** You
+cannot stop a person dragging another application's window. So it becomes one of: abort the
+recording (hostile), warn and continue (and then what), or leave it unhandled — and the third is
+what would actually ship. That is undefined behaviour, which is the shape this project spends its
+time eliminating: the recording is silently wrong and nothing says so.
+
+**And it is the same architecture as option D anyway.** Both are `scalesToFit = false` with
+`preservesAspectRatio = true`; they differ only in how large the buffer is. Sized to the window's
+current dimensions, growing the window exceeds the buffer and "only scales down" means it is
+resampled. Sized to the display, that happens only if a window exceeds the whole display.
+
+So **D strictly dominates**: same complexity, same single segment, and the master is unresampled in
+strictly more cases. Its cost is buffer size, and the padding is flat black, which H.264 spends
+almost nothing on — and a display-sized `IOSurface` is what display capture allocates regardless.
+
+### The time-varying mapping is not a new mechanism
+
+Padding means normalised coordinates are against the **buffer**, not the window, and the mapping
+from one to the other changes whenever the window is resized. That is D-P2's intrinsic/extrinsic
+split applied to windows, not a new problem:
+
+| | Window capture under D |
+| --- | --- |
+| **intrinsic** — digested, defines the revision | buffer size, scale, source identity — **fixed for the whole segment** |
+| **extrinsic** — never digested | the window's rect within the buffer — varies |
+
+One revision per segment. No `windowResized` case on `SegmentBoundary`. Nothing new.
+
+### And the extrinsic part arrives per frame, from the API
+
+The mapping does not have to be computed, sampled at click time, or reconstructed later. Every
+sample buffer carries it:
+
+| Attachment | What it gives |
+| --- | --- |
+| `SCStreamFrameInfoContentRect` | content's size and location **in surface coordinates**, per frame |
+| `SCStreamFrameInfoScreenRect` | the same content's on-screen location |
+| `SCStreamFrameInfoContentScale` | the scaling factor **from original content size to its size in surface** |
+
+`ContentRect` is exactly the field a click observation would otherwise have to carry, delivered
+already and for every frame rather than only at clicks.
+
+**And `ContentScale` turns "the master is unresampled" into a measurable claim.** A frame whose
+content scale is not 1 *was* resampled. That is checkable per frame, so the property this whole
+decision exists to protect stops being a design intention and becomes something the recorder can
+assert — and record when it fails, rather than letting it happen quietly. Which of the two it does
+belongs with `capture-stream`.
