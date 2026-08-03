@@ -32,6 +32,7 @@ enum ArchitectureChecker {
         "Framing":  ["Graph", "Geometry"],
         "Variants": ["Framing", "Timeline"],
         "Project":  ["Graph", "Geometry", "Timeline"],
+        "Render":   ["Geometry", "Timeline", "Project"],
     ]
 
     /// Declaration kinds permitted between `import` and the module name, as in

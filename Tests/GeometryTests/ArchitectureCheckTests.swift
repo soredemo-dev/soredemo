@@ -5,8 +5,8 @@ import Foundation
 let repositoryRoot = URL(filePath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-/// The six library targets the plugin must be attached to.
-let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"]
+/// The seven library targets the plugin must be attached to.
+let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
 
 /// Launches the real built checker. Never reimplement the checking logic
 /// in-process — that tests the test.
