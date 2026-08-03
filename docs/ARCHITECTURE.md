@@ -449,6 +449,50 @@ callback, not the tap.
 beat spans a gap in the pointer record" is that refusal, and it needs a range to compare against — a
 count gives it nothing to test.
 
+## D6b — The platform-premise register: what this app believes about macOS
+
+**Every row is a claim about the operating system that this code depends on and that Apple has not
+promised.** Several were measured *because* the header does not say — which is the honest position,
+and also the one that expires without warning.
+
+**Why this is a table and not the design doc's prose.** These claims are currently scattered across
+design-doc sections, code comments and commit messages. Each was true when measured; none of them
+announces itself when it stops being true. And unlike a rule that a scan can enforce, the trigger
+here is external: **a macOS major version bump.** The floor is 26 and 27 already exists, so this
+table is, today, the list of what has to be re-measured when 27 becomes the floor.
+
+**The re-written expectation is not a substitute for the row.** Task 10's `which-channel` expectation
+was rewritten from "the OS delivers this notification" (unwitnessable — no mutation here makes the OS
+behave otherwise) into "we record the channel we were told about" (witnessable, and it has a red).
+That rewrite is correct and it **erases the original claim's exposure**: if the OS changes, the
+rewritten expectation still passes — we go on faithfully recording — while the conclusion built on
+the original claim is quietly wrong. So a rewritten row leaves a row here. They are a pair.
+
+| # | The claim | How it was established | On | What breaks if it changes |
+| --- | --- | --- | --- | --- |
+| 1 | `SCRecordingOutput` mixes the microphone into the system-audio track; `mixesAudioWithMicrophone` is macOS 27+ | measured over four runs (F2-4), header confirmed | 26.5.2 | the whole reason `CaptureSession` hand-writes three `AVAssetWriterInput`s instead of using `SCRecordingOutput` |
+| 2 | `SCFrameStatusIdle` is 42–84% of callbacks; `minimumFrameInterval` is a **floor**, not a cadence (9–37 fps observed against 60 requested) | measured, four runs | 26.5.2 | "a callback is not a frame" — every frame count and the conservation law's shape |
+| 3 | `SCStream` stamps presentation times as host time at timescale 1e9, so `pts.value` is nanoseconds since boot | measured: `value=451316246248958 timescale=1000000000` | 26.5.2 | the `Int64` overflow guard in `Nanoseconds(rationalSeconds:timescale:)` is sized for this |
+| 4 | System audio arrives 2ch/32-bit float/48 kHz **planar**; the microphone 1ch/32-bit float/44.1 kHz **interleaved** | measured, printed by `CaptureSession` on every run | 26.5.2 | `AudioInterleave` exists only for the planar case; the two are told apart by format in Task 8 step 2 |
+| 5 | A `.mov` cannot store non-interleaved LPCM — a passthrough input refuses it with `-11800 / -12780` | measured; four offline configurations, only one reproduces the code | 26.5.2 | if it became storable, `AudioInterleave` is dead weight rather than load-bearing |
+| 6 | `SCStreamFrameInfoContentRect` arrives as a CGRect **dictionary representation**, not an `NSValue` | measured — an `as? NSValue` cast failed silently on every frame of a whole recording | 26.5.2 | `CGGeometryBridge.pointRect(fromFrameAttachment:)` accepts both forms for this reason |
+| 7 | With `destinationRect` unset, ScreenCaptureKit anchors window content at the buffer's **origin** | measured; `SCStream.h` says only "the entire output surface is used" and promises nothing about placement | 26.5.2 | nothing — this is why `destinationRect` is now set explicitly. The row stays as the reason |
+| 8 | A display's backing scale changes with its mode: a native 2704×1690 mode reports points == pixels where the Retina mode reports 2:1 | measured across a programmatic mode change | 26.5.2 | `CaptureSession` re-derives scale on every reconfiguration instead of trusting its constructor argument |
+| 9 | A `.listenOnly` event tap is disabled by the OS **without** `kCGEventTapDisabledByTimeout` being delivered — and the notification channel is unreliable even for `.defaultTap` | measured; a `.defaultTap` control received it on one run and not the next while the OS reported both disabled | 26.5.2 | polling `CGEvent.tapIsEnabled` is the only detection. If the notification became reliable, the poll is redundant but harmless |
+| 10 | Sustained overload (a stall on every pointer event at 60–120 Hz) disables a tap between 10 and 20 ms; a **125 ms cost per click** does not, over 30 s and 18 stalls | measured, two sweeps with a positive control | 26.5.2 | not the reason AX runs off the callback thread — that is failure-mode asymmetry (D2-18). If this tightened, the asymmetry argument is unaffected |
+| 11 | `CGEventTapEnable(tap, false)` from inside the process **does** deliver `kCGEventTapDisabledByUserInput` | measured, Task 10 human step 1 | 26.5.2 | that step validates edge arithmetic, not the poll. If the notification stopped, the step silently starts testing the poll instead — and its label would be wrong |
+| 12 | `CGEventTimestamp` is nanoseconds on the same base as `CMClockGetHostTimeClock` | measured: 395 real tapped timestamps inside the plausible band; `CGEvent(source: nil)!.timestamp` is **0**, so there is no permission-free source of one | 26.5.2 | every instant in the observation log, and the `implausibleEventTimestampCount` band |
+| 13 | Terminal's Secure Keyboard Entry is **off** by default, and a `sudo` password prompt does **not** raise system-wide secure input | measured, with the credential verified expired beforehand so the cached-credential explanation was excluded | 26.5.2 | only the verification instruction. Recorded because the wrong answer cost a run |
+| 14 | A pointer-only `.listenOnly` tap needs **no** Input Monitoring grant; a keyboard tap does | measured — steps 1 and 2 ran before step 3 was tried | 26.5.2 | `CapturePermissions`' degradation model, and what a first-run user can do before granting anything |
+| 15 | `mach_timebase_info` is 125/3 on this hardware | measured twice, a day apart | Apple Silicon, 26.5.2 | nothing directly — every conversion goes through `CMTime`/`Nanoseconds`. Kept because it is the constant a hand-rolled conversion would need, and hand-rolling it is the mistake |
+| 16 | Foundation's `JSONDecoder` refuses **every** route to a non-finite `Double` — `1e400`, `-1e400`, bare `NaN`, `"NaN"` | measured, four cases | Xcode 27.0 (27A5228h) | `AXChainRecord`'s validating decoder is untestable through JSON and is demonstrated through a property list instead. If this loosened, the JSON path needs its own case |
+| 17 | TCC binds a grant to signing identity **and** bundle identifier; re-signing invalidates the grant while the Settings pane still shows it enabled | measured, observed once as a live state | 26.5.2 | every spike's grant lifecycle, and `capture-permissions`' first-run flow being testable at all |
+
+**Row 17 is the one with a cost attached.** The "never asked" state for Screen Recording on the
+**product's** bundle identifier is a spent-once asset: `capture-permissions` needs it to test the
+first-run degradation path. Every spike therefore uses its own identifier (`video.soredemo.SpikeA`,
+`SpikeB`, `SpikeC`) so a throwaway tool cannot consume it.
+
 ## D7 — Liquid Glass: native only, never custom
 
 App chrome is 100% standard SwiftUI. `.glassEffect()` is never called to build chrome.

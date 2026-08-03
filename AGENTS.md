@@ -653,6 +653,26 @@ instrument that settled it, not as an open question.
 atomic and still name something that cannot fail. Those four are the next section; they are not one
 problem and they do not share a mechanism.
 
+### A claim about the platform leaves a row even after it is rewritten
+
+The red obligation forces a row about the environment to be rewritten as a row about **our recording
+of** the environment, because no mutation in this repository can make the OS behave otherwise. That
+rewrite is correct and it is not free: it **erases the original claim's exposure**. If the OS
+changes, the rewritten expectation still passes — we go on faithfully recording whatever we are told
+— while the conclusion built on the original claim is quietly wrong.
+
+So a rewrite produces **two** artefacts, not one:
+
+1. the rewritten expectation, witnessable, with a recorded red;
+2. a row in `docs/ARCHITECTURE.md`'s **D6b platform-premise register** — the claim, how it was
+   established, on which OS build, and what breaks if it changes.
+
+The register's trigger is an external event rather than someone remembering: **a macOS major version
+bump.** The floor is 26 and 27 already exists, so the table is today the list of what has to be
+re-measured when 27 becomes the floor. Seventeen rows so far, gathered from design-doc sections, code
+comments and commit messages — which is what "prose gets missed" had accumulated to before anyone
+counted it.
+
 ### A red is a discharge obligation, not a detector
 
 "A check nobody watched fail is not a check" has been in this file as prose since Phase 1, and this
