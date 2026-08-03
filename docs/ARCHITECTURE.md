@@ -343,12 +343,29 @@ declared on an extension and so may `init(from:)` — a scan keyed on the declar
 `GeometryRegistry`, `ContentDigest` and `Evidence`, which is the mistake the first hand-written
 version made and survived only because all three were closed (Phase 2 design doc, D2-14).
 
-Its exemption list, `ArchitectureChecker.decodeValidationExemptTypes`, is a **literal list of eight
+It answers per **target**, not per file. Per-file was the obvious shape and it is wrong in the
+silent direction: `Sources/Graph/Derivation.swift` already carries eight extensions of types
+declared elsewhere, so a validating type in one file with `extension Foo: Codable {}` in another is
+the house style — and per-file that is a pass, while the mirror case (the decoder init in the other
+file) would have been a loud false positive. The asymmetry ran the wrong way. Conformance is also
+resolved **through protocols**: `ObservationRecord: Codable, Sendable` makes every observation record
+`Decodable` without any of them naming `Codable`, and Tasks 9-11 write exactly those types.
+
+**An `init?` counts as validating**, and the tree contains both shapes of the argument.
+`Evidence.init?(_ refs:)` returns nil on the empty array and its own comment calls that half of a
+guarantee whose other half is `init(from:)` — delete that decoder init and a rule that knew only
+`throws` and `precondition` stays green on precisely the defect it exists to catch, verified against
+the real file. But `Nanoseconds.init?(rationalSeconds:timescale:)` is a *conversion* on a type whose
+`init(_ rawValue: Int64)` accepts every `Int64`: no invariant, nothing for a decode to bypass. No
+text scan separates those, so the conversion pays with an exemption line that says it is not a debt.
+
+Its exemption list, `ArchitectureChecker.decodeValidationExemptTypes`, is a **literal list of nine
 names** and never a predicate: a predicate widens once per good reason until it matches everything,
-and a literal list fails on the ninth type. Those eight are the types with no decode path today —
-closing them now would be designing error handling with no caller. **Closing one means deleting its
-line**, and `theDecodeValidationExemptionListIsExactlyWhatStillViolatesRule8` fails if a name in the
-list no longer violates, which is the only failure the build itself cannot see.
+and a literal list fails on the tenth type. Eight of the nine are types with no decode path today —
+closing them now would be designing error handling with no caller — and the ninth is `Nanoseconds`,
+labelled on its line. **Closing one means deleting its line**, and
+`theDecodeValidationExemptionListIsExactlyWhatStillViolatesRule8` fails if a name in the list no
+longer violates, which is the only failure the build itself cannot see.
 
 `CheckerLexer` sits outside rules 1 and 3. It cannot carry `plugins: archCheck` without closing a
 dependency cycle (the plugin's own executable depends on it), and `Tests/DeterminismTests` derives
@@ -396,6 +413,22 @@ diagnostic counter, and it must hold the shape and the volume measured above:
 Eight per second under a persistent cause is the load the format has to survive, and 81% blind is
 the fraction a reader has to be able to see at a glance. A format that treats these as rare
 annotations is designed against a case that has been measured not to hold.
+
+### The same register, for what the build-enforced rules cannot see
+
+**Deliberately a second table under the same heading, and the same rule applies: a row, not a
+paragraph.** The table above is about the app failing to observe the world; this one is about the
+enforcement failing to observe the source. Both fail the same way — silently, with everything green
+— and both were previously recorded in task reports, which nothing reads twice.
+
+| Rule | Blind to | Direction | Reachable how |
+| --- | --- | --- | --- |
+| 8 | a conformance or `extension` in **another target** | **silent** | The plugin is invoked once per target, so the scan's whole world is one target's sources. A `Project` type conforming to a `Graph` protocol, or extended from another module, is unresolved. Within a target this is closed |
+| 8 | a conformance or an `init(from:)` produced by a **macro** | **silent** | No macro is expanded by a text scan. The package uses none today |
+| 8 | a validating `init?` that is really a conversion | loud, and paid for | `Nanoseconds` — the rule cannot tell a guarantee from a conversion, so it fires and the conversion carries an exemption line saying so. The alternative (ignore `init?`) is silent on `Evidence` |
+| 8 | two types of the same **qualified** name in one target | **silent** | Types are keyed by nesting-qualified name, so `A.Entry` and `B.Entry` are distinct; two `A.Entry` in different files of one target would still merge. Not reachable in Swift within a module |
+| 3, app side | a needle that matches nothing, in the CG-bridge, keystroke and user-content lists | **silent** | A ban scan asserts *absence*; a misspelled needle is absent from everything and green forever. Closed for the **ambient** list at Task 11.5 by `everyAmbientNeedleMatchesACallSiteInACompiledFixture`, which compiles one call site per needle and fails if any needle matches none. The other three lists have no such fixture |
+| 3, app side | `typealias Moment = Date` then `Moment()`, and two spacing forms | **silent** | The rule-3 reachability table in the Phase 1 design doc, which enumerates and dates them |
 
 **Why "enough?" is a column.** Each row's mechanism was adequate when written and the question is
 whether it still is. The last row was the one that was not, and it was visible here in a way it was

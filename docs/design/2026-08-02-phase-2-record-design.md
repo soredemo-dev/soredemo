@@ -1303,35 +1303,56 @@ would churn and be rubber-stamped. That is not what `Sources/` is.
 
 ### Not built in Task 11.5, and the measurement that says why
 
-**575 was not a stable number.** Re-measured at Task 11.5, on the same six modules with the same
-`nm -u`:
+**The first version of this section compared two different things, and its headline number
+was wrong.** It reported 575 → 1321, "+130% in 17 hours", by summing the six modules'
+`nm -u` output. 575 was never a sum. `git diff --stat fb6792b..HEAD -- Sources/` shows
+`Graph`, `Framing` and `Variants` **entirely unchanged** since D2-16 was written, and those
+three alone are 472 symbols today and were then — so a per-module sum at `fb6792b` was
+already above 575 before counting `Geometry`, `Timeline` or `Project`. 575 was a global,
+deduplicated count, which is also what D2-17's own bullet *"snapshot per module, not
+globally"* reads as an instruction to change.
+
+Like for like, on the union basis D2-16 used:
 
 ```
-Geometry 222  Timeline 148  Graph 350  Framing 61  Variants 61  Project 479   total 1321
+per module   Geometry 222  Timeline 148  Graph 350  Framing 61  Variants 61  Project 479   (sum 1321)
+union        633
 ```
 
-That is **+746, or +130%, in 17 hours and 11 commits touching `Sources/`** — every one of which
-would have been a baseline diff of dozens to hundreds of mangled symbols, reviewed on the way past.
-D2-17 names that condition itself and calls it the case where a baseline is wrong: *"a target with a
-wide or fast-moving dependency surface, where the baseline would churn and be rubber-stamped."* The
-argument above assumed `Sources/` was not that. Mid-phase, with Phase 3's derived types still to
-come, it measurably is.
+**575 → 633: +58, +10%, over 11 commits touching `Sources/`.** That is the "narrow and
+stabilising API surface" this section assumed, not the "wide or fast-moving" case it
+excludes. **The churn argument does not survive the correction.** It is recorded here rather
+than deleted, because a wrong number that decided something is worth more as a warning than
+as a silence: the number and the basis have to travel together, and "re-run the measurement"
+is not an instruction until it says *which* measurement.
 
-And it would have closed **at most half** of the gaps it was proposed to close: of Task 5.5's four,
-`NSUUID` (app side) and `CCRandomGenerateBytes` are in the **app** target, which has no object files
-a package test can point `nm` at — the same boundary `Tests/AppSourceTests` documents at length. A
-link-time baseline cannot see them at any size.
+**Two reasons do survive, and the decision stands on them.**
 
-So Task 11.5 extended the enumeration instead, and the sibling sweep D2-16 asked for was run against
-the compiler rather than against memory: `drand48`'s whole family was probed, `erand48`, `seed48`,
-`lcong48`, `srandom` and `arc4random_stir` were found reachable and banned, and `lrand48`, `mrand48`,
-`nrand48`, `jrand48`, `rand`, `random` and `srand` were found `__swift_unavailable` and recorded as
+**It reaches at most half of Task 5.5's four gaps.** `CCRandomGenerateBytes` and app-side
+`NSUUID` are in `Soredemo/`, which has no object files a package test can point `nm` at —
+the boundary `Tests/AppSourceTests` documents at length. A link-time baseline cannot see
+them at any size, which contradicts D2-17's own claim above that a baseline "catches
+`NSUUID()`, `clock()`, `CCRandomGenerateBytes`". It catches the package half of two of them.
+
+**And it does not replace the enumeration**, which this section already says: a baseline
+says *this symbol is new*, the ban list says *this symbol is ambient time*. Two questions.
+So the choice was never baseline-instead-of; it was whether to add a second mechanism in the
+same task that extended the first.
+
+So Task 11.5 extended the enumeration, and the sibling sweep D2-16 asked for was run against
+the compiler rather than against memory: `drand48`'s family was probed, `srand48`, `seed48`,
+`lcong48` and `arc4random_stir` were found reachable and banned, `erand48` and `srandom` were
+found reachable and **deliberately not** banned — `erand48` takes its state in an argument,
+`srandom` seeds a function Swift marks unavailable, and neither has the process-global
+problem that is the actual reason for the family — and `lrand48`, `mrand48`, `nrand48`,
+`jrand48`, `rand`, `random` and `srand` were found `__swift_unavailable` and recorded as
 negatives beside the table.
 
-**This does not retire D2-17.** The baseline remains the stronger mechanism for the question it
-answers, and the right moment for it is when the package's symbol surface stops moving — the end of
-Phase 3, on this evidence, not the middle of Phase 2. What has changed is that its cost is now
-measured rather than assumed, and the measurement is the thing to re-run before building it.
+**This does not retire D2-17.** On the corrected numbers the baseline looks *more* affordable
+than this section first claimed, not less. What is now on the record is that it is a
+package-side mechanism only, and that whoever builds it must state the basis of the count
+they are pinning. The carrier for that decision is `ROADMAP.md`'s `architecture-plugin` row,
+not this paragraph — a re-run that lives only in a design doc is a re-run nobody meets.
 
 ---
 
