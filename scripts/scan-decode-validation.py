@@ -38,14 +38,30 @@ for f in sorted(glob.glob("Sources/*/[A-Z]*.swift")):
         body = own + exts
         pres = len(re.findall(r"precondition\(", body))
         throwing = bool(re.search(r"init\([^)]*\)\s*throws", body))
-        explicit = "init(from decoder" in body
-        if pres or throwing:
-            rows.append((t, f.split("/")[-1], pres, throwing, explicit))
-print(f"{'type':20s} {'file':24s} {'preconditions':13s} {'throwing init':13s} {'init(from:)':11s} verdict")
+        # A FAILABLE validating initialiser is the same defect, and the tree
+        # contains the proof: Evidence.init? guards on a non-empty precondition
+        # and its own comment says the guarantee is "mirrored on the decode side
+        # by init(from:)". Delete that decoder init and a scan without this line
+        # stays green.
+        #
+        # This line exists because the two implementations of this rule stopped
+        # agreeing. The checker plugin started counting `init?` and this script
+        # did not, so one said nine and the other eight — and the two-
+        # implementation cross-check is exactly what validated the count of
+        # eight in the first place. Two scanners that disagree silently are
+        # worse than one, because both still answer.
+        failable = bool(re.search(r"init\?\([^)]*\)", body))
+        # The parameter's TYPE, not just its label. `init(from data: Data)`
+        # coexists legally with the synthesised `init(from decoder: any
+        # Decoder)`, so a label-only match closes a type that was never closed.
+        explicit = bool(re.search(r"init\(from\s+\w+\s*:\s*[^)]*Decoder", body))
+        if pres or throwing or failable:
+            rows.append((t, f.split("/")[-1], pres, throwing or failable, explicit))
+print(f"{'type':20s} {'file':24s} {'preconditions':13s} {'validating init':15s} {'init(from:)':11s} verdict")
 print("-"*95)
 open_n=0
 for t,f,p,th,e in rows:
     v = "closed" if e else "*** OPEN ***"
     if not e: open_n+=1
-    print(f"{t:20s} {f:24s} {p:<13d} {str(th):13s} {str(e):11s} {v}")
+    print(f"{t:20s} {f:24s} {p:<13d} {str(th):15s} {str(e):11s} {v}")
 print(f"\n開著: {open_n} / 有驗證且 Codable 的: {len(rows)}")
