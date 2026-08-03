@@ -904,6 +904,41 @@ strict concurrency, no exceptions (D2) · app chrome is 100% standard SwiftUI, n
 
 ---
 
+### The definite-singular audit — run once, and here is what it found
+
+Four times a rule written about *the* thing turned out to be about two of them, and the fabrication
+happened at the joint rather than in either half:
+
+    "did THE detector fire"            two channels — notification and poll
+    "THE number"                        a sum and a union
+    "what does THIS predicate guard"    N dimensions
+    "THE measurement's subject"         a comparison has two
+
+So the rules above were swept once, asking of every definite singular: *what if there are two?*
+Most survive the question unchanged. These do not.
+
+**Two of them were born from a two-thing incident and then generalised into the singular.** That is
+the pattern worth naming — the incident is plural, and the sentence that records it is not.
+
+| Rule, as written | What the incident actually was | What it should ask |
+| --- | --- | --- |
+| *Name the artefact, not the concept* | `nm` on "the app binary" measured a 59 KB launcher stub while the symbols were in the dylib — **two artefacts wearing one name** | which artefact, and is there a second one the name also fits |
+| *A justification that rests on the caller must name the caller* | `init(scale:)` said "the caller already computes it". There were two: `start()`, where it was true, and reconfiguration handling **inside the type**, where it could not be | name every caller the justification covers, and say what happens at one it does not |
+| *The instrument can have state* | the checker plugin and `scan-decode-validation.py` are two implementations of one rule; after a fix they answered 9 and 8 and **nothing compared them** | when two instruments answer one question, their agreement is itself a check that must exist |
+| *Every fixture set needs a positive control, and it runs first* | a control validates the fixture along **one** axis. `label == "from"` had a control on the label and none on the type | one control per dimension the fixture set claims to span |
+| *A measurement that counts something must first assert it counted anything* | `completeFrameCount` was asserted non-zero while `appendedVideoFrameCount` was zero — **two counts, one guard** | every count the conclusion rests on, not the one nearest the assertion |
+| *Check the claim against the thing, not against another claim* | D6b row 17's claim spanned **two things** — a Settings pane and an API — and each was checked correctly against itself | when a claim spans two things, check the joint, because that is where an invented story fits |
+| *With several candidate causes, make the discriminating measurement* | one measurement separates two causes; three causes may need two, and a single one that separates two of three reads as conclusive | say which causes it separates, and which it leaves together |
+| *A caveat belongs where the people it protects will be* | a caveat had two audiences — the console reader and the source reader — and reached one | every audience, and the console is the one that gets skipped |
+
+**Already fixed by the work that prompted this audit:** the identity block, which answered "who is
+this process" and was read as "whose grant is this". It now answers both, or says it cannot answer
+the second.
+
+**The audit is not a standing rule.** It is one pass over a set that had accumulated four instances,
+and its output is the table above rather than a new thing to remember. If a fifth instance appears,
+the question to ask first is whether these rows were the wrong ones, not whether to sweep again.
+
 ## Reading other people's code
 
 `../opensource/` holds checkouts of comparable projects. **They are reference for ideas, not a source
