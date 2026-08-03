@@ -13,6 +13,7 @@ with a separate diff.
     scripts/scan-sdk-deprecations.py --no-verify     skip the cross-check (faster, weaker subject)
     scripts/scan-sdk-deprecations.py --control       run the positive control and exit
     scripts/scan-sdk-deprecations.py --certify       run the two red certificates and exit
+    scripts/scan-sdk-deprecations.py --floor         typecheck the successor stack at the 26.0 floor
     scripts/scan-sdk-deprecations.py --in-use        also ask the compiler what WE call
     scripts/scan-sdk-deprecations.py --out FILE      where the full table is written
 
@@ -236,6 +237,37 @@ SWIFT_DEPRECATED_VERSION = re.compile(r"\bdeprecated\s*:\s*([0-9][0-9_.]*)")
 SENTINEL_MAJOR = 1000
 
 
+
+LINE_COMMENT = re.compile(r"//[^\n]*")
+IN_LINE_STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
+
+
+def paren_view(text: str) -> str:
+    """`text` with string CONTENTS blanked to the same length, so offsets stay aligned.
+
+    WHY: the macro matcher counts parentheses, and a message may contain an unbalanced one —
+    `API_DEPRECATED("Use [NSURLSession dataTaskWithRequest:completionHandler:] (see NSURLSession.h",
+    macos(10.3,10.11), ...)` opens a paren inside the string and never closes it. That threw the
+    argument capture off and left `macos(10.3,10.11)` unread: two rows filed as "version unknown"
+    that had a version all along. Third instance in this file of one mistake — match structure on a
+    view with strings blanked, never on raw text; it cost the `import` derivation first and the
+    swiftinterface symbol extraction second.
+
+    WHY PER LINE: the first version of this ran one quote-state machine over the whole file, and a
+    stray `"` in a comment inverted it — NSError.h came back with its CODE blanked and its strings
+    intact, and both of its real 27.0 rows silently disappeared from the table. A per-line pass
+    cannot propagate that past the line it happens on. Line comments are stripped first for the
+    same reason. Blanking is same-length, so every index into the view indexes the original and the
+    message can still be sliced out of the real text.
+    """
+    out = []
+    for line in text.split("\n"):
+        stripped = LINE_COMMENT.sub(lambda m: " " * len(m.group(0)), line)
+        out.append(IN_LINE_STRING.sub(
+            lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', stripped))
+    return "\n".join(out)
+
+
 def parse_version(text):
     parts = text.replace("_", ".").split(".")
     try:
@@ -300,7 +332,8 @@ def scan_headers(paths):
             continue
         if "DEPRECAT" not in text.upper():
             continue
-        for m in OBJC_MACROS.finditer(text):
+        view = paren_view(text)
+        for m in OBJC_MACROS.finditer(view):
             macro, args = m.group(1), m.group("args") or ""
             if macro == "API_DEPRECATED_BEGIN":
                 continue                        # a region marker, not a declaration
@@ -374,6 +407,76 @@ BUCKET_MEANING = {
                    "Real, and unschedulable — not evidence about any release",
     "unknown": "the version could not be parsed — NOT counted as anything else",
 }
+
+
+
+# --------------------------------------------------- the replacement, and where it lives
+
+# The replacement is already in the string this scan parsed: the first argument of
+# API_DEPRECATED_WITH_REPLACEMENT, Swift's `renamed:`, or — for 74 of the 78 rows at 27.0 — the
+# prose message of a plain API_DEPRECATED. Reading it costs nothing extra and it is the column the
+# decision actually turns on, because the three cases have nothing in common:
+#
+#   replacement introduced <= 26.0   migrate now, question closed
+#   replacement introduced == 27.0   unreachable at the floor: two implementations, or move it
+#   no replacement named             a direction signal, not a migration path
+REPLACEMENT_ARG = re.compile(r'API_DEPRECATED_WITH_REPLACEMENT\s*\(\s*"([^"]*)"')
+DEPRECATED_MSG = re.compile(r'API_DEPRECATED\s*\(\s*"([^"]*)"')
+SWIFT_RENAMED = re.compile(r'renamed\s*:\s*"([^"]*)"')
+
+# A candidate symbol inside a prose message. Dotted or parenthesised names only: the messages are
+# sentences, and any word-shaped heuristic returns "Use", "instead" and "the".
+CANDIDATE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+|[a-zA-Z][A-Za-z0-9]*\([a-zA-Z_:]*\))")
+
+
+def replacement_for(sdk: Path, rel: str, line: int):
+    """(raw replacement text, best candidate symbol) for one deprecation site."""
+    try:
+        lines = (sdk / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "", ""
+    chunk = "\n".join(lines[line - 1:line + 3])
+    m = (REPLACEMENT_ARG.search(chunk) or SWIFT_RENAMED.search(chunk)
+         or DEPRECATED_MSG.search(chunk))
+    raw = m.group(1) if m else ""
+    if not raw:
+        return "", ""
+    cands = CANDIDATE.findall(raw)
+    return raw, (cands[0] if cands else "")
+
+
+def introduced_at_floor(symbol: str) -> str:
+    """Is `symbol` reachable at the 26.0 floor? Asked of the compiler, by TYPE REFERENCE only.
+
+    Type reference and not a call, deliberately. Three call-site probes written from the
+    deprecation messages produced three "blocked at 26.0" readings that were all wrong — they were
+    signature mistakes, and one of the messages names an API that does not exist: it says
+    `finish(withComposedVideoFrame:)` and the shipped selector is `finish(withComposedPixelBuffer:)`.
+    A reference to a type needs no signature, so it cannot fail for a reason that is not
+    availability. Methods, which cannot be referenced this way, are reported as not determined
+    rather than guessed at.
+    """
+    if "(" in symbol or "." not in symbol or not symbol[0].isupper():
+        return "not determined (not a type reference)"
+    env = {k: v for k, v in os.environ.items() if k != "SDKROOT"}
+    import tempfile
+    src = ("import AVFoundation\nimport CoreMedia\nimport CoreVideo\nimport ScreenCaptureKit\n"
+           f"func probe(_ x: {symbol}) {{}}\n")
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "probe.swift"
+        f.write_text(src, encoding="utf-8")
+
+        def errors(target):
+            r = subprocess.run(["xcrun", "swiftc", "-swift-version", "6", "-target", target,
+                                "-typecheck", str(f)], capture_output=True, text=True, env=env)
+            return [l for l in (r.stdout + r.stderr).splitlines() if ".swift:" in l and "error:" in l]
+
+        at26, at27 = errors("arm64-apple-macos26.0"), errors("arm64-apple-macos27.0")
+    if not at26:
+        return "<= 26.0  MIGRATE NOW"
+    if not at27:
+        return "== 27.0  UNREACHABLE AT THE FLOOR"
+    return "not determined (probe failed at both targets)"
 
 
 # --------------------------------------------------------------- collecting rows
@@ -498,12 +601,165 @@ def report_use(run_it: bool):
             print(f"      {symbol}  (deprecated {version})")
     print()
 
+
+
+# A SECOND control, for the parser rather than for the scan. Both rows are bugs this file actually
+# shipped: `NSURLConnection.h` hides `macos(10.3,10.11)` behind a message containing an unbalanced
+# `(`, and `NSError.h` is the file a whole-file quote-state machine inverted — it came back with its
+# CODE blanked and its strings intact, and both of its real 27.0 rows vanished from the table with
+# no other symptom. Keyed by (header, symbol) because line numbers move between SDKs.
+PARSER_CONTROL = {
+    ("NSError.h", "new"): "27.0",
+    ("NSURLConnection.h", "initWithRequest"): "10.11",
+}
+
+
+def parser_control(sdk: Path) -> bool:
+    ok = True
+    for (header, symbol), want in sorted(PARSER_CONTROL.items()):
+        found = None
+        for path in (sdk / "System/Library/Frameworks/Foundation.framework/Headers").rglob(header):
+            for sym, ver, *_ in scan_headers([path]):
+                if sym == symbol:
+                    found = ver
+                    break
+        mark = "ok  " if found == want else "MISS"
+        if found != want:
+            ok = False
+        print(f"  {mark}  {header} {symbol}  expected {want}, scan says {found or 'ABSENT'}")
+    return ok
+
+
+# ------------------------------------------- the successor stack, probed at the floor
+
+# The automated column answers TYPES. It cannot answer METHODS, because a method probe is a call
+# and a call needs a signature — and signatures cannot be read off the deprecation messages: three
+# call probes written from those messages failed at 26.0 for signature reasons and looked exactly
+# like unavailability, and one message names `finish(withComposedVideoFrame:)` for a selector that
+# actually ships as `finish(withComposedPixelBuffer:)`.
+#
+# So the methods Phase 2B depends on are probed by hand, with signatures read from the module's own
+# API surface, and the probes are committed rather than described. Each must TYPECHECK at
+# `arm64-apple-macos26.0`. If one stops, the floor can no longer reach the successor stack and the
+# D6b-27 row that says otherwise is wrong.
+FLOOR_PROBES = {
+    "AVAssetWriter → PixelBufferReceiver (the export path)": """
+        import AVFoundation
+        import CoreVideo
+        func probe(w: AVAssetWriter, i: AVAssetWriterInput) throws {
+            let r: AVAssetWriterInput.PixelBufferReceiver =
+                try w.inputPixelBufferReceiver(for: i, pixelBufferAttributes: nil)
+            let s: AVAssetWriterInput.SampleBufferReceiver = try w.inputReceiver(for: i)
+            _ = (r, s)
+        }
+    """,
+    "PixelBufferReceiver.append (async, replaces adaptor append)": """
+        import AVFoundation
+        import CoreVideo
+        func probe(r: AVAssetWriterInput.PixelBufferReceiver,
+                   b: CVReadOnlyPixelBuffer, t: CMTime) async throws {
+            try await r.append(b, with: t)
+        }
+    """,
+    "AVVideoCompositing request finish (D8's compositor)": """
+        import AVFoundation
+        import CoreVideo
+        func probe(req: AVAsynchronousVideoCompositionRequest, b: CVReadOnlyPixelBuffer) {
+            req.finish(withComposedPixelBuffer: b)
+            _ = req.sourceReadOnlyPixelBuffer(byTrackID: 1)
+            _ = req.sourceReadySampleBuffer(byTrackID: 1)
+        }
+    """,
+    "AVVideoComposition.Configuration (replaces AVMutableVideoComposition)": """
+        import AVFoundation
+        func probe(c: AVVideoComposition.Configuration) {
+            let composition = AVVideoComposition(configuration: c)
+            _ = composition.customVideoCompositorClass
+        }
+    """,
+    "AVAssetReader → outputProvider (the read path)": """
+        import AVFoundation
+        func probe(r: AVAssetReader, o: AVAssetReaderOutput) throws {
+            _ = try r.outputProvider(for: o)
+        }
+    """,
+    "AVAssetExportSession.export(to:as:) async": """
+        import AVFoundation
+        func probe(s: AVAssetExportSession, url: URL) async throws {
+            try await s.export(to: url, as: .mp4)
+        }
+    """,
+}
+
+
+def floor_probes() -> int:
+    """Every successor Phase 2B needs, typechecked at the 26.0 floor."""
+    import tempfile
+    env = {k: v for k, v in os.environ.items() if k != "SDKROOT"}
+    ok = True
+    print("SUCCESSOR STACK AT THE 26.0 FLOOR — each must typecheck at arm64-apple-macos26.0:")
+    with tempfile.TemporaryDirectory() as tmp:
+        for label, src in FLOOR_PROBES.items():
+            f = Path(tmp) / "probe.swift"
+            f.write_text("\n".join(l[8:] if l.startswith(" " * 8) else l
+                                    for l in src.strip("\n").splitlines()) + "\n",
+                         encoding="utf-8")
+            r = subprocess.run(["xcrun", "swiftc", "-swift-version", "6",
+                                "-target", "arm64-apple-macos26.0", "-typecheck", str(f)],
+                               capture_output=True, text=True, env=env)
+            errs = [l for l in (r.stdout + r.stderr).splitlines()
+                    if "probe.swift:" in l and "error:" in l]
+            if errs:
+                ok = False
+                print(f"  FAIL  {label}")
+                for e in errs[:2]:
+                    print(f"        {e.split('probe.swift:')[-1].strip()}")
+            else:
+                print(f"  ok    {label}")
+    print("\nA FAIL here means the floor can no longer reach the successor stack, and D6b-27's "
+          "reading of it is wrong.")
+    return 0 if ok else 1
+
+
+def report_replacements(sdk: Path, rows):
+    """The 27.0 bucket, with what each names as its successor and whether the floor can reach it."""
+    print("── REPLACEMENTS for the 27.0 bucket, and whether the 26.0 floor can reach them")
+    named, unnamed, cells = {}, [], defaultdict(list)
+    for module, symbol, version, rel, lineno, macro in sorted(rows):
+        raw, candidate = replacement_for(sdk, rel, lineno)
+        if candidate:
+            named.setdefault(candidate, []).append(f"{module}.{symbol}")
+        else:
+            unnamed.append((f"{module}.{symbol}", raw))
+
+    for candidate in sorted(named):
+        cells[introduced_at_floor(candidate).split("  ")[0]].append((candidate, named[candidate]))
+
+    for cell, label in (("<= 26.0", "REACHABLE AT THE FLOOR — migrate now, question closed"),
+                        ("== 27.0", "UNREACHABLE AT THE FLOOR — two implementations, or move the floor"),
+                        ("not", "NOT DETERMINED — a method, or a name that resolves at neither "
+                                "target; NOT counted as either")):
+        group = [(c, u) for k, g in cells.items() if k.startswith(cell) for c, u in g]
+        if not group:
+            continue
+        print(f"   {cell} · {label}   ({len(group)})")
+        for candidate, users in sorted(group):
+            print(f"      {candidate:<50} ← {', '.join(sorted(users)[:3])}"
+                  + (f" +{len(users) - 3}" if len(users) > 3 else ""))
+    print(f"   {len(unnamed)} of {len(rows)} row(s) name no replacement symbol at all — a direction "
+          "signal, not a migration path.")
+    print()
+
+
 def main():
     args = sys.argv[1:]
     verify = "--no-verify" not in args
     control_only = "--control" in args
 
-    sdk, sdk_version = resolve_sdk(verify and not control_only and "--certify" not in args)
+    sdk, sdk_version = resolve_sdk(verify and not control_only
+                                   and "--certify" not in args and "--floor" not in args)
+    if "--floor" in args:
+        return floor_probes()
     if "--certify" in args:
         print("RED CERTIFICATES — two mutations, two dimensions:")
         return certify(sdk)
@@ -523,11 +779,13 @@ def main():
         got = found.get(symbol)
         mark = "ok  " if got == want else "MISS"
         print(f"  {mark}  {symbol}  expected {want}, scan says {got or 'ABSENT'}")
-    if missing:
+    print("PARSER CONTROL — two rows this file has actually got wrong:")
+    parser_ok = parser_control(sdk)
+    if missing or not parser_ok:
         print("\nTHE CONTROL FAILED. The scan is wrong, not the SDK. Every row below is unearned "
               "until this passes — do not read them.")
         return 1
-    print("  all five reproduced.\n")
+    print("  all controls reproduced.\n")
     if control_only:
         return 0
 
@@ -562,6 +820,7 @@ def main():
             print(f"   {module:<20} {symbol:<52} {version:<7} {rel}:{lineno}")
         print()
 
+    report_replacements(sdk, findings["== 27.0"])
     report_use("--in-use" in args)
 
     if not_scanned:

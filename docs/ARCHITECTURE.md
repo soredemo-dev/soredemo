@@ -79,6 +79,37 @@ Understanding, generated subtitles and the Evaluations framework in the same pos
 Phase 5 must not be planned on any of them without either raising the floor or finding a macOS 26
 equivalent.
 
+### The cost of this floor, re-measured before Phase 2B — and it is smaller than it looked
+
+**This is not a reversal. The reasoning above is intact; the world it refers to moved.** When 26 was
+chosen, `scripts/scan-sdk-deprecations.py` did not exist and nobody had measured what the floor
+excludes. It has now been measured, and the number belongs beside the decision rather than in a
+scan's output — the same failure D2-17 records, where a correct argument outlived the state of the
+world it cited.
+
+**The media stack this project is about to be written against was condemned one version above this
+floor** — 78 declarations at exactly 27.0, including `AVAssetWriter`, `AVAssetWriterInput` and its
+four adaptors, `AVAssetReader` and its outputs, `AVAssetExportSession`, and three `AVVideoCompositing`
+methods. See D6b-27.
+
+So the question "what does staying at 26 cost" now has an answer instead of a shrug, and it is
+**one path, not the stack**:
+
+| | Reachable at 26.0? | Cost of the floor |
+| --- | --- | --- |
+| The successor write/read/compose/export stack — `Receiver`, `Provider`, `CVReadOnlyPixelBuffer`, `.init(configuration:)`, `export(to:as:)` | **yes**, typechecked | none. Write against the successors from the first line; the floor never enters it |
+| `AVSampleBufferVideoRenderer.Receiver` / `AVSampleBufferAudioRenderer.Receiver` — the render-synchronizer preview path | **no**, `@available(macOS 27)` | its predecessor is condemned at 27.0 and its successor is unreachable at 26.0. Choosing that path means **two implementations, or moving the floor** |
+
+**That is the whole measured cost, and it lands on exactly one decision**: whether preview is driven
+through the sample-buffer renderers or through `AVVideoComposition`, which D8 leaves open. Taking
+the composition path costs the floor nothing. Taking the renderer path is the only thing here that
+would make "macOS 26" mean *write it twice, or drop every 26 user*.
+
+Two things this does **not** say. It does not say the successors work — the field's only report on
+`PixelBufferReceiver.append` is an unresolved hang, recorded in D6b-27. And it does not say raise
+the floor: a macOS 27 binary still cannot be launched on this machine, which is the actual reason
+for 26 and is unaffected by any of this.
+
 ---
 
 ## D3 — Coordinates: normalised, one conversion point
@@ -585,11 +616,60 @@ for the trigger rather than for the uncertainty: **an SDK or floor bump is what 
 
 They were not read off a changelog. `scripts/scan-sdk-deprecations.py` derives the module list
 from this repository's own `import` lines, reads both the ObjC headers and the `.swiftinterface`
-files, and reproduces five hand-measured rows before it will report anything. Re-run it; do not
-maintain this table by hand. The scan's own numbers on Xcode-beta `MacOSX27.0.sdk`: 2120
-deprecated declarations over 15 modules — 1618 already dead at our 26.0 floor, these 78 at 27.0,
-110 carrying Swift's no-version sentinel, 314 whose version it could not parse and which it
-therefore counts as nothing.
+files, and reproduces seven hand-measured rows before it will report anything. Re-run it; do not
+maintain this table by hand. Its numbers on Xcode-beta `MacOSX27.0.sdk`: 2120 deprecated
+declarations over 15 modules — 1620 already dead at our 26.0 floor, these 78 at 27.0, 110 carrying
+Swift's no-version sentinel, 312 whose version it cannot parse.
+
+**78 is a count, not a lower bound, and that took settling.** Twenty of the 312 unparsed rows were
+sampled by index; all twenty were the same kind of thing — a deprecation with no macOS version
+assigned — in four spellings. Knowing the spellings, all 312 were then classified exhaustively
+rather than estimated: 191 `API_TO_BE_DEPRECATED`, 109 `@available(*, deprecated)`, 5 bare
+`__deprecated`, 3 `@available(macOS, deprecated)` with no version, 4 `#define` templates whose
+version is a macro parameter. **None of them can be a hidden 27.0 row**, because 27.0 would have
+been written as a number. The sample found the forms; the census closed the question.
+
+Two real parser bugs surfaced on the way, both of which had silently deleted true rows: a message
+containing an unbalanced `(` hid `macos(10.3,10.11)` from the argument capture, and the whole-file
+quote-state machine written to fix that was inverted by a stray `"` in a comment — `NSError.h` came
+back with its *code* blanked and its *strings* intact, and both of its genuine 27.0 rows vanished
+with no other symptom. Both are now in the scan's parser control.
+
+## The replacement column, which is what the decision turns on
+
+Every row's deprecation names — or fails to name — a successor, and the three cases have nothing in
+common: reachable at our floor (migrate now), introduced at 27.0 (unreachable — two implementations
+or move the floor), or no successor named at all (a direction signal, not a migration path).
+
+**They are one successor stack, not eight independent rows.** The replacement names converge:
+`Receiver` types replacing `AVAssetWriterInput` and its four adaptors, `Provider` types replacing
+`AVAssetReaderOutput` and its adaptors, `CVReadOnlyPixelBuffer` and `CMReadySampleBuffer` replacing
+bare buffers, `.init(configuration:)` replacing the mutable classes, `export(to:as:) async`
+replacing the imperative export. That is one Swift-concurrency-native, value-typed redesign of the
+read/write/compose stack, so the unit of analysis is the successor stack — not an API at a time.
+
+**And the stack Phase 2B needs is reachable at 26.0.** Typechecked at `arm64-apple-macos26.0` by
+`scan-sdk-deprecations.py --floor`, which commits the probes rather than describing them:
+`AVAssetWriter.inputPixelBufferReceiver(for:pixelBufferAttributes:)`,
+`AVAssetWriterInput.PixelBufferReceiver.append(_:with:)`,
+`AVAsynchronousVideoCompositionRequest.finish(withComposedPixelBuffer:)`,
+`AVVideoComposition.Configuration`, `AVAssetReader.outputProvider(for:)`, and
+`AVAssetExportSession.export(to:as:)`. **The one exception is the sample-buffer renderer path**:
+`AVSampleBufferVideoRenderer.Receiver` and `AVSampleBufferAudioRenderer.Receiver` are
+`@available(macOS 27)`, measured — a reference to either fails at 26.0 and compiles at 27.0.
+
+Probes are **type references, never calls**. Three call probes written from the deprecation messages
+failed at 26.0 and read exactly like unavailability; all three were signature mistakes, and one
+message names an API that does not exist — it says `finish(withComposedVideoFrame:)` and the shipped
+selector is `finish(withComposedPixelBuffer:)`. A deprecation message is prose, not a signature.
+
+**A second instrument, because the SDK cannot answer everything.** The SDK says what Apple has
+decided; it does not say whether the successor works. Searched: there is no published migration
+guide for this stack, and the one field report on `AVAssetWriterInput.PixelBufferReceiver.append`
+is an [indefinite hang](https://developer.apple.com/forums/thread/813867) — the task suspends and
+never resumes, no crash, no error, CPU to zero, filed January 2026 with no Apple reply. So the two
+instruments point opposite ways: the SDK condemns the predecessor, and the field says the successor
+hangs. Neither alone is the answer, and this row exists so that neither gets read as one.
 
 **What breaks if it changes: most of Phase 2B's intended API surface.** `export-basic` was to be
 `AVAssetWriter` + `AVAssetWriterInputPixelBufferAdaptor`; `render-core` was to be
