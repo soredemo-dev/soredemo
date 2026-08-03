@@ -203,6 +203,10 @@ enum ReceiverKind: String {
 nonisolated struct Rig {
     let writer: AVAssetWriter
     let input: AVAssetWriterInput
+    /// Two of them, passthrough, exactly as `CaptureSession` writes them: the
+    /// property under test is that they stay TWO in the finished file.
+    let systemAudioInput: AVAssetWriterInput
+    let microphoneInput: AVAssetWriterInput
     let directory: URL
 
     static func make(width: Int, height: Int) throws -> Rig {
@@ -213,10 +217,21 @@ nonisolated struct Rig {
         progressShared.track(directory)
         let url = directory.appending(path: "out.mov", directoryHint: .notDirectory)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        // The PRODUCT's settings, not a simplified copy. Two of the three
+        // reasons this project chose AVAssetWriter over SCRecordingOutput are
+        // about what the writer does to the FILE — audio tracks that cannot be
+        // separated, and colour tags that are not under the caller's control —
+        // and one of those cost a whole evening. A rig that omits the colour
+        // properties cannot measure whether the successor still honours them.
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
         ])
         // FALSE, deliberately, and it is not a detail. `true` tells the writer
         // to drop rather than block when it cannot keep up, which is the
@@ -225,7 +240,12 @@ nonisolated struct Rig {
         // honest setting for the thing being measured and the one that lets a
         // stall be a stall.
         input.expectsMediaDataInRealTime = false
-        return Rig(writer: writer, input: input, directory: directory)
+        let systemAudioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+        systemAudioInput.expectsMediaDataInRealTime = false
+        let microphoneInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+        microphoneInput.expectsMediaDataInRealTime = false
+        return Rig(writer: writer, input: input, systemAudioInput: systemAudioInput,
+                   microphoneInput: microphoneInput, directory: directory)
     }
 
     /// **The two lifecycles, and the reason this is a knob rather than a fix.**
@@ -394,6 +414,28 @@ enum SpikeD {
                    "the watchdog thread was started before the first append was issued, on its own "
                    + "OS thread rather than on the cooperative pool the appends suspend on",
                    watchdogArmed)
+
+        if arguments.contains("--verify") {
+            print("\n---- what each path does to the FILE ----")
+            for path in ["legacy", "new"] {
+                let facts = await writeAndInspect(lifecycle: path, frames: 120,
+                                                  width: width, height: height)
+                let label = path == "legacy" ? "legacy AVAssetWriterInput" : "successor inputReceiver"
+                if let error = facts.error {
+                    print("  [\(label)] FAILED: \(error)")
+                    continue
+                }
+                print("  [\(label)] audio tracks \(facts.audioTrackCount) (want 2), "
+                      + "video tracks \(facts.videoTrackCount) (want 1)")
+                print("       colour: primaries \(facts.primaries ?? "ABSENT"), "
+                      + "transfer \(facts.transferFunction ?? "ABSENT"), "
+                      + "matrix \(facts.yCbCrMatrix ?? "ABSENT")")
+                print("       tracks separate: \(facts.audioTrackCount == 2), "
+                      + "colour tags as requested: \(facts.colourTagsAsRequested)")
+            }
+            progressShared.deleteEverythingWritten()
+            exit(0)
+        }
 
         print("\n---- pushing, one receiver at a time ----")
         if only == "legacy" {
@@ -581,6 +623,169 @@ enum SpikeD {
             result.error = "\(error)"
         }
         return result
+    }
+
+    // MARK: - What the successor does to the FILE
+
+    /// **Two of the three reasons this project chose `AVAssetWriter` over
+    /// `SCRecordingOutput` are properties of the finished file, and the
+    /// successor stack is a redesign rather than a rename.** A redesign changes
+    /// defaults. Both were measured once, against the old API; neither has been
+    /// measured through `inputReceiver(for:)`.
+    ///
+    ///   * the two audio tracks must stay **two** — `SCRecordingOutput` mixes
+    ///     the microphone into the system-audio track, which is the whole
+    ///     reason `CaptureSession` hand-writes three inputs;
+    ///   * the colour tags must be the ones the caller asked for — uncontrolled
+    ///     colour tagging cost this project an entire evening.
+    ///
+    /// This is the seam's actual value: which implementation sits behind it is
+    /// a measurement, not a promise.
+    struct OutputFacts {
+        var audioTrackCount = -1
+        var videoTrackCount = -1
+        var primaries: String?
+        var transferFunction: String?
+        var yCbCrMatrix: String?
+        var error: String?
+
+        var colourTagsAsRequested: Bool {
+            primaries == (AVVideoColorPrimaries_ITU_R_709_2 as String)
+                && transferFunction == (AVVideoTransferFunction_ITU_R_709_2 as String)
+                && yCbCrMatrix == (AVVideoYCbCrMatrix_ITU_R_709_2 as String)
+        }
+    }
+
+    nonisolated static func writeAndInspect(lifecycle: String, frames: Int,
+                                            width: Int, height: Int) async -> OutputFacts {
+        var facts = OutputFacts()
+        do {
+            let rig = try Rig.make(width: width, height: height)
+            defer { rig.cleanUp() }
+
+            let videoReceiver: AVAssetWriterInput.SampleBufferReceiver?
+            let systemReceiver: AVAssetWriterInput.SampleBufferReceiver?
+            let micReceiver: AVAssetWriterInput.SampleBufferReceiver?
+            if lifecycle == "legacy" {
+                rig.writer.add(rig.input)
+                rig.writer.add(rig.systemAudioInput)
+                rig.writer.add(rig.microphoneInput)
+                rig.startTheOldWay()
+                videoReceiver = nil; systemReceiver = nil; micReceiver = nil
+            } else {
+                videoReceiver = try rig.writer.inputReceiver(for: rig.input)
+                systemReceiver = try rig.writer.inputReceiver(for: rig.systemAudioInput)
+                micReceiver = try rig.writer.inputReceiver(for: rig.microphoneInput)
+                try rig.startNew()
+            }
+
+            for frame in 0..<frames {
+                if let videoReceiver, let systemReceiver, let micReceiver {
+                    // Built inside the call so the non-Sendable buffer never
+                    // becomes a value that crosses an isolation region.
+                    try await videoReceiver.append(
+                        makeReadyVideo(width: width, height: height, frame: frame))
+                    try await systemReceiver.append(makeReadyAudio(frame: frame))
+                    try await micReceiver.append(makeReadyAudio(frame: frame))
+                } else {
+                    while !rig.input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+                    _ = rig.input.append(try makeSampleBufferRaw(width: width, height: height,
+                                                                 frame: frame))
+                    while !rig.systemAudioInput.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+                    _ = rig.systemAudioInput.append(try makeAudioSampleBuffer(frame: frame))
+                    while !rig.microphoneInput.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+                    _ = rig.microphoneInput.append(try makeAudioSampleBuffer(frame: frame))
+                }
+            }
+
+            if lifecycle == "legacy" {
+                rig.input.markAsFinished()
+                rig.systemAudioInput.markAsFinished()
+                rig.microphoneInput.markAsFinished()
+            } else {
+                videoReceiver?.finish(); systemReceiver?.finish(); micReceiver?.finish()
+            }
+            await rig.writer.finishWriting()
+            guard rig.writer.status == .completed else {
+                facts.error = "writer ended \(rig.statusDescription)"
+                return facts
+            }
+
+            // Read the FILE back, not the writer's own opinion of it.
+            let asset = AVURLAsset(url: rig.writer.outputURL)
+            facts.audioTrackCount = try await asset.loadTracks(withMediaType: .audio).count
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            facts.videoTrackCount = videoTracks.count
+            if let track = videoTracks.first,
+               let description = try await track.load(.formatDescriptions).first {
+                let extensions = CMFormatDescriptionGetExtensions(description) as? [String: Any]
+                func tag(_ key: CFString) -> String? { extensions?[key as String] as? String }
+                facts.primaries = tag(kCVImageBufferColorPrimariesKey)
+                facts.transferFunction = tag(kCVImageBufferTransferFunctionKey)
+                facts.yCbCrMatrix = tag(kCVImageBufferYCbCrMatrixKey)
+            }
+        } catch {
+            facts.error = "\(error)"
+        }
+        return facts
+    }
+
+    nonisolated static func makeReadyVideo(width: Int, height: Int, frame: Int) throws
+        -> CMReadySampleBuffer<CMSampleBuffer.DynamicContent> {
+        CMReadySampleBuffer<CMSampleBuffer.DynamicContent>(
+            unsafeBuffer: try makeSampleBufferRaw(width: width, height: height, frame: frame))
+    }
+
+    nonisolated static func makeReadyAudio(frame: Int) throws
+        -> CMReadySampleBuffer<CMSampleBuffer.DynamicContent> {
+        CMReadySampleBuffer<CMSampleBuffer.DynamicContent>(
+            unsafeBuffer: try makeAudioSampleBuffer(frame: frame))
+    }
+
+    /// One 1024-frame block of interleaved 48 kHz stereo Float32 — the shape a
+    /// `.mov` passthrough input accepts (`AudioInterleave` exists because it
+    /// refuses non-interleaved LPCM with -11800/-12780).
+    nonisolated static func makeAudioSampleBuffer(frame: Int) throws -> CMSampleBuffer {
+        let framesPerBlock = 1024
+        var asbd = AudioStreamBasicDescription(
+            mSampleRate: 48_000, mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 8, mFramesPerPacket: 1, mBytesPerFrame: 8,
+            mChannelsPerFrame: 2, mBitsPerChannel: 32, mReserved: 0)
+        let format = try CMAudioFormatDescription(audioStreamBasicDescription: asbd)
+        var samples = [Float](repeating: 0, count: framesPerBlock * 2)
+        for i in 0..<framesPerBlock {
+            let value = Float(sin(Double(frame * framesPerBlock + i) * 0.05))
+            samples[i * 2] = value
+            samples[i * 2 + 1] = value
+        }
+        let byteCount = samples.count * MemoryLayout<Float>.size
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: byteCount,
+                                                   alignment: MemoryLayout<Float>.alignment)
+        samples.withUnsafeBytes { raw.copyMemory(from: $0.baseAddress!, byteCount: byteCount) }
+        var block: CMBlockBuffer?
+        let status = CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault, memoryBlock: raw, blockLength: byteCount,
+            blockAllocator: kCFAllocatorDefault, customBlockSource: nil,
+            offsetToData: 0, dataLength: byteCount, flags: 0, blockBufferOut: &block)
+        guard status == kCMBlockBufferNoErr, let block else {
+            raw.deallocate()
+            throw SpikeError.pixelBufferCreateFailed(status)
+        }
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: 48_000),
+            presentationTimeStamp: CMTime(value: CMTimeValue(frame * framesPerBlock),
+                                          timescale: 48_000),
+            decodeTimeStamp: .invalid)
+        var sampleSize = 8
+        var buffer: CMSampleBuffer?
+        let created = CMSampleBufferCreateReady(
+            allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format,
+            sampleCount: framesPerBlock, sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+            sampleSizeEntryCount: 1, sampleSizeArray: &sampleSize, sampleBufferOut: &buffer)
+        guard created == noErr, let buffer else { throw SpikeError.pixelBufferCreateFailed(created) }
+        _ = asbd
+        return buffer
     }
 
     /// **The positive control, and the run that decides what this spike means.**

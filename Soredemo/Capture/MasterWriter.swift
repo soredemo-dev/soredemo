@@ -19,11 +19,44 @@ import Foundation
 /// is one file, and after Phase 2B — with `render-core`, `export-basic` and
 /// `render-parity` all writing media — it is a migration.
 ///
-/// **What today's implementation is, and why it is still the old API.** The
-/// successor stack works, but nothing in this repository has run a full
-/// recording through it, and Phase 2B is not the place to find out. The
-/// seam makes that a decision that can be revisited in one file rather than a
-/// commitment baked into every caller.
+/// **Which implementation sits behind it — re-decided, because the first reason
+/// was falsified thirty minutes after it was written.** That reason was "the
+/// successor stack cannot write a recording", measured at 2.3 seconds of video.
+/// The discriminating experiment then showed the stall was a usage error, and
+/// the successors write 3000 frames without pausing. The seam survives that —
+/// it is justified by a scheduled deprecation, not by a hang — but the choice
+/// behind it had to be made again on true premises. `ARCHITECTURE.md` D2-17 is
+/// the same shape: a correct argument outliving the world it referred to.
+///
+/// **The two properties that decided `AVAssetWriter` over `SCRecordingOutput`
+/// were re-measured through the successor, because a redesign changes defaults
+/// and neither had ever been checked on that path.** Both are reasons about what
+/// the writer does to the FILE: `SCRecordingOutput` mixes the microphone into
+/// the system-audio track, and uncontrolled colour tagging cost this project an
+/// entire evening. `SoredemoSpikeD --verify` writes a file each way and reads the
+/// finished asset back:
+///
+/// | | audio tracks | colour tags |
+/// | --- | --- | --- |
+/// | legacy `AVAssetWriterInput` | 2 | ITU_R_709_2 ×3, as requested |
+/// | successor `inputReceiver(for:)` | 2 | ITU_R_709_2 ×3, as requested |
+///
+/// Identical. Neither decisive property is lost on the successor path.
+///
+/// **So the split is by age of the code, not by capability.** This path — the
+/// shipping capture path — stays on the legacy implementation, because what is
+/// unverified about the successor is not whether it works but whether a *real*
+/// recording works: ScreenCaptureKit's own buffers, a real microphone, a display
+/// reconfiguration mid-segment. Those were established by human verification
+/// runs (Task 8), and re-establishing them is the actual cost of switching, not
+/// the eighty lines of a second conformance.
+///
+/// **New media-writing code in Phase 2B goes to the successor.** `export-basic`
+/// and `render-core` have no migration cost, because they do not exist yet, and
+/// writing them against an API that dies at 27.0 would create the second thing
+/// this seam exists to prevent. The synchronous `appendImmediately(_:)` maps
+/// one-to-one onto today's `append(_:) -> Bool`, so neither side needs an async
+/// restructuring to make that split work.
 ///
 /// **The trigger is written down where it will fire:** `ARCHITECTURE.md` D6b-27
 /// says re-run Spike D on every OS or SDK version bump. `26 fails / 27 works`
