@@ -47,7 +47,7 @@ document rather than a footnote.
 | 9 · `input-observation` | ☐ | — | |
 | 10 · `ax-observation` | ☐ | — | |
 | 11 · `observation-log` | ☐ | — | |
-| 11.5 · architecture rule 8 | ☐ | — | plus the four gaps from 5.5 |
+| 11.5 · architecture rule 8 | ☑ | `50521c6` + `172148f` | measured eight violators, not ten — 4.5 closed two and the count never moved |
 | 12 · close out | ☐ | — | |
 
 **324 tests green** across nine targets; cross-boundary probe **28/28**. Count with

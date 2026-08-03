@@ -185,13 +185,21 @@ the one path carrying untrusted input.** Swift's synthesised `init(from:)` assig
 directly. It never calls your `init`, so every `precondition` and every `throw` you wrote to define
 the type's invariant is skipped exactly when a value arrives from disk.
 
-Measured across this repository — **ten public types have a validating initialiser and no explicit
+Measured across this repository — **eight public types have a validating initialiser and no explicit
 `init(from:)`**:
 
 ```
-DisplayGeometry  NormalizedPoint  NormalizedSize  NormalizedFrame  PixelRect
-PointRect        Authorship       HostInstant     HostRange        TimeRange
+NormalizedPoint  NormalizedSize  NormalizedFrame  PixelRect
+PointRect        Authorship      HostInstant      TimeRange
 ```
+
+It was **ten** when this paragraph was written. `DisplayGeometry` and `HostRange` — the two of the ten
+reachable from `ProjectSnapshot` — were closed in Task 4.5, and the number moved without this sentence
+moving with it. Which is the whole reason the count lives in `scripts/scan-decode-validation.py`: run
+it. Since Task 11.5 the eight are also enumerated in
+`ArchitectureChecker.decodeValidationExemptTypes`, where **architecture rule 8 fails the build on a
+ninth**, and a package test fails if one of the eight is closed without its line being deleted. The
+list is the remaining work, in a form that cannot rot.
 
 **Two of the ten are on a live decode path. The other eight are not, and an earlier version of this
 paragraph said otherwise.** Traced structurally from `ProjectSnapshot` through stored properties and

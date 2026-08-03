@@ -1036,6 +1036,25 @@ type, not one line of it — the first attempt missed `GeometryRegistry`, `Conte
 each one closed is a fixture that must be removed from the expected-violation list — which makes the
 list a live record of the remaining work rather than a comment.
 
+### Measured at Task 11.5: **eight**, not ten — and the ten was already stale here
+
+The rule was built and run against the real package with its exemption list empty. It reports
+`NormalizedPoint`, `NormalizedSize`, `NormalizedFrame`, `PixelRect`, `PointRect`, `Authorship`,
+`HostInstant` and `TimeRange`, and `scripts/scan-decode-validation.py` reports exactly the same eight
+— two independent implementations of the same question agreeing on both sets, the eight open and the
+fifteen closed.
+
+The missing two are `DisplayGeometry` and `HostRange`: the two of the ten this section itself traced
+as reachable from `ProjectSnapshot`, closed in **Task 4.5**, whose row in the plan says so. The count
+in this section was written before that task ran and was never brought forward — which is the third
+recorded instance of exactly the failure the section is about, this time in the document doing the
+recording. The plugin's exemption list is now the live copy, because deleting a line from it is a
+build-visible act and editing a paragraph is not.
+
+Confirmed on the way past, with the extension scan mutated out: the checker then reports `GapWatch`,
+`ObservationLogTrailer` and `SegmentTable`, whose `init(from:)` lives on an extension. The miss this
+section warns about is real, still reachable, and now has a fixture.
+
 ---
 
 ## D2-15 — The master's colour space must be pinned, and the tag must match the data
@@ -1281,6 +1300,38 @@ would churn and be rubber-stamped. That is not what `Sources/` is.
   time". Two questions, two mechanisms.
 - The `nm -u` plumbing already exists in `Tests/DeterminismTests`, including the guard that an empty
   object-file set fails rather than passes vacuously.
+
+### Not built in Task 11.5, and the measurement that says why
+
+**575 was not a stable number.** Re-measured at Task 11.5, on the same six modules with the same
+`nm -u`:
+
+```
+Geometry 222  Timeline 148  Graph 350  Framing 61  Variants 61  Project 479   total 1321
+```
+
+That is **+746, or +130%, in 17 hours and 11 commits touching `Sources/`** — every one of which
+would have been a baseline diff of dozens to hundreds of mangled symbols, reviewed on the way past.
+D2-17 names that condition itself and calls it the case where a baseline is wrong: *"a target with a
+wide or fast-moving dependency surface, where the baseline would churn and be rubber-stamped."* The
+argument above assumed `Sources/` was not that. Mid-phase, with Phase 3's derived types still to
+come, it measurably is.
+
+And it would have closed **at most half** of the gaps it was proposed to close: of Task 5.5's four,
+`NSUUID` (app side) and `CCRandomGenerateBytes` are in the **app** target, which has no object files
+a package test can point `nm` at — the same boundary `Tests/AppSourceTests` documents at length. A
+link-time baseline cannot see them at any size.
+
+So Task 11.5 extended the enumeration instead, and the sibling sweep D2-16 asked for was run against
+the compiler rather than against memory: `drand48`'s whole family was probed, `erand48`, `seed48`,
+`lcong48`, `srandom` and `arc4random_stir` were found reachable and banned, and `lrand48`, `mrand48`,
+`nrand48`, `jrand48`, `rand`, `random` and `srand` were found `__swift_unavailable` and recorded as
+negatives beside the table.
+
+**This does not retire D2-17.** The baseline remains the stronger mechanism for the question it
+answers, and the right moment for it is when the package's symbol surface stops moving — the end of
+Phase 3, on this evidence, not the middle of Phase 2. What has changed is that its cost is now
+measured rather than assumed, and the measurement is the thing to re-run before building it.
 
 ---
 

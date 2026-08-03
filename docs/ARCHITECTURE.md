@@ -221,7 +221,7 @@ two schemes in circulation until Task 19 — this one, and a different `1…6` i
 file two lines apart, with `CGGeometryBridge.swift` carrying a parenthetical to say which 5 it meant.
 A rule you have to disambiguate by document name is a rule nobody can cite.
 
-"Enforces these" was also broader than the truth: of the rules below, the plugin enforces **three**.
+"Enforces these" was also broader than the truth: of the rules below, the plugin enforces **four**.
 
 | # | Rule | Enforced by | Fails |
 | --- | --- | --- | --- |
@@ -232,6 +232,7 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 5 | CG types in the app appear only in `Soredemo/Capture/CGGeometryBridge.swift` | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
+| 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
 
 Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
 target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
@@ -332,6 +333,22 @@ code they constrain does not exist yet, and an unwritten rule is not an enforced
 like it should be. Foundation on Darwin re-exports the CG geometry **types**, so
 `let r: CGRect? = nil` in a Foundation-only target compiles with no diagnostic at all; only the
 plugin fails that build. This is F1's shape a second time — measured, not assumed.
+
+**Rule 8 — a validating initialiser under a synthesised `Decodable`** — is the fourth plugin rule and
+the one aimed at code not yet written. Swift's synthesised `init(from:)` assigns stored properties
+directly and never calls yours, so every `precondition` and every `throw` that defines a type's
+invariant is skipped *exactly* on the path carrying untrusted input: a `.soredemo` package is a
+shareable document. The scan is per **type**, over the whole file, because the conformance may be
+declared on an extension and so may `init(from:)` — a scan keyed on the declaration line misses
+`GeometryRegistry`, `ContentDigest` and `Evidence`, which is the mistake the first hand-written
+version made and survived only because all three were closed (Phase 2 design doc, D2-14).
+
+Its exemption list, `ArchitectureChecker.decodeValidationExemptTypes`, is a **literal list of eight
+names** and never a predicate: a predicate widens once per good reason until it matches everything,
+and a literal list fails on the ninth type. Those eight are the types with no decode path today —
+closing them now would be designing error handling with no caller. **Closing one means deleting its
+line**, and `theDecodeValidationExemptionListIsExactlyWhatStillViolatesRule8` fails if a name in the
+list no longer violates, which is the only failure the build itself cannot see.
 
 `CheckerLexer` sits outside rules 1 and 3. It cannot carry `plugins: archCheck` without closing a
 dependency cycle (the plugin's own executable depends on it), and `Tests/DeterminismTests` derives
