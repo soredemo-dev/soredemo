@@ -83,6 +83,10 @@
 // phrased.
 
 import AppKit
+// `AVAssetWriter`, `AVAssetImageGenerator`, `AVURLAsset`, `CMTime` for § 11 — building a real
+// source movie and reading a real composited frame back through `CompositionBuilder`, the same
+// two AVFoundation-facing steps `StageWindow.load()` performs.
+import AVFoundation
 // `kVK_ANSI_*` for § 7's keyboard fixtures — the same layout-independent key
 // positions `InputObserver.approvedShortcuts` is written against, so the two
 // cannot drift into disagreeing about which key is which.
@@ -278,6 +282,10 @@ enum CrossBoundaryProbe {
         print("10. FrameRendering — the compositor seam and CoreImageFrameRenderer (Phase 2B Task 3)")
         print("10.1 a frame drawn: the card shows the source, the margin and the cut corner show the background")
         try theCompositorDrawsACardOverABackground()
+
+        print("11. CompositionBuilder — the real AVVideoComposition, end to end (Phase 2B Task 4)")
+        print("11.1 a synthetic movie, composed through StageCompositor, and read back with AVAssetImageGenerator")
+        try await theRealCompositionRendersACardOverABackground()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -4348,5 +4356,219 @@ enum CrossBoundaryProbe {
         // the extreme corner of the card is background — the radius cut it
         check(cardCornerPixel == (r: 23, g: 23, b: 28), "the corner radius removed the card's corner",
               actual: "\(cardCornerPixel)")
+    }
+
+    // MARK: - § 11  CompositionBuilder — the real AVVideoComposition, end to end (Phase 2B Task 4)
+
+    /// § 10 drives `CoreImageFrameRenderer` directly against a hand-built `RenderPlan` and a bare
+    /// `CVPixelBuffer` pair — real, but it never proves `CompositionBuilder`, `StageCompositor`, or
+    /// the `AVVideoComposition`/`AVAssetWriter`/`AVAssetImageGenerator` wiring between them, which
+    /// is everything `StageWindow.load()` actually does. **Nobody has eyes on the app window this
+    /// task adds** (`Soredemo/UI/StageWindow.swift`), so this is the only mechanical check of that
+    /// wiring: it builds a real source movie, builds the real composition through
+    /// `CompositionBuilder.composition(for:outputWidth:outputHeight:frameDuration:)`, applies it to
+    /// the source through the real `StageCompositor` (`AVVideoComposition.customVideoCompositorClass`,
+    /// not a stand-in), and reads a composed frame back with `AVAssetImageGenerator` — which is
+    /// what makes `videoComposition` apply at all; `AVAssetImageGenerator.image(at:)` on a plain
+    /// `AVURLAsset` with no `videoComposition` set would read the SOURCE movie's own pixels and this
+    /// check would still pass for the wrong reason.
+    enum CompositionProbeError: Error {
+        case pixelBufferPoolUnavailable
+        case cgContextUnavailable
+        case writerFailed(String)
+    }
+
+    /// Writes a short, solid-colour movie to `url` — two frames of `width`×`height` BGRA, byte-exact
+    /// like § 10's `makeSolidPixelBuffer`, through a real `AVAssetWriter`/
+    /// `AVAssetWriterInputPixelBufferAdaptor` pair. Two frames, not one, so the track has a real
+    /// (non-zero) duration for `CompositionBuilder`'s `CMTimeRange` to cover — a single zero-duration
+    /// sample left `AVAssetImageGenerator.image(at:)` with no frame to find.
+    ///
+    /// **`AVVideoColorPropertiesKey` pinned to ITU_R_709_2 — measured, not the brief's concern (the
+    /// brief says nothing about this file at all).** The first version of this function wrote no
+    /// colour tag, and reading a pure red (255, 0, 0) source back — with `videoComposition` UNSET,
+    /// bypassing the compositor entirely, to isolate the write/read round trip from anything this
+    /// task's own code does — measured `(231, 33, 0)`: a real colour shift from ambiguous tagging, the
+    /// same class of defect `CaptureSession`'s own header (D2-15) already warns about for the capture
+    /// side. Pinning the same three keys `CaptureSession.beginSegment` pins for its `AVVideoSettings`
+    /// made the round trip exact — measured at `(255, 0, 0)` afterwards, over five consecutive runs.
+    @MainActor
+    static func writeSolidColorMovie(to url: URL, width: Int, height: Int,
+                                     r: UInt8, g: UInt8, b: UInt8) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let settings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.proRes4444,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
+        ]
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        let attributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
+                                                            sourcePixelBufferAttributes: attributes)
+        guard writer.canAdd(input) else {
+            throw CompositionProbeError.writerFailed("canAdd(_:) refused the video input")
+        }
+        writer.add(input)
+        guard writer.startWriting() else {
+            throw CompositionProbeError.writerFailed(
+                "startWriting() returned false: \(String(describing: writer.error))")
+        }
+        writer.startSession(atSourceTime: .zero)
+        guard let pool = adaptor.pixelBufferPool else {
+            throw CompositionProbeError.pixelBufferPoolUnavailable
+        }
+        let frameDuration = CMTime(value: 1, timescale: 30)
+        let bgra: [UInt8] = [b, g, r, 255]
+        for frame in 0..<2 {
+            while !input.isReadyForMoreMediaData {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            var raw: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &raw)
+            guard let buffer = raw else { continue }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            let base = CVPixelBufferGetBaseAddress(buffer)!
+            let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+            for row in 0..<height {
+                let rowBase = base.advanced(by: row * bytesPerRow)
+                for column in 0..<width {
+                    rowBase.advanced(by: column * 4).copyMemory(from: bgra, byteCount: 4)
+                }
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            let pts = CMTimeMultiply(frameDuration, multiplier: Int32(frame))
+            guard adaptor.append(buffer, withPresentationTime: pts) else {
+                throw CompositionProbeError.writerFailed("append(_:withPresentationTime:) returned false")
+            }
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        guard writer.status == .completed else {
+            throw CompositionProbeError.writerFailed(
+                "writer finished with status \(writer.status.rawValue), error \(String(describing: writer.error))")
+        }
+    }
+
+    /// One RGB pixel out of a `CGImage`, at a point given in `StageRect`'s own coordinate space —
+    /// OUTPUT PIXELS, bottom-left origin, exactly like § 10's `pixel(in buffer:atStageX:y:
+    /// outputHeight:)` — via a fresh `CGContext` redraw into a raw RGBA buffer.
+    ///
+    /// **The row convention was measured again here, not assumed to carry over from § 10's
+    /// `CVPixelBuffer` measurement**, because this is a different boundary: `CVPixelBuffer` →
+    /// `CGImage` (AVFoundation's own conversion) → this function's own `CGContext.draw(_:in:)`
+    /// redraw. A throwaway fixture built a 4×4 `CVPixelBuffer` with memory rows 0–1 red and rows
+    /// 2–3 green (the already-established § 10 convention: row 0 = top), converted it to a
+    /// `CGImage` via `CIContext.createCGImage` — the same conversion `AVAssetImageGenerator`
+    /// performs internally — then redrew that `CGImage` into a raw buffer the way this function
+    /// does and read its rows directly: rows 0–1 came back red, rows 2–3 green. So `CGContext
+    /// .draw(_:in:)` into a buffer built this way preserves the SAME top-down convention § 10
+    /// already established for `CVPixelBuffer` — the same `row = outputHeight - 1 - y` formula
+    /// applies unchanged.
+    @MainActor
+    static func pixel(in image: CGImage, x: Int, y: Int, outputHeight: Int) throws -> (r: Int, g: Int, b: Int) {
+        var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        guard let context = CGContext(data: &data, width: image.width, height: image.height,
+                                      bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw CompositionProbeError.cgContextUnavailable
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let row = outputHeight - 1 - y
+        let offset = (row * image.width + x) * 4
+        return (r: Int(data[offset]), g: Int(data[offset + 1]), b: Int(data[offset + 2]))
+    }
+
+    /// Within `tolerance` on every channel. **Not exact equality, and that is a measured choice, not
+    /// a loosened one.** § 10's direct `CoreImageFrameRenderer` → `CVPixelBuffer` path reproduces the
+    /// brief's literal expected triples exactly; this path adds a real `AVAssetWriter` encode, a real
+    /// decode, and a real `CVPixelBuffer` → `CGImage` conversion on top of the identical renderer —
+    /// three more real steps, each a place a colour-managed pipeline can round a value. Measured over
+    /// five runs with `AVVideoColorPropertiesKey` pinned (see `writeSolidColorMovie`): the card centre
+    /// came back exactly `(255, 0, 0)` every time; the background points came back `(24, 24, 30)`
+    /// against an expected `(23, 23, 28)` — every channel within 2. `tolerance: 6` is comfortably
+    /// above that measured drift and nowhere close to the ≈230-per-channel gap between red and this
+    /// background, so it cannot turn "wrong region" into a pass.
+    static func closeEnough(_ a: (r: Int, g: Int, b: Int), _ b: (r: Int, g: Int, b: Int), tolerance: Int) -> Bool {
+        abs(a.r - b.r) <= tolerance && abs(a.g - b.g) <= tolerance && abs(a.b - b.b) <= tolerance
+    }
+
+    /// Builds a solid-red source movie, the real composition, and reads one composed frame back —
+    /// see this section's own header for why each of those three has to be real for this check to
+    /// mean anything. Card geometry comes from calling the real `StagePlanner.plan` with the same
+    /// inputs `StageCompositor.startRequest` will use, rather than a second, hand-copied set of
+    /// numbers that could drift from what the compositor actually computes.
+    @MainActor
+    static func theRealCompositionRendersACardOverABackground() async throws {
+        let outputWidth = 320
+        let outputHeight = 180
+        let sourceWidth = 64
+        let sourceHeight = 64
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("soredemo-probe-composition-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Never committed, never under `media/` — a probe-owned scratch file, deleted on every exit
+        // path including a thrown error.
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mov")
+
+        try await writeSolidColorMovie(to: sourceURL, width: sourceWidth, height: sourceHeight,
+                                       r: 255, g: 0, b: 0)
+
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+
+        let asset = AVURLAsset(url: sourceURL)
+        let composition = try await CompositionBuilder.composition(
+            for: asset, outputWidth: outputWidth, outputHeight: outputHeight,
+            frameDuration: CMTime(value: 1, timescale: 30))
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.videoComposition = composition
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let (image, _) = try await generator.image(at: .zero)
+
+        // The exact plan `StageCompositor.startRequest` will compute for these inputs — read, not
+        // re-derived by hand, so a future change to `StagePlanner`'s geometry cannot silently make
+        // these sample points stop meaning what their names say.
+        let plan = StagePlanner.plan(outputWidth: outputWidth, outputHeight: outputHeight,
+                                     sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                                     style: .default)
+        let centreX = Int((plan.card.x + plan.card.width / 2).rounded())
+        let centreY = Int((plan.card.y + plan.card.height / 2).rounded())
+        // Inside the card's bounding box, in its extreme corner — outside the rounded arc the same
+        // way § 10's own corner point is (offset 2 from the card's own origin, well past a radius of
+        // 18 here).
+        let cornerX = Int(plan.card.x.rounded()) + 2
+        let cornerY = Int(plan.card.y.rounded()) + 2
+
+        let centrePixel = try pixel(in: image, x: centreX, y: centreY, outputHeight: outputHeight)
+        // Fixed at (10, 10), same as § 10: outside the card's bounding box on every measured plan
+        // this task's geometry produces, so it stays in the margin regardless of exactly where
+        // `StagePlanner` centres the card.
+        let marginPixel = try pixel(in: image, x: 10, y: 10, outputHeight: outputHeight)
+        let cardCornerPixel = try pixel(in: image, x: cornerX, y: cornerY, outputHeight: outputHeight)
+
+        check(closeEnough(centrePixel, (255, 0, 0), tolerance: 6),
+              "the card's centre carries the source colour, through a real AVVideoComposition",
+              actual: "\(centrePixel)", expected: "(255, 0, 0) ± 6")
+        check(closeEnough(marginPixel, (23, 23, 28), tolerance: 6),
+              "a point in the inset margin carries the background colour",
+              actual: "\(marginPixel)", expected: "(23, 23, 28) ± 6")
+        check(closeEnough(cardCornerPixel, (23, 23, 28), tolerance: 6),
+              "a point inside the card's bounding box but outside its rounded corner carries the "
+              + "background colour",
+              actual: "\(cardCornerPixel)", expected: "(23, 23, 28) ± 6")
     }
 }

@@ -18,6 +18,15 @@ struct SoredemoApp: App {
     /// returns, before the picker could ever call back.
     @MainActor
     private static var retainedPicker: CaptureSourcePicker?
+
+    /// **Phase 2B Task 4, and not in that task's brief file list.** The brief
+    /// asks `ContentView` for an "Open Recording…" command; a SwiftUI command
+    /// can only be attached to a `Scene` (`.commands { … }`, below), never to
+    /// a plain `View`, so the command has to live here regardless of which
+    /// file the brief named. One instance, held where the command and the
+    /// window it drives can both reach it — `ContentView` reads it,
+    /// `.commands` drives it.
+    @State private var recordingCoordinator = RecordingCoordinator()
     /// Task 6's repeatable permission check, and the only place it can live.
     ///
     /// `scripts/cross-boundary-digest-probe.swift` cannot answer this: it is
@@ -73,7 +82,7 @@ struct SoredemoApp: App {
         // until a document is opened. This is the scratch window that makes a
         // bare launch observable; `app-shell` replaces it.
         WindowGroup {
-            ContentView()
+            ContentView(coordinator: recordingCoordinator)
                 // `--present-picker` / `--present-picker-unrestricted`: Task 7's
                 // human verification step. `SCContentSharingPicker.present()`
                 // hands off to Control Center's own UI, which needs a running
@@ -109,6 +118,14 @@ struct SoredemoApp: App {
                     NSDocumentController.shared.openDocument(nil)
                 }
                 .keyboardShortcut("o")
+                Divider()
+                // Phase 2B Task 4 — "a window with a rendered frame in it": the human step is
+                // choose this, record a few seconds of anything, choose it again, and look at
+                // ContentView, which shows StageWindow once recordingCoordinator.mediaURL is set.
+                Button(recordingCoordinator.isRecording ? "Stop Recording" : "Open Recording…") {
+                    recordingCoordinator.toggleRecording()
+                }
+                .keyboardShortcut("r")
             }
         }
     }

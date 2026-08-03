@@ -240,4 +240,14 @@ enum CGGeometryBridge {
     nonisolated static func outputCanvas(width: Int, height: Int) -> CGRect {
         CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
     }
+
+    /// The composition's own exit: `AVVideoComposition.Configuration.renderSize` is a `CGSize`,
+    /// and `CompositionBuilder` (Phase 2B Task 4) holds only the plain `Int`s a `RenderPlan`
+    /// carries. Same shape as `outputCanvas(width:height:)` immediately above — an extent with no
+    /// position — added for the same reason: rule 5 confines `CGSize` to this one file, and
+    /// `CompositionBuilder.swift` writing `CGSize(width:height:)` inline would be exactly the
+    /// violation `outputCanvas` was added to fix in `CoreImageFrameRenderer.swift`.
+    nonisolated static func renderSize(width: Int, height: Int) -> CGSize {
+        CGSize(width: CGFloat(width), height: CGFloat(height))
+    }
 }

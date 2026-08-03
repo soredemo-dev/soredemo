@@ -78,6 +78,10 @@ xcrun swiftc \
   Soredemo/Capture/ObservationWriter.swift \
   Soredemo/Render/FrameRenderer.swift \
   Soredemo/Render/CoreImageFrameRenderer.swift \
+  Soredemo/Render/StageCompositor.swift \
+  Soredemo/Render/CompositionBuilder.swift \
+  Soredemo/UI/PreviewView.swift \
+  Soredemo/UI/StageWindow.swift \
   scripts/cross-boundary-digest-probe.swift
 
 "$OUT/probe" "$@"
