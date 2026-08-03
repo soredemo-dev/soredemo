@@ -89,10 +89,25 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// thing worth avoiding on the hot path; everything else is cheap 2-D drawing into a buffer
     /// already sized to fit it.
     ///
-    /// `nonisolated(unsafe)`, unguarded by a lock — the same choice `StageCompositor.renderContext`
-    /// already makes and for the same reason: AVFoundation drives one compositor's
-    /// `startRequest(_:)` (and therefore, transitively, one renderer's `render(_:source:into:)`)
-    /// serially, and this dictionary is only ever touched from inside that call.
+    /// Guards `cursorCanvases` — a `Dictionary`, whose concurrent mutation is undefined behaviour,
+    /// not merely a stale-read risk — and every draw into a `CGContext` this cache hands back,
+    /// because two callers asking for the SAME `size` share the identical `CGContext` object, and
+    /// two threads drawing into one bitmap concurrently is the same category of fault one layer
+    /// up. `cursorImage(for:outputHeight:)` below holds this across the whole fetch-clear-draw-
+    /// makeImage sequence for exactly that reason: locking only the dictionary access would leave
+    /// the drawing itself unguarded.
+    ///
+    /// This was previously `nonisolated(unsafe)`, unguarded, resting on "`AVFoundation` drives one
+    /// compositor's `startRequest(_:)` — and therefore, transitively, one renderer's `render(_:
+    /// source:into:)` — serially." Review round 2 of this task named this exact assumption (raised
+    /// against `StageCompositor`'s own cached tracks, but stated as covering this dictionary too)
+    /// as one no test, header or scan can prove, and asked for it removed rather than documented.
+    /// It is also weaker here than it was for `StageCompositor`: `Self.renderer` is a single
+    /// `CoreImageFrameRenderer` instance set once and shared by `StageCompositor.renderer`, so
+    /// MULTIPLE compositor instances — plausible under seeking, scrubbing, or more than one
+    /// concurrent player — would share this ONE dictionary even if each compositor's own requests
+    /// were somehow serialised against itself.
+    private nonisolated let cursorCanvasLock = NSLock()
     private nonisolated(unsafe) var cursorCanvases: [Int: CGContext] = [:]
 
     /// Headroom, in OUTPUT PIXELS, added beyond the pointer/ripple geometry's own extent when
@@ -136,6 +151,14 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// `CIContext.createCGImage`** — the task brief's own "createCGImage-free path": the source of
     /// the pointer art is this app's own vector paths (`CursorArt`), not an existing `CIImage`
     /// there would be anything to extract a `CGImage` FROM.
+    ///
+    /// **`cursorCanvasLock` is held across the fetch, the drawing and `makeImage()` — not across
+    /// this whole function.** `CIImage(cgImage:)` and the translation below touch no shared state,
+    /// so they run unlocked; the caller's own `context.render(...)` GPU call in `render(_:source:
+    /// into:)` happens even later, in a different function, well after this one has already
+    /// returned and released the lock. Holding a lock across THAT call — which can cost
+    /// milliseconds — would serialise frames on a path `AVFoundation` may already be serialising,
+    /// which is a performance change and not what this lock exists to buy.
     private func cursorImage(for placement: NormalizedPointerPlacement, outputHeight: Int) -> CIImage {
         let scale = Self.pointerScale(forOutputHeight: outputHeight)
         let halfExtent = max(CursorArt.rippleEndRadius, scale * CursorArt.pointerMaxExtent)
@@ -147,27 +170,30 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // is centred on it and extends every direction).
         let tip = Double(size) / 2
 
-        guard let bitmap = cursorCanvas(size: size) else { return CIImage.empty() }
-        bitmap.saveGState()
-        bitmap.translateBy(x: tip, y: tip)
+        let image = cursorCanvasLock.withLock { () -> CGImage? in
+            guard let bitmap = cursorCanvas(size: size) else { return nil }
+            bitmap.saveGState()
+            bitmap.translateBy(x: tip, y: tip)
 
-        bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        bitmap.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
-        bitmap.setLineWidth(1.5)
-        bitmap.addPath(CursorArt.pointerPath(scale: scale))
-        bitmap.drawPath(using: .fillStroke)
+            bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            bitmap.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+            bitmap.setLineWidth(1.5)
+            bitmap.addPath(CursorArt.pointerPath(scale: scale))
+            bitmap.drawPath(using: .fillStroke)
 
-        // Only when `ripplePhase` is non-`nil` — `NormalizedPointerPlacement`'s own doc comment:
-        // `nil` means "not clicking", and the absence of a ripple is exactly what that means drawn.
-        if let phase = placement.ripplePhase {
-            bitmap.addPath(CursorArt.ripplePath(phase: phase))
-            bitmap.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1 - min(max(phase, 0), 1)))
-            bitmap.setLineWidth(2)
-            bitmap.strokePath()
+            // Only when `ripplePhase` is non-`nil` — `NormalizedPointerPlacement`'s own doc
+            // comment: `nil` means "not clicking", and the absence of a ripple is exactly what
+            // that means drawn.
+            if let phase = placement.ripplePhase {
+                bitmap.addPath(CursorArt.ripplePath(phase: phase))
+                bitmap.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1 - min(max(phase, 0), 1)))
+                bitmap.setLineWidth(2)
+                bitmap.strokePath()
+            }
+            bitmap.restoreGState()
+            return bitmap.makeImage()
         }
-        bitmap.restoreGState()
-
-        guard let image = bitmap.makeImage() else { return CIImage.empty() }
+        guard let image else { return CIImage.empty() }
         return CIImage(cgImage: image)
             .transformed(by: CGAffineTransform(translationX: placement.x - tip, y: placement.y - tip))
     }

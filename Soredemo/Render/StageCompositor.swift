@@ -67,16 +67,36 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     private nonisolated(unsafe) var renderContext: AVVideoCompositionRenderContext?
 
+    /// Guards `pointerTrack`/`clickTrack`/`tracksLoaded` below — **not** `renderContext`, which
+    /// stays the pre-existing unguarded `nonisolated(unsafe)` this file already had. That
+    /// asymmetry is deliberate, not an inconsistency left behind: `renderContext` is
+    /// write-once-then-read (`renderContextChanged` sets it before any `startRequest` can see it,
+    /// and it is never mutated again), the same "published before any callback can see it" shape
+    /// `Self.renderer`'s own comment already claims for the statics above. `pointerTrack`/
+    /// `clickTrack`/`tracksLoaded` are different: `loadedTracks()` below is a check-then-set INSIDE
+    /// the call `startRequest` makes on every frame — a read-modify-write on the hot path, not a
+    /// one-time publish — and an unguarded read-modify-write racing another thread's write is a
+    /// data race in the language sense, not merely a stale-value risk. Review round 2 of this task
+    /// found this resting on "AVFoundation serialises `startRequest` per instance", a framework
+    /// runtime guarantee no test, header or scan states — and asked for the assumption removed
+    /// rather than documented, which is what this lock does.
+    private nonisolated let lock = NSLock()
+
     /// Built lazily on the first `startRequest` and cached for the rest of this instance's life —
     /// "read once", per the brief. AVFoundation instantiates one `StageCompositor` per composition
     /// session (`CompositionBuilder` sets this type as `customVideoCompositorClass`, which
     /// AVFoundation itself instantiates — nothing in this app ever calls `StageCompositor()`), and
     /// `startRequest` is the earliest point any instance method runs, so there is no earlier hook
-    /// to read the log from. `pointerTrackLoaded` is separate from `pointerTrack`/`clickTrack` being
+    /// to read the log from. `tracksLoaded` is separate from `pointerTrack`/`clickTrack` being
     /// non-`nil` because a log that fails to read (missing file, corrupt header) must still be
     /// "loaded" — tried once and given up on — rather than retried on every single frame of the
     /// render. One flag for both tracks because they come from the SAME read of the SAME file
     /// (`loadedTracks()` below) — two flags could disagree about whether the log had been tried.
+    ///
+    /// All three are `nonisolated(unsafe)`, like every mutable property `CaptureSession` and
+    /// `InputObserver` hold behind their own `lock` — `unsafe` is honest, not a suppression:
+    /// nothing here is protected by actor isolation, everything is protected by `lock`, and
+    /// `withLock`'s closure is what actually keeps concurrent access safe.
     private nonisolated(unsafe) var pointerTrack: PointerTrack?
     private nonisolated(unsafe) var clickTrack: ClickTrack?
     private nonisolated(unsafe) var tracksLoaded = false
@@ -152,16 +172,36 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// retried on every frame. `Self.overrides` is read here too, at the same "once" moment, for
     /// the same reason `observationLogURL` is: both are configuration a caller sets before playback
     /// starts, not values that change frame to frame.
+    ///
+    /// **The check and the set are ONE critical section, not two.** `if tracksLoaded { … };
+    /// tracksLoaded = true; …` — the shape this had before this lock existed — lets two threads
+    /// both observe `tracksLoaded == false` and both perform the load: each would decode the log
+    /// independently and each would write its own `pointerTrack`/`clickTrack`, the last writer
+    /// winning. That duplicate work is idempotent here (`buildTracks` is a pure function of the
+    /// file's bytes, so either result is correct), which is WHY a coarser lock — covering the
+    /// check, the read, the decode and the write together — is the right trade rather than a
+    /// narrower one that only protects the flag: idempotent redundancy is an acceptable cost, a
+    /// half-written cache is not, and the simplest way to guarantee the latter never happens is to
+    /// make the whole sequence one section. The file read itself is bounded, one-time, per-instance
+    /// I/O — not a per-frame cost — so serialising concurrent callers through it while it happens
+    /// is a one-time price, not a standing tax on every frame; every frame AFTER the first returns
+    /// from the cache in O(1) under the same lock.
+    ///
+    /// **This lock is never held across `renderer.render(_:source:into:)`.** That call — which
+    /// `CoreImageFrameRenderer`'s own header notes can cost milliseconds — happens in `startRequest`
+    /// AFTER this function has already returned and released `lock`; nothing here reaches into it.
     private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?) {
-        if tracksLoaded { return (pointerTrack, clickTrack) }
-        tracksLoaded = true
-        guard let url = Self.observationLogURL,
-              let built = try? Self.buildTracks(from: url, overrides: Self.overrides) else {
-            return (nil, nil)
+        lock.withLock {
+            if !tracksLoaded {
+                tracksLoaded = true
+                if let url = Self.observationLogURL,
+                   let built = try? Self.buildTracks(from: url, overrides: Self.overrides) {
+                    pointerTrack = built.pointer
+                    clickTrack = built.click
+                }
+            }
+            return (pointerTrack, clickTrack)
         }
-        pointerTrack = built.pointer
-        clickTrack = built.click
-        return built
     }
 
     /// Turns one observation log into a `PointerTrack` and a `ClickTrack`, in one pass over the
