@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import Geometry
 import Timeline
 import Project
@@ -31,4 +32,90 @@ import Project
     let plan = StagePlanner.plan(outputWidth: 400, outputHeight: 400,
                                  sourceWidth: 400, sourceHeight: 400, style: style)
     #expect(plan.cornerRadius == min(plan.card.width, plan.card.height) / 2)
+}
+
+// MARK: - decode validation (rule 8)
+//
+// Same reasoning and same shape as `HostRange`'s
+// `decodingANegativeDurationHostRangeThrows` (Tests/TimelineTests/EpochTests.swift):
+// synthesised `Decodable` would assign stored properties directly and never call
+// the validating memberwise `init`, so these decode a hand-built JSON literal
+// carrying an out-of-invariant value — not a value encoded and re-decoded, because
+// that route is closed: the memberwise `init`s traps before such a value could ever
+// be constructed to encode in the first place. Asserts `.dataCorrupted`
+// specifically, not merely "a `DecodingError`", for the same reason `HostRange`'s
+// test does: only `.dataCorrupted` is proof the hand-written validation ran and
+// rejected the value, rather than the type falling back to a bare `precondition`
+// (which would trap, not throw) or to fully-synthesised `Codable` (which would
+// decode successfully and never throw at all).
+
+/// `StageRect`'s own `encode(to:)` output for `{x:0, y:0, width:1, height:2}`,
+/// confirmed against a scratch build of the type, with `width` then hand-edited
+/// negative.
+@Test func decodingAStageRectWithNegativeExtentThrows() throws {
+    let json = Data("""
+    {"x":0,"y":0,"width":-1,"height":10}
+    """.utf8)
+    do {
+        _ = try JSONDecoder().decode(StageRect.self, from: json)
+        Issue.record("expected decoding a negative-width StageRect to throw")
+    } catch let error as DecodingError {
+        guard case .dataCorrupted = error else {
+            Issue.record("expected .dataCorrupted (StageRect's own validation), got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("expected DecodingError, got \(error)")
+    }
+}
+
+/// `StageStyle`'s own `encode(to:)` output, confirmed against a scratch build of
+/// the type (`StageBackground`'s synthesised shape nests the case name, so
+/// `.solid` becomes `{"solid":{"red":...,"green":...,"blue":...}}`), with
+/// `insetFraction` hand-edited to `0.5` — the exact boundary `init` rejects,
+/// since the precondition requires strictly less than `0.5`.
+@Test func decodingAStageStyleWithOutOfRangeInsetFractionThrows() throws {
+    let json = Data("""
+    {"background":{"solid":{"blue":0.11,"green":0.09,"red":0.09}},
+     "cornerRadius":18,"insetFraction":0.5,"shadowOpacity":0.35,"shadowRadius":32}
+    """.utf8)
+    do {
+        _ = try JSONDecoder().decode(StageStyle.self, from: json)
+        Issue.record("expected decoding an out-of-range insetFraction StageStyle to throw")
+    } catch let error as DecodingError {
+        guard case .dataCorrupted = error else {
+            Issue.record("expected .dataCorrupted (StageStyle's own validation), got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("expected DecodingError, got \(error)")
+    }
+}
+
+/// Codable round trip for `StageRect`, because `RenderPlan` (and everything that
+/// carries a `StageRect`) is expected to travel intact through the same encoder
+/// every persisted document uses.
+@Test func stageRectRoundTrips() throws {
+    let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+    let rect = StageRect(x: 12.5, y: -3, width: 200, height: 150)
+    let back = try JSONDecoder().decode(StageRect.self, from: try enc.encode(rect))
+    #expect(back == rect)
+    #expect(back.x == rect.x)
+    #expect(back.y == rect.y)
+    #expect(back.width == rect.width)
+    #expect(back.height == rect.height)
+}
+
+/// Codable round trip for `StageStyle`, including the nested `StageBackground`.
+@Test func stageStyleRoundTrips() throws {
+    let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+    let style = StageStyle(insetFraction: 0.08, cornerRadius: 22, shadowRadius: 40,
+                           shadowOpacity: 0.5, background: .solid(red: 0.2, green: 0.3, blue: 0.4))
+    let back = try JSONDecoder().decode(StageStyle.self, from: try enc.encode(style))
+    #expect(back == style)
+    #expect(back.insetFraction == style.insetFraction)
+    #expect(back.cornerRadius == style.cornerRadius)
+    #expect(back.shadowRadius == style.shadowRadius)
+    #expect(back.shadowOpacity == style.shadowOpacity)
+    #expect(back.background == style.background)
 }
