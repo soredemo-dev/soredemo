@@ -1083,6 +1083,136 @@ git commit -m "cursor-render: a pointer we draw, and the four readings that deci
 
 ---
 
+## Task 5.5: the first production caller of five things at once
+
+**Added after Task 5, because Task 5's fix round proved the row it belongs to cannot be finished
+without it.** `StageWindow`'s observation-log wiring is correct and finds nothing, because no
+recording this app makes has a log. `cursor-render`'s name claims a drawn pointer; the product does
+not draw one.
+
+**Files:**
+- Modify: `Soredemo/Capture/CaptureSession.swift`, `Soredemo/Capture/CapturePermissions.swift`,
+  `Soredemo/UI/ContentView.swift`, `Soredemo.xcodeproj/project.pbxproj`
+- Create: `Tests/AppSourceTests/ProductionCallerTests.swift`
+
+**Interfaces:**
+- Consumes: `InputObserver`, `AXObserver`, `ObservationWriter`, `NormalizationContext`,
+  `CapturePermissions`.
+- Produces: an observation log beside every recording, and the first executed path through all of
+  the above.
+
+**WHY THIS IS NOT A WIRING TASK, and must not be estimated like one.** Measured, right now:
+
+| Type | Executed production call sites |
+| --- | --- |
+| `InputObserver` | **0** |
+| `AXObserver` | **0** |
+| `ObservationWriter` | 1, added by Task 5, read-only (`expectedLogURL`) |
+| `NormalizationContext` | **0** — zero non-comment mentions anywhere outside its own file |
+| `CGGeometryBridge`'s AX/input half | **0** — its render and capture halves do execute; the two call sites in `InputObserver.swift` and the two in `AXObserver.swift` never have |
+
+Every previous time this project wrote a first production caller, that path produced a defect only
+it could produce: `LiveAXElementSource`, `ObservationWriter`'s `@MainActor` trap, `CGGeometryBridge`,
+and `dryRun()` writing where nothing read. Four for four. This task writes **five at once**, so a
+high defect count is the expected outcome and not a sign the task went badly.
+
+**Attach to `CaptureSession`, not to `RecordingCoordinator`.** The ROADMAP row says observation is
+"`app-shell`'s job and there is no app shell yet", and taken literally that defers this forever.
+`CaptureSession` already owns the stream, the clock and the sink. Wiring there means `app-shell`
+inherits it; wiring into the UI means `app-shell` rewrites it, and that rewrite cost becomes the
+argument for never doing it.
+
+- [ ] **Step 1: make recording possible at all — the microphone entitlement**
+
+Measured at the Task 4 human step: `CaptureSession.swift:727` sets
+`configuration.captureMicrophone = true` unconditionally, the committed project declares neither
+`ENABLE_RESOURCE_ACCESS_AUDIO_INPUT` nor `NSMicrophoneUsageDescription`, and under the hardened
+runtime `tccd` says verbatim:
+
+```
+service: kTCCServiceMicrophone requires entitlement
+com.apple.security.device.audio-input but it is missing
+Policy disallows prompt
+access to kTCCServiceMicrophone denied
+```
+
+The whole recording then fails. Add both build settings to `project.pbxproj` for both
+configurations. Verify with `codesign -d --entitlements -` on the built app that
+`com.apple.security.device.audio-input` is present.
+
+- [ ] **Step 2: correct the degradation model, which currently states a consequence that does not happen**
+
+`CapturePermissions.degradation(for: .microphone)` returns `noMicrophoneTrack`. The measured
+consequence is that recording does not start at all. That file's own doc comment (line 9) demands
+"a stated, distinct consequence that is what actually happens", so this row is presently the exact
+thing the file forbids.
+
+Fix the row to match measurement. Add a test in `Tests/AppSourceTests/ProductionCallerTests.swift`
+that pins the mapping, and say in the test which measurement it encodes.
+
+- [ ] **Step 3: ask for Screen Recording, once**
+
+`CGRequestScreenCaptureAccess` occurs zero times in this repository. `SCStream` and
+`SCContentSharingPicker` do not prompt. A first-run user is told "the user declined" by an API that
+never asked them.
+
+Call it before the picker opens. **Do not guard it with `status(of: .screenRecording) != .granted`**
+— D6b row 18: `CGPreflightScreenCaptureAccess()` returned `granted` immediately after
+`tccutil reset ScreenCapture`, and the next `SCStream.startCapture()` refused with `-3801`. That
+guard never fires here, so a path behind it is dead code that reads like protection. The call is
+idempotent: it prompts only in the never-asked state.
+
+A previous attempt at this line exists at
+`a skill chain/sdd/2026-08-03-phase-2b-render/orphan-screen-recording-prompt.diff` — read it for its
+reasoning, then write your own.
+
+- [ ] **Step 4: ask for Accessibility, once**
+
+`AXIsProcessTrusted()` is read in `CapturePermissions.swift:185`. `AXIsProcessTrustedWithOptions`
+with the prompt option occurs **zero** times. Same absence as Step 3, third service of the night.
+Prompt once, before the AX walk's first use.
+
+- [ ] **Step 5: construct the observers and the writer, in `CaptureSession`**
+
+Open an `ObservationWriter` per segment beside the media, start an `InputObserver` and an
+`AXObserver`, and route their records into it. The log's name must be the one
+`ObservationWriter.expectedLogURL` already derives — Task 5 wired the reader against that
+convention, and two naming schemes here is the two-instruments failure this project has paid for.
+
+- [ ] **Step 6: measure what D6b row 14 was voided for**
+
+Row 14 — *a pointer-only `.listenOnly` tap needs no Input Monitoring grant* — is **VOID, never
+measured**: it was inferred from which spike step failed first, and every one of those steps ran
+under an identity that already held both grants.
+
+**Assume neither answer.** This task creates the first path that can settle it: a real first run
+under the product's own identity, which has never asked for Input Monitoring. Record what actually
+happens when the pointer tap is created without that grant — the tap's creation result and whether
+pointer records appear — and report it verbatim. Do not request Input Monitoring pre-emptively to
+make the run succeed; a grant spent to avoid a measurement spends the one never-asked state that
+can answer this.
+
+- [ ] **Step 7: the completion condition, and it is not "the observers were called"**
+
+```
+record five seconds
+  → a log exists under observations/ beside the media
+  → it contains a non-zero count of pointer readings and at least one AX chain
+  → the drawn cursor moves in the preview
+```
+
+Steps 1–6 are machine-checkable and must be. The third line needs a person; write the checklist and
+mark it UNVERIFIED, as Tasks 4 and 5 did.
+
+- [ ] **Step 8: commit**
+
+```bash
+git add Soredemo/Capture Soredemo/UI Soredemo.xcodeproj/project.pbxproj Tests/AppSourceTests
+git commit -m "The first production caller of five things at once"
+```
+
+---
+
 ## Task 6: the successor writer and the differential test across the seam
 
 **Files:**
