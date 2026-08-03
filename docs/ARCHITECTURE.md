@@ -667,38 +667,9 @@ selector is `finish(withComposedPixelBuffer:)`. A deprecation message is prose, 
 decided; it does not say whether the successor works. Searched: there is no published migration
 guide for this stack, and the one field report on `AVAssetWriterInput.PixelBufferReceiver.append`
 is an [indefinite hang](https://developer.apple.com/forums/thread/813867) — the task suspends and
-never resumes, no crash, no error, CPU to zero, filed January 2026 with no Apple reply.
-
-## It reproduces, and it is worse than reported
-
-`spikes/2026-08-03-writer-receiver-hang` pushes synthetic 1280×720 BGRA frames at an
-`AVAssetWriter` with `expectsMediaDataInRealTime = false`. Measured on this machine:
-
-| Path | Result |
-| --- | --- |
-| `PixelBufferReceiver.append` — the type the report names | **stalls at frame 137, forever** |
-| `SampleBufferReceiver.append` — what `CaptureSession.append(_:)` becomes at 27.0 | **stalls at frame 135, forever** |
-| `appendImmediately` — the non-suspending form of either | **stalls at 137, returns `false` forever** |
-| legacy `AVAssetWriterInput.append`, **same rig, same frames** | **600 / 600**, slowest append 39.4 ms |
-| `AVAssetWriter` state at the stall | `writing`, no error, input **NOT ready** |
-
-**Every reading the report left open is now closed, and closed the wrong way.** Not random — the
-reporter called it random, and it is deterministic at 135–137 across runs. Not specific to
-`PixelBufferReceiver` — our own path's successor stalls two frames earlier. Not the async
-suspension — the polling form stops in the same place. Not a failed writer — status is `writing`
-with no error. Not slowness — 180 seconds on one frame, still not returning. **And not the spike's
-rig**: the same rig, same settings, same frames, through the deprecated API, reaches 600 without
-pausing. That control is what makes the rest of the table mean anything.
-
-**~136 frames is 2.3 seconds of 60 fps video.** The successor stack cannot write a recording on
-this machine today.
-
-**What this does and does not settle.** It does not say the API is broken everywhere — one machine,
-one OS build, one configuration. It does say the migration `AVFoundation` is asking for cannot be
-taken here and now, and that the deprecation of `AVAssetWriterInput.append(_:)` at 27.0 is
-therefore a **standing risk to a path that already ships**, not only to a path Phase 2B has yet to
-choose. Re-run the spike when the SDK moves; it needs no permission and takes twenty seconds.
-
+never resumes, no crash, no error, CPU to zero, filed January 2026 with no Apple reply. So the two
+instruments point opposite ways: the SDK condemns the predecessor, and the field says the successor
+hangs. Neither alone is the answer, and this row exists so that neither gets read as one.
 
 **What breaks if it changes: most of Phase 2B's intended API surface.** `export-basic` was to be
 `AVAssetWriter` + `AVAssetWriterInputPixelBufferAdaptor`; `render-core` was to be
