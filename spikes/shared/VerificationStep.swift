@@ -66,13 +66,56 @@ struct VerificationStep {
         let executable = Bundle.main.executableURL?.path() ?? CommandLine.arguments.first ?? "unknown"
         let identifier = Bundle.main.bundleIdentifier
             ?? "NONE — a bare executable, so TCC attributes it to whatever launched it"
+        // **Two questions, and they are not the same one.** The first version of
+        // this block answered "who is this process" and was READ as "whose grant
+        // is this". Those coincide for a bare executable — which is the case
+        // that created the block, when a probe reported four permissions
+        // granted for a terminal — and they diverge for a bundled app that was
+        // exec'd rather than launched: the bundle identifier is correct, and
+        // TCC still attributes the grant to whoever started the process.
+        //
+        // Measured: SoredemoSpikeB reports every permission granted when exec'd
+        // from a shell and NONE when started with `open`. A whole task's
+        // verification was recorded as "PASS under video.soredemo.SpikeB" on the
+        // strength of a line that was true and answered a different question.
+        //
+        // So the block answers both, or says plainly that it cannot answer the
+        // second. A reader has already filled that blank in wrongly once.
+        // `__CFBundleIdentifier` names the bundle identity the OS is running this
+        // process UNDER, which is not always the bundle the executable sits in.
+        // Measured, same binary, two launch paths:
+        //
+        //   open -n …app     __CFBundleIdentifier = video.soredemo.SpikeA
+        //   exec …/SpikeA    __CFBundleIdentifier = com.cmuxterm.app
+        //
+        // and the permissions reported follow the second, not the first. This
+        // is not a heuristic: the first attempt here used `XPC_SERVICE_NAME`,
+        // which is present on BOTH paths (as "0" when exec'd), and a dump of
+        // every environment variable on both paths is what found the one that
+        // actually differs.
+        let responsible = ProcessInfo.processInfo.environment["__CFBundleIdentifier"]
+        let grantSubject: String
+        switch responsible {
+        case .none:
+            grantSubject = "UNKNOWN — __CFBundleIdentifier is unset, so this block cannot say "
+                + "whose grant any permission below belongs to. Do not read it as this bundle's."
+        case .some(identifier):
+            grantSubject = "\(identifier) — this bundle. Started through LaunchServices, so a "
+                + "permission reported below is genuinely this identity's."
+        case .some(let other):
+            grantSubject = "\(other) — NOT THIS BUNDLE. The process is running under that identity, "
+                + "so every permission reported below belongs to it and not to \(identifier). "
+                + "Start with `open -n` to measure this identity instead."
+        }
         print("""
         ── verification step: \(name) ──
         commit (read at launch, NOT baked — throwaway spike, not BuildProvenance): \(commit)
         macOS \(ProcessInfo.processInfo.operatingSystemVersionString)
-        bundle identifier : \(identifier)
+        process identity  : \(identifier)
+        grant attributed to: \(grantSubject)
         executable path   : \(executable)
-        inside a .app     : \(executable.contains(".app/Contents/MacOS/") ? "yes" : "NO")
+        inside a .app     : \(executable.contains(".app/Contents/MacOS/") ? "yes" : "NO") \
+        — a property of the PATH, and not of who holds the grant
         pid               : \(ProcessInfo.processInfo.processIdentifier)
         ──
         """)

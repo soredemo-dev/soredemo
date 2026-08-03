@@ -566,6 +566,17 @@ enum SpikeA {
             print("$ \(CommandLine.arguments.first ?? "?") --permissions")
             print("(re-run this rather than trusting a transcript — a re-sign or a moved")
             print(" path invalidates every line below without changing any of them)\n")
+            if CommandLine.arguments.contains("--dump-env") {
+                let env = ProcessInfo.processInfo.environment
+                let dump = env.keys.sorted().map { "\($0)=\(env[$0] ?? "")" }.joined(separator: "\n")
+                if let i = CommandLine.arguments.firstIndex(of: "--permissions-to"),
+                   i + 1 < CommandLine.arguments.count {
+                    try? dump.write(toFile: CommandLine.arguments[i + 1],
+                                    atomically: true, encoding: .utf8)
+                }
+                print(dump)
+                exit(0)
+            }
             let text = CapturePermissions.dumpText()
             print(text)
             // Also to a file, because the discriminating measurement needs the

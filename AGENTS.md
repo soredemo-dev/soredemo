@@ -781,9 +781,35 @@ copied into the ledger. Either derive the number from the list at the point of w
 write it. This project already applies the rule to its own product — every derived value carries its
 origin — and a ledger entry is a derived value with no origin.
 
----
+### The mislabelled-record register — right results under the wrong subject
 
-## Architecture rules — enforced, not aspirational
+Every human verification in Phase 2 was recorded under a spike's bundle identifier. Measured
+afterwards: those spikes hold no grants, and each run was attributed to `com.cmuxterm.app` — the
+terminal that exec'd it. The results are not wrong. The **subject** of each is.
+
+This is not the stale-number failure, and treating it as one gets it wrong in both directions. A
+stale number is a wrong value. This is a **correct value filed under a claim it does not support**,
+and it passed every gate, because nothing checks a subject.
+
+So the disposition is per row, not "re-run everything" and not "it probably makes no difference".
+The question each row answers is: **does this conclusion depend on the identity?**
+
+| Recorded as | Actually ran under | Does the conclusion depend on identity? |
+| --- | --- | --- |
+| Task 8 step 1 — window capture, `ContentScale == 1` on 918 frames | `com.cmuxterm.app` | **No.** ScreenCaptureKit's buffer geometry is not per-identity. Re-labelling is enough |
+| Task 8 step 2 — two audio tracks, four tone assertions | `com.cmuxterm.app` | **No.** Track separation is a property of the writer |
+| Task 8 step 3 — display reconfiguration splits the segment | `com.cmuxterm.app` | **No.** `CGDisplayRegisterReconfigurationCallback` is not identity-scoped |
+| Task 9 steps 1–2 — pointer track, click down/up | `com.cmuxterm.app` | **No**, but see the row below — the *grant* question it answered is void |
+| Task 9 step 3 — 41 keystrokes, 1 recorded, 40 refused | `com.cmuxterm.app` | **No** for the filter. **Yes** for "Input Monitoring was granted to SpikeC" — that was never true |
+| Task 9 step 4 — secure input, 852 events suppressed | `com.cmuxterm.app` | **No.** `IsSecureEventInputEnabled` is system-wide |
+| Task 9's boundary finding — "a pointer tap needs no grant, a keyboard tap does" | `com.cmuxterm.app` | **YES, and it is void.** Both ran under an identity that already held both. The boundary was inferred from which step first failed, and neither step ever tested the spike's own permission state |
+| Task 10 human 1–2 — the poll finds a real disable | `com.cmuxterm.app` | **No.** Tap disable and re-arm are per-process, not per-identity |
+| "the product's never-asked Screen Recording state is unspent" | — | **Still true, and now for a stronger reason:** not even the spikes consumed it |
+
+One row is void rather than mislabelled, and it is the one that reads most like a finding. Everything
+else is re-labelling.
+
+
 
 **The numbering below is `ARCHITECTURE.md` D6's, which is the only one.** Do not restate it
 elsewhere and do not renumber it here; this section is a reader's copy, and D6 is the authority. Two
