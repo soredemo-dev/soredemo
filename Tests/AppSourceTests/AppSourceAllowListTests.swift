@@ -676,6 +676,47 @@ func lineNumber(of location: String) -> Int {
             """)
 }
 
+/// **Nothing counts straddling observations, and this is what will say so on
+/// the day something does.**
+///
+/// The tautology register's first row is the expectation *a straddle count
+/// cross-checked against a counter*. It cannot fail, and the reason is not that
+/// the predicate is weak: **the counter does not exist**. D2-12 says an
+/// observation whose AX chain crosses a segment boundary belongs to the
+/// segment its click happened in, and the chain items carry their own
+/// timestamps so a straddle is *detectable* — but nothing in `Soredemo/`
+/// detects one, so the expectation is about a number no code produces.
+///
+/// Deleting the expectation would be wrong; the rule it guards is real, and
+/// `framing-gates` is expected to want that count. So the register's answer is
+/// this scan, in its zero-occurrence form: assert the counter's ABSENCE, and
+/// let the day it arrives be the day the expectation is rewritten into a real
+/// cross-check. That is a diff someone has to defend rather than a register row
+/// someone has to remember.
+///
+/// Doc comments naming the concept — `AXObserver`'s routing note and
+/// `ObservationWriter`'s D2-12 header — do not fire: `codeViewLines` blanks
+/// comment and string CONTENT, which is the same property rules 1, 2 and 4
+/// depend on. Only an identifier in code counts.
+///
+/// **When this fires, do not exempt it.** Write the counter, replace the
+/// unfalsifiable expectation with one that compares it against the log's own
+/// straddling records, and delete this test in the same commit. Its whole value
+/// is being the thing that makes those three arrive together.
+@Test func nothingInTheAppCountsStraddlingObservationsYet() throws {
+    let found = try violationsEverywhere(banned: ["straddl", "Straddl"],
+                                         in: try appSourceFiles())
+    #expect(found.isEmpty,
+            """
+            an app source now names a straddle, in code rather than in prose:
+            \(found.joined(separator: "\n"))
+            The tautology register's first row exists because no such counter existed. If this is \
+            that counter, the register row is now falsifiable and must be rewritten to cross-check \
+            it against the log's own straddling records — and this test deleted in the same commit. \
+            Exempting it puts the register back where it was, minus the note saying so.
+            """)
+}
+
 /// **`AXObserver.chain` is the synchronous walk, and only `AXObserver` may
 /// call it.**
 ///

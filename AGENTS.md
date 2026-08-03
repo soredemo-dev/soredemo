@@ -793,7 +793,7 @@ by writing another scan.
 
 | Row | Why it cannot fail | What answers it |
 | --- | --- | --- |
-| a straddle count cross-checked against a counter | the counter does not exist anywhere in the tree — `grep -i straddle` returns three prose comments and no field | a zero-occurrence scan. The mechanism is already here and used three times; this is free |
+| a straddle count cross-checked against a counter | the counter does not exist anywhere in the tree — `grep -i straddle` returns three prose comments and no field | **done:** `nothingInTheAppCountsStraddlingObservationsYet` asserts the absence, so the day the counter arrives is the day this row is rewritten. Observed failing against a planted `straddlingObservations` field |
 | "`endedBy` is a reason" | `SegmentBoundary` is non-optional, so it is always a case | check first whether the predicate reduces to a `nil` comparison or an exhaustive `switch` whose arms all return `true` — if so **the compiler already says this**, and the answer is promoting that warning to an error, not a new scan |
 | "the trailer has one `GapWatch` per site" | the trailer's *decoder* refuses a trailer that does not | the invariant is real and lives in the wrong place. Push it into the type and this row degrades into the row above |
 | "the three log filenames are distinct" | a directory cannot hold two files with one name | nothing in the type system reaches this — the invariant is POSIX's. Only a recorded red catches it |
@@ -809,6 +809,37 @@ five corrected rows in its own table and said "four" in the prose above it, and 
 copied into the ledger. Either derive the number from the list at the point of writing, or do not
 write it. This project already applies the rule to its own product — every derived value carries its
 origin — and a ledger entry is a derived value with no origin.
+
+### `induced-…` — settled: keep, and it is satisfiable by a prefix
+
+The stimulus-control rule (`VerificationStep.stimulusVerdict`) says every step either declares an
+`induced-…` expectation or calls `inducesNothing(_:)`. Its continuing value was left open at Task 11
+and is settled here, against **Task 11's human half** — three steps, seventeen assertions, a clean
+boundary because the whole batch ran under one identity on one night.
+
+**Keep it.** All three steps carry a stimulus control that the step's own conclusion rests on:
+
+- *human 0* is the one `inducesNothing(_:)` call in the tree — "this launch acquires permissions and
+  measures nothing". Three assertions about grants, and without that line a permission-acquiring
+  launch reads like a measurement.
+- *human 1* declares `induced`: **this process** took the tap down, so `T_off` is our ground truth
+  and not something the machine happened to do.
+- *human 2* declares `induced-stall-applied`: 1844 observations each stalled 50 ms, 92.2 s of
+  deliberate lateness. Its own text says what it is for — *a run where the mouse did not move
+  performs zero stalls, and every window below would then be about something else*.
+
+**The honest limit: the rule has never once failed.** Twelve steps declare an `induced-…`
+expectation and one declares none; the verdict has never fired. It works by making the author answer
+a question at writing time, not by catching anything at running time, and evidence for a rule of that
+shape is always what got declared rather than a red.
+
+**And it is satisfiable by naming.** `induced-two-tracks` (Task 8) asserts the output file has two
+audio tracks. That is the step's *conclusion*, not the stimulus that produced it — the check's own
+text calls itself "the WEAK check". The `induced-` prefix does no work there; it satisfies
+`stimulusVerdict` because of how it is spelled. Nothing mechanical can tell a cause from an effect
+in an identifier, so this is a cost being accepted with its eyes open, not a gap awaiting a scan.
+**When an `induced-…` row is about what came out rather than what went in, it is decoration wearing
+the prefix** — which is the tautology register's lesson arriving through a different door.
 
 ### The mislabelled-record register — right results under the wrong subject
 
@@ -872,6 +903,30 @@ Three of the nineteen came with something attached, and those are worth more tha
 The method's own cost is recorded too: `scripts/run-cross-boundary-probe.sh` inherited `SDKROOT`
 from the login profile and failed nineteen runs identically, in a way indistinguishable from a
 mutation that broke the build. Fixed in that script, with the reason written where it happened.
+
+**A certificate has two halves, and the first pass only had a format for one of them.** All three
+checks above did redden — that is not what they got wrong. They reddened for the wrong reason, each
+in a different disguise: one stayed green with nothing reddening anywhere, one reddened three
+neighbours and not itself, one killed the probe with no verdict at all. **Reddening is necessary and
+not sufficient: the mutation has to be an instance of the fault the check exists to catch.** The
+first pass supplied that judgement by hand because the format did not ask for it, which is exactly
+the condition under which it stops being supplied. So `scripts/certify-probe-checks.py` now carries a
+**fault class** on every entry, the runner prints it as a question beside each verdict, and a blank
+one aborts the whole run before any file is touched.
+
+**This is not retroactive, and saying so is part of the ruling.** The other 338 written checks are
+not to be re-certified under the new field. The sample exists so that nobody has to do that; 19 of 20
+is an estimate, and an estimate does not become a work order by being written down more carefully.
+The rule governs certificates issued from here on — it is about to be applied a few hundred times in
+Phase 2B and beyond, and a tightened standard that silently commissions a migration is a standard
+that stops being affordable exactly when it starts being used.
+
+**The third class has a home, and it is not a theoretical corner: 1 in 20 in the wild.** A check that
+is neither reddenable nor a tautology — one whose subject is the platform rather than this
+repository — belongs in `ARCHITECTURE.md`'s **D6b**, the platform-premise register, because that is
+what it is: a premise about the machine, asserted at runtime. The sample's instance is the secure-input
+precondition. Do not count these among the checks that gate the product, and do not delete them
+either; they guard the experiments that produce D6b's rows in the first place.
 
 
 
@@ -963,8 +1018,30 @@ the pattern worth naming — the incident is plural, and the sentence that recor
 | *Every fixture set needs a positive control, and it runs first* | a control validates the fixture along **one** axis. `label == "from"` had a control on the label and none on the type | one control per dimension the fixture set claims to span |
 | *A measurement that counts something must first assert it counted anything* | `completeFrameCount` was asserted non-zero while `appendedVideoFrameCount` was zero — **two counts, one guard** | every count the conclusion rests on, not the one nearest the assertion |
 | *Check the claim against the thing, not against another claim* | D6b row 17's claim spanned **two things** — a Settings pane and an API — and each was checked correctly against itself | when a claim spans two things, check the joint, because that is where an invented story fits |
-| *With several candidate causes, make the discriminating measurement* | one measurement separates two causes; three causes may need two, and a single one that separates two of three reads as conclusive | say which causes it separates, and which it leaves together |
+| *With several candidate causes, make the discriminating measurement* | **SPECULATION — no incident.** The cell describes a failure mode: one measurement separates two causes; three causes may need two, and a single one that separates two of three reads as conclusive | say which causes it separates, and which it leaves together |
 | *A caveat belongs where the people it protects will be* | a caveat had two audiences — the console reader and the source reader — and reached one | every audience, and the console is the one that gets skipped |
+
+**Back-tested, one row at a time: does the rewritten rule catch its own incident?** A rule rewritten
+from an incident and never checked against it is the same defect one column to the left. Seven do.
+
+- Rows 1, 2, 4, 5, 6 and 8 catch theirs directly. *Which artefact, and is there a second one the name
+  also fits* answers "the app binary" with the stub **and** the dylib. *Name every caller* forces
+  `start()` and the in-type reconfiguration path into the same sentence, where the second falsifies
+  the justification. *One control per dimension* finds the missing type control beside the present
+  label control. *Every count the conclusion rests on* reaches `appendedVideoFrameCount`, not just
+  the one nearest the assertion. *Check the joint* separates D6b row 17's pane from its API. *Every
+  audience* reaches the console, which is where `NOTHING WAS LOOKING` had to be added after living
+  only in the source.
+- **Row 3 catches its incident and has no mechanism.** *When two instruments answer one question,
+  their agreement is itself a check that must exist* — and it still does not. The checker plugin and
+  `scripts/scan-decode-validation.py` are compared by a comment telling a reader to re-measure by
+  hand. `theDecodeValidationExemptionListIsExactlyWhatStillViolatesRule8` compares the checker
+  against **its own** exemption list, which is one instrument, not two. Stated, unmechanised, and
+  recorded here rather than fixed on the way past — building it is work, not a footnote.
+- **Row 7 is speculation, and is now marked as such.** Its middle column describes a failure mode
+  (*three causes may need two measurements*) rather than an incident this project had. It may well
+  be right; it has no back-test, because there is nothing to test it against. Every other row's
+  middle column names something that happened.
 
 **Already fixed by the work that prompted this audit:** the identity block, which answered "who is
 this process" and was read as "whose grant is this". It now answers both, or says it cannot answer

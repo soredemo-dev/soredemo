@@ -518,6 +518,19 @@ That rewrite is correct and it **erases the original claim's exposure**: if the 
 rewritten expectation still passes — we go on faithfully recording — while the conclusion built on
 the original claim is quietly wrong. So a rewritten row leaves a row here. They are a pair.
 
+**This register is also where the third kind of check belongs.** Task 12's red-certificate sampling
+of the probe found three classes, not two: reddenable, tautology, and **a check whose subject is the
+platform rather than this repository** — no change to these sources can alter its answer, so it can
+never earn a certificate, and it is not decoration either. In the wild that class was **1 of 20**,
+which makes it an ordinary population rather than a theoretical corner. The sample's instance is the
+probe's `check(!IsSecureEventInputEnabled(), "precondition: secure input is off before this check
+starts…")`, whose premise is **row 13** below; it guards the toggle experiment that produced that
+row, and deleting it would let the experiment measure — and then release — somebody else's state.
+
+Two consequences. Such a check must not be counted among the ones that gate the product; and when
+one is written, the premise it asserts should already be a row here, or become one. A precondition
+with no row is a belief about macOS held only in a guard.
+
 | # | The claim | How it was established | On | What breaks if it changes |
 | --- | --- | --- | --- | --- |
 | 1 | `SCRecordingOutput` mixes the microphone into the system-audio track; `mixesAudioWithMicrophone` is macOS 27+ | measured over four runs (F2-4), header confirmed | 26.5.2 | the whole reason `CaptureSession` hand-writes three `AVAssetWriterInput`s instead of using `SCRecordingOutput` |
