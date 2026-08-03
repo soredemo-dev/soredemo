@@ -429,20 +429,43 @@ SWIFT_RENAMED = re.compile(r'renamed\s*:\s*"([^"]*)"')
 CANDIDATE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+|[a-zA-Z][A-Za-z0-9]*\([a-zA-Z_:]*\))")
 
 
+# THE COLUMN HAS TWO SOURCE GRADES, AND CITING IT WITHOUT THEM IS THE FAILURE
+# THE PLATFORM-PREMISE REGISTER ALREADY MADE ONCE.
+#
+#   MACHINE-CHECKABLE  the first argument of API_DEPRECATED_WITH_REPLACEMENT, or
+#                      Swift's `renamed:`. A compiler reads these; they are a
+#                      declaration of the successor's name.
+#   PROSE              the message of a plain API_DEPRECATED. A sentence written
+#                      for a human, which may name a symbol, may describe one,
+#                      and MAY BE WRONG — measured: one says
+#                      `finish(withComposedVideoFrame:)` and the shipped selector
+#                      is `finish(withComposedPixelBuffer:)`. 74 of the 78 rows at
+#                      27.0 are this grade.
+#
+# Unlabelled, the whole column gets quoted at one confidence, and the wrong 4%
+# travels with the right 96% — which is exactly how D6b row 17 acquired a claim
+# nobody had checked.
+MACHINE_CHECKABLE = "machine-checkable"
+PROSE = "prose"
+
+
 def replacement_for(sdk: Path, rel: str, line: int):
-    """(raw replacement text, best candidate symbol) for one deprecation site."""
+    """(raw replacement text, best candidate symbol, source grade) for one site."""
     try:
         lines = (sdk / rel).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return "", ""
     chunk = "\n".join(lines[line - 1:line + 3])
-    m = (REPLACEMENT_ARG.search(chunk) or SWIFT_RENAMED.search(chunk)
-         or DEPRECATED_MSG.search(chunk))
+    grade = MACHINE_CHECKABLE
+    m = REPLACEMENT_ARG.search(chunk) or SWIFT_RENAMED.search(chunk)
+    if m is None:
+        m = DEPRECATED_MSG.search(chunk)
+        grade = PROSE
     raw = m.group(1) if m else ""
     if not raw:
-        return "", ""
+        return "", "", grade
     cands = CANDIDATE.findall(raw)
-    return raw, (cands[0] if cands else "")
+    return raw, (cands[0] if cands else ""), grade
 
 
 def introduced_at_floor(symbol: str) -> str:
@@ -724,11 +747,14 @@ def floor_probes() -> int:
 def report_replacements(sdk: Path, rows):
     """The 27.0 bucket, with what each names as its successor and whether the floor can reach it."""
     print("── REPLACEMENTS for the 27.0 bucket, and whether the 26.0 floor can reach them")
-    named, unnamed, cells = {}, [], defaultdict(list)
+    named, unnamed, cells, grades = {}, [], defaultdict(list), {}
     for module, symbol, version, rel, lineno, macro in sorted(rows):
-        raw, candidate = replacement_for(sdk, rel, lineno)
+        raw, candidate, grade = replacement_for(sdk, rel, lineno)
         if candidate:
             named.setdefault(candidate, []).append(f"{module}.{symbol}")
+            # A candidate seen at both grades keeps the weaker one: a name is only
+            # as checkable as the softest place it was read from.
+            grades[candidate] = PROSE if grades.get(candidate) == PROSE else grade
         else:
             unnamed.append((f"{module}.{symbol}", raw))
 
@@ -744,10 +770,18 @@ def report_replacements(sdk: Path, rows):
             continue
         print(f"   {cell} · {label}   ({len(group)})")
         for candidate, users in sorted(group):
-            print(f"      {candidate:<50} ← {', '.join(sorted(users)[:3])}"
+            tag = "[machine]" if grades.get(candidate) == MACHINE_CHECKABLE else "[prose]  "
+            print(f"      {tag} {candidate:<48} ← {', '.join(sorted(users)[:3])}"
                   + (f" +{len(users) - 3}" if len(users) > 3 else ""))
+    machine = sum(1 for c in named if grades.get(c) == MACHINE_CHECKABLE)
     print(f"   {len(unnamed)} of {len(rows)} row(s) name no replacement symbol at all — a direction "
           "signal, not a migration path.")
+    print(f"   SOURCE GRADE: {machine} of {len(named)} named successors come from a "
+          "machine-checkable field")
+    print("   (API_DEPRECATED_WITH_REPLACEMENT / renamed:); the rest are read out of a PROSE")
+    print("   message, which has already been wrong once — a message names")
+    print("   `finish(withComposedVideoFrame:)` for a selector that ships as")
+    print("   `finish(withComposedPixelBuffer:)`. Cite the two grades apart, always.")
     print()
 
 
