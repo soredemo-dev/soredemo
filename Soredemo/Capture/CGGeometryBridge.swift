@@ -223,4 +223,21 @@ enum CGGeometryBridge {
     nonisolated static func rect(from points: PointRect) -> CGRect {
         CGRect(x: points.x, y: points.y, width: points.width, height: points.height)
     }
+
+    /// The render pipeline's own exit: `RenderPlan.outputWidth`/`.outputHeight`, as the `CGRect`
+    /// `CIImage.cropped(to:)` needs.
+    ///
+    /// **Added for the compositor seam (Phase 2B Task 3), not in that task's brief.** The brief's
+    /// literal text for `CoreImageFrameRenderer.render(_:source:into:)` builds
+    /// `CGRect(x: 0, y: 0, width: CGFloat(plan.outputWidth), height: CGFloat(plan.outputHeight))`
+    /// inline, which is exactly what
+    /// `AppSourceAllowListTests.coreGraphicsGeometryTypesAppearOnlyInTheBridge` (rule 5) exists to
+    /// catch: measured red, naming `CGRect` and `CGFloat` at
+    /// `Soredemo/Render/CoreImageFrameRenderer.swift:32-34`. `plan.outputWidth`/`.outputHeight` are
+    /// plain `Int`s, not a package geometry type, so this takes scalars rather than adding a
+    /// `StageRect` overload — a `StageRect` decode-then-discard-the-position would be a fact this
+    /// call site does not have (the output canvas has no position, only an extent).
+    nonisolated static func outputCanvas(width: Int, height: Int) -> CGRect {
+        CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+    }
 }

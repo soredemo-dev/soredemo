@@ -88,10 +88,16 @@ import AppKit
 // cannot drift into disagreeing about which key is which.
 import Carbon.HIToolbox
 import CoreGraphics
+// `CVPixelBuffer` for § 10 — the compositor seam's own vocabulary.
+import CoreVideo
 import Foundation
 import Geometry
 import Graph
 import Project
+// `RenderPlan`, `StageRect`, `StageStyle` for § 10 — `Soredemo/Render/*.swift`
+// depends on this module and no package test can drive the real
+// `CoreImageFrameRenderer` without it.
+import Render
 @preconcurrency import ScreenCaptureKit
 // `Nanoseconds.rawValue` (§ 4, epochAndClock) is `Timeline`'s, reached until
 // now only transitively through `Project` → `Graph` → `Timeline`. Harmless
@@ -268,6 +274,10 @@ enum CrossBoundaryProbe {
         try concurrentAppendsAreNotLost()
         print("9.10 a log naming media the manifest no longer references is a dangling join")
         try aDanglingObservationLogIsReported()
+
+        print("10. FrameRendering — the compositor seam and CoreImageFrameRenderer (Phase 2B Task 3)")
+        print("10.1 a frame drawn: the card shows the source, the margin and the cut corner show the background")
+        try theCompositorDrawsACardOverABackground()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -4229,5 +4239,114 @@ enum CrossBoundaryProbe {
         check(try ProjectPackageIO.danglingObservationLogs(in: packageURL, snapshot: clean) == [],
               "and a package whose manifest references both reports none — the control, without "
               + "which the check above is satisfied by a function that reports everything")
+    }
+
+    // MARK: - § 10  FrameRendering — the compositor seam (Phase 2B Task 3)
+
+    /// `Tests/AppSourceTests` cannot import the app target, so it cannot instantiate
+    /// `CoreImageFrameRenderer` or drive it against a real `CVPixelBuffer` — that is what this probe
+    /// exists for. `RenderSeamTests.swift` already proves `FrameRenderer.swift` names neither Core
+    /// Image nor Metal; this proves the implementation BEHIND the seam actually draws.
+    enum FrameRenderProbeError: Error { case pixelBufferCreateFailed(CVReturn) }
+
+    /// A `width` × `height` BGRA `CVPixelBuffer`, every pixel set to the same colour — byte-exact,
+    /// so § 10.1 can assert on the exact channel values a solid-red SOURCE frame produces, not on
+    /// "looks red".
+    @MainActor
+    static func makeSolidPixelBuffer(width: Int, height: Int,
+                                     r: UInt8, g: UInt8, b: UInt8) throws -> CVPixelBuffer {
+        var raw: CVPixelBuffer?
+        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                         kCVPixelFormatType_32BGRA, nil, &raw)
+        guard status == kCVReturnSuccess, let buffer = raw else {
+            throw FrameRenderProbeError.pixelBufferCreateFailed(status)
+        }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else {
+            throw FrameRenderProbeError.pixelBufferCreateFailed(status)
+        }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        let bgra: [UInt8] = [b, g, r, 255]
+        for row in 0..<height {
+            let rowBase = base.advanced(by: row * bytesPerRow)
+            for column in 0..<width {
+                rowBase.advanced(by: column * 4).copyMemory(from: bgra, byteCount: 4)
+            }
+        }
+        return buffer
+    }
+
+    /// One BGRA pixel, read at a point given in `StageRect`'s own coordinate space — OUTPUT
+    /// PIXELS, bottom-left origin (`RenderPlan.swift`'s header) — and converted to
+    /// `CVPixelBuffer`'s memory layout, which is top-down (row 0 = the top of the image).
+    ///
+    /// **Measured, not assumed:** a throwaway fixture rendered a red rectangle covering Core
+    /// Image y ∈ [0, 20) — near the BOTTOM of Core Image's bottom-left-origin space — into a
+    /// `CVPixelBuffer` over a green background, then read raw bytes at buffer row 0 and row
+    /// `height - 1`. Row 0 (the first bytes in memory) came back green; row `height - 1` came
+    /// back red. So a small `y` in `StageRect`'s space lands at a LARGE row index in the
+    /// buffer's memory, which is exactly `row = height - 1 - y` below — this is that
+    /// measurement, not the untested "obviously bottom-left flips" guess.
+    @MainActor
+    static func pixel(in buffer: CVPixelBuffer, atStageX x: Int, y: Int, outputHeight: Int)
+        -> (r: Int, g: Int, b: Int) {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let base = CVPixelBufferGetBaseAddress(buffer)!
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        let row = outputHeight - 1 - y
+        let pointer = base.advanced(by: row * bytesPerRow + x * 4)
+            .assumingMemoryBound(to: UInt8.self)
+        // BGRA in memory.
+        return (r: Int(pointer[2]), g: Int(pointer[1]), b: Int(pointer[0]))
+    }
+
+    /// Renders one `RenderPlan` through the real `CoreImageFrameRenderer` and samples three
+    /// points chosen so each isolates one thing the compositor must get right:
+    ///
+    ///   * the CENTRE of the card — deep inside the rounded rect and far from any edge — must be
+    ///     the SOURCE frame's colour, or the card was never drawn at all.
+    ///   * a point in the INSET MARGIN, outside the card's bounding box entirely, must be the
+    ///     background colour, or the card was drawn oversized (or the background never drawn).
+    ///   * a point INSIDE the card's bounding box but in its extreme corner — `(card.x + 2,
+    ///     card.y + 2)`, at Euclidean distance ≈ 31 from the rounded rect's corner arc centre
+    ///     while `cornerRadius` is 24 — must ALSO be the background colour, or the corners were
+    ///     drawn square rather than rounded.
+    ///
+    /// `style: .default` deliberately: its background is `.solid(red: 0.09, green: 0.09, blue:
+    /// 0.11)`, which is `(23, 23, 28)` at 8-bit precision — the exact triple this check asserts —
+    /// so this drives the real default a caller would use, not a color chosen to make the test
+    /// pass.
+    @MainActor
+    static func theCompositorDrawsACardOverABackground() throws {
+        let outputWidth = 320
+        let outputHeight = 180
+        let card = StageRect(x: 40, y: 30, width: 240, height: 120)
+        let plan = RenderPlan(outputWidth: outputWidth, outputHeight: outputHeight,
+                              card: card, cornerRadius: 24, style: .default, pointer: nil)
+
+        // The source frame: solid red, a different size from the card, so the renderer's own
+        // scale-to-fit is what makes the card's centre red — not a coincidence of matching sizes.
+        let source = try makeSolidPixelBuffer(width: 64, height: 64, r: 255, g: 0, b: 0)
+        let destination = try makeSolidPixelBuffer(width: outputWidth, height: outputHeight,
+                                                    r: 0, g: 0, b: 0)
+
+        let renderer = try CoreImageFrameRenderer()
+        try renderer.render(plan, source: source, into: destination)
+
+        let centrePixel = pixel(in: destination, atStageX: 160, y: 90, outputHeight: outputHeight)
+        let marginPixel = pixel(in: destination, atStageX: 10, y: 10, outputHeight: outputHeight)
+        let cardCornerPixel = pixel(in: destination, atStageX: 42, y: 32, outputHeight: outputHeight)
+
+        // the centre of the card is the source colour
+        check(centrePixel == (r: 255, g: 0, b: 0), "the card shows the source frame's pixels",
+              actual: "\(centrePixel)")
+        // a pixel in the inset margin is the background colour, not the source
+        check(marginPixel == (r: 23, g: 23, b: 28), "outside the card is the background",
+              actual: "\(marginPixel)")
+        // the extreme corner of the card is background — the radius cut it
+        check(cardCornerPixel == (r: 23, g: 23, b: 28), "the corner radius removed the card's corner",
+              actual: "\(cardCornerPixel)")
     }
 }
