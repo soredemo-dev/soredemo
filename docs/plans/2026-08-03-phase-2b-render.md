@@ -33,9 +33,11 @@ Copied verbatim from `docs/design/2026-08-03-phase-2b-render-design.md`, `ARCHIT
 - **No ambient time, randomness or hashing in the package.** In the app they enter only through
   `Soredemo/Support/Minting.swift`. Enforced by `Tests/DeterminismTests` and
   `Tests/AppSourceTests`.
-- **The compositor protocol must not name a winner.** No `CIImage`, `CIContext`, `MTLTexture`,
-  `MTLCommandBuffer`, `CVPixelBuffer` or any Core Image / Metal type in its signature. A
-  `RenderPlan` goes in; an opaque frame comes out.
+- **The compositor protocol must not name a winner.** No `CIImage`, `CIContext`, `CIFilter`,
+  `MTLTexture`, `MTLDevice` or `MTLCommandBuffer` in `FrameRenderer.swift`. **`CVPixelBuffer` is
+  allowed and is the point**: it is CoreVideo, the neutral currency both a Core Image path and a
+  Metal path already speak, so it names no winner. Erasing it to `AnyObject` would buy nothing and
+  cost every implementation a cast.
 - **New media-writing code uses the successor stack** — `AVAssetWriter.start()`,
   `inputReceiver(for:)`, `appendImmediately(_:)`. The existing capture path stays on
   `LegacyMasterWriter`. See `Soredemo/Capture/MasterWriter.swift`.
@@ -73,7 +75,7 @@ Copied verbatim from `docs/design/2026-08-03-phase-2b-render-design.md`, `ARCHIT
 | `Sources/Render/PointerTrack.swift` | pointer samples indexed by time; `position(at:)`; `BlindInterval` |
 | `Sources/Render/BlindInterval.swift` | the blind-region record and its cause vocabulary |
 | `Sources/Render/CursorOverride.swift` | the permanent per-range "cursor off" edit |
-| `Soredemo/Render/FrameRenderer.swift` | the compositor seam — protocol, plus the frame handle type |
+| `Soredemo/Render/FrameRenderer.swift` | the compositor seam — the protocol, and nothing else |
 | `Soredemo/Render/CoreImageFrameRenderer.swift` | today's implementation, Core Image on a Metal-backed context |
 | `Soredemo/Render/StageCompositor.swift` | `AVVideoCompositing` conformance; owns no policy |
 | `Soredemo/Render/CompositionBuilder.swift` | builds one `AVVideoComposition` for preview and export |
@@ -586,7 +588,7 @@ git commit -m "The pointer track: four readings, because an optional hides three
 
 **Interfaces:**
 - Consumes: `RenderPlan`, `StageRect`, `StageStyle` (Render).
-- Produces: `protocol FrameRendering { func render(_ plan: RenderPlan, source: SourceFrame, into destination: DestinationFrame) throws }`,
+- Produces: `protocol FrameRendering { func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws }`,
   `CoreImageFrameRenderer`.
 
 **The seam is built before either implementation, and it must not name a winner.** "Core Image or
@@ -613,14 +615,17 @@ import CheckerLexer
     let url = repositoryRoot.appending(path: "Soredemo/Render/FrameRenderer.swift")
     let source = try String(contentsOf: url, encoding: .utf8)
     let code = codeViewLines(of: source).joined(separator: "\n")
+    // CVPixelBuffer is deliberately NOT banned: it is CoreVideo, which both a Core Image path
+    // and a Metal path already speak, so it names no winner. Banning it would force `AnyObject`
+    // and a downcast in every implementation — cost with no property bought.
     for banned in ["CIImage", "CIContext", "CIFilter", "MTLTexture", "MTLDevice",
-                   "MTLCommandBuffer", "CVPixelBuffer"] {
+                   "MTLCommandBuffer"] {
         #expect(!code.contains(banned),
                 """
                 FrameRenderer.swift names '\(banned)'. The seam must not name a winner: a
                 protocol that speaks one framework's vocabulary has chosen it, and the
-                alternative becomes a translation layer. Put the type behind SourceFrame /
-                DestinationFrame instead.
+                alternative becomes a translation layer. Express the frame as a CVPixelBuffer,
+                which both paths already speak.
                 """)
     }
 }
@@ -638,38 +643,16 @@ import CoreMedia
 import CoreVideo
 import Foundation
 
-/// One source frame, as an opaque handle.
-///
-/// It wraps a pixel buffer and does not say so: the type is `AnyObject` in the signature so the
-/// protocol below stays framework-neutral. A renderer casts it back; a renderer for a different
-/// framework casts it back differently. See the scan in `Tests/AppSourceTests/RenderSeamTests.swift`.
-public struct SourceFrame {
-    let backing: AnyObject
-    public let width: Int
-    public let height: Int
-    public init(backing: AnyObject, width: Int, height: Int) {
-        self.backing = backing; self.width = width; self.height = height
-    }
-}
-
-/// The frame a renderer draws into. Same reasoning as `SourceFrame`.
-public struct DestinationFrame {
-    let backing: AnyObject
-    public let width: Int
-    public let height: Int
-    public init(backing: AnyObject, width: Int, height: Int) {
-        self.backing = backing; self.width = width; self.height = height
-    }
-}
-
 public enum FrameRenderingError: Error {
-    case unsupportedBacking(String)
+    case noRenderDevice
 }
 
 /// Draws one frame from a plan. **No Core Image type, no Metal type, no pixel-buffer type in this
 /// file** — that is enforced by a test, not by care.
 nonisolated protocol FrameRendering: Sendable {
-    func render(_ plan: RenderPlan, source: SourceFrame, into destination: DestinationFrame) throws
+    /// `CVPixelBuffer` in and out. CoreVideo, not Core Image and not Metal — the one vocabulary
+    /// both candidate implementations already speak, so the signature chooses neither.
+    func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws
 }
 ```
 
@@ -700,7 +683,7 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
-            throw FrameRenderingError.unsupportedBacking("no Metal device")
+            throw FrameRenderingError.noRenderDevice
         }
         // `.workingColorSpace` pinned, not defaulted: uncontrolled colour handling is the failure
         // that cost this project an evening, and a default is a value nobody chose.
@@ -710,21 +693,14 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
         ])
     }
 
-    func render(_ plan: RenderPlan, source: SourceFrame, into destination: DestinationFrame) throws {
-        guard let sourceBuffer = source.backing as! CVPixelBuffer? else {
-            throw FrameRenderingError.unsupportedBacking("\(type(of: source.backing))")
-        }
-        guard let destinationBuffer = destination.backing as! CVPixelBuffer? else {
-            throw FrameRenderingError.unsupportedBacking("\(type(of: destination.backing))")
-        }
-
+    func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
         let background = backgroundImage(plan)
-        let card = cardImage(plan, source: sourceBuffer)
+        let card = cardImage(plan, source: source)
         let composed = card.composited(over: background)
             .cropped(to: CGRect(x: 0, y: 0,
                                 width: CGFloat(plan.outputWidth),
                                 height: CGFloat(plan.outputHeight)))
-        context.render(composed, to: destinationBuffer,
+        context.render(composed, to: destination,
                        bounds: composed.extent,
                        colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
     }
@@ -859,13 +835,7 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             sourceWidth: CVPixelBufferGetWidth(source), sourceHeight: CVPixelBufferGetHeight(source),
             style: Self.style)
         do {
-            try renderer.render(plan,
-                                source: SourceFrame(backing: source,
-                                                    width: CVPixelBufferGetWidth(source),
-                                                    height: CVPixelBufferGetHeight(source)),
-                                into: DestinationFrame(backing: destination,
-                                                       width: plan.outputWidth,
-                                                       height: plan.outputHeight))
+            try renderer.render(plan, source: source, into: destination)
             request.finish(withComposedPixelBuffer: destination)
         } catch {
             request.finish(with: error)
