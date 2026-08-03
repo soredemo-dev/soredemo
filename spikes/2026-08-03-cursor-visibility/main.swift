@@ -35,6 +35,14 @@ import Foundation
 enum SpikeE {
     static func main() {
         var step = VerificationStep(name: "spike E — is the cursor's hidden state readable?")
+        step.given([
+            ("this process", "not frontmost, owns no window — the recorder's own position while "
+                             + "another app is being demonstrated"),
+            ("hide ownership", "cursor hiding is associated with the process that asked for it; "
+                               + "whether a reader sees another process's hide is what this measures"),
+            ("runtime", ProcessInfo.processInfo.operatingSystemVersionString),
+        ])
+
         step.expect([
             .init("induced-hidden",
                   "what is induced",
@@ -55,14 +63,6 @@ enum SpikeE {
                   "nil / non-nil, or the same object, across the two states",
                   reds: [.init("the discrimination",
                               "same answer in both states is not a detector")]),
-        ])
-
-        step.given([
-            ("this process", "not frontmost, owns no window — the recorder's own position while "
-                             + "another app is being demonstrated"),
-            ("hide ownership", "cursor hiding is associated with the process that asked for it; "
-                               + "whether a reader sees another process's hide is what this measures"),
-            ("runtime", ProcessInfo.processInfo.operatingSystemVersionString),
         ])
 
         // MEASURED BY THE COMPILER, NOT AT RUNTIME, AND THAT IS THE STRONGER ANSWER.
