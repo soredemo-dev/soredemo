@@ -101,7 +101,15 @@ struct VerificationStep {
                 + "whose grant any permission below belongs to. Do not read it as this bundle's."
         case .some(identifier):
             grantSubject = "\(identifier) — this bundle. Started through LaunchServices, so a "
-                + "permission reported below is genuinely this identity's."
+                + "permission reported below is genuinely this identity's.\n"
+                + "                    FIRST MEASUREMENT UNDER THIS IDENTITY. Phase 2's nine earlier "
+                + "human verifications\n"
+                + "                    all ran under com.cmuxterm.app. A result AGREEING with them is "
+                + "not a tenth\n"
+                + "                    confirmation — it is the first measurement of this subject, "
+                + "which happens to\n"
+                + "                    agree. A result DIFFERING is not a regression — it is the "
+                + "first correct one."
         case .some(let other):
             grantSubject = "\(other) — NOT THIS BUNDLE. The process is running under that identity, "
                 + "so every permission reported below belongs to it and not to \(identifier). "
