@@ -12,6 +12,22 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# `swift build` below resolves its SDK through xcrun and produces .swiftmodule
+# files stamped with it. The `xcrun swiftc` further down must use the SAME one,
+# and an inherited SDKROOT breaks that: this machine's login profile exports
+# SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk (26.5) while
+# `swift build` picks Xcode-beta's 27.0, so every run launched from anything
+# that sources the profile dies with "cannot load module 'Graph' built with SDK
+# 'macosx27.0' when using SDK 'macosx26.5'".
+#
+# Measured while mutation-testing this probe: nineteen consecutive runs failed
+# identically, and the failure is indistinguishable from a mutation that broke
+# the build — which is exactly the wrong thing for a mutation harness to be
+# unable to tell apart. Unset it here so the two compilers agree by
+# construction, and print what they agreed on rather than leaving it implicit.
+unset SDKROOT
+echo "SDK: $(xcrun --show-sdk-path) ($(xcrun --show-sdk-version))"
+
 swift build
 
 OUT=$(mktemp -d)

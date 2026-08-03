@@ -3811,10 +3811,19 @@ enum CrossBoundaryProbe {
               "the routed recording survives the same compaction")
         check(!fm.fileExists(atPath: packageURL.appending(path: "media/master-01.mov").path),
               "the unrouted one does not")
-        // Guarded: under the mutation that reverts `acceptMedia` to a bare
-        // `writeSidecar`, compaction has already deleted this file, and an
-        // unguarded read traps — a probe that dies mid-section prints no
-        // verdict for the checks below it.
+        // Guarded because an unguarded read traps, and a probe that dies
+        // mid-section prints no verdict for the checks below it.
+        //
+        // The guard used to name its mutation — "under the mutation that
+        // reverts `acceptMedia` to a bare `writeSidecar`, compaction has
+        // already deleted this file" — and that was measured false during the
+        // Task 12 red-certificate sampling. `master-00.mov` goes through
+        // `addMedia` directly, three lines up; `acceptMedia` writes
+        // `master-02.mov`. Under exactly the named mutation this file survives
+        // and this check stays green, while three others redden. The mutation
+        // that reddens THIS check is one that corrupts what `addMedia` writes
+        // (`writeSidecar(data.dropLast(), …)` was used), which is the claim it
+        // actually makes: the bytes stored are the bytes handed over.
         let survivorBytes = try? Data(contentsOf: packageURL.appending(path: "media/master-00.mov"))
         check(survivorBytes == routedBytes,
               "and its bytes are the ones that were handed over",

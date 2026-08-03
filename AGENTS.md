@@ -838,6 +838,41 @@ The question each row answers is: **does this conclusion depend on the identity?
 One row is void rather than mislabelled, and it is the one that reads most like a finding. Everything
 else is re-labelling.
 
+### The red-certificate sample — how much of the probe is decoration
+
+**19 of 20.** Not a percentage: twenty samples cannot carry one, and a percentage travels away from
+its denominator the way D2-17's 1321 did.
+
+The frame is `scripts/enumerate-probe-checks.py` — **338 written call sites**, sorted by
+`(file, line)` and stored, so an index is a property of the source and not of a run. The probe's own
+verdict says 304, and neither number is wrong: 304 checks *ran* on one pass, loops repeat some
+sites, and 44 sites are `check(false, …)` refusal branches a passing run never takes. The frame is
+the written checks, because a check that never executes is the strongest form of decoration there
+is. Twenty indices were drawn with seed 20260803 and written down before any of them was read.
+
+Each drawn check was then given a **mutation to product code** — never to the probe — built and run,
+and earned its certificate only by printing `FAIL` against its own label. Results:
+
+- **19 reddened.** Their certificates are the mutations, recorded in the commit that added this row.
+- **1 has no product subject at all**: `check(!IsSecureEventInputEnabled(), "precondition: secure
+  input is off before this check starts…")`. It asks the OS about the machine, and no change to this
+  repository can alter its answer. That is not decoration — it is a precondition guarding a
+  destructive experiment — but it gates nothing this project ships, and it should not be counted
+  among the checks that do.
+- **0 tautologies.**
+
+Three of the nineteen came with something attached, and those are worth more than the count:
+
+| Check | What the first mutation showed |
+| --- | --- |
+| `capped.ancestors.count == AXObserver.depthCap` | **Blind in one dimension.** Changing `depthCap` from 30 to 8 leaves it green — both sides move together. It reddens on an off-by-one in the walk, so it is a real check on the loop and *no* check on the constant. A check that compares the product against the product's own constant cannot see that constant change |
+| `survivorBytes == routedBytes` | **Its guard comment named the wrong mutation.** The comment claimed compaction deletes this file under the `acceptMedia` → `writeSidecar` revert; measured, the file survives that mutation untouched, because it is written by `addMedia`. Right check, false justification — the mislabelled-record failure, one register up, inside a comment |
+| `failures.count == 0` under 8 concurrent writers | **Cannot fail from the fault its own section is about.** Removing the writer's lock does not make an append *throw* — it **segfaults the probe**, at which point 264 checks have printed and 40 never run and there is no verdict line at all. It reddens from a writer that refuses. So the concurrency section's own signal is the exit code, not this check |
+
+The method's own cost is recorded too: `scripts/run-cross-boundary-probe.sh` inherited `SDKROOT`
+from the login profile and failed nineteen runs identically, in a way indistinguishable from a
+mutation that broke the build. Fixed in that script, with the reason written where it happened.
+
 
 
 **The numbering below is `ARCHITECTURE.md` D6's, which is the only one.** Do not restate it
