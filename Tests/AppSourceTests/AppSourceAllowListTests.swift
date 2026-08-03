@@ -242,6 +242,12 @@ func violations(
             "mach_continuous_time",
             // Subsumes `clock_gettime_nsec_np`.
             "clock_gettime", "gettimeofday",
+            // C `clock()` — processor time, a different reading from the two
+            // above and still ambient. Verified open on both sides by Task
+            // 5.5's sweep; the package side bans `_clock` by symbol. Broad on
+            // purpose, like `time(` below: it also fires on a hypothetical
+            // `refreshClock(`, which is the loud direction.
+            "clock(",
             // C `time()`. Broad on purpose: Swift's camelCase means a lowercase
             // `time` immediately before `(` is close to unwritable by accident.
             "time(",
@@ -249,6 +255,28 @@ func violations(
 
             // ── ambient randomness ──────────────────────────────────────────
             "UUID(", "UUID.init",
+            // The ObjC class, as ANY reference — the same over-approximation
+            // `NSDate` already gets one section up, and `NSUUID` is exactly the
+            // sibling D2-16 lists as the third staleness finding. `UUID(` above
+            // happens to catch `NSUUID()`, because the constructor call contains
+            // it; it does not catch `NSUUID.init`, a stored `let x: NSUUID`, or
+            // a cast. Task 5.5 verified this open on both sides.
+            "NSUUID",
+            // CommonCrypto's CSPRNG. The PACKAGE side needs no entry: rule 1's
+            // import allow-list is Foundation plus declared siblings, and
+            // `CCRandomGenerateBytes` needs `import CommonCrypto`, so no package
+            // target can reach it in the first place. The app target has no such
+            // rule, which is why this side has one. Task 5.5.
+            "CCRandomGenerateBytes",
+            // The `drand48` family. One needle for the whole family —
+            // `drand48`, `srand48`, `erand48`, and the `lrand48`/`mrand48`/
+            // `nrand48`/`jrand48` members Swift marks unavailable — because a
+            // family is what this list keeps going stale one member at a time.
+            // The package side bans them symbol by symbol, with the argument for
+            // banning a deterministic generator written out there: the state is
+            // process-global, so its determinism is not a property any one
+            // caller can assert.
+            "rand48", "seed48", "lcong48", "srandom",
             // `.random(` catches `Int.random(in:)`, `Double.random(in:)` and
             // `Bool.random()`. It does NOT catch `.randomElement(`, because the
             // character after `random` is `E` — hence the separate entry.
