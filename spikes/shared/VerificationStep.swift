@@ -154,8 +154,45 @@ struct VerificationStep {
         let id: String
         let label: String
         let value: String
-        init(_ id: String, _ label: String, _ value: String) {
-            self.id = id; self.label = label; self.value = value
+        /// **The mutation that made this expectation's assertion fail, run
+        /// once, written down.**
+        ///
+        /// An expectation is discharged by an assertion citing it — and an
+        /// assertion that cannot fail discharges it just as well, because
+        /// citing an unfalsifiable row is indistinguishable from citing a real
+        /// one. Four of twenty-two rows in Task 11's batch were exactly that,
+        /// after a rewrite aimed at exactly that.
+        ///
+        /// **This is not a tautology detector. It demands something a
+        /// tautology cannot produce.** There is no mutation that makes
+        /// "`endedBy` is a case of a non-optional enum" fail, so no red can be
+        /// written here, so the row cannot be filled in — and the author finds
+        /// that out while writing it rather than a reviewer finding it four
+        /// rounds later. The question it forces is the one that caught all
+        /// four: *what input makes this false?*
+        ///
+        /// It also catches the drifted kind, which is the more common kind. No
+        /// mutation reddens "two files in one directory have different names";
+        /// the URL version reddens under a writer that names all three the
+        /// same, and that is where the defect actually was. A tautology is
+        /// usually a check that moved off the place the defect lives onto a
+        /// neighbouring fact that happens to be guaranteed.
+        ///
+        /// **Not new behaviour — a name and an obligation for something already
+        /// done by hand.** `given`'s position rule was believed only after a
+        /// violation was injected, the scan was watched naming it, and the
+        /// injection reverted. So was the guard's own regression case. The
+        /// action existed; without an obligation attached it happened when
+        /// someone thought of it.
+        ///
+        /// `nil` is permitted and is not a silent hole: `finish` lists every
+        /// expectation carrying no red, so a step says how much of itself is
+        /// unwitnessed. The 301 checks that predate this are sampled rather
+        /// than migrated — see `AGENTS.md`.
+        let red: String?
+
+        init(_ id: String, _ label: String, _ value: String, red: String? = nil) {
+            self.id = id; self.label = label; self.value = value; self.red = red
         }
     }
 
@@ -197,7 +234,8 @@ struct VerificationStep {
         print("\n---- EXPECTED, computed before measuring — each row must be cited below ----")
         for row in rows {
             print("  \(row.label.padding(toLength: width, withPad: " ", startingAt: 0))  \(row.value)")
-            print("  \(String(repeating: " ", count: width))  [\(row.id)]")
+            print("  \(String(repeating: " ", count: width))  [\(row.id)]"
+                  + (row.red.map { "  red: \($0)" } ?? "  red: NOT RECORDED"))
         }
         print("----------------------------------------------------------------------------\n")
     }
@@ -450,6 +488,22 @@ struct VerificationStep {
             NO EXPECTATIONS WERE DECLARED. The correspondence between two empty sets is perfect, \
             which is why this is checked separately: a step that declares nothing and checks nothing \
             passes vacuously, and that is the one outcome that must never be reported as success.
+            """)
+        }
+        // Reported, not enforced — deliberately, and this is the one place
+        // that deserves saying. Failing a step for a missing red would make
+        // every pre-existing step fail at once, and the honest migration is a
+        // sample rather than a sweep (AGENTS.md). So the obligation is visible
+        // and countable now, and a step that witnesses none of itself says so
+        // in the same breath as passing.
+        let unwitnessed = expectations.filter { $0.red == nil }.map(\.id)
+        if !unwitnessed.isEmpty {
+            print("\nNO RECORDED RED — \(unwitnessed.count) of \(expectations.count) expectations: "
+                  + unwitnessed.joined(separator: ", "))
+            print("""
+            Each of these is discharged by an assertion, and nothing here says that assertion CAN \
+            fail. An assertion that cannot fail discharges a row exactly as well as one that can. \
+            Record the mutation that made it red.
             """)
         }
         if !result.undischarged.isEmpty {

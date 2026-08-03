@@ -212,29 +212,60 @@ enum SpikeA {
         // assertion with nothing to correspond to.
         step.expect([
             .init("induced", "what is induced",
-                  "CGEventTapEnable(tap, false) on the real port — T_off is KNOWN"),
+                  "CGEventTapEnable(tap, false) on the real port — T_off is KNOWN",
+                  red: "return nil from disableTapForVerification without touching the port: "
+                       + "offAt is nil and the step reports didNotHappen rather than passing"),
             .init("which-channel", "which channel",
                   "the NOTIFICATION one: a manual disable delivers "
                   + "kCGEventTapDisabledByUserInput. This step validates the EDGE "
                   + "arithmetic against ground truth, not the poll — the poll needs a "
-                  + "timeout, which delivers nothing (step 2)"),
+                  + "timeout, which delivers nothing (step 2)",
+                  // Filling this one took a second attempt, and the first
+                  // attempt is the interesting part. The row looks like a
+                  // claim about the OS — "a manual disable delivers
+                  // kCGEventTapDisabledByUserInput" — and no mutation in this
+                  // repository can make the OS do otherwise. That is not a
+                  // tautology (it could be false; the OS could change) but it
+                  // is not reddenable by us either, which is a third category
+                  // the taxonomy did not have.
+                  //
+                  // The row is salvageable because what it actually guards is
+                  // OUR attribution, not the OS's behaviour: that the observer
+                  // records the channel it was told about rather than guessing
+                  // one. That IS mutable here, and the red below is it.
+                  red: "have the notification path record .enabledPoll / .timeout instead of "
+                       + "what the OS reported: the assertion fails, and the failure names the "
+                       + "guess. The OS half of this row is not reddenable from this repository "
+                       + "and the row was rewritten to be about our recording of it"),
             .init("window-count", "how many windows",
                   "exactly 1 — one disable was induced, so a second window would mean the "
                   + "detector emits them on its own and the edge assertion below would be "
-                  + "about an arbitrary one of them"),
+                  + "about an arbitrary one of them",
+                  red: "call disableTapForVerification twice, 200 ms apart: windows.count == 2"),
             .init("edges", "the assertion",
                   "the window's EDGES: interval.start <= T_off <= interval.end, "
-                  + "not merely that a window exists"),
+                  + "not merely that a window exists",
+                  red: "have lowerBoundLocked() return observationBegan instead of the last "
+                       + "observed instant: containment still holds but the bound below fails, "
+                       + "which is why the two are separate rows"),
             .init("over-estimate-bound", "over-estimate bound",
                   "interval.duration <= the poll interval + slack, so the left "
-                  + "edge is bounded by the polling rate and not by the run"),
+                  + "edge is bounded by the polling rate and not by the run",
+                  red: "same mutation as `edges`: the lead becomes seconds against a 100 ms "
+                       + "interval. OBSERVED — this is the pair that made the two rows necessary"),
             .init("poll-pair", "empty vs unwatched",
-                  "tapEnabledPolls > 0 — an empty window list means nothing without it"),
+                  "tapEnabledPolls > 0 — an empty window list means nothing without it",
+                  red: "delete startPolling() from start(): polls read 0. This is the Critical "
+                       + "the Task 10 re-review found, and it is red here for the same reason"),
             .init("delivery-resumed", "delivery resumed",
                   ">= 1 pointer sample stamped after interval.end — 're-armed' must "
-                  + "be delivery, not a flag read"),
+                  + "be delivery, not a flag read",
+                  red: "drop the CGEventTapEnable(true) from the re-arm path: the flag never "
+                       + "recovers, no sample arrives after the window, count is 0"),
             .init("negative-control", "negative control",
-                  "an equal window with NO disable: zero windows, non-zero polls"),
+                  "an equal window with NO disable: zero windows, non-zero polls",
+                  red: "emit a TapDisabledInterval unconditionally on every poll: the clean "
+                       + "window reports a window and the control fails before the real one runs"),
         ])
 
         // Collected, not discarded. The window itself arrives as
