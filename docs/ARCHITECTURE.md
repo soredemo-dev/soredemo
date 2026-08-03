@@ -658,6 +658,14 @@ read/write/compose stack, so the unit of analysis is the successor stack — not
 `AVSampleBufferVideoRenderer.Receiver` and `AVSampleBufferAudioRenderer.Receiver` are
 `@available(macOS 27)`, measured — a reference to either fails at 26.0 and compiles at 27.0.
 
+**Every successor mapping on this page is `[prose]` grade, including the one this project depends
+on most.** 0 of 32 named successors in the 27.0 bucket come from a machine-checkable field
+(`API_DEPRECATED_WITH_REPLACEMENT`, `renamed:`); all are read out of `API_DEPRECATED` message text
+written for a human. That includes *"`AVAssetWriterInput.append(_:)` becomes
+`SampleBufferReceiver.append(_:)`"* — the sentence Spike D's whole subject rests on. If that mapping
+is wrong, the spike reproduced and then un-reproduced a stall in a type unrelated to our write path.
+It is almost certainly right; it is still prose, and it must be read at prose confidence.
+
 Probes are **type references, never calls**. Three call probes written from the deprecation messages
 failed at 26.0 and read exactly like unavailability; all three were signature mistakes, and one
 message names an API that does not exist — it says `finish(withComposedVideoFrame:)` and the shipped
@@ -670,6 +678,39 @@ is an [indefinite hang](https://developer.apple.com/forums/thread/813867) — th
 never resumes, no crash, no error, CPU to zero, filed January 2026 with no Apple reply. So the two
 instruments point opposite ways: the SDK condemns the predecessor, and the field says the successor
 hangs. Neither alone is the answer, and this row exists so that neither gets read as one.
+
+## The successor stack works at the floor — measured, after a wrong answer
+
+`spikes/2026-08-03-writer-receiver-hang`, on **macOS 26.5.2 build 25F84**:
+
+| Writer lifecycle | `PixelBufferReceiver` | `SampleBufferReceiver` |
+| --- | --- | --- |
+| `add(input)` + new receiver + `startWriting()` | **stalls at frame 137, forever** | stalls at 135 |
+| receiver attaches the input + `start()` | **900 / 900**, 3000 / 3000 on a longer run | **900 / 900** |
+
+**One knob, opposite outcomes, so the knob is the cause.** The successors carry
+their own lifecycle — `addInput:`'s deprecation says *use the appropriate
+`AVAssetWriter.inputReceiver(for:…)` overload*, `startWriting`'s says *use `start()`* —
+and the first version of that spike called `add(input)`, took a receiver for the same input, and
+started with the deprecated `startWriting()`. Three APIs from two generations on one writer. The
+stall was the writer in a state nobody designed.
+
+**The wrong answer is recorded because of how it was wrong.** It read "the successor stack cannot
+write a recording", which is the conclusion that costs the least work: migrate nothing, change
+nothing, file it under someone else's name. Three knobs had already failed to move the stall index
+— pool threshold 20 to 5000, frame area 1/16 to full, holding every buffer alive — and a number
+that does not move when you change the resource was never about a resource. The legacy control
+reaching 600/600 ruled out "the rig is broken" and nothing more, because it differs from the
+treatment along exactly the axis that failed.
+
+**The trigger, which is what this belongs in D6b for:** re-run Spike D on every OS or SDK version
+bump. It needs no permission, writes to a temp directory, deletes it on both exit paths, and takes
+under a minute. `26 fails / 27 works` and `both fail` point at opposite strategies, and the run
+costs nothing.
+
+**The [field report](https://developer.apple.com/forums/thread/813867) is not thereby refuted.**
+Nobody here has seen its code. What is established is narrower and still useful: the reported
+symptom is producible from a usage error, so the report on its own is not evidence of an API fault.
 
 **What breaks if it changes: most of Phase 2B's intended API surface.** `export-basic` was to be
 `AVAssetWriter` + `AVAssetWriterInputPixelBufferAdaptor`; `render-core` was to be
