@@ -104,6 +104,36 @@ final class ObservationWriter: @unchecked Sendable {
             .appending(path: logFilename(forSegment: index), directoryHint: .notDirectory)
     }
 
+    /// The reverse of the pairing `logFilename(forSegment:)`'s own doc comment states: given a
+    /// media file's URL, the observation log this app expects to find BESIDE it, if that media
+    /// URL has the exact shape `beginSegment` produces — `<package>/media/master-NN.mov` — and
+    /// `nil` otherwise.
+    ///
+    /// **A candidate URL, not a promise the file exists.** The caller (`StageWindow.load()`) still
+    /// has to check the filesystem: a capture that ran without Input Monitoring produces media
+    /// with no observation log beside it at all (`ObservationBlindness
+    /// .inputMonitoringUnavailable`), and this function cannot tell that apart from "nothing has
+    /// looked here yet" — nor should it try to; that is exactly the ambiguity
+    /// `ObservationLogReadReport`'s own header refuses to collapse. Returning a URL here is a
+    /// STATEMENT ABOUT NAMING ONLY: "if a log for this media exists, this is where it would be."
+    ///
+    /// `nil` when `mediaURL`'s parent directory is not literally named `media`, or its filename
+    /// does not match `master-NN.mov` for some non-negative integer `NN` — which includes every
+    /// media file `ContentView`'s scratch `TemporaryFileMediaSink` produces today: that sink writes
+    /// flatly into a temporary directory with no `media/` parent and no `ObservationWriter` behind
+    /// it at all, so this function is correct to answer `nil` for it, not a best-effort guess at a
+    /// log that was never going to exist.
+    nonisolated static func expectedLogURL(forMediaURL mediaURL: URL) -> URL? {
+        guard mediaURL.pathExtension == "mov",
+              mediaURL.deletingLastPathComponent().lastPathComponent == "media" else { return nil }
+        let name = mediaURL.deletingPathExtension().lastPathComponent
+        guard name.hasPrefix("master-") else { return nil }
+        let digits = name.dropFirst("master-".count)
+        guard !digits.isEmpty, digits.allSatisfy(\.isNumber), let index = Int(digits) else { return nil }
+        let packageURL = mediaURL.deletingLastPathComponent().deletingLastPathComponent()
+        return logURL(forSegment: index, in: packageURL)
+    }
+
     nonisolated let url: URL
     private nonisolated let header: ObservationLogHeader
     private nonisolated let lock = NSLock()

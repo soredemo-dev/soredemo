@@ -1,4 +1,7 @@
 import AVFoundation
+// `FileManager` — checking whether the observation log `ObservationWriter.expectedLogURL(for
+// MediaURL:)` names actually exists on disk, below.
+import Foundation
 import SwiftUI
 
 /// `NavigationSplitView` + `Inspector`, 100% standard SwiftUI, zero glass code — D7. The system
@@ -31,6 +34,21 @@ struct StageWindow: View {
     private func load() async {
         do {
             StageCompositor.renderer = try CoreImageFrameRenderer()
+            // `ObservationWriter.expectedLogURL(forMediaURL:)` names where a log for THIS media
+            // would be, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl`
+            // pairing `beginSegment`/`ObservationWriter` already define — it does not claim one is
+            // there. The filesystem check right here is what turns "where it would be" into
+            // "whether it is": a recording made without Input Monitoring, or through
+            // `ContentView`'s scratch `TemporaryFileMediaSink` (which writes no observation log at
+            // all — see that type's own header), legitimately has none, and `nil` is what tells
+            // `StageCompositor` to draw no pointer rather than fabricating an empty log or guessing
+            // a default path. `PointerReading`'s four cases exist so "no log" and "a log that says
+            // nothing" stay distinguishable; this is the one point that decides which of those two
+            // this session is in.
+            let candidateLogURL = ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
+            StageCompositor.observationLogURL = candidateLogURL.flatMap {
+                FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
+            }
             let asset = AVURLAsset(url: mediaURL)
             let composition = try await CompositionBuilder.composition(
                 for: asset, outputWidth: 1920, outputHeight: 1080,

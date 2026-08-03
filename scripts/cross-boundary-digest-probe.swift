@@ -288,8 +288,10 @@ enum CrossBoundaryProbe {
         try await theRealCompositionRendersACardOverABackground()
 
         print("12. the drawn pointer — StageCompositor reads the observation log (Phase 2B Task 5)")
-        print("12.1 a real ObservationWriter log, all four PointerReading cases, sampled as real pixels")
+        print("12.1 a real ObservationWriter log, all four PointerReading cases and the ripple, sampled as real pixels")
         try await theDrawnPointerFollowsARealObservationLogThroughARealComposition()
+        print("12.2 ObservationWriter.expectedLogURL(forMediaURL:) — the media↔log naming convention, both directions")
+        observationLogURLIsDerivedFromTheMediaURLsOwnConvention()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -4617,20 +4619,26 @@ enum CrossBoundaryProbe {
     ///   * one `SecureInputInterval` covering `[1.0 s, 1.5 s)` — a MEASURED gap, `GapSite
     ///     .secureInput`;
     ///
-    /// and returns its URL alongside the four composition times this section queries, chosen so
-    /// each isolates exactly one `PointerReading` case:
+    /// and returns its URL alongside the composition times this section queries, chosen so each
+    /// isolates exactly one thing:
     ///
     ///   * 0.1 s — before the only sample → `.noObservationYet`;
-    ///   * 0.7 s — after the sample, before the blind interval → `.drawn`;
+    ///   * 0.7 s — after the sample, before the blind interval → `.drawn`, no ripple in flight;
     ///   * 1.2 s — inside the `SecureInputInterval` → `.blind`;
     ///   * 1.7 s — inside a `CursorOverride` this function does NOT write to the log (`overrides`
-    ///     is never a log record — `StageCompositor.buildPointerTrack(from:overrides:)`'s own
-    ///     header says why) but that the caller sets on `StageCompositor.overrides` directly →
-    ///     `.suppressedByReviewer`.
+    ///     is never a log record — `StageCompositor.buildTracks(from:overrides:)`'s own header
+    ///     says why) but that the caller sets on `StageCompositor.overrides` directly →
+    ///     `.suppressedByReviewer`;
+    ///   * a `ButtonEvent` `.down` at 2.0 s, and two more query times built from it — 2.05 s
+    ///     (50 ms into its 400 ms `ClickTrack.rippleDuration`, ripple in flight) and 2.6 s
+    ///     (600 ms after the click, the ripple long over) — both still `.drawn` at the same
+    ///     `(0.5, 0.5)` sample, since nothing between 1.9 s and 2.6 s reintroduces a blind
+    ///     interval or override.
     @MainActor
     static func writePointerTrackFixtureLog(in packageURL: URL, anchor: EpochAnchor,
                                             revision: GeometryRevision) throws
-        -> (logURL: URL, noObservationYet: CMTime, drawn: CMTime, blind: CMTime, suppressed: CMTime) {
+        -> (logURL: URL, noObservationYet: CMTime, drawn: CMTime, blind: CMTime, suppressed: CMTime,
+            rippleInFlight: CMTime, rippleFinished: CMTime) {
         let epoch = anchor.epoch
         func at(_ nanos: Int64) -> HostInstant { HostInstant(epoch: epoch, hostTime: Nanoseconds(nanos)) }
 
@@ -4647,11 +4655,17 @@ enum CrossBoundaryProbe {
         try writer.append(SecureInputInterval(interval: secureInputInterval,
                                               endedBy: .secureInputDisabled))
 
+        // The click this section's ripple checks key off. `.down` only, matching `ClickTrack
+        // .init`'s own filter — an `.up` companion is not written because nothing here reads it.
+        try writer.append(ButtonEvent(instant: at(2_000_000_000),
+                                      position: NormalizedPoint(x: 0.5, y: 0.5), revision: revision,
+                                      button: .left, phase: .down))
+
         // All four D6a rows, honestly: the secure-input row is the one this fixture actually
         // measured (one check, one interval found); the other three are declared with zero looks,
         // which `isAMeasurement` reports as "nothing was watching" rather than "no gaps" — the
         // Addition A distinction § 9.6 already exercises at length.
-        let hostRange = HostRange(epoch: epoch, start: Nanoseconds(0), duration: Nanoseconds(2_000_000_000))
+        let hostRange = HostRange(epoch: epoch, start: Nanoseconds(0), duration: Nanoseconds(3_000_000_000))
         let gapWatches = [
             GapWatch.axAncestorWalk(chainsRecorded: 0, observationSpanNanos: 0, truncatedWalks: 0),
             GapWatch.videoFramesNotProduced(frameCallbacksObserved: 0, observationSpanNanos: 0,
@@ -4667,7 +4681,9 @@ enum CrossBoundaryProbe {
                 noObservationYet: CMTime(value: 100_000_000, timescale: 1_000_000_000),
                 drawn: CMTime(value: 700_000_000, timescale: 1_000_000_000),
                 blind: CMTime(value: 1_200_000_000, timescale: 1_000_000_000),
-                suppressed: CMTime(value: 1_700_000_000, timescale: 1_000_000_000))
+                suppressed: CMTime(value: 1_700_000_000, timescale: 1_000_000_000),
+                rippleInFlight: CMTime(value: 2_050_000_000, timescale: 1_000_000_000),
+                rippleFinished: CMTime(value: 2_600_000_000, timescale: 1_000_000_000))
     }
 
     /// Builds the fixture log, points `StageCompositor` at it (and at a `CursorOverride` covering
@@ -4687,13 +4703,13 @@ enum CrossBoundaryProbe {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let sourceURL = directory.appendingPathComponent("source.mov")
-        // 90 frames at 30 fps = 3.0 s of source, comfortably past the latest query time (1.7 s) —
-        // `AVAssetImageGenerator.image(at:)` is bound to `asset`'s own duration, and
-        // `CompositionBuilder`'s instruction timeRange is that same duration (`asset.load
-        // (.duration)`), so a query past the end of a too-short source asset would have nothing
-        // to answer from.
+        // 110 frames at 30 fps ≈ 3.67 s of source, comfortably past the latest query time (2.6 s,
+        // the ripple-finished check) — `AVAssetImageGenerator.image(at:)` is bound to `asset`'s own
+        // duration, and `CompositionBuilder`'s instruction timeRange is that same duration
+        // (`asset.load(.duration)`), so a query past the end of a too-short source asset would have
+        // nothing to answer from.
         try await writeSolidColorMovie(to: sourceURL, width: sourceWidth, height: sourceHeight,
-                                       r: 255, g: 0, b: 0, frameCount: 90)
+                                       r: 255, g: 0, b: 0, frameCount: 110)
 
         let packageURL = directory.appendingPathComponent("fixture.soredemo", isDirectory: true)
         try ProjectPackageIO.save(
@@ -4776,5 +4792,97 @@ enum CrossBoundaryProbe {
               + "from a fixed expected triple",
               actual: "drawn=\(drawnPixel) vs noObservationYet=\(beforeSamplePixel), "
                       + "blind=\(blindPixel), suppressed=\(suppressedPixel)")
+
+        // MARK: ripple pixels (Task 5's Finding 2 fix)
+        //
+        // `CursorArt.pointerPath`'s outline never rises above the tip (every point's `y` is `<=
+        // 0` — `CursorArt.swift`'s own `outline` array), so ANY point strictly ABOVE the tip
+        // (output-pixel `y` greater than the tip's) that shows a non-background pixel can only be
+        // the ripple, never the arrow. `CursorArt.ripplePath`'s circle, by contrast, is centred ON
+        // the tip and reaches every direction — so a vertical strip straight above the tip is
+        // where the ripple is visible and the arrow structurally cannot be.
+        //
+        // A STRIP, not one exact pixel: the ripple is a stroked ring at a specific, phase-dependent
+        // radius, and hitting that ring's ~2px width at one hand-picked offset risks a false
+        // negative from antialiasing at the ring's edge. Scanning `CursorArt.rippleStartRadius
+        // ... rippleEndRadius` (the whole range the radius can be, at any phase) and asking "does
+        // ANY of these differ from the unmodified card colour" is what "ripple pixels" plural, in
+        // the task instructions, means here.
+        let (rippleInFlight, _) = try await generator.image(at: fixture.rippleInFlight)
+        let (rippleFinished, _) = try await generator.image(at: fixture.rippleFinished)
+
+        let ringOffsets = Array(stride(from: 6, through: 28, by: 2))
+        func nonBackgroundOffsets(in image: CGImage) throws -> [Int] {
+            var hits: [Int] = []
+            for offset in ringOffsets {
+                let p = try pixel(in: image, x: centreX, y: centreY + offset, outputHeight: outputHeight)
+                if !closeEnough(p, (255, 0, 0), tolerance: 6) { hits.append(offset) }
+            }
+            return hits
+        }
+        let inFlightHits = try nonBackgroundOffsets(in: rippleInFlight)
+        let finishedHits = try nonBackgroundOffsets(in: rippleFinished)
+        print("        ripple strip above the tip (offsets 6...28): in-flight hits at \(inFlightHits), "
+              + "finished hits at \(finishedHits)")
+
+        check(!inFlightHits.isEmpty,
+              "50ms into a 400ms ripple, a stroke pixel appears somewhere on the vertical strip "
+              + "directly above the tip — a region CursorArt.pointerPath's own outline never "
+              + "reaches, so this can only be the ripple",
+              actual: "hits at \(inFlightHits) of \(ringOffsets)")
+        check(finishedHits.isEmpty,
+              "600ms after the click — 200ms past ClickTrack.rippleDuration — the same strip is "
+              + "unmodified: the ripple has stopped being drawn, even though the pointer itself "
+              + "is still .drawn at this instant",
+              actual: "hits at \(finishedHits) of \(ringOffsets)")
+    }
+
+    // MARK: - § 12.2  ObservationWriter.expectedLogURL(forMediaURL:) — pure naming, no AVFoundation
+
+    /// The reverse of `ObservationWriter.logURL(forSegment:in:)`, and the function `StageWindow
+    /// .load()` calls to find a recording's observation log the same way it already has the media
+    /// URL: pure `URL` string logic, so it is checked here without any composition machinery.
+    static func observationLogURLIsDerivedFromTheMediaURLsOwnConvention() {
+        let package = URL(filePath: "/tmp/some.soredemo", directoryHint: .isDirectory)
+        let media3 = package.appending(path: "media", directoryHint: .isDirectory)
+            .appending(path: "master-03.mov", directoryHint: .notDirectory)
+        let expected3 = package.appending(path: "observations", directoryHint: .isDirectory)
+            .appending(path: "segment-03.jsonl", directoryHint: .notDirectory)
+        check(ObservationWriter.expectedLogURL(forMediaURL: media3) == expected3,
+              "master-03.mov under media/ names observations/segment-03.jsonl beside it",
+              actual: "\(ObservationWriter.expectedLogURL(forMediaURL: media3)?.path ?? "nil")",
+              expected: expected3.path)
+
+        // A three-digit segment index — `String(format: "%02d", index)` guarantees AT LEAST two
+        // digits, not exactly two, so segment 100 is a real name this has to parse.
+        let media100 = package.appending(path: "media", directoryHint: .isDirectory)
+            .appending(path: "master-100.mov", directoryHint: .notDirectory)
+        let expected100 = package.appending(path: "observations", directoryHint: .isDirectory)
+            .appending(path: "segment-100.jsonl", directoryHint: .notDirectory)
+        check(ObservationWriter.expectedLogURL(forMediaURL: media100) == expected100,
+              "a three-digit segment index round-trips too — %02d guarantees a MINIMUM of two "
+              + "digits, not exactly two",
+              actual: "\(ObservationWriter.expectedLogURL(forMediaURL: media100)?.path ?? "nil")",
+              expected: expected100.path)
+
+        // The exact shape `ContentView`'s scratch `TemporaryFileMediaSink` produces today: a
+        // `master-NN.mov` with NO `media/` parent at all, because that sink writes flatly into a
+        // temporary directory. This must answer `nil`, not a guess — there is no `observations/`
+        // sibling to find, because nothing ever created one for this path.
+        let scratchDirectory = URL(filePath: "/tmp/soredemo-preview-scratch", directoryHint: .isDirectory)
+        let scratchMedia = scratchDirectory.appending(path: "master-00.mov", directoryHint: .notDirectory)
+        check(ObservationWriter.expectedLogURL(forMediaURL: scratchMedia) == nil,
+              "media with no media/ parent directory (ContentView's scratch sink) names no log",
+              actual: "\(ObservationWriter.expectedLogURL(forMediaURL: scratchMedia)?.path ?? "nil")",
+              expected: "nil")
+
+        // A filename that is not `master-NN.mov` at all — some other file that happens to sit
+        // under a directory named `media/`.
+        let notMaster = package.appending(path: "media", directoryHint: .isDirectory)
+            .appending(path: "clip.mov", directoryHint: .notDirectory)
+        check(ObservationWriter.expectedLogURL(forMediaURL: notMaster) == nil,
+              "a media/ file that is not master-NN.mov names no log",
+              actual: "\(ObservationWriter.expectedLogURL(forMediaURL: notMaster)?.path ?? "nil")",
+              expected: "nil")
     }
 }

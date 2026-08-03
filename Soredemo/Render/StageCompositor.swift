@@ -72,11 +72,14 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// session (`CompositionBuilder` sets this type as `customVideoCompositorClass`, which
     /// AVFoundation itself instantiates — nothing in this app ever calls `StageCompositor()`), and
     /// `startRequest` is the earliest point any instance method runs, so there is no earlier hook
-    /// to read the log from. `pointerTrackLoaded` is separate from `pointerTrack` being non-`nil`
-    /// because a log that fails to read (missing file, corrupt header) must still be "loaded" —
-    /// tried once and given up on — rather than retried on every single frame of the render.
+    /// to read the log from. `pointerTrackLoaded` is separate from `pointerTrack`/`clickTrack` being
+    /// non-`nil` because a log that fails to read (missing file, corrupt header) must still be
+    /// "loaded" — tried once and given up on — rather than retried on every single frame of the
+    /// render. One flag for both tracks because they come from the SAME read of the SAME file
+    /// (`loadedTracks()` below) — two flags could disagree about whether the log had been tried.
     private nonisolated(unsafe) var pointerTrack: PointerTrack?
-    private nonisolated(unsafe) var pointerTrackLoaded = false
+    private nonisolated(unsafe) var clickTrack: ClickTrack?
+    private nonisolated(unsafe) var tracksLoaded = false
 
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
         renderContext = newRenderContext
@@ -117,8 +120,11 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     // MARK: - the pointer track
 
-    /// `.drawn(p)` becomes a placement in `plan`'s own output-pixel space; every other reading —
-    /// `.blind`, `.suppressedByReviewer`, `.noObservationYet` — draws no pointer at all.
+    /// `.drawn(p)` becomes a placement in `plan`'s own output-pixel space, carrying whatever ripple
+    /// phase `ClickTrack` reports at the same instant; every other reading — `.blind`,
+    /// `.suppressedByReviewer`, `.noObservationYet` — draws no pointer AND no ripple: there is no
+    /// cursor location to radiate one from, so the ripple question does not arise independently of
+    /// the pointer one.
     ///
     /// **This is a four-case `switch`, not an `if let` over two.** `PointerTrack.position(at:)`
     /// returns a four-case `PointerReading` precisely so a caller cannot collapse "a gap that was
@@ -129,34 +135,41 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     private func pointerPlacement(at compositionTime: CMTime,
                                   in plan: RenderPlan) -> NormalizedPointerPlacement? {
         guard compositionTime.isValid,
-              let track = loadedPointerTrack(),
               let time = Nanoseconds(rationalSeconds: compositionTime.value,
                                      timescale: compositionTime.timescale) else { return nil }
-        switch track.position(at: time) {
+        let (pointer, click) = loadedTracks()
+        guard let pointer else { return nil }
+        switch pointer.position(at: time) {
         case .drawn(let point):
-            return StagePlanner.placement(for: point, in: plan)
+            return StagePlanner.placement(for: point, in: plan, ripplePhase: click?.ripplePhase(at: time))
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }
     }
 
-    /// Reads `Self.observationLogURL` at most once per instance and caches the result — success
-    /// or failure alike, so a log this instance could not read is not retried on every frame.
-    /// `Self.overrides` is read here too, at the same "once" moment, for the same reason
-    /// `observationLogURL` is: both are configuration a caller sets before playback starts, not
-    /// values that change frame to frame.
-    private func loadedPointerTrack() -> PointerTrack? {
-        if pointerTrackLoaded { return pointerTrack }
-        pointerTrackLoaded = true
-        guard let url = Self.observationLogURL else { return nil }
-        pointerTrack = try? Self.buildPointerTrack(from: url, overrides: Self.overrides)
-        return pointerTrack
+    /// Reads `Self.observationLogURL` at most once per instance and caches both tracks it builds
+    /// from that one read — success or failure alike, so a log this instance could not read is not
+    /// retried on every frame. `Self.overrides` is read here too, at the same "once" moment, for
+    /// the same reason `observationLogURL` is: both are configuration a caller sets before playback
+    /// starts, not values that change frame to frame.
+    private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?) {
+        if tracksLoaded { return (pointerTrack, clickTrack) }
+        tracksLoaded = true
+        guard let url = Self.observationLogURL,
+              let built = try? Self.buildTracks(from: url, overrides: Self.overrides) else {
+            return (nil, nil)
+        }
+        pointerTrack = built.pointer
+        clickTrack = built.click
+        return built
     }
 
-    /// Turns one observation log into a `PointerTrack`: `"pointer"` records become its samples;
-    /// `"secureInput"` and `"tapDisabled"` records — the two kinds this log carries for
-    /// `GapSite.secureInput`/`.tapDisabled` (`ObservationLog`'s own "what a record may contain")
-    /// — become its `BlindInterval`s, each from that record's own `HostRange`, untouched.
+    /// Turns one observation log into a `PointerTrack` and a `ClickTrack`, in one pass over the
+    /// file: `"pointer"` records become the `PointerTrack`'s samples; `"secureInput"` and
+    /// `"tapDisabled"` records — the two kinds this log carries for `GapSite.secureInput`/
+    /// `.tapDisabled` (`ObservationLog`'s own "what a record may contain") — become its
+    /// `BlindInterval`s, each from that record's own `HostRange`, untouched; `"button"` records
+    /// become the `ClickTrack`'s events (`ClickTrack.init` itself keeps only the `.down` ones).
     ///
     /// **`overrides` is taken as a parameter, not read from the log.** `CursorOverride` is, by its
     /// own header, "a reviewer's permanent decision" — a project-level judgement call, not a fact
@@ -164,15 +177,18 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// so `Self.overrides` (above) is the only source for now and defaults to `[]`; when a
     /// reviewer UI exists, it sets that static the same way `StageWindow.load()` already sets
     /// `renderer` and `style`, and nothing about this function's own shape needs to change.
-    private static func buildPointerTrack(from url: URL,
-                                          overrides: [CursorOverride]) throws -> PointerTrack {
+    private static func buildTracks(from url: URL, overrides: [CursorOverride]) throws
+        -> (pointer: PointerTrack, click: ClickTrack) {
         let lines = try JSONLReader.linesOfFile(at: url).lines
         var samples: [PointerSample] = []
         var blindIntervals: [BlindInterval] = []
+        var buttonEvents: [ButtonEvent] = []
         for line in lines {
             switch try ObservationLog.kind(of: line) {
             case "pointer":
                 samples.append(try ObservationLog.decode(line) as PointerSample)
+            case "button":
+                buttonEvents.append(try ObservationLog.decode(line) as ButtonEvent)
             case "secureInput":
                 let interval = (try ObservationLog.decode(line) as SecureInputInterval).interval
                 blindIntervals.append(BlindInterval(start: interval.start, duration: interval.duration,
@@ -185,6 +201,8 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 break
             }
         }
-        return PointerTrack(samples: samples, blindIntervals: blindIntervals, overrides: overrides)
+        let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals, overrides: overrides)
+        let click = ClickTrack(events: buttonEvents)
+        return (pointer: pointer, click: click)
     }
 }
