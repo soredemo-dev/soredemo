@@ -576,6 +576,63 @@ never had a measurement to file.
 first-run degradation path. Every spike therefore uses its own identifier (`video.soredemo.SpikeA`,
 `SpikeB`, `SpikeC`) so a throwaway tool cannot consume it.
 
+### D6b-27 — the 78 declarations condemned at exactly macOS 27.0
+
+**Same register, same trigger, one instrument.** Every row above is a belief about macOS that
+Apple has not promised and that expires on a version bump. These 78 are the subset where Apple
+*has* said it, in the SDK, with a version — so they are not beliefs at all, and they belong here
+for the trigger rather than for the uncertainty: **an SDK or floor bump is what makes them act.**
+
+They were not read off a changelog. `scripts/scan-sdk-deprecations.py` derives the module list
+from this repository's own `import` lines, reads both the ObjC headers and the `.swiftinterface`
+files, and reproduces five hand-measured rows before it will report anything. Re-run it; do not
+maintain this table by hand. The scan's own numbers on Xcode-beta `MacOSX27.0.sdk`: 2120
+deprecated declarations over 15 modules — 1618 already dead at our 26.0 floor, these 78 at 27.0,
+110 carrying Swift's no-version sentinel, 314 whose version it could not parse and which it
+therefore counts as nothing.
+
+**What breaks if it changes: most of Phase 2B's intended API surface.** `export-basic` was to be
+`AVAssetWriter` + `AVAssetWriterInputPixelBufferAdaptor`; `render-core` was to be
+`AVVideoCompositing`. Both are on this list, one version above the floor, before either row has a
+line of code. `AVMutableVideoComposition` is *not* here — it is in the 26.0 bucket, dead at the
+floor since before this phase began, which is how this scan started.
+
+**We call none of them.** Two clean builds — `swift build` for the package, `xcodebuild` for the
+app — report zero deprecated call sites. Measured with `--in-use`, because a warm build recompiles
+nothing and prints nothing, and that reads exactly like a clean bill of health.
+
+| Module | Declared in | Condemned at 27.0 (78 total) |
+| --- | --- | --- |
+| AVFoundation | `AVAssetDownloadTask.h` | `AVAggregateAssetDownloadTask`, `AVAssetDownloadTaskMediaSelectionKey`, `AVAssetDownloadTaskMediaSelectionPrefersMultichannelKey`, `AVAssetDownloadTaskMinimumRequiredMediaBitrateKey`, `AVAssetDownloadTaskMinimumRequiredPresentationSizeKey`, `AVAssetDownloadTaskPrefersHDRKey`, `AVAssetDownloadTaskPrefersLosslessAudioKey`, `URLSession`, `aggregateAssetDownloadTaskWithURLAsset`, `assetDownloadTaskWithURLAsset`, `loadedTimeRanges`, `options` |
+| AVFoundation | `AVAssetWriterInput.h` | `AVAssetWriterInputCaptionAdaptor`, `AVAssetWriterInputMetadataAdaptor`, `AVAssetWriterInputPixelBufferAdaptor`, `AVAssetWriterInputTaggedPixelBufferGroupAdaptor`, `appendSampleBuffer`, `expectsMediaDataInRealTime`, `readyForMoreMediaData`, `requestMediaDataWhenReadyOnQueue` |
+| AVFoundation | `AVSampleBufferVideoRenderer.h` | `NSError`, `NSNumber`, `error`, `flushWithRemovalOfDisplayedImage`, `payload`, `property`, `requiresFlushToResumeDecoding`, `status` |
+| AVFoundation | `AVAssetReaderOutput.h` | `AVAssetReaderOutputCaptionAdaptor`, `AVAssetReaderOutputMetadataAdaptor`, `alwaysCopiesSampleData`, `copyNextSampleBuffer`, `markConfigurationAsFinal`, `resetForReadingTimeRanges`, `supportsRandomAccess` |
+| AVFoundation | `AVQueuedSampleBufferRendering.h` | `?`, `enqueueSampleBuffer`, `flush`, `hasSufficientMediaDataForReliablePlaybackStart`, `stopRequestingMediaData` |
+| AVFoundation | `AVVideoCompositing.h` | `AVAsynchronousCIImageFilteringRequest`, `finishWithComposedVideoFrame`, `newPixelBuffer`, `sourceFrameByTrackID`, `sourceSampleBufferByTrackID` |
+| AVFoundation | `AVAssetExportSession.h` | `cancelExport`, `outputFileType`, `outputURL`, `progress` |
+| AVFoundation | `AVSampleBufferAudioRenderer.h` | `AVSampleBufferAudioRendererFlushTimeKey`, `AVSampleBufferAudioRendererOutputConfigurationDidChangeNotification`, `AVSampleBufferAudioRendererWasFlushedAutomaticallyNotification`, `flushFromSourceTime` |
+| AVFoundation | `AVVideoComposition.h` | `videoCompositionCoreAnimationToolWithPostProcessingAsVideoLayer`, `videoCompositionCoreAnimationToolWithPostProcessingAsVideoLayers`, `videoCompositionWithAsset` |
+| Foundation | `NSItemProvider.h` | `initWithItem`, `loadItemForTypeIdentifier`, `registerItemForTypeIdentifier` |
+| AVFoundation | `AVAssetReader.h` | `addOutput`, `startReading` |
+| AVFoundation | `AVAssetWriter.h` | `addInput`, `startWriting` |
+| AVFoundation | `AVPlayerItem.h` | `accessLog`, `errorLog` |
+| AVFoundation | `AVPlayerItemOutput.h` | `copyPixelBufferForItemTime`, `initWithPixelBufferAttributes` |
+| AVFoundation | `AVPlayerOutput.h` | `defaultPixelBufferAttributes`, `setOutputPixelBufferAttributes` |
+| Foundation | `NSError.h` | `init`, `new` |
+| AVFoundation | `AVAsset.h` | `audiovisualTypes` |
+| AVFoundation | `AVContentKeySession.h` | `AVSampleBufferAttachContentKey` |
+| AVFoundation | `AVExternalStorageDevice.h` | `notRecommendedForCaptureUse` |
+| AVFoundation | `AVPlayerLayer.h` | `copyDisplayedPixelBuffer` |
+| AVFoundation | `AVRenderedCaptionImage.h` | `pixelBuffer` |
+| AVFoundation | `AVTimedMetadataGroup.h` | `initWithSampleBuffer` |
+| AppKit | `NSPanGestureRecognizer.h` | `numberOfTouchesRequired` |
+
+`NSError` and `NSNumber` name deprecated **categories** declared on those types in the header
+given, not the types themselves. `?` rows, where the scan could not attribute a declaration, are
+in the full table with their `file:line` rather than guessed at here.
+
+---
+
 ## D7 — Liquid Glass: native only, never custom
 
 App chrome is 100% standard SwiftUI. `.glassEffect()` is never called to build chrome.
