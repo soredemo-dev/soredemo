@@ -146,20 +146,37 @@ enum SpikeA {
     /// it before: it writes the file, prints nothing else, and **needs no
     /// permission at all**, so it can be checked while the grants are still
     /// unasked.
-    nonisolated(unsafe) static var transcript: [String] = []
-
-    nonisolated static func record(_ line: String) {
-        transcript.append(line)
-        print(line)
-    }
-
+    /// Redirects **stdout itself** to `--out`, before anything runs.
+    ///
+    /// **The first version threaded a `record(_:)` helper through the code, and
+    /// the dry run passed while a real step wrote nothing.** `dryRun()` used
+    /// `record`; `acquireGrants` used `print` and `VerificationStep`, which go
+    /// to a stdout `open` has severed. So the dry run proved the TRANSPORT
+    /// works and never proved a step uses it — a check sitting one step away
+    /// from where the defect lives, in the thing added to prevent exactly that.
+    ///
+    /// `freopen` removes the choice. Every `print`, every `VerificationStep`
+    /// line, and `CapturePermissions.dumpText()` all land in the file because
+    /// there is no other stdout to write to. Correctness stops depending on
+    /// each step remembering.
     @MainActor
-    static func flushTranscript() {
+    static func redirectStandardOutput() {
         guard let i = CommandLine.arguments.firstIndex(of: "--out"),
               i + 1 < CommandLine.arguments.count else { return }
-        try? transcript.joined(separator: "\n")
-            .write(toFile: CommandLine.arguments[i + 1], atomically: true, encoding: .utf8)
+        let path = CommandLine.arguments[i + 1]
+        setvbuf(stdout, nil, _IOLBF, 0)
+        guard freopen(path, "w", stdout) != nil else {
+            // Nowhere to report this except a stderr nobody reads either, so
+            // the only honest move is to fail loudly rather than run a whole
+            // verification into a void.
+            exit(70)
+        }
     }
+
+    nonisolated static func record(_ line: String) { print(line) }
+
+    @MainActor
+    static func flushTranscript() { fflush(stdout) }
 
     /// Writes the output file and exits. No TCC, no measurement, no window.
     @MainActor
@@ -664,6 +681,7 @@ enum SpikeA {
 
     @MainActor
     static func main() {
+        redirectStandardOutput()
         if CommandLine.arguments.contains("--permissions") {
             // Printed WITH the command that produced it. "which grants does this
             // identity hold" is a derived value with a short life — the next

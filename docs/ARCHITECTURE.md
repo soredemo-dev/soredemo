@@ -536,7 +536,7 @@ the original claim is quietly wrong. So a rewritten row leaves a row here. They 
 | 14 | ~~A pointer-only `.listenOnly` tap needs no Input Monitoring grant; a keyboard tap does~~ **VOID — never measured** | inferred from which step first failed. Every one of those steps ran under `com.cmuxterm.app`, which already held both grants, so no step ever tested the spike's own permission state | — | `CapturePermissions`' degradation model, and what a first-run user can do before granting anything |
 | 15 | `mach_timebase_info` is 125/3 on this hardware | measured twice, a day apart | Apple Silicon, 26.5.2 | nothing directly — every conversion goes through `CMTime`/`Nanoseconds`. Kept because it is the constant a hand-rolled conversion would need, and hand-rolling it is the mistake |
 | 16 | Foundation's `JSONDecoder` refuses **every** route to a non-finite `Double` — `1e400`, `-1e400`, bare `NaN`, `"NaN"` | measured, four cases | Xcode 27.0 (27A5228h) | `AXChainRecord`'s validating decoder is untestable through JSON and is demonstrated through a property list instead. If this loosened, the JSON path needs its own case |
-| 17 | TCC binds a grant to signing identity **and** bundle identifier; re-signing invalidates it while the Settings pane still shows it enabled | **UNMEASURED — the observation's subject is now in doubt.** It was: a run reported "Screen Recording NOT granted" while the pane showed `SoredemoSpikeB` enabled. That run was exec'd, so the API answered for `com.cmuxterm.app`, not for SpikeB — and the dialog that followed may have granted the terminal rather than the spike. The pane entry and the API answer were about two different identities, which is a different story from the one recorded. Re-measure with `open -n` before relying on it | — | every spike's grant lifecycle, and `capture-permissions`' first-run flow being testable at all |
+| 17 | ~~re-signing invalidates a grant while the Settings pane still shows it enabled~~ **FALSE AS STATED.** TCC binds a grant to signing identity **and** bundle identifier, and re-signing with the *same* identity and identifier does **not** invalidate it | **MEASURED, with the subject known.** SpikeA under `open -n`: all three permissions granted, `build.sh` re-signs it, all three still granted — identical. The original observation (pane enabled, API not granted) had TWO SUBJECTS: the pane was showing `SoredemoSpikeB` while the API was answering for `com.cmuxterm.app`. | — | every spike's grant lifecycle, and `capture-permissions`' first-run flow being testable at all |
 
 **Audited after the identity finding, and two rows did not survive.** Every row was checked for
 whether its "how it was established" column could actually be filled — the same audit the ledger
@@ -545,9 +545,13 @@ got. Fifteen were measurements with a recorded command, a control, or a number. 
 - **Row 14 is void.** It was inferred from the order in which steps failed, and every one of those
   steps ran under an identity that already held both grants. Nothing was measured; a sequence was
   read as a cause. It is the row that reads most like a finding, which is why it stood for two days.
-- **Row 17 is unmeasured, not wrong.** Its observation is real — the pane said enabled, the API said
-  not granted — but the API was answering for a different identity than the pane was showing, so
-  the two halves were never about the same subject. The re-measurement is cheap and is not done.
+- **Row 17 was re-measured and is false as stated.** Its observation was real — the pane said
+  enabled, the API said not granted — but the two halves had different subjects: the pane was
+  showing `SoredemoSpikeB` while the API was answering for `com.cmuxterm.app`. Re-run with the
+  subject known: SpikeA under `open -n` holds all three permissions, `build.sh` re-signs it, and all
+  three are still held, byte-identical in the report. **Re-signing with the same identity and the
+  same bundle identifier does not invalidate a grant** — which is what a Developer ID designated
+  requirement implies, and it went unchecked for two days because a plausible story arrived first.
 
 **A row that cannot fill its second column is marked unmeasured, not re-labelled.** That is the
 difference between this audit and the mislabelled-record register in `AGENTS.md`: there, correct
