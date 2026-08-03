@@ -77,6 +77,11 @@ Three clauses, and the second and third are not decoration:
    automatic framing. `ProjectSnapshot` is storage, not a reader — a record that only the file can
    see is indistinguishable from its own absence.
 
+   **Until that number exists, the default is to surface every interval, not none.** The threshold
+   is to be chosen against a real recording, and "no threshold yet" must not become "no behaviour
+   yet": a missing number that silences the display delivers the video quietly, which is the exact
+   outcome this policy exists to prevent. Ship loud, then tune down with evidence.
+
 **The reason, recorded precisely, because the wrong reason is available and sounds better.** It is
 not that this option is "more honest". It is that the *producer-value rule* exists: automatic
 behaviour does not need to look good, it needs to be honest and fixable. Interpolation and
@@ -111,9 +116,23 @@ Two clauses:
    `CGCursorIsVisible` and `CGCursorIsDrawnInFramebuffer` are **unavailable** at this deployment
    target — a compile error, not a runtime answer.
 
-   So the hidden state is not readable, and `cursor-render` ships with a **named** defect: a pointer
-   is drawn at moments the real screen had none. macOS hides the pointer while you type, which a
-   demo recording does constantly. A D6a row and a review-UI sentence, not something a viewer finds.
+   So the hidden state is not readable. **And this is continuous, not a corner** — macOS hides the
+   pointer while you type, and a demo recording types constantly, so "we draw a pointer where the
+   real screen had none" describes *every typing passage*, visible in the first demo anyone makes.
+
+   **It also cannot be derived.** Keyboard events are deliberately not captured, so "the user is
+   typing right now" does not exist in this app's data. Not unimplemented — absent by design.
+
+3. **Therefore the product behaviour, which a defect list cannot carry because a defect list has no
+   behaviour.** The rule is already this project's: automatic behaviour is honest and fixable, and a
+   person handles the part the machine cannot read.
+
+   > **Draw the pointer wherever the pointer track has a position.** In review, a person can switch
+   > the cursor off over a time range, and that override is permanent — a first-class edit, stored
+   > with the project, exactly like every other override.
+
+   Automatic behaviour stays honest (it draws what was observed and claims nothing about what the
+   screen showed); the one thing it cannot know is handed to the one party that can see it.
 
 **A correction worth keeping.** The first reading of this said Apple's deprecation message settles
 it — the message says *"Use ScreenCaptureKit… use the `showsCursor` property"*. It does not: it
@@ -190,6 +209,27 @@ the drawing is tested by ordinary tests.
 allow-list and determinism-exemption consequences that should be decided once, with those files
 open, rather than guessed here.
 
+### The compositor interface is pinned now, and it must not name a winner
+
+**"Core Image or Metal — measure at 4K and decide later" is only a real deferral if the seam exists
+first.** Without one, the deferral resolves to *whichever gets written first wins*: by the time a 4K
+frame time can be measured, replacing the other implementation is a rewrite, and the cost of the
+rewrite becomes the argument for not doing it. The measurement then never touches the answer.
+
+This project settled the same shape this morning. `MasterWriting` turned "legacy or successor" from
+a promise into a measurement — which implementation sits behind it is now a thing that can be
+re-decided in one file, and it *was* re-decided, on evidence, hours later.
+
+So the compositor gets the same treatment, and with one extra rule:
+
+> **The protocol must not leak which side wins.** No `CIImage`, no `CIContext`, no `MTLTexture`, no
+> `MTLCommandBuffer` on the interface. A seam that speaks Core Image's vocabulary has already chosen
+> Core Image, and the Metal implementation behind it would be a translation layer rather than an
+> alternative.
+
+What crosses the seam is a `RenderPlan` in and a pixel buffer out. Both implementations take the
+same plan; the frame-time measurement then decides between two things that already exist.
+
 **The transport is settled and is not re-opened here:** `AVVideoComposition` built from
 `AVVideoComposition.Configuration`, driving one custom compositor for both preview and export.
 See `ARCHITECTURE.md` D8.
@@ -221,4 +261,6 @@ the **values** and the **minimum surface** that makes them visible, not the full
 2. The blind-fraction threshold at which the review marks a recording — a number, and it should be
    chosen against a real recording rather than picked here.
 3. Core Image filter graph vs hand-written Metal for the card, shadow and corner radius. Both are in
-   D8's stated scope; the choice should be made against a measured frame time at 4K, not in advance.
+   D8's stated scope, and the choice is made against a measured 4K frame time — **behind the
+   compositor seam defined in § 3, which is built before either implementation**, so that the
+   measurement can still change the answer when it arrives.
