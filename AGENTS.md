@@ -994,6 +994,39 @@ strict concurrency, no exceptions (D2) · app chrome is 100% standard SwiftUI, n
 
 ---
 
+### Cheap discriminators — one knob, two hypotheses that disagree about it
+
+**A number that does not move when you change the resource was never about a
+resource.**
+
+Spike D stalled at frame 137 and the reading on the table was "the successor
+write API hangs". Three knobs were turned before the answer was known, and none
+of them moved the index by one:
+
+| Knob | Range | Stall index |
+| --- | --- | --- |
+| pool `allocationThreshold` | 20 → 5000 | 137, 137, 137, 137 |
+| frame area | 1/16 → full | 137, 137, 137 |
+| holding every appended buffer alive | on | 137 |
+
+Exhaustion, backpressure, a byte-bounded queue — every resource story predicts
+the index tracks *something*. Zero displacement across three orders of magnitude
+falsified all of them at once, for the cost of four runs, **before** the real
+cause was found. The cause was a lifecycle mistake, and it was invariant because
+it was structural: the writer was in a state nobody designed, from frame one.
+
+**The general form:** when a failure has a suspiciously stable coordinate, vary
+the resource that the leading explanation says bounds it. Either the coordinate
+moves — and the explanation is right and now quantified — or it does not, and a
+whole family of explanations is gone in one measurement. It is the cheapest
+discriminator this project has found, and it costs one flag.
+
+**Its companion, from the same incident:** a positive control only rules out what
+it differs from. The legacy run reaching 600/600 on the same rig ruled out "the
+rig is broken" and read like it ruled out more. It differed from the treatment
+along exactly the axis that failed, so it was not a control for that axis at all.
+Before quoting a control, name the axis it holds fixed.
+
 ### The definite-singular audit — run once, and here is what it found
 
 Four times a rule written about *the* thing turned out to be about two of them, and the fabrication

@@ -788,6 +788,43 @@ golden-image tests that fail the build, not with care.
 The renderer is an `AVVideoCompositing` implementation over Core Image and Metal. Preview drives it
 with `CADisplayLink`; export drives it with `AVAssetWriter` frame pacing.
 
+### The transport is `AVVideoComposition`, and this is closed
+
+Preview and export both drive the compositor through an `AVVideoComposition`
+built from `AVVideoComposition.Configuration` — a `Sendable` value type carrying
+`customVideoCompositorClass`, constructed once and handed to both consumers.
+"One render path" is then a fact about a type rather than a rule two call sites
+must remember, which is what D8 asks for and what golden-image tests would
+otherwise have to establish by hand.
+
+**Not** the sample-buffer renderer path (`AVSampleBufferVideoRenderer` +
+`AVSampleBufferRenderSynchronizer`), and not a hand-driven `CADisplayLink`
+transport. The ROADMAP's `preview-playback` note says "not `CVDisplayLink` —
+deprecated", which rules out one API; it does not mandate hand-driving the clock,
+and it is satisfied here.
+
+**Three independent reasons point the same way, and they do not expire
+together — which is the part worth writing down.**
+
+| Reason | Kind | Survives the floor moving to 27? |
+| --- | --- | --- |
+| D8: one compositor drives both, as a type rather than a convention | architectural, and older than all of this | **yes** |
+| the floor costs nothing on this path; the renderer path is the only thing that would mean *write it twice* | measurement, today | no — at a 27 floor the renderer path becomes reachable |
+| the successor stack is usable at 26.0, so no `if #available` anywhere | measurement, today | no — trivially true at 27 |
+
+**When the floor moves, two of the three stop applying and the first does not.**
+Without that written down, a floor bump reads like a trigger to reopen this
+decision, and it is not one: it removes two supporting arguments from a
+conclusion that never rested on them. Reopening needs a reason against D8, and
+none of the measurements above is one.
+
+`AVMutableVideoComposition` — the obvious way to build a composition — has been
+deprecated since **26.0**, this project's own floor, so it was never available
+here. `Configuration` is the replacement and it is what makes the type-level
+version of D8 possible at all.
+
+---
+
 *Rejected:* a fast preview path plus a separate accurate export path. Two renderers means two sets of
 bugs and a class of "it looked different when I exported it" reports that cannot be reproduced.
 
