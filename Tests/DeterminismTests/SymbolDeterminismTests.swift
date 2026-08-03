@@ -32,7 +32,7 @@ let repositoryRoot = URL(filePath: #filePath)
 /// The library modules, asserted as a floor so a filter that quietly matches
 /// nothing cannot look like a pass. The authoritative list comes from the resolved
 /// manifest — see `scannedModules()`.
-let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"]
+let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
 
 // MARK: - the banned symbols
 //
