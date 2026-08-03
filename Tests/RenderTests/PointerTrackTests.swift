@@ -62,6 +62,50 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
     #expect(track.blindFraction(over: Nanoseconds(0) ..< Nanoseconds(1_000)) == 0.3)
 }
 
+/// **Precedence, tested at the overlap: a reviewer's decision outranks a measured gap.**
+///
+/// `position(at:)` checks `overrides` before `blindIntervals` (`PointerTrack.swift`'s own doc
+/// comment on the method), but until now every test exercised the two lists separately — an
+/// instant either fell inside an override or inside a blind interval, never both. This is the
+/// instant Task 2's reviewer asked for: one moment covered by BOTH a `CursorOverride` and a
+/// `BlindInterval`, so the precedence itself is what is under test, not merely that either case
+/// works in isolation. A `position(at:)` that checked the blind list first would return
+/// `.blind(...)` here and this is the only test that would notice.
+@Test func anOverrideOutranksAnOverlappingBlindInterval() {
+    let overlapping = Nanoseconds(600)
+    let blind = BlindInterval(start: Nanoseconds(500), duration: Nanoseconds(300), cause: .tapDisabled)
+    let override = CursorOverride(start: Nanoseconds(500), duration: Nanoseconds(300))
+    // Sanity: the chosen instant really does fall inside both intervals — otherwise this test
+    // would pass by construction rather than by exercising the precedence.
+    #expect(blind.contains(overlapping))
+    #expect(override.contains(overlapping))
+
+    let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [blind],
+                             overrides: [override])
+    #expect(track.position(at: overlapping) == .suppressedByReviewer)
+}
+
+/// **`blindFraction(over:)`'s clamp path.** Every test above this one keeps the blind interval
+/// entirely inside the queried span, so `max(interval.start, span.lowerBound)` and
+/// `min(interval.end, span.upperBound)` never actually move either bound — the clamp could be
+/// deleted and these tests would not notice. Two intervals here are each clamped on exactly one
+/// side: one starts 400ns before the 1000ns span and should count only the 600ns that falls
+/// inside it; the other ends 500ns after the span and should count only the 200ns that falls
+/// inside it. Total blind time inside the span is 600 + 200 = 800ns of 1000ns → 0.8. A fraction
+/// above 1.0 (summing the intervals' own, un-clamped widths: 1000 + 700 = 1700ns) is exactly the
+/// bug this test exists to catch.
+@Test func blindFractionClampsIntervalsThatCrossTheSpansEdges() {
+    let startsBeforeTheSpan = BlindInterval(start: Nanoseconds(-400), duration: Nanoseconds(1_000),
+                                            cause: .tapDisabled)
+    let endsAfterTheSpan = BlindInterval(start: Nanoseconds(800), duration: Nanoseconds(700),
+                                         cause: .secureInput)
+    let track = PointerTrack(samples: [sample(0, 0.1, 0.1)],
+                             blindIntervals: [startsBeforeTheSpan, endsAfterTheSpan], overrides: [])
+    let fraction = track.blindFraction(over: Nanoseconds(0) ..< Nanoseconds(1_000))
+    #expect(abs(fraction - 0.8) < 0.0001)
+    #expect(fraction <= 1.0)
+}
+
 // MARK: - decode validation (rule 8)
 //
 // Same reasoning and same shape as `StagePlannerTests`'s `StageRect`/`StageStyle` decode-guard

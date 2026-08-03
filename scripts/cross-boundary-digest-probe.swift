@@ -287,6 +287,10 @@ enum CrossBoundaryProbe {
         print("11.1 a synthetic movie, composed through StageCompositor, and read back with AVAssetImageGenerator")
         try await theRealCompositionRendersACardOverABackground()
 
+        print("12. the drawn pointer — StageCompositor reads the observation log (Phase 2B Task 5)")
+        print("12.1 a real ObservationWriter log, all four PointerReading cases, sampled as real pixels")
+        try await theDrawnPointerFollowsARealObservationLogThroughARealComposition()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -4392,9 +4396,14 @@ enum CrossBoundaryProbe {
     /// same class of defect `CaptureSession`'s own header (D2-15) already warns about for the capture
     /// side. Pinning the same three keys `CaptureSession.beginSegment` pins for its `AVVideoSettings`
     /// made the round trip exact — measured at `(255, 0, 0)` afterwards, over five consecutive runs.
+    /// `frameCount` defaults to 2 — § 11.1's own shape, "just enough for a real (non-zero)
+    /// duration". § 12 (Phase 2B Task 5) passes more: querying a pointer track at times spread
+    /// across a couple of seconds needs a source asset whose own duration actually covers them,
+    /// since `CompositionBuilder`'s instruction timeRange is `asset.load(.duration)` and
+    /// `AVAssetImageGenerator.image(at:)` is bound to that same asset.
     @MainActor
     static func writeSolidColorMovie(to url: URL, width: Int, height: Int,
-                                     r: UInt8, g: UInt8, b: UInt8) async throws {
+                                     r: UInt8, g: UInt8, b: UInt8, frameCount: Int = 2) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.proRes4444,
@@ -4428,7 +4437,7 @@ enum CrossBoundaryProbe {
         }
         let frameDuration = CMTime(value: 1, timescale: 30)
         let bgra: [UInt8] = [b, g, r, 255]
-        for frame in 0..<2 {
+        for frame in 0..<frameCount {
             while !input.isReadyForMoreMediaData {
                 try await Task.sleep(for: .milliseconds(5))
             }
@@ -4570,5 +4579,202 @@ enum CrossBoundaryProbe {
               "a point inside the card's bounding box but outside its rounded corner carries the "
               + "background colour",
               actual: "\(cardCornerPixel)", expected: "(23, 23, 28) ± 6")
+    }
+
+    // MARK: - § 12  the drawn pointer — StageCompositor reads the observation log (Phase 2B Task 5)
+
+    /// **What §§ 10–11 cannot see: whether `StageCompositor.startRequest` actually reads a real
+    /// observation log and draws — or does not draw — a pointer accordingly.**
+    ///
+    /// `Tests/RenderTests` proves `PointerTrack.position(at:)` and `StagePlanner.placement(for:
+    /// in:)` in isolation, against hand-built values; `RenderSeamTests`/`AppSourceAllowListTests`
+    /// prove the two architecture rules this task's code has to respect. None of them can build a
+    /// real `ObservationWriter`-written log, point `StageCompositor.observationLogURL` at it, run
+    /// a real `AVVideoComposition` over it, and look at the pixels that come out — that needs the
+    /// app's own `ObservationWriter`, `StageCompositor` and `CoreImageFrameRenderer`, which is
+    /// exactly this probe's reason to exist (see this file's header).
+    ///
+    /// **"Shows background" is checked as "unmodified from the card's own colour", not as the
+    /// literal `StageStyle.background` triple, and that is a considered choice, not a shortcut.**
+    /// `StagePlanner.placement(for:in:)` maps a `NormalizedPoint`'s `0…1` range onto `[card.x,
+    /// card.x + card.width]` / `[card.y, card.y + card.height]` — ALWAYS inside the card's own
+    /// bounding box, because a normalised point is a position **on the recording**, and the
+    /// recording occupies exactly the card. So a real recorded pointer position can never place a
+    /// cursor in the margin at all; asking for a literal margin-background pixel there would be
+    /// asking a question this geometry cannot pose. What every one of §§ 9's four readings can be
+    /// compared against, at the identical card-centre point, is what §§ 10.1/11.1 already
+    /// established that point renders as with NO pointer drawn: the source frame's own colour,
+    /// pure red. `.blind`, `.suppressedByReviewer` and `.noObservationYet` are checked against
+    /// exactly that — unmodified red — which is the strictly more precise claim "nothing was drawn
+    /// there" makes at a point that is never literally the style background.
+    enum PointerCompositionProbeError: Error { case pointerBufferPoolUnavailable }
+
+    /// Builds one real observation log — via the app's own `ObservationWriter`, not a hand-encoded
+    /// JSONL fixture — carrying:
+    ///
+    ///   * one `PointerSample` at 0.5 s, position `(0.5, 0.5)` — the card's own centre in
+    ///     `NormalizedPoint` terms;
+    ///   * one `SecureInputInterval` covering `[1.0 s, 1.5 s)` — a MEASURED gap, `GapSite
+    ///     .secureInput`;
+    ///
+    /// and returns its URL alongside the four composition times this section queries, chosen so
+    /// each isolates exactly one `PointerReading` case:
+    ///
+    ///   * 0.1 s — before the only sample → `.noObservationYet`;
+    ///   * 0.7 s — after the sample, before the blind interval → `.drawn`;
+    ///   * 1.2 s — inside the `SecureInputInterval` → `.blind`;
+    ///   * 1.7 s — inside a `CursorOverride` this function does NOT write to the log (`overrides`
+    ///     is never a log record — `StageCompositor.buildPointerTrack(from:overrides:)`'s own
+    ///     header says why) but that the caller sets on `StageCompositor.overrides` directly →
+    ///     `.suppressedByReviewer`.
+    @MainActor
+    static func writePointerTrackFixtureLog(in packageURL: URL, anchor: EpochAnchor,
+                                            revision: GeometryRevision) throws
+        -> (logURL: URL, noObservationYet: CMTime, drawn: CMTime, blind: CMTime, suppressed: CMTime) {
+        let epoch = anchor.epoch
+        func at(_ nanos: Int64) -> HostInstant { HostInstant(epoch: epoch, hostTime: Nanoseconds(nanos)) }
+
+        let header = ObservationLogHeader(anchor: anchor, segmentIndex: 0,
+                                          mediaFilename: "master-00.mov", revision: revision,
+                                          blindness: [])
+        let writer = try ObservationWriter.open(segment: header, in: packageURL)
+
+        try writer.append(PointerSample(instant: at(500_000_000),
+                                        position: NormalizedPoint(x: 0.5, y: 0.5), revision: revision))
+
+        let secureInputInterval = HostRange(epoch: epoch, start: Nanoseconds(1_000_000_000),
+                                            duration: Nanoseconds(500_000_000))
+        try writer.append(SecureInputInterval(interval: secureInputInterval,
+                                              endedBy: .secureInputDisabled))
+
+        // All four D6a rows, honestly: the secure-input row is the one this fixture actually
+        // measured (one check, one interval found); the other three are declared with zero looks,
+        // which `isAMeasurement` reports as "nothing was watching" rather than "no gaps" — the
+        // Addition A distinction § 9.6 already exercises at length.
+        let hostRange = HostRange(epoch: epoch, start: Nanoseconds(0), duration: Nanoseconds(2_000_000_000))
+        let gapWatches = [
+            GapWatch.axAncestorWalk(chainsRecorded: 0, observationSpanNanos: 0, truncatedWalks: 0),
+            GapWatch.videoFramesNotProduced(frameCallbacksObserved: 0, observationSpanNanos: 0,
+                                            idleFrames: 0),
+            GapWatch.secureInput(secureInputChecks: 1, secureInputCheckSpanNanos: 500_000_000,
+                                 secureInputIntervals: 1, suppressedNanos: 500_000_000),
+            GapWatch.tapDisabled(tapEnabledPolls: 0, tapPollingSpanNanos: 0, tapDisabledIntervals: 0,
+                                 tapBlindNanos: 0),
+        ]
+        let logURL = try writer.close(endedBy: .stopped, hostRange: hostRange, gapWatches: gapWatches)
+
+        return (logURL: logURL,
+                noObservationYet: CMTime(value: 100_000_000, timescale: 1_000_000_000),
+                drawn: CMTime(value: 700_000_000, timescale: 1_000_000_000),
+                blind: CMTime(value: 1_200_000_000, timescale: 1_000_000_000),
+                suppressed: CMTime(value: 1_700_000_000, timescale: 1_000_000_000))
+    }
+
+    /// Builds the fixture log, points `StageCompositor` at it (and at a `CursorOverride` covering
+    /// the `suppressed` query time), runs ONE real `AVVideoComposition` over a long-enough solid
+    /// source movie, and samples the card-centre pixel at all four query times — the same
+    /// `centreX`/`centreY` computation `theRealCompositionRendersACardOverABackground` uses, read
+    /// from the real `StagePlanner.plan` rather than re-derived by hand.
+    @MainActor
+    static func theDrawnPointerFollowsARealObservationLogThroughARealComposition() async throws {
+        let outputWidth = 320
+        let outputHeight = 180
+        let sourceWidth = 64
+        let sourceHeight = 64
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("soredemo-probe-pointer-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mov")
+        // 90 frames at 30 fps = 3.0 s of source, comfortably past the latest query time (1.7 s) —
+        // `AVAssetImageGenerator.image(at:)` is bound to `asset`'s own duration, and
+        // `CompositionBuilder`'s instruction timeRange is that same duration (`asset.load
+        // (.duration)`), so a query past the end of a too-short source asset would have nothing
+        // to answer from.
+        try await writeSolidColorMovie(to: sourceURL, width: sourceWidth, height: sourceHeight,
+                                       r: 255, g: 0, b: 0, frameCount: 90)
+
+        let packageURL = directory.appendingPathComponent("fixture.soredemo", isDirectory: true)
+        try ProjectPackageIO.save(
+            ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                            geometries: GeometryRegistry(), mediaFilenames: []),
+            to: packageURL)
+        let anchor = Minting.epochAnchor()
+        let revision = GeometryRevision(id: 0xC0FFEE_C0FFEE)
+        let fixture = try writePointerTrackFixtureLog(in: packageURL, anchor: anchor, revision: revision)
+
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = fixture.logURL
+        // Covers the `suppressed` query time (1.7 s) and NOT `blind` (1.2 s) — the two must land
+        // in DIFFERENT readings, or this section would not be able to tell "an override was
+        // checked" from "the blind interval was checked twice".
+        StageCompositor.overrides = [CursorOverride(start: Nanoseconds(1_600_000_000),
+                                                     duration: Nanoseconds(300_000_000))]
+        defer {
+            // Reset for whatever runs after this section — `StageCompositor`'s configuration is
+            // process-wide `static` state (like `renderer`/`style` already are), and leaving a
+            // fixture's log URL and override live past this function's own use of them would make
+            // any LATER composition in this same process draw from a fixture nobody asked it to.
+            StageCompositor.observationLogURL = nil
+            StageCompositor.overrides = []
+        }
+
+        let asset = AVURLAsset(url: sourceURL)
+        let composition = try await CompositionBuilder.composition(
+            for: asset, outputWidth: outputWidth, outputHeight: outputHeight,
+            frameDuration: CMTime(value: 1, timescale: 30))
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.videoComposition = composition
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+
+        let plan = StagePlanner.plan(outputWidth: outputWidth, outputHeight: outputHeight,
+                                     sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                                     style: .default)
+        let centreX = Int((plan.card.x + plan.card.width / 2).rounded())
+        let centreY = Int((plan.card.y + plan.card.height / 2).rounded())
+
+        let (beforeSample, _) = try await generator.image(at: fixture.noObservationYet)
+        let (drawn, _) = try await generator.image(at: fixture.drawn)
+        let (blind, _) = try await generator.image(at: fixture.blind)
+        let (suppressed, _) = try await generator.image(at: fixture.suppressed)
+
+        let beforeSamplePixel = try pixel(in: beforeSample, x: centreX, y: centreY, outputHeight: outputHeight)
+        let drawnPixel = try pixel(in: drawn, x: centreX, y: centreY, outputHeight: outputHeight)
+        let blindPixel = try pixel(in: blind, x: centreX, y: centreY, outputHeight: outputHeight)
+        let suppressedPixel = try pixel(in: suppressed, x: centreX, y: centreY, outputHeight: outputHeight)
+        print("        card-centre (\(centreX), \(centreY)): noObservationYet=\(beforeSamplePixel) "
+              + "drawn=\(drawnPixel) blind=\(blindPixel) suppressed=\(suppressedPixel)")
+
+        check(closeEnough(beforeSamplePixel, (255, 0, 0), tolerance: 6),
+              ".noObservationYet (before the first sample) draws no pointer — the card's centre "
+              + "still carries the source colour",
+              actual: "\(beforeSamplePixel)", expected: "(255, 0, 0) ± 6, unmodified")
+        check(!closeEnough(drawnPixel, (255, 0, 0), tolerance: 6),
+              ".drawn(0.5, 0.5) draws a pointer at the card's centre — the pixel there is no "
+              + "longer the unmodified source colour",
+              actual: "\(drawnPixel)", expected: "NOT (255, 0, 0) ± 6")
+        check(closeEnough(blindPixel, (255, 0, 0), tolerance: 6),
+              ".blind (inside the SecureInputInterval) draws no pointer — the card's centre is "
+              + "unmodified even though a sample exists earlier in the track",
+              actual: "\(blindPixel)", expected: "(255, 0, 0) ± 6, unmodified")
+        check(closeEnough(suppressedPixel, (255, 0, 0), tolerance: 6),
+              ".suppressedByReviewer (inside a CursorOverride) draws no pointer — a reviewer's "
+              + "decision suppresses the draw even where a sample exists and no blind interval "
+              + "applies",
+              actual: "\(suppressedPixel)", expected: "(255, 0, 0) ± 6, unmodified")
+
+        // Sanity: `drawnPixel` really is a DIFFERENT frame from the other three, not merely "not
+        // exactly red" for an unrelated reason (a colour-space rounding artefact, say). Without
+        // this, a renderer that returned garbage for every frame would satisfy the four checks
+        // above for the wrong reason.
+        check(drawnPixel != beforeSamplePixel && drawnPixel != blindPixel && drawnPixel != suppressedPixel,
+              "the drawn frame's centre pixel differs from all three no-pointer frames' — not just "
+              + "from a fixed expected triple",
+              actual: "drawn=\(drawnPixel) vs noObservationYet=\(beforeSamplePixel), "
+                      + "blind=\(blindPixel), suppressed=\(suppressedPixel)")
     }
 }

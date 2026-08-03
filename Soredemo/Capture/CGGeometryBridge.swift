@@ -250,4 +250,21 @@ enum CGGeometryBridge {
     nonisolated static func renderSize(width: Int, height: Int) -> CGSize {
         CGSize(width: CGFloat(width), height: CGFloat(height))
     }
+
+    /// The cursor art's own exit: `Soredemo/Render/CursorArt.swift` (Phase 2B Task 5) builds
+    /// `CGMutablePath`s for the drawn pointer and its click ripple, and every `move(to:)`/
+    /// `addLine(to:)`/`addCurve(to:control1:control2:)` on a `CGMutablePath` takes a `CGPoint`.
+    /// Scalars in, `CGPoint` out — the same shape as `outputCanvas(width:height:)` and
+    /// `renderSize(width:height:)` immediately above: `NormalizedPointerPlacement.x`/`.y` and the
+    /// path-geometry constants `CursorArt` computes from them are plain `Double`s, not a package
+    /// geometry type, so this takes scalars rather than adding a `StageRect`-shaped overload.
+    ///
+    /// **Added for the drawn pointer (Phase 2B Task 5), not in that task's brief.** The brief's
+    /// interface list asks for `CursorArt.pointerPath(scale:)` and `.ripplePath(phase:)` with no
+    /// point-making function named anywhere to build either `CGPath` from — the same gap
+    /// `outputCanvas`/`renderSize` closed for Tasks 3 and 4, this time for the one CoreGraphics
+    /// type this file had not yet needed to hand back out.
+    nonisolated static func point(x: Double, y: Double) -> CGPoint {
+        CGPoint(x: x, y: y)
+    }
 }

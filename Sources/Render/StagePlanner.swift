@@ -1,4 +1,5 @@
 import Foundation
+import Geometry
 
 /// Turns an output size and a source size into the rectangle the recording is drawn in.
 ///
@@ -31,5 +32,22 @@ public enum StagePlanner {
         let radius = min(style.cornerRadius, min(cardWidth, cardHeight) / 2)
         return RenderPlan(outputWidth: outputWidth, outputHeight: outputHeight,
                           card: card, cornerRadius: radius, style: style, pointer: pointer)
+    }
+
+    /// A normalised point (bottom-left origin, 0…1 over the SOURCE — `NormalizedPoint`'s own doc
+    /// comment) placed in OUTPUT pixels, inside `plan`'s card.
+    ///
+    /// `NormalizedPoint` is already bottom-left — `Normalized.swift`'s own header says the flip
+    /// between top-left pixel sources and this space happens in exactly one place,
+    /// `NormalizationContext`, on entry — so there is no flip here, and there must not be one: a
+    /// second flip here would silently undo the first for every pointer sample drawn.
+    ///
+    /// `ripplePhase` defaults to `nil` — no click, no ripple — and a caller passes one only when it
+    /// has computed one; this function does not derive a phase from anything of its own.
+    public static func placement(for point: NormalizedPoint, in plan: RenderPlan,
+                                 ripplePhase: Double? = nil) -> NormalizedPointerPlacement {
+        NormalizedPointerPlacement(x: plan.card.x + point.x * plan.card.width,
+                                   y: plan.card.y + point.y * plan.card.height,
+                                   ripplePhase: ripplePhase)
     }
 }

@@ -28,15 +28,23 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
     func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
         let background = backgroundImage(plan)
         let card = cardImage(plan, source: source)
+        var composed = card.composited(over: background)
+        // `plan.pointer` is `nil` for three of `PointerReading`'s four cases — `.blind`,
+        // `.suppressedByReviewer`, `.noObservationYet` — and `.drawn` for the fourth
+        // (`StageCompositor.startRequest`'s own mapping). Nothing here re-derives that decision;
+        // this file only draws what it is handed, or draws nothing at all.
+        if let pointer = plan.pointer {
+            composed = cursorImage(for: pointer, outputHeight: plan.outputHeight).composited(over: composed)
+        }
         // `CGGeometryBridge.outputCanvas`, not a literal `CGRect(...)` here: rule 5
         // (`AppSourceAllowListTests.coreGraphicsGeometryTypesAppearOnlyInTheBridge`) confines
         // `CGRect`/`CGFloat` to that one file, and `CIImage.cropped(to:)` is the exit point where
         // this app's own `Int`s become CoreGraphics' unit for Core Image. See the bridge's own doc
         // comment on `outputCanvas` for why this was a correction to the task brief.
-        let composed = card.composited(over: background)
+        let cropped = composed
             .cropped(to: CGGeometryBridge.outputCanvas(width: plan.outputWidth, height: plan.outputHeight))
-        context.render(composed, to: destination,
-                       bounds: composed.extent,
+        context.render(cropped, to: destination,
+                       bounds: cropped.extent,
                        colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
     }
 
@@ -70,5 +78,97 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
             kCIInputBackgroundImageKey: CIImage.empty(),
             kCIInputMaskImageKey: mask,
         ])
+    }
+
+    // MARK: - the drawn pointer
+
+    /// One `CGContext` bitmap PER DISTINCT PIXEL SIZE, reused across frames that ask for the same
+    /// size — the cache the task brief's Step 3 asks for. What changes frame to frame is never the
+    /// canvas's own dimensions for a fixed output resolution (only the ripple's radius and alpha
+    /// do, and those are redrawn into the same buffer each call), so the allocation is the one
+    /// thing worth avoiding on the hot path; everything else is cheap 2-D drawing into a buffer
+    /// already sized to fit it.
+    ///
+    /// `nonisolated(unsafe)`, unguarded by a lock — the same choice `StageCompositor.renderContext`
+    /// already makes and for the same reason: AVFoundation drives one compositor's
+    /// `startRequest(_:)` (and therefore, transitively, one renderer's `render(_:source:into:)`)
+    /// serially, and this dictionary is only ever touched from inside that call.
+    private nonisolated(unsafe) var cursorCanvases: [Int: CGContext] = [:]
+
+    /// Headroom, in OUTPUT PIXELS, added beyond the pointer/ripple geometry's own extent when
+    /// sizing a cursor canvas — an antialiased stroke drawn exactly at a bitmap's edge is clipped,
+    /// and this is the margin that keeps it from ever reaching the edge.
+    private static let cursorCanvasPadding: Double = 6
+
+    /// `pointerPath`'s uniform scale, as a function of the OUTPUT frame's height: `1.0` at 1080p
+    /// and up proportionally for a larger canvas, so a 4K export's pointer does not shrink to
+    /// illegible relative to the recording the way a fixed pixel size would. Not scaled down below
+    /// `1.0` for a smaller output — a pointer smaller than the size this app's own art was drawn
+    /// at is a legibility problem this function chooses not to introduce.
+    private static func pointerScale(forOutputHeight height: Int) -> Double {
+        max(1, Double(height) / 1080)
+    }
+
+    /// Fetches (building on first use) the `CGContext` bitmap for a `size`×`size` canvas, cleared
+    /// and ready to draw into.
+    private func cursorCanvas(size: Int) -> CGContext? {
+        if let existing = cursorCanvases[size] {
+            existing.clear(CGGeometryBridge.outputCanvas(width: size, height: size))
+            return existing
+        }
+        guard let created = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        cursorCanvases[size] = created
+        return created
+    }
+
+    /// The pointer art for one placement, as a `CIImage` already translated to `placement`'s
+    /// OUTPUT PIXEL position — the caller composites it directly over the card, with no further
+    /// transform. `nil` only if the `CGContext` bitmap could not be created (never observed; kept
+    /// as a graceful skip rather than a thrown error, because a rendering hiccup that loses only
+    /// the drawn pointer for one frame is a strictly better failure than one that loses the whole
+    /// frame).
+    ///
+    /// **Drawn into a `CGContext` bitmap and wrapped with `CIImage(cgImage:)`, not through
+    /// `CIContext.createCGImage`** — the task brief's own "createCGImage-free path": the source of
+    /// the pointer art is this app's own vector paths (`CursorArt`), not an existing `CIImage`
+    /// there would be anything to extract a `CGImage` FROM.
+    private func cursorImage(for placement: NormalizedPointerPlacement, outputHeight: Int) -> CIImage {
+        let scale = Self.pointerScale(forOutputHeight: outputHeight)
+        let halfExtent = max(CursorArt.rippleEndRadius, scale * CursorArt.pointerMaxExtent)
+            + Self.cursorCanvasPadding
+        let size = Int((halfExtent * 2).rounded(.up))
+        // The tip — the path origin both `CursorArt.pointerPath` and `.ripplePath` are built
+        // around — sits at the canvas's own centre, so there is equal headroom on every side for
+        // both the arrow (which extends only right and down from its tip) and the ripple (which
+        // is centred on it and extends every direction).
+        let tip = Double(size) / 2
+
+        guard let bitmap = cursorCanvas(size: size) else { return CIImage.empty() }
+        bitmap.saveGState()
+        bitmap.translateBy(x: tip, y: tip)
+
+        bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        bitmap.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        bitmap.setLineWidth(1.5)
+        bitmap.addPath(CursorArt.pointerPath(scale: scale))
+        bitmap.drawPath(using: .fillStroke)
+
+        // Only when `ripplePhase` is non-`nil` — `NormalizedPointerPlacement`'s own doc comment:
+        // `nil` means "not clicking", and the absence of a ripple is exactly what that means drawn.
+        if let phase = placement.ripplePhase {
+            bitmap.addPath(CursorArt.ripplePath(phase: phase))
+            bitmap.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1 - min(max(phase, 0), 1)))
+            bitmap.setLineWidth(2)
+            bitmap.strokePath()
+        }
+        bitmap.restoreGState()
+
+        guard let image = bitmap.makeImage() else { return CIImage.empty() }
+        return CIImage(cgImage: image)
+            .transformed(by: CGAffineTransform(translationX: placement.x - tip, y: placement.y - tip))
     }
 }
