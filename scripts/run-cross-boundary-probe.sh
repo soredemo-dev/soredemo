@@ -26,7 +26,10 @@ cd "$(dirname "$0")/.."
 # unable to tell apart. Unset it here so the two compilers agree by
 # construction, and print what they agreed on rather than leaving it implicit.
 unset SDKROOT
-echo "SDK: $(xcrun --show-sdk-path) ($(xcrun --show-sdk-version))"
+echo "SDK: $(xcrun --sdk macosx --show-sdk-path) ($(xcrun --sdk macosx --show-sdk-version))"
+# `--sdk macosx` and not the bare form: on this machine the bare form answers with a
+# CommandLineTools path that xcodebuild then cannot locate, while `--sdk macosx` gives
+# the SDK `swift build` actually passes. Measured by scripts/scan-sdk-deprecations.py.
 
 swift build
 
@@ -64,6 +67,7 @@ xcrun swiftc \
   Soredemo/Capture/CGGeometryBridge.swift \
   Soredemo/Capture/CaptureSource.swift \
   Soredemo/Capture/AudioInterleave.swift \
+  Soredemo/Capture/MasterWriter.swift \
   Soredemo/Capture/CaptureSession.swift \
   Soredemo/Capture/CaptureError.swift \
   Soredemo/App/BuildProvenance.swift \

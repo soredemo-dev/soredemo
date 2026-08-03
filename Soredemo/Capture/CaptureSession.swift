@@ -455,10 +455,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated(unsafe) var ledger = SegmentLedger()
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var stream: SCStream?
-    private nonisolated(unsafe) var writer: AVAssetWriter?
-    private nonisolated(unsafe) var videoInput: AVAssetWriterInput?
-    private nonisolated(unsafe) var systemAudioInput: AVAssetWriterInput?
-    private nonisolated(unsafe) var micInput: AVAssetWriterInput?
+    /// The master file, behind `MasterWriting` rather than as an
+    /// `AVAssetWriter` and three `AVAssetWriterInput`s.
+    ///
+    /// Everything this holds is deprecated at macOS 27.0 — `addInput:`,
+    /// `startWriting`, `AVAssetWriterInput.append(_:)` — so the migration is
+    /// scheduled and only its date is open. Behind the seam it is one file; in
+    /// front of it, after Phase 2B's render and export rows also write media,
+    /// it would have been a migration. See `MasterWriter.swift`.
+    private nonisolated(unsafe) var master: (any MasterWriting)?
     private nonisolated(unsafe) var writerTempURL: URL?
     private nonisolated(unsafe) var writerSessionStarted = false
     private nonisolated(unsafe) var currentGeometry: DisplayGeometry?
@@ -673,8 +678,6 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("soredemo-capture-\(Minting.newIdentifier().uuidString).mov")
 
-        let writer = try AVAssetWriter(url: tempURL, fileType: .mov)
-
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: geometry.pixelWidth,
@@ -685,9 +688,6 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
         ]
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
-        videoInput.expectsMediaDataInRealTime = true
-
         // Passthrough (`nil` settings), deliberately, for both audio tracks
         // — not AAC. The master is unprocessed evidence (D2-8); lossy
         // compression is exactly the kind of processing that principle
@@ -698,20 +698,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // `SCStreamConfiguration.sampleRate`/`.channelCount` do not control
         // (those govern only the *system-audio* stream — confirmed against
         // `SCStream.h`'s wording for each property).
-        let systemAudioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
-        systemAudioInput.expectsMediaDataInRealTime = true
-        let micInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
-        micInput.expectsMediaDataInRealTime = true
-
-        for input in [videoInput, systemAudioInput, micInput] {
-            guard writer.canAdd(input) else {
-                throw SessionError.writerFailed("AVAssetWriter.canAdd(_:) refused \(input.mediaType.rawValue) input")
-            }
-            writer.add(input)
-        }
-        guard writer.startWriting() else {
-            throw SessionError.writerFailed(writer.error?.localizedDescription ?? "startWriting() returned false")
-        }
+        let master: any MasterWriting = try LegacyMasterWriter(
+            outputURL: tempURL,
+            videoSettings: videoSettings,
+            refusedInput: { SessionError.writerFailed("AVAssetWriter.canAdd(_:) refused \($0) input") },
+            startFailed: { SessionError.writerFailed($0 ?? "startWriting() returned false") })
 
         let configuration = SCStreamConfiguration()
         configuration.width = geometry.pixelWidth
@@ -749,10 +740,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         lock.withLock {
             self.stream = scStream
-            self.writer = writer
-            self.videoInput = videoInput
-            self.systemAudioInput = systemAudioInput
-            self.micInput = micInput
+            self.master = master
             self.writerTempURL = tempURL
             self.writerSessionStarted = false
             self.currentGeometry = geometry
@@ -777,7 +765,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated func finalizeCurrentSegment(endedBy boundary: SegmentBoundary, stopping: Bool = false) async throws {
         struct Snapshot {
             let scStream: SCStream?
-            let writer: AVAssetWriter?
+            let master: (any MasterWriting)?
             let tempURL: URL?
             let mediaFilename: String?
             let endInstant: HostInstant
@@ -785,7 +773,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         guard let snapshot = lock.withLock({ () -> Snapshot? in
             guard isRunning, ledger.isSegmentOpen else { return nil }
             let instant = lastFrameInstant ?? HostInstant(epoch: epoch, hostTime: Minting.hostNow())
-            return Snapshot(scStream: stream, writer: writer, tempURL: writerTempURL,
+            return Snapshot(scStream: stream, master: master, tempURL: writerTempURL,
                              mediaFilename: currentMediaFilename, endInstant: instant)
         }) else {
             throw SessionError.noSegmentOpen
@@ -794,13 +782,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         if let scStream = snapshot.scStream {
             try? await scStream.stopCapture()
         }
-        if let writer = snapshot.writer, writer.status == .writing {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                writer.finishWriting { continuation.resume() }
-            }
+        if let master = snapshot.master, master.status == .writing {
+            await master.finish()
         }
 
-        if let writer = snapshot.writer, writer.status == .completed,
+        if let master = snapshot.master, master.status == .completed,
            let tempURL = snapshot.tempURL, let mediaFilename = snapshot.mediaFilename {
             // `.mappedIfSafe`: the finished file can be large (design doc:
             // "several GB of video"); mapping avoids doubling that in RAM
@@ -830,19 +816,19 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             //     Leaking one file into `NSTemporaryDirectory` (which the OS
             //     reclaims) is the cheaper mistake by a wide margin.
             let statusDescription: String
-            switch snapshot.writer?.status {
+            switch snapshot.master?.status {
             case .none: statusDescription = "no writer"
             case .some(.unknown): statusDescription = "unknown (startWriting never returned)"
             case .some(.writing): statusDescription = "writing (finishWriting did not complete it)"
             case .some(.completed): statusDescription = "completed"     // then tempURL/filename was nil
             case .some(.failed): statusDescription = "failed"
             case .some(.cancelled): statusDescription = "cancelled"
-            case .some: statusDescription = "unrecognised status"
+            case .some(.unrecognised(let raw)): statusDescription = "unrecognised status \(raw)"
             }
             let discarded = Diagnostics.DiscardedSegment(
                 mediaFilename: snapshot.mediaFilename ?? "(none minted)",
                 writerStatus: statusDescription,
-                writerError: snapshot.writer?.error.map { String(describing: $0) } ?? "nil",
+                writerError: snapshot.master?.errorDescription ?? "nil",
                 retainedScratchPath: snapshot.tempURL?.path() ?? "(none)")
             lock.withLock { _diagnostics.discardedSegments.append(discarded) }
         }
@@ -850,10 +836,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         lock.withLock {
             ledger.closeSegment(at: snapshot.endInstant, endedBy: boundary)
             self.stream = nil
-            self.writer = nil
-            self.videoInput = nil
-            self.systemAudioInput = nil
-            self.micInput = nil
+            self.master = nil
             self.writerTempURL = nil
             self.currentMediaFilename = nil
             if stopping { isRunning = false }
@@ -956,13 +939,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let observedContentScale = recordContentScale(from: attachments)
         recordExtrinsicRects(from: attachments)
 
-        let (shouldCheckBlack, writerRef, videoInputRef, sessionAlreadyStarted) = lock.withLock {
-            () -> (Bool, AVAssetWriter?, AVAssetWriterInput?, Bool) in
+        let (shouldCheckBlack, masterRef, sessionAlreadyStarted) = lock.withLock {
+            () -> (Bool, (any MasterWriting)?, Bool) in
             if latencyNanos >= 0 { _diagnostics.ptsToCallbackLatencyNanos.append(latencyNanos) }
             lastFrameInstant = frameInstant
             frameCounterForBlackCheck += 1
             let shouldCheck = frameCounterForBlackCheck % Self.blackFrameCheckEveryNFrames == 0
-            return (shouldCheck, writer, videoInput, writerSessionStarted)
+            return (shouldCheck, master, writerSessionStarted)
         }
 
         if shouldCheckBlack, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
@@ -978,23 +961,23 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             lock.withLock { _diagnostics.skippedAwaitingReconfigurationCount += 1 }
             return
         }
-        guard let writerRef, writerRef.status == .writing else {
+        guard let masterRef, masterRef.status == .writing else {
             lock.withLock { _diagnostics.skippedWriterNotWritingCount += 1 }
             return
         }
-        guard let videoInputRef, videoInputRef.isReadyForMoreMediaData else {
+        guard masterRef.video.isReadyForMoreMediaData else {
             lock.withLock { _diagnostics.skippedInputNotReadyCount += 1 }
             return
         }
         if !sessionAlreadyStarted {
-            writerRef.startSession(atSourceTime: pts)
+            masterRef.startSession(at: pts)
             lock.withLock { writerSessionStarted = true }
         }
-        let accepted = videoInputRef.append(sampleBuffer)
+        let accepted = masterRef.video.append(sampleBuffer)
         if accepted, let observedContentScale, observedContentScale != 1 {
             lock.withLock { _diagnostics.appendedResampledFrameCount += 1 }
         }
-        recordAppend(accepted, of: writerRef, isVideo: true)
+        recordAppend(accepted, of: masterRef, isVideo: true)
     }
 
     /// Records whether an append was accepted, and captures the writer's
@@ -1003,7 +986,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// The `Bool` this consumes used to be dropped with `_ =`. That is why
     /// this exists as a named function rather than an inline `if`: the whole
     /// defect was that the value looked ignorable.
-    private nonisolated func recordAppend(_ accepted: Bool, of writer: AVAssetWriter, isVideo: Bool) {
+    private nonisolated func recordAppend(_ accepted: Bool, of master: any MasterWriting, isVideo: Bool) {
         lock.withLock {
             if accepted {
                 if isVideo { _diagnostics.appendedVideoFrameCount += 1 }
@@ -1013,18 +996,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             if isVideo { _diagnostics.failedVideoAppendCount += 1 }
             else { _diagnostics.failedAudioAppendCount += 1 }
             guard _diagnostics.firstAppendFailure == nil else { return }
-            let statusName: String
-            switch writer.status {
-            case .unknown: statusName = "unknown"
-            case .writing: statusName = "writing"
-            case .completed: statusName = "completed"
-            case .failed: statusName = "failed"
-            case .cancelled: statusName = "cancelled"
-            @unknown default: statusName = "unrecognised"
-            }
             _diagnostics.firstAppendFailure =
-                "\(isVideo ? "video" : "audio") append refused; writer status: \(statusName); "
-                + "writer error: \(writer.error.map { String(describing: $0) } ?? "nil")"
+                "\(isVideo ? "video" : "audio") append refused; writer status: \(master.status.name); "
+                + "writer error: \(master.errorDescription ?? "nil")"
         }
     }
 
@@ -1055,15 +1029,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             }
         }
 
-        let (writerRef, inputRef, sessionAlreadyStarted) = lock.withLock {
-            () -> (AVAssetWriter?, AVAssetWriterInput?, Bool) in
-            (writer, isSystemAudio ? systemAudioInput : micInput, writerSessionStarted)
+        let (masterRef, trackRef, sessionAlreadyStarted) = lock.withLock {
+            () -> ((any MasterWriting)?, (any MasterTrackWriting)?, Bool) in
+            (master, master.map { isSystemAudio ? $0.systemAudio : $0.microphone }, writerSessionStarted)
         }
-        guard let writerRef, writerRef.status == .writing else {
+        guard let masterRef, masterRef.status == .writing else {
             updateAudioAccounting(isSystemAudio) { $0.skippedWriterNotWriting += 1 }
             return
         }
-        guard let inputRef, inputRef.isReadyForMoreMediaData else {
+        guard let trackRef, trackRef.isReadyForMoreMediaData else {
             updateAudioAccounting(isSystemAudio) { $0.skippedInputNotReady += 1 }
             return
         }
@@ -1088,12 +1062,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             return
         }
         let level = AudioInterleave.rms(of: writable)
-        let accepted = inputRef.append(writable)
+        let accepted = trackRef.append(writable)
         updateAudioAccounting(isSystemAudio) {
             if accepted { $0.appended += 1 } else { $0.refused += 1 }
             if let level { $0.peakRMS = max($0.peakRMS ?? 0, level) }
         }
-        recordAppend(accepted, of: writerRef, isVideo: false)
+        recordAppend(accepted, of: masterRef, isVideo: false)
     }
 
     private nonisolated func updateAudioAccounting(_ isSystemAudio: Bool,
