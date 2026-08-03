@@ -658,6 +658,15 @@ read/write/compose stack, so the unit of analysis is the successor stack — not
 `AVSampleBufferVideoRenderer.Receiver` and `AVSampleBufferAudioRenderer.Receiver` are
 `@available(macOS 27)`, measured — a reference to either fails at 26.0 and compiles at 27.0.
 
+**A deprecation on this list names a successor that does not exist.** `AVVideoCompositionRenderContext.newPixelBuffer`
+says *"Use `newReadOnlyPixelBuffer()` instead"* — and `newReadOnlyPixelBuffer` appears exactly once
+in this entire SDK: inside that message. It is on no type, the compiler knows it at neither
+`arm64-apple-macos26.0` nor `27.0`, and `grep -rn` over every AVFoundation header returns only the
+string telling you to call it. This is the second wrong successor measured in one day and the
+stronger of the two: `finish(withComposedVideoFrame:)` was a wrong name for a real selector, this is
+a name for nothing. Phase 2B's compositor therefore uses `newPixelBuffer()`, which is correct and
+warning-free at the 26.0 floor, and the successor is unavailable rather than declined.
+
 **Every successor mapping on this page is `[prose]` grade, including the one this project depends
 on most.** 0 of 32 named successors in the 27.0 bucket come from a machine-checkable field
 (`API_DEPRECATED_WITH_REPLACEMENT`, `renamed:`); all are read out of `API_DEPRECATED` message text
