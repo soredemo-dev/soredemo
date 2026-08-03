@@ -661,6 +661,35 @@ instrument that settled it, not as an open question.
 atomic and still name something that cannot fail. Those four are the next section; they are not one
 problem and they do not share a mechanism.
 
+### A discriminator's only legitimate certificate is running it in both states
+
+A predicate written to tell two states apart owes a red in a specific shape, and no other shape
+counts.
+
+`XPC_SERVICE_NAME != nil` was written to distinguish "launched through LaunchServices" from "exec'd
+from a shell". The variable is present on **both** paths — `0` when exec'd — so the predicate would
+have reported every run as correctly attributed, forever. And it would have passed a carelessly
+filled certificate: *"delete the variable and it goes red"* is a true red about an irrelevant
+mutation. The dimension that mattered was never touched.
+
+**So: run the discriminator in each of the two states it claims to separate, and show it answers
+differently.** Not "it can fail" — *it distinguishes these two*. Anything less is a red on the wrong
+axis, which is exactly the `label == "from"` failure one level over.
+
+**And when the header has no answer, find the discriminator by DIFFERENCE, not by nomination.**
+Nominating a variable that sounds right is a hypothesis, and confirming a hypothesis fails toward
+"everything is fine" — the direction that produces a green. Dumping every environment variable on
+both launch paths and diffing them found `__CFBundleIdentifier`, which does not merely differ but
+*names the responsible bundle*:
+
+```
+open -n …app     __CFBundleIdentifier = video.soredemo.SpikeA
+exec …/SpikeA    __CFBundleIdentifier = com.cmuxterm.app
+```
+
+The difference-first version costs one extra command and cannot select a variable that fails to
+discriminate, because a variable that does not differ is not in the output.
+
 ### Bounding an old measurement by the part that provably did not move
 
 An old number often cannot be re-taken — the tree has moved, and re-running the command answers

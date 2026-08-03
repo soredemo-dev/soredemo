@@ -533,10 +533,26 @@ the original claim is quietly wrong. So a rewritten row leaves a row here. They 
 | 11 | `CGEventTapEnable(tap, false)` from inside the process **does** deliver `kCGEventTapDisabledByUserInput` | measured, Task 10 human step 1 | 26.5.2 | that step validates edge arithmetic, not the poll. If the notification stopped, the step silently starts testing the poll instead — and its label would be wrong |
 | 12 | `CGEventTimestamp` is nanoseconds on the same base as `CMClockGetHostTimeClock` | measured: 395 real tapped timestamps inside the plausible band; `CGEvent(source: nil)!.timestamp` is **0**, so there is no permission-free source of one | 26.5.2 | every instant in the observation log, and the `implausibleEventTimestampCount` band |
 | 13 | Terminal's Secure Keyboard Entry is **off** by default, and a `sudo` password prompt does **not** raise system-wide secure input | measured, with the credential verified expired beforehand so the cached-credential explanation was excluded | 26.5.2 | only the verification instruction. Recorded because the wrong answer cost a run |
-| 14 | A pointer-only `.listenOnly` tap needs **no** Input Monitoring grant; a keyboard tap does | measured — steps 1 and 2 ran before step 3 was tried | 26.5.2 | `CapturePermissions`' degradation model, and what a first-run user can do before granting anything |
+| 14 | ~~A pointer-only `.listenOnly` tap needs no Input Monitoring grant; a keyboard tap does~~ **VOID — never measured** | inferred from which step first failed. Every one of those steps ran under `com.cmuxterm.app`, which already held both grants, so no step ever tested the spike's own permission state | — | `CapturePermissions`' degradation model, and what a first-run user can do before granting anything |
 | 15 | `mach_timebase_info` is 125/3 on this hardware | measured twice, a day apart | Apple Silicon, 26.5.2 | nothing directly — every conversion goes through `CMTime`/`Nanoseconds`. Kept because it is the constant a hand-rolled conversion would need, and hand-rolling it is the mistake |
 | 16 | Foundation's `JSONDecoder` refuses **every** route to a non-finite `Double` — `1e400`, `-1e400`, bare `NaN`, `"NaN"` | measured, four cases | Xcode 27.0 (27A5228h) | `AXChainRecord`'s validating decoder is untestable through JSON and is demonstrated through a property list instead. If this loosened, the JSON path needs its own case |
-| 17 | TCC binds a grant to signing identity **and** bundle identifier; re-signing invalidates the grant while the Settings pane still shows it enabled | measured, observed once as a live state | 26.5.2 | every spike's grant lifecycle, and `capture-permissions`' first-run flow being testable at all |
+| 17 | TCC binds a grant to signing identity **and** bundle identifier; re-signing invalidates it while the Settings pane still shows it enabled | **UNMEASURED — the observation's subject is now in doubt.** It was: a run reported "Screen Recording NOT granted" while the pane showed `SoredemoSpikeB` enabled. That run was exec'd, so the API answered for `com.cmuxterm.app`, not for SpikeB — and the dialog that followed may have granted the terminal rather than the spike. The pane entry and the API answer were about two different identities, which is a different story from the one recorded. Re-measure with `open -n` before relying on it | — | every spike's grant lifecycle, and `capture-permissions`' first-run flow being testable at all |
+
+**Audited after the identity finding, and two rows did not survive.** Every row was checked for
+whether its "how it was established" column could actually be filled — the same audit the ledger
+got. Fifteen were measurements with a recorded command, a control, or a number. Two were not:
+
+- **Row 14 is void.** It was inferred from the order in which steps failed, and every one of those
+  steps ran under an identity that already held both grants. Nothing was measured; a sequence was
+  read as a cause. It is the row that reads most like a finding, which is why it stood for two days.
+- **Row 17 is unmeasured, not wrong.** Its observation is real — the pane said enabled, the API said
+  not granted — but the API was answering for a different identity than the pane was showing, so
+  the two halves were never about the same subject. The re-measurement is cheap and is not done.
+
+**A row that cannot fill its second column is marked unmeasured, not re-labelled.** That is the
+difference between this audit and the mislabelled-record register in `AGENTS.md`: there, correct
+results were filed under the wrong subject and re-labelling is the whole remedy. Here, two rows
+never had a measurement to file.
 
 **Row 17 is the one with a cost attached.** The "never asked" state for Screen Recording on the
 **product's** bundle identifier is a spent-once asset: `capture-permissions` needs it to test the
