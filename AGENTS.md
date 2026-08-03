@@ -634,16 +634,81 @@ claim that follows can only be tested against a list:
 | C `pointerTrack` | coordinates | every value in [0, 1] **and** the track spans more than a point | the span |
 | C step 5 | budget | the largest stall that survives **and** the smallest that trips | the smallest |
 
-**This is a measurement, not an archive.** The claim behind the identifier migration is that
-*naming an expectation forces it to be atomic, so this stops happening* — and that claim currently
-has no evidence, because all eight predate the migration. Tasks 11 and 12 will write a fresh batch
-of expectations under the new rules. Scan that batch with the same criterion:
+**Measured, and settled.** The claim behind the identifier migration was that *naming an
+expectation forces it to be atomic*. Task 11 wrote a fresh batch under the new rules and the batch
+was counted twice — once by its author and once independently, because the person supplying the
+number is the person the rule constrains, and the independent count came back worse in both
+directions.
 
-- **zero conjunctions in the new ones** — naming solved it, and this register closes;
-- **any conjunctions in the new ones** — naming did not solve it, and a scan now has its
-  justifying condition rather than being written on suspicion.
+| | conjunctions | tautologies |
+| --- | --- | --- |
+| the eight above, written before identifiers | 8 | — |
+| Task 11's first batch, 16 rows | 4 | 1 |
+| after one rewrite aimed at exactly this, 22 rows | **0** | **4** |
 
-A claim cannot be re-verified. An enumeration can.
+**So identifiers work, on conjunctions, and a scan is not needed.** This register stays as the
+instrument that settled it, not as an open question.
+
+**And the rewrite surfaced a different defect the same rule cannot touch.** A name can be perfectly
+atomic and still name something that cannot fail. Those four are the next section; they are not one
+problem and they do not share a mechanism.
+
+### A red is a discharge obligation, not a detector
+
+"A check nobody watched fail is not a check" has been in this file as prose since Phase 1, and this
+file already records that it was **missed twice in Task 9** for the reason prose is missed. The fix
+is not to say it again.
+
+Change what an expectation owes. Today an expectation is discharged by an assertion citing it. It
+must also carry **a recorded red**: the mutation that made it fail, run once, written down beside it.
+
+    .init("edges", "the window contains T_off",
+          "start <= T_off <= end",
+          red: "move the click's global X 2400 -> 2000; five checks fail including the negative one")
+
+**This is not a tautology detector.** It asks for something a tautology cannot produce. There is no
+mutation that makes "`endedBy` is a case of a non-optional enum" fail, so no red can be recorded for
+it, so the row cannot be discharged — and the author finds that out while writing the row rather
+than a reviewer finding it four rounds later. The same demand catches the drifted check in the
+filename row: no mutation reddens "two files in one directory have different names", but the URL
+version reddens under the writer that named all three the same, which is the defect that was
+actually there.
+
+It is also not new behaviour. It is what was done by hand for `given`'s position rule — inject a
+violation, watch the scan name it, revert, and only then believe it — and for the guard's own
+regression case. The action already existed; it did not have a name or an obligation attached, so it
+happened when someone thought of it.
+
+**The existing 301 probe checks are sampled, not migrated.** Take twenty at random, try to redden
+each, and record how many cannot be. That is an afternoon and its output is an estimate of what
+fraction of this suite is decoration — a number this project does not have and cannot get by
+reasoning. New expectations carry a red from today; the existing ones owe only that estimate and a
+register of which have no observed red.
+
+### The tautology register — four rows, four different mechanisms
+
+The four expectations that survived Task 11's rewrite could not fail. Naming them together as "an
+unfalsifiable check" is what would make them one problem; they are four, and only one is answered
+by writing another scan.
+
+| Row | Why it cannot fail | What answers it |
+| --- | --- | --- |
+| a straddle count cross-checked against a counter | the counter does not exist anywhere in the tree — `grep -i straddle` returns three prose comments and no field | a zero-occurrence scan. The mechanism is already here and used three times; this is free |
+| "`endedBy` is a reason" | `SegmentBoundary` is non-optional, so it is always a case | check first whether the predicate reduces to a `nil` comparison or an exhaustive `switch` whose arms all return `true` — if so **the compiler already says this**, and the answer is promoting that warning to an error, not a new scan |
+| "the trailer has one `GapWatch` per site" | the trailer's *decoder* refuses a trailer that does not | the invariant is real and lives in the wrong place. Push it into the type and this row degrades into the row above |
+| "the three log filenames are distinct" | a directory cannot hold two files with one name | nothing in the type system reaches this — the invariant is POSIX's. Only a recorded red catches it |
+
+**The last row is the one to remember, and its shape is not "one useless check too many".** The
+falsifiable version is the distinctness of the three URLs `close()` returned — and that is exactly
+where the defect lived when it was found. The check was not invented redundantly; it was **moved off
+the place the defect actually lives** onto a neighbouring fact that happens to be guaranteed. A
+tautology is usually a check that drifted, not a check that was never needed.
+
+**A hand-written number beside the list it summarises will drift from it.** Task 11's report listed
+five corrected rows in its own table and said "four" in the prose above it, and the prose is what was
+copied into the ledger. Either derive the number from the list at the point of writing, or do not
+write it. This project already applies the rule to its own product — every derived value carries its
+origin — and a ledger entry is a derived value with no origin.
 
 ---
 
