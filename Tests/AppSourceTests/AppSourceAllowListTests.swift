@@ -178,6 +178,112 @@ func violations(
 
 // MARK: - rule 3's app-side half: where non-determinism enters
 
+/// The needles for rule 3's app-side half, at file scope so that
+/// `everyAmbientNeedleMatchesACallSiteInACompiledFixture` can prove each one
+/// still matches something. Inline in the test, they could only ever be
+/// asserted absent from the app — and a typo is absent from everything.
+let ambientBannedNames: [String] = [
+    // ── ambient time ────────────────────────────────────────────────
+    // `Date(` covers `Date()` and `Date(timeIntervalSinceNow:)`, and
+    // `NSDate(` besides; `Date.init` covers the explicit spelling, which
+    // shares no substring with it.
+    "Date(", "Date.init", "Date.now",
+    "timeIntervalSinceNow", "timeIntervalSinceReferenceDate",
+    "DispatchTime.now", "DispatchWallTime.now",
+    // The clock TYPES, not just their `now` — obtaining one at all is the
+    // step that has to happen somewhere auditable.
+    "ContinuousClock", "SuspendingClock",
+    "CFAbsoluteTimeGetCurrent",
+    "mach_absolute_time", "mach_approximate_time",
+    // Advances during sleep where `mach_absolute_time` does not (D2-4)
+    // — a different reading, not a spelling variant of the one above,
+    // and just as ambient. Added Task 5 review round 1: `Minting`
+    // gained `continuousNow()` and this list was not updated with it,
+    // so the claim below ("enters only through Minting") was true by
+    // hand-check, not by test, for exactly the gap this file exists
+    // to close.
+    "mach_continuous_time",
+    // Subsumes `clock_gettime_nsec_np`.
+    "clock_gettime", "gettimeofday",
+    // C `clock()` — processor time, a different reading from the two
+    // above and still ambient. Verified open on both sides by Task
+    // 5.5's sweep; the package side bans `_clock` by symbol. Broad on
+    // purpose, like `time(` below: it also fires on a hypothetical
+    // `refreshClock(`, which is the loud direction.
+    "clock(",
+    // C `time()`. Broad on purpose: Swift's camelCase means a lowercase
+    // `time` immediately before `(` is close to unwritable by accident.
+    "time(",
+    "NSDate", "systemUptime",
+
+    // ── ambient randomness ──────────────────────────────────────────
+    "UUID(", "UUID.init",
+    // The ObjC class, as ANY reference — the same over-approximation
+    // `NSDate` already gets one section up, and `NSUUID` is exactly the
+    // sibling D2-16 lists as the third staleness finding. `UUID(` above
+    // happens to catch `NSUUID()`, because the constructor call contains
+    // it; it does not catch `NSUUID.init`, a stored `let x: NSUUID`, or
+    // a cast. Task 5.5 verified this open on both sides.
+    "NSUUID",
+    // CommonCrypto's CSPRNG. The PACKAGE side needs no entry: rule 1's
+    // import allow-list is Foundation plus declared siblings, and
+    // `CCRandomGenerateBytes` needs `import CommonCrypto`, so no package
+    // target can reach it in the first place. The app target has no such
+    // rule, which is why this side has one. Task 5.5.
+    "CCRandomGenerateBytes",
+    // The `drand48` family. ONE needle for the whole family, where the
+    // package side names four symbols: a text scan pays nothing for the
+    // wider match, and a family is what this list keeps going stale one
+    // member at a time. It therefore also catches `erand48`, which the
+    // package side deliberately does NOT ban (its state is an argument,
+    // not process-global — see the note there). That asymmetry is the
+    // cheap direction and is stated rather than tidied away.
+    "rand48", "seed48", "lcong48",
+    // `.random(` catches `Int.random(in:)`, `Double.random(in:)` and
+    // `Bool.random()`. It does NOT catch `.randomElement(`, because the
+    // character after `random` is `E` — hence the separate entry.
+    ".random(", "randomElement",
+    // Subsumes `shuffled()`.
+    "shuffle",
+    "SystemRandomNumberGenerator",
+    // Subsumes `arc4random_uniform` and `arc4random_buf`.
+    "arc4random",
+    // `Security`'s CSPRNG — a distinct source from `arc4random`, not a
+    // spelling of it. `arc4random` reads the kernel's PRNG directly;
+    // `SecRandomCopyBytes` goes through `Security`'s own CSPRNG. Both are
+    // Minting-shaped ambient randomness, and `SecRandomCopyBytes` compiles
+    // and links with plain `import Foundation` — no `import Security`
+    // needed on Darwin — so nothing about the app's imports would flag it.
+    // Task 5.5.
+    "SecRandomCopyBytes",
+
+    // ── ambient hashing ─────────────────────────────────────────────
+    "SHA256",
+
+    // ── ambient identity (boot epoch) ───────────────────────────────
+    // `Minting.bootEpoch()` reads `kern.bootsessionuuid` through this
+    // call. Not time and not randomness, but the same shape of
+    // problem: a value only the environment can supply, entering the
+    // app at one audited place. Added alongside `mach_continuous_time`
+    // in the same review round, for the same reason — this file's
+    // list has to be re-derived every time `Minting` gains a new
+    // ambient source, not assumed to already cover it.
+    "sysctlbyname",
+    // A display's persistent identity, from
+    // `CGDisplayCreateUUIDFromDisplayID` — added in Task 9 alongside
+    // `Minting.displayUUID(of:)`, in the same commit, because this
+    // list has to be re-derived every time `Minting` gains an ambient
+    // source rather than assumed to already cover it. It is also the
+    // only route from a `CGDirectDisplayID` to the `UUID`
+    // `DisplayGeometry` requires, so banning it here is what makes
+    // the `UUID(` ban above unevadable for display identity
+    // specifically: without it a caller could read the `CFUUID`
+    // anywhere and only the final `UUID(uuidString:)` would be
+    // caught, which is a check on the last line of the wrong file.
+    "CGDisplayCreateUUIDFromDisplayID",
+]
+
+
 /// Architecture rule 3 — no ambient time or randomness — is checked over the
 /// LINK-TIME SYMBOLS in the package's object files (`Tests/DeterminismTests`).
 /// `Soredemo/Support/Minting.swift` is in the **app** target, so nothing checks
@@ -219,107 +325,7 @@ func violations(
 /// It shipped without one, which is why nobody noticed the list was short.
 @Test func ambientTimeRandomnessAndHashingEnterOnlyThroughMinting() throws {
     let found = try violations(
-        banned: [
-            // ── ambient time ────────────────────────────────────────────────
-            // `Date(` covers `Date()` and `Date(timeIntervalSinceNow:)`, and
-            // `NSDate(` besides; `Date.init` covers the explicit spelling, which
-            // shares no substring with it.
-            "Date(", "Date.init", "Date.now",
-            "timeIntervalSinceNow", "timeIntervalSinceReferenceDate",
-            "DispatchTime.now", "DispatchWallTime.now",
-            // The clock TYPES, not just their `now` — obtaining one at all is the
-            // step that has to happen somewhere auditable.
-            "ContinuousClock", "SuspendingClock",
-            "CFAbsoluteTimeGetCurrent",
-            "mach_absolute_time", "mach_approximate_time",
-            // Advances during sleep where `mach_absolute_time` does not (D2-4)
-            // — a different reading, not a spelling variant of the one above,
-            // and just as ambient. Added Task 5 review round 1: `Minting`
-            // gained `continuousNow()` and this list was not updated with it,
-            // so the claim below ("enters only through Minting") was true by
-            // hand-check, not by test, for exactly the gap this file exists
-            // to close.
-            "mach_continuous_time",
-            // Subsumes `clock_gettime_nsec_np`.
-            "clock_gettime", "gettimeofday",
-            // C `clock()` — processor time, a different reading from the two
-            // above and still ambient. Verified open on both sides by Task
-            // 5.5's sweep; the package side bans `_clock` by symbol. Broad on
-            // purpose, like `time(` below: it also fires on a hypothetical
-            // `refreshClock(`, which is the loud direction.
-            "clock(",
-            // C `time()`. Broad on purpose: Swift's camelCase means a lowercase
-            // `time` immediately before `(` is close to unwritable by accident.
-            "time(",
-            "NSDate", "systemUptime",
-
-            // ── ambient randomness ──────────────────────────────────────────
-            "UUID(", "UUID.init",
-            // The ObjC class, as ANY reference — the same over-approximation
-            // `NSDate` already gets one section up, and `NSUUID` is exactly the
-            // sibling D2-16 lists as the third staleness finding. `UUID(` above
-            // happens to catch `NSUUID()`, because the constructor call contains
-            // it; it does not catch `NSUUID.init`, a stored `let x: NSUUID`, or
-            // a cast. Task 5.5 verified this open on both sides.
-            "NSUUID",
-            // CommonCrypto's CSPRNG. The PACKAGE side needs no entry: rule 1's
-            // import allow-list is Foundation plus declared siblings, and
-            // `CCRandomGenerateBytes` needs `import CommonCrypto`, so no package
-            // target can reach it in the first place. The app target has no such
-            // rule, which is why this side has one. Task 5.5.
-            "CCRandomGenerateBytes",
-            // The `drand48` family. One needle for the whole family —
-            // `drand48`, `srand48`, `erand48`, and the `lrand48`/`mrand48`/
-            // `nrand48`/`jrand48` members Swift marks unavailable — because a
-            // family is what this list keeps going stale one member at a time.
-            // The package side bans them symbol by symbol, with the argument for
-            // banning a deterministic generator written out there: the state is
-            // process-global, so its determinism is not a property any one
-            // caller can assert.
-            "rand48", "seed48", "lcong48", "srandom",
-            // `.random(` catches `Int.random(in:)`, `Double.random(in:)` and
-            // `Bool.random()`. It does NOT catch `.randomElement(`, because the
-            // character after `random` is `E` — hence the separate entry.
-            ".random(", "randomElement",
-            // Subsumes `shuffled()`.
-            "shuffle",
-            "SystemRandomNumberGenerator",
-            // Subsumes `arc4random_uniform` and `arc4random_buf`.
-            "arc4random",
-            // `Security`'s CSPRNG — a distinct source from `arc4random`, not a
-            // spelling of it. `arc4random` reads the kernel's PRNG directly;
-            // `SecRandomCopyBytes` goes through `Security`'s own CSPRNG. Both are
-            // Minting-shaped ambient randomness, and `SecRandomCopyBytes` compiles
-            // and links with plain `import Foundation` — no `import Security`
-            // needed on Darwin — so nothing about the app's imports would flag it.
-            // Task 5.5.
-            "SecRandomCopyBytes",
-
-            // ── ambient hashing ─────────────────────────────────────────────
-            "SHA256",
-
-            // ── ambient identity (boot epoch) ───────────────────────────────
-            // `Minting.bootEpoch()` reads `kern.bootsessionuuid` through this
-            // call. Not time and not randomness, but the same shape of
-            // problem: a value only the environment can supply, entering the
-            // app at one audited place. Added alongside `mach_continuous_time`
-            // in the same review round, for the same reason — this file's
-            // list has to be re-derived every time `Minting` gains a new
-            // ambient source, not assumed to already cover it.
-            "sysctlbyname",
-            // A display's persistent identity, from
-            // `CGDisplayCreateUUIDFromDisplayID` — added in Task 9 alongside
-            // `Minting.displayUUID(of:)`, in the same commit, because this
-            // list has to be re-derived every time `Minting` gains an ambient
-            // source rather than assumed to already cover it. It is also the
-            // only route from a `CGDirectDisplayID` to the `UUID`
-            // `DisplayGeometry` requires, so banning it here is what makes
-            // the `UUID(` ban above unevadable for display identity
-            // specifically: without it a caller could read the `CFUUID`
-            // anywhere and only the final `UUID(uuidString:)` would be
-            // caught, which is a check on the last line of the wrong file.
-            "CGDisplayCreateUUIDFromDisplayID",
-        ],
+        banned: ambientBannedNames,
         permittedPath: "Soredemo/Support/Minting.swift",
         in: try appSourceFiles())
 
@@ -915,5 +921,127 @@ func lineNumber(of location: String) -> Int {
             \(reader.text)
             It takes its attribute string from somewhere else, so the permitted list is no longer \
             what decides which attributes this app can read.
+            """)
+}
+
+// MARK: - the needles must be able to fire
+
+/// One call site per entry in `ambientBannedNames`, and it is **compiled**.
+///
+/// That is the whole mechanism: the compiler is what proves each spelling is a
+/// real API on this SDK, and the scan below is what proves each needle still
+/// matches one. `CCRandomGenerateBytse` fails the second check; a needle for an
+/// API that does not exist fails the first.
+///
+/// `import ColorSync` is load-bearing and was found by this fixture failing to
+/// compile without it: `CGDisplayCreateUUIDFromDisplayID` is declared in
+/// `ColorSync.framework`, not CoreGraphics, despite the prefix — the same fact
+/// `Minting.swift`'s header records at the top of the file.
+let ambientConstructFixture = """
+import ColorSync
+import CommonCrypto
+import CoreGraphics
+import CryptoKit
+import Foundation
+
+func ambientProbe() {
+    _ = Date()
+    _ = Date.init()
+    _ = Date.now
+    _ = Date().timeIntervalSinceNow
+    _ = Date.timeIntervalSinceReferenceDate
+    _ = DispatchTime.now()
+    _ = DispatchWallTime.now()
+    _ = ContinuousClock()
+    _ = SuspendingClock()
+    _ = CFAbsoluteTimeGetCurrent()
+    _ = mach_absolute_time()
+    _ = mach_approximate_time()
+    _ = mach_continuous_time()
+    var ts = timespec(); _ = clock_gettime(CLOCK_MONOTONIC, &ts)
+    var tv = timeval(); _ = gettimeofday(&tv, nil)
+    _ = clock()
+    _ = time(nil)
+    _ = NSDate()
+    _ = ProcessInfo.processInfo.systemUptime
+
+    _ = UUID()
+    _ = UUID.init()
+    _ = NSUUID()
+    var bytes = [UInt8](repeating: 0, count: 8)
+    _ = CCRandomGenerateBytes(&bytes, 8)
+    _ = Int.random(in: 0..<10)
+    _ = [1, 2, 3].randomElement()
+    _ = [1, 2, 3].shuffled()
+    var generator = SystemRandomNumberGenerator(); _ = generator.next()
+    _ = arc4random()
+    _ = SecRandomCopyBytes(kSecRandomDefault, 8, &bytes)
+    _ = drand48()
+    var state: [UInt16] = [0, 0, 0]; _ = seed48(&state)
+    var wide: [UInt16] = [0, 0, 0, 0, 0, 0, 0]; lcong48(&wide)
+
+    _ = SHA256.hash(data: Data())
+
+    var size = 0; _ = sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0)
+    _ = CGDisplayCreateUUIDFromDisplayID(CGMainDisplayID())
+}
+"""
+
+/// Typechecks a fixture with the real compiler, and fails loudly if it does not
+/// compile. `-typecheck` rather than `-emit-object`: the question here is
+/// whether every spelling in the fixture is real API on this SDK, and nothing
+/// downstream reads a symbol.
+func typecheck(_ source: String, named name: String) throws {
+    let directory = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "appsource-fixture-\(ProcessInfo.processInfo.globallyUniqueString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appending(path: "\(name).swift")
+    try source.write(to: file, atomically: true, encoding: .utf8)
+
+    let process = Process()
+    process.executableURL = URL(filePath: "/usr/bin/env")
+    process.arguments = ["swiftc", "-swift-version", "6", "-typecheck",
+                         file.path(percentEncoded: false)]
+    let errorPipe = Pipe()
+    process.standardError = errorPipe
+    try process.run()
+    let errorText = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    process.waitUntilExit()
+    try #require(process.terminationStatus == 0,
+                 "fixture \(name) did not typecheck — a needle names an API this SDK does not have:\n\(errorText)")
+}
+
+/// **THE RED THIS FILE DID NOT HAVE.**
+///
+/// The three ban scans above can only ever assert that nothing in `Soredemo/`
+/// matches. A misspelled needle matches nothing either, so it is green forever,
+/// and the only evidence any of them ever fired was probe output pasted into a
+/// task report and then deleted. The package side has had this since Task 5
+/// (`everyBannedSymbolIsStillWhatTheConstructEmits` and
+/// `theScanRejectsAModuleThatReadsTheClockOrTheSystemRNG`, which between them
+/// pin every entry in `bannedSymbols`); this side inherited the gap and then
+/// grew by seven entries under it.
+///
+/// This closes it for the ambient list — the one Task 11.5 extended. The
+/// CoreGraphics, keystroke and user-content lists still have no fixture; that
+/// is recorded in ARCHITECTURE.md D6a rather than here.
+@Test func everyAmbientNeedleMatchesACallSiteInACompiledFixture() throws {
+    try typecheck(ambientConstructFixture, named: "AmbientConstructs")
+
+    let lines = SwiftSourceLexer.codeViewLines(of: ambientConstructFixture)
+    try #require(lines.count > 1, "the fixture is empty — this check would pass vacuously")
+
+    let unmatched = ambientBannedNames.filter { needle in
+        !lines.contains { $0.contains(needle) }
+    }
+    #expect(unmatched.isEmpty,
+            """
+            these needles match nothing in a fixture that calls every banned construct:
+            \(unmatched.joined(separator: "\n"))
+            Either the spelling is wrong — in which case the scan above has been green for a
+            reason that has nothing to do with the app's sources — or the construct is missing
+            from ambientConstructFixture, in which case the needle is unproven. A ban list is
+            worth exactly the reason on each line and the evidence that the line can fire.
             """)
 }

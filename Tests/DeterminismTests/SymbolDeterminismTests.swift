@@ -153,24 +153,24 @@ let bannedSymbols: [String: String] = [
     //      reason to call it, so the cost of the ban is zero and a false
     //      positive is not reachable.
     //
-    // `erand48` takes its state in an argument and IS genuinely deterministic;
-    // it is banned as a sibling, on the same reasoning that put
-    // `mach_continuous_time` beside `mach_absolute_time` — the family is closed
-    // as a family or it goes stale one member at a time.
+    // **Two members of the family are deliberately NOT here**, and the reason is
+    // the reason for the rest. `erand48` takes its state IN AN ARGUMENT, so it
+    // has no process-global state to lose — it is the injected-generator shape
+    // this package endorses everywhere else, and banning it would contradict the
+    // argument above. `srandom` seeds `random()`, which Swift marks unavailable,
+    // so it can only ever write state nothing in Swift can read. Both were
+    // banned in the first draft of this list on family resemblance alone. A ban
+    // list is worth exactly the reason on each line, and "it looks like its
+    // neighbours" is not one.
     //
     // Swept and found UNAVAILABLE to Swift on this toolchain, so no ban is
     // possible or needed: `lrand48`, `mrand48`, `nrand48`, `jrand48`, `rand`,
     // `random`, `srand` — all `__swift_unavailable("Use arc4random instead.")`.
     // Recorded because the value of a sweep is mostly in its negatives (D2-16).
     "_drand48":                                                 "drand48()",
-    "_erand48":                                                 "erand48()",
     "_srand48":                                                 "srand48()",
     "_seed48":                                                  "seed48()",
     "_lcong48":                                                 "lcong48()",
-    // Seeds `random()`, which Swift makes unavailable — so this one can only
-    // ever be a write to state nothing in Swift can read. Banned as the sibling
-    // it is; the cost is a line.
-    "_srandom":                                                 "srandom()",
     // `Security`'s CSPRNG, reachable with plain `import Foundation` — Foundation
     // re-exports it on Darwin the same way it re-exports `Security`'s other C API,
     // so no package target has to name `Security` to reach it and rule 1's import
@@ -242,12 +242,10 @@ public func t39() -> SecRandomRef { kSecRandomDefault }
 public func t40() -> NSUUID { NSUUID() }
 public func t41() -> clock_t { clock() }
 public func t42() -> Double { drand48() }
-public func t43(_ x: inout [UInt16]) -> Double { erand48(&x) }
-public func t44() { srand48(1) }
-public func t45(_ x: inout [UInt16]) { _ = seed48(&x) }
-public func t46(_ x: inout [UInt16]) { lcong48(&x) }
-public func t47() { srandom(1) }
-public func t48() { arc4random_stir() }
+public func t43() { srand48(1) }
+public func t44(_ x: inout [UInt16]) { _ = seed48(&x) }
+public func t45(_ x: inout [UInt16]) { lcong48(&x) }
+public func t46() { arc4random_stir() }
 """
 
 /// The other side of the rule, and the one that decides whether it is usable. Every
