@@ -225,12 +225,45 @@ nonisolated struct Rig {
         // honest setting for the thing being measured and the one that lets a
         // stall be a stall.
         input.expectsMediaDataInRealTime = false
-        writer.add(input)
         return Rig(writer: writer, input: input, directory: directory)
     }
 
-    func start() {
+    /// **The two lifecycles, and the reason this is a knob rather than a fix.**
+    ///
+    /// The successor stack has its own lifecycle, and the header says so in the
+    /// deprecation messages rather than anywhere a reader would look:
+    /// `addInput:` says *use the appropriate `AVAssetWriter.inputReceiver(for:…)`
+    /// overload*, and `startWriting` says *use `start()` instead*. The first
+    /// version of this spike called `writer.add(input)` **and** took a receiver
+    /// for the same input, then started with the deprecated `startWriting()` —
+    /// mixing the two. That is a usage error, and a usage error produces a stall
+    /// that looks exactly like a broken API.
+    ///
+    /// So both orders stay, selectable, because the comparison is the
+    /// experiment: if the stall survives the new lifecycle it is not about the
+    /// lifecycle, and if it does not, the earlier reading was wrong.
+    /// The combination this spike shipped in its first version, kept verbatim so
+    /// the discriminating run has a faithful "before" arm: the input added the
+    /// old way, a NEW receiver taken for it, and then the OLD `startWriting()`.
+    /// This is what stalled at frame 137.
+    func addInputTheOldWay() {
+        writer.add(input)
+    }
+
+    func startTheOldWay() {
         writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+    }
+
+    func startLegacy() {
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+    }
+
+    func startNew() throws {
+        // No `add(_:)`: the receiver call attaches the input itself.
+        try writer.start()
         writer.startSession(atSourceTime: .zero)
     }
 
@@ -290,7 +323,33 @@ enum SpikeD {
         let only = value("--only", "both")
         let poolThreshold = Int(value("--pool-threshold", "1000")) ?? 1000
         let mode = value("--mode", "await")   // await | immediate
-        let width = 1280, height = 720
+        let width = Int(value("--width", "1280")) ?? 1280
+        let height = Int(value("--height", "720")) ?? 720
+        // Whether to hold every buffer this run has appended, instead of letting
+        // it go. One of the two knobs the competing hypotheses disagree about:
+        // if the stall is the pool running dry, holding references should move
+        // the stall EARLIER and releasing them should move it later. If the
+        // index does not move, the pool is not what stalls.
+        let holdBuffers = arguments.contains("--hold-buffers")
+        let lifecycle = value("--lifecycle", "new")   // new | legacy
+
+        // THE SUBJECT IS THE RUNTIME, NOT THE SDK. A hang happens in the OS that
+        // is executing, and this spike is about to be cited in a register whose
+        // trigger is a version bump — so the version it ran on has to be in the
+        // output, not inferred from when the file was committed.
+        let build = ProcessInfo.processInfo.operatingSystemVersionString
+        let buildID = (try? String(contentsOf: URL(fileURLWithPath: "/System/Library/CoreServices/SystemVersion.plist"),
+                                   encoding: .utf8))
+            .flatMap { text -> String? in
+                guard let r = text.range(of: "<key>ProductBuildVersion</key>") else { return nil }
+                let tail = text[r.upperBound...]
+                guard let open = tail.range(of: "<string>"), let close = tail.range(of: "</string>")
+                else { return nil }
+                return String(tail[open.upperBound..<close.lowerBound])
+            } ?? "unknown"
+        print("RUNTIME:  \(build), build \(buildID)")
+        print("GEOMETRY: \(width)x\(height), mode \(mode), lifecycle \(lifecycle), pool threshold \(poolThreshold)"
+              + (holdBuffers ? ", HOLDING every appended buffer" : ""))
 
         var step = VerificationStep(name: "spike D — does the successor receiver hang?")
         step.expect([
@@ -347,14 +406,16 @@ enum SpikeD {
         let pixelResult = only == "sample"
             ? Result(skipped: true)
             : await runPixelReceiver(frames: frames, width: width, height: height,
-                                     poolThreshold: poolThreshold, mode: mode)
+                                     poolThreshold: poolThreshold, mode: mode,
+                                     holdBuffers: holdBuffers, lifecycle: lifecycle)
         announce("PixelBufferReceiver", pixelResult, frames: frames)
         report(&step, id: "pixel-receiver", kind: "PixelBufferReceiver", result: pixelResult,
                frames: frames, deadline: deadline)
 
         let sampleResult = only == "pixel"
             ? Result(skipped: true)
-            : await runSampleReceiver(frames: frames, width: width, height: height, mode: mode)
+            : await runSampleReceiver(frames: frames, width: width, height: height, mode: mode,
+                                      lifecycle: lifecycle)
         announce("SampleBufferReceiver", sampleResult, frames: frames)
         report(&step, id: "sample-receiver", kind: "SampleBufferReceiver", result: sampleResult,
                frames: frames, deadline: deadline)
@@ -424,20 +485,23 @@ enum SpikeD {
     /// appended nothing at all — and the run still looked like a result until
     /// the per-receiver line was printed.
     nonisolated static func runPixelReceiver(frames: Int, width: Int, height: Int,
-                                             poolThreshold: Int, mode: String) async -> Result {
+                                             poolThreshold: Int, mode: String,
+                                             holdBuffers: Bool, lifecycle: String) async -> Result {
         var result = Result()
         do {
             let rig = try Rig.make(width: width, height: height)
             defer { rig.cleanUp() }
             let attributes = bgraAttributes(width: width, height: height)
+            if lifecycle == "mixed" { rig.addInputTheOldWay() }
             let receiver = try rig.writer.inputPixelBufferReceiver(
                 for: rig.input, pixelBufferAttributes: attributes)
-            rig.start()
+            if lifecycle == "mixed" { rig.startTheOldWay() } else { try rig.startNew() }
             guard let pool = receiver.pixelBufferPool else {
                 result.error = "the receiver vended no pixel buffer pool"
                 return result
             }
             let tb = timebase()
+            var held: [CVReadOnlyPixelBuffer] = []
             for frame in 0..<frames {
                 var mutable = try pool.makeMutablePixelBuffer(.init(allocationThreshold: poolThreshold))
                 fill(&mutable, frame: frame)
@@ -458,6 +522,7 @@ enum SpikeD {
                 let spent = (mach_absolute_time() - began) * tb.numer / tb.denom
                 result.maxAppendNanos = max(result.maxAppendNanos, spent)
                 progressShared.endAppend()
+                if holdBuffers { held.append(readOnly) }
                 result.appended += 1
             }
             receiver.finish()
@@ -477,13 +542,14 @@ enum SpikeD {
     /// What is being measured is whether `append` returns; where the pixels
     /// came from does not enter that question.
     nonisolated static func runSampleReceiver(frames: Int, width: Int, height: Int,
-                                              mode: String) async -> Result {
+                                              mode: String, lifecycle: String) async -> Result {
         var result = Result()
         do {
             let rig = try Rig.make(width: width, height: height)
             defer { rig.cleanUp() }
+            if lifecycle == "mixed" { rig.addInputTheOldWay() }
             let receiver = try rig.writer.inputReceiver(for: rig.input)
-            rig.start()
+            if lifecycle == "mixed" { rig.startTheOldWay() } else { try rig.startNew() }
             let tb = timebase()
             for frame in 0..<frames {
                 let sample = try makeSampleBuffer(width: width, height: height, frame: frame)
@@ -533,7 +599,7 @@ enum SpikeD {
         do {
             let rig = try Rig.make(width: width, height: height)
             defer { rig.cleanUp() }
-            rig.start()
+            rig.startLegacy()
             let tb = timebase()
             for frame in 0..<frames {
                 let sample = try makeSampleBufferRaw(width: width, height: height, frame: frame)
