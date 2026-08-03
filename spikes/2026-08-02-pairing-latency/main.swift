@@ -134,6 +134,113 @@ enum SpikeA {
         nonisolated func count() { lock.withLock { _count += 1 } }
     }
 
+    /// Every step's transcript, to a file.
+    ///
+    /// **`open` severs stdout.** An `LSUIElement` app started through
+    /// LaunchServices has nowhere for `print` to go that anyone can read — and
+    /// `open` is mandatory here, because exec'ing the binary attributes every
+    /// grant to whatever started it. So the two requirements collide: the only
+    /// launch path that measures this identity is the only one with no output.
+    ///
+    /// Discovering that after a run costs the run. `--dry-run` exists to find
+    /// it before: it writes the file, prints nothing else, and **needs no
+    /// permission at all**, so it can be checked while the grants are still
+    /// unasked.
+    nonisolated(unsafe) static var transcript: [String] = []
+
+    nonisolated static func record(_ line: String) {
+        transcript.append(line)
+        print(line)
+    }
+
+    @MainActor
+    static func flushTranscript() {
+        guard let i = CommandLine.arguments.firstIndex(of: "--out"),
+              i + 1 < CommandLine.arguments.count else { return }
+        try? transcript.joined(separator: "\n")
+            .write(toFile: CommandLine.arguments[i + 1], atomically: true, encoding: .utf8)
+    }
+
+    /// Writes the output file and exits. No TCC, no measurement, no window.
+    @MainActor
+    static func dryRun() -> Never {
+        let responsible = ProcessInfo.processInfo.environment["__CFBundleIdentifier"] ?? "unknown"
+        record("── dry run: does the output file appear at all? ──")
+        record("process identity   : \(Bundle.main.bundleIdentifier ?? "?")")
+        record("grant attributed to: \(responsible)")
+        record("launched correctly : \(responsible == Bundle.main.bundleIdentifier ? "yes, via open" : "NO — exec'd, so a measuring run here would measure \(responsible)")")
+        record("")
+        record("This file existing is the whole result. It needed no permission, so it can be")
+        record("checked while every grant is still unasked — which is the point: `open` severs")
+        record("stdout, and finding that out after a timed run costs the run.")
+        flushTranscript()
+        exit(CommandLine.arguments.contains("--out") ? 0 : 4)
+    }
+
+    /// **Acquire the grants, and nothing else.** First of two launches.
+    ///
+    /// **Why it is separate from measuring.** A permission dialog inside a
+    /// timed window measures how fast the operator can find the button. The
+    /// windows here are 6 and 10 seconds; a first-run dialog is not a delay in
+    /// the measurement, it is the whole measurement.
+    ///
+    /// So this launch asks for everything, reports what it got, and exits. The
+    /// measuring launch then has a precondition that all three are already
+    /// held — and **"no dialog appeared this time" becomes a recorded result**
+    /// rather than an absence nobody looked for.
+    ///
+    /// Must be started with `open -n`, or the grants land on whatever exec'd
+    /// it. This step refuses otherwise, by name.
+    @MainActor
+    static func acquireGrants() {
+        var step = VerificationStep(name: "human 0 — acquire the grants, measure nothing")
+        step.begin(repositoryPath: repositoryPath)
+
+        let responsible = ProcessInfo.processInfo.environment["__CFBundleIdentifier"]
+        guard responsible == Bundle.main.bundleIdentifier else {
+            step.preconditionFailed("""
+            this process is running under \(responsible ?? "an unknown identity"), not \
+            \(Bundle.main.bundleIdentifier ?? "?"). A grant accepted now would attach to THAT, \
+            which is how every Phase 2 verification came to be recorded under a bundle identifier \
+            that holds nothing. Start with:
+              open -n ~/Applications/SoredemoSpikeA.app --args grant --out <file>
+            """)
+        }
+
+        step.inducesNothing("this launch acquires permissions and measures nothing; the stimulus "
+                            + "controls belong to the launches that measure")
+        step.expect([
+            .init("granted-screen", "Screen Recording", "granted to THIS bundle identity",
+                  reds: [.init("the grant, not the process",
+                               "run this exec'd instead of via open: the precondition above fires "
+                               + "and names the other identity")]),
+            .init("granted-input", "Input Monitoring", "granted to THIS bundle identity",
+                  reds: [.init("the grant", "deny it in the dialog: status reads denied, not granted")]),
+            .init("granted-ax", "Accessibility", "granted to THIS bundle identity",
+                  reds: [.init("the grant", "remove the entry from the pane and re-run: notGranted")]),
+        ])
+
+        _ = CGRequestScreenCaptureAccess()
+        // The key is spelled rather than read from `kAXTrustedCheckOptionPrompt`,
+        // which Swift 6 rejects as shared mutable state. The literal is what
+        // that global holds; ApplicationServices documents it as
+        // "AXTrustedCheckOptionPrompt".
+        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        print("\nIf dialogs appeared, answer them, then QUIT AND RE-RUN THIS — a grant does not "
+              + "apply to a process that is already running.\n")
+        print(CapturePermissions.dumpText())
+
+        step.check("granted-screen", "Screen Recording is granted to this identity",
+                   CapturePermissions.status(of: .screenRecording) == .granted)
+        step.check("granted-input", "Input Monitoring is granted to this identity",
+                   CapturePermissions.status(of: .inputMonitoring) == .granted)
+        step.check("granted-ax", "Accessibility is granted to this identity",
+                   CapturePermissions.status(of: .accessibility) == .granted)
+        step.finish(remedy: "Grant what is missing in System Settings, then QUIT and re-run this "
+                            + "launch. Only when all three are green does the measuring launch have "
+                            + "a window that is not measuring your reaction time.")
+    }
+
     // ---------------------------------------------------------------- shared
 
     /// Every human step prints these two before anything else it measures.
@@ -599,6 +706,8 @@ enum SpikeA {
         // every build rather than by a person at the machine, which is exactly
         // what the previous guard's failure case could not be.
         case "--self-test": VerificationStep.selfTest()
+        case "--dry-run": dryRun()
+        case "grant": acquireGrants(); return
         case "tapdown": theRealPortGoesDown(); return
         case "stall": aRealTimeoutDisable(); return
         default: break
