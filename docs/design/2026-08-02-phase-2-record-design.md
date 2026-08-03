@@ -1319,6 +1319,18 @@ per module   Geometry 222  Timeline 148  Graph 350  Framing 61  Variants 61  Pro
 union        633
 ```
 
+**The operator is part of the number, and its absence is what made this durable.** `575` was
+recorded without saying whether it was a sum or a union, so the next person to reproduce it had to
+guess — and D2-17 was *telling* them to reproduce it. A number with a propagation mechanism attached
+and no operator is not a stale figure; it is a stale figure that recruits. Every count in this
+document now carries how it was taken:
+
+```
+undefined symbols, UNION across the six library modules, `nm -u` with C++ names undemangled
+    fb6792b   575
+    HEAD      633      +58, +10% over 11 commits touching Sources/
+```
+
 **575 → 633: +58, +10%, over 11 commits touching `Sources/`.** That is the "narrow and
 stabilising API surface" this section assumed, not the "wide or fast-moving" case it
 excludes. **The churn argument does not survive the correction.** It is recorded here rather

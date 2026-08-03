@@ -661,6 +661,31 @@ instrument that settled it, not as an open question.
 atomic and still name something that cannot fail. Those four are the next section; they are not one
 problem and they do not share a mechanism.
 
+### Bounding an old measurement by the part that provably did not move
+
+An old number often cannot be re-taken — the tree has moved, and re-running the command answers
+about today. It can still be *bounded*, and the bound is often enough to prove the old number was
+about something else.
+
+D2-16 recorded "575 undefined symbols across the six library modules". A later task re-took it
+per-module, summed to 1321, and reported +130% in 17 hours — which happened to be D2-17's own
+stated failure case, so the conclusion looked earned. The rebuttal used no new measurement at all:
+
+> `git diff --stat fb6792b..HEAD -- Sources/` shows `Graph`, `Framing` and `Variants` **entirely
+> unchanged** since D2-16 was written. Those three alone are 472 symbols today, and therefore were
+> 472 then. A per-module sum at `fb6792b` was already above 575 before counting the other three.
+> So 575 was never a sum.
+
+**The contradiction was visible before any re-measurement, inside one artefact.** The old number and
+the parts of the tree that provably did not move cannot both be true under the same operator. Like
+for like the movement is +10%, which inverts the argument the 1321 supported.
+
+The technique generalises to any stale figure with a reachable history: *find the subset that
+demonstrably did not change, price it today, and check whether the old number can still be what it
+claims to be.* The violator count in D2-14 is the same shape — ten written before Task 4.5 closed
+two of them, and the two it lost are the two D2-14's own prose traces as reachable from
+`ProjectSnapshot`. The document contradicted itself, and the contradiction needed no scan to see.
+
 ### A claim about the platform leaves a row even after it is rewritten
 
 The red obligation forces a row about the environment to be rewritten as a row about **our recording

@@ -189,10 +189,37 @@ struct VerificationStep {
         /// expectation carrying no red, so a step says how much of itself is
         /// unwitnessed. The 301 checks that predate this are sampled rather
         /// than migrated — see `AGENTS.md`.
-        let red: String?
+        let reds: [Red]
 
-        init(_ id: String, _ label: String, _ value: String, red: String? = nil) {
-            self.id = id; self.label = label; self.value = value; self.red = red
+        init(_ id: String, _ label: String, _ value: String, reds: [Red] = []) {
+            self.id = id; self.label = label; self.value = value; self.reds = reds
+        }
+    }
+
+    /// One recorded red: the mutation, **and the dimension of the predicate it
+    /// attacked**.
+    ///
+    /// **The dimension is here because a single red is not enough, and rule 8
+    /// proved it.** The checker decided a type was closed with
+    /// `label == "from"` — a predicate over *two* dimensions, the parameter's
+    /// label and its type. The fixture set pinned the wrong-*label* case
+    /// (`init(fromRaw:)`) and nothing pinned the wrong-*type* case, so
+    /// `init(from data: Data)` coexisted with the synthesised decoder and the
+    /// rule was silent forever. That fixture would have carried a red
+    /// certificate and passed.
+    ///
+    /// "It reddened" and "it reddened in every dimension it claims to guard"
+    /// read identically in a record that only stores the first. A predicate
+    /// with N dimensions owes N certificates, and naming the dimension is what
+    /// makes a missing one countable rather than invisible.
+    struct Red {
+        /// The axis of the claim this mutation attacked — "the label", "the
+        /// parameter's type", "the lower bound", "the channel".
+        let dimension: String
+        /// What was changed to make the assertion fail, run once.
+        let mutation: String
+        init(_ dimension: String, _ mutation: String) {
+            self.dimension = dimension; self.mutation = mutation
         }
     }
 
@@ -235,7 +262,10 @@ struct VerificationStep {
         for row in rows {
             print("  \(row.label.padding(toLength: width, withPad: " ", startingAt: 0))  \(row.value)")
             print("  \(String(repeating: " ", count: width))  [\(row.id)]"
-                  + (row.red.map { "  red: \($0)" } ?? "  red: NOT RECORDED"))
+                  + (row.reds.isEmpty
+                     ? "  red: NOT RECORDED"
+                     : row.reds.map { "  red[\($0.dimension)]: \($0.mutation)" }
+                         .joined(separator: "\n" + String(repeating: " ", count: width + 4))))
         }
         print("----------------------------------------------------------------------------\n")
     }
@@ -496,14 +526,16 @@ struct VerificationStep {
         // sample rather than a sweep (AGENTS.md). So the obligation is visible
         // and countable now, and a step that witnesses none of itself says so
         // in the same breath as passing.
-        let unwitnessed = expectations.filter { $0.red == nil }.map(\.id)
+        let unwitnessed = expectations.filter { $0.reds.isEmpty }.map(\.id)
         if !unwitnessed.isEmpty {
             print("\nNO RECORDED RED — \(unwitnessed.count) of \(expectations.count) expectations: "
                   + unwitnessed.joined(separator: ", "))
             print("""
             Each of these is discharged by an assertion, and nothing here says that assertion CAN \
             fail. An assertion that cannot fail discharges a row exactly as well as one that can. \
-            Record the mutation that made it red.
+            Record the mutation that made it red, and the DIMENSION it attacked — a predicate over \
+            two dimensions witnessed on one of them is the shape that let `label == "from"` close a \
+            type for four months.
             """)
         }
         if !result.undischarged.isEmpty {
