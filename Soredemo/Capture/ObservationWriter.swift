@@ -118,11 +118,13 @@ final class ObservationWriter: @unchecked Sendable {
     /// STATEMENT ABOUT NAMING ONLY: "if a log for this media exists, this is where it would be."
     ///
     /// `nil` when `mediaURL`'s parent directory is not literally named `media`, or its filename
-    /// does not match `master-NN.mov` for some non-negative integer `NN` — which includes every
-    /// media file `ContentView`'s scratch `TemporaryFileMediaSink` produces today: that sink writes
-    /// flatly into a temporary directory with no `media/` parent and no `ObservationWriter` behind
-    /// it at all, so this function is correct to answer `nil` for it, not a best-effort guess at a
-    /// log that was never going to exist.
+    /// does not match `master-NN.mov` for some non-negative integer `NN`. Before Task 5.5,
+    /// `ContentView`'s scratch `TemporaryFileMediaSink` wrote flatly into a temporary directory with
+    /// no `media/` parent and no `ObservationWriter` behind it at all, so this function correctly
+    /// answered `nil` for every recording that sink produced. Task 5.5 gave that sink a `media/`
+    /// subdirectory and `CaptureSession` an `ObservationWriter` writing `observations/` beside it —
+    /// the same convention this function already derives — so a recording made through it now has a
+    /// log here whenever observation was not blind for the whole segment.
     nonisolated static func expectedLogURL(forMediaURL mediaURL: URL) -> URL? {
         guard mediaURL.pathExtension == "mov",
               mediaURL.deletingLastPathComponent().lastPathComponent == "media" else { return nil }

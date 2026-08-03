@@ -87,6 +87,14 @@ final class RecordingCoordinator {
     }
 
     private func beginOpenRecording() {
+        // Task 5.5 Step 3 — ask for Screen Recording, once, before the picker opens.
+        // `SCContentSharingPicker`/`SCStream` never prompt on their own; without this a first-run
+        // user is told "the user declined" by an API that never asked them.
+        // `CapturePermissions.requestScreenRecordingAccess()` is idempotent and unguarded on
+        // purpose — see that function's own doc comment for why `status(of: .screenRecording) !=
+        // .granted` would never fire here.
+        CapturePermissions.requestScreenRecordingAccess()
+
         mediaURL = nil
         statusText = "Choose what to record from the picker\u{2026}"
         let picker = CaptureSourcePicker(onSelect: { [self] source in
@@ -212,12 +220,23 @@ final class RecordingCoordinator {
 /// `AVURLAsset`, which has no opinion about where the file lives, so a scratch directory is enough
 /// to make a frame observable without inventing a document for the sole purpose of holding it.
 ///
-/// **Not cleaned up by this type, and not under `media/`.** `AGENTS.md`'s "never write to $HOME
+/// **Not cleaned up by this type.** `AGENTS.md`'s "never write to $HOME
 /// and never commit media" governs the PROBE (`scripts/cross-boundary-digest-probe.swift`), which
 /// this is not — it is the shipping app's own scratch storage, under `NSTemporaryDirectory()`,
 /// which the OS reclaims on its own schedule. Deleting the file out from under a still-playing
 /// `AVPlayer` the moment the coordinator finishes would be the wrong failure to introduce here.
+///
+/// **Media now lands under a `media/` subdirectory, not flatly — a correction from Task 5.5.**
+/// `ObservationWriter.expectedLogURL(forMediaURL:)`'s own doc comment used to cite this type's flat
+/// layout as the reason it correctly answers `nil` for every recording made through this window:
+/// no `media/` parent meant no log could ever be found beside one. Task 5.5 gives `CaptureSession`
+/// an `ObservationWriter` to write to, and it writes to exactly the sibling
+/// `expectedLogURL(forMediaURL:)` derives from a `media/master-NN.mov` path — so this sink now
+/// produces that shape, and `packageURL` (below) is the root both `media/` and `observations/`
+/// sit under, which `CaptureSession` needs to open the observation log at all.
 final class TemporaryFileMediaSink: MediaSink, @unchecked Sendable {
+    /// The package root — parent of both `media/` (this type) and `observations/`
+    /// (`ObservationWriter`, via `packageURL` below).
     private let directory: URL
     private var urlsByName: [String: URL] = [:]
 
@@ -225,16 +244,24 @@ final class TemporaryFileMediaSink: MediaSink, @unchecked Sendable {
         directory = FileManager.default.temporaryDirectory
             .appending(path: "soredemo-preview-\(Minting.newIdentifier().uuidString)",
                       directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: directory.appending(path: "media", directoryHint: .isDirectory),
+            withIntermediateDirectories: true)
     }
 
     @MainActor
     func acceptMedia(_ data: Data, named name: String) throws {
-        let url = directory.appending(path: name)
+        let url = directory.appending(path: "media", directoryHint: .isDirectory).appending(path: name)
         try data.write(to: url)
         urlsByName[name] = url
     }
 
     @MainActor
     func url(for name: String) -> URL? { urlsByName[name] }
+
+    /// The package root, for `CaptureSession` to open an `ObservationWriter` under — see
+    /// `MediaSink.packageURL`'s own doc comment. Never `nil`: unlike `ProjectDocument`, a scratch
+    /// sink always has somewhere to write the moment it exists.
+    @MainActor
+    var packageURL: URL? { directory }
 }

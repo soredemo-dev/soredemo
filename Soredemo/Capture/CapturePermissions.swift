@@ -1,4 +1,9 @@
-import ApplicationServices
+// `@preconcurrency`: `kAXTrustedCheckOptionPrompt` (used by `requestAccessibilityAccess()` below)
+// imports from this framework as a `var` Swift 6 strict concurrency reads as unchecked shared
+// mutable state — the same reasoning `CaptureSession.swift`/`ContentView.swift` already carry for
+// `@preconcurrency import ScreenCaptureKit`, applied to the one ApplicationServices global this
+// file newly reads.
+@preconcurrency import ApplicationServices
 import AVFoundation
 import CoreGraphics
 import Foundation
@@ -78,6 +83,12 @@ public enum PermissionStatus: String, Codable, Sendable {
 /// other three into every recording they apply to.
 public enum Degradation: String, Codable, Sendable {
     case blocksRecording
+    /// **No longer produced by `degradation(for:)`, since Task 5.5.** Kept
+    /// rather than deleted: it is a `String` raw value that could already be
+    /// on disk nowhere today (`Degradation` is "not yet recorded anywhere",
+    /// below) but removing a case is exactly the wire-breaking edit
+    /// `ObservationLog.schemaVersion`'s doc comment warns about one type over,
+    /// for a saving of one case this type does not need.
     case noMicrophoneTrack
     case observationBlind
     case noElementIdentity
@@ -186,6 +197,56 @@ public enum CapturePermissions {
         }
     }
 
+    /// Asks for Screen Recording — Task 5.5's Step 3.
+    ///
+    /// **`CGRequestScreenCaptureAccess` occurred zero times in this repository
+    /// before this function.** `SCStream` and `SCContentSharingPicker` do not
+    /// prompt on their own, so without a call to this, a first-run user is
+    /// told "the user declined" by an API that never asked them.
+    ///
+    /// **Do not guard the call site with `status(of: .screenRecording) !=
+    /// .granted`** — measured (D6b row 18): `CGPreflightScreenCaptureAccess()`
+    /// read `.granted` immediately after `tccutil reset ScreenCapture
+    /// video.soredemo.Soredemo`, and the very next `SCStream.startCapture()`
+    /// refused with `-3801`. That guard would never fire on this machine, so
+    /// a call behind it is dead code that reads like protection. The call
+    /// below is idempotent on its own terms instead: it prompts only in the
+    /// never-asked state, and returns `true` immediately when already
+    /// granted — so it costs nothing to call every time.
+    ///
+    /// Called from `RecordingCoordinator.beginOpenRecording()`, before the
+    /// picker opens.
+    @discardableResult
+    public static func requestScreenRecordingAccess() -> Bool {
+        CGRequestScreenCaptureAccess()
+    }
+
+    /// Asks for Accessibility — Task 5.5's Step 4, the same absence as Step 3
+    /// one permission over. `AXIsProcessTrustedWithOptions` with the prompt
+    /// option occurred zero times in this repository before this function;
+    /// `status(of: .accessibility)` above only ever reads `AXIsProcessTrusted()`,
+    /// which never asks.
+    ///
+    /// Returns the trust state at the moment of the call — `true` if already
+    /// granted, `false` in the never-asked state (which also triggers the
+    /// system prompt) and in the denied state. `CaptureSession` uses this
+    /// return value directly to decide whether this segment's observation log
+    /// header should carry `.accessibilityUnavailable`, rather than making a
+    /// second, separate read of the trust state afterwards —
+    /// `Tests/AppSourceTests/AppSourceAllowListTests.swift`'s
+    /// `theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt`
+    /// pins `CapturePermissions.status(of: .accessibility)` (a **different**
+    /// call, `AXIsProcessTrusted()` with no prompt) to exactly one call site —
+    /// `AXObserver`'s own injection point — so this function deliberately
+    /// does not call it either.
+    ///
+    /// Called from `CaptureSession` before the AX walk's first use.
+    @discardableResult
+    public static func requestAccessibilityAccess() -> Bool {
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        return AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+    }
+
     /// Which `PermissionStatus` cases a given permission's API can actually
     /// produce — the answer to "which of these can this API not tell
     /// apart", made queryable rather than left in prose alone.
@@ -211,20 +272,46 @@ public enum CapturePermissions {
 
     /// What the product still does without `p` — see `Degradation`'s doc
     /// comment for where this is meant to be recorded.
+    ///
+    /// **`.microphone` maps to `.blocksRecording`, not `.noMicrophoneTrack` —
+    /// corrected in Task 5.5 to match a measurement rather than an
+    /// assumption.** Measured at the Task 4 human step:
+    /// `CaptureSession.beginSegment` sets `configuration.captureMicrophone =
+    /// true` unconditionally, and with the entitlement missing (the state
+    /// Task 5.5's Step 1 fixed) `tccd` refused the process the capability
+    /// outright —
+    ///
+    /// ```
+    /// service: kTCCServiceMicrophone requires entitlement
+    /// com.apple.security.device.audio-input but it is missing
+    /// Policy disallows prompt
+    /// access to kTCCServiceMicrophone denied
+    /// ```
+    ///
+    /// — and the **whole recording** failed to start, not merely the
+    /// microphone track. `.noMicrophoneTrack` claimed a distinct, milder
+    /// consequence — system audio and video keep recording, just without a
+    /// microphone track — that this file's own doc comment (line 9) demands
+    /// be "what actually happens", and it was not: `SCStreamConfiguration`
+    /// asks for a microphone as one inseparable request alongside video and
+    /// system audio, and denying any part of that request fails the whole
+    /// stream. `Tests/AppSourceTests/ProductionCallerTests.swift` pins this
+    /// row against the measurement above.
     public static func degradation(for p: CapturePermission) -> Degradation {
         switch p {
         case .screenRecording: return .blocksRecording
-        case .microphone:      return .noMicrophoneTrack
+        case .microphone:      return .blocksRecording
         case .inputMonitoring: return .observationBlind
         case .accessibility:   return .noElementIdentity
         }
     }
 
     /// Permissions whose absence stops a recording rather than degrading it.
-    /// Today this is exactly `.screenRecording` when not granted — the only
-    /// permission whose `degradation(for:)` is `.blocksRecording` — but it
-    /// is written as a filter over all four so a future permission with a
-    /// blocking degradation is picked up without this function changing.
+    /// **Two now, `.screenRecording` and `.microphone`**, since Task 5.5
+    /// corrected the second's mapping above — this was written as a filter
+    /// over all four rather than a literal pair specifically so a change like
+    /// that one would be picked up without this function itself changing, and
+    /// it was.
     public static func blockingFailures() -> [CapturePermission] {
         CapturePermission.allCases.filter {
             degradation(for: $0) == .blocksRecording && status(of: $0) != .granted

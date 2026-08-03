@@ -38,9 +38,9 @@ struct StageWindow: View {
             // would be, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl`
             // pairing `beginSegment`/`ObservationWriter` already define — it does not claim one is
             // there. The filesystem check right here is what turns "where it would be" into
-            // "whether it is": a recording made without Input Monitoring, or through
-            // `ContentView`'s scratch `TemporaryFileMediaSink` (which writes no observation log at
-            // all — see that type's own header), legitimately has none, and `nil` is what tells
+            // "whether it is": a recording made without Input Monitoring, or one made before
+            // Task 5.5 gave `CaptureSession` an `ObservationWriter` to write to at all,
+            // legitimately has none, and `nil` is what tells
             // `StageCompositor` to draw no pointer rather than fabricating an empty log or guessing
             // a default path. `PointerReading`'s four cases exist so "no log" and "a log that says
             // nothing" stay distinguishable; this is the one point that decides which of those two

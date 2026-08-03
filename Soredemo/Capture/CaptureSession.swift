@@ -79,6 +79,18 @@ import Timeline
 /// inheriting an isolation it did not ask for.
 public protocol MediaSink: Sendable {
     @MainActor func acceptMedia(_ data: Data, named name: String) throws
+
+    /// **Added in Task 5.5**, for `CaptureSession` to open an `ObservationWriter` beside the
+    /// media, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl` pairing
+    /// `ObservationWriter.expectedLogURL(forMediaURL:)` already derives. `ProjectDocument` already
+    /// had a member of this exact shape (Task 5, for `StageWindow`'s reader half); this requirement
+    /// is what makes it load-bearing for the writer half too, rather than a coincidence of two
+    /// unrelated properties sharing a name.
+    ///
+    /// `nil` when there is no package to write into yet — `ProjectDocument.packageURL`'s own doc
+    /// comment gives the case (an unsaved document); a `MediaSink` with no package writes no
+    /// observation log for that segment, exactly as it already writes no media.
+    @MainActor var packageURL: URL? { get }
 }
 
 public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sendable {
@@ -253,6 +265,26 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// everything afterwards, so by the end of a run the error describes
         /// a consequence rather than the cause. This is the cause.
         public internal(set) var firstAppendFailure: String?
+
+        /// **Task 5.5.** `ObservationWriter.append`/`.close` calls that threw,
+        /// across every record kind and every segment — `WriterError
+        /// .recordSpansTwoLines` shouldn't fire (`JSONEncoder` escapes
+        /// newlines), `.foreignEpoch` shouldn't fire (one `epoch` for the
+        /// whole session), but `.logIsClosed` legitimately can: an AX chain
+        /// enqueued from a click near a segment boundary is appended to the
+        /// writer instance open **at the click**, not the writer current when
+        /// the chain finally answers, and `finalizeCurrentSegment` waits on
+        /// `axObserver.waitForQueuedClicks()` before closing specifically to
+        /// keep this at zero — see that function. Counted rather than
+        /// silently dropped via `try?`, for the same reason every other
+        /// append path in this type is: a dropped record with nothing
+        /// counting it is indistinguishable from a record that was never
+        /// produced.
+        public internal(set) var observationAppendFailures = 0
+        /// The first observation append/close failure, captured the same way
+        /// `firstAppendFailure` is — the writer's error, not the last one, is
+        /// the cause.
+        public internal(set) var firstObservationAppendFailure: String?
 
         /// The layout of the first audio buffer each source delivered.
         public internal(set) var systemAudioLayout: String?
@@ -484,6 +516,42 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// is unregistered in `stop()`/`deinit` before the session can be freed.
     private nonisolated(unsafe) var reconfigToken: Unmanaged<CaptureSession>?
 
+    // MARK: - Observation (Task 5.5)
+    //
+    // One `InputObserver` and one `AXObserver` for the life of the SESSION —
+    // `start()` to `stop()` — not one per segment: the tap and the AX queue
+    // are the expensive, permission-gated things to stand up, and D2-12's own
+    // straddling rule already assumes an AX chain can outlive the segment
+    // boundary its click happened in. `observationWriter` is the thing that
+    // rotates per segment, opened in `beginSegment` and closed in
+    // `finalizeCurrentSegment` — the same split `master`/`stream` already
+    // have relative to `self.source`.
+
+    private nonisolated(unsafe) var inputObserver: InputObserver?
+    private nonisolated(unsafe) var axObserver: AXObserver?
+    /// What `setUpObservation()` found when it tried to start the tap and
+    /// asked for Accessibility — the same list every segment's
+    /// `ObservationLogHeader.blindness` carries, because both permissions are
+    /// read once for the whole session, not re-checked per segment.
+    private nonisolated(unsafe) var observationBlindness: [ObservationBlindness] = []
+    private nonisolated(unsafe) var observationWriter: ObservationWriter?
+    /// `InputObserver.diagnostics`/`AXObserver.diagnostics` as they stood the
+    /// moment the CURRENT segment opened — both are monotonic cumulative
+    /// counters over the whole session, so a segment's own `GapWatch` rows are
+    /// this snapshot subtracted from the diagnostics read at close, the same
+    /// snapshot-then-diff shape `Diagnostics.SegmentConfiguration` already
+    /// uses for per-segment `ContentScale`.
+    private nonisolated(unsafe) var inputDiagnosticsAtSegmentStart = InputObserver.Diagnostics()
+    private nonisolated(unsafe) var axDiagnosticsAtSegmentStart = AXObserver.Diagnostics()
+    private nonisolated(unsafe) var frameStatusCountsAtSegmentStart: [Int: Int] = [:]
+    /// The sum of every `SecureInputInterval.interval.duration` routed to the
+    /// current segment's writer. Not derivable from `InputObserver.Diagnostics`
+    /// by subtraction the way the tap/AX counters above are — that type counts
+    /// intervals, never their total width — so this accumulates the one
+    /// number `GapWatch.secureInput(suppressedNanos:)` needs directly, reset
+    /// to zero at each `beginSegment`.
+    private nonisolated(unsafe) var secureInputSuppressedNanosAtCurrentSegment: Int64 = 0
+
     // MARK: - Init
 
     /// `scale` and `displayUUID` are supplied by the caller, exactly
@@ -552,8 +620,74 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         guard !wasAlreadyRunning else { throw SessionError.alreadyRunning }
 
         registerReconfigurationObserver()
+        // Task 5.5, Step 5: once per SESSION, not once per segment — see the
+        // "Observation" stored-property block above.
+        await setUpObservation()
         try await beginSegment(geometry: source.geometry(scale: scale, displayUUID: displayUUID),
                                 destination: source.destinationRect(scale: scale))
+    }
+
+    /// Constructs this session's `InputObserver`/`AXObserver`, asks for
+    /// Accessibility (Step 4), starts the tap, and records what happened as
+    /// `observationBlindness` — the list every segment's
+    /// `ObservationLogHeader.blindness` carries.
+    ///
+    /// **`@MainActor`, not `nonisolated`**, unlike almost everything else in
+    /// this file: `InputObserver.start(onObservation:)` is itself
+    /// MainActor-isolated (its own doc comment explains why — it touches
+    /// `CFRunLoopGetMain()`), and `CapturePermissions.requestAccessibilityAccess()`
+    /// reads `Bundle`-adjacent process state the same way `dumpText()` does.
+    /// `start()` is `nonisolated async`, so `await setUpObservation()` there
+    /// is an ordinary actor hop, the same shape `finalizeCurrentSegment`
+    /// already uses for `MainActor.run { try sink.acceptMedia(...) }`.
+    ///
+    /// **Assumes neither answer about Input Monitoring.** This is the first
+    /// production call to `InputObserver.start(onObservation:)` anywhere in
+    /// this app (`docs/.../task-5.5-report.md` § Step 6) — nothing here
+    /// guards on `CapturePermissions.status(of: .inputMonitoring)` before
+    /// calling it, and nothing pre-empts the grant. Whatever `CGEvent
+    /// .tapCreate` does under this bundle's own identity is what happens;
+    /// `CaptureError.inputMonitoringUnavailable` is caught below exactly like
+    /// any other expected outcome, not specially avoided.
+    @MainActor
+    private func setUpObservation() async {
+        // Step 4 — ask for Accessibility once, before the AX walk's first
+        // use. The return value IS this session's accessibility reading for
+        // the whole run: `CapturePermissions.status(of: .accessibility)` is
+        // deliberately not also called here — `AppSourceAllowListTests
+        // .theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt`
+        // pins that call to `AXObserver`'s own injection point, and a second
+        // reader here would be a second policy about what the grant means.
+        let accessibilityGranted = CapturePermissions.requestAccessibilityAccess()
+
+        let arrangement = InputObserver.currentArrangement()
+        let input = InputObserver(arrangement: arrangement, epoch: epoch)
+        let ax = AXObserver(arrangement: arrangement, epoch: epoch)
+
+        var blindness: [ObservationBlindness] = []
+        if !accessibilityGranted { blindness.append(.accessibilityUnavailable) }
+
+        do {
+            try input.start(onObservation: { [weak self] observation in
+                self?.routeInputObservation(observation)
+            })
+        } catch let error as CaptureError {
+            // NOT "no events happened" — see `CaptureError`'s own cases.
+            if let mapped = error.blindness { blindness.append(mapped) }
+        } catch {
+            // `InputObserver.start` only ever throws `CaptureError` per its
+            // own signature's callers; an unrecognised error type is not
+            // silently absorbed into a blindness case that would misname it.
+            FileHandle.standardError.write(Data((
+                "CaptureSession: InputObserver.start threw an unexpected error: \(error)\n"
+            ).utf8))
+        }
+
+        lock.withLock {
+            self.inputObserver = input
+            self.axObserver = ax
+            self.observationBlindness = blindness
+        }
     }
 
     /// Finalises the current segment with `.paused` and tears the stream
@@ -630,6 +764,17 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         } else {
             unregisterReconfigurationObserver()
             lock.withLock { isRunning = false }
+        }
+
+        // Tears the tap down for the whole session — `InputObserver.start(onObservation:)` was
+        // called exactly once, in `setUpObservation()`, and this is its matching `stop()`.
+        let observerToStop = lock.withLock { () -> InputObserver? in
+            let observer = inputObserver
+            inputObserver = nil
+            return observer
+        }
+        if let observerToStop {
+            await MainActor.run { observerToStop.stop() }
         }
 
         let table = try lock.withLock { try ledger.finish() }
@@ -738,6 +883,43 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         try scStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
         try scStream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
 
+        // Task 5.5, Step 5 — one `ObservationWriter` per segment, beside the media. `packageURL`
+        // is read through the sink rather than assumed, the same refusal `ProjectDocument
+        // .addMedia` already makes for an unsaved document: no package, no log, for this segment —
+        // exactly as it already writes no media for one.
+        let packageURL = await MainActor.run { mediaSink.packageURL }
+        let (input, ax, blindness) = lock.withLock { (inputObserver, axObserver, observationBlindness) }
+        var writer: ObservationWriter?
+        if let packageURL {
+            let header = ObservationLogHeader(anchor: Minting.epochAnchor(), segmentIndex: index,
+                                              mediaFilename: mediaFilename, revision: geometry.revision,
+                                              blindness: blindness)
+            do {
+                writer = try ObservationWriter.open(segment: header, in: packageURL)
+            } catch {
+                FileHandle.standardError.write(Data((
+                    "CaptureSession: ObservationWriter.open failed for segment \(index): \(error)\n"
+                ).utf8))
+            }
+            // Declared only for the channels this session is actually observing — see
+            // `ObservationLogTrailer.recordCounts`'s own "a key present with a zero value and a
+            // key absent are different facts": a run blind to input monitoring must not claim
+            // `pointer: 0`, which would read as "the mouse never moved" rather than "nothing was
+            // watching".
+            if let writer {
+                let inputBlind = blindness.contains(.inputMonitoringUnavailable)
+                    || blindness.contains(.eventTapRunLoopSourceUnavailable)
+                if !inputBlind {
+                    for kind in ["pointer", "button", "key", "secureInput", "tapDisabled"] {
+                        writer.declareRecordKind(kind)
+                    }
+                }
+                if !blindness.contains(.accessibilityUnavailable) {
+                    writer.declareRecordKind("axChain")
+                }
+            }
+        }
+
         lock.withLock {
             self.stream = scStream
             self.master = master
@@ -750,6 +932,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             self.lastFrameInstant = nil
             self.frameCounterForBlackCheck = 0
             self.blackFrameConsecutive = 0
+            self.observationWriter = writer
+            self.inputDiagnosticsAtSegmentStart = input?.diagnostics ?? InputObserver.Diagnostics()
+            self.axDiagnosticsAtSegmentStart = ax?.diagnostics ?? AXObserver.Diagnostics()
+            self.frameStatusCountsAtSegmentStart = _diagnostics.frameStatusCounts
+            self.secureInputSuppressedNanosAtCurrentSegment = 0
             let openInstant = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
             ledger.openSegment(at: openInstant, revision: geometry.revision, mediaFilename: mediaFilename)
         }
@@ -833,17 +1020,139 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             lock.withLock { _diagnostics.discardedSegments.append(discarded) }
         }
 
-        lock.withLock {
-            ledger.closeSegment(at: snapshot.endInstant, endedBy: boundary)
+        let (segment, closingWriter) = lock.withLock { () -> (MasterSegment, ObservationWriter?) in
+            let segment = ledger.closeSegment(at: snapshot.endInstant, endedBy: boundary)
             self.stream = nil
             self.master = nil
             self.writerTempURL = nil
             self.currentMediaFilename = nil
+            let writer = self.observationWriter
+            self.observationWriter = nil
             if stopping { isRunning = false }
+            return (segment, writer)
+        }
+
+        if let closingWriter {
+            // **Wait for the AX queue before closing, or D2-12's straddling rule is a lie this
+            // writer tells.** `AXObserver.enqueue` may still be walking a chain for a click that
+            // happened just before this boundary; `routeInputObservation` already captured THIS
+            // writer at the moment that click was recorded (not "whichever writer is open when the
+            // chain answers"), so the chain is correctly headed here rather than to the next
+            // segment's log — but only if this writer is still open when it arrives. Without this,
+            // a trailing click's AX chain finds `WriterError.logIsClosed` and is lost, silently, to
+            // exactly the kind of two-instruments gap this project keeps re-finding.
+            let ax = lock.withLock { axObserver }
+            ax?.waitForQueuedClicks()
+            let gapWatches = observationGapWatches(hostRange: segment.hostRange)
+            do {
+                try closingWriter.close(endedBy: boundary, hostRange: segment.hostRange, gapWatches: gapWatches)
+            } catch {
+                lock.withLock {
+                    _diagnostics.observationAppendFailures += 1
+                    if _diagnostics.firstObservationAppendFailure == nil {
+                        _diagnostics.firstObservationAppendFailure = String(describing: error)
+                    }
+                }
+            }
         }
 
         if stopping {
             unregisterReconfigurationObserver()
+        }
+    }
+
+    /// The four D6a `GapWatch` rows for the segment that just closed, as the
+    /// diagnostics read now minus the snapshot `beginSegment` took when it
+    /// opened — see the "Observation" stored-property block for why a
+    /// snapshot-then-diff is needed at all (the observers are session-long,
+    /// the log is per-segment).
+    private nonisolated func observationGapWatches(hostRange: HostRange) -> [GapWatch] {
+        let (inputNow, inputBase, axNow, axBase, secureInputSuppressed, framesBase) = lock.withLock {
+            (inputObserver?.diagnostics ?? InputObserver.Diagnostics(), inputDiagnosticsAtSegmentStart,
+             axObserver?.diagnostics ?? AXObserver.Diagnostics(), axDiagnosticsAtSegmentStart,
+             secureInputSuppressedNanosAtCurrentSegment, frameStatusCountsAtSegmentStart)
+        }
+        let framesNow = lock.withLock { _diagnostics.frameStatusCounts }
+        let frameCallbacksThisSegment = framesNow.values.reduce(0, +) - framesBase.values.reduce(0, +)
+        let idleFramesThisSegment = (framesNow[SCFrameStatus.idle.rawValue] ?? 0)
+            - (framesBase[SCFrameStatus.idle.rawValue] ?? 0)
+
+        return [
+            .tapDisabled(tapEnabledPolls: inputNow.tapEnabledPolls - inputBase.tapEnabledPolls,
+                        tapPollingSpanNanos: inputNow.tapPollingSpanNanos - inputBase.tapPollingSpanNanos,
+                        tapDisabledIntervals: inputNow.tapDisabledIntervals - inputBase.tapDisabledIntervals,
+                        tapBlindNanos: inputNow.tapBlindNanos - inputBase.tapBlindNanos),
+            .secureInput(secureInputChecks: inputNow.secureInputChecks - inputBase.secureInputChecks,
+                        secureInputCheckSpanNanos: inputNow.secureInputCheckSpanNanos
+                            - inputBase.secureInputCheckSpanNanos,
+                        secureInputIntervals: inputNow.secureInputIntervals - inputBase.secureInputIntervals,
+                        suppressedNanos: secureInputSuppressed),
+            .videoFramesNotProduced(frameCallbacksObserved: frameCallbacksThisSegment,
+                                    observationSpanNanos: hostRange.duration.rawValue,
+                                    idleFrames: idleFramesThisSegment),
+            .axAncestorWalk(chainsRecorded: axNow.chainsRecorded - axBase.chainsRecorded,
+                            observationSpanNanos: hostRange.duration.rawValue,
+                            truncatedWalks: (axNow.truncatedDepthCapReached - axBase.truncatedDepthCapReached)
+                                + (axNow.truncatedBudgetExceeded - axBase.truncatedBudgetExceeded)),
+        ]
+    }
+
+    /// Routes one `InputObserver.Observation` to the segment's
+    /// `ObservationWriter` and, for a button-down, enqueues its AX chain.
+    ///
+    /// **Called on the tap callback thread — `nonisolated`, and everything it
+    /// touches is behind `lock` or is itself thread-safe.** This is the first
+    /// production call to `InputObserver.start(onObservation:)`'s sink
+    /// anywhere in this app; see the task report for what that first call
+    /// surfaced.
+    ///
+    /// **The writer is captured once, at the top, and that single reference —
+    /// not a fresh `lock.withLock { observationWriter }` per case — is what
+    /// the AX completion closure below uses too.** D2-12: an AX chain
+    /// belongs to the segment its click happened in, and the chain answers
+    /// asynchronously, possibly after this segment's writer has already been
+    /// replaced by the next one's. Capturing the writer that was open at the
+    /// moment of the click (this function runs synchronously off the tap
+    /// callback, with no gap) is what keeps the chain on the right log
+    /// without re-deriving "which segment was this click in" from a instant
+    /// comparison.
+    private nonisolated func routeInputObservation(_ observation: InputObserver.Observation) {
+        let writer = lock.withLock { observationWriter }
+        switch observation {
+        case .pointer(let sample):
+            appendObservation(sample, to: writer)
+        case .button(let event):
+            appendObservation(event, to: writer)
+            guard event.phase == .down, let ax = lock.withLock({ axObserver }) else { return }
+            ax.enqueue(event) { [weak self] record in
+                self?.appendObservation(record, to: writer)
+            }
+        case .key(let sample):
+            appendObservation(sample, to: writer)
+        case .secureInput(let interval):
+            lock.withLock { secureInputSuppressedNanosAtCurrentSegment += interval.interval.duration.rawValue }
+            appendObservation(interval, to: writer)
+        case .tapDisabled(let interval):
+            appendObservation(interval, to: writer)
+        }
+    }
+
+    /// One `ObservationWriter.append`, with the failure counted rather than
+    /// dropped by `try?` — see `Diagnostics.observationAppendFailures`.
+    /// `writer == nil` (no package, or the tap never armed) is not a failure:
+    /// it is a session choosing to record no log for this segment, which
+    /// `beginSegment`'s own `packageURL`/blindness handling already decided.
+    private nonisolated func appendObservation(_ record: some ObservationRecord, to writer: ObservationWriter?) {
+        guard let writer else { return }
+        do {
+            try writer.append(record)
+        } catch {
+            lock.withLock {
+                _diagnostics.observationAppendFailures += 1
+                if _diagnostics.firstObservationAppendFailure == nil {
+                    _diagnostics.firstObservationAppendFailure = String(describing: error)
+                }
+            }
         }
     }
 
