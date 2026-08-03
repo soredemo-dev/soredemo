@@ -165,6 +165,26 @@ enum SpikeC {
 
     @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--permissions") {
+            // Printed WITH the command that produced it. "which grants does this
+            // identity hold" is a derived value with a short life — the next
+            // re-sign or path change makes it wrong — and this project's rule is
+            // that a derived value carries its origin. A conclusion pasted into a
+            // report outlives the state it described; a command does not.
+            print("$ \(CommandLine.arguments.first ?? "?") --permissions")
+            print("(re-run this rather than trusting a transcript — a re-sign or a moved")
+            print(" path invalidates every line below without changing any of them)\n")
+            let text = CapturePermissions.dumpText()
+            print(text)
+            // Also to a file — see Spike A's copy for why the `open` launch path
+            // is the one that answers "does THIS bundle hold the grant".
+            if let i = CommandLine.arguments.firstIndex(of: "--permissions-to"),
+               i + 1 < CommandLine.arguments.count {
+                try? text.write(toFile: CommandLine.arguments[i + 1],
+                                atomically: true, encoding: .utf8)
+            }
+            exit(0)
+        }
         let stepNumber = CommandLine.arguments.dropFirst().first.flatMap(Int.init) ?? 0
         switch stepNumber {
         case 1: pointerTrack()

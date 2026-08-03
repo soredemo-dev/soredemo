@@ -26,6 +26,8 @@ xcrun swiftc -O -target arm64-apple-macos26.0 -parse-as-library \
     -lSoredemoCore \
     -o "$APP/Contents/MacOS/SoredemoSpikeB" \
     "$REPO/Soredemo/Support/Minting.swift" \
+    "$REPO/Soredemo/App/BuildProvenance.swift" \
+    "$REPO/Soredemo/Capture/CapturePermissions.swift" \
     "$REPO/Soredemo/Capture/CGGeometryBridge.swift" \
     "$REPO/Soredemo/Capture/CaptureSource.swift" \
     "$REPO/Soredemo/Capture/AudioInterleave.swift" \

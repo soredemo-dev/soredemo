@@ -727,15 +727,33 @@ filename row: no mutation reddens "two files in one directory have different nam
 version reddens under the writer that named all three the same, which is the defect that was
 actually there.
 
+**A dimension that cannot be reddened must say where it went.** `which-channel` asserts both that
+the OS delivers a particular notification and that we record the channel we were told about. The
+second has a mutation; the first has none reachable from this repository. The certificate cannot be
+completed for that dimension, so the row names its destination instead — `docs/ARCHITECTURE.md`'s
+D6b platform-premise register. That pairing used to be a rule someone had to remember; as a field
+that cannot be left blank, it is a question the author is forced to answer. Four things in this
+file have now made that same move, from a rule to a certificate.
+
 It is also not new behaviour. It is what was done by hand for `given`'s position rule — inject a
 violation, watch the scan name it, revert, and only then believe it — and for the guard's own
 regression case. The action already existed; it did not have a name or an obligation attached, so it
 happened when someone thought of it.
 
-**The existing 301 probe checks are sampled, not migrated.** Take twenty at random, try to redden
-each, and record how many cannot be. That is an afternoon and its output is an estimate of what
-fraction of this suite is decoration — a number this project does not have and cannot get by
-reasoning. New expectations carry a red from today; the existing ones owe only that estimate and a
+**The existing checks are sampled, not migrated — and the sample is over DIMENSIONS, not over
+checks.** The first version of this said "take twenty checks at random and try to redden each",
+which is the wrong unit, and migrating eight already-filled rows proved it: two of the eight needed
+a *second* certificate, and one of those second dimensions had never been witnessed at all.
+`edges` asserts a window contains `T_off`; the lower edge had a red and the upper edge did not, and
+sampling at the level of checks would have found that check reddenable and moved on.
+
+So: take twenty checks at random, **for each one first write down the dimensions it claims to
+guard**, then try to redden each dimension separately. The output is two numbers rather than one —
+checks that cannot be reddened at all, and *dimensions* that cannot. The second is the estimate of
+how much of the suite is decoration; the first only finds the checks that are wholly ornamental,
+which are the easy ones.
+
+New expectations carry a dimensioned red from today; the existing ones owe that estimate and a
 register of which have no observed red.
 
 ### The tautology register — four rows, four different mechanisms

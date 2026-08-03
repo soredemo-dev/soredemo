@@ -557,6 +557,31 @@ enum SpikeA {
 
     @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--permissions") {
+            // Printed WITH the command that produced it. "which grants does this
+            // identity hold" is a derived value with a short life — the next
+            // re-sign or path change makes it wrong — and this project's rule is
+            // that a derived value carries its origin. A conclusion pasted into a
+            // report outlives the state it described; a command does not.
+            print("$ \(CommandLine.arguments.first ?? "?") --permissions")
+            print("(re-run this rather than trusting a transcript — a re-sign or a moved")
+            print(" path invalidates every line below without changing any of them)\n")
+            let text = CapturePermissions.dumpText()
+            print(text)
+            // Also to a file, because the discriminating measurement needs the
+            // OTHER launch path: `open` starts the app through LaunchServices,
+            // which makes launchd the responsible process, and an LSUIElement
+            // app started that way has no stdout anyone can read. Comparing the
+            // two answers is how "this bundle holds the grant" is told from
+            // "TCC attributed it up the chain to whatever launched it" — the
+            // failure that once reported four greens for a terminal.
+            if let i = CommandLine.arguments.firstIndex(of: "--permissions-to"),
+               i + 1 < CommandLine.arguments.count {
+                try? text.write(toFile: CommandLine.arguments[i + 1],
+                                atomically: true, encoding: .utf8)
+            }
+            exit(0)
+        }
         switch CommandLine.arguments.dropFirst().first {
         // The guard's own regression case. No permission, no hardware, no
         // operator — so it is the one thing in this file that can be run on
