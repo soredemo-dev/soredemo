@@ -831,3 +831,61 @@ func lineNumber(of location: String) -> Int {
             windows.
             """)
 }
+
+/// **The bottleneck the content rule's closed attribute list depends on.**
+///
+/// `AXObserver.ReadableAXAttribute` makes `copyAttribute` closed: the set of AX
+/// attributes this app can name is six cases, and `kAXValueAttribute` is not one
+/// of them. That is the fix for the string-literal bypass —
+/// `copyAttribute("AXValue", of: element)` was invisible to
+/// `noAppSourceReadsUserContent`, because `SwiftSourceLexer.codeViewLines` blanks
+/// string content by design.
+///
+/// **But a closed enum makes `copyAttribute` closed, not exclusive.** Nothing
+/// about it stops a new file calling `AXUIElementCopyAttributeValue` directly
+/// with `"AXValue" as CFString` — the original Critical, one call deeper, with
+/// the enum intact, the scan silent and every gate green. This test is what
+/// makes the enum a bottleneck rather than a convention: the raw AX read happens
+/// at exactly one place, and that place is the one whose parameter type is the
+/// permitted list.
+///
+/// Same shape as `theTapsEnabledFlagIsReadExactlyOnceAndOnlyInTheObserver`,
+/// `theSecureInputPredicateIsReadExactlyOnceAndOnlyAtTheInjectionPoint` and
+/// `theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt`, and
+/// for the same reason: a rule about where something may happen is only a rule
+/// if the number of places is asserted.
+///
+/// **Zero is a failure too, and not a pedantic one.** `AXObserver`'s entire
+/// element description — role, title, position, size, parent, children — is this
+/// one call. Zero means the walk reads nothing and every `AXElementRecord` is
+/// empty, which is byte-identical on disk to Accessibility not being granted.
+@Test func theRawAXAttributeReadHappensAtExactlyOnePlace() throws {
+    let readers = try codeLinesNaming("AXUIElementCopyAttributeValue(",
+                                      in: try appSourceFiles())
+
+    #expect(readers.count == 1,
+            """
+            expected exactly one app source line calling AXUIElementCopyAttributeValue, \
+            found \(readers.count):
+            \(readers.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+            Zero means AXObserver stopped describing elements at all, which produces empty \
+            AXElementRecords indistinguishable from Accessibility being ungranted. More than one \
+            means the ReadableAXAttribute list is no longer the only way to name an attribute, \
+            and a raw "AXValue" string at the second call site is invisible to \
+            noAppSourceReadsUserContent — the exact bypass that list exists to close.
+            """)
+
+    guard let reader = readers.first else { return }
+    #expect(reader.location.hasPrefix("Soredemo/Capture/AXObserver.swift:"),
+            """
+            the raw AX attribute read is at \(reader.location), not in AXObserver:
+            \(reader.text)
+            """)
+    #expect(reader.text.contains("attribute.name"),
+            """
+            the one raw AX read does not go through ReadableAXAttribute.name:
+            \(reader.text)
+            It takes its attribute string from somewhere else, so the permitted list is no longer \
+            what decides which attributes this app can read.
+            """)
+}

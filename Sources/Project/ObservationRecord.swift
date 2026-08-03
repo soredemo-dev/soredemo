@@ -27,6 +27,12 @@ public protocol ObservationRecord: Codable, Sendable {
     /// instant at all cannot be placed on the log's clock, and
     /// `ObservationLog.checkEpoch(of:against:)` reports that as a fault
     /// rather than vacuously accepting it.
+    ///
+    /// **A conforming type must list every epoch-bearing field, and nothing
+    /// checks that it has.** A new record *type* cannot escape `append`'s
+    /// constraint — it has to conform to be appendable at all. A new *field* on
+    /// an existing type escapes silently. See the note above the conformances
+    /// in this file for what that costs and why no mechanism closes it.
     var epochs: [BootEpoch] { get }
 }
 
@@ -277,10 +283,34 @@ public struct TapDisabledInterval: Hashable, Codable, Sendable {
 // MARK: - `ObservationRecord` conformances
 //
 // One extension per type, each stating only `epochs` — `kind` is already a
-// stored property on every one of them. Written out per type rather than
-// derived, because "which instants does this record hold" is a fact about the
-// type's fields and a new field carrying a new instant must show up here as a
-// compile-time edit rather than being silently missed by a reflection walk.
+// stored property on every one of them.
+//
+// **NOTHING ENFORCES THAT THESE STAY COMPLETE, and an earlier version of this
+// comment claimed otherwise.** It said a new field carrying a new instant "must
+// show up here as a compile-time edit rather than being silently missed by a
+// reflection walk". That is false, and it is false in the direction that
+// matters: add `hoverInterval: HostRange` to `PointerSample`, leave the
+// extension below untouched, and everything compiles, encodes and decodes.
+// `epochs` still answers `[instant.epoch]`, `ObservationLog.checkEpoch` never
+// sees the new instant, and a record straddling a reboot is written into a log
+// — the state `SegmentTableError.mixedEpochs` refuses one layer up. What the
+// hand-written form actually buys is that the omission is *visible in review*
+// next to the field being added; it is not a guarantee.
+//
+// `ObservationLogSchemaTests.everyEpochBearingFieldOfEveryRecordTypeIsRefused
+// WhenItIsForeign` moves one field at a time into another boot session and
+// cannot close this either: it enumerates the fields that exist today, so a
+// field added tomorrow is absent from the test for the same reason it is absent
+// from the extension. Closing it needs a mechanism that reads the type's stored
+// properties — a macro, or a checker rule over the source — and there is none.
+// **A reflection walk would be strictly better than what is here** and is
+// unavailable to this target: rule 1 keeps the package on `import Foundation`,
+// and `Mirror` over a value whose fields are `HostInstant`/`HostRange` nested
+// inside optionals and arrays would need its own recursion with its own
+// omissions.
+//
+// So: when you add a field that carries an instant, add it below. Nothing will
+// tell you if you do not.
 
 extension PointerSample: ObservationRecord {
     public var epochs: [BootEpoch] { [instant.epoch] }

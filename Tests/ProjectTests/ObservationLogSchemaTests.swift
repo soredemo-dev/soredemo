@@ -443,13 +443,31 @@ private struct RecordWithNoInstant: ObservationRecord {
         let _: ObservationLogHeader = try ObservationLog.decode(
             try headerJSON(schemaVersion: ObservationLog.schemaVersion))
     }
-    #expect(throws: ProjectFormatError.tooNew(found: 9, supported: 1)) {
+    // **The specific error, in both directions.** `throws: (any Error).self`
+    // passed while the decoder threw `tooNew` for a version BELOW this build's
+    // — a reader being told a v1 log came from the future, and sent to look for
+    // a newer build that does not exist.
+    #expect(throws: ProjectFormatError.tooNew(found: 9,
+                                              supported: ObservationLog.schemaVersion)) {
         let _: ObservationLogHeader = try ObservationLog.decode(try headerJSON(schemaVersion: 9))
     }
-    // A version BELOW this build's is refused too: there is no migration chain
-    // for observation logs, and a silent reinterpretation is the worse answer.
-    #expect(throws: (any Error).self) {
+    #expect(throws: ProjectFormatError.unsupportedLegacyVersion(0)) {
         let _: ObservationLogHeader = try ObservationLog.decode(try headerJSON(schemaVersion: 0))
+    }
+    // **The v1 log this format actually has in the world** — commit 89db282
+    // wrote headers with `"epoch"` where this build writes `"anchor"`. It must
+    // fail by NAME here, at the version line, rather than deeper in the decode
+    // on `keyNotFound(.anchor)`, which is indistinguishable from corruption and
+    // from an anchor that is genuinely absent.
+    let realV1Header = Data("""
+        {"kind":"logHeader","schemaVersion":1,\
+        "epoch":\(String(decoding: try ObservationLog.encode(epochA), as: UTF8.self)),\
+        "segmentIndex":0,"mediaFilename":"master-00.mov",\
+        "revision":\(String(decoding: try ObservationLog.encode(rev), as: UTF8.self)),\
+        "blindness":[]}
+        """.utf8)
+    #expect(throws: ProjectFormatError.unsupportedLegacyVersion(1)) {
+        let _: ObservationLogHeader = try ObservationLog.decode(realV1Header)
     }
     #expect(throws: (any Error).self) {
         let _: ObservationLogHeader = try ObservationLog.decode(
@@ -479,14 +497,37 @@ private struct RecordWithNoInstant: ObservationRecord {
                                         endedBy: .stopped, recordCounts: ["pointer": 3],
                                         gapWatches: fullGapWatches())
     let clean = ObservationLogReadReport(header: nil, trailer: trailer, recordLines: 3,
+                                         trailerCount: 1, trailerIsLastCompleteLine: true,
                                          droppedBytes: 0, bytesScanned: 512)
     #expect(clean.producerGapWatches.count == GapSite.allCases.count)
     #expect(clean.isAMeasurement)
     #expect(clean.closedCleanly)
+    #expect(clean.closeFault == nil)
     #expect(!clean.truncatedTailAccounting.contains("NOTHING WAS READ"))
+
+    // **`trailer != nil` is not "closed cleanly", and these are the two states
+    // that proved it.** A reader keeps the last trailer it sees, so two
+    // concurrent closes give a non-nil trailer and identical counts; and a
+    // record appended after the trailer means the log kept growing after the
+    // segment closed. Both used to read as clean.
+    let closedTwice = ObservationLogReadReport(header: nil, trailer: trailer, recordLines: 3,
+                                               trailerCount: 2, trailerIsLastCompleteLine: true,
+                                               droppedBytes: 0, bytesScanned: 512)
+    #expect(closedTwice.trailer != nil)
+    #expect(!closedTwice.closedCleanly)
+    #expect(closedTwice.closeFault?.contains("closed more than once") == true)
+
+    let grewAfterClosing = ObservationLogReadReport(header: nil, trailer: trailer, recordLines: 3,
+                                                    trailerCount: 1,
+                                                    trailerIsLastCompleteLine: false,
+                                                    droppedBytes: 0, bytesScanned: 512)
+    #expect(grewAfterClosing.trailer != nil)
+    #expect(!grewAfterClosing.closedCleanly)
+    #expect(grewAfterClosing.closeFault?.contains("not the last line") == true)
 
     // The state that could not be told apart before: nothing was read.
     let nothing = ObservationLogReadReport(header: nil, trailer: nil, recordLines: 0,
+                                           trailerCount: 0, trailerIsLastCompleteLine: false,
                                            droppedBytes: 0, bytesScanned: 0)
     #expect(clean.droppedBytes == nothing.droppedBytes)
     #expect(!nothing.isAMeasurement)

@@ -90,11 +90,21 @@ private func topLevelKeys(from json: Data) -> [String] {
 }
 
 @Test func theLogsSchemaVersionIsItsOwnNumber() {
-    #expect(ObservationLog.schemaVersion == 1)
+    #expect(ObservationLog.schemaVersion == 2)
     #expect(ProjectSnapshot.currentSchemaVersion == 1)
     // Pinned as two separate literals. This test cannot detect a coincidental
     // derivation of one from the other and its name does not claim to — see
     // the equivalent note in UpgradeTests.
+    //
+    // **They are now different numbers, which is the point of the row.** The
+    // observation log's wire format changed twice in Task 11 (the header's
+    // clock became an `EpochAnchor`; a `GapSite` case moved to the read side)
+    // and the document manifest's did not. A single shared version line would
+    // have forced a manifest migration for a change no manifest can see, or —
+    // what actually happened while these were both 1 — left two incompatible
+    // log layouts claiming to be the same one.
+    #expect(ObservationLog.schemaVersion != ProjectSnapshot.currentSchemaVersion,
+            "the two version lines have diverged, which is what having two is for")
 }
 
 /// `droppedBytes` here is 23, not a round number: it is the exact byte count

@@ -58,7 +58,38 @@ public enum ObservationLog {
     /// A version line of its own. It does not move with
     /// `ProjectSnapshot.currentSchemaVersion` or `CanonicalEncoding.version`;
     /// the table in the Phase 2 design doc (D2-12 Q4) is where that is stated.
-    public static let schemaVersion: Int = 1
+    ///
+    /// **2 since the Task 11 review, and the bump is the correction.** Two
+    /// incompatible wire layouts both stamped themselves `1`:
+    ///
+    /// | | v1 (commit `89db282`) | v2 (this build) |
+    /// | --- | --- | --- |
+    /// | header's clock | `"epoch"`, a `BootEpoch` | `"anchor"`, an `EpochAnchor` |
+    /// | `GapSite` | five cases, including `jsonlTruncatedTail` | four; that site moved to `ObservationLogReadReport` |
+    ///
+    /// A v1 log opened by a build that read `schemaVersion` and did nothing
+    /// with it passed both guards — `kind` is `logHeader`, the version matches
+    /// — and then died inside the decode on `keyNotFound(.anchor)`, a generic
+    /// `DecodingError` indistinguishable from arbitrary corruption and from an
+    /// anchor that is genuinely absent. Its trailer failed separately on the
+    /// unknown raw value `jsonlTruncatedTail`, and
+    /// `ProjectPackageIO.danglingObservationLogs` then reported it as dangling
+    /// because its header "does not decode". **The guard built to make "a
+    /// document from another build" loud was what certified two builds as the
+    /// same one.**
+    ///
+    /// What a v1 log does now, on read: `ObservationLogHeader.init(from:)`
+    /// throws `ProjectFormatError.unsupportedLegacyVersion(1)` — named, before
+    /// a single other field is touched. There is no migration and there will
+    /// not be one for a format that has never shipped; the point of the bump is
+    /// that the refusal says *which* build wrote the file instead of the reader
+    /// guessing at a missing key.
+    ///
+    /// The rule for the next person: **bump this whenever an existing key's
+    /// name, type or meaning changes, or a case is removed from an enum that
+    /// appears on the wire.** Adding a new optional key is additive; renaming
+    /// `epoch` to `anchor` is not, and neither is deleting a `GapSite`.
+    public static let schemaVersion: Int = 2
 
     private struct KindOnly: Decodable { let kind: String }
 
@@ -549,9 +580,18 @@ extension ObservationLogHeader {
                 codingPath: decoder.codingPath,
                 debugDescription: "expected kind 'logHeader', found '\(kind)'"))
         }
-        guard schemaVersion == ObservationLog.schemaVersion else {
+        // The two directions are different errors, because they send the
+        // reader to different places: `tooNew` means "get a newer build",
+        // `unsupportedLegacyVersion` means "this file predates the format this
+        // build reads, and there is no upgrade path". `ProjectUpgrade` already
+        // draws that line for the manifest; throwing `tooNew` for both was a
+        // reader being told a v1 log was from the future.
+        if schemaVersion > ObservationLog.schemaVersion {
             throw ProjectFormatError.tooNew(found: schemaVersion,
                                             supported: ObservationLog.schemaVersion)
+        }
+        if schemaVersion < ObservationLog.schemaVersion {
+            throw ProjectFormatError.unsupportedLegacyVersion(schemaVersion)
         }
         self.init(anchor: try container.decode(EpochAnchor.self, forKey: .anchor),
                   segmentIndex: try container.decode(Int.self, forKey: .segmentIndex),
@@ -719,15 +759,37 @@ public struct ObservationLogReadReport: Hashable, Sendable {
     public let trailer: ObservationLogTrailer?
     /// Complete lines that were neither the header nor the trailer.
     public let recordLines: Int
+    /// **How many `logTrailer` lines the file holds**, and whether the last
+    /// complete line is one.
+    ///
+    /// Both, because `closedCleanly` used to be `trailer != nil` and that
+    /// verified neither clause of what it claimed. A reader keeps the last
+    /// trailer it sees, so two concurrent `close`s writing two trailers — the
+    /// state a missing `guard` in `ObservationWriter.close` produces — gave a
+    /// non-nil trailer, identical counts, and a green check. "A missing trailer
+    /// is the crash signal" rests on there being exactly one and it being last;
+    /// nothing in the tree asserted either.
+    public let trailerCount: Int
+    /// Whether the last **complete** line is the trailer. A partial tail
+    /// appended after it does not make this `false` — that is
+    /// `droppedBytes`'s job, and they are different faults.
+    public let trailerIsLastCompleteLine: Bool
     /// D6a row 1: bytes in a truncated or corrupt final record.
     public let droppedBytes: Int
     /// D6a row 1's companion, without which the line above has two readings.
     public let bytesScanned: Int
 
     public init(header: ObservationLogHeader?, trailer: ObservationLogTrailer?,
-                recordLines: Int, droppedBytes: Int, bytesScanned: Int) {
-        precondition(recordLines >= 0 && droppedBytes >= 0 && bytesScanned >= 0,
+                recordLines: Int, trailerCount: Int, trailerIsLastCompleteLine: Bool,
+                droppedBytes: Int, bytesScanned: Int) {
+        precondition(recordLines >= 0 && droppedBytes >= 0 && bytesScanned >= 0
+                     && trailerCount >= 0,
                      "ObservationLogReadReport has a negative count")
+        precondition((trailer != nil) == (trailerCount > 0),
+                     "ObservationLogReadReport was handed a trailer and a count of "
+                     + "\(trailerCount), or neither and a positive count")
+        self.trailerCount = trailerCount
+        self.trailerIsLastCompleteLine = trailerIsLastCompleteLine
         precondition(droppedBytes <= bytesScanned,
                      "ObservationLogReadReport dropped \(droppedBytes) of \(bytesScanned) "
                      + "scanned — a reader cannot lose more than it examined")
@@ -745,24 +807,53 @@ public struct ObservationLogReadReport: Hashable, Sendable {
         var header: ObservationLogHeader?
         var trailer: ObservationLogTrailer?
         var records = 0
+        var trailerCount = 0
+        var lastCompleteLineWasATrailer = false
         for line in result.lines {
-            switch try ObservationLog.kind(of: line) {
+            let kind = try ObservationLog.kind(of: line)
+            lastCompleteLineWasATrailer = kind == "logTrailer"
+            switch kind {
             case "logHeader": header = try ObservationLog.decode(line)
-            case "logTrailer": trailer = try ObservationLog.decode(line)
+            case "logTrailer":
+                trailer = try ObservationLog.decode(line)
+                trailerCount += 1
             default: records += 1
             }
         }
         return ObservationLogReadReport(header: header, trailer: trailer,
                                         recordLines: records,
+                                        trailerCount: trailerCount,
+                                        trailerIsLastCompleteLine: lastCompleteLineWasATrailer,
                                         droppedBytes: result.droppedBytes,
                                         bytesScanned: result.bytesScanned)
     }
 
-    /// Whether the segment this log belongs to closed. `false` is a crash, and
-    /// it is a different fault from a truncated tail: a log can have a clean
-    /// tail and no trailer (the process was killed between records), or a
-    /// trailer and a damaged tail (something appended afterwards).
-    public var closedCleanly: Bool { trailer != nil }
+    /// Whether the segment this log belongs to closed **once, at the end**.
+    ///
+    /// `false` is a crash, and it is a different fault from a truncated tail: a
+    /// log can have a clean tail and no trailer (the process was killed between
+    /// records), or a trailer and a damaged tail (something appended
+    /// afterwards).
+    ///
+    /// All three clauses, not just the first. `trailer != nil` was what this
+    /// used to be, and it is satisfied by two trailers — a reader keeps the
+    /// last one it sees — and by a trailer with records after it. Both are
+    /// states a writer can reach, and both make "a missing trailer is the crash
+    /// signal" mean nothing.
+    public var closedCleanly: Bool {
+        trailerCount == 1 && trailerIsLastCompleteLine
+    }
+
+    /// Why `closedCleanly` is `false`, for a reader that needs to act on it.
+    /// `nil` when it is `true`.
+    public var closeFault: String? {
+        switch trailerCount {
+        case 1 where trailerIsLastCompleteLine: nil
+        case 0: "no trailer: the producer died before this segment closed"
+        case 1: "the trailer is not the last line: something appended after the segment closed"
+        default: "\(trailerCount) trailers: this segment was closed more than once"
+        }
+    }
 
     /// Whether anything was read at all. `droppedBytes == 0` means nothing
     /// only when this is `true`.

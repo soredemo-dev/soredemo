@@ -3173,16 +3173,27 @@ enum CrossBoundaryProbe {
     /// one.
     static func fixtureGapWatches(segment: MasterSegment, chainsAppended: Int) -> [GapWatch] {
         let span = segment.hostRange.duration.rawValue
-        let pollsAtOneHundredMilliseconds = Int(span / 100_000_000)
         return [
+            // The one row this fixture genuinely measured: it appended these
+            // chains itself.
             GapWatch.axAncestorWalk(chainsRecorded: chainsAppended,
                                     observationSpanNanos: span, truncatedWalks: 0),
+            // Three zeros, and they are the honest values. This fixture runs no
+            // `CaptureSession`, no secure-input predicate and no `InputObserver`
+            // poll, so nothing looked at any of these sites.
+            //
+            // The tap row carried `Int(span / 100_000_000)` — "the polls a
+            // 100 ms timer would have made" — until the second review round,
+            // and § 9.6 asserted that row WAS a measurement. That is the shape
+            // `jsonlTruncatedTail` was condemned for, surviving one site over:
+            // a number that never came from a poll, in the field that says
+            // whether a poll happened. A regression stopping `InputObserver`
+            // polling entirely would have left it green.
             GapWatch.videoFramesNotProduced(frameCallbacksObserved: 0,
                                             observationSpanNanos: span, idleFrames: 0),
             GapWatch.secureInput(secureInputChecks: 0, secureInputCheckSpanNanos: 0,
                                  secureInputIntervals: 0, suppressedNanos: 0),
-            GapWatch.tapDisabled(tapEnabledPolls: pollsAtOneHundredMilliseconds,
-                                 tapPollingSpanNanos: span,
+            GapWatch.tapDisabled(tapEnabledPolls: 0, tapPollingSpanNanos: 0,
                                  tapDisabledIntervals: 0, tapBlindNanos: 0),
         ]
     }
@@ -3260,12 +3271,20 @@ enum CrossBoundaryProbe {
               "each log is named for the segment it belongs to, in index order",
               actual: "\(onDisk)")
 
-        check(fixture.table.segments.allSatisfy { segment in
-                  switch segment.endedBy {
-                  case .paused, .stopped, .displayReconfigured, .failed: true
-                  }
-              },
-              "every segment boundary carries a reason — silence is not a value")
+        // **This check used to be unfalsifiable and shipped that way.** It
+        // switched exhaustively over `SegmentBoundary` and answered `true` in
+        // every case — `endedBy` is non-optional, so it is always some case,
+        // and the check could not fail for any input. "Silence is not a value"
+        // is enforced by the type, not by a runtime assertion, and a runtime
+        // assertion restating a type's guarantee reads like evidence and is
+        // not. What IS falsifiable is that each boundary is the RIGHT one, and
+        // that it reached the trailer on disk.
+        check(fixture.table.segments.map(\.endedBy)
+                == [.paused, .displayReconfigured(newRevision: fixture.table.segments[2].revision),
+                    .stopped],
+              "each segment carries the specific boundary the ledger closed it with, in order — "
+              + "a pause, a reconfiguration naming the new revision, and a stop",
+              actual: "\(fixture.table.segments.map(\.endedBy))")
 
         // **Everything below counts what it examined and requires it non-zero.**
         // The first version of this block initialised two booleans to `true`
@@ -3645,7 +3664,10 @@ enum CrossBoundaryProbe {
               actual: "\(trailer.gapWatches.map(\.site.rawValue).sorted())")
 
         // The three states, on one recording.
-        let watching = trailer.gapWatches.first { $0.site == .tapDisabled }
+        // `.axAncestorWalk` is the fixture's one genuinely-watched site: it
+        // appended the chains itself. The tap row used to stand here on a
+        // fabricated poll count — see `fixtureGapWatches`.
+        let watching = trailer.gapWatches.first { $0.site == .axAncestorWalk }
         let notWatching = trailer.gapWatches.first { $0.site == .secureInput }
         check(watching?.gapsFound == 0 && watching?.isAMeasurement == true,
               "a site that was watched and found nothing reports zero gaps AND says something "
@@ -3658,24 +3680,23 @@ enum CrossBoundaryProbe {
         check(watching?.gapsFound == notWatching?.gapsFound,
               "the two rows above carry the identical gap count, which is exactly why the count "
               + "alone was never a measurement")
-        // Two sites, and both are honest: this fixture drives no `CaptureSession`
-        // and no secure-input predicate, so neither has a producer that measured
-        // anything. Before review the fixture put a fabricated `looks` in rows
-        // like these and the check below asserted only one was empty; the number
-        // that is right here is the number of things the fixture genuinely did
-        // not watch.
-        check(trailer.sitesNothingWasWatching == [.secureInput, .videoFramesNotProduced],
-              "the trailer names the sites nothing was watching, so a reader does not have to "
-              + "notice it row by row — two of them here, because this fixture runs neither a "
-              + "capture session nor a secure-input predicate and says so instead of inventing "
-              + "a number",
+        // **Three sites, and all three are honest.** This fixture runs no
+        // `CaptureSession`, no secure-input predicate and no `InputObserver`
+        // poll. It used to claim the tap row as watched, on a poll count no
+        // poll produced; that was the `jsonlTruncatedTail` fabrication
+        // surviving one site over, and it is gone.
+        check(trailer.sitesNothingWasWatching
+                == [.secureInput, .tapDisabled, .videoFramesNotProduced],
+              "the trailer names the sites nothing was watching — three of them here, because "
+              + "this fixture drives none of those three producers and says so instead of "
+              + "inventing a number for them",
               actual: "\(trailer.sitesNothingWasWatching.map(\.rawValue))")
-        check(trailer.gapWatches.filter(\.isAMeasurement).map(\.site).sorted { $0.rawValue < $1.rawValue }
-                == [GapSite.axAncestorWalk, .tapDisabled],
+        check(trailer.gapWatches.filter(\.isAMeasurement).map(\.site) == [GapSite.axAncestorWalk],
               "and the complement — the sites something DID watch — is named too, so this is a "
               + "partition of the four rows rather than a one-sided list that an all-zero "
-              + "producer would also satisfy",
-              actual: "\(trailer.gapWatches.filter(\.isAMeasurement).map(\.site.rawValue).sorted())")
+              + "producer would also satisfy. Exactly one here: the fixture appended the chains "
+              + "itself, which is the only thing in it that looked at anything",
+              actual: "\(trailer.gapWatches.filter(\.isAMeasurement).map(\.site.rawValue))")
         check(trailer.accounting.contains("NOTHING WAS LOOKING"),
               "and the printed form says so where a person will read it")
 
@@ -3892,12 +3913,30 @@ enum CrossBoundaryProbe {
         check(!report.closedCleanly,
               "and there is no trailer, so a reader knows the producer died rather than reading "
               + "this as a recording that simply ended")
-        check(report.droppedBytes <= 512,
-              "the damaged tail is at most one partial record, not an unbounded loss — measured, "
-              + "because `FileHandle` has no userspace buffer between this app and the kernel",
-              actual: "\(report.droppedBytes) byte(s) dropped of \(report.bytesScanned) scanned")
+        // **No bound is asserted on the tail, and that is a retraction.** This
+        // check used to be `droppedBytes <= 512`, which `0` satisfies — and `0`
+        // is the overwhelmingly likely outcome, because a ~150-byte `write(2)`
+        // to a regular file is not interrupted by a signal, so the kill lands
+        // *between* writes almost every time. The case the check was named for
+        // has probably never run here, and a bound that cannot fail is a claim
+        // with nothing behind it.
+        //
+        // What replaces it is falsifiable: the reader examined every byte the
+        // file actually holds. A torn write during `write(2)` remains
+        // unproven; see the report for what proving it would take.
+        let sizeOnDisk = try FileManager.default
+            .attributesOfItem(atPath: url.path)[.size] as? Int
+        check(sizeOnDisk != nil && report.bytesScanned == sizeOnDisk,
+              "the reader examined every byte the killed writer left on disk — so the dropped "
+              + "count below is over the whole file and not over part of it",
+              actual: "scanned \(report.bytesScanned), file is "
+                      + (sizeOnDisk.map(String.init) ?? "unreadable"))
         check(report.isAMeasurement,
-              "and something was actually read, so the byte count above is a measurement")
+              "and something was actually read, so `droppedBytes` is a measurement. Observed "
+              + "here: \(report.droppedBytes) byte(s) dropped — NOT asserted against a bound, "
+              + "because the kill lands between writes rather than inside one and the torn-write "
+              + "case is not exercised",
+              actual: "\(report.droppedBytes) dropped of \(report.bytesScanned) scanned")
 
         // Every surviving record decodes. A tail that damaged an EARLIER line
         // would show up here and nowhere else.
@@ -4023,8 +4062,18 @@ enum CrossBoundaryProbe {
               + "not happen, in the field a reader trusts to find real loss",
               actual: "\(String(describing: report.trailer?.recordCounts["pointer"]))",
               expected: "\(expected)")
-        check(report.closedCleanly,
-              "and exactly one trailer was written, as the last line")
+        check(report.trailerCount == 1,
+              "exactly ONE trailer was written — `trailer != nil` is satisfied by two, because a "
+              + "reader keeps the last one it sees, and two concurrent closes produce exactly "
+              + "that",
+              actual: "\(report.trailerCount)", expected: "1")
+        check(report.trailerIsLastCompleteLine,
+              "and it is the last complete line — without which 'a missing trailer is the crash "
+              + "signal' says nothing, since a record after the trailer means the log kept "
+              + "growing after the segment closed")
+        check(report.closedCleanly && report.closeFault == nil,
+              "so the log closed cleanly, by all three clauses rather than by the first",
+              actual: report.closeFault ?? "clean")
 
         // ---- the same law, with `close` arriving WHILE appends are in flight
         //
@@ -4100,6 +4149,12 @@ enum CrossBoundaryProbe {
         check(raceReport.droppedBytes == 0,
               "no line was torn by the close",
               actual: "\(raceReport.droppedBytes)")
+        check(raceReport.trailerCount == 1 && raceReport.trailerIsLastCompleteLine,
+              "and the trailer is still the last line, and the only one, with appends arriving "
+              + "either side of the close — an append that lands AFTER the trailer means the log "
+              + "kept growing after the segment closed, which is the other half of what "
+              + "`closedCleanly` used not to check",
+              actual: raceReport.closeFault ?? "one trailer, last")
     }
 
     // MARK: - § 9.10  the join field, dangling

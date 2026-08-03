@@ -185,6 +185,15 @@ public enum ProjectPackageIO {
     /// A log whose first line does not decode as a header is reported too, and
     /// under the same name: it cannot state which media it belongs to, which is
     /// the same failure as naming media that is gone.
+    ///
+    /// **That includes a log written by a build with a different
+    /// `ObservationLog.schemaVersion`**, which is not the same fault and is
+    /// worth knowing about before acting on this list. Since this function only
+    /// ever *reports* — deleting is nobody's job here, see above — conflating
+    /// them costs a reader a second look rather than a file. The distinction is
+    /// available to anyone who wants it: `ObservationLogReadReport.read` throws
+    /// `ProjectFormatError.unsupportedLegacyVersion` or `.tooNew` by name for
+    /// that case, and `DecodingError` for damage.
     public static func danglingObservationLogs(in packageURL: URL,
                                                snapshot: ProjectSnapshot) throws -> [String] {
         let fm = FileManager.default
