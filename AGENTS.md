@@ -994,6 +994,76 @@ strict concurrency, no exceptions (D2) · app chrome is 100% standard SwiftUI, n
 
 ---
 
+### Every automatic check inherits the implementation's misunderstanding
+
+**Each automatic check is built out of the same understanding that wrote the
+implementation, so it shares that implementation's frame of reference. A human
+eye is the only instrument in the whole apparatus that does not share it.**
+
+2026-08-04. `StageCompositor.pointerPlacement` queried `PointerTrack.position(at:)`
+with a COMPOSITION time — 0 at the first frame — while every observation record
+is stamped in the ABSOLUTE host clock, ~537,337,000,000,000 on a machine up six
+days. `sample.instant.hostTime <= time` was false for every sample of every
+recording. `.noObservationYet` on every frame. **No build of this app had ever
+drawn a pointer**, and the feature was the phase's headline.
+
+It survived 450 unit tests, 350 probe checks, 8 task reviews and ~15 fix rounds.
+Probe § 12 — the section written to prove exactly this — was green the whole
+time, because its fixture stamped `Nanoseconds(500_000_000)` where a real
+`ObservationWriter` caller stamps `mach_absolute_time()`. **The fixture and the
+code under test shared one wrong frame of reference and the two errors cancelled
+inside that section.** Its title said "a real `ObservationWriter` log": true of
+the writer, false of the clock. Anchoring the fixture turned five checks red
+immediately.
+
+The file's own `import Timeline` comment already named the missing step —
+"`Nanoseconds` for the composition-time → host-clock conversion below". The
+conversion did not exist. **The comment described the intent and read exactly
+like a description of the code.**
+
+**The rule that follows: a fixture must KNOW the answer independently, it must
+not DERIVE the answer.** A fixture that computes its expected value the way the
+code computes its actual value is comparing a value to itself, and no amount of
+review of either side finds it — both sides are individually correct.
+
+**The scheduling consequence, which is the actionable half.** Put looking EARLY
+and OFTEN, not at the end of a phase as its completion condition. Phase 2B got
+half of this right — a frame reached a window at Task 4 — and the half did not
+pay, because nobody looked at the *pointer* until the last step. **"A picture
+appeared" is not looking. "Does the thing THIS task added look right?" is
+looking.** Every task with a visual deliverable owes one targeted look at its
+own new behaviour.
+
+**And the corollary about silence.** Every diagnostic question on 2026-08-04 was
+expensive because the app emits no `os_log`/`Logger` output at all: the only
+observable things were the system's TCC log and line counts in files the app had
+written — archaeology on a program that does not speak. How many pointers the
+compositor drew per frame is a number **it knows and has no channel to say**.
+That is where the next § 12 lives.
+
+---
+
+### Counters at every boundary — the first one that drops is the segment
+
+**Put a counter at each boundary of the pipeline. The first boundary where the
+number falls is the segment that broke.**
+
+Three successive hypotheses about the missing pointer were wrong — Input
+Monitoring, the drawing code, the TCC grant — and each was supported by real
+evidence that was true and irrelevant (the TCC log genuinely showed no grant
+landing; it had nothing to do with it). What located the defect in one step was
+counting records in the file the app had just written: **327 pointer samples on
+disk, 0 pointers on screen.** That single pair eliminated the entire upstream —
+capture, permissions, the tap, the writer — without an argument about any of it.
+
+The instrument was already in hand: the observation log's trailer carries
+`recordCounts`. What was missing was a second counter further downstream. This
+is the twin of the discriminator below: that one falsifies a family of causes by
+a number that does not move, this one localises a fault by the first number that
+does.
+
+---
+
 ### Cheap discriminators — one knob, two hypotheses that disagree about it
 
 **A number that does not move when you change the resource was never about a
