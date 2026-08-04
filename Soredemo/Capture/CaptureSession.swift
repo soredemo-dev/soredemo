@@ -286,43 +286,117 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// the cause.
         public internal(set) var firstObservationAppendFailure: String?
 
-        /// **Task 5.5, fix round 2 (code review).** Every observation
-        /// `appendObservation` found with `writer == nil` — the record was
-        /// never written anywhere, and until this counter existed nothing
-        /// said so, which is exactly the silence
-        /// `observationAppendFailures`'s own doc comment forbids.
+        /// **Task 5.5, fix round 2 (code review), narrowed in fix round 3.**
+        /// An observation `appendObservation` found with `writer == nil`
+        /// **while a real segment was actively closing** — `finalizingCurrentSegment`
+        /// was `true` at the time (see that flag). The record was never
+        /// written anywhere, and until fix round 2 nothing said so, which is
+        /// exactly the silence `observationAppendFailures`'s own doc comment
+        /// forbids.
         ///
-        /// Two situations produce it, and this counter does not distinguish
-        /// them — see the report for why one number is enough:
+        /// **This is a genuine, unavoidable loss, and it is exactly this and
+        /// only this**, since fix round 3 — a third source of `writer ==
+        /// nil` was found sharing this counter and was moved to
+        /// `observationsOutsideAnOpenSegment` below instead, precisely
+        /// because it is not this fact.
         ///
-        ///   * **the bug this counter exists for.**
-        ///     `finalizeCurrentSegment` sets `self.observationWriter = nil`
-        ///     under `lock`, immediately — **before**
-        ///     `axObserver.waitForQueuedClicks()`, which is a blocking
-        ///     `queue.sync {}` that can take up to `AXObserver
-        ///     .walkBudgetNanos` (35 ms) × `AXObserver.maximumQueuedClicks`
-        ///     (8) — hundreds of milliseconds — and before
-        ///     `closingWriter.close(...)`. The event tap is never torn down
-        ///     during any of that: not for `pause()`, not for a display
-        ///     reconfiguration (only `stream`/`master` rotate; the tap keeps
-        ///     running for the whole session), and even for `stop()` the tap
-        ///     is stopped only after this whole span. So every pointer,
-        ///     button, key, secure-input and tap-disabled observation that
-        ///     arrives during that window, **at every segment boundary**, is
-        ///     silently lost before this fix — not "at most one trailing
-        ///     sample" (that bound describes the narrower writer-nilled→
-        ///     tap-torn-down window at `stop()` only), and not only at
-        ///     `stop()`;
-        ///   * a segment with no `packageURL` at all, so `beginSegment` never
-        ///     opens a writer for it in the first place — not a bug, the same
-        ///     choice `ProjectDocument.addMedia` already makes for an unsaved
-        ///     document. Unreachable in the shipping app today:
-        ///     `TemporaryFileMediaSink`, the only production `MediaSink`
-        ///     constructed anywhere, never returns a `nil` `packageURL`. Named
-        ///     here so the day a second `MediaSink` conformer can return `nil`
-        ///     mid-session, this counter's meaning is already on record rather
-        ///     than assumed.
+        /// `finalizeCurrentSegment` sets `self.observationWriter = nil` under
+        /// `lock`, immediately — **before** `axObserver.waitForQueuedClicks()`,
+        /// which is a blocking `queue.sync {}` that can take up to `AXObserver
+        /// .walkBudgetNanos` (35 ms) × `AXObserver.maximumQueuedClicks` (8) —
+        /// hundreds of milliseconds — and before `closingWriter.close(...)`.
+        /// The event tap is never torn down during any of that: not for
+        /// `pause()`, not for a display reconfiguration (only `stream`/`master`
+        /// rotate; the tap keeps running for the whole session), and even for
+        /// `stop()` the tap is stopped only after this whole span. So every
+        /// pointer, button, key, secure-input and tap-disabled observation
+        /// that arrives during that window, **at every segment boundary**, is
+        /// silently lost before fix round 2 — not "at most one trailing
+        /// sample" (that bound describes the narrower writer-nilled→
+        /// tap-torn-down window at `stop()` only), and not only at `stop()`.
         public internal(set) var observationsDroppedAfterSegmentClose = 0
+
+        /// **Task 5.5, fix round 3 (code review) — a third source of
+        /// `writer == nil`, found IN the round-2 fix itself and wrongly
+        /// absent from `observationsDroppedAfterSegmentClose`'s own account
+        /// of what produces it.**
+        ///
+        /// Counts an observation `appendObservation` found with `writer ==
+        /// nil` while **no segment was open at all** —
+        /// `finalizingCurrentSegment` was `false`, meaning this is not the
+        /// close-drain window above.
+        ///
+        /// **The rule this counter answers to, stated once and applied
+        /// below (fix round 4, code review): a record belongs to a segment
+        /// if and only if its `instant` falls inside that segment's
+        /// `hostRange`. Attribution is by TIME, never by which stored
+        /// property happened to be `nil` when the record arrived.** This
+        /// counter earns its "not a loss" reading only because every case
+        /// that reaches it can be shown — not merely asserted — to have an
+        /// `instant` outside every segment's `hostRange`:
+        ///
+        ///   * **Before the first segment ever opens.** `start()` calls
+        ///     `setUpObservation()` — which arms the tap and starts routing
+        ///     observations — strictly before `beginSegment()`. The proof
+        ///     that this is time-safe, not merely mechanism-safe: `beginSegment`
+        ///     sets `self.observationWriter = writer` AND computes
+        ///     `openInstant` (which becomes `hostRange.start` the moment the
+        ///     segment later closes) in the SAME `lock.withLock` block, and
+        ///     `try await scStream.startCapture()` — the one call that can
+        ///     make `SCStream` actually start producing samples — is the
+        ///     LAST statement in `beginSegment`, strictly after that block.
+        ///     So nothing this session ever records — not a video frame, not
+        ///     an observation — can have an `instant` earlier than
+        ///     `hostRange.start`, and nothing routed here (which by
+        ///     definition arrived before `observationWriter` was set, hence
+        ///     before `hostRange.start` was computed) can be a member of the
+        ///     segment about to open. `theFirstSegmentsWriterAndHostRangeAre
+        ///     SetBeforeCaptureStarts` in `ProductionCallerTests.swift` pins
+        ///     this ordering so a future edit cannot separate the two without
+        ///     a test going red. **Measured once, on a real recording**
+        ///     (`a skill chain/sdd/.../task-5.5-report.md` § Step 6/7): this
+        ///     window was 62.1 ms wide (first pointer sample minus
+        ///     `hostRange.start`) — an observation, not a bound; slower disk
+        ///     I/O in `ObservationWriter.open` would widen it.
+        ///   * **Between `pause()` and `resume()`.** The tap runs the whole
+        ///     time a session is paused (only `stop()` tears it down), and
+        ///     nothing stops a person from moving the mouse while paused. No
+        ///     segment is open across this whole span — `finalizeCurrentSegment`
+        ///     has already fixed the closed segment's `hostRange.end`, and
+        ///     the next one's `hostRange.start` does not exist until
+        ///     `resume()` eventually calls `beginSegment` again — so every
+        ///     instant in between is, by the rule above, outside every
+        ///     `hostRange` there is. Not a loss in any sense worth flagging:
+        ///     pausing is a request to stop recording, so nothing SHOULD be
+        ///     attributed anywhere during it. **A large value here after a
+        ///     long pause with an active mouse is the expected, correct
+        ///     shape, not evidence of a defect** — read alongside a
+        ///     wall-clock pause duration, not alone.
+        ///   * **Between a display reconfiguration's `finalizeCurrentSegment`
+        ///     and its following `beginSegment`.** Same argument as the pause
+        ///     case, over the gap `await SCShareableContent.current` bounds —
+        ///     the same gap `skippedAwaitingReconfigurationCount` already
+        ///     names for video frames, for observations instead. Involuntary,
+        ///     unlike the pause case, but brief and already an accepted cost
+        ///     of D2-10's segment-splitting design.
+        ///
+        /// **What this rule ruled OUT, which is the point of applying it
+        /// rather than trusting the flag alone: a fourth, genuinely-fixable
+        /// case — an observation whose `instant` DOES fall inside a
+        /// segment's `hostRange` but which found `observationWriter == nil`
+        /// because `SCStream` had already started producing samples before
+        /// the writer existed.** That case does not exist in this
+        /// implementation — the ordering proof above is exactly why — so
+        /// there is no third counter here for it. If `beginSegment` is ever
+        /// restructured so `startCapture()` can run before the writer is
+        /// set, this whole account becomes wrong and the ordering test named
+        /// above is what would say so.
+        ///
+        /// **Not itself a defect count**, unlike the counter above — the
+        /// report explains why these three were not split further (the pause
+        /// case in particular can dominate this number by orders of
+        /// magnitude and is not comparable to the other two).
+        public internal(set) var observationsOutsideAnOpenSegment = 0
 
         /// The layout of the first audio buffer each source delivered.
         public internal(set) var systemAudioLayout: String?
@@ -589,6 +663,18 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// number `GapWatch.secureInput(suppressedNanos:)` needs directly, reset
     /// to zero at each `beginSegment`.
     private nonisolated(unsafe) var secureInputSuppressedNanosAtCurrentSegment: Int64 = 0
+    /// **Task 5.5, fix round 3 (code review).** `true` from the instant
+    /// `finalizeCurrentSegment` nils `observationWriter` until the instant it
+    /// finishes closing it — bracketing exactly the window
+    /// `Diagnostics.observationsDroppedAfterSegmentClose` is named for and no
+    /// wider. `appendObservation`'s `guard let writer else` branch reads this
+    /// to decide which of the two "no writer" counters an observation belongs
+    /// to: this flag `true` means a segment WAS open and is actively closing;
+    /// `false` with no writer means no segment is open **at all** right now,
+    /// which is `Diagnostics.observationsOutsideAnOpenSegment`'s case instead
+    /// — see that field for why the two are not the same fact, found in the
+    /// same round of review that added this flag to tell them apart.
+    private nonisolated(unsafe) var finalizingCurrentSegment = false
 
     // MARK: - Init
 
@@ -1066,6 +1152,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             self.currentMediaFilename = nil
             let writer = self.observationWriter
             self.observationWriter = nil
+            // **Task 5.5, fix round 3.** `true` only when there is a real
+            // writer about to be drained-and-closed below — a segment with no
+            // writer at all (no `packageURL`) was never "finalizing" one, and
+            // an observation arriving during ITS whole life already belongs
+            // to `observationsOutsideAnOpenSegment`, not this window. Set
+            // inside the SAME lock as `observationWriter = nil` so a
+            // concurrent `appendObservation` reading either can never see the
+            // writer already gone but this flag not yet caught up.
+            self.finalizingCurrentSegment = (writer != nil)
             if stopping { isRunning = false }
             return (segment, writer)
         }
@@ -1092,6 +1187,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                     }
                 }
             }
+            // The close-drain window ends here, whether `close(...)` succeeded or threw — either
+            // way there is no longer a writer being finalized, and the next `nil`-writer
+            // observation (until the next segment opens) belongs to `observationsOutsideAnOpenSegment`.
+            lock.withLock { finalizingCurrentSegment = false }
         }
 
         if stopping {
@@ -1154,47 +1253,69 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// callback, with no gap) is what keeps the chain on the right log
     /// without re-deriving "which segment was this click in" from a instant
     /// comparison.
+    ///
+    /// **`finalizingCurrentSegment` is captured in the SAME `lock.withLock`
+    /// as `observationWriter`, for the same reason — found in fix round 3.**
+    /// A first version of this fix read the flag separately, inside
+    /// `appendObservation`, after `writer` had already been fetched here;
+    /// `finalizeCurrentSegment` can run — and change both together — in the
+    /// gap between the two reads, which would let a `nil` writer captured
+    /// BEFORE any segment ever opened be paired with a `finalizingCurrentSegment`
+    /// reading from a LATER segment's close, misattributing the drop to the
+    /// wrong counter. One read of both, together, closes that.
     private nonisolated func routeInputObservation(_ observation: InputObserver.Observation) {
-        let writer = lock.withLock { observationWriter }
+        let (writer, finalizing) = lock.withLock { (observationWriter, finalizingCurrentSegment) }
         switch observation {
         case .pointer(let sample):
-            appendObservation(sample, to: writer)
+            appendObservation(sample, to: writer, whileFinalizing: finalizing)
         case .button(let event):
-            appendObservation(event, to: writer)
+            appendObservation(event, to: writer, whileFinalizing: finalizing)
             guard event.phase == .down, let ax = lock.withLock({ axObserver }) else { return }
             ax.enqueue(event) { [weak self] record in
-                self?.appendObservation(record, to: writer)
+                self?.appendObservation(record, to: writer, whileFinalizing: finalizing)
             }
         case .key(let sample):
-            appendObservation(sample, to: writer)
+            appendObservation(sample, to: writer, whileFinalizing: finalizing)
         case .secureInput(let interval):
             lock.withLock { secureInputSuppressedNanosAtCurrentSegment += interval.interval.duration.rawValue }
-            appendObservation(interval, to: writer)
+            appendObservation(interval, to: writer, whileFinalizing: finalizing)
         case .tapDisabled(let interval):
-            appendObservation(interval, to: writer)
+            appendObservation(interval, to: writer, whileFinalizing: finalizing)
         }
     }
 
     /// One `ObservationWriter.append`, with every way of losing the record
     /// counted rather than dropped in silence.
     ///
-    /// **`writer == nil` used to `return` here with nothing counting it —
-    /// found in code review, fix round 2.** The doc comment this replaced
-    /// called that "not a failure... a session choosing to record no log for
-    /// this segment", which is true of the tap never arming (no observations
-    /// are ever produced to reach here at all in that case) but was wrong
-    /// about the case that actually reaches this line: `finalizeCurrentSegment`
-    /// nils `observationWriter` immediately, then blocks on
-    /// `axObserver.waitForQueuedClicks()` — up to several hundred
-    /// milliseconds, at **every** segment boundary, with the tap still fully
-    /// live throughout — before the writer is actually closed. Every
-    /// observation arriving in that whole window found `writer == nil` and
-    /// was silently lost. See `Diagnostics.observationsDroppedAfterSegmentClose`
-    /// for the full account and the one case (unreachable today) where this
-    /// really is the earlier, harmless reading.
-    private nonisolated func appendObservation(_ record: some ObservationRecord, to writer: ObservationWriter?) {
+    /// **`writer == nil` used to `return` here with nothing counting it at
+    /// all — found in code review, fix round 2 — and the single counter fix
+    /// round 2 added then turned out to conflate two different facts, found
+    /// by the SAME reviewer reading the round-2 fix itself (fix round 3).**
+    /// `writer == nil` means one of two different things, told apart by
+    /// `finalizingCurrentSegment`:
+    ///
+    ///   * a real segment is open and is, right now, being closed —
+    ///     `Diagnostics.observationsDroppedAfterSegmentClose`, a genuine loss;
+    ///   * no segment is open at all, for any of three reasons (before the
+    ///     first one, between `pause()` and `resume()`, or between a
+    ///     reconfiguration's close and its reopen) —
+    ///     `Diagnostics.observationsOutsideAnOpenSegment`, which is not
+    ///     uniformly a loss (see that field).
+    ///
+    /// `whileFinalizing` is `routeInputObservation`'s single, paired read of
+    /// `finalizingCurrentSegment` alongside `writer` — see that function's
+    /// own doc comment for why the two must come from one `lock.withLock`
+    /// rather than two.
+    private nonisolated func appendObservation(_ record: some ObservationRecord, to writer: ObservationWriter?,
+                                                whileFinalizing: Bool) {
         guard let writer else {
-            lock.withLock { _diagnostics.observationsDroppedAfterSegmentClose += 1 }
+            lock.withLock {
+                if whileFinalizing {
+                    _diagnostics.observationsDroppedAfterSegmentClose += 1
+                } else {
+                    _diagnostics.observationsOutsideAnOpenSegment += 1
+                }
+            }
             return
         }
         do {

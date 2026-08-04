@@ -314,3 +314,132 @@ func projectPbxprojText() throws -> String {
         counter is supposed to be counting.
         """)
 }
+
+// MARK: - Fix round 3 (code review): a third source of writer == nil, told apart from the second
+
+/// **Code review, Important finding.** The round-2 fix above conflated two different facts under
+/// one counter: an observation dropped because a segment was actively closing (a real loss), and
+/// one that arrived while NO segment was open at all — before the first one, between `pause()` and
+/// `resume()`, or during a reconfiguration gap (not uniformly a loss; see
+/// `Diagnostics.observationsOutsideAnOpenSegment`'s own doc comment). This pins that the two are now
+/// told apart by a dedicated flag, `finalizingCurrentSegment`, read in the SAME `lock.withLock` as
+/// `observationWriter` — not by two separate lock acquisitions, which would reopen a narrower version
+/// of the same conflation (see `routeInputObservation`'s own doc comment for why).
+@Test func theOutsideSegmentCounterIsToldApartFromTheCloseWindowByAFlagReadWithTheWriter() throws {
+    let files = try appSourceFiles()
+
+    let fieldDeclarations = try codeLinesNaming("var observationsOutsideAnOpenSegment = 0", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    #expect(fieldDeclarations.count == 1, """
+        expected exactly one declaration of Diagnostics.observationsOutsideAnOpenSegment in \
+        CaptureSession.swift, found \(fieldDeclarations.count).
+        """)
+
+    let pairedReads = try codeLinesNaming(
+        "let (writer, finalizing) = lock.withLock { (observationWriter, finalizingCurrentSegment) }",
+        in: files)
+    #expect(pairedReads.count == 1, """
+        expected exactly one paired read of (observationWriter, finalizingCurrentSegment) in ONE \
+        lock.withLock, found \(pairedReads.count): \
+        \(pairedReads.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        Reading them in two separate lock.withLock calls reopens the exact race fix round 3 closed: \
+        finalizeCurrentSegment can change both, together, in the gap between two separate reads.
+        """)
+    guard let pairedRead = pairedReads.first else { return }
+    #expect(pairedRead.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:"), """
+        the paired read is at \(pairedRead.location), not in CaptureSession.swift.
+        """)
+
+    let outsideIncrements = try codeLinesNaming("_diagnostics.observationsOutsideAnOpenSegment += 1", in: files)
+    #expect(outsideIncrements.count == 1, """
+        expected exactly one increment of observationsOutsideAnOpenSegment, found \
+        \(outsideIncrements.count): \
+        \(outsideIncrements.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        """)
+    let closeIncrements = try codeLinesNaming("_diagnostics.observationsDroppedAfterSegmentClose += 1", in: files)
+    try #require(closeIncrements.count == 1, "expected exactly one increment of the close counter too")
+
+    // Both increments must sit inside appendObservation's writer==nil guard, and on OPPOSITE sides
+    // of an `if whileFinalizing`/`else` — proven by ordering against three landmarks, the same
+    // technique the round-2 test uses.
+    let guardLines = try codeLinesNaming("guard let writer else {", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(guardLines.count == 1, "expected exactly one appendObservation guard, found \(guardLines.count)")
+    let elseLines = try codeLinesNaming("} else {", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(elseLines.count >= 1, "expected at least one 'else' in CaptureSession.swift")
+    let appendCalls = try codeLinesNaming("try writer.append(record)", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(appendCalls.count == 1, "expected exactly one 'try writer.append(record)'")
+
+    let guardLine = lineNumber(of: guardLines[0].location)
+    let appendLine = lineNumber(of: appendCalls[0].location)
+    let closeLine = lineNumber(of: closeIncrements[0].location)
+    let outsideLine = lineNumber(of: outsideIncrements[0].location)
+    // The 'else' that separates the two branches is the one between the guard and the append call.
+    let branchElseLine = elseLines.map { lineNumber(of: $0.location) }.first { $0 > guardLine && $0 < appendLine }
+    try #require(branchElseLine != nil, """
+        could not find the if/else separating the two 'no writer' counters between \
+        'guard let writer else {' (line \(guardLine)) and 'try writer.append(record)' (line \(appendLine))
+        """)
+
+    #expect(guardLine < closeLine && closeLine < branchElseLine!, """
+        observationsDroppedAfterSegmentClose is incremented at line \(closeLine), which is not in the \
+        'if whileFinalizing' branch (between line \(guardLine) and the else at line \(branchElseLine!)).
+        """)
+    #expect(branchElseLine! < outsideLine && outsideLine < appendLine, """
+        observationsOutsideAnOpenSegment is incremented at line \(outsideLine), which is not in the \
+        'else' branch (between the else at line \(branchElseLine!) and line \(appendLine)).
+        """)
+}
+
+// MARK: - Fix round 4 (code review): the ordering that makes "outside any hostRange" a proof, not a guess
+
+/// **Code review, Important finding.** The reviewer asked whether the startup window
+/// (`observationsOutsideAnOpenSegment`'s first case) could contain a genuinely-fixable loss: an
+/// observation whose `instant` falls inside the about-to-open segment's `hostRange` but which found
+/// `observationWriter == nil` because `SCStream` had already started producing samples before the
+/// writer existed. It cannot, PROVIDED `self.observationWriter` and the segment's `hostRange.start`
+/// (via `ledger.openSegment(at: openInstant, …)`) are set before `scStream.startCapture()` is ever
+/// called — see `Diagnostics.observationsOutsideAnOpenSegment`'s own doc comment for the full
+/// argument. This pins the ordering the argument depends on, so a future edit that moves
+/// `startCapture()` earlier (or the writer/ledger assignment later) fails a test instead of quietly
+/// invalidating a doc comment's proof.
+@Test func theFirstSegmentsWriterAndHostRangeAreSetBeforeCaptureStarts() throws {
+    let files = try appSourceFiles()
+
+    let writerAssignments = try codeLinesNaming("self.observationWriter = writer", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(writerAssignments.count == 1, """
+        expected exactly one 'self.observationWriter = writer' in CaptureSession.swift, found \
+        \(writerAssignments.count).
+        """)
+    let ledgerOpens = try codeLinesNaming("ledger.openSegment(at: openInstant", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(ledgerOpens.count == 1, """
+        expected exactly one 'ledger.openSegment(at: openInstant' in CaptureSession.swift, found \
+        \(ledgerOpens.count).
+        """)
+    let captureStarts = try codeLinesNaming("try await scStream.startCapture()", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(captureStarts.count == 1, """
+        expected exactly one 'try await scStream.startCapture()' in CaptureSession.swift, found \
+        \(captureStarts.count).
+        """)
+
+    let writerLine = lineNumber(of: writerAssignments[0].location)
+    let ledgerLine = lineNumber(of: ledgerOpens[0].location)
+    let captureLine = lineNumber(of: captureStarts[0].location)
+
+    #expect(writerLine < captureLine, """
+        self.observationWriter = writer (line \(writerLine)) is not before \
+        scStream.startCapture() (line \(captureLine)) — if a video frame can be produced before the \
+        writer exists, observationsOutsideAnOpenSegment's whole "not a loss" argument is false for \
+        this case, and a real bug is hiding under a classification that says it is harmless.
+        """)
+    #expect(ledgerLine < captureLine, """
+        ledger.openSegment(at: openInstant… (line \(ledgerLine)), which fixes hostRange.start, is not \
+        before scStream.startCapture() (line \(captureLine)) — the "instant outside every hostRange" \
+        proof needs hostRange.start fixed before any sample could exist to compare against it.
+        """)
+}
