@@ -379,9 +379,28 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         ///     names for video frames, for observations instead. Involuntary,
         ///     unlike the pause case, but brief and already an accepted cost
         ///     of D2-10's segment-splitting design.
+        ///   * **Between `finalizeCurrentSegment` finishing inside `stop()`
+        ///     and the tap actually being torn down.** `stop()` calls
+        ///     `finalizeCurrentSegment(…, stopping: true)` first — which sets
+        ///     `finalizingCurrentSegment = false` once the last segment's
+        ///     writer is closed — and only afterward fetches
+        ///     `inputObserver` and tears the tap down with `await MainActor
+        ///     .run { observerToStop.stop() }`. That `MainActor.run` hop is
+        ///     scheduling latency, not instant: an observation the tap
+        ///     delivers before the hop actually runs finds `writer == nil`,
+        ///     `finalizingCurrentSegment == false`, and lands here — found in
+        ///     code review, fix round 5, one scale down from the finding that
+        ///     produced this whole split. Still outside every `hostRange`,
+        ///     by the same rule as the other three: the last segment's
+        ///     `hostRange.end` is already fixed (`finalizeCurrentSegment`
+        ///     computed it before this window opens), and because the
+        ///     session is stopping, no successor segment will ever open to
+        ///     have a `hostRange.start` for this instant to fall before
+        ///     either — there is no `hostRange`, past or future, for it to
+        ///     be inside.
         ///
         /// **What this rule ruled OUT, which is the point of applying it
-        /// rather than trusting the flag alone: a fourth, genuinely-fixable
+        /// rather than trusting the flag alone: a fifth, genuinely-fixable
         /// case — an observation whose `instant` DOES fall inside a
         /// segment's `hostRange` but which found `observationWriter == nil`
         /// because `SCStream` had already started producing samples before
@@ -393,9 +412,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// above is what would say so.
         ///
         /// **Not itself a defect count**, unlike the counter above — the
-        /// report explains why these three were not split further (the pause
+        /// report explains why these four were not split further (the pause
         /// case in particular can dominate this number by orders of
-        /// magnitude and is not comparable to the other two).
+        /// magnitude and is not comparable to the other three).
         public internal(set) var observationsOutsideAnOpenSegment = 0
 
         /// The layout of the first audio buffer each source delivered.

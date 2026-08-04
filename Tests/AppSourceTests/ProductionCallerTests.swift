@@ -405,6 +405,19 @@ func projectPbxprojText() throws -> String {
 /// argument. This pins the ordering the argument depends on, so a future edit that moves
 /// `startCapture()` earlier (or the writer/ledger assignment later) fails a test instead of quietly
 /// invalidating a doc comment's proof.
+///
+/// **What this test is blind to, stated here rather than only in a report someone would have to go
+/// find (code review, fix round 5).** This is a LINE-ORDER check — it reads which of two lines comes
+/// first in the file's text, nothing about when either actually executes. It catches a
+/// straightforward reordering of the three statements it names. It would **not** catch the same
+/// defect reached without moving any of those lines — for instance, deferring
+/// `scStream.startCapture()` into a `Task { … }` dispatched from earlier in `beginSegment`, which
+/// would keep every line in its current textual position while making the capture start run
+/// concurrently with, or before, the writer/ledger assignment. A per-record runtime
+/// `assert(record.instant ∈ segment.hostRange)` would catch that too, at the cost of a per-case
+/// switch over `some ObservationRecord` on the tap-callback hot path for every pointer sample up to
+/// display rate — rejected for that cost, not for being weaker; this test is the cheap side of that
+/// trade, not the complete one.
 @Test func theFirstSegmentsWriterAndHostRangeAreSetBeforeCaptureStarts() throws {
     let files = try appSourceFiles()
 
