@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 // `FileManager` — checking whether the observation log `ObservationWriter.expectedLogURL(for
 // MediaURL:)` names actually exists on disk, below.
@@ -10,7 +11,16 @@ import SwiftUI
 struct StageWindow: View {
     @State private var player: AVPlayer?
     @State private var failure: String?
+    // MARK: - export-basic (Phase 2B Task 7)
+    @State private var isExporting = false
+    @State private var exportStatus: String?
     let mediaURL: URL
+
+    /// The output size passed to BOTH `CompositionBuilder.composition` calls in this file — the
+    /// preview's (`load()`, below) and the export's (`exportRecording()`) — so "preview and
+    /// export agree" stays true of the actual arguments, not only of the shared function.
+    private static let outputWidth = 1920
+    private static let outputHeight = 1080
 
     var body: some View {
         NavigationSplitView {
@@ -29,6 +39,28 @@ struct StageWindow: View {
             }
         }
         .task(id: mediaURL) { await load() }
+        .toolbar {
+            // **The Export command, and why it is a plain toolbar `Button` rather than a
+            // `.commands { CommandGroup }` menu item.** The brief's file list puts this command in
+            // `StageWindow.swift` itself. `SoredemoApp.swift`'s own doc comment records the SAME
+            // brief-vs-reality gap for Task 4's "Open Recording…": `.commands` can only attach to
+            // a `Scene`, never to a plain `View`, so that command had to move to `SoredemoApp`
+            // regardless of which file its brief named. A toolbar `Button` has no such
+            // restriction — it is ordinary SwiftUI content a `View` hosts directly — so THIS
+            // command, unlike that one, can live exactly where its own brief put it without
+            // repeating Task 4's file-list correction.
+            ToolbarItem {
+                Button("Export…") { Task { await exportRecording() } }
+                    .disabled(player == nil || isExporting)
+            }
+        }
+        .alert("Export", isPresented: Binding(
+            get: { exportStatus != nil }, set: { if !$0 { exportStatus = nil } })
+        ) {
+            Button("OK") { exportStatus = nil }
+        } message: {
+            Text(exportStatus ?? "")
+        }
     }
 
     private func load() async {
@@ -51,13 +83,40 @@ struct StageWindow: View {
             }
             let asset = AVURLAsset(url: mediaURL)
             let composition = try await CompositionBuilder.composition(
-                for: asset, outputWidth: 1920, outputHeight: 1080,
+                for: asset, outputWidth: Self.outputWidth, outputHeight: Self.outputHeight,
                 frameDuration: CMTime(value: 1, timescale: 60))
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
             player = AVPlayer(playerItem: item)
         } catch {
             failure = "\(error)"
+        }
+    }
+
+    /// Presents a save panel, then runs `MP4Exporter.export` — see that type's own header for
+    /// which writer this goes through and why. `StageCompositor`'s statics (`renderer`, `style`,
+    /// `observationLogURL`) are already set by `load()` above by the time this can be invoked
+    /// (the toolbar button is disabled while `player == nil`, and `player` is set only after
+    /// `load()`'s composition succeeds), so the export's composition draws the identical framing
+    /// and pointer the preview already showed — the same statics, not a second configuration.
+    private func exportRecording() async {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".mp4"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        isExporting = true
+        defer { isExporting = false }
+        do {
+            let asset = AVURLAsset(url: mediaURL)
+            let report = try await MP4Exporter.export(
+                asset: asset, to: destination,
+                outputWidth: Self.outputWidth, outputHeight: Self.outputHeight)
+            exportStatus = "Exported \(report.framesWritten) frame(s) to "
+                + "\(report.outputURL.lastPathComponent)."
+        } catch {
+            exportStatus = "Export failed: \(error)"
         }
     }
 }

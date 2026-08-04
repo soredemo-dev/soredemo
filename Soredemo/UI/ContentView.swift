@@ -78,6 +78,23 @@ final class RecordingCoordinator {
     private var session: CaptureSession?
     private var sink: TemporaryFileMediaSink?
 
+    /// **The lifecycle fix for `TemporaryFileMediaSink`'s own "not cleaned up by this type" —
+    /// Task 4's review flagged it, Task 5.5 carried it forward, this is where it closes.** Which
+    /// sink actually produced `mediaURL` — the file a live `AVPlayer` may currently have open.
+    /// Reference identity (`===` below), not `mediaURL` equality: the coordinator, not the sink,
+    /// is what a caller reasons about, and this is the one fact that says "is it safe to delete
+    /// this sink's directory yet."
+    private var mediaSourceSink: TemporaryFileMediaSink?
+
+    /// `TemporaryFileMediaSink.sweepLeftoverDirectories()` once, at the coordinator's own
+    /// construction — the earliest point this app ever runs, before any recording exists to
+    /// protect. See that function's own doc comment for why a launch sweep is needed at all
+    /// (crash / force-quit exits never reach the replace-on-next-recording path below) and why it
+    /// is safe to run unconditionally here.
+    init() {
+        TemporaryFileMediaSink.sweepLeftoverDirectories()
+    }
+
     func toggleRecording() {
         if isRecording {
             Task { await stopRecording() }
@@ -126,6 +143,15 @@ final class RecordingCoordinator {
             statusText = "Could not create a scratch location for the recording: \(error)"
             return
         }
+        // The OUTGOING sink, if this is a second-or-later recording. Deleted here, not left for
+        // `stopRecording()`, ONLY when it never became what `mediaURL` points at — a recording
+        // that was started and then abandoned (picker cancelled next time, `start()` failed) has
+        // nothing playing it, so there is nothing to wait for. A sink that DID produce the
+        // current `mediaURL` is left alone here — `stopRecording()` below is where that one gets
+        // deleted, once this new recording has actually replaced it.
+        if let outgoing = sink, outgoing !== mediaSourceSink, let directory = outgoing.packageURL {
+            try? FileManager.default.removeItem(at: directory)
+        }
         sink = newSink
 
         let newSession = CaptureSession(source: source, scale: scale, displayUUID: displayUUID,
@@ -158,7 +184,17 @@ final class RecordingCoordinator {
                 firstMediaFilename = table.segments.first?.mediaFilename
             }
             if let firstMediaFilename, let url = sink?.url(for: firstMediaFilename) {
+                // The sink that produced the PREVIOUSLY displayed recording, if any, is now
+                // superseded: `mediaURL` is about to move to this new file, so nothing still
+                // needs the old one's directory. Deleted now, not before — until this exact
+                // moment `mediaSourceSink`'s directory was still what a live `AVPlayer` could
+                // have open, which is the whole reason this was left undeleted in the first
+                // place (Task 4's review, carried forward through Task 5.5).
+                if let previous = mediaSourceSink, previous !== sink, let directory = previous.packageURL {
+                    try? FileManager.default.removeItem(at: directory)
+                }
                 mediaURL = url
+                mediaSourceSink = sink
                 statusText = discardedCount == 0 ? "" :
                     "\(discardedCount) segment(s) did not make it into the recording."
             } else {
@@ -220,11 +256,32 @@ final class RecordingCoordinator {
 /// `AVURLAsset`, which has no opinion about where the file lives, so a scratch directory is enough
 /// to make a frame observable without inventing a document for the sole purpose of holding it.
 ///
-/// **Not cleaned up by this type.** `AGENTS.md`'s "never write to $HOME
-/// and never commit media" governs the PROBE (`scripts/cross-boundary-digest-probe.swift`), which
-/// this is not — it is the shipping app's own scratch storage, under `NSTemporaryDirectory()`,
-/// which the OS reclaims on its own schedule. Deleting the file out from under a still-playing
-/// `AVPlayer` the moment the coordinator finishes would be the wrong failure to introduce here.
+/// **Cleaned up by a lifecycle, not by this type acting alone — Task 4's review flagged this as
+/// open ("writes recordings under `NSTemporaryDirectory()` and never deletes them"), Task 5.5
+/// carried it forward, and Phase 2B Task 7 is where it closes.** The reason it was left THIS way
+/// is still real and still governs the design: `AGENTS.md`'s "never write to $HOME and never
+/// commit media" governs the PROBE (`scripts/cross-boundary-digest-probe.swift`), which this is
+/// not, and deleting a file out from under a still-playing `AVPlayer` the moment a recording
+/// finishes would be the wrong failure to introduce. So the fix is not a `removeItem` added
+/// somewhere convenient — it is two rules, both in `RecordingCoordinator` (this file), that
+/// together bound how long a directory this type creates can survive:
+///
+/// 1. **Replaced-on-record-again**: `RecordingCoordinator.mediaSourceSink` tracks which sink
+///    produced the CURRENT `mediaURL` — the file a live `AVPlayer` may have open. Starting a new
+///    recording deletes the outgoing sink's directory immediately if it was never what `mediaURL`
+///    pointed at (an abandoned attempt — nothing was ever playing it); finishing a new recording
+///    deletes the PREVIOUSLY displayed one, because at that instant `mediaURL` has just moved off
+///    it and nothing needs it anymore.
+/// 2. **Swept on launch**: `sweepLeftoverDirectories()`, below, called once from
+///    `RecordingCoordinator.init()` — the backstop for exits rule 1 cannot reach (force-quit, a
+///    crash, `killall`), which never run `stopRecording()` at all. Every directory this sink ever
+///    creates is named `soredemo-preview-<uuid>`, a naming convention that did NOT change when
+///    the layout below did — so a sweep keyed on that PREFIX deletes a leftover flat
+///    `master-00.mov` directory (pre-Task-5.5) and a leftover `media/`+`observations/` package
+///    directory (post-Task-5.5) identically, without needing to know which layout it is looking
+///    at. A sweep that inspected the CONTENTS to decide what counts as this type's own directory
+///    would need updating every time the layout changed again; this one does not, because it
+///    never looks past the name Task 4's own `init()` already commits to.
 ///
 /// **Media now lands under a `media/` subdirectory, not flatly — a correction from Task 5.5.**
 /// `ObservationWriter.expectedLogURL(forMediaURL:)`'s own doc comment used to cite this type's flat
@@ -235,6 +292,11 @@ final class RecordingCoordinator {
 /// produces that shape, and `packageURL` (below) is the root both `media/` and `observations/`
 /// sit under, which `CaptureSession` needs to open the observation log at all.
 final class TemporaryFileMediaSink: MediaSink, @unchecked Sendable {
+    /// The naming convention every directory this type ever creates carries, and the ONE thing
+    /// `sweepLeftoverDirectories()` below trusts to identify "a directory this type made" — never
+    /// the layout inside it, which has already changed once (Task 5.5) and could again.
+    private static let directoryNamePrefix = "soredemo-preview-"
+
     /// The package root — parent of both `media/` (this type) and `observations/`
     /// (`ObservationWriter`, via `packageURL` below).
     private let directory: URL
@@ -242,11 +304,32 @@ final class TemporaryFileMediaSink: MediaSink, @unchecked Sendable {
 
     init() throws {
         directory = FileManager.default.temporaryDirectory
-            .appending(path: "soredemo-preview-\(Minting.newIdentifier().uuidString)",
+            .appending(path: "\(Self.directoryNamePrefix)\(Minting.newIdentifier().uuidString)",
                       directoryHint: .isDirectory)
         try FileManager.default.createDirectory(
             at: directory.appending(path: "media", directoryHint: .isDirectory),
             withIntermediateDirectories: true)
+    }
+
+    /// The launch-time backstop for the lifecycle this type's own header describes —
+    /// `RecordingCoordinator.init()` calls this once. Deletes EVERY `soredemo-preview-*`
+    /// directory under `NSTemporaryDirectory()`, regardless of what is inside it: a leftover flat
+    /// `master-00.mov` from before Task 5.5, or a leftover `media/`+`observations/` package from
+    /// after — both are covered by the same prefix check, because the prefix is what never
+    /// changed. Safe to run unconditionally at launch: nothing has recorded anything yet, so no
+    /// `mediaURL`/`AVPlayer` can be pointing into any directory this sweeps.
+    ///
+    /// `try?` on the removal, not `try`: one directory this process cannot delete (permissions, a
+    /// concurrent Finder operation) must not stop the sweep from clearing every other one, and a
+    /// launch-time cleanup failing silently for a single leftover temp directory is not a fact
+    /// worth surfacing to the person trying to record something.
+    static func sweepLeftoverDirectories() {
+        let tmp = FileManager.default.temporaryDirectory
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: tmp, includingPropertiesForKeys: nil) else { return }
+        for entry in entries where entry.lastPathComponent.hasPrefix(directoryNamePrefix) {
+            try? FileManager.default.removeItem(at: entry)
+        }
     }
 
     @MainActor

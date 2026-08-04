@@ -311,6 +311,10 @@ enum CrossBoundaryProbe {
                   actual: "\(error)")
         }
 
+        print("14. MP4Exporter — export never drops a frame, and the exported file IS the composed one (Phase 2B Task 7)")
+        print("14.1 a synthetic movie, exported, and read back independently — never MP4Exporter's own account of itself")
+        try await theExportedFileDropsNoFrameAndCarriesTheFraming()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -5258,6 +5262,193 @@ enum CrossBoundaryProbe {
               actual: "legacy \(legacyFailure.firstAttemptRefused), successor "
               + "\(successorFailure.firstAttemptRefused)",
               expected: "true and true")
+    }
+
+    // MARK: - § 14  MP4Exporter — export never drops a frame, and the exported file IS the composed one (Phase 2B Task 7)
+
+    /// The mechanical half of "the human step" — see `MP4Exporter.swift`'s own header for which
+    /// writer this exercises and why, and `task-7-report.md` for the numbered checklist a person
+    /// still has to run in QuickTime. Everything below is what a machine CAN check: the file
+    /// exists, opens as an `AVAsset`, has the expected track shape, and its frames carry the same
+    /// framing `theRealCompositionRendersACardOverABackground` (§ 11) already proved the live
+    /// preview shows — built the SAME way (`writeSolidColorMovie`, `StagePlanner.plan`, `pixel`,
+    /// `closeEnough`), so a drift between preview and export geometry would show up here as a
+    /// wrong pixel, not as a passing check for the wrong reason.
+    enum ExportProbeError: Error, CustomStringConvertible {
+        case fileMissing(String)
+        case shortRead(String)
+        var description: String {
+            switch self {
+            case .fileMissing(let s): "expected file missing: \(s)"
+            case .shortRead(let s): "could not read enough bytes: \(s)"
+            }
+        }
+    }
+
+    /// The exported file's own `ftyp` major brand, read directly off disk — never trusted from
+    /// either writer's own account of itself, the same discipline every other section in this
+    /// probe applies to the FINISHED FILE. An ISO base media file's first box is
+    /// `[4-byte size][4 bytes "ftyp"][4-byte major brand][...]`; `AVAssetWriter(url:fileType: .mov)`
+    /// (what `LegacyMasterWriter`/`SuccessorMasterWriter` both hardcode — see `MP4Exporter.swift`'s
+    /// header for why this file uses neither type directly) tags that brand `"qt  "`.
+    /// `fileType: .mp4` — what this section actually asks `MP4Exporter` to have used — does not.
+    /// This is the concrete, on-disk check for the claim in `MP4Exporter.swift`'s header that a
+    /// `.mov` renamed `.mp4` is not what this task's scope means by "one MP4 (H.264)."
+    static func ftypMajorBrand(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        guard let bytes = try handle.read(upToCount: 12), bytes.count == 12 else {
+            throw ExportProbeError.shortRead(url.path)
+        }
+        let ftypTag = String(decoding: bytes[4..<8], as: UTF8.self)
+        guard ftypTag == "ftyp" else {
+            throw ExportProbeError.shortRead("\(url.path): first box is \"\(ftypTag)\", not \"ftyp\"")
+        }
+        return String(decoding: bytes[8..<12], as: UTF8.self)
+    }
+
+    /// Counts video sample buffers in `url` with a BARE `AVAssetReader` — no `videoComposition`,
+    /// no `MP4Exporter` involved — as an INDEPENDENT count against `ExportReport.framesWritten`.
+    /// Not redundant with `MP4Exporter`'s own `framesRead == framesWritten` throw: that throw
+    /// proves the exporter's two counters agree with EACH OTHER; a bug that incremented both
+    /// counters identically but wrong (or that wrote fewer samples than it counted) would still
+    /// pass it. This recounts the samples that actually landed in the FILE, the same "the shared
+    /// value is the RIGHT one, not just agreeing" check every other section in this probe applies.
+    @MainActor
+    static func countVideoSampleBuffers(in url: URL) async throws -> Int {
+        let asset = AVURLAsset(url: url)
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: tracks[0], outputSettings: nil)
+        reader.add(output)
+        guard reader.startReading() else {
+            throw CompositionProbeError.writerFailed(
+                "recount startReading() returned false: \(String(describing: reader.error))")
+        }
+        // `copyNextSampleBuffer()` on a COMPRESSED track output also hands back zero-media
+        // marker buffers — measured directly: an H.264 track built by this exact export produced
+        // 8 buffers total for 4 real frames, and the 4 extras all had `numSamples == 0` (no
+        // decodable media, some with `presentationTimeStamp == .nan`) — parameter-set/structural
+        // buffers `AVAssetWriter`'s own H.264 encoding attaches, not additional displayed frames.
+        // `numSamples > 0` is what "a real, decodable frame landed in the file" actually means;
+        // a bare buffer count is not that.
+        var count = 0
+        while let sampleBuffer = output.copyNextSampleBuffer() {
+            if sampleBuffer.numSamples > 0 { count += 1 }
+        }
+        return count
+    }
+
+    @MainActor
+    static func theExportedFileDropsNoFrameAndCarriesTheFraming() async throws {
+        let outputWidth = 320
+        let outputHeight = 180
+        let sourceWidth = 64
+        let sourceHeight = 64
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("soredemo-probe-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Probe-owned scratch, never under `media/`, deleted on every exit path including a
+        // thrown error — the same rule `theRealCompositionRendersACardOverABackground` (§ 11)
+        // follows for its own source movie.
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mov")
+        let exportedURL = directory.appendingPathComponent("export.mp4")
+
+        try await writeSolidColorMovie(to: sourceURL, width: sourceWidth, height: sourceHeight,
+                                       r: 255, g: 0, b: 0, frameCount: 4)
+
+        // A clean, known `StageCompositor` baseline — § 12 leaves `observationLogURL`/`overrides`
+        // set from its own run, and this section's pixel check must not depend on run order.
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+
+        let sourceAsset = AVURLAsset(url: sourceURL)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            throw ExportProbeError.fileMissing(sourceURL.path)
+        }
+
+        let report = try await MP4Exporter.export(
+            asset: sourceAsset, to: exportedURL, outputWidth: outputWidth, outputHeight: outputHeight)
+
+        guard FileManager.default.fileExists(atPath: exportedURL.path) else {
+            throw ExportProbeError.fileMissing(exportedURL.path)
+        }
+
+        check(report.framesWritten > 0,
+              "the export actually wrote frames — not a vacuous 0 == 0 pass",
+              actual: "\(report.framesWritten)")
+        check(report.framesRead == report.framesWritten,
+              "framesRead == framesWritten — MP4Exporter.export would have thrown otherwise; "
+              + "restated here so a future change that removed the throw would still show up",
+              actual: "read \(report.framesRead), written \(report.framesWritten)")
+
+        // The RIGHT number, not just two counters agreeing with each other: recount the samples
+        // that actually landed in the file, independently of MP4Exporter's own bookkeeping.
+        let recount = try await countVideoSampleBuffers(in: exportedURL)
+        check(recount == report.framesWritten,
+              "and the shared value is the RIGHT one — an independent recount of the FILE's own "
+              + "video samples, not MP4Exporter's own account of itself",
+              actual: "recount \(recount)", expected: "\(report.framesWritten)")
+
+        let exportedAsset = AVURLAsset(url: exportedURL)
+        let videoTracks = try await exportedAsset.loadTracks(withMediaType: .video)
+        let audioTracks = try await exportedAsset.loadTracks(withMediaType: .audio)
+        check(videoTracks.count == 1, "the exported file has exactly one video track",
+              actual: "\(videoTracks.count)")
+        check(audioTracks.count == 0,
+              "and NO audio tracks — MP4Exporter.swift's header explains why: this export's own "
+              + "signature carries no audio parameter, and shipping empty, never-fed audio tracks "
+              + "would be exactly the unmeasured shape this task exists to not ship",
+              actual: "\(audioTracks.count)")
+
+        let brand = try ftypMajorBrand(of: exportedURL)
+        check(brand != "qt  ",
+              "the exported file's own ftyp major brand is NOT QuickTime's — a real .mp4 "
+              + "container, not a .mov written to a .mp4-suffixed path",
+              actual: "\"\(brand)\"")
+
+        let duration = try await exportedAsset.load(.duration)
+        check(duration.seconds > 0,
+              "the exported file has a real (non-zero) duration",
+              actual: "\(duration.seconds)s")
+
+        // The pixel check: read the EXPORTED file's own frames directly — no `videoComposition`
+        // needed here, unlike § 11's `generator.videoComposition = composition`, because export
+        // already baked the composited pixels into the file. If it did not — if the exporter had
+        // silently passed the source through uncomposited — this would read back the source's
+        // flat red rather than a card over a background, and fail for exactly that reason.
+        let generator = AVAssetImageGenerator(asset: exportedAsset)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let (image, _) = try await generator.image(at: .zero)
+
+        let plan = StagePlanner.plan(outputWidth: outputWidth, outputHeight: outputHeight,
+                                     sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                                     style: .default)
+        let centreX = Int((plan.card.x + plan.card.width / 2).rounded())
+        let centreY = Int((plan.card.y + plan.card.height / 2).rounded())
+        let cornerX = Int(plan.card.x.rounded()) + 2
+        let cornerY = Int(plan.card.y.rounded()) + 2
+
+        let centrePixel = try pixel(in: image, x: centreX, y: centreY, outputHeight: outputHeight)
+        let marginPixel = try pixel(in: image, x: 10, y: 10, outputHeight: outputHeight)
+        let cardCornerPixel = try pixel(in: image, x: cornerX, y: cornerY, outputHeight: outputHeight)
+
+        check(closeEnough(centrePixel, (255, 0, 0), tolerance: 6),
+              "the exported file's card centre carries the source colour — the SAME composition "
+              + "the preview uses, not a second, independently-drifting one",
+              actual: "\(centrePixel)", expected: "(255, 0, 0) ± 6")
+        check(closeEnough(marginPixel, (23, 23, 28), tolerance: 6),
+              "and a point in the inset margin carries the background colour",
+              actual: "\(marginPixel)", expected: "(23, 23, 28) ± 6")
+        check(closeEnough(cardCornerPixel, (23, 23, 28), tolerance: 6),
+              "and a point inside the card's bounding box but outside its rounded corner carries "
+              + "the background colour",
+              actual: "\(cardCornerPixel)", expected: "(23, 23, 28) ± 6")
     }
 
     /// What a caller can learn about a writer's refusal — normalised, never the raw error text.

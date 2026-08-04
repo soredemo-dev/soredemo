@@ -15,7 +15,19 @@ import Render
 /// `-target arm64-apple-macos26.0` before writing this file. Everything else below typechecked as
 /// the brief specified.
 enum CompositionBuilder {
-    static func composition(for asset: AVAsset, outputWidth: Int, outputHeight: Int,
+    /// `nonisolated`, added for Phase 2B Task 7 and beyond that task's own file list — a
+    /// correction of the same shape `CGGeometryBridge.swift`'s own functions record for Task 8:
+    /// nothing here reads AppKit or UI state, it is `AVAsset`/`AVVideoComposition` construction,
+    /// so there is no reason for this to inherit the app target's `@MainActor` default. Without
+    /// it, `MP4Exporter.export` — itself `nonisolated`, for the reason its own header gives
+    /// (`AVAssetWriter.finishWriting(_:)`'s completion handler runs off an AVFoundation-owned
+    /// queue) — cannot call this function at all: passing the non-`Sendable` `AVAsset` from a
+    /// `nonisolated` context to a `@MainActor`-isolated one is exactly
+    /// `#RegionIsolation::SendingRisksDataRace`, measured directly (`xcrun swiftc` rejected it
+    /// before this was added). `StageWindow.load()`, the preview's own call site, stays
+    /// `@MainActor` by the app's default and calls this exactly as before — a `nonisolated async`
+    /// function is callable from any isolation, so this is a widening, not a move.
+    nonisolated static func composition(for asset: AVAsset, outputWidth: Int, outputHeight: Int,
                             frameDuration: CMTime) async throws -> AVVideoComposition {
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard let track = tracks.first else { throw BuilderError.noVideoTrack }
