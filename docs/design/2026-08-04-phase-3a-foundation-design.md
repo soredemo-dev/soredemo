@@ -51,6 +51,23 @@ build**"), `AGENTS.md`, and `Minting.swift`'s header ("the three things
 five documents false. `Headless` gets its own product, `SoredemoHeadless`; adding
 it to `SoredemoCore`'s `targets:` array would itself break D6.
 
+### The architecture plugin is target-scoped, and `Headless` gets its own guard
+
+**Measured before choosing the directory.** `ArchitectureCheck` passes
+`--sources target.directory.string` and is attached per target in the manifest
+(`plugins: archCheck`, on seven targets). It is not path-scoped to `Sources/`, so
+`Sources/Headless` is a fine location and the Foundation-only guard needs **no
+directory exception** — a guard with an exception is not a guard, and this project
+has watched that fail twice this week.
+
+**But omitting the plugin leaves `Headless` with no architecture check at all.** The
+answer is not a hole in the pure guard; it is a second guard enforcing `Headless`'s
+own invariant: **`import AppKit` or `import SwiftUI` in `Headless` fails the build.**
+Two guards, two rules, no exceptions. There is precedent for a target carrying no
+`archCheck` (`CheckerLexer`, for a dependency-cycle reason), and its consequences
+are written down beside it rather than enforced — `Headless` is not to inherit that
+arrangement, because it is the target most likely to drift.
+
 ## 3. The entry rule, and the two layers it is written in
 
 `Headless`'s most likely death is becoming a dumping ground: whatever is
@@ -64,8 +81,25 @@ that constructs and exercises it.
 protocol is exempt from CONSTRUCTION and not from exercise: some conforming type
 must be exercised, which is what makes the protocol's existence load-bearing —
 the `FrameRendering` / `MasterWriting` seams are the shape this is written for.
-A `public` function or property on an exercised type needs no separate entry; the
-rule is about types, because a type is the unit a test can hold.*
+**The exercised conforming type may not be a test-only type.** A `struct`
+declared in a test file satisfies the letter and inverts the meaning: the seam
+would be verified entirely through a double while the production conformer
+never runs — a mechanism validated only by test-only callers, which is the
+failure these two seams are most exposed to.
+A `public` function or property on an exercised type needs no separate entry.*
+
+**The known gap, written down rather than argued away.** Type granularity means
+a `public` method added to an already-admitted type enters free. That is a cost
+trade, not a principle — "a type is the unit a test can hold" would be a weak
+reason, since a test holds a method call perfectly well. It is recorded here to
+the same standard § 6 records the redaction's reproducibility: an unwritten cost
+reads as zero.
+
+**The scanner's discriminating power falls as the type name gets more generic.**
+`Frame`, `Track`, `Renderer` appear at a word boundary in almost any test file,
+so for those the necessary condition is close to vacuous — and things in a
+dumping ground are frequently named exactly that. The scanner's message must say
+so at the point of passing, not only in this document.
 
 **The rule is enforced at two levels, and they are deliberately not the same.**
 
@@ -91,6 +125,13 @@ time-sensitive, and may answer differently on another machine. Reporting one
 `N tests pass` silently changes what that number means — one symbol for two things
 is the shape this project has caught most often.
 
+**Separated by the build graph, not by a rule.** Two counts are an assertion until
+something prevents a test landing in the wrong population. **The deterministic test
+targets must not depend on `SoredemoHeadless`**: a test that cannot link it cannot
+be written against it, so the split is enforced by the manifest rather than by
+anyone remembering. `Headless` tests live in their own target, which is the only
+one that depends on the product.
+
     swift test — deterministic   466 passed
     swift test — headless          N passed    (GPU / timing sensitive)
     cross-boundary probe         349 checks
@@ -103,6 +144,22 @@ the drawn pointer's position at a given frame. Changing
 `StageCompositor.pointerPlacement`'s `let time = anchor.hostTime + offset` back to
 `let time = offset` turns it red.**
 
+**Red for the right reason, in two layers.** That mutation makes the lookup time a
+small fraction while the records are mach absolute times (~5.2 × 10¹⁴), so nothing
+matches and the compositor most likely draws **no pointer at all** rather than a
+misplaced one. Both are red, but the capability this test claims is POSITION — and
+a vanished pointer is what a person already catches; `1a98402` was caught that way.
+So:
+
+1. `aPointerIsDrawnAtAll` — some pixel differs from the unmodified source frame
+2. `aPointerIsDrawnAtTheRecordedPosition` — it is at `p`
+
+The `let time = offset` mutation must break (2) while (1) still holds is NOT
+achievable, so it is not the calibrating mutation for (2). **A second mutation that
+can only misplace** — swapping `placement.x`/`.y`, or adding a constant offset — is
+required, and both observed reds go in the report. One mutation that reddens both
+layers proves only that the pipeline noticed something.
+
 That is the evidence that an automatic instrument now reaches the code only a
 person reached today.
 
@@ -111,6 +168,20 @@ written: `StageCompositor.buildTracks` reads the log entirely through
 `JSONLReader` and `ObservationLog`, both already in `Sources/Project`.
 `ObservationWriter` — which stays in `Capture` — is needed only for writing and for
 `expectedLogURL`, and the completion condition needs neither.
+
+### The observations are recorded; the source frame is constructed
+
+The fixture carries no media — the 29 MB `.mov` is correctly excluded — so the test
+synthesises the source frame it composes. That is fine and deliberate: the
+assertion is about geometry, not about what the frame depicts. It is stated here
+because § 6 spends a section establishing "recorded, not constructed" and a reader
+would otherwise carry that over the whole input. **Observations recorded, source
+frame constructed.**
+
+One requirement follows: **the constructed frame must contrast with the cursor
+art** (white fill, black stroke). A white or near-white frame makes "find the drawn
+pointer" fail for a reason that has nothing to do with position — red for the wrong
+reason, one more time.
 
 ## 6. The fixture: recorded, not constructed
 
@@ -146,6 +217,16 @@ absent from this file:
 
 Nothing the compositor consumes is touched: every timestamp, every coordinate, the
 anchor and all 149 intervals are byte-for-byte the recorded values.
+
+**The table above is machine-checked, not hand-read.** Its force comes from
+"decided by schema, not by instance", and a hand enumeration of the schema is
+itself a `[prose]` assertion — guarding user data reaching git. So a scan lists
+every string-valued field in the observation-log schema and compares it against
+the adjudicated set; **an unadjudicated field is red**. Verified today by hand
+(`AXElementRecord` has exactly `role`, `title`, `frame`, `readInterval` — no
+`identifier`), which is the reason the scan is needed rather than a reason it is
+not: Phase 3 adds cursor shape, which will very likely carry a string, and the
+gate must speak up then instead of waiting for someone to remember this table.
 
 ### Two gates, one for the file and one for the reader
 
