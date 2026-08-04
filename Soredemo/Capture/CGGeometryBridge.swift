@@ -244,6 +244,6 @@ enum CGGeometryBridge {
     // do. They were MOVED, not copied: measured at the split, their seventeen call
     // sites included not one in `Soredemo/Capture/`, so this file has nothing to
     // delegate and `import Headless` here would be an edge carrying no call.
-    // `HeadlessEntryRuleTests.theTwoGeometryBridgesShareNoFunctionName` is what keeps
+    // `HeadlessEntryRuleTests.theTwoGeometryBridgesShareNoFunctionSignature` is what keeps
     // that true while two bridges exist.
 }

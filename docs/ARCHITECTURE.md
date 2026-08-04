@@ -66,7 +66,7 @@ is **silent** — rules 1 and 2 would simply be off, and the build would stay gr
 (`coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge`). The split is by tier — the AX and
 ScreenCaptureKit *entrances* need `ApplicationServices`, the render *exits* need nothing — and it is
 temporary: when `Capture` moves in 3A-2 the two bridges are reconsidered together.
-`theTwoGeometryBridgesShareNoFunctionName` is what stops a conversion being defined on both sides
+`theTwoGeometryBridgesShareNoFunctionSignature` is what stops a conversion being defined on both sides
 while both exist.
 
 ### The entry rule, and the two levels it is enforced at

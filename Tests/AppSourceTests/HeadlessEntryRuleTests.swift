@@ -74,6 +74,15 @@ func swiftFiles(under relativePath: String) throws -> [URL] {
 /// `outputCanvas(width:height:)`, appearing in whichever bridge someone happened to
 /// be editing.
 ///
+/// **The residual weakening, stated rather than left as an unstated cost:** a
+/// duplicate written with DIFFERENT labels — `point(atX:y:)` beside `point(x:y:)` —
+/// is two signatures and this check does not see it, where a base-name check would
+/// have. That is unavoidable, because the base-name check is not writable at all
+/// here (`point` is already shared, legitimately), but it is a real hole and review
+/// is what covers it. The same trade the entry scanner makes one section down: the
+/// instrument is a necessary condition, and saying so is the only thing that keeps
+/// it from being read as more.
+///
 /// A line scan, so a declaration whose parameter list wraps is not parsed — which
 /// would be a silent miss. The count check below turns it into a loud one instead.
 func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
@@ -148,7 +157,14 @@ func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
 /// When `Capture` moves in 3A-2 the two bridges become one and this test is deleted
 /// with them — it is scaffolding for a boundary that is meant to be temporary, which
 /// is stated here so it is not mistaken for a permanent rule.
-@Test func theTwoGeometryBridgesShareNoFunctionName() throws {
+///
+/// **`…ShareNoFunctionSignature`, not `…ShareNoFunctionName`, and the rename is the
+/// point.** Under the first name this test was green while the two bridges
+/// demonstrably DO share the function name `point` — a title claiming more than the
+/// check verifies, which is the exact defect this file's own entry scanner carries a
+/// paragraph about. A doc comment does not travel with `--list-tests` output; the
+/// identifier does.
+@Test func theTwoGeometryBridgesShareNoFunctionSignature() throws {
     let app = try functionSignatures(inFileAt: "Soredemo/Capture/CGGeometryBridge.swift")
     let headless = try functionSignatures(inFileAt: "Sources/Headless/HeadlessGeometryBridge.swift")
     try #require(!app.isEmpty && !headless.isEmpty,
@@ -297,6 +313,62 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
     return try #require(root["targets"] as? [[String: Any]])
 }
 
+/// One target's declared dependency names, whichever of `dump-package`'s two
+/// spellings (`byName`, `target`) the manifest produced.
+func manifestDependencyNames(of target: [String: Any]) -> [String] {
+    (target["dependencies"] as? [[String: Any]] ?? [])
+        .compactMap { ($0["byName"] as? [Any] ?? $0["target"] as? [Any])?.first as? String }
+}
+
+/// **The tier boundary in the other direction, and the manifest is the ONLY place it
+/// can be checked.**
+///
+/// `noDeterministicTestTargetDependsOnHeadless` below covers test targets. This one
+/// covers the library targets, and the reason it is not redundant is that
+/// `ArchitectureCheck` cannot possibly catch it: the plugin passes one `--allow` per
+/// DECLARED dependency, so **rule 1's allow-list IS the manifest**. Declare
+/// `Headless` as a dependency of a pure target and `import Headless` inside it
+/// immediately becomes legal — rule 1 permits it, rule 2 never looks at what a
+/// permitted import drags in, and the deterministic tier has absorbed AVFoundation,
+/// the GPU and wall time with every guard still green.
+///
+/// **Which pure targets can actually do this, measured rather than assumed.**
+/// `Headless` depends on `Project`, which depends on `Graph`, so `Geometry`,
+/// `Timeline`, `Project`, `Graph` and `Render` are all cycle-blocked: SwiftPM
+/// refuses to resolve the package (`cyclic dependency declaration found:
+/// DeterminismTests -> Graph -> Headless -> Project -> Graph`) and the failure
+/// arrives before any test runs. `Framing` and `Variants` are NOT reachable from
+/// `Headless`, so for those two the edge resolves cleanly and every guard stays
+/// green — which is what this test was observed red on. A rule that holds for five
+/// targets by accident of the graph and for two only because nobody has tried is
+/// exactly the shape this phase exists to replace, so the manifest is asserted
+/// directly.
+///
+/// `Headless` itself is excluded for the obvious reason, and the exclusion is by
+/// exact name rather than by a pattern: a second headless-ish target would be a
+/// second tier and must argue for itself here.
+@Test func noPureTargetDependsOnHeadless() throws {
+    let targets = try resolvedManifestTargets()
+    let regular = targets.filter { $0["type"] as? String == "regular" }
+    try #require(regular.count > 1, "expected several regular targets, got \(regular.count)")
+    try #require(regular.contains { $0["name"] as? String == "Headless" },
+                 "no regular target named Headless — this scan would pass vacuously")
+
+    for target in regular {
+        let name = target["name"] as? String ?? "<unnamed>"
+        guard name != "Headless" else { continue }
+        #expect(!manifestDependencyNames(of: target).contains("Headless"), """
+            \(name) declares Headless as a dependency, and no guard can see that this is wrong.
+            ArchitectureCheck passes one --allow per DECLARED dependency, so rule 1's allow-list \
+            is this manifest: the edge itself is what makes `import Headless` legal inside \
+            \(name). The deterministic tier would then reach AVFoundation, the GPU and wall time \
+            through one import, with the plugin green on every file.
+            The dependency runs the other way. Headless depends on the pure targets; nothing pure \
+            depends on Headless.
+            """)
+    }
+}
+
 /// **The two test populations are kept apart by the build graph, not by a rule.**
 ///
 /// Two counts are an assertion until something prevents a test landing in the wrong
@@ -310,8 +382,7 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
 
     for target in testTargets {
         let name = target["name"] as? String ?? "<unnamed>"
-        let dependencies = (target["dependencies"] as? [[String: Any]] ?? [])
-            .compactMap { ($0["byName"] as? [Any] ?? $0["target"] as? [Any])?.first as? String }
+        let dependencies = manifestDependencyNames(of: target)
         if name == "HeadlessTests" {
             #expect(dependencies.contains("Headless"),
                     "HeadlessTests must depend on Headless or the headless population is empty")

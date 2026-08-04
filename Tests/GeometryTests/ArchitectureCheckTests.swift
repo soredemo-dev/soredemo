@@ -609,6 +609,38 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
 /// is the point: anything else added without the plugin still fails.
 let pluginExemptTargets: Set<String> = ["CheckerLexer"]
 
+/// **The exemption list is a hole in every check above it, so its CONTENTS are an
+/// assertion and not a configuration value.**
+///
+/// `everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` skips whatever is
+/// named here. Until this test existed, the cheapest way to void a target's guard
+/// was not to delete `plugins:` — that is caught — but to add the target's name to
+/// this set in the same diff: the first loop then skips it, the second only asserts
+/// it does not carry the OTHER tier's plugin (vacuously true of a target carrying
+/// none), and the loop over the set itself only asserts the target still exists and
+/// lacks `ArchitectureCheck` (also vacuously true). Everything green, and `Headless`
+/// may now `import AppKit`.
+///
+/// An entry here means **"carries no architecture check at all"**, which is true of
+/// exactly one target and for a structural reason — a dependency cycle SwiftPM
+/// refuses to resolve. It is not the way to record "carries a different guard":
+/// `Headless` carries `HeadlessCheck`, which the guard-coverage test expresses as a
+/// REQUIREMENT keyed by target name, the opposite of an exemption. `Headless` is
+/// also the target most likely to drift, which is exactly why it must never appear
+/// in this set.
+@Test func theOnlyPluginExemptTargetIsTheLexer() {
+    #expect(pluginExemptTargets == ["CheckerLexer"], """
+        pluginExemptTargets is \(pluginExemptTargets.sorted()), not ["CheckerLexer"].
+        Every name in that set is skipped by the guard-coverage loop, so adding one is how a \
+        target's architecture rule gets voided with every test still green. The single \
+        legitimate entry is there because attaching the plugin to CheckerLexer closes a \
+        dependency cycle and SwiftPM refuses to resolve the package — a structural reason, not \
+        a convenience. A target that carries a DIFFERENT guard belongs in guardForTarget inside \
+        everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest, which asserts a guard \
+        rather than excusing one.
+        """)
+}
+
 // MARK: - unreadable must never mean compliant
 
 @Test func failsOnMissingSourcesDirectory() throws {

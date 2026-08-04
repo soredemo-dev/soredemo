@@ -25,7 +25,7 @@ import Foundation
 /// `HeadlessEntryRuleTests.coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge`
 /// scans `Sources/Headless` against this one. Two tiers, two bridges, two tests, and
 /// neither test has an exception — which is the only reason either is worth having.
-/// `theTwoGeometryBridgesShareNoFunctionName` is the third: while the split exists,
+/// `theTwoGeometryBridgesShareNoFunctionSignature` is the third: while the split exists,
 /// no conversion may be defined on both sides of it.
 ///
 /// `HeadlessCheck` cannot do this job. Rule 2 (the package-wide CG ban) is OFF in
