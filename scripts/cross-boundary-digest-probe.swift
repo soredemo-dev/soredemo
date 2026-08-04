@@ -5473,11 +5473,120 @@ enum CrossBoundaryProbe {
 
     enum RenderParityProbeError: Error, CustomStringConvertible {
         case fixtureMissing(String)
+        case dimensionMismatch(String)
         var description: String {
             switch self {
             case .fixtureMissing(let s): "render-parity fixture missing: \(s)"
+            case .dimensionMismatch(let s): "render-parity: preview and export images differ in size: \(s)"
             }
         }
+    }
+
+    /// Every pixel of `image`, drawn once into a raw RGBA buffer — the whole-frame companion to
+    /// `pixel(in:x:y:outputHeight:)`, which allocates a fresh `CGContext` PER POINT and would be
+    /// wastefully expensive called once per pixel of a full-frame scan. Row 0 is the TOP of the
+    /// image as drawn (the same convention `pixel(in:...)` already measured for this exact
+    /// `CGImage → CGContext.draw(_:in:)` boundary), which `maxChannelDifference` below converts
+    /// back to `StageRect`'s bottom-left convention when it reports where the worst mismatch was.
+    static func rgbaBuffer(of image: CGImage) throws -> (data: [UInt8], width: Int, height: Int) {
+        let width = image.width, height = image.height
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &data, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw CompositionProbeError.cgContextUnavailable
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return (data, width, height)
+    }
+
+    /// The exact distance from `(x, y)` to a rounded rectangle's own boundary — negative inside,
+    /// positive outside, zero exactly on the curve (the standard rounded-box signed-distance
+    /// function). Used below to exclude a band around the WHOLE card boundary, not only its
+    /// corners — see `maxChannelDifference`'s own header for why the corners alone were not
+    /// enough.
+    static func roundedRectSignedDistance(x: Double, y: Double, card: StageRect, cornerRadius: Double) -> Double {
+        let cx = card.x + card.width / 2, cy = card.y + card.height / 2
+        // Non-negative by construction: `StagePlanner.plan` clamps `cornerRadius` to at most half
+        // the shorter side, so it can never exceed either half-extent.
+        let hx = card.width / 2 - cornerRadius, hy = card.height / 2 - cornerRadius
+        let qx = max(abs(x - cx) - hx, 0)
+        let qy = max(abs(y - cy) - hy, 0)
+        return (qx * qx + qy * qy).squareRoot() - cornerRadius
+    }
+
+    /// **The literal "compare the two frames pixel by pixel" the brief asked for (Task 8 Step 2) —
+    /// every pixel EXCEPT a thin band around the card's own boundary, and where that carve-out
+    /// comes from is measured below, not assumed.** Returns the LARGEST per-channel difference
+    /// found anywhere in the scanned region, and where, so a failure message can say more than
+    /// "somewhere, something differed".
+    ///
+    /// **Why whole-frame beats two calibrated points — code review (Task 8, fix round 1), Important
+    /// finding 2.** The first version of this check sampled the card centre plus one point 2px
+    /// inside the card's left edge. Measured directly: under `insetFraction +0.01` that edge point
+    /// went from solid colour to background-mixed, because the card SHRINKS past it — a real,
+    /// reddened check. Under `insetFraction -0.01` the SAME point stayed green, because the card
+    /// GROWS away from it and the point never crosses anything — the check was calibrated against
+    /// only one direction of the exact mutation it was built to catch. A whole-frame scan has no
+    /// such blind side: any boundary that has moved, in EITHER direction, puts some pixel on the
+    /// wrong side of it in one path and not the other, and this function finds the worst one
+    /// wherever it lands.
+    ///
+    /// **The boundary carve-out, measured rather than assumed, twice — this review's own
+    /// instruction if a full-frame diff needed one: "that reasoning belongs in the code."** A
+    /// first, unscoped version of this function scanned literally every pixel at `1920×1080` and
+    /// found a worst diff of 84 UNDER MATCHING STYLES (no mutation at all) at pixel `(487, 72)` —
+    /// 7.5px from the card's own top-left corner, inside `cornerRadius` (18px). A SECOND version
+    /// excluded only a box around each of the four corners and still found 42–45 at `(511, 65)`
+    /// and `(1435, 88)` — both on a FLAT edge, not a corner, ruled out by the first fix. Both are
+    /// the same cause: `CIRoundedRectangleGenerator`'s mask antialiases the card's whole boundary
+    /// (corners AND flat edges) one way; the export's H.264 encode of the identical boundary,
+    /// resampled through block-based compression, antialiases it another — a REAL difference
+    /// between two legitimate renderings of the identical geometry, not a wiring defect. So the
+    /// exclusion is a band around the boundary ITSELF (`roundedRectSignedDistance`, above), not a
+    /// box around only the corners. `cornerRadius` is a fixed pixel count on `StageStyle`
+    /// (`.default` is 18), not a fraction of the output, so this carve-out is a small, fixed-width
+    /// band regardless of output resolution — it does not grow to swallow the frame at a larger
+    /// canvas, and its own width (`margin`) is a parameter this function's caller states, not a
+    /// constant buried here.
+    static func maxChannelDifference(
+        _ a: (data: [UInt8], width: Int, height: Int), _ b: (data: [UInt8], width: Int, height: Int),
+        excludingBoundaryOf card: StageRect, cornerRadius: Double, margin: Double, outputHeight: Int
+    ) throws -> (maxDiff: Int, x: Int, y: Int, aPixel: (r: Int, g: Int, b: Int), bPixel: (r: Int, g: Int, b: Int)) {
+        guard a.width == b.width, a.height == b.height else {
+            throw RenderParityProbeError.dimensionMismatch("\(a.width)x\(a.height) vs \(b.width)x\(b.height)")
+        }
+        var maxDiff = -1
+        var atX = 0, atY = 0
+        var aBest: (Int, Int, Int) = (0, 0, 0)
+        var bBest: (Int, Int, Int) = (0, 0, 0)
+        for row in 0..<a.height {
+            let rowBase = row * a.width * 4
+            // `row` is TOP-DOWN (this function's own `rgbaBuffer` convention); `card`'s own
+            // coordinates are BOTTOM-LEFT (`StageRect`'s convention, shared by every other check in
+            // this probe) — converted once per row, not once per pixel, since it does not depend on
+            // `column`.
+            let bottomLeftY = Double(outputHeight - 1 - row)
+            for column in 0..<a.width {
+                let x = Double(column)
+                if abs(roundedRectSignedDistance(x: x, y: bottomLeftY, card: card, cornerRadius: cornerRadius))
+                    <= margin {
+                    continue
+                }
+                let offset = rowBase + column * 4
+                let ar = Int(a.data[offset]), ag = Int(a.data[offset + 1]), ab = Int(a.data[offset + 2])
+                let br = Int(b.data[offset]), bg = Int(b.data[offset + 1]), bb = Int(b.data[offset + 2])
+                let diff = max(abs(ar - br), max(abs(ag - bg), abs(ab - bb)))
+                if diff > maxDiff {
+                    maxDiff = diff
+                    atX = column
+                    atY = row
+                    aBest = (ar, ag, ab)
+                    bBest = (br, bg, bb)
+                }
+            }
+        }
+        return (maxDiff, atX, atY, aBest, bBest)
     }
 
     /// **What this proves, and what it does not — said explicitly, because a parity check silent
@@ -5489,40 +5598,39 @@ enum CrossBoundaryProbe {
     /// statics, not a second configuration". There is exactly one renderer either consumer can
     /// reach. **So this check cannot test "the two renderers agree" — there are not two to
     /// compare.** What it DOES test is that the WIRING routing frames to that one renderer has not
-    /// come apart: that a frame read through the preview's own AVFoundation machinery and a frame
-    /// read through the export's own AVFoundation machinery, for the SAME source and the SAME
-    /// composition time, land on the same pixels. A future change that gave one consumer its own
-    /// `StageStyle`, its own output size, or that routed one of them around the shared compositor
-    /// entirely would show up here as a mismatch; a future change that swapped
-    /// `CoreImageFrameRenderer` for a Metal implementation (Task 3's still-open seam) would NOT,
-    /// because both consumers would still reach the same (new) renderer — the exact distinction
-    /// this header opens with.
+    /// come apart. A future change that gave one consumer its own `StageStyle`, its own output
+    /// size, or that routed one of them around the shared compositor entirely would show up here
+    /// as a mismatch; a future change that swapped `CoreImageFrameRenderer` for a Metal
+    /// implementation (Task 3's still-open seam) would NOT, because both consumers would still
+    /// reach the same (new) renderer.
     ///
-    /// **The preview stand-in is `AVAssetImageGenerator`, not a live `AVPlayer`.** Nothing in this
-    /// probe drives real playback; § 11's own header already establishes why
-    /// `AVAssetImageGenerator` with `.videoComposition` set is the standing stand-in this probe
-    /// uses for "read one composed frame" — it is what makes `customVideoCompositorClass` apply at
-    /// all, the same wiring `AVPlayerItem.videoComposition` exercises for the real preview.
+    /// **Which half is real, restated at every call site's own message per code review (Task 8,
+    /// fix round 1), Important finding 1 — not left to this comment alone.** The export leg is the
+    /// REAL `MP4Exporter.export()`. The preview leg calls `StageWindow.configuredComposition(for:)`
+    /// — the SAME function `StageWindow.load()` calls, extracted at this same review round so this
+    /// check could stop reconstructing its own copy of that configuration — and reads the result
+    /// back with `AVAssetImageGenerator`, which is a STAND-IN for `AVPlayer`'s own frame delivery,
+    /// not `AVPlayer` itself; nothing here drives real playback. `StageWindow.outputWidth`/
+    /// `.outputHeight` are read directly (no second, hardcoded copy of the real `1920×1080`), so a
+    /// regression confined to that function or those constants is now reachable by this check.
     ///
     /// **The fixture is a committed file, not generated per run**
     /// (`Tests/RenderParityFixtures/two-tone.mov`, ~6.5 KB, 64×64 ProRes4444, 2 seconds at 10 fps —
-    /// the colour tags § 11's `writeSolidColorMovie` measured as needed for an exact round trip).
-    /// Two colours, not one — the first second solid red, the second solid blue — so sampling
-    /// composition time 1.5s (well inside the blue half) can tell "the right frame was read" apart
-    /// from "any plausible-looking frame was read": a wiring bug that mapped one consumer's
-    /// timeline differently from the other's would show up as a wrong COLOUR, not merely a
-    /// mismatched one.
+    /// the colour tags § 11's `writeSolidColorMovie` measured as needed for an exact round trip;
+    /// regenerated from `Tests/RenderParityFixtures/generate-fixture.swift`, committed alongside
+    /// it). Two colours, not one — the first second solid red, the second solid blue — so sampling
+    /// a composition time inside either half can tell "the right frame was read" apart from "any
+    /// plausible-looking frame was read": a wiring bug that mapped one consumer's timeline
+    /// differently from the other's would show up as a wrong COLOUR, not merely a mismatched one.
     @MainActor
     static func theSameCompositionTimeMatchesThroughPreviewAndExport() async throws {
-        let outputWidth = 320
-        let outputHeight = 180
         let sourceWidth = 64
         let sourceHeight = 64
         // The number this check's own failure message names — § 11/§ 14 measured the same round
         // trip (AVAssetWriter encode → AVAssetReader/AVAssetImageGenerator decode, through the
         // identical CoreImageFrameRenderer) at up to 2 per channel off a fixed expected constant;
         // this check adds a SECOND independent encode/decode (the export's own AVAssetWriter, on
-        // top of the fixture's own) between the two samples it compares, so it is given headroom
+        // top of the fixture's own) between the two frames it compares, so it is given headroom
         // above that, not equal to it.
         let tolerance = 6
 
@@ -5532,17 +5640,14 @@ enum CrossBoundaryProbe {
             throw RenderParityProbeError.fixtureMissing(fixtureURL.path)
         }
 
-        StageCompositor.renderer = try CoreImageFrameRenderer()
         StageCompositor.style = .default
-        StageCompositor.observationLogURL = nil
         StageCompositor.overrides = []
 
-        // Path A — the preview stand-in.
-        let previewAsset = AVURLAsset(url: fixtureURL)
-        let previewComposition = try await CompositionBuilder.composition(
-            for: previewAsset, outputWidth: outputWidth, outputHeight: outputHeight,
-            frameDuration: CMTime(value: 1, timescale: 60))
-        let previewGenerator = AVAssetImageGenerator(asset: previewAsset)
+        // Path A — the preview, through the REAL `StageWindow.configuredComposition(for:)` (see
+        // this function's own header for why this is not a probe-local reconstruction any more),
+        // read back with `AVAssetImageGenerator` (a stand-in for `AVPlayer`'s own frame delivery).
+        let previewComposition = try await StageWindow.configuredComposition(for: fixtureURL)
+        let previewGenerator = AVAssetImageGenerator(asset: AVURLAsset(url: fixtureURL))
         previewGenerator.videoComposition = previewComposition
         previewGenerator.requestedTimeToleranceBefore = .zero
         previewGenerator.requestedTimeToleranceAfter = .zero
@@ -5550,38 +5655,31 @@ enum CrossBoundaryProbe {
         // Path B — the real export, exactly what the Export button runs, then read the finished
         // file back — no `.videoComposition` needed here, unlike Path A: the export already baked
         // the composed pixels into the file. Exported ONCE and sampled at every composition time
-        // below, exactly as the preview's own single composition is.
+        // below, exactly as the preview's own single composition is. Runs AFTER Path A's
+        // composition is built (which itself calls `StageCompositor.resetDiagnostics()` and sets
+        // `StageCompositor.renderer`/`.observationLogURL`), so both paths render through the
+        // identical statics `configuredComposition(for:)` just configured — the same "the same
+        // statics, not a second configuration" property `StageWindow.exportRecording()`'s own
+        // header relies on in the real app.
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("soredemo-probe-parity-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let exportedURL = directory.appendingPathComponent("export.mp4")
-        let exportAsset = AVURLAsset(url: fixtureURL)
-        _ = try await MP4Exporter.export(asset: exportAsset, to: exportedURL,
-                                         outputWidth: outputWidth, outputHeight: outputHeight)
-        let exportedAsset = AVURLAsset(url: exportedURL)
-        let exportGenerator = AVAssetImageGenerator(asset: exportedAsset)
+        _ = try await MP4Exporter.export(asset: AVURLAsset(url: fixtureURL), to: exportedURL,
+                                         outputWidth: StageWindow.outputWidth,
+                                         outputHeight: StageWindow.outputHeight)
+        let exportGenerator = AVAssetImageGenerator(asset: AVURLAsset(url: exportedURL))
         exportGenerator.requestedTimeToleranceBefore = .zero
         exportGenerator.requestedTimeToleranceAfter = .zero
 
-        let plan = StagePlanner.plan(outputWidth: outputWidth, outputHeight: outputHeight,
-                                     sourceWidth: sourceWidth, sourceHeight: sourceHeight,
-                                     style: .default)
+        // The card centre, for the sanity check only — geometry-BLIND (`StagePlanner.plan`'s card
+        // is always output-centred regardless of `insetFraction`), which is exactly why the real
+        // parity assertion below is a full-frame scan and not a second hand-picked point.
+        let plan = StagePlanner.plan(outputWidth: StageWindow.outputWidth, outputHeight: StageWindow.outputHeight,
+                                     sourceWidth: sourceWidth, sourceHeight: sourceHeight, style: .default)
         let centreX = Int((plan.card.x + plan.card.width / 2).rounded())
         let centreY = Int((plan.card.y + plan.card.height / 2).rounded())
-        // Two pixels in from the card's own left edge, at vertical mid-card (well clear of the
-        // top/bottom rounded corners, so the corner mask is not a second variable here). Chosen
-        // over the centre because the centre is geometry-BLIND: `StagePlanner.plan`'s card is
-        // always centred in the output regardless of `insetFraction`, so a centre-only comparison
-        // cannot see a framing divergence at all — only a content divergence. This point sits
-        // where `StagePlanner`'s own geometry places the card's boundary, so a style that shifts
-        // that boundary (Step 3, below) moves what colour lands here. Measured directly at this
-        // output size (320×180, a 64×64 source): under matching styles both paths read solid
-        // colour here; diverging `insetFraction` by 0.01 in one path only measured
-        // preview=(0, 0, 255) vs export=(7, 7, 173) at the blue-half sample time — a same-channel
-        // gap of up to 82, more than 13× this check's own tolerance.
-        let edgeX = Int(plan.card.x.rounded()) + 2
-        let edgeY = centreY
 
         // AN EXPLICIT SET of composition times, not one — the ROADMAP's own `render-parity` row
         // asks for this by name. One instant per fixture half, so a wiring bug that mapped one
@@ -5596,41 +5694,49 @@ enum CrossBoundaryProbe {
             let (previewImage, _) = try await previewGenerator.image(at: sampleTime)
             let (exportImage, _) = try await exportGenerator.image(at: sampleTime)
 
-            let previewCentre = try pixel(in: previewImage, x: centreX, y: centreY, outputHeight: outputHeight)
-            let exportCentre = try pixel(in: exportImage, x: centreX, y: centreY, outputHeight: outputHeight)
-            let previewEdge = try pixel(in: previewImage, x: edgeX, y: edgeY, outputHeight: outputHeight)
-            let exportEdge = try pixel(in: exportImage, x: edgeX, y: edgeY, outputHeight: outputHeight)
-
             // The RIGHT value, not two paths agreeing on the same wrong constant (the "assert the
-            // shared value is the right one" discipline § 14's own recount already applies): both
-            // sides must actually be reading THIS half's own colour, not e.g. both silently
-            // reading black because both generators failed the same way.
+            // shared value is the right one" discipline § 14's own recount already applies): the
+            // preview side must actually be reading THIS half's own colour, not e.g. silently
+            // reading black because the generator failed.
+            let previewCentre = try pixel(in: previewImage, x: centreX, y: centreY,
+                                          outputHeight: StageWindow.outputHeight)
             check(closeEnough(previewCentre, expectedColour, tolerance: tolerance),
-                  "sanity at \(label): the preview stand-in's card centre is the fixture's own "
-                  + "colour there, within ±\(tolerance) per channel — not a vacuous pass from two "
-                  + "paths agreeing on the same wrong pixel",
+                  "sanity at \(label): the preview leg's card centre is the fixture's own colour "
+                  + "there, within ±\(tolerance) per channel — not a vacuous pass from two paths "
+                  + "agreeing on the same wrong pixel",
                   actual: "\(previewCentre)", expected: "\(expectedColour) ± \(tolerance)")
 
-            check(closeEnough(previewCentre, exportCentre, tolerance: tolerance),
-                  "render-parity (content) at \(label), within ±\(tolerance) per channel: the "
-                  + "preview path (AVAssetImageGenerator over the live composition) and the export "
-                  + "path (MP4Exporter's finished file) sample this composition time to the same "
-                  + "card-centre pixel. THIS TESTS THAT THE WIRING HAS NOT COME APART — one "
-                  + "StageCompositor, one CompositionBuilder call, one StageStyle, shared by both "
-                  + "consumers (ARCHITECTURE.md D8) — NOT that two renderers agree with each "
-                  + "other; there is exactly one renderer either path can reach",
-                  actual: "preview \(previewCentre), export \(exportCentre)",
-                  expected: "within ±\(tolerance) of each other")
+            let previewBuffer = try rgbaBuffer(of: previewImage)
+            let exportBuffer = try rgbaBuffer(of: exportImage)
+            // `boundaryMargin`: measured, not guessed — see `maxChannelDifference`'s own header for
+            // the two measurements (84 at a corner, then 42–45 at a flat edge once the corner-only
+            // exclusion was widened) this width was chosen to clear. `plan.cornerRadius` (not
+            // `StageStyle.default.cornerRadius`) because `StagePlanner.plan` clamps the radius to
+            // half the shorter card side, and using the CLAMPED value is what keeps this correct
+            // if a future style or a smaller card ever needed the clamp.
+            let boundaryMargin = 12.0
+            let diff = try maxChannelDifference(previewBuffer, exportBuffer, excludingBoundaryOf: plan.card,
+                                                cornerRadius: plan.cornerRadius, margin: boundaryMargin,
+                                                outputHeight: StageWindow.outputHeight)
 
-            check(closeEnough(previewEdge, exportEdge, tolerance: tolerance),
-                  "render-parity (framing) at \(label), within ±\(tolerance) per channel: a point "
-                  + "2px inside the card's own left edge agrees between the preview path and the "
-                  + "export path too — the centre check above cannot see a FRAMING divergence (the "
-                  + "card is always output-centred regardless of style), this one can. Same wiring "
-                  + "claim as the centre check, not a stronger one: one StageCompositor, one "
-                  + "StageStyle, shared by both consumers",
-                  actual: "preview \(previewEdge), export \(exportEdge)",
-                  expected: "within ±\(tolerance) of each other")
+            check(diff.maxDiff <= tolerance,
+                  "render-parity at \(label), pixel by pixel over the WHOLE \(StageWindow.outputWidth)"
+                  + "×\(StageWindow.outputHeight) frame EXCEPT a \(Int(boundaryMargin))px band around "
+                  + "the card's own boundary (corners AND flat edges — H.264 antialiases that "
+                  + "boundary differently from Core Image even under matching styles, measured at "
+                  + "up to 84 there with no mutation at all), max per-channel diff ≤ ±\(tolerance) "
+                  + "over everywhere else: the preview leg "
+                  + "(StageWindow.configuredComposition(for:) — the REAL function "
+                  + "StageWindow.load() calls — read back with AVAssetImageGenerator, a stand-in "
+                  + "for AVPlayer's own frame delivery, not AVPlayer itself) and the export leg "
+                  + "(the REAL MP4Exporter.export(), reading its finished file back) agree, not "
+                  + "just at hand-picked points. THIS TESTS THAT THE WIRING HAS NOT COME APART — "
+                  + "one StageCompositor, one CompositionBuilder call, one StageStyle, shared by "
+                  + "both consumers (ARCHITECTURE.md D8) — NOT that two renderers agree with each "
+                  + "other; there is exactly one renderer either path can reach",
+                  actual: "worst diff \(diff.maxDiff) at pixel (\(diff.x), \(diff.y)): "
+                  + "preview \(diff.aPixel), export \(diff.bPixel)",
+                  expected: "max diff ≤ \(tolerance)")
         }
 
         // The third of the ROADMAP row's three specifications — "keep preview-only chrome above

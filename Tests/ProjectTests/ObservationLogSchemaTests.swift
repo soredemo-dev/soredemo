@@ -127,12 +127,16 @@ private struct RecordWithNoInstant: ObservationRecord {
 
 // MARK: - Addition A: zero versus never-measured
 
-/// D6a has five rows and `GapSite` has four. The fifth is the JSONL reader's
-/// truncated tail, which no producer can measure at segment close — see
-/// `GapSite`'s own documentation and `ObservationLogReadReport`.
+/// `GapSite` has four cases: the D6a rows a producer can honestly fill at segment close. D6a's own
+/// gap-register table has **eight** rows as of Phase 2B Task 8 (grown from the original five), and
+/// only one of the other four — the JSONL reader's truncated tail — is even about the observation
+/// log; the three Task 8 added it (the drawn pointer's substitution, the preview frame-drop
+/// counter, the persisted-but-unread shadow fields) are outside this log's domain entirely. So
+/// D6a's row COUNT is not what this test pins — see `GapSite`'s own documentation, corrected at
+/// the same review finding this comment was, for why counting D6a's rows is the wrong invariant.
 @Test func gapSiteCoversEveryD6aRowAProducerCanMeasure() {
     #expect(GapSite.allCases.count == 4,
-            "a sixth D6a row a PRODUCER can measure needs a case here and a GapWatch in every trailer")
+            "a new D6a row that a PRODUCER can measure at segment close needs a case here and a GapWatch in every trailer")
     #expect(Set(GapSite.allCases.map(\.rawValue))
             == ["axAncestorWalk", "videoFramesNotProduced", "secureInput", "tapDisabled"])
 }

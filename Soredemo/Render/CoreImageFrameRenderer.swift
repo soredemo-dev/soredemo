@@ -6,10 +6,16 @@ import Render
 
 /// Today's implementation: Core Image on a Metal-backed context.
 ///
-/// Chosen first because the card, shadow and corner radius are three built-in filters and one
-/// composite. It is **not** chosen permanently — the alternative is a hand-written Metal pass, and
-/// the decision belongs to a measured 4K frame time. Both sit behind `FrameRendering`, which is why
-/// that measurement can still change the answer when it arrives.
+/// Chosen first because the card and corner radius are built-in filters and one composite. It is
+/// **not** chosen permanently — the alternative is a hand-written Metal pass, and the decision
+/// belongs to a measured 4K frame time. Both sit behind `FrameRendering`, which is why that
+/// measurement can still change the answer when it arrives.
+///
+/// **No shadow filter — corrected here, code review (Task 8, fix round 1).** This comment used to
+/// list "the card, shadow and corner radius" as three built-in filters this class applies; it
+/// does not apply a shadow one. `StageStyle.shadowRadius`/`.shadowOpacity` are modelled and
+/// persisted (`RenderPlan.swift`) but `render(_:source:into:)` below never reads either — see
+/// `docs/ARCHITECTURE.md` D6a's own row on exactly this, added at the same finding.
 nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private let context: CIContext
 

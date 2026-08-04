@@ -177,24 +177,37 @@ extension ObservationLog {
 ///
 /// A `String` raw value, and `CaseIterable`, because
 /// `ObservationLogTrailer.init(from:)` requires **every** case to be present in
-/// a decoded trailer. Adding a sixth row to D6a therefore fails to decode logs
-/// this build wrote, which is the loud direction: a site that a version knew
-/// about and did not report is the exact ambiguity this whole type exists to
-/// remove.
+/// a decoded trailer. Adding a case for a new PRODUCER-MEASURABLE D6a row
+/// therefore fails to decode logs this build wrote, which is the loud
+/// direction: a site that a version knew about and did not report is the exact
+/// ambiguity this whole type exists to remove.
 ///
-/// # D6a has five rows and this enum has four, deliberately
+/// # This enum has four cases. D6a's table does not have four rows — it has grown past that,
+/// # and this enum was never meant to track its row count
 ///
-/// The missing one is **the JSONL reader's truncated tail**, and it is not an
-/// omission — it is the correction that keeps the other four honest.
+/// **Corrected here (Phase 2B Task 8, code review, finding 7) after drifting once already**: an
+/// earlier version of this comment said "D6a has five rows and this enum has four" and named the
+/// JSONL reader's row as the one exception. That was true when D6a's gap-register table had five
+/// rows. It has eight now — Task 8 added three (the drawn pointer's shape/hidden-state
+/// substitution, the `StageCompositor` preview frame-drop counter, and the persisted-but-unread
+/// `StageStyle` shadow fields) — and NONE of the three needed a case here, for a reason the
+/// original comment's framing did not anticipate: they are not things a producer measures at
+/// segment close, but they are also not the JSONL-truncation shape (a reader-side fact about THIS
+/// log format). They are facts about the compositor and about the persisted render style,
+/// entirely outside the observation log's own domain. **So the right invariant is not "D6a has N
+/// rows and this enum has N-1" — that framing breaks every time D6a grows for a reason unrelated
+/// to segment-close accounting, which is most of the time.** The right invariant, restated so it
+/// does not drift again: this enum carries exactly the D6a rows a producer can honestly fill at
+/// segment close, today four, and nothing about D6a's own row count bounds that number in either
+/// direction.
 ///
-/// The trailer is written by the **producer**, at segment close. Four of D6a's
-/// rows name something the producer measured while recording: how many times it
-/// polled the tap, how many times it asked whether secure input was on, how many
-/// frame callbacks arrived, how many ancestor walks it performed. The fifth
-/// names bytes lost from a **truncated or corrupt record**, which is a property
-/// of *reading the file back* and is discovered after the writer is gone.
-/// `JSONLReader.Result.bytesScanned` measures what a reader examined, and a
-/// writer has no reader.
+/// The trailer is written by the **producer**, at segment close. This enum's four cases name
+/// something the producer measured while recording: how many times it polled the tap, how many
+/// times it asked whether secure input was on, how many frame callbacks arrived, how many ancestor
+/// walks it performed. **One other D6a row** — the JSONL reader's truncated tail — names bytes
+/// lost from a **truncated or corrupt record**, which is a property of *reading the file back* and
+/// is discovered after the writer is gone. `JSONLReader.Result.bytesScanned` measures what a
+/// reader examined, and a writer has no reader.
 ///
 /// So a producer asked for that row has nothing to put in it and will put
 /// something there anyway. This was not hypothetical: the first version of this
@@ -206,12 +219,14 @@ extension ObservationLog {
 /// cannot tell from a real one. That is Addition A's ambiguity, reintroduced at
 /// one site by the shape of the API.
 ///
-/// **Where D6a row 1 lives instead: `ObservationLogReadReport`.** It is produced
+/// **Where the JSONL-reader row lives instead: `ObservationLogReadReport`.** It is produced
 /// by the code that actually reads a log, carries `droppedBytes` beside
-/// `bytesScanned` — the same pair, with the same rule — and reports the four
-/// producer rows from the trailer alongside its own so a reader still sees all
-/// five in one place. What has been removed is the ability of a producer to
-/// claim the fifth.
+/// `bytesScanned` — the same pair, with the same rule — and reports this enum's four
+/// producer rows from the trailer alongside its own, so a reader sees all five OF THE
+/// OBSERVATION LOG'S OWN ROWS in one place. What has been removed is the ability of a producer to
+/// claim the reader-only one. The other three D6a rows (Task 8) are not observation-log rows at
+/// all and are not claimed here or in `ObservationLogReadReport` — they live only in
+/// `docs/ARCHITECTURE.md` D6a itself.
 public enum GapSite: String, Codable, Sendable, CaseIterable {
     /// `AXObserver`'s ancestor walk — levels beyond the depth cap or budget.
     case axAncestorWalk

@@ -315,6 +315,62 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
+// MARK: - Phase 2B Task 8, fix round 1 (code review): the drop counter's account, pinned mechanically
+
+/// **Code review, Important finding 4.** `StageCompositor.Diagnostics.framesDropped`'s doc comment
+/// names exactly two causes — the leading `guard` in `startRequest` and the `catch` around
+/// `renderer.render(_:source:into:)` — and today's code matches it exactly. But nothing enforced
+/// that agreement mechanically, in a codebase that already does exactly this for
+/// `observationsDroppedAfterSegmentClose` above, precisely because that counter's prose drifted
+/// from its code once already. "The doc is right today" is not the standard this file's own
+/// neighbouring tests hold everything else to.
+///
+/// Pins two things: **exactly two call sites** of `StageCompositor.recordDroppedFrame()` (a third
+/// added later — a new failure branch — silently falsifies the doc comment, the D6a row, and § 16
+/// of the probe, all at once, unless this test also moves); and that **each call site sits
+/// immediately before an ERROR `finish(with:)`**, told apart from the success path
+/// (`finish(withComposedPixelBuffer:)`, which the needle `"request.finish(with:"` does not match —
+/// `withComposedPixelBuffer` has no `with:` substring). A counter incrementing anywhere else could
+/// count a frame that still reached the composed-buffer path, which would make `framesDropped`
+/// overstate real drops — a different, and equally silent, way for the number to stop meaning what
+/// its doc comment says.
+@Test func theDroppedFrameCounterHasExactlyTwoCallSitesEachImmediatelyBeforeAnErrorFinish() throws {
+    let files = try appSourceFiles()
+        .filter { $0.lastPathComponent == "StageCompositor.swift" }
+    try #require(files.count == 1, """
+        expected exactly one StageCompositor.swift under Soredemo/, found \(files.count) — this \
+        scan's file-scoped filter needs a unique target.
+        """)
+
+    let callSites = try codeLinesNaming("Self.recordDroppedFrame()", in: files)
+    #expect(callSites.count == 2, """
+        expected exactly two call sites of StageCompositor.recordDroppedFrame(), found \
+        \(callSites.count):
+        \(callSites.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        StageCompositor.Diagnostics's own doc comment names exactly two causes and no others. A \
+        different count means a cause was added or removed in the code without the doc comment (and \
+        the D6a row, and § 16 of the probe) being told — the exact drift Task 5.5's own counter \
+        needed three fix rounds to close.
+        """)
+
+    let errorFinishes = try codeLinesNaming("request.finish(with:", in: files)
+    #expect(errorFinishes.count == 2, """
+        expected exactly two ERROR finish() calls in StageCompositor.swift (the needle \
+        "request.finish(with:" does not match the success path's "request.finish(withComposedPixelBuffer:"), \
+        found \(errorFinishes.count):
+        \(errorFinishes.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        """)
+
+    let callLines = callSites.map { lineNumber(of: $0.location) }.sorted()
+    let finishLines = errorFinishes.map { lineNumber(of: $0.location) }.sorted()
+    #expect(zip(callLines, finishLines).allSatisfy { $0 + 1 == $1 }, """
+        expected each recordDroppedFrame() call to sit on the line immediately before an ERROR \
+        finish() call. Call sites at \(callLines), error finishes at \(finishLines). A counter that \
+        increments somewhere other than immediately before the branch that actually drops the frame \
+        could increment on a path that still produces a composed buffer, overstating real drops.
+        """)
+}
+
 // MARK: - Fix round 3 (code review): a third source of writer == nil, told apart from the second
 
 /// **Code review, Important finding.** The round-2 fix above conflated two different facts under

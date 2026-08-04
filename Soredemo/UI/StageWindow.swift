@@ -17,10 +17,17 @@ struct StageWindow: View {
     let mediaURL: URL
 
     /// The output size passed to BOTH `CompositionBuilder.composition` calls in this file — the
-    /// preview's (`load()`, below) and the export's (`exportRecording()`) — so "preview and
-    /// export agree" stays true of the actual arguments, not only of the shared function.
-    private static let outputWidth = 1920
-    private static let outputHeight = 1080
+    /// preview's (`configuredComposition(for:)`, below) and the export's (`exportRecording()`) —
+    /// so "preview and export agree" stays true of the actual arguments, not only of the shared
+    /// function.
+    ///
+    /// **Not `private` — corrected here, code review (Task 8, fix round 1), Important finding 1.**
+    /// `scripts/cross-boundary-digest-probe.swift` § 15 (`render-parity`) used to hardcode its own
+    /// `320×180` rather than reading this app's real `1920×1080`, which meant a regression that
+    /// changed only THIS app's own output size could not be seen by that check. It reads these two
+    /// constants directly now, so the two cannot silently drift apart.
+    static let outputWidth = 1920
+    static let outputHeight = 1080
 
     var body: some View {
         NavigationSplitView {
@@ -63,32 +70,53 @@ struct StageWindow: View {
         }
     }
 
+    /// Everything the preview needs configured before a composed frame can be read — the shared
+    /// compositor statics, and the `AVVideoComposition` itself — extracted out of `load()` here.
+    ///
+    /// **Why this is its own function — code review (Task 8, fix round 1), Important finding 1.**
+    /// `scripts/cross-boundary-digest-probe.swift` § 15's preview leg used to reconstruct this
+    /// logic itself: its own inline `CompositionBuilder.composition(...)` call, at its own
+    /// hardcoded output size, never touching `StageWindow` at all. That meant a regression
+    /// confined to what THIS function does — a wrong output size, a wrong `frameDuration`, a
+    /// renderer left unconfigured, a broken `observationLogURL` lookup — left § 15 green while the
+    /// app's real preview had genuinely diverged from export. Calling the SAME function the real
+    /// preview calls closes that gap; only `AVPlayerItem`/`AVPlayer` construction below (UI
+    /// plumbing with no bearing on what gets composed) stays outside it, which is also why
+    /// `load()` below still builds its own `AVPlayerItem`'s asset rather than this function
+    /// returning one — `MP4Exporter.export` already builds its own asset from the same URL
+    /// independently (`Soredemo/Export/MP4Exporter.swift`), the same "each real consumer loads the
+    /// file itself" shape this follows.
+    static func configuredComposition(for mediaURL: URL) async throws -> AVVideoComposition {
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        // A fresh recording gets a fresh drop count — see `StageCompositor.diagnostics`'s own
+        // header for why a stale count from a previously opened file must not be readable as
+        // belonging to this one.
+        StageCompositor.resetDiagnostics()
+        // `ObservationWriter.expectedLogURL(forMediaURL:)` names where a log for THIS media
+        // would be, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl`
+        // pairing `beginSegment`/`ObservationWriter` already define — it does not claim one is
+        // there. The filesystem check right here is what turns "where it would be" into
+        // "whether it is": a recording made without Input Monitoring, or one made before
+        // Task 5.5 gave `CaptureSession` an `ObservationWriter` to write to at all,
+        // legitimately has none, and `nil` is what tells
+        // `StageCompositor` to draw no pointer rather than fabricating an empty log or guessing
+        // a default path. `PointerReading`'s four cases exist so "no log" and "a log that says
+        // nothing" stay distinguishable; this is the one point that decides which of those two
+        // this session is in.
+        let candidateLogURL = ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
+        StageCompositor.observationLogURL = candidateLogURL.flatMap {
+            FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
+        }
+        let asset = AVURLAsset(url: mediaURL)
+        return try await CompositionBuilder.composition(
+            for: asset, outputWidth: Self.outputWidth, outputHeight: Self.outputHeight,
+            frameDuration: CMTime(value: 1, timescale: 60))
+    }
+
     private func load() async {
         do {
-            StageCompositor.renderer = try CoreImageFrameRenderer()
-            // A fresh recording gets a fresh drop count — see `StageCompositor.diagnostics`'s own
-            // header for why a stale count from a previously opened file must not be readable as
-            // belonging to this one.
-            StageCompositor.resetDiagnostics()
-            // `ObservationWriter.expectedLogURL(forMediaURL:)` names where a log for THIS media
-            // would be, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl`
-            // pairing `beginSegment`/`ObservationWriter` already define — it does not claim one is
-            // there. The filesystem check right here is what turns "where it would be" into
-            // "whether it is": a recording made without Input Monitoring, or one made before
-            // Task 5.5 gave `CaptureSession` an `ObservationWriter` to write to at all,
-            // legitimately has none, and `nil` is what tells
-            // `StageCompositor` to draw no pointer rather than fabricating an empty log or guessing
-            // a default path. `PointerReading`'s four cases exist so "no log" and "a log that says
-            // nothing" stay distinguishable; this is the one point that decides which of those two
-            // this session is in.
-            let candidateLogURL = ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
-            StageCompositor.observationLogURL = candidateLogURL.flatMap {
-                FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
-            }
+            let composition = try await Self.configuredComposition(for: mediaURL)
             let asset = AVURLAsset(url: mediaURL)
-            let composition = try await CompositionBuilder.composition(
-                for: asset, outputWidth: Self.outputWidth, outputHeight: Self.outputHeight,
-                frameDuration: CMTime(value: 1, timescale: 60))
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
             player = AVPlayer(playerItem: item)

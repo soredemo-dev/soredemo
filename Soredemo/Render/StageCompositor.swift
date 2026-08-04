@@ -113,6 +113,27 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// throws on its own `framesRead == framesWritten` mismatch (`MP4Exporter.swift`), so a drop
     /// there is never silent even without this counter; the preview path has no such check, which
     /// is the entire reason this counter exists.
+    ///
+    /// **What this counter cannot see, named rather than left implicit — code review (Task 8, fix
+    /// round 1), Important finding 5.** `startRequest` is the compositor's own boundary, not the
+    /// preview's. Two real drop sources a viewer of a live `AVPlayer` preview would actually notice
+    /// never reach this file at all, because they happen on either side of it:
+    ///
+    ///   - **`AVPlayer` display-time drops.** `AVPlayerItemAccessLogEvent.numberOfDroppedVideoFrames`
+    ///     — a real, documented counter — is `AVPlayer`'s own account of frames it decoded or
+    ///     composited but then discarded before display, under playback-rate or rendering pressure.
+    ///     Nothing here reads it.
+    ///   - **Seek-cancelled requests.** `AVVideoCompositing` conformances may implement
+    ///     `cancelAllPendingVideoCompositionRequests()` to be told a pending `startRequest` was
+    ///     abandoned because the user scrubbed past it. `StageCompositor` implements no such
+    ///     method (grepped, absent) — a cancelled request is neither finished with a composed
+    ///     buffer nor finished with an error, so it increments nothing here and nothing else in
+    ///     this app either.
+    ///
+    /// So `framesDropped` answers "how many times did the COMPOSITOR itself fail to produce a
+    /// frame for a request it received" — a real, narrower question than "how many frames did the
+    /// preview visibly skip". A `framesDropped == 0` preview session can still have visibly
+    /// stuttered or skipped ahead on a scrub, and this counter would not know.
     struct Diagnostics: Sendable {
         public internal(set) var framesDropped = 0
     }
