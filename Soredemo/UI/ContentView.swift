@@ -41,10 +41,23 @@ struct ContentView: View {
                     // named the wrong invariant — it said `mediaURL` moving was what made the
                     // deletion safe, but the actual guarantee came from `beginOpenRecording()`'s
                     // earlier `mediaURL = nil`, three functions away and unnamed in the comment
-                    // that depended on it. `.onDisappear` removes that dependency instead of
-                    // documenting it: THIS view's own teardown — the actual event that drops
-                    // `StageWindow`'s `AVPlayer` — is what triggers the delete, not a guess about
-                    // when some other function last ran. See `RecordingCoordinator
+                    // that depended on it.
+                    //
+                    // Round 3 correction: `.onDisappear` does NOT remove that dependency — it
+                    // still needs `beginOpenRecording()` (`:147`) to set `mediaURL = nil` first.
+                    // `StageWindow` carries no `.id(mediaURL)`, so SwiftUI only treats
+                    // `StageWindow(mediaURL: url1)` and `StageWindow(mediaURL: url2)` as
+                    // DIFFERENT view identities — the thing that makes `.onDisappear` fire at
+                    // all — because that `nil` swaps this `Group`'s branch out entirely in
+                    // between. Without it (the exact UX change the original finding named — keep
+                    // the old preview visible while a new recording runs), SwiftUI would most
+                    // likely update `mediaURL` on the SAME `StageWindow` instance in place,
+                    // `.onDisappear` would never fire, and `sourceSelected`'s own outgoing-sink
+                    // check would also decline to delete (`mediaSourceSink` still equals the
+                    // sink in question) — so the directory would LEAK, not get deleted under a
+                    // live player. What changed is the failure mode, not the dependency: unsafe
+                    // became a leak the launch-time sweep (`TemporaryFileMediaSink
+                    // .sweepLeftoverDirectories()`) bounds, not gone. See `RecordingCoordinator
                     // .previewWasDismissed()` and `TemporaryFileMediaSink`'s own header.
                     .onDisappear { coordinator.previewWasDismissed() }
             } else {
@@ -101,16 +114,22 @@ final class RecordingCoordinator {
     /// nothing needs the old directory" — but that deletion ran BEFORE `mediaURL` actually moved,
     /// and the real reason it was safe lived in `beginOpenRecording()`'s earlier `mediaURL = nil`
     /// (which tears the previous `StageWindow`, and its `AVPlayer`, out of the view tree) — a
-    /// fact stated nowhere near the code that depended on it. `previewWasDismissed()` removes the
-    /// dependency instead of documenting it.
+    /// fact stated nowhere near the code that depended on it.
+    ///
+    /// **Round 3 correction: `previewWasDismissed()` does NOT remove that dependency — it still
+    /// needs `beginOpenRecording()`'s `mediaURL = nil` for `.onDisappear` to fire at all** (see
+    /// `ContentView.body`'s own comment on the `.onDisappear` call site for the mechanism). What
+    /// changed is the FAILURE MODE if that assumption is ever defeated: not "deletes under a live
+    /// player" but "leaks a directory the launch-time sweep bounds" — worse than fully fixed,
+    /// strictly better than the original defect.
     private var mediaSourceSink: TemporaryFileMediaSink?
 
     /// Called via `.onDisappear` at `ContentView`'s own call site, when the `StageWindow` showing
-    /// `mediaSourceSink`'s recording is actually torn down by SwiftUI — the real event a
-    /// still-playing `AVPlayer` would be relying on this NOT racing ahead of, rather than a
-    /// different function's timing this type would otherwise have to trust. Not `private`:
-    /// `ContentView.body` (same file, different type) is the only caller, and Swift's `private`
-    /// does not reach across type boundaries even within one file.
+    /// `mediaSourceSink`'s recording is torn down by SwiftUI — which, today, only happens because
+    /// `beginOpenRecording()` sets `mediaURL = nil` first (see that call site's own comment for
+    /// why this is a dependency narrowed, not removed). Not `private`: `ContentView.body` (same
+    /// file, different type) is the only caller, and Swift's `private` does not reach across type
+    /// boundaries even within one file.
     func previewWasDismissed() {
         if let directory = mediaSourceSink?.packageURL {
             try? FileManager.default.removeItem(at: directory)
@@ -305,19 +324,30 @@ final class RecordingCoordinator {
 ///    at (an abandoned attempt — nothing was ever playing it; `sourceSelected`'s own comment
 ///    covers this case). The sink that WAS displayed is different: it is deleted by
 ///    `RecordingCoordinator.previewWasDismissed()`, called from `.onDisappear` at `ContentView`'s
-///    own call site — tied to the actual SwiftUI event that removes `StageWindow` (and its
-///    `AVPlayer`) from the tree, not to a guess about when some other function last ran. The
-///    first version deleted it inside `stopRecording()` on the theory that "`mediaURL` moving to
-///    a new file" was what made the old directory safe to delete; review caught that the
-///    deletion ran BEFORE `mediaURL` actually moved, and that the real guarantee lived in
-///    `beginOpenRecording()`'s earlier `mediaURL = nil` — a fact the comment never named. Tying
-///    the deletion directly to the view's own disappearance removes that dependency instead of
-///    documenting it.
+///    own call site — tied to the SwiftUI event that removes `StageWindow` (and its `AVPlayer`)
+///    from the tree. The first version deleted it inside `stopRecording()` on the theory that
+///    "`mediaURL` moving to a new file" was what made the old directory safe to delete; review
+///    caught that the deletion ran BEFORE `mediaURL` actually moved, and that the real guarantee
+///    lived in `beginOpenRecording()`'s earlier `mediaURL = nil` — a fact the comment never
+///    named. **Round 3 correction, because the round-2 fix overstated itself the same way:**
+///    tying the deletion to `.onDisappear` NARROWS the dependency on `beginOpenRecording()`, it
+///    does not remove it — `StageWindow` carries no `.id(mediaURL)`, so `.onDisappear` fires at
+///    all only because that earlier `mediaURL = nil` swaps `ContentView`'s `Group` branch out
+///    entirely, which is what gives the old and new `StageWindow` calls distinct view identities.
+///    See item 2's own account of what happens if that assumption is ever defeated.
 /// 2. **Swept on launch**: `sweepLeftoverDirectories()`, below, called once from
 ///    `RecordingCoordinator.init()` — the backstop for exits rule 1 cannot reach (force-quit, a
-///    crash, `killall`), none of which ever fire `.onDisappear`. Every directory this sink ever
-///    creates is named `soredemo-preview-<uuid>`, a naming convention that did NOT change when
-///    the layout below did — so a sweep keyed on that PREFIX deletes a leftover flat
+///    crash, `killall`), none of which ever fire `.onDisappear`, **and now also the backstop for
+///    rule 1 itself failing to fire.** If `beginOpenRecording()`'s early `mediaURL = nil` is ever
+///    deferred or removed — the exact UX change review round 2's own finding named, keeping the
+///    old preview visible while a new recording runs — SwiftUI would most likely update the same
+///    `StageWindow` instance's `mediaURL` in place rather than tearing it down, `.onDisappear`
+///    would never fire, and `sourceSelected`'s own outgoing-sink check would also decline to
+///    delete (`mediaSourceSink` still names the sink in question). The directory would LEAK, not
+///    get deleted under a live player — a real degradation from "always deleted promptly," but a
+///    bounded one: this sweep still reclaims it on the next launch. Every directory this sink
+///    ever creates is named `soredemo-preview-<uuid>`, a naming convention that did NOT change
+///    when the layout below did — so a sweep keyed on that PREFIX deletes a leftover flat
 ///    `master-00.mov` directory (pre-Task-5.5) and a leftover `media/`+`observations/` package
 ///    directory (post-Task-5.5) identically, without needing to know which layout it is looking
 ///    at. A sweep that inspected the CONTENTS to decide what counts as this type's own directory
