@@ -341,7 +341,7 @@ public enum CapturePermissions {
     /// about the wrong thing. Running the app itself narrows how that can
     /// happen again, but does not remove it: launched from Xcode, from
     /// Finder, or execed directly from a shell, a process can still end up
-    /// answering for something other than `video.soredemo.Soredemo` — and
+    /// answering for something other than `dev.soredemo.mac` — and
     /// the failure shape is identical, four plausible-looking values with
     /// nothing about them that looks wrong. So every dump names its own
     /// subject, in the same output, rather than asking whoever reads it to

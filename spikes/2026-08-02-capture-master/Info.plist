@@ -5,7 +5,7 @@
 	<key>CFBundleExecutable</key><string>SoredemoSpikeB</string>
 	<!-- Its own identifier, not the product's. capture-permissions has to verify
 	     that each permission degrades precisely, which needs a testable first-run
-	     flow — a throwaway spike holding a grant under video.soredemo.Soredemo
+	     flow — a throwaway spike holding a grant under dev.soredemo.mac
 	     would destroy that state silently. Same reasoning as Spike A. -->
 	<key>CFBundleIdentifier</key><string>video.soredemo.SpikeB</string>
 	<key>CFBundleName</key><string>SoredemoSpikeB</string>

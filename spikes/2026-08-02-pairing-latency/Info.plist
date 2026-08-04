@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key><string>SoredemoSpikeA</string>
-	<!-- Distinct from the product's video.soredemo.Soredemo on purpose: a TCC
+	<!-- Distinct from the product's dev.soredemo.mac on purpose: a TCC
 	     grant is bound to the bundle identifier, and this spike must never be
 	     able to lend or borrow the product's grants. -->
 	<key>CFBundleIdentifier</key><string>video.soredemo.SpikeA</string>

@@ -7,7 +7,7 @@
 	     Spike B carry. `capture-permissions` has to verify that each permission
 	     degrades precisely, which needs a testable first-run flow, and a
 	     throwaway spike holding an Input Monitoring grant under
-	     video.soredemo.Soredemo would destroy that state silently.
+	     dev.soredemo.mac would destroy that state silently.
 
 	     It matters more here than for either of them: Input Monitoring is
 	     granted per binary and the grant is remembered by code-signing

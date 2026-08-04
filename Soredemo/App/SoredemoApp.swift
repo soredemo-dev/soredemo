@@ -138,7 +138,7 @@ struct SoredemoApp: App {
     /// **`open`, not the raw executable path** — Task 6's finding applies
     /// unchanged: a direct `fork`/`exec` does not carry this bundle's own
     /// TCC identity, and the picker needs Screen Recording granted to
-    /// `video.soredemo.Soredemo` specifically, not to whatever launched it.
+    /// `dev.soredemo.mac` specifically, not to whatever launched it.
     ///
     /// `restricted` controls whether `CaptureSourcePicker.present(restrictModes:)`
     /// leaves `allowedPickerModes` at the SDK's own default (`0`, excludes

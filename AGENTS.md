@@ -375,7 +375,7 @@ to the responsible process up the chain — `zsh → claude → zsh → login �
 those grants. It measured the terminal.
 
 So: `granted, granted, granted, granted` is not a claim. `granted ×4, for pid 1234, bundle
-video.soredemo.Soredemo` is one, because it can be wrong. **The dump prints its own subject —
+dev.soredemo.mac` is one, because it can be wrong. **The dump prints its own subject —
 bundle identifier, executable path, whether it is inside a `.app`, pid — beside the values.**
 
 **And then that was not enough either.** Running the app's own binary directly from a shell prints a

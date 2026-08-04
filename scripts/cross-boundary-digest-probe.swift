@@ -66,7 +66,7 @@
 // to the binary that made it; it attributes it to the *responsible process*,
 // walked up the parent chain to whatever launched this one. Measured: run
 // this probe from a shell, and any permission read inside it reports the
-// SHELL's grants, not `video.soredemo.Soredemo`'s — four confident-looking
+// SHELL's grants, not `dev.soredemo.mac`'s — four confident-looking
 // "granted"s for a process that held none of them, discovered only because a
 // human's own read of System Settings was recorded before the probe ran and
 // the two disagreed. `docs/design/2026-08-01-phase-1-carried-forward.md`
