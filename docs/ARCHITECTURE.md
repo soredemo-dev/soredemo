@@ -753,6 +753,26 @@ stronger of the two: `finish(withComposedVideoFrame:)` was a wrong name for a re
 a name for nothing. Phase 2B's compositor therefore uses `newPixelBuffer()`, which is correct and
 warning-free at the 26.0 floor, and the successor is unavailable rather than declined.
 
+**WHERE THESE CALLS LIVE IN THIS REPOSITORY, so the trigger reaches code and not only a table.**
+A version bump is only a trigger if someone can tell which files it fires on:
+
+| File | Calls on this list | Behind a seam? |
+| --- | --- | --- |
+| `Soredemo/Capture/MasterWriter.swift` (`LegacyMasterWriter`) | `addInput:`, `startWriting`, `AVAssetWriterInput.append(_:)` | **yes** — `MasterWriting`, with a second conformance already written |
+| `Soredemo/Export/MP4Exporter.swift` | `AVAssetReader.addOutput`, `startReading`, `AVAssetWriter.addInput`, `startWriting`, `AVAssetWriterInput.append(_:)`, `readyForMoreMediaData`, `expectsMediaDataInRealTime` | **no** — nothing to swap |
+
+The second row is the one to read twice. It is **new** media-writing code, written directly against
+the API set the seam one row above exists to keep new code away from — and it was written that way
+for two measured reasons, not an oversight: `appendImmediately(_:)` stalls whenever three receivers
+are *created* (12/12 runs, frames 77–123, even with only one fed), and both `MasterWriting`
+conformances hardcode `fileType: .mov` and mandate three tracks, which a one-track `.mp4` export
+cannot use at all. The second reason holds even if the stall is fixed tomorrow.
+
+Leaving it unseamed may well be right — seven calls, one track, no concurrent multi-track shape to
+get wrong. **That judgement belongs in the file, and its absence is what this row exists to fix**:
+until this table existed, a floor bump would have found `LegacyMasterWriter` by its seam and missed
+`MP4Exporter` entirely.
+
 **Every successor mapping on this page is `[prose]` grade, including the one this project depends
 on most.** 0 of 32 named successors in the 27.0 bucket come from a machine-checkable field
 (`API_DEPRECATED_WITH_REPLACEMENT`, `renamed:`); all are read out of `API_DEPRECATED` message text
