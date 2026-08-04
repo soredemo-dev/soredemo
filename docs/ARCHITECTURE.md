@@ -580,6 +580,7 @@ claim no reviewer reads as a claim.** Four instances, all found on 2026-08-04, a
 | probe § 12's title, "a real `ObservationWriter` log" | the section runs against a real log | true of the writer, false of the clock — the fixture's samples were composition-relative while a real log is absolute host time |
 | probe § 7.2, "the standing check on the unit" | it stands guard over the nanosecond unit | deleting the `mach_timebase` multiply leaves it GREEN; it mints its own stamp from the clock it checks |
 | `ROADMAP.md`'s `geometry-types` row, "the AX and input conversion sites have still never executed" | that half of the bridge had never run in the product | a person's four-second recording wrote 327 pointer, 4 button and 2 AX records through exactly those sites. The row's stated reason — Input Monitoring denied on this machine — was true of the OLD bundle identifier and outlived the rename. **This table's own first draft got this row wrong too**, claiming the "zero callers" clause was still live when the row had already corrected it; the stale clause was the next sentence |
+| `StageWindow.swift`'s header, "`NavigationSplitView` + `Inspector`, 100% standard SwiftUI" | the window has an inspector | **no `Inspector` exists anywhere in `Soredemo/`** — that header is its only occurrence in the tree, so the sentence describing the code is the sole evidence for it |
 | `Tests/RenderTests/PointerPlacementTests.swift` | it tests pointer placement | it tests `StagePlanner.placement`'s GEOMETRY, five ways. `StageCompositor.pointerPlacement` — the function whose time conversion was wrong for a whole phase — has no `swift test` coverage at all |
 
 **This class is more general than the fixture-shares-the-code's-frame class it was found beside.**
@@ -594,18 +595,77 @@ title and register row as a proposition to be falsified once, the same as any se
 comment. The question is always the same and always cheap: **what would have to be true for this
 name to be honest, and is it?**
 
+### D6a-E — `MediaError` is a live path with no exit, and that is not a documentation gap
+
+**`MediaError.documentHasNoURL` is thrown at three sites in `ProjectDocument.swift`
+(`:195`, `:212`, `:222`) and caught nowhere in the first-party tree.**
+
+This is deliberately NOT filed under D6a-V above. Dead public API is a *static*
+claim nothing exercised. An error that is thrown and never caught is a *live*
+path whose behaviour at the moment it runs nobody has established: does it
+propagate to a `try!` and trap? Get swallowed at an AppKit or SwiftUI boundary?
+Reach a user as an alert, as a beachball, or as nothing at all? It is the same
+shape as Task 6's throwing/non-throwing mismatch — **an error not translated into
+anything a person will read.**
+
+**The Phase 3 item is a question, not an edit: when `MediaError` is actually
+thrown, what does the person using the app see?** The current answer is that
+nobody knows, and no test, probe or human run has ever taken that path — a
+document with no `fileURL` is the precondition, and every recording so far has
+gone through `TemporaryFileMediaSink` instead.
+
+---
+
+### What the test count covers, and what it cannot
+
+**`swift test`'s 462 tests do not link the app.** There is no app test target:
+an `executableTarget` cannot be imported by a `testTarget` (`Package.swift`'s own
+comment), so `Tests/AppSourceTests` reads `Soredemo/`'s sources **as text**
+through `CheckerLexer` — it checks that code SAYS the right things, and cannot
+run a line of it. Everything under `Sources/` is genuinely linked and executed.
+
+The consequence is precise and worth stating wherever a count is quoted: for app
+code, the executing instruments are `scripts/run-cross-boundary-probe.sh` (349
+checks, `swiftc`-compiled against the real app sources) and a person running the
+built `.app`. **`1a98402` lived in app code, and it was the person who found it.**
+
+`Sources/Framing` and `Sources/Variants` are one file of three lines each —
+placeholders that satisfy the module graph and contain no behaviour, so their
+appearance in `libraryModules` should not be read as coverage of anything.
+
+---
+
 ### D6a-V — Unexercised public API is an unverified capability claim
 
 **A `public` symbol nothing calls, an enum case nothing produces, a field nothing
 reads: each asserts a capability that has never been shown to work.** Four
 instances in this tree on 2026-08-04:
 
-| Symbol | The claim | Status |
+| Symbol | The claim | Uses outside its own file |
 | --- | --- | --- |
-| `StageStyle.shadowRadius` / `.shadowOpacity` | the stage draws a shadow | modelled, persisted, validated, **never rendered** — `CoreImageFrameRenderer` does not read either |
-| `CapturePermissions.blockingFailures()` | callers can ask what blocks recording | **zero callers anywhere** |
-| `Sources/Timeline/TimeRange.swift` | an epoch-less interval type is useful | no caller in `Sources/`; its stated first caller moved to `HostRange` |
-| `Degradation.noMicrophoneTrack` | a denied microphone degrades mildly | **never produced** — measured false; a denied microphone fails the whole `SCStream` |
+| `StageStyle.shadowRadius` / `.shadowOpacity` | the stage draws a shadow | **0** — six uses, all inside `RenderPlan.swift`'s initialiser and `Codable` conformance. Constructed, stored, encoded, decoded, never consulted |
+| `CapturePermissions.blockingFailures()` | callers can ask what blocks recording | **0** |
+| `Sources/Timeline/TimeRange.swift` | an epoch-less interval type is useful | **0** — its stated first caller moved to `HostRange` |
+| `Degradation.noMicrophoneTrack` | a denied microphone degrades mildly | **0** — measured false; a denied microphone fails the whole `SCStream` |
+| `Minting.now()` | callers can take a wall-clock reading | **0** — the recording path needs no wall clock, and inventing a caller is what this row refuses to do |
+| `ProjectDocument.addMedia(_:fileExtension:)` | media can be added under a minted name | **0** — capture names its file at `beginSegment` |
+
+**These numbers are pinned by `theUnexercisedPublicAPITableMatchesTheTree`**
+(`Tests/AppSourceTests/AppSourceAllowListTests.swift`), not maintained by hand. A
+table whose entire content is a set of counts must not be prose: that is how
+`geometry-types`' "never executed" clause outlived the bundle-identifier rename.
+
+**The instrument was wrong twice before these six numbers were right, and both
+corrections changed an answer.** First draft used `grep`: three hits for
+`TimeRange`, two of them a doc comment and a string in the architecture checker's
+own exemption list — a deadness verdict counting a scanner's configuration as
+usage. Second draft used `codeLinesNaming` (comments and strings blanked by
+`SwiftSourceLexer`) but counted bare occurrences: `shadowRadius` came back with
+six, every one inside its own type. Third draft counts uses OUTSIDE the declaring
+file and still matched `CMTimeRange(` as a use of `TimeRange` — the lexer is
+right about comments and naive about word boundaries. **Only the fourth is the
+number.** Publish counts from an instrument that has been wrong about counts, and
+the table inherits the error while reading exactly as confident.
 
 **The policy: delete it, or mark it VOID with the register's discipline** — what
 it claims, why that is unverified, and what would verify it. A symbol in neither

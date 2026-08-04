@@ -5,9 +5,15 @@ import AVFoundation
 import Foundation
 import SwiftUI
 
-/// `NavigationSplitView` + `Inspector`, 100% standard SwiftUI, zero glass code — D7. The system
-/// gives these components Liquid Glass automatically and, decisively, makes them respond to the
-/// system-level Liquid Glass slider, which a hand-rolled surface does not.
+/// 100% standard SwiftUI, zero glass code — D7. The system gives standard components Liquid Glass
+/// automatically and, decisively, makes them respond to the system-level Liquid Glass slider, which
+/// a hand-rolled surface does not.
+///
+/// **This header used to name `NavigationSplitView` + `Inspector` as though this view had both. It
+/// has neither.** `Inspector` appeared exactly once in `Soredemo/` — in that sentence — so the
+/// description WAS the only evidence for the component. `app-shell`'s ROADMAP row still claims the
+/// pair; building them is Phase 3, and until then this file says what it is: a window hosting a
+/// preview and an Export button.
 struct StageWindow: View {
     @State private var player: AVPlayer?
     @State private var failure: String?

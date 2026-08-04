@@ -1086,3 +1086,90 @@ func typecheck(_ source: String, named name: String) throws {
             worth exactly the reason on each line and the evidence that the line can fire.
             """)
 }
+
+// MARK: - D6a-V — unexercised public API, counted by the lexer and not by grep
+
+/// Every `.swift` file under `Sources/` AND `Soredemo/` — the whole first-party tree.
+///
+/// `appSourceFiles()` above covers only the app target. A deadness verdict needs both halves:
+/// `TimeRange` lives in `Sources/Timeline` and its would-be callers live in `Sources/Graph`.
+func firstPartySourceFiles() throws -> [URL] {
+    var files: [URL] = []
+    for directory in ["Sources", "Soredemo"] {
+        let root = repositoryRoot.appending(path: directory)
+        let enumerator = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil),
+                                      "cannot enumerate \(root.path(percentEncoded: false))")
+        while let url = enumerator.nextObject() as? URL {
+            if url.pathExtension == "swift" { files.append(url) }
+        }
+    }
+    try #require(!files.isEmpty, "no first-party sources found — this scan would pass vacuously")
+    return files.sorted { $0.path < $1.path }
+}
+
+/// **`docs/ARCHITECTURE.md`'s D6a-V table, as a machine check rather than as prose.**
+///
+/// That table's entire content is a set of call-site counts, and a table whose whole meaning is a
+/// number must not be maintained by hand. The counts below are the ones the register publishes; if
+/// one moves, this test says so and the register is edited deliberately rather than discovered
+/// stale months later — which is exactly how `geometry-types`' "never executed" clause outlived the
+/// bundle-identifier rename.
+///
+/// **Counted with `codeLinesNaming`, never with `grep`.** That helper reads
+/// `SwiftSourceLexer.codeViewLines(of:)`, so comments and string literals are blanked. A raw `grep`
+/// for `TimeRange` returns three hits and two of them are a doc comment and a string inside the
+/// architecture checker's own exemption list — a deadness verdict that counts a scanner's
+/// configuration as usage. That mistake was made while drafting this very table.
+///
+/// **What is counted: uses OUTSIDE the file that declares it.** Counting bare occurrences was the
+/// first draft and it was wrong in an instructive way — `shadowRadius` has six, every one of them
+/// inside `RenderPlan.swift`'s own initialiser and `Codable` conformance. The value is constructed,
+/// stored, encoded and decoded; nothing ever consults it. "Zero occurrences" would have been false
+/// and "zero readers" is what the register actually claims, so that is what this counts.
+@Test func theUnexercisedPublicAPITableMatchesTheTree() throws {
+    let files = try firstPartySourceFiles()
+
+    let expectations: [(needle: String, declaringFile: String, expected: Int, claim: String)] = [
+        ("Minting.now()", "Soredemo/Support/Minting.swift", 0,
+         "a wall-clock reading callers can take"),
+        ("fileExtension:", "Soredemo/UI/ProjectDocument.swift", 0,
+         "media can be added under a minted name"),
+        ("shadowRadius", "Sources/Render/RenderPlan.swift", 0,
+         "the stage draws a shadow — modelled, persisted, validated, never read outside its own type"),
+        ("blockingFailures()", "Soredemo/Capture/CapturePermissions.swift", 0,
+         "callers can ask what blocks recording"),
+        ("noMicrophoneTrack", "Soredemo/Capture/CapturePermissions.swift", 0,
+         "a denied microphone degrades mildly — measured false, so nothing produces it"),
+        ("TimeRange", "Sources/Timeline/TimeRange.swift", 0,
+         "an epoch-less interval type is useful — its stated first caller moved to HostRange"),
+    ]
+
+    for e in expectations {
+        // `codeLinesNaming` blanks comments and strings but matches bare substrings, so
+        // `CMTimeRange(start:...)` counts as a use of `TimeRange`. That false positive appeared on
+        // the first run of this test. Require the character before the match to be a non-identifier
+        // one — the instrument was right about comments and naive about word boundaries, and a
+        // deadness count is exactly the place that difference decides the answer.
+        let uses = try codeLinesNaming(e.needle, in: files)
+            .filter { !$0.location.hasPrefix(e.declaringFile) }
+            .filter { line in
+                var searchRange = line.text.startIndex..<line.text.endIndex
+                while let found = line.text.range(of: e.needle, range: searchRange) {
+                    let precededByIdentifierCharacter = found.lowerBound > line.text.startIndex
+                        && (line.text[line.text.index(before: found.lowerBound)].isLetter
+                            || line.text[line.text.index(before: found.lowerBound)].isNumber
+                            || line.text[line.text.index(before: found.lowerBound)] == "_")
+                    if !precededByIdentifierCharacter { return true }
+                    searchRange = found.upperBound..<line.text.endIndex
+                }
+                return false
+            }
+        #expect(uses.count == e.expected, """
+            D6a-V says `\(e.needle)` has \(e.expected) use(s) outside \(e.declaringFile); \
+            the tree has \(uses.count).
+            It claims: \(e.claim)
+            \(uses.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
+            Update docs/ARCHITECTURE.md's D6a-V table in the same commit that moves this number.
+            """)
+    }
+}
