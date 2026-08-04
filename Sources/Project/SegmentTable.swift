@@ -11,6 +11,44 @@ public enum SegmentBoundary: Hashable, Codable, Sendable {
     case failed(reason: String)
 }
 
+/// One continuous stretch of master recording, and — through `hostRange` — the
+/// authority on what belongs to it.
+///
+/// **THE ATTRIBUTION RULE. A record belongs to a segment if and only if its
+/// `instant` falls inside that segment's `hostRange`. Attribution is decided by
+/// TIME, never by which variable happened to be non-nil when the record
+/// arrived.**
+///
+/// It is written on this type because this type owns `hostRange`, and because
+/// the rule was derived three times before anyone wrote it down — each time
+/// from a different symptom, each time at the cost of a review round:
+///
+///   * a late AX chain answering after its segment closed. Attributing it by
+///     when the ANSWER arrived puts a click's evidence in the next segment;
+///     attributing by the click's own `instant` is D2-12, and the code already
+///     did the right thing for a reason nobody had generalised.
+///   * observations arriving while a segment finalises. Their `instant` is
+///     inside the closing segment's `hostRange`, so they are members and their
+///     loss is a loss — which is why it is counted rather than shrugged at.
+///   * observations arriving before any segment exists. Their `instant` is
+///     inside NO `hostRange`, past or future, so they are not lost; they are
+///     outside the recording. A counter that called them "dropped" was
+///     conflating a classification with a defect.
+///
+/// **Two symmetric forbidden routes follow from it, and both look like
+/// tidiness.** Appending a late record into the segment that is closing, and
+/// buffering an early record to flush into segment 0, are the same move in
+/// opposite directions: each writes a record into a segment whose `hostRange`
+/// does not contain its `instant`. Buffering is not banned — for a record whose
+/// `instant` IS inside, flushing it later is exactly right. What is banned is
+/// the mismatch.
+///
+/// **It is cheap to enforce where it matters.** `assert(hostRange.contains(record.instant))`
+/// before an append turns any future attribution mistake into a test failure
+/// instead of a comment nobody re-reads. `CaptureSession` pins the ordering it
+/// depends on with a static test rather than a per-record assert on the tap
+/// callback's hot path — the cheap equivalent, with its own blind spot written
+/// beside it.
 public struct MasterSegment: Hashable, Codable, Sendable {
     public let index: Int
     public let mediaFilename: String        // relative, never absolute

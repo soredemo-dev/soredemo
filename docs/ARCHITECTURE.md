@@ -413,6 +413,43 @@ constraints on that one module are **held by hand**. `Package.swift` says so; so
 
 ---
 
+## D5a — Attribution is by time
+
+**A record belongs to a segment if and only if its `instant` falls inside that segment's
+`hostRange`. Attribution is decided by time, never by which variable happened to be non-nil when
+the record arrived.**
+
+Written down because it was derived three separate times, from three unrelated symptoms, each at
+the cost of a review round — and because the third derivation is what showed it was one rule rather
+than three fixes:
+
+| Symptom | What the rule says | What was happening |
+| --- | --- | --- |
+| an AX chain answering after its segment closed | the CLICK's instant decides, not the answer's | already correct — D2-12 — but for a reason nobody had generalised |
+| observations arriving while a segment finalises | inside the closing `hostRange` → **members, and lost** | dropped silently; now counted |
+| observations arriving before any segment exists | inside no `hostRange`, past or future → **not lost** | counted as "dropped", conflating a classification with a defect |
+
+**Two forbidden routes follow, and they are the same move in opposite directions.** Appending a
+late record into the segment that is closing, and buffering an early record to flush into segment
+0, both write a record into a segment whose `hostRange` does not contain its `instant`. Buffering
+is *not* the thing banned — for a record whose instant is inside, flushing it later is exactly
+right. The mismatch is.
+
+**It is enforceable, not merely stated.** `HostRange.contains(_ instant:)` already exists, so
+`assert(segment.hostRange.contains(record.instant))` before an append costs one line and turns a
+future attribution mistake into a test failure. Where a per-record assert would sit on a callback's
+hot path, pin the ordering it depends on with a static test instead and write that test's blind
+spot beside it.
+
+The rule's own test is that it works without its author present: given only the sentence, a
+different implementer re-derived the fourth case unprompted — no `hostRange` past or future can
+contain an instant arriving after the last segment closed on a session that is stopping — and
+reached the same verdict.
+
+`MasterSegment` carries this in its own doc comment, because that type owns `hostRange`.
+
+---
+
 ## D6a — The gap register: every place this app can fail to observe
 
 **A registry, not a rule.** "Record a gap as an interval, not a count" was written as prose in
