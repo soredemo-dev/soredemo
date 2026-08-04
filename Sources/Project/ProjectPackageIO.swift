@@ -96,7 +96,7 @@ public enum ProjectPackageIO {
     /// single byte — if a sidecar of that name is already on disk, which is
     /// "write-once, never mutated" made mechanical.
     ///
-    /// Task 17 review, Important 3: `name` is required to be a single path
+    /// `name` is required to be a single path
     /// component. Names are app-minted, so a traversal name reaching here
     /// is hardening rather than a live bug, but the consequence is not a
     /// merely stray file: anything written outside `media/` is invisible to
@@ -128,7 +128,7 @@ public enum ProjectPackageIO {
     /// reference, sorted so the result is comparable and testable. Does not
     /// delete anything — see `compact`.
     ///
-    /// Task 17 review, Important 2: this function's entire purpose is never
+    /// This function's entire purpose is never
     /// deleting something it shouldn't ("a save must never delete media" is
     /// the row's completion criterion), so it must not report — and
     /// `compact` must not therefore recursively delete — anything that

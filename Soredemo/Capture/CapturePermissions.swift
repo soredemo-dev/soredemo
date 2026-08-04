@@ -72,15 +72,23 @@ public enum PermissionStatus: String, Codable, Sendable {
 /// truncation (D2-6, D2-2). `Codable` is what makes that possible: this type
 /// is data ready to be persisted, not merely reasoned about in memory.
 ///
-/// **Not yet recorded anywhere.** `observation-log` (the row that owns the
-/// on-disk format) has not been built. This type and
-/// `CapturePermissions.degradation(for:)` are the code with no caller yet,
-/// in the sense Phase 1's carried-forward doc uses that phrase: the shape
-/// that row's writer needs to consult is decided here, so degradation is
-/// modelled once rather than re-derived per caller. Its first caller is
-/// `capture-stream` (this row's dependent, per `ROADMAP.md`) — refusing to
-/// start on `.blocksRecording`, and later `observation-log`, writing the
-/// other three into every recording they apply to.
+/// **Not recorded in any recording, and reached only by a diagnostic.** No
+/// `.soredemo` package and no observation log carries a degradation. The one
+/// path that reaches `degradation(for:)` at all is
+/// `observations()` → `dumpText()` → `SoredemoApp.swift`'s `--present-picker`
+/// print: a developer command, not the first-run behaviour this models.
+/// `blockingFailures()`, the other consumer, has **zero callers anywhere**.
+///
+/// This comment previously said "the code with no caller yet". That was
+/// materially wrong once the diagnostic chain existed — "no caller" and "one
+/// caller, and it is a debug print" answer differently the only question a
+/// reader asks here, which is whether this modelling has ever been exercised.
+/// It has, by a `print`, and by nothing that records or refuses anything.
+///
+/// The reason to model it once rather than re-derive it per caller still
+/// holds. The intended callers remain `capture-stream` — refusing to start on
+/// `.blocksRecording` — and `observation-log`, writing the other three into
+/// every recording they apply to.
 public enum Degradation: String, Codable, Sendable {
     case blocksRecording
     /// **No longer produced by `degradation(for:)`, since Task 5.5.** Kept

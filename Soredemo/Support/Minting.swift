@@ -35,8 +35,8 @@ import Timeline
 enum Minting {
     /// A fresh v4 UUID. The package cannot call `UUID()`; it can hold the result.
     ///
-    /// **`nonisolated`, added in Task 8, not part of Task 5's original
-    /// shape.** Every function in this file is unannotated, so under this
+    /// **`nonisolated`, and it must stay that way.** Every function in this
+    /// file is unannotated, so under this
     /// target's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` each one is
     /// implicitly `@MainActor` — harmless while every caller was itself
     /// MainActor, which was true until `CaptureSession`'s `SCStreamOutput`

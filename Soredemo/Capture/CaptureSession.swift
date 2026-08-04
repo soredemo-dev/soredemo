@@ -316,9 +316,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// tap-torn-down window at `stop()` only), and not only at `stop()`.
         public internal(set) var observationsDroppedAfterSegmentClose = 0
 
-        /// **Task 5.5, fix round 3 (code review) — a third source of
-        /// `writer == nil`, found IN the round-2 fix itself and wrongly
-        /// absent from `observationsDroppedAfterSegmentClose`'s own account
+        /// **A third source of `writer == nil`, which this counter's own
+        /// account omitted — and which the correction that introduced it
+        /// also omitted, which is why the account is enumerated here rather
+        /// than described
         /// of what produces it.**
         ///
         /// Counts an observation `appendObservation` found with `writer ==
@@ -682,7 +683,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// number `GapWatch.secureInput(suppressedNanos:)` needs directly, reset
     /// to zero at each `beginSegment`.
     private nonisolated(unsafe) var secureInputSuppressedNanosAtCurrentSegment: Int64 = 0
-    /// **Task 5.5, fix round 3 (code review).** `true` from the instant
+    /// `true` from the instant
     /// `finalizeCurrentSegment` nils `observationWriter` until the instant it
     /// finishes closing it — bracketing exactly the window
     /// `Diagnostics.observationsDroppedAfterSegmentClose` is named for and no
