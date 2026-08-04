@@ -1203,14 +1203,27 @@ func firstPartySourceFiles() throws -> [URL] {
         \(inspectorInCode.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
         """)
 
-    // `SoredemoCore`: named in a comment as the library target app logic would move into, so that
-    // app code could be linked by a test target at all. It does not exist. Phase 3's first item is
-    // to create it — at which point this expectation flips and is deleted, not weakened.
-    let coreExists = FileManager.default.fileExists(
+    // `SoredemoCore` must never be a TARGET, and this nail carries its reason rather than its
+    // state — the first version did the opposite and was wrong because of it.
+    //
+    // It said `Sources/SoredemoCore` "does not exist yet" and would flip when Phase 3 created it.
+    // That froze a belief: that the name was unclaimed. It is not. `SoredemoCore` is the
+    // Foundation-only PRODUCT — `KICKOFF.md`'s D6 ("imports Foundation only. No AppKit, no
+    // ScreenCaptureKit, no AVFoundation"), the completion criterion for `architecture-plugin`
+    // ("adding `import AppKit` to `SoredemoCore` fails the build"), `AGENTS.md` ("runs with no
+    // screen and no permissions. Keep it that way"), and `Minting.swift`'s header ("the three
+    // things `SoredemoCore` is forbidden to do"). A directory of that name would put app logic
+    // inside an identity defined by excluding it.
+    //
+    // **A pin freezes what its author believed when they wrote it, and cannot protect the belief
+    // itself.** So each nail states why it is true, not merely that it currently is: the first form
+    // can be refuted by a reader who knows better, the second can only be obeyed.
+    let coreTargetExists = FileManager.default.fileExists(
         atPath: repositoryRoot.appending(path: "Sources/SoredemoCore").path(percentEncoded: false))
-    #expect(!coreExists, """
-        `Sources/SoredemoCore` exists now. That is Phase 3's first item landing — delete this
-        expectation and move the app-coverage note in docs/ARCHITECTURE.md, which says app code has
-        no executing automated instrument, because it would no longer be true.
+    #expect(!coreTargetExists, """
+        `Sources/SoredemoCore` exists as a directory. `SoredemoCore` is the Foundation-only product
+        name; a target under it would make KICKOFF.md's D6 false. Platform-touching code belongs in
+        the `Headless` target instead. If this is deliberate, the five documents above change in the
+        same commit.
         """)
 }

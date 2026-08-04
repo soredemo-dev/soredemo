@@ -74,7 +74,13 @@ Goal: a build that records and plays back. Nothing derived yet. **This phase alo
 ## Phase 3 — Frame it automatically
 
 **Phase 3's first item is structural, not diagnostic: extract app logic into a
-`SoredemoCore` library target.**
+`Headless` library target.**
+
+*(Named `SoredemoCore` in this row's first draft, which was wrong: `SoredemoCore` is the
+Foundation-only product — `KICKOFF.md` D6, and the `architecture-plugin` completion criterion
+is that `import AppKit` there fails the build. `Headless` states its own invariant instead:
+**needs a window or a running app, does not belong here** — which excludes SwiftUI by the name
+rather than by a rule beside it, and stays true when `Capture` moves in.)*
 
 The app target has no automated executing instrument at all. `swift test`'s 464
 tests do not link it — an `executableTarget` cannot be imported by a `testTarget`
@@ -84,7 +90,7 @@ the built `.app`. `1a98402` lived in app code for a whole phase and a person fou
 it, four seconds into a recording.
 
 That is not a shortage of tests; the target is structurally untestable. A library
-can be imported. With the logic in `SoredemoCore` and the executable reduced to a
+can be imported. With the logic in `Headless` and the executable reduced to a
 shell, `RecordingCoordinator`, `CapturePermissions` and `StageCompositor` — today
 guarded by human eyes — come into ordinary test range.
 

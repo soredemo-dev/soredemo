@@ -598,8 +598,17 @@ produce identical text, and the difference is not in the text:
 | Class | Example in this tree | Truth value |
 | --- | --- | --- |
 | **the road not taken** | `DocumentGroup`, `AVMutableVideoComposition`, `SCRecordingOutput` | true and valuable — a rejected alternative is what a good doc comment exists to record |
-| **the road not yet walked** | `SoredemoCore` — the library target app logic will move into | **not yet true, and promised** |
+| ~~**the road not yet walked**~~ **VOID** | ~~`SoredemoCore` — the library target app logic will move into~~ | **This class had exactly one instance and the instance dissolved.** `SoredemoCore` was never a promise: it is the Foundation-only product, and has been since KICKOFF, enforced by the build plugin and stated in five places (`KICKOFF.md` D6 and the `architecture-plugin` completion criterion, `ARCHITECTURE.md` D1, `AGENTS.md`, `Minting.swift`'s header — "the three things `SoredemoCore` is FORBIDDEN to do"). The sentence the scan found was written into `ROADMAP.md` hours earlier **by the author of this table**, and it names the wrong target. A class with no surviving instance is VOID, like row 14, rather than left standing for the next person to hang something else on |
 | **the lie** | `Inspector` — a header describing this view as composed of one | false, and the description was the only evidence |
+
+**How the misclassification happened, which is the part worth keeping.** The scan
+did its job: it found a sentence naming something that does not exist in code.
+The error was in reading it as a promise, and the reason was that the author
+remembered writing it and remembered meaning it as one. **You do not audit what
+you just wrote, because you remember the intent** — and intent is exactly what
+distinguishes the three classes above, so remembering it feels like knowing the
+answer. Same family as `ROADMAP.md`'s `251` (D6b's grading rule): credibility
+borrowed from a neighbour. Here the neighbour was the author.
 
 A scanner sees "mentioned, never coded" for all three. It cannot see tense or
 intent. **`SoredemoCore` is the instructive one**: it is neither dead nor
