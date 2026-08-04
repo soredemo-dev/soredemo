@@ -114,6 +114,15 @@ import Render
 // this flag surfaced rather than introduced.
 import Timeline
 
+/// `<repo>/scripts/cross-boundary-digest-probe.swift` → `<repo>`. Two `deletingLastPathComponent()`
+/// calls: one drops the file name, one drops `scripts` — this file sits directly under the
+/// repository root, one level shallower than
+/// `Tests/AppSourceTests/AppSourceAllowListTests.swift`'s own three-call `repositoryRoot`. Used by
+/// § 15/§ 16 (Phase 2B Task 8) to find the committed fixture at `Tests/RenderParityFixtures/`.
+let probeRepositoryRoot = URL(filePath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+
 // Kept byte-identical to `Tests/GraphTests/CrossBoundaryDigestVectorTests.swift`.
 // The two literals ARE the vector; that file checks the left-hand one against
 // `DisplayGeometry.canonicalBytes`, this one checks the arrow between them.
@@ -314,6 +323,15 @@ enum CrossBoundaryProbe {
         print("14. MP4Exporter — export never drops a frame, and the exported file IS the composed one (Phase 2B Task 7)")
         print("14.1 a synthetic movie, exported, and read back independently — never MP4Exporter's own account of itself")
         try await theExportedFileDropsNoFrameAndCarriesTheFraming()
+
+        print("15. render-parity — the preview path and the export path share one composition (Phase 2B Task 8)")
+        print("15.1 the SAME composition time, sampled through two different AVFoundation consumers — "
+              + "tests the wiring has not come apart, not that two renderers agree (there is one)")
+        try await theSameCompositionTimeMatchesThroughPreviewAndExport()
+
+        print("16. StageCompositor.diagnostics — the preview's dropped-frame count (Phase 2B Task 8)")
+        print("16.1-16.3 both causes of a drop, driven directly, plus a clean run that drops nothing")
+        try await theDropCounterIsDrivenByBothOfItsTwoCauses()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -5449,6 +5467,257 @@ enum CrossBoundaryProbe {
               "and a point inside the card's bounding box but outside its rounded corner carries "
               + "the background colour",
               actual: "\(cardCornerPixel)", expected: "(23, 23, 28) ± 6")
+    }
+
+    // MARK: - § 15  render-parity — the preview path and the export path share one composition (Phase 2B Task 8)
+
+    enum RenderParityProbeError: Error, CustomStringConvertible {
+        case fixtureMissing(String)
+        var description: String {
+            switch self {
+            case .fixtureMissing(let s): "render-parity fixture missing: \(s)"
+            }
+        }
+    }
+
+    /// **What this proves, and what it does not — said explicitly, because a parity check silent
+    /// about which of the two it means invites a reader to assume the stronger one.** Phase 2B
+    /// built exactly ONE `AVVideoComposition`
+    /// (`CompositionBuilder.composition(for:outputWidth:outputHeight:frameDuration:)`), handed to
+    /// BOTH `StageWindow.load()` (preview) and `MP4Exporter.export(...)` (export) through the SAME
+    /// `StageCompositor` / `CoreImageFrameRenderer` — `StageWindow.swift`'s own header: "the same
+    /// statics, not a second configuration". There is exactly one renderer either consumer can
+    /// reach. **So this check cannot test "the two renderers agree" — there are not two to
+    /// compare.** What it DOES test is that the WIRING routing frames to that one renderer has not
+    /// come apart: that a frame read through the preview's own AVFoundation machinery and a frame
+    /// read through the export's own AVFoundation machinery, for the SAME source and the SAME
+    /// composition time, land on the same pixels. A future change that gave one consumer its own
+    /// `StageStyle`, its own output size, or that routed one of them around the shared compositor
+    /// entirely would show up here as a mismatch; a future change that swapped
+    /// `CoreImageFrameRenderer` for a Metal implementation (Task 3's still-open seam) would NOT,
+    /// because both consumers would still reach the same (new) renderer — the exact distinction
+    /// this header opens with.
+    ///
+    /// **The preview stand-in is `AVAssetImageGenerator`, not a live `AVPlayer`.** Nothing in this
+    /// probe drives real playback; § 11's own header already establishes why
+    /// `AVAssetImageGenerator` with `.videoComposition` set is the standing stand-in this probe
+    /// uses for "read one composed frame" — it is what makes `customVideoCompositorClass` apply at
+    /// all, the same wiring `AVPlayerItem.videoComposition` exercises for the real preview.
+    ///
+    /// **The fixture is a committed file, not generated per run**
+    /// (`Tests/RenderParityFixtures/two-tone.mov`, ~6.5 KB, 64×64 ProRes4444, 2 seconds at 10 fps —
+    /// the colour tags § 11's `writeSolidColorMovie` measured as needed for an exact round trip).
+    /// Two colours, not one — the first second solid red, the second solid blue — so sampling
+    /// composition time 1.5s (well inside the blue half) can tell "the right frame was read" apart
+    /// from "any plausible-looking frame was read": a wiring bug that mapped one consumer's
+    /// timeline differently from the other's would show up as a wrong COLOUR, not merely a
+    /// mismatched one.
+    @MainActor
+    static func theSameCompositionTimeMatchesThroughPreviewAndExport() async throws {
+        let outputWidth = 320
+        let outputHeight = 180
+        let sourceWidth = 64
+        let sourceHeight = 64
+        // The number this check's own failure message names — § 11/§ 14 measured the same round
+        // trip (AVAssetWriter encode → AVAssetReader/AVAssetImageGenerator decode, through the
+        // identical CoreImageFrameRenderer) at up to 2 per channel off a fixed expected constant;
+        // this check adds a SECOND independent encode/decode (the export's own AVAssetWriter, on
+        // top of the fixture's own) between the two samples it compares, so it is given headroom
+        // above that, not equal to it.
+        let tolerance = 6
+
+        let fixtureURL = probeRepositoryRoot
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov")
+        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
+            throw RenderParityProbeError.fixtureMissing(fixtureURL.path)
+        }
+
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+
+        // Path A — the preview stand-in.
+        let previewAsset = AVURLAsset(url: fixtureURL)
+        let previewComposition = try await CompositionBuilder.composition(
+            for: previewAsset, outputWidth: outputWidth, outputHeight: outputHeight,
+            frameDuration: CMTime(value: 1, timescale: 60))
+        let previewGenerator = AVAssetImageGenerator(asset: previewAsset)
+        previewGenerator.videoComposition = previewComposition
+        previewGenerator.requestedTimeToleranceBefore = .zero
+        previewGenerator.requestedTimeToleranceAfter = .zero
+
+        // Path B — the real export, exactly what the Export button runs, then read the finished
+        // file back — no `.videoComposition` needed here, unlike Path A: the export already baked
+        // the composed pixels into the file. Exported ONCE and sampled at every composition time
+        // below, exactly as the preview's own single composition is.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("soredemo-probe-parity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exportedURL = directory.appendingPathComponent("export.mp4")
+        let exportAsset = AVURLAsset(url: fixtureURL)
+        _ = try await MP4Exporter.export(asset: exportAsset, to: exportedURL,
+                                         outputWidth: outputWidth, outputHeight: outputHeight)
+        let exportedAsset = AVURLAsset(url: exportedURL)
+        let exportGenerator = AVAssetImageGenerator(asset: exportedAsset)
+        exportGenerator.requestedTimeToleranceBefore = .zero
+        exportGenerator.requestedTimeToleranceAfter = .zero
+
+        let plan = StagePlanner.plan(outputWidth: outputWidth, outputHeight: outputHeight,
+                                     sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                                     style: .default)
+        let centreX = Int((plan.card.x + plan.card.width / 2).rounded())
+        let centreY = Int((plan.card.y + plan.card.height / 2).rounded())
+        // Two pixels in from the card's own left edge, at vertical mid-card (well clear of the
+        // top/bottom rounded corners, so the corner mask is not a second variable here). Chosen
+        // over the centre because the centre is geometry-BLIND: `StagePlanner.plan`'s card is
+        // always centred in the output regardless of `insetFraction`, so a centre-only comparison
+        // cannot see a framing divergence at all — only a content divergence. This point sits
+        // where `StagePlanner`'s own geometry places the card's boundary, so a style that shifts
+        // that boundary (Step 3, below) moves what colour lands here. Measured directly at this
+        // output size (320×180, a 64×64 source): under matching styles both paths read solid
+        // colour here; diverging `insetFraction` by 0.01 in one path only measured
+        // preview=(0, 0, 255) vs export=(7, 7, 173) at the blue-half sample time — a same-channel
+        // gap of up to 82, more than 13× this check's own tolerance.
+        let edgeX = Int(plan.card.x.rounded()) + 2
+        let edgeY = centreY
+
+        // AN EXPLICIT SET of composition times, not one — the ROADMAP's own `render-parity` row
+        // asks for this by name. One instant per fixture half, so a wiring bug that mapped one
+        // consumer's timeline differently from the other's (an off-by-N frame, a unit mismatch)
+        // has two independent chances to surface as a wrong colour rather than one.
+        let sampleTimes: [(label: String, time: CMTime, expectedColour: (r: Int, g: Int, b: Int))] = [
+            ("0.5s (red half)", CMTime(seconds: 0.5, preferredTimescale: 600), (255, 0, 0)),
+            ("1.5s (blue half)", CMTime(seconds: 1.5, preferredTimescale: 600), (0, 0, 255)),
+        ]
+
+        for (label, sampleTime, expectedColour) in sampleTimes {
+            let (previewImage, _) = try await previewGenerator.image(at: sampleTime)
+            let (exportImage, _) = try await exportGenerator.image(at: sampleTime)
+
+            let previewCentre = try pixel(in: previewImage, x: centreX, y: centreY, outputHeight: outputHeight)
+            let exportCentre = try pixel(in: exportImage, x: centreX, y: centreY, outputHeight: outputHeight)
+            let previewEdge = try pixel(in: previewImage, x: edgeX, y: edgeY, outputHeight: outputHeight)
+            let exportEdge = try pixel(in: exportImage, x: edgeX, y: edgeY, outputHeight: outputHeight)
+
+            // The RIGHT value, not two paths agreeing on the same wrong constant (the "assert the
+            // shared value is the right one" discipline § 14's own recount already applies): both
+            // sides must actually be reading THIS half's own colour, not e.g. both silently
+            // reading black because both generators failed the same way.
+            check(closeEnough(previewCentre, expectedColour, tolerance: tolerance),
+                  "sanity at \(label): the preview stand-in's card centre is the fixture's own "
+                  + "colour there, within ±\(tolerance) per channel — not a vacuous pass from two "
+                  + "paths agreeing on the same wrong pixel",
+                  actual: "\(previewCentre)", expected: "\(expectedColour) ± \(tolerance)")
+
+            check(closeEnough(previewCentre, exportCentre, tolerance: tolerance),
+                  "render-parity (content) at \(label), within ±\(tolerance) per channel: the "
+                  + "preview path (AVAssetImageGenerator over the live composition) and the export "
+                  + "path (MP4Exporter's finished file) sample this composition time to the same "
+                  + "card-centre pixel. THIS TESTS THAT THE WIRING HAS NOT COME APART — one "
+                  + "StageCompositor, one CompositionBuilder call, one StageStyle, shared by both "
+                  + "consumers (ARCHITECTURE.md D8) — NOT that two renderers agree with each "
+                  + "other; there is exactly one renderer either path can reach",
+                  actual: "preview \(previewCentre), export \(exportCentre)",
+                  expected: "within ±\(tolerance) of each other")
+
+            check(closeEnough(previewEdge, exportEdge, tolerance: tolerance),
+                  "render-parity (framing) at \(label), within ±\(tolerance) per channel: a point "
+                  + "2px inside the card's own left edge agrees between the preview path and the "
+                  + "export path too — the centre check above cannot see a FRAMING divergence (the "
+                  + "card is always output-centred regardless of style), this one can. Same wiring "
+                  + "claim as the centre check, not a stronger one: one StageCompositor, one "
+                  + "StageStyle, shared by both consumers",
+                  actual: "preview \(previewEdge), export \(exportEdge)",
+                  expected: "within ±\(tolerance) of each other")
+        }
+
+        // The third of the ROADMAP row's three specifications — "keep preview-only chrome above
+        // the compositor" — has no check here, and that absence is deliberate rather than an
+        // oversight: nothing in this app draws preview-only chrome (selection handles, guides) at
+        // all yet — `Sources/Framing`/`Sources/Variants` are one-line placeholders (ROADMAP,
+        // `derivation-graph`) and Phase 4's `Editor/` does not exist. A check against a UI surface
+        // that has not been built would be vacuous by construction. This becomes a real,
+        // addable check the day Phase 4 adds the first thing drawn only in the preview window.
+    }
+
+    // MARK: - § 16  StageCompositor.diagnostics — the preview's dropped-frame count (Phase 2B Task 8)
+
+    /// A `FrameRendering` that always throws — exists only to drive `StageCompositor.startRequest`'s
+    /// `catch` branch directly; see § 16.2. Trivially `Sendable` (no stored state), satisfying
+    /// `FrameRendering: Sendable`.
+    struct AlwaysThrowingRenderer: FrameRendering {
+        struct Boom: Error {}
+        func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
+            throw Boom()
+        }
+    }
+
+    /// `StageCompositor.Diagnostics`'s own header already gives the complete, two-branch causal
+    /// account of what increments `framesDropped`; this section drives BOTH branches directly and
+    /// watches the counter move — the same "every counter that partitions a decision, driven both
+    /// ways" discipline § 8.6 already applies to `AXObserver`'s own counters — plus a clean run
+    /// that proves a correctly configured render drops nothing at all.
+    ///
+    /// **`>= 1`, not `== 1`, on both branches.** `AVAssetImageGenerator.image(at:)` is not
+    /// documented to call `startRequest` exactly once per request, and this check has no interest
+    /// in that internal retry count — only in "the branch that should have fired, fired at least
+    /// once".
+    @MainActor
+    static func theDropCounterIsDrivenByBothOfItsTwoCauses() async throws {
+        let outputWidth = 320
+        let outputHeight = 180
+        let fixtureURL = probeRepositoryRoot
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov")
+        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
+            throw RenderParityProbeError.fixtureMissing(fixtureURL.path)
+        }
+        let asset = AVURLAsset(url: fixtureURL)
+        let composition = try await CompositionBuilder.composition(
+            for: asset, outputWidth: outputWidth, outputHeight: outputHeight,
+            frameDuration: CMTime(value: 1, timescale: 60))
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.videoComposition = composition
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+
+        // 16.1 — cause 1: the leading guard, via no renderer configured at all.
+        StageCompositor.renderer = nil
+        StageCompositor.resetDiagnostics()
+        var guardBranchThrew = false
+        do {
+            _ = try await generator.image(at: .zero)
+        } catch {
+            guardBranchThrew = true
+        }
+        check(guardBranchThrew, "16.1 an unconfigured compositor (Self.renderer == nil) refuses the request")
+        check(StageCompositor.diagnostics.framesDropped >= 1,
+              "16.1 and the guard branch counted it — StageCompositor.Diagnostics's own header, cause 1",
+              actual: "\(StageCompositor.diagnostics.framesDropped)", expected: ">= 1")
+
+        // 16.2 — cause 2: the catch, via a renderer that throws.
+        StageCompositor.renderer = AlwaysThrowingRenderer()
+        StageCompositor.resetDiagnostics()
+        var catchBranchThrew = false
+        do {
+            _ = try await generator.image(at: .zero)
+        } catch {
+            catchBranchThrew = true
+        }
+        check(catchBranchThrew, "16.2 a renderer that throws refuses the request")
+        check(StageCompositor.diagnostics.framesDropped >= 1,
+              "16.2 and the catch branch counted it — StageCompositor.Diagnostics's own header, cause 2",
+              actual: "\(StageCompositor.diagnostics.framesDropped)", expected: ">= 1")
+
+        // 16.3 — a correctly configured render drops nothing.
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.resetDiagnostics()
+        let (image, _) = try await generator.image(at: .zero)
+        _ = image
+        check(StageCompositor.diagnostics.framesDropped == 0,
+              "16.3 and a correctly configured render drops nothing",
+              actual: "\(StageCompositor.diagnostics.framesDropped)", expected: "0")
     }
 
     /// What a caller can learn about a writer's refusal — normalised, never the raw error text.

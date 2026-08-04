@@ -60,6 +60,63 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// "nothing configured" state `observationLogURL == nil` is for the log.
     nonisolated(unsafe) static var overrides: [CursorOverride] = []
 
+    /// Counters a caller can read after playback or export has run — never only a console line,
+    /// the same "a dropped record with nothing counting it is indistinguishable from a record that
+    /// was never produced" rule `CaptureSession.Diagnostics`/`AXObserver.Diagnostics` already
+    /// apply to capture. `static`, like `renderer`/`style`/`observationLogURL`/`overrides` above,
+    /// for the identical reason: AVFoundation owns every `StageCompositor` instance and this app
+    /// never gets a handle to one, so a per-instance counter would be unreadable by anything
+    /// outside AVFoundation itself. `StageWindow.load()` resets this to a fresh `Diagnostics()` at
+    /// the same point it (re)sets `renderer`/`style`/`observationLogURL` — one recording opened,
+    /// one counter's worth of drops for it — so this answers "how many frames has the CURRENTLY
+    /// open recording's preview session dropped", not a lifetime total across every file the app
+    /// has ever opened.
+    nonisolated(unsafe) private static var _diagnostics = Diagnostics()
+    /// Guards `_diagnostics` only — a separate lock from the instance-level `lock` below, because
+    /// `_diagnostics` is `static` (shared across every `StageCompositor` instance, exactly like
+    /// `renderer`/`style`/`observationLogURL`/`overrides`) while `lock` guards one instance's own
+    /// `pointerTrack`/`clickTrack`/`tracksLoaded`. Two locks, two different things each protects.
+    private static let diagnosticsLock = NSLock()
+    static var diagnostics: Diagnostics { diagnosticsLock.withLock { _diagnostics } }
+    /// Resets the counters below to zero — called by `StageWindow.load()` when a (possibly new)
+    /// recording is opened, so a stale count from a previously opened file cannot be read as
+    /// belonging to this one.
+    static func resetDiagnostics() { diagnosticsLock.withLock { _diagnostics = Diagnostics() } }
+    private static func recordDroppedFrame() { diagnosticsLock.withLock { _diagnostics.framesDropped += 1 } }
+
+    /// **A complete account, not a partial one — Task 5.5's own counters needed three fix rounds
+    /// to reach this bar and this one is written against that standard from the start.**
+    /// `framesDropped` increments at exactly the two places `startRequest` below can fail to
+    /// produce a composed frame for a composition time AVFoundation asked for — there is no third:
+    ///
+    ///   1. **The leading `guard` in `startRequest`.** Any of `request.sourceTrackIDs.first`,
+    ///      `request.sourceReadOnlyPixelBuffer(byTrackID:)`, `renderContext`,
+    ///      `context.newPixelBuffer()`, or `Self.renderer` being absent takes this branch. In
+    ///      correctly wired playback the first two are supplied by AVFoundation and the third and
+    ///      fifth are configured before playback ever starts (`StageWindow.load()`), so the
+    ///      realistic way this fires during a REAL run is `context.newPixelBuffer()` returning
+    ///      `nil` — `AVVideoCompositionRenderContext`'s own pixel-buffer pool can be exhausted
+    ///      under real memory/GPU pressure during live, real-time playback. This is the shape "the
+    ///      preview path may drop" names: a busy system genuinely failing to hand back a
+    ///      destination buffer for one composition time, with no error of this app's own making.
+    ///   2. **The `catch` around `renderer.render(_:source:into:)`.** A thrown render error —
+    ///      `CoreImageFrameRenderer.render` does not throw today (structurally required by the
+    ///      `FrameRendering` protocol's `throws`, the same "compiles-required, not yet exercised"
+    ///      shape `MasterWriter.swift`'s own `do`/`catch` documents), but a future renderer
+    ///      (Task 3's open Metal seam) legitimately could.
+    ///
+    /// Both branches call `request.finish(with:)` with an error instead of
+    /// `request.finish(withComposedPixelBuffer:)` — AVFoundation receives no frame for that
+    /// composition time either way, and these are the ONLY two `finish` calls in this file that do
+    /// not carry a composed buffer. **Shared by preview and export alike**, because both consumers
+    /// drive the same `StageCompositor` (`ARCHITECTURE.md` D8) — the export path additionally
+    /// throws on its own `framesRead == framesWritten` mismatch (`MP4Exporter.swift`), so a drop
+    /// there is never silent even without this counter; the preview path has no such check, which
+    /// is the entire reason this counter exists.
+    struct Diagnostics: Sendable {
+        public internal(set) var framesDropped = 0
+    }
+
     let sourcePixelBufferAttributes: [String: any Sendable]? =
         [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
     let requiredPixelBufferAttributesForRenderContext: [String: any Sendable] =
@@ -111,6 +168,7 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
               let context = renderContext,
               let destination = context.newPixelBuffer(),
               let renderer = Self.renderer else {
+            Self.recordDroppedFrame()
             request.finish(with: CompositorError.notConfigured)
             return
         }
@@ -132,6 +190,7 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             }
             request.finish(withComposedPixelBuffer: CVReadOnlyPixelBuffer(unsafeBuffer: destination))
         } catch {
+            Self.recordDroppedFrame()
             request.finish(with: error)
         }
     }

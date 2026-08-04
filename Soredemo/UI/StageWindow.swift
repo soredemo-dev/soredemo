@@ -66,6 +66,10 @@ struct StageWindow: View {
     private func load() async {
         do {
             StageCompositor.renderer = try CoreImageFrameRenderer()
+            // A fresh recording gets a fresh drop count — see `StageCompositor.diagnostics`'s own
+            // header for why a stale count from a previously opened file must not be readable as
+            // belonging to this one.
+            StageCompositor.resetDiagnostics()
             // `ObservationWriter.expectedLogURL(forMediaURL:)` names where a log for THIS media
             // would be, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl`
             // pairing `beginSegment`/`ObservationWriter` already define — it does not claim one is
