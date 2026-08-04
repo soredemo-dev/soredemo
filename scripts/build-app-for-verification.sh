@@ -25,7 +25,19 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 COMMIT=$(git rev-parse --short HEAD)
-if ! git diff --quiet || ! git diff --cached --quiet; then
+# EXCLUDING the one file this script is about to rewrite. Without the exclusion
+# the flag is self-inflicted from the second run onward: run 1 sees a clean
+# tree, stamps a clean commit, and then writes BuildProvenance.swift; run 2 sees
+# that write, stamps `-dirty`, and writes it again. From a clean checkout, every
+# run after the first says dirty.
+#
+# A flag that always reads the same is not a flag. `-dirty` exists to say "this
+# binary was built from a tree with uncommitted changes", which is a real thing
+# a reader needs — and it was answering "yes" unconditionally, which is the
+# shape this project keeps finding: a value that cannot vary being read as
+# though it had.
+if ! git diff --quiet -- . ':!Soredemo/App/BuildProvenance.swift' \
+   || ! git diff --cached --quiet -- . ':!Soredemo/App/BuildProvenance.swift'; then
   COMMIT="${COMMIT}-dirty"
 fi
 BUILT_AT=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
