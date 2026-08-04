@@ -60,6 +60,13 @@ untested layer — wearing a name that sounds like the problem was solved.
 **The rule:** every `public` type in `Headless` must have a test in `swift test`
 that constructs and exercises it.
 
+*"Type" means every `public` `struct`, `class`, `actor` and `enum`. A `public`
+protocol is exempt from CONSTRUCTION and not from exercise: some conforming type
+must be exercised, which is what makes the protocol's existence load-bearing —
+the `FrameRendering` / `MasterWriting` seams are the shape this is written for.
+A `public` function or property on an exercised type needs no separate entry; the
+rule is about types, because a type is the unit a test can hold.*
+
 **The rule is enforced at two levels, and they are deliberately not the same.**
 
 - **The scanner enforces a NECESSARY condition**: the type's identifier appears,
@@ -92,8 +99,9 @@ is the shape this project has caught most often.
 
 A person can see this: **`swift test` contains a test that `import SoredemoHeadless`,
 constructs a `StageCompositor`, feeds it a RECORDED observation log, and asserts
-the drawn pointer's position at a given frame. Reverting `1a98402`'s one line turns
-it red.**
+the drawn pointer's position at a given frame. Changing
+`StageCompositor.pointerPlacement`'s `let time = anchor.hostTime + offset` back to
+`let time = offset` turns it red.**
 
 That is the evidence that an automatic instrument now reaches the code only a
 person reached today.
