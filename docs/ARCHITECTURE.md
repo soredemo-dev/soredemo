@@ -590,6 +590,25 @@ the code moved. The fourth row is the mildest and the most instructive: `Pointer
 not a lie, it is an AMBIGUITY between two real things called placement, and the untested one is
 where the defect lived.
 
+**Why the general form cannot be a gate, and it is not a tooling problem.** "Any
+identifier whose every occurrence in the tree falls inside comments" was measured
+here: 72 candidates, perhaps three real. The reason is that three different things
+produce identical text, and the difference is not in the text:
+
+| Class | Example in this tree | Truth value |
+| --- | --- | --- |
+| **the road not taken** | `DocumentGroup`, `AVMutableVideoComposition`, `SCRecordingOutput` | true and valuable — a rejected alternative is what a good doc comment exists to record |
+| **the road not yet walked** | `SoredemoCore` — the library target app logic will move into | **not yet true, and promised** |
+| **the lie** | `Inspector` — a header describing this view as composed of one | false, and the description was the only evidence |
+
+A scanner sees "mentioned, never coded" for all three. It cannot see tense or
+intent. **`SoredemoCore` is the instructive one**: it is neither dead nor
+fictional, it is a commitment — and a commitment is the one of the three that is
+always NAMED. That is why the narrow form works where the general one does not:
+`componentsAssertedInProseDoNotExistOnlyInProse` pins named claims, and a named
+claim flipping from absent to present is the signal to retire its row rather than
+a failure.
+
 **What to do with it.** When sweeping comments or reviewing a diff, treat every identifier, section
 title and register row as a proposition to be falsified once, the same as any sentence in a doc
 comment. The question is always the same and always cheap: **what would have to be true for this
