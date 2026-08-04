@@ -5218,5 +5218,83 @@ enum CrossBoundaryProbe {
               + "happen to agree on",
               actual: "legacy \(legacyFacts.colourTags), successor \(successorFacts.colourTags)",
               expected: "\(requestedColourTags)")
+
+        // § 13.2 — the red case. Everything above only ever appends valid, in-sequence samples,
+        // so it never makes either writer refuse anything: `SuccessorMasterTrack.append`'s
+        // `catch` and `MasterWriterProbeError.appendRefused` are both unreached by § 13.1 alone,
+        // and a conformance that swallowed a caught error would pass every check above. This
+        // closes that gap on the one condition both APIs document consistently and that this
+        // task's own throwing-append investigation already measured as safe to reproduce: an
+        // append issued after `finish()`.
+        print("13.2 the red case: append AFTER finish() — a condition both writers must refuse")
+        let legacyFailure = try postFinishAppendFact(legacyWriter, width: width, height: height)
+        let successorFailure = try postFinishAppendFact(successorWriter, width: width, height: height)
+        print("        legacy    post-finish append: refused first attempt "
+              + "\(legacyFailure.firstAttemptRefused), refusal durable across 3 attempts "
+              + "\(legacyFailure.refusalIsDurable) — \(legacyFailure.rawMessageForHumans)")
+        print("        successor post-finish append: refused first attempt "
+              + "\(successorFailure.firstAttemptRefused), refusal durable across 3 attempts "
+              + "\(successorFailure.refusalIsDurable) — \(successorFailure.rawMessageForHumans)")
+
+        check(legacyFailure.firstAttemptRefused == successorFailure.firstAttemptRefused,
+              "both writers refuse an append issued after finish() — the ONE failure condition "
+              + "this task's throwing-append mismatch is actually about, now exercised rather "
+              + "than only asserted in prose",
+              actual: "legacy \(legacyFailure.firstAttemptRefused), successor "
+              + "\(successorFailure.firstAttemptRefused)")
+        check(legacyFailure.refusalIsDurable == successorFailure.refusalIsDurable,
+              "and the refusal holds across a second and third attempt on both — not a one-off "
+              + "blip either writer recovers from",
+              actual: "legacy \(legacyFailure.refusalIsDurable), successor "
+              + "\(successorFailure.refusalIsDurable)")
+        // Not redundant with the two checks above, same shape as § 13.1's own third check: two
+        // writers that both ACCEPTED an append after finish() would agree with each other and
+        // both be dangerously wrong — a writer that accepts writes into a file it already closed
+        // corrupts that file.
+        check(legacyFailure.firstAttemptRefused && successorFailure.firstAttemptRefused,
+              "and the shared value is the RIGHT one — a writer that accepted an append after "
+              + "finish() would corrupt the file it just closed, so both agreeing on 'accepted' "
+              + "would pass the comparison above and both be wrong",
+              actual: "legacy \(legacyFailure.firstAttemptRefused), successor "
+              + "\(successorFailure.firstAttemptRefused)",
+              expected: "true and true")
+    }
+
+    /// What a caller can learn about a writer's refusal — normalised, never the raw error text.
+    struct MasterWriterFailureFact {
+        /// Was the FIRST post-`finish()` append refused (`false`)?
+        var firstAttemptRefused: Bool
+        /// Did EVERY attempt after the first also come back refused — i.e. is the refusal
+        /// durable, not a blip the writer recovers from? `MasterTrackWriting.append`'s own doc
+        /// comment says `false` means the writer "has already failed"; a writer that started
+        /// accepting appends again would falsify that contract.
+        var refusalIsDurable: Bool
+        /// For a human reader ONLY — never compared or asserted on. Legacy's `errorDescription`
+        /// reads AVFoundation's own `AVAssetWriter.error`; the successor's reads a caught Swift
+        /// `Error` formatted with `String(describing:)`. The two texts differ for reasons that
+        /// are not defects — two different frameworks describing the same fact in their own
+        /// words — so comparing them would fail this check for no real disagreement, and the
+        /// usual fix for a test that goes red over nothing is to loosen it until it stops
+        /// catching anything.
+        var rawMessageForHumans: String
+    }
+
+    /// Three appends issued after `writer` has already `finish()`ed. Video only — one track is
+    /// enough to establish whether the writer refuses, and reusing `writer.video` keeps this
+    /// function symmetric with `feedIdenticalMedia`'s own per-track shape.
+    @MainActor
+    static func postFinishAppendFact(_ writer: any MasterWriting, width: Int, height: Int) throws
+        -> MasterWriterFailureFact {
+        var accepted: [Bool] = []
+        for attempt in 0..<3 {
+            // Frame indices well past `frameCount`, so a bug that let one of these through would
+            // not silently collide with a real sample's own presentation time.
+            let sample = try masterWriterProbeVideoSample(width: width, height: height, frame: 9_000 + attempt)
+            accepted.append(writer.video.append(sample))
+        }
+        return MasterWriterFailureFact(
+            firstAttemptRefused: accepted.first == false,
+            refusalIsDurable: accepted.allSatisfy { $0 == false },
+            rawMessageForHumans: writer.errorDescription ?? "no error recorded")
     }
 }

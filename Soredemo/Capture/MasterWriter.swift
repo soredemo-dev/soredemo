@@ -11,7 +11,12 @@ import Foundation
 /// implementation uses four of them. Their successors (`AVAssetWriter.start()`,
 /// `inputReceiver(for:)`, `SampleBufferReceiver.append(_:)`) exist and work at
 /// this project's 26.0 floor; `spikes/2026-08-03-writer-receiver-hang` writes
-/// 3000 frames through them without stalling.
+/// 3000 frames through them without stalling — **one receiver at a time**
+/// (`main.swift:440`, "pushing, one receiver at a time"). Three receivers
+/// together — video and two audio, what any real writer needs — reproducibly
+/// stall under `appendImmediately(_:)`, with no error and no recovery: see
+/// `SuccessorMasterWriter.swift`'s "known gap" paragraph for the measurement.
+/// Read that before trusting the sentence above it.
 ///
 /// **So the migration is scheduled, not speculative.** The predecessor dies at
 /// 27.0 and this project's floor moves eventually; only the date is unknown.
@@ -51,12 +56,16 @@ import Foundation
 /// runs (Task 8), and re-establishing them is the actual cost of switching, not
 /// the eighty lines of a second conformance.
 ///
-/// **New media-writing code in Phase 2B goes to the successor.** `export-basic`
-/// and `render-core` have no migration cost, because they do not exist yet, and
-/// writing them against an API that dies at 27.0 would create the second thing
-/// this seam exists to prevent. The synchronous `appendImmediately(_:)` maps
-/// one-to-one onto today's `append(_:) -> Bool`, so neither side needs an async
-/// restructuring to make that split work.
+/// **New media-writing code in Phase 2B goes to the successor** — with the same
+/// caveat as above carried forward: that directive assumes `appendImmediately(_:)`
+/// tolerates the concurrent-track load real writing needs, which is exactly what
+/// is not yet established. `export-basic` and `render-core` have no migration
+/// cost, because they do not exist yet, and writing them against an API that
+/// dies at 27.0 would create the second thing this seam exists to prevent. The
+/// synchronous `appendImmediately(_:)` maps one-to-one onto today's
+/// `append(_:) -> Bool` in SHAPE, so neither side needs an async restructuring
+/// to make that split work — but see `SuccessorMasterWriter.swift` before
+/// assuming it maps onto it in RELIABILITY too.
 ///
 /// **The trigger is written down where it will fire:** `ARCHITECTURE.md` D6b-27
 /// says re-run Spike D on every OS or SDK version bump. `26 fails / 27 works`
