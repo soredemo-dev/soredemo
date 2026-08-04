@@ -579,7 +579,7 @@ claim no reviewer reads as a claim.** Four instances, all found on 2026-08-04, a
 | --- | --- | --- |
 | probe § 12's title, "a real `ObservationWriter` log" | the section runs against a real log | true of the writer, false of the clock — the fixture's samples were composition-relative while a real log is absolute host time |
 | probe § 7.2, "the standing check on the unit" | it stands guard over the nanosecond unit | deleting the `mach_timebase` multiply leaves it GREEN; it mints its own stamp from the clock it checks |
-| `ROADMAP.md`'s `geometry-types` row, "zero callers" | the bridge had never run | true when written; 41 call sites now, and the row said otherwise for weeks |
+| `ROADMAP.md`'s `geometry-types` row, "the AX and input conversion sites have still never executed" | that half of the bridge had never run in the product | a person's four-second recording wrote 327 pointer, 4 button and 2 AX records through exactly those sites. The row's stated reason — Input Monitoring denied on this machine — was true of the OLD bundle identifier and outlived the rename. **This table's own first draft got this row wrong too**, claiming the "zero callers" clause was still live when the row had already corrected it; the stale clause was the next sentence |
 | `Tests/RenderTests/PointerPlacementTests.swift` | it tests pointer placement | it tests `StagePlanner.placement`'s GEOMETRY, five ways. `StageCompositor.pointerPlacement` — the function whose time conversion was wrong for a whole phase — has no `swift test` coverage at all |
 
 **This class is more general than the fixture-shares-the-code's-frame class it was found beside.**
