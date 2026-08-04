@@ -151,3 +151,64 @@ private func hex(_ bytes: [UInt8]) -> String {
     let decoded = try JSONDecoder().decode(GeometryRevision.self, from: JSONEncoder().encode(r))
     #expect(decoded == r)
 }
+
+// MARK: - Decode validation (Task 4.5)
+
+/// Synthesised `Decodable` would assign `scale` directly and never call
+/// `init(displayUUID:pixelWidth:pixelHeight:scale:)`, so the finite-positive-
+/// scale precondition would go completely unenforced on the one path that
+/// carries untrusted input — `GeometryRegistry.init(from:)`'s per-entry
+/// decode, reached from `ProjectSnapshot`. This decodes a hand-built JSON
+/// literal — not a `DisplayGeometry` encoded from a real value and
+/// re-decoded, because that route is closed: `init` traps before an invalid
+/// scale could ever be constructed to encode in the first place. The
+/// literal's shape was confirmed against this package's own `JSONEncoder`
+/// output for the same field values (keys `displayUUID`/`pixelWidth`/
+/// `pixelHeight`/`scale`), then hand-transcribed here.
+///
+/// Asserts `.dataCorrupted` specifically, not merely "a `DecodingError`":
+/// a build that reverted to fully-synthesised `Codable` would decode this
+/// literal successfully and never throw at all, which a bare
+/// `catch is DecodingError` would not distinguish from this test having
+/// actually exercised the validation — see the Task 4.5 report for the
+/// reversion that confirmed this.
+@Test func decodingANonPositiveScaleDisplayGeometryThrows() throws {
+    let json = Data("""
+    {"displayUUID":"6BA7B810-9DAD-11D1-80B4-00C04FD430C8",
+     "pixelWidth":3840,"pixelHeight":2160,"scale":0}
+    """.utf8)
+    do {
+        _ = try JSONDecoder().decode(DisplayGeometry.self, from: json)
+        Issue.record("expected decoding a non-positive-scale DisplayGeometry to throw")
+    } catch let error as DecodingError {
+        guard case .dataCorrupted = error else {
+            Issue.record("expected .dataCorrupted (DisplayGeometry's own validation), got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("expected DecodingError, got \(error)")
+    }
+}
+
+/// Same guard, the other precondition: `init`'s dimensions check is
+/// independent of the scale check, and a mutation that dropped only one of
+/// the two `guard`s in `init(from:)` must be caught by a fixture that
+/// exercises the other. See `decodingANonPositiveScaleDisplayGeometryThrows`
+/// for the full rationale — this test mirrors it for `pixelWidth`.
+@Test func decodingANonPositiveDimensionDisplayGeometryThrows() throws {
+    let json = Data("""
+    {"displayUUID":"6BA7B810-9DAD-11D1-80B4-00C04FD430C8",
+     "pixelWidth":0,"pixelHeight":2160,"scale":2}
+    """.utf8)
+    do {
+        _ = try JSONDecoder().decode(DisplayGeometry.self, from: json)
+        Issue.record("expected decoding a non-positive-dimension DisplayGeometry to throw")
+    } catch let error as DecodingError {
+        guard case .dataCorrupted = error else {
+            Issue.record("expected .dataCorrupted (DisplayGeometry's own validation), got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("expected DecodingError, got \(error)")
+    }
+}

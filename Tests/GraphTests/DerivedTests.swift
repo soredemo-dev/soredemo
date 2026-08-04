@@ -22,6 +22,8 @@ private let observationID = UUID(uuidString: "6BA7B810-9DAD-11D1-80B4-00C04FD430
 private let transcriptID = UUID(uuidString: "6BA7B811-9DAD-11D1-80B4-00C04FD430C8")!
 private let releaseID = UUID(uuidString: "6BA7B812-9DAD-11D1-80B4-00C04FD430C8")!
 
+private let testEpoch = BootEpoch(id: UUID(uuidString: "6495B81D-14D1-4E05-8851-DD30BE41D757")!)
+
 private func digest(_ seed: UInt8) -> ContentDigest {
     ContentDigest(Array(repeating: seed, count: ContentDigest.byteCount))
 }
@@ -37,7 +39,7 @@ private func hex(_ bytes: Data) -> String {
 
 private let refWithInterval = EvidenceRef(
     kind: .observation, id: observationID, contentDigest: digest(0x11),
-    sourceInterval: TimeRange(start: Nanoseconds(1_000), duration: Nanoseconds(250)))
+    sourceInterval: HostRange(epoch: testEpoch, start: Nanoseconds(1_000), duration: Nanoseconds(250)))
 
 private let refWithoutInterval = EvidenceRef(
     kind: .transcript, id: transcriptID, contentDigest: digest(0x22))
@@ -188,7 +190,7 @@ private let authoredFrame = Derived(
 
 @Test func approvalBytesChangeWithACitedContentDigest() {
     let restated = EvidenceRef(kind: .observation, id: observationID, contentDigest: digest(0x12),
-                               sourceInterval: TimeRange(start: Nanoseconds(1_000), duration: Nanoseconds(250)))
+                               sourceInterval: HostRange(epoch: testEpoch, start: Nanoseconds(1_000), duration: Nanoseconds(250)))
     let other = Derivation(producer: ProducerID("reference-producer"), producerVersion: 3,
                            evidence: Evidence(restated, refWithoutInterval), outcome: .accepted)
     #expect(generated(42).approvalBytes
@@ -213,12 +215,18 @@ private let authoredFrame = Derived(
 
 /// Task 12 recorded that `sourceInterval`'s `nil`-versus-`.some` is
 /// `Hashable`-significant; it must stay digest-significant too. A zero-length
-/// interval is the exact fixture that catches an encoder writing only the
-/// payload and no discriminator: `nil` and `TimeRange(0, 0)` both have all-zero
-/// payload bytes.
+/// interval **at the zero epoch** is the exact fixture that catches an encoder
+/// writing only the payload and no discriminator: `nil` and
+/// `HostRange(epoch: BootEpoch(id: .zero), start: 0, duration: 0)` both have
+/// all-zero payload bytes. Task 2 changed `sourceInterval` from `TimeRange` to
+/// `HostRange`, which added the epoch's 16 bytes to the payload — using
+/// `testEpoch` here (a non-zero UUID) would have made this collision
+/// impossible to construct by accident, and so no longer a fixture that
+/// exercises the discriminator at all.
 @Test func approvalBytesDistinguishNoIntervalFromAZeroLengthInterval() {
+    let zeroEpoch = BootEpoch(id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)))
     let zero = EvidenceRef(kind: .transcript, id: transcriptID, contentDigest: digest(0x22),
-                           sourceInterval: TimeRange(start: Nanoseconds(0), duration: Nanoseconds(0)))
+                           sourceInterval: HostRange(epoch: zeroEpoch, start: Nanoseconds(0), duration: Nanoseconds(0)))
     let other = Derivation(producer: ProducerID("reference-producer"), producerVersion: 3,
                            evidence: Evidence(refWithInterval, zero), outcome: .accepted)
     #expect(generated(42).approvalBytes
@@ -228,7 +236,7 @@ private let authoredFrame = Derived(
 @Test func approvalBytesChangeWithACitedIntervalsStartAndDuration() {
     func cited(_ start: Int64, _ duration: Int64) -> Data {
         let ref = EvidenceRef(kind: .observation, id: observationID, contentDigest: digest(0x11),
-                              sourceInterval: TimeRange(start: Nanoseconds(start), duration: Nanoseconds(duration)))
+                              sourceInterval: HostRange(epoch: testEpoch, start: Nanoseconds(start), duration: Nanoseconds(duration)))
         return Derived(value: 42, origin: .generated(
             Derivation(producer: ProducerID("reference-producer"), producerVersion: 3,
                        evidence: Evidence(ref, refWithoutInterval), outcome: .accepted))).approvalBytes
@@ -238,6 +246,46 @@ private let authoredFrame = Derived(
     // Same total extent, different split: an encoder that digested `end` alone
     // would collapse these two distinct citations.
     #expect(cited(1_000, 250) != cited(1_250, 0))
+}
+
+/// Task 2's load-bearing property, tested directly rather than left to the
+/// pinned vectors below to catch incidentally: two citations with identical
+/// `start`/`duration` but different boot epochs are different citations
+/// (D2-11), and an approval bound to one must not validate the other. An
+/// encoder that dropped `epoch` from the encoding — the exact mutation this
+/// test was written to catch — would still pass every other test in this
+/// file; only the pinned-vector byte counts would move, and only because they
+/// happen to pin a fixture that has an epoch at all. This test fails for the
+/// right reason even if the pinned vectors were deleted.
+@Test func approvalBytesChangeWithACitedIntervalsEpoch() {
+    let otherEpoch = BootEpoch(id: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!)
+    func cited(_ epoch: BootEpoch) -> Data {
+        let ref = EvidenceRef(kind: .observation, id: observationID, contentDigest: digest(0x11),
+                              sourceInterval: HostRange(epoch: epoch, start: Nanoseconds(1_000), duration: Nanoseconds(250)))
+        return Derived(value: 42, origin: .generated(
+            Derivation(producer: ProducerID("reference-producer"), producerVersion: 3,
+                       evidence: Evidence(ref, refWithoutInterval), outcome: .accepted))).approvalBytes
+    }
+    #expect(cited(testEpoch) != cited(otherEpoch))
+}
+
+/// The fixed-width invariant itself, asserted directly rather than left to
+/// the pinned vectors to catch incidentally — the same gap this file's epoch
+/// test above closed, applied to width instead of content. `Evidence`'s
+/// `encodeCanonically` prefixes a bare `UInt64` count and nothing else
+/// (`evidenceCountPrefixDefeatsAConstructedCollision` below shows why that is
+/// only safe when every element is the same width); if the present-interval
+/// payload and the absent-interval zero padding ever drifted out of step,
+/// `EvidenceRef` would stop being fixed-width with no compile error and no
+/// runtime check anywhere in this file except a pinned byte count moving for
+/// what would look like the wrong reason.
+@Test func evidenceRefEncodesToTheSameWidthWithAndWithoutAnInterval() {
+    var withInterval: [UInt8] = []
+    refWithInterval.encodeCanonically(into: &withInterval)
+    var withoutInterval: [UInt8] = []
+    refWithoutInterval.encodeCanonically(into: &withoutInterval)
+    #expect(withInterval.count == withoutInterval.count)
+    #expect(withInterval.count == 82)
 }
 
 // MARK: - Length prefixes: adjacent variable-length fields must not run together
@@ -318,22 +366,27 @@ private struct RawPayload: CanonicallyEncodable, Codable, Hashable, Sendable {
 /// strings, because the second citation's bytes can be replayed inside a gate
 /// code. The construction is exact: the second ref's kind tag is `transcript`
 /// (`0x02`), which is also the `.rejected` tag; its UUID's first eight bytes
-/// read back as the little-endian length `58`; and the remaining 58 bytes of the
+/// read back as the little-endian length `74`; and the remaining 74 bytes of the
 /// ref, plus the trailing `.accepted` tag, are valid UTF-8 and so can be spelled
 /// as a `GateCode`. Computed out of band in Python before it was written here.
+///
+/// **The `74` moved from `58` in Task 2**, when `sourceInterval` widened from
+/// `TimeRange?` to `HostRange?` and the absent-interval padding grew from 16 to
+/// 32 zero bytes — the same width change documented on
+/// `EvidenceRef.encodeCanonically`. Recomputed, not adjusted by hand.
 ///
 /// One of these two values cites a whole extra piece of evidence than the other.
 /// An approval bound to one must never validate the other.
 @Test func evidenceCountPrefixDefeatsAConstructedCollision() {
-    // 3a00000000000000 = 58, little-endian, in the first eight bytes.
-    let craftedID = UUID(uuidString: "3A000000-0000-0000-6162-636465666768")!
+    // 4a00000000000000 = 74, little-endian, in the first eight bytes.
+    let craftedID = UUID(uuidString: "4A000000-0000-0000-6162-636465666768")!
     let craftedDigest = ContentDigest(Array("0123456789abcdef0123456789abcdef".utf8))
     let secondRef = EvidenceRef(kind: .transcript, id: craftedID, contentDigest: craftedDigest)
 
     // "abcdefgh" (the crafted UUID's second half) ‖ the digest ‖ the absent-interval
-    // discriminator and its sixteen zero bytes ‖ the .accepted tag.
+    // discriminator and its thirty-two zero bytes ‖ the .accepted tag.
     let replay = "abcdefgh0123456789abcdef0123456789abcdef"
-        + String(repeating: "\u{0}", count: 17) + "\u{1}"
+        + String(repeating: "\u{0}", count: 33) + "\u{1}"
 
     let two = Derived(value: 1, origin: .generated(
         Derivation(producer: ProducerID("p"), producerVersion: 1,
@@ -470,15 +523,29 @@ private struct RawPayload: CanonicallyEncodable, Codable, Hashable, Sendable {
 /// 6ba7b8109dad11d180b400c04fd430c8   ref 0 id
 /// 11 × 32                            ref 0 contentDigest
 /// 01                                 ref 0 has a sourceInterval
+/// 6495b81d14d14e058851dd30be41d757   ref 0 interval's epoch id (testEpoch)
 /// e803000000000000                   start   = 1000ns
 /// fa00000000000000                   duration = 250ns
 /// 02                                 ref 1 kind = transcript
 /// 6ba7b8119dad11d180b400c04fd430c8   ref 1 id
 /// 22 × 32                            ref 1 contentDigest
 /// 00                                 ref 1 has NO sourceInterval
-/// 0000000000000000 0000000000000000  zeroed, per the fixed-width rule
+/// 00 × 32                            zeroed, per the fixed-width rule
 /// 01                                 outcome = .accepted
 /// ```
+///
+/// **This vector moved in Task 2.** `sourceInterval` changed from
+/// `TimeRange?` to `HostRange?`, which added the epoch's 16 bytes ahead of
+/// `start`/`duration` inside a present interval, and widened the
+/// absent-interval padding from 16 to 32 zero bytes to match. Every byte of
+/// this vector through the end of `ref 0 contentDigest` — the first 109
+/// bytes of the full `approvalBytes` stream, not an offset local to
+/// `EvidenceRef`'s own table above — is unchanged from the pre-Task-2 vector,
+/// confirmed by diffing the two byte-for-byte rather than by inspection; the
+/// divergence begins exactly at the interval, the only field that changed
+/// shape. Recomputed out of band in Python from the encoding specification
+/// above, not read off a green run; see the Task 2 report for the script and
+/// the byte-level diff against the old vector.
 @Test func approvalBytesArePinnedForAGeneratedValue() {
     #expect(hex(generated(42).approvalBytes) == """
         01\
@@ -489,13 +556,13 @@ private struct RawPayload: CanonicallyEncodable, Codable, Hashable, Sendable {
         0200000000000000\
         016ba7b8109dad11d180b400c04fd430c8\
         1111111111111111111111111111111111111111111111111111111111111111\
-        01e803000000000000fa00000000000000\
+        016495b81d14d14e058851dd30be41d757e803000000000000fa00000000000000\
         026ba7b8119dad11d180b400c04fd430c8\
         2222222222222222222222222222222222222222222222222222222222222222\
-        0000000000000000000000000000000000\
+        000000000000000000000000000000000000000000000000000000000000000000\
         01
         """)
-    #expect(generated(42).approvalBytes.count == 193)
+    #expect(generated(42).approvalBytes.count == 225)
 }
 
 /// The `Double`-bearing, authored counterpart:
@@ -529,6 +596,9 @@ private struct RawPayload: CanonicallyEncodable, Codable, Hashable, Sendable {
 }
 
 /// Pins the rejected branch and its length-prefixed gate code.
+///
+/// **This vector moved in Task 2** for the same reason
+/// `approvalBytesArePinnedForAGeneratedValue`'s did — see that test's comment.
 @Test func approvalBytesArePinnedForARejectedOutcome() {
     let rejected = Derived(value: 42, origin: .generated(
         Derivation(producer: ProducerID("reference-producer"), producerVersion: 3,
@@ -542,15 +612,15 @@ private struct RawPayload: CanonicallyEncodable, Codable, Hashable, Sendable {
         0200000000000000\
         016ba7b8109dad11d180b400c04fd430c8\
         1111111111111111111111111111111111111111111111111111111111111111\
-        01e803000000000000fa00000000000000\
+        016495b81d14d14e058851dd30be41d757e803000000000000fa00000000000000\
         026ba7b8119dad11d180b400c04fd430c8\
         2222222222222222222222222222222222222222222222222222222222222222\
-        0000000000000000000000000000000000\
+        000000000000000000000000000000000000000000000000000000000000000000\
         02\
         1500000000000000\
         696e73756666696369656e742d65766964656e6365
         """)
-    #expect(rejected.approvalBytes.count == 222)
+    #expect(rejected.approvalBytes.count == 254)
 }
 
 /// The bytes must not be `hashValue` under another name, nor derived from it:

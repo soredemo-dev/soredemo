@@ -45,3 +45,11 @@ public struct PixelRect: Hashable, Codable, Sendable {
         self.height = height
     }
 }
+
+extension PixelRect: CustomStringConvertible {
+    /// Names its own unit — see `PointRect.description` for why this exists
+    /// and what it replaces.
+    public var description: String {
+        "PixelRect(x: \(x), y: \(y), width: \(width), height: \(height) px)"
+    }
+}

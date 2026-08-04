@@ -163,8 +163,36 @@ final class ProjectDocument: NSDocument {
     /// never offered a save at all.
     @MainActor
     func addMedia(_ data: Data, fileExtension: String) throws -> String {
+        try addMedia(data, named: "\(Minting.newIdentifier().uuidString.lowercased()).\(fileExtension)")
+    }
+
+    /// The same, under a name the caller has already minted.
+    ///
+    /// **Added in Task 11, and it is the half `CaptureSession` needed.** A
+    /// segment's media filename is minted at `beginSegment` — before a single
+    /// byte exists — because `SegmentLedger` records it when the segment
+    /// opens, and `MasterSegment.mediaFilename` is what the manifest's segment
+    /// table names. So the recording path cannot use the minting overload
+    /// above: by the time the bytes are ready, the name is already on the
+    /// ledger and in the table.
+    ///
+    /// **Routing capture through here rather than through
+    /// `ProjectPackageIO.writeSidecar` directly is not bookkeeping.** The
+    /// package function writes the file and nothing else. The two lines below
+    /// it are what make the file *referenced*: without the `mediaFilenames`
+    /// append the sidecar is invisible to the manifest, and without
+    /// `updateChangeCount` the document closes with no prompt, the reference
+    /// is lost, and the next `compactMedia()` correctly identifies the
+    /// recording as unreferenced and **deletes it**. `CaptureSession` wrote
+    /// sidecars around this method until this task, which is that failure
+    /// waiting for its first compaction.
+    ///
+    /// `writeSidecar` still does the refusing — write-once, and the
+    /// single-path-component check — so nothing about that moves here.
+    @MainActor
+    @discardableResult
+    func addMedia(_ data: Data, named name: String) throws -> String {
         guard let packageURL = fileURL else { throw MediaError.documentHasNoURL }
-        let name = "\(Minting.newIdentifier().uuidString.lowercased()).\(fileExtension)"
         try ProjectPackageIO.writeSidecar(data, named: name, into: packageURL)
         state.withLock { $0.mediaFilenames.append(name) }
         updateChangeCount(.changeDone)
@@ -201,6 +229,15 @@ final class ProjectDocument: NSDocument {
         case documentHasNoURL
     }
 
+    /// Where the document's package lives, for a caller that needs to write a
+    /// sibling of `media/` — `observations/`, and nothing else today.
+    ///
+    /// Read-only and optional, mirroring `addMedia`'s own refusal: an unsaved
+    /// document has no package, and a caller must not be handed a plausible
+    /// temporary directory in place of one.
+    @MainActor
+    var packageURL: URL? { fileURL }
+
     // MARK: - Window
 
     override func makeWindowControllers() {
@@ -208,6 +245,16 @@ final class ProjectDocument: NSDocument {
         let window = NSWindow(contentViewController: hosting)
         window.title = displayName ?? "Untitled"
         addWindowController(NSWindowController(window: window))
+    }
+}
+
+extension ProjectDocument: MediaSink {
+    /// `CaptureSession`'s route into `addMedia(_:named:)`. Nothing more —
+    /// deliberately, so that "capture writes media through the document" is a
+    /// statement about one call and not about a second implementation living
+    /// here.
+    func acceptMedia(_ data: Data, named name: String) throws {
+        try addMedia(data, named: name)
     }
 }
 

@@ -32,7 +32,7 @@ let repositoryRoot = URL(filePath: #filePath)
 /// The library modules, asserted as a floor so a filter that quietly matches
 /// nothing cannot look like a pass. The authoritative list comes from the resolved
 /// manifest — see `scannedModules()`.
-let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"]
+let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
 
 // MARK: - the banned symbols
 //
@@ -85,8 +85,20 @@ let bannedSymbols: [String: String] = [
     "_CFAbsoluteTimeGetCurrent":                                "CFAbsoluteTimeGetCurrent()",
     "_mach_absolute_time":                                      "mach_absolute_time()",
     "_mach_approximate_time":                                   "mach_approximate_time()",
+    // Sibling of `mach_absolute_time`, introduced the same day by the same author
+    // (`Minting.continuousNow()`, Task 5) and missed by this table until Task 5.5.
+    // Advances during sleep where `mach_absolute_time` does not (D2-4) — a
+    // different reading, not a spelling variant.
+    "_mach_continuous_time":                                    "mach_continuous_time()",
     "_clock_gettime_nsec_np":                                   "clock_gettime_nsec_np()",
     "_clock_gettime":                                           "clock_gettime()",
+    // Sibling of `clock_gettime`, and a DIFFERENT reading: processor time
+    // consumed by this process, not wall or monotonic time. Still ambient — it
+    // depends on scheduling — and it is the name someone reaches for when
+    // `clock_gettime` is refused. Verified open by Task 5.5's sweep and closed
+    // here. `_clock` is exact-matched like every other entry: `_clock_gettime`
+    // is a different symbol and always was.
+    "_clock":                                                   "clock()",
     "_gettimeofday":                                            "gettimeofday()",
     "_time":                                                    "time()",
     // Objective-C clock reads. `NSDate` is over-approximated: ANY reference to the
@@ -99,6 +111,12 @@ let bannedSymbols: [String: String] = [
 
     // ── ambient randomness ──────────────────────────────────────────────────────
     "_$s10Foundation4UUIDVACycfC":                              "UUID.init()",
+    // The ObjC identifier class, over-approximated exactly as `NSDate` is: ANY
+    // reference trips it. `NSUUID` is the sibling of `NSDate`, which was already
+    // banned that way, and D2-16 lists it as the third of three staleness
+    // findings — each of them a sibling of something already on this list. Task
+    // 5.5 verified it still open on both sides; this is the package side.
+    "_OBJC_CLASS_$_NSUUID":                                     "NSUUID (any reference)",
     "_$ss17FixedWidthIntegerPsE6random2inxSnyxG_tFZ":           "FixedWidthInteger.random(in: Range)",
     "_$ss17FixedWidthIntegerPsE6random2inxSNyxG_tFZ":           "FixedWidthInteger.random(in: ClosedRange)",
     "_$sSBss17FixedWidthInteger14RawSignificandRpzrlE6random2inxSnyxG_tFZ":
@@ -114,6 +132,57 @@ let bannedSymbols: [String: String] = [
     "_arc4random":                                              "arc4random()",
     "_arc4random_uniform":                                      "arc4random_uniform()",
     "_arc4random_buf":                                          "arc4random_buf()",
+    "_arc4random_stir":                                         "arc4random_stir()",
+
+    // ── the `drand48` family, and the process-global state it mutates ───────────
+    //
+    // `drand48()` is the one entry here whose case D2-16 records as WEAKER, and
+    // it is worth stating rather than assuming. Unseeded it is deterministic —
+    // a fixed 48-bit LCG from a fixed starting state — so on the letter of "no
+    // ambient randomness" it does not offend. Three reasons it is banned anyway:
+    //
+    //   1. the state is PROCESS-GLOBAL and shared. Determinism holds only while
+    //      nothing else in the process has called it or seeded it, which is not
+    //      a property any module can assert about itself. `srand48`, `seed48`
+    //      and `lcong48` are how that happens, which is why they are here too:
+    //      the reader is deterministic exactly until a writer runs.
+    //   2. it is unavailable to a caller who wants determinism anyway — an
+    //      injected `RandomNumberGenerator` gives it with the state carried in
+    //      the value, which is what this package already does everywhere.
+    //   3. nothing in a Foundation-only geometry and timeline package has a
+    //      reason to call it, so the cost of the ban is zero and a false
+    //      positive is not reachable.
+    //
+    // **Two members of the family are deliberately NOT here**, and the reason is
+    // the reason for the rest. `erand48` takes its state IN AN ARGUMENT, so it
+    // has no process-global state to lose — it is the injected-generator shape
+    // this package endorses everywhere else, and banning it would contradict the
+    // argument above. `srandom` seeds `random()`, which Swift marks unavailable,
+    // so it can only ever write state nothing in Swift can read. Both were
+    // banned in the first draft of this list on family resemblance alone. A ban
+    // list is worth exactly the reason on each line, and "it looks like its
+    // neighbours" is not one.
+    //
+    // Swept and found UNAVAILABLE to Swift on this toolchain, so no ban is
+    // possible or needed: `lrand48`, `mrand48`, `nrand48`, `jrand48`, `rand`,
+    // `random`, `srand` — all `__swift_unavailable("Use arc4random instead.")`.
+    // Recorded because the value of a sweep is mostly in its negatives (D2-16).
+    "_drand48":                                                 "drand48()",
+    "_srand48":                                                 "srand48()",
+    "_seed48":                                                  "seed48()",
+    "_lcong48":                                                 "lcong48()",
+    // `Security`'s CSPRNG, reachable with plain `import Foundation` — Foundation
+    // re-exports it on Darwin the same way it re-exports `Security`'s other C API,
+    // so no package target has to name `Security` to reach it and rule 1's import
+    // scan never sees it arrive. Distinct source from `arc4random`, not a spelling
+    // of it: `arc4random` reads the kernel's `/dev/random`-backed PRNG directly;
+    // `SecRandomCopyBytes` goes through `Security`'s own CSPRNG plumbing. Both are
+    // Minting-shaped ambient randomness. `kSecRandomDefault` is the parameter that
+    // selects the default generator — inert by itself, but named separately because
+    // it is its own undefined symbol and the fixture invariant is one call site per
+    // table entry.
+    "_SecRandomCopyBytes":                                      "SecRandomCopyBytes()",
+    "_kSecRandomDefault":                                       "kSecRandomDefault (any reference)",
 ]
 
 /// One call site per entry in `bannedSymbols`, and nothing else. Compiled and read
@@ -164,6 +233,19 @@ public func t33() -> UInt64 { var g = SystemRandomNumberGenerator(); return g.ne
 public func t34(_ p: UnsafeMutableRawPointer) { arc4random_buf(p, 8) }
 public func t35() -> UInt32 { arc4random() }
 public func t36() -> UInt32 { arc4random_uniform(10) }
+public func t37() -> UInt64 { mach_continuous_time() }
+public func t38() -> OSStatus {
+    var bytes = [UInt8](repeating: 0, count: 8)
+    return SecRandomCopyBytes(kSecRandomDefault, 8, &bytes)
+}
+public func t39() -> SecRandomRef { kSecRandomDefault }
+public func t40() -> NSUUID { NSUUID() }
+public func t41() -> clock_t { clock() }
+public func t42() -> Double { drand48() }
+public func t43() { srand48(1) }
+public func t44(_ x: inout [UInt16]) { _ = seed48(&x) }
+public func t45(_ x: inout [UInt16]) { lcong48(&x) }
+public func t46() { arc4random_stir() }
 """
 
 /// The other side of the rule, and the one that decides whether it is usable. Every

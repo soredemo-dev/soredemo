@@ -7,6 +7,8 @@ private let observationID = UUID(uuidString: "6BA7B810-9DAD-11D1-80B4-00C04FD430
 private let transcriptID = UUID(uuidString: "6BA7B811-9DAD-11D1-80B4-00C04FD430C8")!
 private let releaseID = UUID(uuidString: "6BA7B812-9DAD-11D1-80B4-00C04FD430C8")!
 
+private let testEpoch = BootEpoch(id: UUID(uuidString: "6495B81D-14D1-4E05-8851-DD30BE41D757")!)
+
 private func digest(_ seed: UInt8) -> ContentDigest {
     ContentDigest(Array(repeating: seed, count: ContentDigest.byteCount))
 }
@@ -104,7 +106,7 @@ private func hex(_ bytes: [UInt8]) -> String {
 // MARK: - EvidenceRef
 
 @Test func evidenceRefStoresAllFields() {
-    let interval = TimeRange(start: Nanoseconds(0), duration: Nanoseconds(1_000))
+    let interval = HostRange(epoch: testEpoch, start: Nanoseconds(0), duration: Nanoseconds(1_000))
     let ref = EvidenceRef(kind: .observation, id: observationID, contentDigest: digest(1), sourceInterval: interval)
     #expect(ref.kind == .observation)
     #expect(ref.id == observationID)
@@ -118,7 +120,7 @@ private func hex(_ bytes: [UInt8]) -> String {
 }
 
 @Test func evidenceRefRoundTripsThroughCodableWithAnInterval() throws {
-    let interval = TimeRange(start: Nanoseconds(500), duration: Nanoseconds(250))
+    let interval = HostRange(epoch: testEpoch, start: Nanoseconds(500), duration: Nanoseconds(250))
     let ref = EvidenceRef(kind: .transcript, id: transcriptID, contentDigest: digest(3), sourceInterval: interval)
     let decoded = try JSONDecoder().decode(EvidenceRef.self, from: JSONEncoder().encode(ref))
     #expect(decoded == ref)

@@ -5,14 +5,15 @@ import Foundation
 let repositoryRoot = URL(filePath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-/// The six library targets the plugin must be attached to.
-let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"]
+/// The seven library targets the plugin must be attached to.
+let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
 
 /// Launches the real built checker. Never reimplement the checking logic
 /// in-process — that tests the test.
 func launchChecker(targetName: String,
                    sourcesPath: String,
-                   allow: [String] = []) throws -> (status: Int32, stderr: String) {
+                   allow: [String] = [],
+                   additionalArguments: [String] = []) throws -> (status: Int32, stderr: String) {
     let checker = repositoryRoot.appending(path: ".build/debug/architecture-checker")
     try #require(FileManager.default.fileExists(atPath: checker.path(percentEncoded: false)),
                  "architecture-checker not built at \(checker.path(percentEncoded: false))")
@@ -20,7 +21,7 @@ func launchChecker(targetName: String,
     let process = Process()
     process.executableURL = checker
     process.arguments = ["--target-name", targetName, "--sources", sourcesPath]
-        + allow.flatMap { ["--allow", $0] }
+        + allow.flatMap { ["--allow", $0] } + additionalArguments
     let err = Pipe()
     process.standardError = err
     try process.run()
@@ -671,4 +672,544 @@ func acceptsCGTypeMention(_ line: String) throws {
 @Test func acceptsPackageMentionInComment() throws {
     let clean = manifestWithoutDependency + "\n// no .package( entries here\n"
     #expect(try runManifestChecker(files: ["Package.swift": clean]).status == 0)
+}
+
+// MARK: - rule 8: a validating initialiser under a synthesised `Decodable`
+//
+// Swift's synthesised `init(from:)` assigns stored properties directly and never
+// calls yours, so every `precondition` and every `throw` defining the invariant
+// is skipped exactly on the path carrying untrusted input — a `.soredemo`
+// package is a shareable document. D2-14.
+//
+// The fixtures below are the SHAPES of the real cases, not inventions. The eight
+// types still open are `Authorship`, `HostInstant`, `NormalizedFrame`,
+// `NormalizedPoint`, `NormalizedSize`, `PixelRect`, `PointRect` and `TimeRange`;
+// the closed ones this file's negative controls are modelled on are
+// `DisplayGeometry` (decoder init on the declaration), `GeometryRegistry`,
+// `ContentDigest` and `Evidence` (conformance AND decoder init on an extension),
+// `HostRange`, `SegmentTable`, `GapWatch` and `ProjectSnapshot`.
+//
+// The fixture names are deliberately not the real ones: the real ones are in
+// `ArchitectureChecker.decodeValidationExemptTypes` and would be waved through.
+
+/// Rejected. Each of these is a shape a real violator is written in.
+@Test(arguments: [
+    // The commonest shape: a `precondition` in the initialiser, `Codable` on the
+    // declaration line. NormalizedPoint, PixelRect, TimeRange, Authorship,
+    // HostInstant.
+    """
+    public struct FixtureScale: Codable {
+        public let factor: Double
+        public init(factor: Double) {
+            precondition(factor > 0)
+            self.factor = factor
+        }
+    }
+    """,
+    // A throwing initialiser instead of a precondition.
+    """
+    public struct FixtureDigest: Codable {
+        public let bytes: [UInt8]
+        public init(bytes: [UInt8]) throws {
+            guard bytes.count == 32 else { throw FixtureError.wrongLength }
+            self.bytes = bytes
+        }
+    }
+    public enum FixtureError: Error { case wrongLength }
+    """,
+    // THE MISS D2-14 RECORDS: the conformance is on an EXTENSION. A scan keyed
+    // on the declaration line lets this through, and did — for GeometryRegistry,
+    // ContentDigest and Evidence, all three of which happened to be closed, so
+    // the mistake was invisible.
+    """
+    public struct FixtureRegistry {
+        public let entries: [String]
+        public init(entries: [String]) throws {
+            guard !entries.isEmpty else { throw FixtureError.empty }
+            self.entries = entries
+        }
+    }
+    extension FixtureRegistry: Codable {}
+    public enum FixtureError: Error { case empty }
+    """,
+    // The other half of the same miss: the validating initialiser is on the
+    // extension and the conformance on the declaration.
+    """
+    public struct FixtureSpan: Codable {
+        public let start: Double
+        public let end: Double
+    }
+    extension FixtureSpan {
+        public init(start: Double, end: Double) throws {
+            guard end >= start else { throw FixtureError.reversed }
+            self.start = start
+            self.end = end
+        }
+    }
+    public enum FixtureError: Error { case reversed }
+    """,
+    // `Decodable` alone is the whole exposure; `Codable` is not required.
+    """
+    public struct FixtureCount: Decodable {
+        public let n: Int
+        public init(n: Int) { precondition(n >= 0); self.n = n }
+    }
+    """,
+    // THE SECOND TYPE IN THE FILE. A scan that stops at the first public type
+    // counted Normalized.swift's three as one.
+    """
+    public struct FixtureFirst: Codable {
+        public let a: Int
+        public init(from decoder: any Decoder) throws {
+            a = try decoder.singleValueContainer().decode(Int.self)
+        }
+    }
+    public struct FixtureSecond: Codable {
+        public let b: Int
+        public init(b: Int) { precondition(b >= 0); self.b = b }
+    }
+    """,
+    // A decoder initialiser on a NEIGHBOUR does not close this type. The scan is
+    // per type, not per file.
+    """
+    public struct FixtureNeighbour: Codable {
+        public let a: Int
+        public init(from decoder: any Decoder) throws {
+            a = try decoder.singleValueContainer().decode(Int.self)
+        }
+    }
+    public struct FixtureOpen: Codable {
+        public let b: Int
+        public init(b: Int) throws {
+            guard b >= 0 else { throw FixtureError.negative }
+            self.b = b
+        }
+    }
+    public enum FixtureError: Error { case negative }
+    """,
+    // `init(fromRaw:)` is not the decoder initialiser. The first parameter LABEL
+    // is matched exactly, so a substring scan for "init(from" cannot close a type
+    // by accident.
+    """
+    public struct FixtureRaw: Codable {
+        public let v: Int
+        public init(fromRaw raw: Int) { precondition(raw >= 0); self.v = raw }
+    }
+    """,
+    // A `precondition` outside the initialiser still counts — deliberately over-
+    // approximate, and in the loud direction. A precondition is a stated
+    // invariant, and a synthesised decode bypasses the initialiser that would
+    // have established it.
+    """
+    public struct FixtureMethod: Codable {
+        public let v: Int
+        public func scaled(by k: Int) -> Int {
+            precondition(k != 0)
+            return v * k
+        }
+    }
+    """,
+    // A `final class`: the rule is about synthesis, not about structs.
+    """
+    public final class FixtureBox: Codable {
+        public let v: Int
+        public init(v: Int) { precondition(v >= 0); self.v = v }
+    }
+    """,
+    // A FAILABLE initialiser states an invariant too, and the tree contains the
+    // proof: `Evidence.init?(_ refs:)` returns nil on the empty array and its own
+    // comment calls that half of a guarantee whose other half is `init(from:)`.
+    // Deleting that decoder init leaves a rule that knows only `throws` and
+    // `precondition` green on exactly the defect it exists to catch — verified
+    // against the real `Sources/Graph/Evidence.swift`, not argued.
+    """
+    public struct FixtureNonEmpty: Codable {
+        public let head: Int
+        public let tail: [Int]
+        public init?(_ values: [Int]) {
+            guard let head = values.first else { return nil }
+            self.head = head
+            self.tail = Array(values.dropFirst())
+        }
+    }
+    """,
+    // THE PARAMETER'S TYPE, not only its label. `init(from data: Data)` coexists
+    // legally with the synthesised `init(from decoder: any Decoder)`, so a
+    // label-only test lets a validating type be decoded without validation and
+    // stays silent forever. `init(from url:)` and `init(from raw:)` are the same
+    // shape and just as idiomatic.
+    """
+    public struct FixtureFromData: Codable {
+        public let name: String
+        public init(from data: Data) throws {
+            precondition(!data.isEmpty)
+            self.name = String(decoding: data, as: UTF8.self)
+        }
+    }
+    """,
+    // A conformance INHERITED THROUGH A PROTOCOL. `ObservationRecord: Codable,
+    // Sendable` is declared in `Sources/Project`, and Tasks 9-11 write records
+    // against it; all five conformers today name `Codable` on their declaration
+    // line by house style, which is not enforcement.
+    """
+    public protocol FixtureRecord: Codable, Sendable {
+        var kind: String { get }
+    }
+    public struct FixtureSample: FixtureRecord, Hashable {
+        public let kind = "sample"
+        public let delta: Double
+        public init(delta: Double) { precondition(delta.isFinite); self.delta = delta }
+    }
+    """,
+    // Two levels of protocol, because inheritance is transitive and a one-level
+    // check would look like it worked.
+    """
+    public protocol FixtureBase: Codable {}
+    public protocol FixtureDerived: FixtureBase {}
+    public struct FixtureLeaf: FixtureDerived {
+        public let v: Int
+        public init(v: Int) throws {
+            guard v >= 0 else { throw FixtureError.negative }
+            self.v = v
+        }
+    }
+    public enum FixtureError: Error { case negative }
+    """,
+    // A `where` clause containing `==`. The declaration head ends at `{`, and a
+    // scan that stops at any `=` never registers this extension at all — silent
+    // direction.
+    """
+    public struct FixtureBox2<T> {
+        public let v: T
+        public init(v: T) { precondition(true); self.v = v }
+    }
+    extension FixtureBox2: Codable where T == Int {}
+    """,
+])
+func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) throws {
+    let result = try runChecker(source: "import Foundation\n" + source)
+    #expect(result.status == 1, "should reject:\n\(source)")
+    #expect(result.stderr.contains("init(from decoder:)"),
+            "rejected for the wrong reason: \(result.stderr)")
+}
+
+/// Accepted. Each is the shape of a type D2-14 records as closed, or of a type
+/// the rule must not touch at all. A false positive here is worse than a miss:
+/// it is a build failure someone fixes by deleting the rule.
+@Test(arguments: [
+    // DisplayGeometry: decoder initialiser on the declaration.
+    """
+    public struct FixtureGeometry: Codable {
+        public let scale: Double
+        public init(scale: Double) throws {
+            guard scale > 0 else { throw FixtureError.notPositive }
+            self.scale = scale
+        }
+        public init(from decoder: any Decoder) throws {
+            let scale = try decoder.singleValueContainer().decode(Double.self)
+            try self.init(scale: scale)
+        }
+    }
+    public enum FixtureError: Error { case notPositive }
+    """,
+    // GeometryRegistry, ContentDigest, Evidence: BOTH the conformance and the
+    // decoder initialiser live on an extension. This is the pair the first
+    // hand-written scan got wrong in both directions at once.
+    """
+    public struct FixtureRegistry {
+        public let entries: [String]
+        public init(entries: [String]) throws {
+            guard !entries.isEmpty else { throw FixtureError.empty }
+            self.entries = entries
+        }
+    }
+    extension FixtureRegistry: Codable {
+        public init(from decoder: any Decoder) throws {
+            let entries = try decoder.singleValueContainer().decode([String].self)
+            try self.init(entries: entries)
+        }
+    }
+    public enum FixtureError: Error { case empty }
+    """,
+    // The parameter's internal name is not part of the match.
+    """
+    public struct FixtureNamed: Codable {
+        public let v: Int
+        public init(v: Int) { precondition(v >= 0); self.v = v }
+        public init(from d: any Decoder) throws {
+            v = try d.singleValueContainer().decode(Int.self)
+        }
+    }
+    """,
+    // A validating type that is not Codable at all. Nothing decodes it, so
+    // nothing bypasses its initialiser.
+    """
+    public struct FixturePlain: Sendable {
+        public let v: Int
+        public init(v: Int) throws {
+            guard v >= 0 else { throw FixtureError.negative }
+            self.v = v
+        }
+    }
+    public enum FixtureError: Error { case negative }
+    """,
+    // `Encodable` alone. A synthesised ENCODE reads properties that an
+    // initialiser already validated; it bypasses nothing.
+    """
+    public struct FixtureOut: Encodable {
+        public let v: Int
+        public init(v: Int) { precondition(v >= 0); self.v = v }
+    }
+    """,
+    // Codable with no invariant to bypass.
+    """
+    public struct FixtureData: Codable {
+        public let v: Int
+    }
+    """,
+    // A NESTED type's throwing initialiser is not the outer type's. The outer
+    // body is scanned with every nested declaration's body removed.
+    """
+    public struct FixtureOuter: Codable {
+        public struct Inner: Sendable {
+            public init(v: Int) throws {
+                guard v >= 0 else { throw FixtureError.negative }
+            }
+        }
+        public let v: Int
+    }
+    public enum FixtureError: Error { case negative }
+    """,
+    // `rethrows` is not `throws`: the initialiser throws only if its argument
+    // does, so it states no invariant of its own.
+    """
+    public struct FixtureRethrow: Codable {
+        public let v: Int
+        public init(make: () throws -> Int) rethrows { v = try make() }
+    }
+    """,
+    // A protocol that is NOT Codable does not make its conformers Codable. The
+    // closure over protocol inheritance must terminate somewhere.
+    """
+    public protocol FixtureTagged: Sendable {
+        var tag: String { get }
+    }
+    public struct FixtureTag: FixtureTagged {
+        public let tag: String
+        public init(tag: String) { precondition(!tag.isEmpty); self.tag = tag }
+    }
+    """,
+    // A parameter labelled `from` whose type IS a decoder closes the type, in
+    // both spellings of the signature.
+    """
+    public struct FixtureBothSpellings: Codable {
+        public let v: Int
+        public init(v: Int) { precondition(v >= 0); self.v = v }
+        public init(from: any Decoder) throws {
+            v = try from.singleValueContainer().decode(Int.self)
+        }
+    }
+    """,
+    // Prose about the rule is not the rule. `Codable`, `precondition(` and
+    // `init(from` in comments and string literals must not fire — a scanner that
+    // fires on its own documentation is a scanner people delete.
+    """
+    // FixtureProse is Codable and has a precondition( in its init(from decoder:)
+    /* Codable precondition( init(from decoder: */
+    public struct FixtureProse: Sendable {
+        public let note = "Codable precondition( init(from decoder:"
+    }
+    """,
+])
+func acceptsAnExplicitDecoderInitialiserOrNothingToBypass(_ source: String) throws {
+    let result = try runChecker(source: "import Foundation\n" + source)
+    #expect(result.status == 0, "should accept:\n\(source)\nstderr: \(result.stderr)")
+}
+
+/// The names in `ArchitectureChecker.decodeValidationExemptTypes`, read out of
+/// the checker's own source.
+///
+/// Parsed rather than mirrored, for the same reason
+/// `fallbackAllowListMatchesManifestEdges` parses `Package.swift`: a second copy
+/// of a list is a list that drifts, and this one is meant to SHRINK — every copy
+/// is somewhere a deleted line can fail to be deleted.
+func decodeValidationExemptTypes() throws -> Set<String> {
+    let source = try String(contentsOf: repositoryRoot
+        .appending(path: "Sources/architecture-checker/main.swift"), encoding: .utf8)
+    let marker = "static let decodeValidationExemptTypes: Set<String> = ["
+    let start = try #require(source.range(of: marker),
+                             "decodeValidationExemptTypes is gone from the checker — rule 8 has no exemption list")
+    // The list's closing bracket at its own indentation, not the first `]` — the
+    // entries carry comments, and a comment saying why a name is there is the
+    // most valuable text in the list.
+    let end = try #require(source.range(of: "\n    ]", range: start.upperBound..<source.endIndex))
+
+    // Only the quoted literals count. Splitting on commas swallows the prose.
+    var names: Set<String> = []
+    var remainder = source[start.upperBound..<end.lowerBound]
+    while let open = remainder.firstIndex(of: "\""),
+          let close = remainder[remainder.index(after: open)...].firstIndex(of: "\"") {
+        names.insert(String(remainder[remainder.index(after: open)..<close]))
+        remainder = remainder[remainder.index(after: close)...]
+    }
+    return names
+}
+
+/// **The exemption list is the remaining work, and it must not be able to lie in
+/// either direction.**
+///
+/// Running the real checker over the real sources with the exemptions switched
+/// OFF answers, from the binary rather than from a document, which types still
+/// violate rule 8. Two failures this catches, both otherwise silent:
+///
+/// 1. a NINTH violator — although the plugin already fails the build for that,
+///    so this is the belt to that brace;
+/// 2. a type CLOSED without its line being deleted. Nothing else notices: the
+///    build goes green, the list keeps a name that covers nothing, and the
+///    record of what is left to do is wrong in the direction that makes the work
+///    look bigger than it is. `AGENTS.md` records this count being got wrong
+///    three times by hand; `scripts/scan-decode-validation.py` is the other
+///    mechanism, and it is not run by any gate.
+///
+/// D2-14 says TEN. It measured before Task 4.5 closed `DisplayGeometry` and
+/// `HostRange` — the two of the ten reachable from `ProjectSnapshot`. **Eight**
+/// is what the sources say today, plus `Nanoseconds`, which is not a debt but
+/// the price of counting `init?` — nine names, and the list says which is which.
+/// The sources are what this test reads.
+@Test func theDecodeValidationExemptionListIsExactlyWhatStillViolatesRule8() throws {
+    let exempt = try decodeValidationExemptTypes()
+    try #require(!exempt.isEmpty,
+                 "the exemption list is empty — either every type is closed (delete this test's premise, not the rule) or the parse broke")
+
+    var violating: Set<String> = []
+    for module in libraryModules {
+        let sources = repositoryRoot.appending(path: "Sources/\(module)")
+        let result = try launchChecker(
+            targetName: module,
+            sourcesPath: sources.path(percentEncoded: false),
+            additionalArguments: ["--ignore-decode-validation-exemptions"])
+        for line in result.stderr.split(whereSeparator: \.isNewline) {
+            guard let open = line.range(of: "error: '"),
+                  line.contains("init(from decoder:)"),
+                  let close = line[open.upperBound...].firstIndex(of: "'") else { continue }
+            violating.insert(String(line[open.upperBound..<close]))
+        }
+    }
+
+    #expect(violating == exempt,
+            """
+            rule 8's exemption list no longer matches the package.
+            Exempt but no longer violating (DELETE these lines from \
+            ArchitectureChecker.decodeValidationExemptTypes): \(exempt.subtracting(violating).sorted())
+            Violating but not exempt: \(violating.subtracting(exempt).sorted())
+            The list is a live record of the remaining work, and closing a type means deleting \
+            its line. Re-measure with scripts/scan-decode-validation.py.
+            """)
+}
+
+/// A rule with no fixture on the real sources is a rule that could be scanning
+/// nothing. `--ignore-decode-validation-exemptions` over the real package must
+/// FAIL while the list is non-empty — that is the same red the plugin printed
+/// before the eight names were written down.
+@Test func theRuleStillFiresOnTheRealSourcesWithTheExemptionsOff() throws {
+    let sources = repositoryRoot.appending(path: "Sources/Geometry")
+    let withExemptions = try launchChecker(targetName: "Geometry",
+                                           sourcesPath: sources.path(percentEncoded: false))
+    #expect(withExemptions.status == 0,
+            "Sources/Geometry does not pass rule 8 with the exemptions on: \(withExemptions.stderr)")
+
+    let without = try launchChecker(targetName: "Geometry",
+                                    sourcesPath: sources.path(percentEncoded: false),
+                                    additionalArguments: ["--ignore-decode-validation-exemptions"])
+    #expect(without.status == 1,
+            "with the exemptions off the real Geometry sources must still violate rule 8 — five of the eight are there")
+    #expect(without.stderr.contains("NormalizedFrame"), "stderr: \(without.stderr)")
+}
+
+/// **Rule 8 answers per TARGET, not per file**, and the per-file version failed
+/// in the silent direction.
+///
+/// `Sources/Graph/Derivation.swift` already carries eight extensions of types
+/// declared elsewhere, so a type in one file with `extension Foo: Codable {}` in
+/// another is the house style rather than a contrivance — and per-file it was a
+/// pass. The mirror case (the decoder init in the other file) would have been a
+/// loud false positive, so the asymmetry ran the wrong way: the silent side was
+/// the one the codebase makes easy.
+@Test func conformanceInAnotherFileIsStillAConformance() throws {
+    let result = try runChecker { dir in
+        try """
+        import Foundation
+        public struct FixtureSplit {
+            public let v: Int
+            public init(v: Int) { precondition(v >= 0); self.v = v }
+        }
+        """.write(to: dir.appending(path: "A.swift"), atomically: true, encoding: .utf8)
+        try """
+        import Foundation
+        extension FixtureSplit: Codable {}
+        """.write(to: dir.appending(path: "B.swift"), atomically: true, encoding: .utf8)
+    }
+    #expect(result.status == 1, "a conformance one file over is still a conformance\nstderr: \(result.stderr)")
+    #expect(result.stderr.contains("FixtureSplit"))
+}
+
+/// The other direction of the same fact: a decoder initialiser in a third file
+/// closes the type. Without this, target-wide scanning would trade a silent miss
+/// for a loud false positive on the same house style.
+@Test func aDecoderInitialiserInAnotherFileClosesTheType() throws {
+    let result = try runChecker { dir in
+        try """
+        import Foundation
+        public struct FixtureSplit {
+            public let v: Int
+            public init(v: Int) { precondition(v >= 0); self.v = v }
+        }
+        """.write(to: dir.appending(path: "A.swift"), atomically: true, encoding: .utf8)
+        try """
+        import Foundation
+        extension FixtureSplit: Codable {}
+        """.write(to: dir.appending(path: "B.swift"), atomically: true, encoding: .utf8)
+        try """
+        import Foundation
+        extension FixtureSplit {
+            public init(from decoder: any Decoder) throws {
+                let v = try decoder.singleValueContainer().decode(Int.self)
+                guard v >= 0 else {
+                    throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "negative"))
+                }
+                self.init(v: v)
+            }
+        }
+        """.write(to: dir.appending(path: "C.swift"), atomically: true, encoding: .utf8)
+    }
+    #expect(result.status == 0, "stderr: \(result.stderr)")
+}
+
+/// **Two nested `Entry` types are two types.** `GeometryRegistry` already
+/// declares a nested `Entry`; merging declarations by simple name means the day
+/// a second one appears, one gaining `init(from:)` silences the other — in the
+/// silent direction. Types are keyed by their nesting-qualified name.
+@Test func twoNestedTypesOfTheSameNameAreNotMerged() throws {
+    let result = try runChecker(source: """
+        import Foundation
+        public struct FixtureLeft {
+            public struct Entry: Codable {
+                public let v: Int
+                public init(from decoder: any Decoder) throws {
+                    v = try decoder.singleValueContainer().decode(Int.self)
+                }
+            }
+        }
+        public struct FixtureRight {
+            public struct Entry: Codable {
+                public let v: Int
+                public init(v: Int) { precondition(v >= 0); self.v = v }
+            }
+        }
+        """)
+    #expect(result.status == 1, "the closed Entry silenced the open one\nstderr: \(result.stderr)")
+    #expect(result.stderr.contains("'FixtureRight.Entry'"),
+            "a nested type must be reported by its qualified name: \(result.stderr)")
+    #expect(!result.stderr.contains("'FixtureLeft.Entry'"),
+            "the closed Entry must not be reported: \(result.stderr)")
 }

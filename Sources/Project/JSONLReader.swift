@@ -18,6 +18,32 @@ public enum JSONLReader {
     public struct Result: Sendable, Equatable {
         public let lines: [Data]
         public let droppedBytes: Int
+        /// **How many bytes this reader actually examined.** `droppedBytes`'s
+        /// companion, and the reason it is here is `ARCHITECTURE.md` D6a's
+        /// closing rule: an empty gap record and an absent gap detector
+        /// produce the same bytes.
+        ///
+        /// `droppedBytes == 0` had two readings and no way to tell them
+        /// apart — a whole log read cleanly, and nothing read at all. Both
+        /// are the same zero, and the second is not hypothetical: a log file
+        /// that failed to open, a path that pointed at the wrong package, a
+        /// segment whose writer never got as far as its first record. This
+        /// is the first of D6a's five sites and it was the one with the
+        /// thinnest cover, because a byte count of a loss reads as thorough.
+        ///
+        /// Read them together. `droppedBytes 0 of bytesScanned 0` is not a
+        /// clean file; it is no file. `GapWatch(site: .jsonlTruncatedTail)`
+        /// is where this pair goes on disk.
+        public let bytesScanned: Int
+
+        /// The two numbers that only mean something together, in the shape
+        /// `InputObserver.Diagnostics.tapAccounting` already prints.
+        public var accounting: String {
+            var line = "dropped \(droppedBytes) byte(s) of \(bytesScanned) scanned"
+                + " across \(lines.count) complete line(s)"
+            if bytesScanned == 0 { line += "   ← NOTHING WAS READ; 0 dropped is not a measurement" }
+            return line
+        }
     }
 
     /// A line is terminated by `\n` (0x0A). Any bytes after the final `\n`
@@ -59,7 +85,8 @@ public enum JSONLReader {
         }
 
         let droppedBytes = data.distance(from: recordStart, to: data.endIndex)
-        return Result(lines: lines, droppedBytes: droppedBytes)
+        return Result(lines: lines, droppedBytes: droppedBytes,
+                      bytesScanned: data.distance(from: data.startIndex, to: data.endIndex))
     }
 
     /// The one-line filesystem helper the doc comment above promises.

@@ -14,7 +14,7 @@ let package = Package(
     products: [
         .library(
             name: "SoredemoCore",
-            targets: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"]
+            targets: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
         )
     ],
     targets: [
@@ -27,6 +27,8 @@ let package = Package(
         .target(name: "Framing", dependencies: ["Graph", "Geometry"], swiftSettings: strict, plugins: archCheck),
         .target(name: "Variants", dependencies: ["Framing", "Timeline"], swiftSettings: strict, plugins: archCheck),
         .target(name: "Project", dependencies: ["Graph", "Geometry", "Timeline"], swiftSettings: strict, plugins: archCheck),
+        .target(name: "Render", dependencies: ["Geometry", "Timeline", "Project"],
+                swiftSettings: strict, plugins: archCheck),
 
         // The checker's lexical layer — the "code view" that blanks comment and
         // string CONTENT so a banned name mentioned in prose does not fire. It is
@@ -69,7 +71,7 @@ let package = Package(
         // guarantee would be gone; `determinismTestTargetDependsOnEveryCheckedModule`
         // asserts the list stays complete.
         .testTarget(name: "DeterminismTests",
-                    dependencies: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project"],
+                    dependencies: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"],
                     swiftSettings: strict),
 
         // The first direct test of the code view. Until now the lexer's four
@@ -87,5 +89,7 @@ let package = Package(
         .testTarget(name: "FramingTests", dependencies: ["Framing"], swiftSettings: strict),
         .testTarget(name: "VariantsTests", dependencies: ["Variants"], swiftSettings: strict),
         .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
+        .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],
+                    swiftSettings: strict),
     ]
 )

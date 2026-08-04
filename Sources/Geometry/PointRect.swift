@@ -46,3 +46,19 @@ public struct PointRect: Hashable, Codable, Sendable {
         self.height = height
     }
 }
+
+extension PointRect: CustomStringConvertible {
+    /// Names its own unit. Added for `Soredemo/App/SoredemoApp.swift`'s
+    /// `--present-picker` diagnostic, which printed a `.display`'s size as
+    /// `"1512x982 pt"` and a `.window`'s `bufferSize` as `"3024x1964 px"` by
+    /// hand-writing the unit into each format string separately — the exact
+    /// silent-mixing risk `PointRect`/`PixelRect` exist to make a compile
+    /// error (design doc § Geometry: the Y-axis flip), reintroduced one
+    /// layer up, in a print statement neither type's own machinery could
+    /// catch. The fix is not "phrase that one print statement more
+    /// carefully" — it is that the unit comes from the **type**, so every
+    /// future print of a `PointRect` carries it for free.
+    public var description: String {
+        "PointRect(x: \(x), y: \(y), width: \(width), height: \(height) pt)"
+    }
+}

@@ -1,12 +1,24 @@
-/// A half-open span of time: `[start, start + duration)`.
+/// A half-open span of time: `[start, start + duration)`, on a single boot's
+/// clock with no epoch attached.
 ///
 /// **Half-open, not closed.** `end` itself is excluded. Touching ranges —
 /// where one's `end` equals the other's `start` — therefore do **not**
-/// overlap. This matters because `Graph`'s `EvidenceRef.sourceInterval`
-/// (design doc D-P1/D-P4) cites `TimeRange` values as evidence, and two
-/// adjacent evidence intervals must never both claim the same instant. If
-/// `contains`/`overlaps` were closed at `end`, two abutting citations would
-/// silently double-claim the boundary nanosecond.
+/// overlap. Two adjacent citations of *anything* time-bounded must never both
+/// claim the same instant; if `contains`/`overlaps` were closed at `end`, two
+/// abutting citations would silently double-claim the boundary nanosecond.
+/// `HostRange` (this module) inherits this exact half-open reasoning for the
+/// epoch-stamped case.
+///
+/// **No caller in `Sources/` today.** `Graph`'s `EvidenceRef.sourceInterval`
+/// was this type's stated first caller until Phase 2 Task 2 moved it to
+/// `HostRange` — a bare `TimeRange` is exactly the value D2-11 showed is
+/// ambiguous across a reboot, which is what `EvidenceRef.sourceInterval`
+/// needed not to be. This type is otherwise unchanged and still tested
+/// (`Tests/TimelineTests/TimeRangeTests.swift`); it has no first caller
+/// recorded as of Task 2. A future intra-boot-only interval — one that is
+/// provably never compared across a reboot, so the epoch would be pure
+/// overhead — is the shape of caller that would justify keeping it rather
+/// than folding it into `HostRange`.
 public struct TimeRange: Hashable, Codable, Sendable {
     public let start: Nanoseconds
     public let duration: Nanoseconds

@@ -21,18 +21,77 @@ import Geometry
 /// lines are never coupled or derived from one another.
 public struct ProjectSnapshot: Codable, Sendable, Equatable {
     /// The current document schema version this build writes. Bump this,
-    /// never `CanonicalEncoding.version`, when `ProjectSnapshot`'s own shape
-    /// changes.
+    /// never `CanonicalEncoding.version`, when an EXISTING key's meaning or
+    /// shape changes — something an older build would misread rather than
+    /// simply not have.
+    ///
+    /// **Not bumped for `segments` (Task 4).** That field is additive and
+    /// absence-tolerant: `ProjectSnapshot.init(from:)` treats a missing
+    /// `"segments"` key as `.empty` rather than a decode failure, so a
+    /// document written by this build still opens in the build immediately
+    /// before this field existed... except it doesn't, and that is the
+    /// boundary this rule actually draws. An OLDER build opening a NEWER
+    /// document written *with* a segment table will decode it (the key
+    /// exists, `SegmentTable`'s own decoder accepts it), silently drop it
+    /// on the next save (the older build's encoder has no `segments` case
+    /// to write), and the failure `ProjectFormatError.tooNew` exists to
+    /// prevent has happened anyway, just one field at a time instead of
+    /// all at once. **The reason this risk was accepted has since expired,
+    /// and the trade has not been re-made.** It was accepted while
+    /// `SegmentTable` was code with no caller, so there was no data to lose;
+    /// `CaptureSession.stop()` now produces a real segment table on every
+    /// recording. What still holds is narrower and worth stating plainly:
+    /// nothing PERSISTS one — that table is discarded at the end of `stop()`
+    /// and no `.soredemo` package on disk carries a `segments` key. The day a
+    /// caller writes one, this decision needs re-making, not inheriting. A future
+    /// additive field should re-examine this trade explicitly rather than
+    /// assume the precedent, and MUST bump when it changes what an
+    /// existing key means or how it decodes, not just when it adds one.
     public static let currentSchemaVersion: Int = 1
 
     public var schemaVersion: Int
     public var geometries: GeometryRegistry
     public var mediaFilenames: [String]
 
-    public init(schemaVersion: Int, geometries: GeometryRegistry, mediaFilenames: [String]) {
+    /// The master's timeline. Defaults to `SegmentTable.empty` so callers
+    /// that predate this field (and the v0→v1 migration path) can construct
+    /// a snapshot without a table to hand yet.
+    public var segments: SegmentTable
+
+    public init(schemaVersion: Int, geometries: GeometryRegistry, mediaFilenames: [String],
+                segments: SegmentTable = .empty) {
         self.schemaVersion = schemaVersion
         self.geometries = geometries
         self.mediaFilenames = mediaFilenames
+        self.segments = segments
+    }
+}
+
+extension ProjectSnapshot {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, geometries, mediaFilenames, segments
+    }
+
+    /// Hand-written rather than synthesised so `segments` can be absent: a
+    /// real v1 document written before this field existed has no
+    /// `"segments"` key at all, and synthesis would require one. This is the
+    /// decode path `ProjectUpgrade.load` takes for `schemaVersion == 1` —
+    /// there is no separate v1→v1.1 migration step, this field's absence is
+    /// tolerated directly in `ProjectSnapshot`'s own decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        geometries = try container.decode(GeometryRegistry.self, forKey: .geometries)
+        mediaFilenames = try container.decode([String].self, forKey: .mediaFilenames)
+        segments = try container.decodeIfPresent(SegmentTable.self, forKey: .segments) ?? .empty
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(geometries, forKey: .geometries)
+        try container.encode(mediaFilenames, forKey: .mediaFilenames)
+        try container.encode(segments, forKey: .segments)
     }
 }
 

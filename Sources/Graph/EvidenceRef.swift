@@ -30,9 +30,13 @@ public struct EvidenceRef: Hashable, Codable, Sendable {
     public let kind: EvidenceKind
     public let id: UUID
     public let contentDigest: ContentDigest
-    public let sourceInterval: TimeRange?
+    /// Host time, stamped with its boot epoch. `TimeRange` was not enough:
+    /// `mach_absolute_time()` restarts at boot, so a bare interval from one
+    /// session compares silently and wrongly against another (D2-11).
+    public let sourceInterval: HostRange?
 
-    public init(kind: EvidenceKind, id: UUID, contentDigest: ContentDigest, sourceInterval: TimeRange? = nil) {
+    public init(kind: EvidenceKind, id: UUID, contentDigest: ContentDigest,
+                sourceInterval: HostRange? = nil) {
         self.kind = kind
         self.id = id
         self.contentDigest = contentDigest
