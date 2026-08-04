@@ -646,6 +646,21 @@ enum ArchitectureChecker {
         // exemption covering nothing, and every gate stays green.
         let ignoringDecodeValidationExemptions =
             arguments.contains("--ignore-decode-validation-exemptions")
+
+        // **The second guard.** `Sources/Headless` is defined by testability, not by
+        // a framework list: it may use the GPU, wall time and real pixel buffers, so
+        // rule 1's allow-list and rule 2's CG ban are not its rules — it is precisely
+        // the boundary where CG geometry is converted (ARCHITECTURE.md D3). What it
+        // owes instead is one invariant: it must not need a window or a running app.
+        // `AppKit` and `SwiftUI` are how that would arrive, so they are named and
+        // banned. Rules 4 and 8 are unaffected; neither is about frameworks.
+        //
+        // A `--mode` that silently disabled rules would be a hole wearing a mode's
+        // name, so the two it disables are stated here and pinned by
+        // `headlessModeDoesNotBanCGGeometry` and
+        // `headlessModeAllowsThePlatformFrameworksTheTierIsFor`.
+        let headlessMode = value(of: "--mode", in: arguments) == "headless"
+        let banned = Set(values(of: "--ban", in: arguments))
         func report(_ file: String, _ line: Int, _ message: String) {
             FileHandle.standardError.write(Data("\(file):\(line): error: \(message)\n".utf8))
             failed = true
@@ -680,7 +695,7 @@ enum ArchitectureChecker {
             // A manifest-only invocation — as issued by tests, and in principle
             // usable standalone — has nothing further to check.
             guard value(of: "--manifests", in: arguments) != nil else {
-                return fail("usage: architecture-checker --target-name <name> --sources <dir> [--allow <module>]… [--manifests <dir>] [--touch <stamp>] [--ignore-decode-validation-exemptions]")
+                return fail("usage: architecture-checker --target-name <name> --sources <dir> [--allow <module>]… [--mode headless --ban <module>…] [--manifests <dir>] [--touch <stamp>] [--ignore-decode-validation-exemptions]")
             }
             return failed ? 1 : 0
         }
@@ -689,8 +704,15 @@ enum ArchitectureChecker {
         // allow-list is the manifest. Only a hand or test invocation falls back to
         // the table — and an unknown target there is a hard error, never a pass.
         let explicit = values(of: "--allow", in: arguments)
-        let allowed: Set<String>
-        if explicit.isEmpty {
+        var allowed: Set<String> = alwaysAllowed
+        if headlessMode {
+            // A deny-list mode with an empty deny-list checks nothing and exits 0 on
+            // every file. Same rule as the empty sources directory below: a vacuous
+            // pass is not a pass.
+            guard !banned.isEmpty else {
+                return fail("--mode headless with no --ban: a guard that bans nothing is not a guard. Pass --ban AppKit --ban SwiftUI.")
+            }
+        } else if explicit.isEmpty {
             guard let edges = declaredEdges[targetName] else {
                 return fail("unknown target '\(targetName)' and no --allow given. Known: \(declaredEdges.keys.sorted().joined(separator: ", ")). Add it to declaredEdges in architecture-checker, or pass --allow.")
             }
@@ -736,19 +758,31 @@ enum ArchitectureChecker {
 
             let lines = SwiftSourceLexer.codeViewLines(of: text)
 
-            for (module, line) in importedModules(in: lines)
-            where !allowed.contains(module) {
-                report(path, line,
-                       "'\(module)' is not importable from \(targetName). Allowed: \(allowed.sorted().joined(separator: ", ")). See ARCHITECTURE.md D6.")
+            if headlessMode {
+                for (module, line) in importedModules(in: lines) where banned.contains(module) {
+                    report(path, line,
+                           "'\(module)' may not be imported from \(targetName). This target's invariant is that `swift test` can run it on a developer machine with no window and no running app; \(module) is how that stops being true. See the Phase 3A-1 design, § 2.")
+                }
+            } else {
+                for (module, line) in importedModules(in: lines)
+                where !allowed.contains(module) {
+                    report(path, line,
+                           "'\(module)' is not importable from \(targetName). Allowed: \(allowed.sorted().joined(separator: ", ")). See ARCHITECTURE.md D6.")
+                }
             }
 
-            // Rule 2: CG geometry types banned anywhere in the package. See the
-            // "substring, not tokens" note above this function for why a plain
-            // `contains` over the code view is deliberate here.
-            for (index, line) in lines.enumerated() {
-                for banned in bannedCGTypes where line.contains(banned) {
-                    report(path, index + 1,
-                           "'\(banned)' may not appear in the package. Convert at the boundary; see ARCHITECTURE.md D3.")
+            // Rule 2: CG geometry types banned anywhere in the package, EXCEPT in
+            // headless mode — `Sources/Headless` is the boundary where CG geometry
+            // is converted to and from the package's own types, so banning it here
+            // would ban the tier's purpose. See the "substring, not tokens" note
+            // above this function for why a plain `contains` over the code view is
+            // deliberate here.
+            if !headlessMode {
+                for (index, line) in lines.enumerated() {
+                    for banned in bannedCGTypes where line.contains(banned) {
+                        report(path, index + 1,
+                               "'\(banned)' may not appear in the package. Convert at the boundary; see ARCHITECTURE.md D3.")
+                    }
                 }
             }
 

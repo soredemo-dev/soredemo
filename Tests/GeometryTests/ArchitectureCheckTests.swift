@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CheckerLexer
 
 /// …/Tests/GeometryTests/ArchitectureCheckTests.swift → the repository root.
 let repositoryRoot = URL(filePath: #filePath)
@@ -33,6 +34,7 @@ func launchChecker(targetName: String,
 /// Runs the checker over a temporary fixture directory built by `populate`.
 func runChecker(targetName: String = "Geometry",
                 allow: [String] = [],
+                additionalArguments: [String] = [],
                 populate: (URL) throws -> Void) throws -> (status: Int32, stderr: String) {
     let dir = URL(filePath: NSTemporaryDirectory())
         .appending(path: "arch-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -41,7 +43,8 @@ func runChecker(targetName: String = "Geometry",
     try populate(dir)
     return try launchChecker(targetName: targetName,
                              sourcesPath: dir.path(percentEncoded: false),
-                             allow: allow)
+                             allow: allow,
+                             additionalArguments: additionalArguments)
 }
 
 /// Runs the checker over a fixture directory holding one `Probe.swift`.
@@ -1212,4 +1215,162 @@ func decodeValidationExemptTypes() throws -> Set<String> {
             "a nested type must be reported by its qualified name: \(result.stderr)")
     #expect(!result.stderr.contains("'FixtureLeft.Entry'"),
             "the closed Entry must not be reported: \(result.stderr)")
+}
+
+// MARK: - the second guard: --mode headless
+//
+// `Sources/Headless` is the tier `swift test` can run but a person still has to
+// believe. It legitimately imports AVFoundation, CoreImage, CoreVideo, CoreMedia,
+// Metal and CoreGraphics, and it legitimately names CGRect — it is the boundary
+// where CG geometry gets converted (ARCHITECTURE.md D3), so rule 2's ban is not
+// its rule. Attaching `ArchitectureCheck` to it is therefore impossible, and the
+// answer is a SECOND GUARD with its own single rule, not a hole in the first.
+
+/// Runs the real built checker in headless mode over a one-file fixture.
+func runHeadlessChecker(ban: [String] = ["AppKit", "SwiftUI"],
+                        source: String) throws -> (status: Int32, stderr: String) {
+    try runChecker(targetName: "Headless",
+                   additionalArguments: ["--mode", "headless"] + ban.flatMap { ["--ban", $0] },
+                   populate: { dir in
+                       try source.write(to: dir.appending(path: "Probe.swift"),
+                                        atomically: true, encoding: .utf8)
+                   })
+}
+
+/// The one rule. Every spelling `rejectsDisallowedImport` already closes for rule 1
+/// is closed here too, because both rules read the SAME token stream — a bypass in
+/// the tokenizer is a bypass for both, and a guard that only knows the plain
+/// spelling is a guard whose evasions start again at round zero.
+@Test(arguments: [
+    "import AppKit",
+    "import SwiftUI",
+    "@preconcurrency import AppKit",
+    "public import SwiftUI",
+    "internal import AppKit",
+    "import\nAppKit",
+    "import\u{000C}SwiftUI",
+    "import`AppKit`",
+    "import class AppKit.NSColor",
+    "import Foundation; import SwiftUI",
+    "public let `a\"\"\"b` = 1\nimport AppKit",
+])
+func headlessModeRejectsTheBannedModules(_ source: String) throws {
+    let result = try runHeadlessChecker(source: source)
+    #expect(result.status == 1, "should reject: \(source.debugDescription)")
+    #expect(!result.stderr.isEmpty)
+}
+
+/// What the tier EXISTS to permit. If any of these fails the guard is the pure
+/// guard wearing a different name, and the whole design has bought nothing.
+@Test(arguments: [
+    "import AVFoundation",
+    "import CoreImage",
+    "import CoreVideo",
+    "import CoreMedia",
+    "import Metal",
+    "import CoreGraphics",
+    "import Foundation",
+    "import Render",
+    "import Project",
+    "import Timeline",
+])
+func headlessModeAllowsThePlatformFrameworksTheTierIsFor(_ source: String) throws {
+    let result = try runHeadlessChecker(source: source)
+    #expect(result.status == 0, "should accept: \(source)\nstderr: \(result.stderr)")
+}
+
+/// Rule 2 is OFF in headless mode, deliberately and with a reason: this tier is
+/// the app boundary where CG geometry is converted to and from the package's own
+/// types. `CursorArt` draws in CG space; banning CGRect here would ban the tier's
+/// purpose.
+@Test func headlessModeDoesNotBanCGGeometry() throws {
+    let result = try runHeadlessChecker(source: """
+        import CoreGraphics
+        public enum Fixture { public static let box = CGRect(x: 0, y: 0, width: 1, height: 1) }
+        """)
+    #expect(result.status == 0, "stderr: \(result.stderr)")
+}
+
+/// Comment and string content is not code, in this mode as in every other.
+@Test(arguments: [
+    "// import AppKit is banned here",
+    "/* import SwiftUI */",
+    #"let s = "import AppKit""#,
+    "public func `does import AppKit work`() {}",
+])
+func headlessModeDoesNotFireOnProse(_ source: String) throws {
+    let result = try runHeadlessChecker(source: "import Foundation\n" + source)
+    #expect(result.status == 0, "should accept: \(source)\nstderr: \(result.stderr)")
+}
+
+/// **A guard that bans nothing is not a guard.** Same rule as
+/// `failsOnSourcesDirectoryWithNoSwiftFiles`: a vacuous pass is not a pass, and
+/// `--mode headless` with the `--ban` flags dropped would be a silent void of the
+/// entire second guard on every build.
+@Test func headlessModeWithNoBanListFailsClosed() throws {
+    let result = try runHeadlessChecker(ban: [], source: "import Foundation")
+    #expect(result.status == 2, "stderr: \(result.stderr)")
+    #expect(result.stderr.contains("--ban"))
+}
+
+/// Rule 8 still runs in headless mode. It is not about frameworks — a synthesised
+/// `Decodable` bypasses a stated invariant wherever the type lives — so switching
+/// it off with rules 1 and 2 would be scope creep in the silent direction.
+@Test func headlessModeStillEnforcesDecodeValidation() throws {
+    let result = try runHeadlessChecker(source: """
+        import Foundation
+        public struct FixtureHeadlessScale: Codable {
+            public let factor: Double
+            public init(factor: Double) { precondition(factor > 0); self.factor = factor }
+        }
+        """)
+    #expect(result.status == 1, "stderr: \(result.stderr)")
+    #expect(result.stderr.contains("init(from decoder:)"))
+}
+
+/// **The loosening flags must never reach the pure guard.** `--mode headless`
+/// turns off rule 1's allow-list and rule 2 entirely; a day where
+/// `ArchitectureCheck` passes it is a day `SoredemoCore` can import AppKit and the
+/// build stays green. Read through the code view so a mention in this plugin's own
+/// doc comment does not fire.
+@Test func theArchitectureCheckPluginNeverPassesTheHeadlessFlags() throws {
+    let source = try String(contentsOf: repositoryRoot
+        .appending(path: "Plugins/ArchitectureCheck/ArchitectureCheck.swift"), encoding: .utf8)
+    let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
+    #expect(!code.contains("--mode"),
+            "ArchitectureCheck passes --mode: rule 1's allow-list and rule 2 would be off for a pure target")
+    #expect(!code.contains("--ban"),
+            "ArchitectureCheck passes --ban: the deny-list belongs to HeadlessCheck alone")
+}
+
+/// The mirror: `HeadlessCheck` must pass both bans and must NOT pass `--allow`.
+/// A `--allow` there would read as an allow-list in a mode that has none — the
+/// shape that makes a reader believe a guard is stricter than it is.
+///
+/// **The three presence checks read `source`, not the code view — deliberately,
+/// and unlike the sibling test above.** `codeViewLines` blanks a string literal's
+/// content AND ITS DELIMITING QUOTES to spaces, not merely comment prose: proven
+/// at `Tests/CheckerLexerTests/SwiftSourceLexerTests.swift:99`, which pins
+/// `codeViewLines(of: "let s = \"CGRect\"\n")[0] == "let s =         "` — eight
+/// characters, quotes included, replaced by eight spaces. `"AppKit"`, `"SwiftUI"`
+/// and `"--mode", "headless"` in `HeadlessCheck.swift` are themselves string
+/// literals — they are the real, functional arguments the plugin passes, not
+/// prose about them — so `code.contains("\"AppKit\"")` is not merely false here,
+/// it is false for every Swift source file that could ever exist: no argument
+/// array can survive the code view's string-blanking to be found by a quoted
+/// search. (Measured: the brief's own Step 4 listing, transcribed verbatim, fails
+/// this exact assertion against the built checker — the case the brief anticipates
+/// at Step 2, "run the tests to verify they fail," settled by running them.) The
+/// negative check keeps the code view, because ITS rationale — a mention of
+/// `--allow` in this file's own doc comment must not cause a false failure — is
+/// exactly the case the code view exists for: prose, not a quoted argument.
+@Test func theHeadlessCheckPluginPassesBothBansAndNoAllowList() throws {
+    let source = try String(contentsOf: repositoryRoot
+        .appending(path: "Plugins/HeadlessCheck/HeadlessCheck.swift"), encoding: .utf8)
+    let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
+    #expect(source.contains("\"AppKit\""))
+    #expect(source.contains("\"SwiftUI\""))
+    #expect(source.contains("\"--mode\", \"headless\""))
+    #expect(!code.contains("--allow"),
+            "headless mode has no allow-list; passing --allow would misdescribe the guard")
 }

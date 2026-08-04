@@ -7,6 +7,7 @@ let strict: [SwiftSetting] = [
 ]
 
 let archCheck: [Target.PluginUsage] = ["ArchitectureCheck"]
+let headlessCheck: [Target.PluginUsage] = ["HeadlessCheck"]
 
 let package = Package(
     name: "SoredemoCore",
@@ -60,6 +61,8 @@ let package = Package(
                           dependencies: ["CheckerLexer"], swiftSettings: strict),
         .plugin(name: "ArchitectureCheck", capability: .buildTool(),
                 dependencies: ["architecture-checker"]),
+        .plugin(name: "HeadlessCheck", capability: .buildTool(),
+                dependencies: ["architecture-checker"]),
 
         // Rule 3 (no ambient time or randomness) is a LINK-TIME SYMBOL check, and a
         // build-tool plugin's command runs BEFORE its target compiles, so the plugin
@@ -83,7 +86,7 @@ let package = Package(
         // only — it scans `Soredemo/`, not any package module.
         .testTarget(name: "AppSourceTests", dependencies: ["CheckerLexer"], swiftSettings: strict),
 
-        .testTarget(name: "GeometryTests", dependencies: ["Geometry"], swiftSettings: strict),
+        .testTarget(name: "GeometryTests", dependencies: ["Geometry", "CheckerLexer"], swiftSettings: strict),
         .testTarget(name: "TimelineTests", dependencies: ["Timeline"], swiftSettings: strict),
         .testTarget(name: "GraphTests", dependencies: ["Graph", "Geometry", "Timeline"], swiftSettings: strict),
         .testTarget(name: "FramingTests", dependencies: ["Framing"], swiftSettings: strict),
