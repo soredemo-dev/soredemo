@@ -994,6 +994,46 @@ strict concurrency, no exceptions (D2) · app chrome is 100% standard SwiftUI, n
 
 ---
 
+### Evidence grades for a check: a real catch outranks a mutation
+
+**A check that caught a change nobody designed for it is stronger evidence than a
+check that caught the mutation its author wrote to test it.** Ranked:
+
+| Grade | What happened | What it proves |
+| --- | --- | --- |
+| **1 — real catch** | the check failed on a change nobody wrote it to catch | it responds to the world, not to its author's imagination |
+| 2 — observed red | the author mutated the subject and watched it fail | it responds to *that* change |
+| 3 — green | it passes | nothing; a check comparing a value to itself is green too |
+
+Grade 2 is the floor for any new check and this project already demands it. But
+grade 2 only rules out what the mutation differs from — the same limit a positive
+control has. `theUnexercisedPublicAPITableMatchesTheTree` reached grade 1 before
+it was committed: it was written to publish six counts and it immediately failed
+on two the author believed, `shadowRadius` (6 uses, all inside its own type) and
+`TimeRange` (1, from `CMTimeRange(` matching as a substring).
+
+### When a number IS the claim, verify the instrument before writing the claim
+
+**If the entire content of an assertion is a count, the thing producing that count
+must be validated before the assertion is written down** — not after, and not by
+the same reasoning that produced it.
+
+D6a-V's six numbers took four instruments, and each of the first three produced a
+table that read exactly as confident as the right one:
+
+| Instrument | What it said |
+| --- | --- |
+| `grep` | `TimeRange`: 3 uses — two of them a doc comment and a string in the architecture checker's own exemption list |
+| `codeLinesNaming`, bare occurrences | `shadowRadius`: 6 — every one inside `RenderPlan.swift` itself |
+| + excluding the declaring file | `TimeRange`: 1 — `CMTimeRange(` contains `TimeRange` |
+| + word boundaries | the number |
+
+The first counts a scanner's own configuration as usage. The second answers a
+different question than the one asked ("does the name appear" vs "does anything
+read it"). The third is right about comments and naive about tokens. **Writing the
+table first and fixing the instrument afterwards would have shipped a register
+whose only purpose is those counts, with the counts wrong.**
+
 ### Every automatic check inherits the implementation's misunderstanding
 
 **Each automatic check is built out of the same understanding that wrote the

@@ -73,6 +73,28 @@ Goal: a build that records and plays back. Nothing derived yet. **This phase alo
 
 ## Phase 3 — Frame it automatically
 
+**Phase 3's first item is structural, not diagnostic: extract app logic into a
+`SoredemoCore` library target.**
+
+The app target has no automated executing instrument at all. `swift test`'s 464
+tests do not link it — an `executableTarget` cannot be imported by a `testTarget`
+— so `Tests/AppSourceTests` reads `Soredemo/` **as text**. The only things that
+execute app code are `scripts/run-cross-boundary-probe.sh` and a person running
+the built `.app`. `1a98402` lived in app code for a whole phase and a person found
+it, four seconds into a recording.
+
+That is not a shortage of tests; the target is structurally untestable. A library
+can be imported. With the logic in `SoredemoCore` and the executable reduced to a
+shell, `RecordingCoordinator`, `CapturePermissions` and `StageCompositor` — today
+guarded by human eyes — come into ordinary test range.
+
+**Logging comes second, and the ordering is the argument.** Logging is diagnosis:
+it makes a running app answer questions, which is why every diagnostic today was
+expensive archaeology. Extraction is execution. Today's disease was every
+automatic instrument agreeing on one misunderstanding, and logging does not treat
+that — only letting instruments of a different provenance reach the code does.
+
+
 The first thing that is not a screen recorder.
 
 | State | Row | Outcome | Depends on |

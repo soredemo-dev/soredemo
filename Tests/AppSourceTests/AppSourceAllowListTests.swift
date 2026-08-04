@@ -1173,3 +1173,44 @@ func firstPartySourceFiles() throws -> [URL] {
             """)
     }
 }
+
+/// **D6a-N's checkable rows, pinned.** Each entry is a component or artefact that some sentence in
+/// this repository asserts exists. The test is the cheapest possible reading of that assertion:
+/// does the thing appear in CODE anywhere, or only in the sentences claiming it?
+///
+/// **This is deliberately a curated list and not the general rule**, and the general rule was
+/// attempted first. "Any identifier whose every occurrence in the tree falls inside comments is
+/// dead or fictional" was measured over this tree: 72 candidates, of which perhaps three are real.
+/// The bulk are REJECTED ALTERNATIVES — `DocumentGroup`, `AVMutableVideoComposition`,
+/// `SCRecordingOutput`, `FileDocument` — which good doc comments are supposed to discuss, and
+/// "mentioned as a road not taken" is not separable from "claimed as a component" by any reliable
+/// mechanical test. A gate at 97% false positives gets switched off, which is worse than none.
+///
+/// So the general rule stays a review habit (`docs/ARCHITECTURE.md` D6a-N) and the specific claims
+/// become checks. The list grows by one row each time a human finds another.
+@Test func componentsAssertedInProseDoNotExistOnlyInProse() throws {
+    let appFiles = try appSourceFiles()
+
+    // `Inspector`: `StageWindow.swift`'s header claimed `NavigationSplitView` + `Inspector` while
+    // the word appeared exactly once in `Soredemo/` — inside that claim. If someone BUILDS an
+    // inspector, this fails and the D6a-N row plus `app-shell`'s ROADMAP row are retired in the
+    // same commit. If someone re-asserts one in prose without building it, it stays failing-safe:
+    // the count only moves when real code appears.
+    let inspectorInCode = try codeLinesNaming("Inspector", in: appFiles)
+    #expect(inspectorInCode.isEmpty, """
+        `Inspector` now appears in app CODE at \(inspectorInCode.count) site(s). If an inspector was
+        built, retire D6a-N's row and update `app-shell` in ROADMAP.md in this same commit:
+        \(inspectorInCode.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
+        """)
+
+    // `SoredemoCore`: named in a comment as the library target app logic would move into, so that
+    // app code could be linked by a test target at all. It does not exist. Phase 3's first item is
+    // to create it — at which point this expectation flips and is deleted, not weakened.
+    let coreExists = FileManager.default.fileExists(
+        atPath: repositoryRoot.appending(path: "Sources/SoredemoCore").path(percentEncoded: false))
+    #expect(!coreExists, """
+        `Sources/SoredemoCore` exists now. That is Phase 3's first item landing — delete this
+        expectation and move the app-coverage note in docs/ARCHITECTURE.md, which says app code has
+        no executing automated instrument, because it would no longer be true.
+        """)
+}
