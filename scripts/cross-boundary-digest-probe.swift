@@ -4680,7 +4680,29 @@ enum CrossBoundaryProbe {
         -> (logURL: URL, noObservationYet: CMTime, drawn: CMTime, blind: CMTime, suppressed: CMTime,
             rippleInFlight: CMTime, rippleFinished: CMTime) {
         let epoch = anchor.epoch
-        func at(_ nanos: Int64) -> HostInstant { HostInstant(epoch: epoch, hostTime: Nanoseconds(nanos)) }
+        // EVERY TIME BELOW IS AN OFFSET FROM THE HEADER'S OWN ANCHOR, not a bare nanosecond count.
+        //
+        // This fixture used to stamp `Nanoseconds(500_000_000)` directly — 0.5 s in an absolute
+        // host clock that, on a machine that has been up six days, reads ~537,337,000,000,000. A
+        // real `ObservationWriter` caller stamps `mach_absolute_time()`, so a real log's samples
+        // are in the hundreds of trillions while this fixture's were in the hundreds of millions.
+        // `StageCompositor.pointerPlacement` had the matching error — it queried the track with a
+        // raw composition offset instead of adding the anchor — and the two errors cancelled
+        // EXACTLY here, in this file: § 12 was green against a fixture built in the same wrong
+        // frame of reference as the code it was checking, while no build of the app had ever drawn
+        // a pointer over a real recording. The section's own title says "a real ObservationWriter
+        // log"; that was true of the writer and false of the clock.
+        //
+        // Anchoring here is what makes § 12 able to fail for the product's reason. Re-verify by
+        // deleting the `anchor.hostTime +` from both helpers: the four `PointerReading` cases all
+        // collapse to `.drawn`, because a composition-relative sample is `<=` every host time.
+        func at(_ nanos: Int64) -> HostInstant {
+            HostInstant(epoch: epoch, hostTime: anchor.hostTime + Nanoseconds(nanos))
+        }
+        func range(from nanos: Int64, lasting duration: Int64) -> HostRange {
+            HostRange(epoch: epoch, start: anchor.hostTime + Nanoseconds(nanos),
+                      duration: Nanoseconds(duration))
+        }
 
         let header = ObservationLogHeader(anchor: anchor, segmentIndex: 0,
                                           mediaFilename: "master-00.mov", revision: revision,
@@ -4690,8 +4712,7 @@ enum CrossBoundaryProbe {
         try writer.append(PointerSample(instant: at(500_000_000),
                                         position: NormalizedPoint(x: 0.5, y: 0.5), revision: revision))
 
-        let secureInputInterval = HostRange(epoch: epoch, start: Nanoseconds(1_000_000_000),
-                                            duration: Nanoseconds(500_000_000))
+        let secureInputInterval = range(from: 1_000_000_000, lasting: 500_000_000)
         try writer.append(SecureInputInterval(interval: secureInputInterval,
                                               endedBy: .secureInputDisabled))
 
@@ -4705,7 +4726,7 @@ enum CrossBoundaryProbe {
         // measured (one check, one interval found); the other three are declared with zero looks,
         // which `isAMeasurement` reports as "nothing was watching" rather than "no gaps" — the
         // Addition A distinction § 9.6 already exercises at length.
-        let hostRange = HostRange(epoch: epoch, start: Nanoseconds(0), duration: Nanoseconds(3_000_000_000))
+        let hostRange = range(from: 0, lasting: 3_000_000_000)
         let gapWatches = [
             GapWatch.axAncestorWalk(chainsRecorded: 0, observationSpanNanos: 0, truncatedWalks: 0),
             GapWatch.videoFramesNotProduced(frameCallbacksObserved: 0, observationSpanNanos: 0,
@@ -4766,8 +4787,12 @@ enum CrossBoundaryProbe {
         // Covers the `suppressed` query time (1.7 s) and NOT `blind` (1.2 s) — the two must land
         // in DIFFERENT readings, or this section would not be able to tell "an override was
         // checked" from "the blind interval was checked twice".
-        StageCompositor.overrides = [CursorOverride(start: Nanoseconds(1_600_000_000),
-                                                     duration: Nanoseconds(300_000_000))]
+        // Anchored for the same reason every time in `writePointerTrackFixtureLog` is: `PointerTrack
+        // .position(at:)` is queried in the ABSOLUTE host clock, so a reviewer's override is a
+        // host-clock interval too. A bare `Nanoseconds(1_600_000_000)` here would sit ~537,337
+        // seconds before every sample in the log and suppress nothing.
+        StageCompositor.overrides = [CursorOverride(start: anchor.hostTime + Nanoseconds(1_600_000_000),
+                                                    duration: Nanoseconds(300_000_000))]
         defer {
             // Reset for whatever runs after this section — `StageCompositor`'s configuration is
             // process-wide `static` state (like `renderer`/`style` already are), and leaving a

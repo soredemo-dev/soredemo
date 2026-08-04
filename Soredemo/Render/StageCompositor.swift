@@ -177,6 +177,12 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// `withLock`'s closure is what actually keeps concurrent access safe.
     private nonisolated(unsafe) var pointerTrack: PointerTrack?
     private nonisolated(unsafe) var clickTrack: ClickTrack?
+    /// The observation log header's `EpochAnchor`, cached with the tracks it came from — the origin
+    /// that turns a composition time into the host clock the samples are stamped in. `nil` when the
+    /// log had no header, which is the same "draw nothing" state as no log at all: without an origin
+    /// there is no defensible way to place a sample on the timeline, and a guessed origin draws a
+    /// pointer at a time nothing was observed. See `pointerPlacement(at:in:)`.
+    private nonisolated(unsafe) var logAnchor: EpochAnchor?
     private nonisolated(unsafe) var tracksLoaded = false
 
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
@@ -235,10 +241,36 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     private func pointerPlacement(at compositionTime: CMTime,
                                   in plan: RenderPlan) -> NormalizedPointerPlacement? {
         guard compositionTime.isValid,
-              let time = Nanoseconds(rationalSeconds: compositionTime.value,
-                                     timescale: compositionTime.timescale) else { return nil }
-        let (pointer, click) = loadedTracks()
-        guard let pointer else { return nil }
+              let offset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                       timescale: compositionTime.timescale) else { return nil }
+        let (pointer, click, anchor) = loadedTracks()
+        guard let pointer, let anchor else { return nil }
+        // THE CONVERSION THIS FILE'S OWN `import Timeline` COMMENT NAMES, AND THE ONE THAT WAS
+        // MISSING. `compositionTime` is relative to the start of the composition — 0 at the first
+        // frame. Every record in the observation log is stamped in the ABSOLUTE host clock
+        // (`mach_absolute_time`'s domain, ~537,337 s of uptime on the machine this was first
+        // measured on). Passing the composition offset straight to `position(at:)` compared a
+        // number in the billions against samples in the hundreds of trillions, so
+        // `sample.instant.hostTime <= time` was false for every sample of every recording:
+        // `.noObservationYet` always, and NO POINTER WAS EVER DRAWN BY ANY BUILD OF THIS APP.
+        //
+        // The conversion goes this way — offset PLUS anchor, into the host clock — and not the
+        // other way, rebasing the samples down into composition time, for two reasons. The
+        // samples' domain is the one the rest of the project attributes in: `MasterSegment`'s
+        // `hostRange` decides which segment a record belongs to by host time (D5a), so a track
+        // rebased into composition time could no longer be checked against it. And the earliest
+        // sample of the recording this was found on sits 81 ms BEFORE the anchor — rebasing makes
+        // legitimate observations negative, which is representable (`Nanoseconds.rawValue` is
+        // `Int64`) but means every consumer must then reason about a timeline that starts before
+        // zero. Adding is the direction with no such edge.
+        //
+        // `anchor` is the log header's `EpochAnchor`, whose own doc calls it "rough placement": it
+        // is the writer's mark for the segment's beginning, not a frame-accurate media origin. On
+        // the first recording measured through this path, observations ran from anchor − 0.081 s to
+        // anchor + 3.648 s inside a 4.150 s master, so the gross alignment holds and any residual
+        // is bounded well under a tenth of a second. That is the accuracy this claims. A pointer
+        // drawn a frame or two early is a different, much smaller defect than one never drawn.
+        let time = anchor.hostTime + offset
         switch pointer.position(at: time) {
         case .drawn(let point):
             return StagePlanner.placement(for: point, in: plan, ripplePhase: click?.ripplePhase(at: time))
@@ -270,7 +302,7 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// **This lock is never held across `renderer.render(_:source:into:)`.** That call — which
     /// `CoreImageFrameRenderer`'s own header notes can cost milliseconds — happens in `startRequest`
     /// AFTER this function has already returned and released `lock`; nothing here reaches into it.
-    private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?) {
+    private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?, anchor: EpochAnchor?) {
         lock.withLock {
             if !tracksLoaded {
                 tracksLoaded = true
@@ -278,9 +310,10 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                    let built = try? Self.buildTracks(from: url, overrides: Self.overrides) {
                     pointerTrack = built.pointer
                     clickTrack = built.click
+                    logAnchor = built.anchor
                 }
             }
-            return (pointerTrack, clickTrack)
+            return (pointerTrack, clickTrack, logAnchor)
         }
     }
 
@@ -298,13 +331,16 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// reviewer UI exists, it sets that static the same way `StageWindow.load()` already sets
     /// `renderer` and `style`, and nothing about this function's own shape needs to change.
     private static func buildTracks(from url: URL, overrides: [CursorOverride]) throws
-        -> (pointer: PointerTrack, click: ClickTrack) {
+        -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?) {
         let lines = try JSONLReader.linesOfFile(at: url).lines
         var samples: [PointerSample] = []
         var blindIntervals: [BlindInterval] = []
         var buttonEvents: [ButtonEvent] = []
+        var anchor: EpochAnchor?
         for line in lines {
             switch try ObservationLog.kind(of: line) {
+            case "logHeader":
+                anchor = (try ObservationLog.decode(line) as ObservationLogHeader).anchor
             case "pointer":
                 samples.append(try ObservationLog.decode(line) as PointerSample)
             case "button":
@@ -323,6 +359,6 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         }
         let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals, overrides: overrides)
         let click = ClickTrack(events: buttonEvents)
-        return (pointer: pointer, click: click)
+        return (pointer: pointer, click: click, anchor: anchor)
     }
 }
