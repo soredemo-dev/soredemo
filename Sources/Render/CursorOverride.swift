@@ -10,12 +10,36 @@ import Timeline
 /// not readable — `NSCursor.currentSystem` is identical hidden and visible, and both CG
 /// cursor-visibility functions are unavailable at the 26.0 floor.
 public struct CursorOverride: Hashable, Sendable {
+    /// **The boot session `start` is measured in — and the reason this field exists.**
+    ///
+    /// `start` is an instant in the ABSOLUTE host clock, the domain every observation record is
+    /// stamped in and the domain `PointerTrack.position(at:)` is queried in. Nothing about a bare
+    /// `Nanoseconds` says so. `HostInstant` and `HostRange` — this project's other two persisted
+    /// time types — both carry their epoch for exactly this reason; this type was the one that
+    /// did not, and a reviewer UI writing `CursorOverride(start: Nanoseconds(3_200_000_000), …)`
+    /// (the shape every unit test writes) would be a silent recurrence of `1a98402`, where a
+    /// composition-relative number was compared against an absolute-clock track and matched
+    /// nothing, on every frame, for a whole phase.
+    ///
+    /// **Added while zero files exist.** This type is `Codable` and has no writer: no `.soredemo`
+    /// package on disk carries an override. That is the only window in which adding this field is
+    /// not a migration — after the first file is written, old overrides would be permanently
+    /// ambiguous about which clock they meant, with no way to decide retroactively.
+    ///
+    /// **This field does not change behaviour yet, and that is deliberate.**
+    /// `PointerTrack.position(at:)` takes a bare `Nanoseconds` and so cannot compare epochs; making
+    /// it take a `HostInstant` is the Phase 3 change (final-review I4). What lands today is the
+    /// FORMAT's ability to express the distinction. It is required on decode rather than defaulted
+    /// precisely so it cannot be quietly omitted: a file without it fails to decode instead of
+    /// inheriting whatever the reader assumes.
+    public let epoch: BootEpoch
     public let start: Nanoseconds
     public let duration: Nanoseconds
 
-    public init(start: Nanoseconds, duration: Nanoseconds) {
+    public init(epoch: BootEpoch, start: Nanoseconds, duration: Nanoseconds) {
         precondition(duration.rawValue >= 0,
                      "CursorOverride duration must be non-negative, got \(duration.rawValue)")
+        self.epoch = epoch
         self.start = start
         self.duration = duration
     }
@@ -26,15 +50,18 @@ public struct CursorOverride: Hashable, Sendable {
 }
 
 extension CursorOverride: Codable {
-    /// Matches the synthesised shape exactly — `start`, `duration` — so this hand-written
+    /// Matches the synthesised shape exactly — `epoch`, `start`, `duration` — so this hand-written
     /// conformance changes validation, not the wire form. Same rule-8 reason as
     /// `BlindInterval.init(from:)` above.
     private enum CodingKeys: String, CodingKey {
-        case start, duration
+        case epoch, start, duration
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        // `decode`, not `decodeIfPresent`: see `epoch`'s own doc comment. A file that does not say
+        // which clock its override is in is not a file this type can read.
+        let epoch = try container.decode(BootEpoch.self, forKey: .epoch)
         let start = try container.decode(Nanoseconds.self, forKey: .start)
         let duration = try container.decode(Nanoseconds.self, forKey: .duration)
         guard duration.rawValue >= 0 else {
@@ -42,12 +69,14 @@ extension CursorOverride: Codable {
                 codingPath: decoder.codingPath,
                 debugDescription: "CursorOverride duration must be non-negative, got \(duration.rawValue)"))
         }
+        self.epoch = epoch
         self.start = start
         self.duration = duration
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(epoch, forKey: .epoch)
         try container.encode(start, forKey: .start)
         try container.encode(duration, forKey: .duration)
     }

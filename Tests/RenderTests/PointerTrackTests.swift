@@ -43,7 +43,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 
 @Test func anOverrideSuppressesTheCursorAndSaysSo() {
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [],
-                             overrides: [CursorOverride(start: Nanoseconds(0),
+                             overrides: [CursorOverride(epoch: epoch, start: Nanoseconds(0),
                                                         duration: Nanoseconds(1_000))])
     #expect(track.position(at: Nanoseconds(500)) == .suppressedByReviewer)
 }
@@ -74,7 +74,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 @Test func anOverrideOutranksAnOverlappingBlindInterval() {
     let overlapping = Nanoseconds(600)
     let blind = BlindInterval(start: Nanoseconds(500), duration: Nanoseconds(300), cause: .tapDisabled)
-    let override = CursorOverride(start: Nanoseconds(500), duration: Nanoseconds(300))
+    let override = CursorOverride(epoch: epoch, start: Nanoseconds(500), duration: Nanoseconds(300))
     // Sanity: the chosen instant really does fall inside both intervals — otherwise this test
     // would pass by construction rather than by exercising the precedence.
     #expect(blind.contains(overlapping))
@@ -143,12 +143,13 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 }
 
 /// `CursorOverride`'s own `encode(to:)` output for
-/// `CursorOverride(start: Nanoseconds(0), duration: Nanoseconds(1))` (`Nanoseconds` nests as
+/// `CursorOverride(epoch: epoch, start: Nanoseconds(0), duration: Nanoseconds(1))` (`Nanoseconds` nests as
 /// `{"rawValue":N}`, as above), confirmed against a scratch build of the type, with `duration`
 /// then hand-edited negative.
 @Test func decodingACursorOverrideWithNegativeDurationThrows() throws {
     let json = Data("""
-    {"start":{"rawValue":0},"duration":{"rawValue":-1}}
+    {"epoch":{"id":"9B1DE104-6C3E-4E2A-8B3C-2B6A6F1F9C07"},\
+    "start":{"rawValue":0},"duration":{"rawValue":-1}}
     """.utf8)
     do {
         _ = try JSONDecoder().decode(CursorOverride.self, from: json)
@@ -179,9 +180,38 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 /// Codable round trip for `CursorOverride`.
 @Test func cursorOverrideRoundTrips() throws {
     let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
-    let override = CursorOverride(start: Nanoseconds(10), duration: Nanoseconds(20))
+    let override = CursorOverride(epoch: epoch, start: Nanoseconds(10), duration: Nanoseconds(20))
     let back = try JSONDecoder().decode(CursorOverride.self, from: try enc.encode(override))
     #expect(back == override)
     #expect(back.start == override.start)
     #expect(back.duration == override.duration)
+}
+
+
+/// **A `CursorOverride` that does not say which clock it is in is not decodable.**
+///
+/// The companion to the test above, and the one that pins `epoch`'s reason for existing: `start`
+/// is an instant in the absolute host clock, nothing about a bare `Nanoseconds` says so, and a
+/// file that omits the epoch must be REJECTED rather than read under whatever the reader assumes.
+/// `init(from:)` uses `decode`, not `decodeIfPresent`, precisely so this fails.
+///
+/// This is `.keyNotFound`, a DIFFERENT rejection from the negative-duration `.dataCorrupted`
+/// above — two distinct guarantees, asserted separately, so a change that collapsed one into the
+/// other could not pass by satisfying the wrong one. Deleting `epoch` from the JSON below is this
+/// test's own red; changing `decode` to `decodeIfPresent` in `CursorOverride` is the other.
+@Test func decodingACursorOverrideWithoutAnEpochThrows() throws {
+    let json = Data("""
+    {"start":{"rawValue":0},"duration":{"rawValue":1}}
+    """.utf8)
+    do {
+        _ = try JSONDecoder().decode(CursorOverride.self, from: json)
+        Issue.record("expected decoding an epoch-less CursorOverride to throw — an override with no clock domain is exactly the shape that reintroduces commit 1a98402")
+    } catch let error as DecodingError {
+        guard case .keyNotFound(let key, _) = error, key.stringValue == "epoch" else {
+            Issue.record("expected .keyNotFound(\"epoch\"), got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("expected DecodingError, got \(error)")
+    }
 }

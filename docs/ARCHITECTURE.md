@@ -570,11 +570,49 @@ callback, not the tap.
 beat spans a gap in the pointer record" is that refusal, and it needs a range to compare against — a
 count gives it nothing to test.
 
+### D6a-N — A name is an assertion, and nobody checks assertions written as names
+
+**A name that describes what something covers is a claim about coverage, and it is the one kind of
+claim no reviewer reads as a claim.** Four instances, all found on 2026-08-04, all in this tree:
+
+| The name | What it asserts | What was true |
+| --- | --- | --- |
+| probe § 12's title, "a real `ObservationWriter` log" | the section runs against a real log | true of the writer, false of the clock — the fixture's samples were composition-relative while a real log is absolute host time |
+| probe § 7.2, "the standing check on the unit" | it stands guard over the nanosecond unit | deleting the `mach_timebase` multiply leaves it GREEN; it mints its own stamp from the clock it checks |
+| `ROADMAP.md`'s `geometry-types` row, "zero callers" | the bridge had never run | true when written; 41 call sites now, and the row said otherwise for weeks |
+| `Tests/RenderTests/PointerPlacementTests.swift` | it tests pointer placement | it tests `StagePlanner.placement`'s GEOMETRY, five ways. `StageCompositor.pointerPlacement` — the function whose time conversion was wrong for a whole phase — has no `swift test` coverage at all |
+
+**This class is more general than the fixture-shares-the-code's-frame class it was found beside.**
+Sharing a frame of reference takes a coincidence: two independent things happening to be wrong the
+same way. A name lying takes only that someone named it — at the moment it was accurate, and then
+the code moved. The fourth row is the mildest and the most instructive: `PointerPlacementTests` is
+not a lie, it is an AMBIGUITY between two real things called placement, and the untested one is
+where the defect lived.
+
+**What to do with it.** When sweeping comments or reviewing a diff, treat every identifier, section
+title and register row as a proposition to be falsified once, the same as any sentence in a doc
+comment. The question is always the same and always cheap: **what would have to be true for this
+name to be honest, and is it?**
+
 ## D6b — The platform-premise register: what this app believes about macOS
 
 **Every row is a claim about the operating system that this code depends on and that Apple has not
 promised.** Several were measured *because* the header does not say — which is the honest position,
 and also the one that expires without warning.
+
+**Grading rule: if the source is a conversation rather than a file, the grade is `[prose]` — no
+matter how hard the sentence reads.** The test is asked of each assertion AS IT IS WRITTEN, never
+of the row as a whole: **which file, and which field?** A claim that cannot name both is `[prose]`,
+and a row may carry both grades in different sentences.
+
+This rule exists because grading a row by reading it does not work. On 2026-08-04 `ROADMAP.md`'s
+`cursor-render` row claimed probe § 12.1 ran "off Task 5.5's row-14 REAL recording (251 real
+pointer samples…)". It never did — § 12.1 writes a three-record fixture, and `grep -rn 'row-14'`
+returns nothing. The `251` was recalled in conversation, not counted from a file; it is even
+*self-consistent* with the trailer arithmetic elsewhere (`411 = 1 + 1 + (251+6+0+3+149)`), so
+nothing about the sentence looks soft. **What made it credible was its neighbours**: rows 62, 64
+and 67 cite that same recording correctly. Credibility was inherited from adjacency, which is
+exactly what a per-row reading cannot detect.
 
 **Why this is a table and not the design doc's prose.** These claims are currently scattered across
 design-doc sections, code comments and commit messages. Each was true when measured; none of them

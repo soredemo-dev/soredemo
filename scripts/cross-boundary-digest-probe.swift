@@ -4820,7 +4820,7 @@ enum CrossBoundaryProbe {
         // .position(at:)` is queried in the ABSOLUTE host clock, so a reviewer's override is a
         // host-clock interval too. A bare `Nanoseconds(1_600_000_000)` here would sit ~537,337
         // seconds before every sample in the log and suppress nothing.
-        StageCompositor.overrides = [CursorOverride(start: anchor.hostTime + Nanoseconds(1_600_000_000),
+        StageCompositor.overrides = [CursorOverride(epoch: anchor.epoch, start: anchor.hostTime + Nanoseconds(1_600_000_000),
                                                     duration: Nanoseconds(300_000_000))]
         defer {
             // Reset for whatever runs after this section — `StageCompositor`'s configuration is
