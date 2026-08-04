@@ -774,7 +774,32 @@ never resumes, no crash, no error, CPU to zero, filed January 2026 with no Apple
 instruments point opposite ways: the SDK condemns the predecessor, and the field says the successor
 hangs. Neither alone is the answer, and this row exists so that neither gets read as one.
 
-## The successor stack works at the floor — measured, after a wrong answer
+## The successor stack works at the floor for ONE receiver — and stalls at three
+
+**The headline of this section used to stop at "works at the floor", and Phase 2B's Task 6 showed
+that reading was too wide.** What was measured was one receiver at a time. A real capture session
+needs three — video, system audio, microphone — and under three simultaneous receivers
+`appendImmediately(_:)` stalls between frames 64 and 112 and never recovers: no error, no crash, no
+diagnostic. Codec-independent (h264 and ProRes4444 both), reproduced across a dozen runs, and the
+*same* workload through the awaiting `append(_:)` completes 120 frames in under 0.3 s every time.
+
+`MasterWriting.append` is synchronous and non-throwing by design — a compositor callback must not
+suspend — so a conformance has no choice but `appendImmediately`. **The successor conformance is
+therefore not usable for a real multi-track recording today**, which is a second and much stronger
+reason for the ruling that the shipping capture path stays on `LegacyMasterWriter`. That ruling was
+made for verification cost; it now also holds on capability.
+
+Read `Soredemo/Capture/SuccessorMasterWriter.swift`'s known-gap paragraph before wiring the
+successor anywhere.
+
+**What survives from the original measurement, unchanged:** the successor APIs exist at the 26.0
+floor, they are reachable, they produce byte-identical output to the legacy path on the two
+properties that decided `AVAssetWriter` over `SCRecordingOutput` — two audio tracks and the
+ITU_R_709_2 colour triple, compared by reading the finished files back — and the frame-137 stall
+that started all of this really was a lifecycle mistake and not an API fault. None of that is
+withdrawn. What is withdrawn is the leap from "one receiver works" to "the stack works".
+
+## The one-receiver measurement, after a wrong answer
 
 `spikes/2026-08-03-writer-receiver-hang`, on **macOS 26.5.2 build 25F84**:
 
