@@ -1364,12 +1364,25 @@ func headlessModeDoesNotFireOnProse(_ source: String) throws {
 /// negative check keeps the code view, because ITS rationale — a mention of
 /// `--allow` in this file's own doc comment must not cause a false failure — is
 /// exactly the case the code view exists for: prose, not a quoted argument.
+///
+/// **All three presence checks are anchored to the ARGUMENT-LIST shape —
+/// `"--ban", "AppKit"` — not the bare module name `"AppKit"` alone.** Reading
+/// raw source closes the code-view hole above, but a bare-name search reopens
+/// a narrower one: `source.contains("\"AppKit\"")` is satisfied just as well by
+/// `"AppKit"` sitting in a doc comment's prose (this file's own header uses
+/// backticks today, not quotes, so that is not triggered — which is exactly
+/// why it is worth closing before it is) as by the actual `--ban` argument
+/// that makes the guard real. A future edit that quotes `"AppKit"` in prose
+/// while dropping the functional argument would leave this test green and the
+/// guard banning nothing. Pairing the flag with its value is what ties the
+/// assertion to the thing that is actually passed to the subprocess, the same
+/// way `"--mode", "headless"` already was.
 @Test func theHeadlessCheckPluginPassesBothBansAndNoAllowList() throws {
     let source = try String(contentsOf: repositoryRoot
         .appending(path: "Plugins/HeadlessCheck/HeadlessCheck.swift"), encoding: .utf8)
     let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
-    #expect(source.contains("\"AppKit\""))
-    #expect(source.contains("\"SwiftUI\""))
+    #expect(source.contains("\"--ban\", \"AppKit\""))
+    #expect(source.contains("\"--ban\", \"SwiftUI\""))
     #expect(source.contains("\"--mode\", \"headless\""))
     #expect(!code.contains("--allow"),
             "headless mode has no allow-list; passing --allow would misdescribe the guard")
