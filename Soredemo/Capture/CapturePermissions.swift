@@ -91,7 +91,19 @@ public enum PermissionStatus: String, Codable, Sendable {
 /// every recording they apply to.
 public enum Degradation: String, Codable, Sendable {
     case blocksRecording
-    /// **No longer produced by `degradation(for:)`, since Task 5.5.** Kept
+    /// **Never produced, and the reason is a measurement, not a preference.**
+    /// This case claimed a milder consequence for a denied microphone — video
+    /// and system audio keep recording, just without a microphone track. That
+    /// is not what happens: `SCStreamConfiguration` asks for the microphone as
+    /// one INSEPARABLE request alongside video and system audio, and denying
+    /// any part of that request fails the whole stream. So a denied microphone
+    /// is `.blocksRecording`, like screen recording, and `degradation(for:)`
+    /// returns exactly that. `Tests/AppSourceTests/ProductionCallerTests.swift`
+    /// pins the mapping so it cannot drift back.
+    ///
+    /// **An enum case with no producer is an unverified capability claim** —
+    /// the same category as `blockingFailures()` (zero callers) and
+    /// `Sources/Timeline/TimeRange.swift` (no caller in `Sources/`). It is kept
     /// rather than deleted: it is a `String` raw value that could already be
     /// on disk nowhere today (`Degradation` is "not yet recorded anywhere",
     /// below) but removing a case is exactly the wire-breaking edit

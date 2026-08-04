@@ -594,6 +594,34 @@ title and register row as a proposition to be falsified once, the same as any se
 comment. The question is always the same and always cheap: **what would have to be true for this
 name to be honest, and is it?**
 
+### D6a-V — Unexercised public API is an unverified capability claim
+
+**A `public` symbol nothing calls, an enum case nothing produces, a field nothing
+reads: each asserts a capability that has never been shown to work.** Four
+instances in this tree on 2026-08-04:
+
+| Symbol | The claim | Status |
+| --- | --- | --- |
+| `StageStyle.shadowRadius` / `.shadowOpacity` | the stage draws a shadow | modelled, persisted, validated, **never rendered** — `CoreImageFrameRenderer` does not read either |
+| `CapturePermissions.blockingFailures()` | callers can ask what blocks recording | **zero callers anywhere** |
+| `Sources/Timeline/TimeRange.swift` | an epoch-less interval type is useful | no caller in `Sources/`; its stated first caller moved to `HostRange` |
+| `Degradation.noMicrophoneTrack` | a denied microphone degrades mildly | **never produced** — measured false; a denied microphone fails the whole `SCStream` |
+
+**The policy: delete it, or mark it VOID with the register's discipline** — what
+it claims, why that is unverified, and what would verify it. A symbol in neither
+state is a promise the codebase is making on behalf of code that has never run.
+The `noMicrophoneTrack` row shows why this is not pedantry: it did not merely go
+unused, it was **wrong**, and the only thing consuming it was a `print`.
+
+**Determining "no caller" requires the lexer, never `grep`.** Use
+`codeLinesNaming(_:in:)` (`Tests/AppSourceTests/AppSourceAllowListTests.swift`),
+which scans `SwiftSourceLexer.codeViewLines(of:)` — comments and string literals
+blanked. A raw `grep` for `TimeRange` returns three hits, and **two of them are a
+doc comment and a string in the architecture checker's own exemption list**: a
+deadness verdict that counts a scanner's configuration as usage. That mistake was
+made here, caught by eye, and would not have been caught by the next person. The
+instrument already exists; the rule is to use it.
+
 ## D6b — The platform-premise register: what this app believes about macOS
 
 **Every row is a claim about the operating system that this code depends on and that Apple has not
