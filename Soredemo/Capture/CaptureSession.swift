@@ -286,6 +286,44 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// the cause.
         public internal(set) var firstObservationAppendFailure: String?
 
+        /// **Task 5.5, fix round 2 (code review).** Every observation
+        /// `appendObservation` found with `writer == nil` — the record was
+        /// never written anywhere, and until this counter existed nothing
+        /// said so, which is exactly the silence
+        /// `observationAppendFailures`'s own doc comment forbids.
+        ///
+        /// Two situations produce it, and this counter does not distinguish
+        /// them — see the report for why one number is enough:
+        ///
+        ///   * **the bug this counter exists for.**
+        ///     `finalizeCurrentSegment` sets `self.observationWriter = nil`
+        ///     under `lock`, immediately — **before**
+        ///     `axObserver.waitForQueuedClicks()`, which is a blocking
+        ///     `queue.sync {}` that can take up to `AXObserver
+        ///     .walkBudgetNanos` (35 ms) × `AXObserver.maximumQueuedClicks`
+        ///     (8) — hundreds of milliseconds — and before
+        ///     `closingWriter.close(...)`. The event tap is never torn down
+        ///     during any of that: not for `pause()`, not for a display
+        ///     reconfiguration (only `stream`/`master` rotate; the tap keeps
+        ///     running for the whole session), and even for `stop()` the tap
+        ///     is stopped only after this whole span. So every pointer,
+        ///     button, key, secure-input and tap-disabled observation that
+        ///     arrives during that window, **at every segment boundary**, is
+        ///     silently lost before this fix — not "at most one trailing
+        ///     sample" (that bound describes the narrower writer-nilled→
+        ///     tap-torn-down window at `stop()` only), and not only at
+        ///     `stop()`;
+        ///   * a segment with no `packageURL` at all, so `beginSegment` never
+        ///     opens a writer for it in the first place — not a bug, the same
+        ///     choice `ProjectDocument.addMedia` already makes for an unsaved
+        ///     document. Unreachable in the shipping app today:
+        ///     `TemporaryFileMediaSink`, the only production `MediaSink`
+        ///     constructed anywhere, never returns a `nil` `packageURL`. Named
+        ///     here so the day a second `MediaSink` conformer can return `nil`
+        ///     mid-session, this counter's meaning is already on record rather
+        ///     than assumed.
+        public internal(set) var observationsDroppedAfterSegmentClose = 0
+
         /// The layout of the first audio buffer each source delivered.
         public internal(set) var systemAudioLayout: String?
         public internal(set) var microphoneLayout: String?
@@ -1137,13 +1175,28 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    /// One `ObservationWriter.append`, with the failure counted rather than
-    /// dropped by `try?` — see `Diagnostics.observationAppendFailures`.
-    /// `writer == nil` (no package, or the tap never armed) is not a failure:
-    /// it is a session choosing to record no log for this segment, which
-    /// `beginSegment`'s own `packageURL`/blindness handling already decided.
+    /// One `ObservationWriter.append`, with every way of losing the record
+    /// counted rather than dropped in silence.
+    ///
+    /// **`writer == nil` used to `return` here with nothing counting it —
+    /// found in code review, fix round 2.** The doc comment this replaced
+    /// called that "not a failure... a session choosing to record no log for
+    /// this segment", which is true of the tap never arming (no observations
+    /// are ever produced to reach here at all in that case) but was wrong
+    /// about the case that actually reaches this line: `finalizeCurrentSegment`
+    /// nils `observationWriter` immediately, then blocks on
+    /// `axObserver.waitForQueuedClicks()` — up to several hundred
+    /// milliseconds, at **every** segment boundary, with the tap still fully
+    /// live throughout — before the writer is actually closed. Every
+    /// observation arriving in that whole window found `writer == nil` and
+    /// was silently lost. See `Diagnostics.observationsDroppedAfterSegmentClose`
+    /// for the full account and the one case (unreachable today) where this
+    /// really is the earlier, harmless reading.
     private nonisolated func appendObservation(_ record: some ObservationRecord, to writer: ObservationWriter?) {
-        guard let writer else { return }
+        guard let writer else {
+            lock.withLock { _diagnostics.observationsDroppedAfterSegmentClose += 1 }
+            return
+        }
         do {
             try writer.append(record)
         } catch {

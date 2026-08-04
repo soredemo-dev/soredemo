@@ -254,3 +254,63 @@ func projectPbxprojText() throws -> String {
         way to find where to write an observation log for a segment.
         """)
 }
+
+// MARK: - Fix round 2 (code review): the segment-close drop window is counted, not silent
+
+/// **Code review, Important finding.** `finalizeCurrentSegment` nils `observationWriter` under
+/// `lock` immediately, then blocks on `axObserver.waitForQueuedClicks()` — up to hundreds of
+/// milliseconds, with the event tap still fully live — before the writer is actually closed. Every
+/// observation `appendObservation` sees during that window, at every segment boundary (`pause()`,
+/// a display reconfiguration, `stop()`), used to hit `guard let writer else { return }` and vanish
+/// with nothing counting it — exactly the silence `Diagnostics.observationAppendFailures`'s own doc
+/// comment says must not happen. This pins that the `guard` branch now increments a counter, and
+/// pins WHERE: between `guard let writer else {` and the branch's closing `}`, so a future edit that
+/// moves the increment into the success path (where it would count nothing, since a live writer
+/// never takes this branch) fails the ordering check below even though the line would still exist
+/// somewhere in the file.
+@Test func theSegmentCloseDropWindowIsCountedNotSilent() throws {
+    let files = try appSourceFiles()
+
+    let fieldDeclarations = try codeLinesNaming("var observationsDroppedAfterSegmentClose = 0", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    #expect(fieldDeclarations.count == 1, """
+        expected exactly one declaration of Diagnostics.observationsDroppedAfterSegmentClose in \
+        CaptureSession.swift, found \(fieldDeclarations.count).
+        """)
+
+    let increments = try codeLinesNaming("_diagnostics.observationsDroppedAfterSegmentClose += 1", in: files)
+    #expect(increments.count == 1, """
+        expected exactly one increment of observationsDroppedAfterSegmentClose, found \
+        \(increments.count): \(increments.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        Zero means an observation dropped because the segment's writer already went nil is silent \
+        again — the exact regression this test exists to catch. More than one means a second, \
+        untracked place this can happen.
+        """)
+    guard let increment = increments.first else { return }
+    #expect(increment.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:"), """
+        the increment is at \(increment.location), not in CaptureSession.swift.
+        """)
+
+    let guardLines = try codeLinesNaming("guard let writer else {", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(guardLines.count == 1, """
+        expected exactly one 'guard let writer else {' in CaptureSession.swift (appendObservation's \
+        own guard), found \(guardLines.count) — this scan's ordering check needs a unique landmark.
+        """)
+    let appendCalls = try codeLinesNaming("try writer.append(record)", in: files)
+        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    try #require(appendCalls.count == 1, """
+        expected exactly one 'try writer.append(record)' in CaptureSession.swift, found \
+        \(appendCalls.count).
+        """)
+
+    let incrementLine = lineNumber(of: increment.location)
+    let guardLine = lineNumber(of: guardLines[0].location)
+    let appendLine = lineNumber(of: appendCalls[0].location)
+    #expect(guardLine < incrementLine && incrementLine < appendLine, """
+        observationsDroppedAfterSegmentClose is incremented at line \(incrementLine), which is not \
+        between 'guard let writer else {' (line \(guardLine)) and 'try writer.append(record)' (line \
+        \(appendLine)) — i.e. not inside the guard's failure branch, where a nil writer is what this \
+        counter is supposed to be counting.
+        """)
+}

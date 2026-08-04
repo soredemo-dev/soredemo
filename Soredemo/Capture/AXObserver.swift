@@ -692,10 +692,17 @@ public final class AXObserver: @unchecked Sendable {
     /// grows for as long as the person keeps clicking.
     public nonisolated static let maximumQueuedClicks = 8
 
-    /// Blocks until every enqueued click has been observed. **For the probe
-    /// and the spike**, which need the asynchronous path to have finished
-    /// before they can assert anything about it; not part of a recording's
-    /// normal flow, where nothing waits for AX.
+    /// Blocks until every enqueued click has been observed.
+    ///
+    /// Written for the probe and the spike, which need the asynchronous path
+    /// to have finished before they can assert anything about it. **Task 5.5
+    /// made it part of a recording's normal flow too** —
+    /// `CaptureSession.finalizeCurrentSegment` calls this before closing a
+    /// segment's `ObservationWriter`, specifically so a trailing click's AX
+    /// chain has a chance to land in the log before the file it belongs to
+    /// closes (D2-12). That call can block for up to `walkBudgetNanos` ×
+    /// `maximumQueuedClicks` — hundreds of milliseconds — at every segment
+    /// boundary, not only in a test.
     public nonisolated func waitForQueuedClicks() {
         queue.sync {}
     }
