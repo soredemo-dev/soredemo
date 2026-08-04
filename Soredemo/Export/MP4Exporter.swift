@@ -49,12 +49,77 @@ import Foundation
 ///    silently shipping a file with two empty, zero-sample audio tracks would be the same kind of
 ///    unmeasured shape this whole task exists to not ship.
 ///
-/// So this function is written directly against `AVAssetWriter`/`AVAssetWriterInput` — the exact
-/// non-deprecated-at-this-project's-26.0-floor calls `LegacyMasterWriter` itself uses
-/// (`canAdd`/`add`/`startWriting()`/`append(_:)`/`isReadyForMoreMediaData`/`finishWriting`) — with
-/// `fileType: .mp4` and exactly the one video input this export needs. Nothing here is the
-/// successor stack, and nothing here is `MasterWriting`; both would be the wrong shape for what
-/// this specific file does, independent of the stall.
+/// So this function is written directly against `AVAssetWriter`/`AVAssetWriterInput` — calls
+/// `LegacyMasterWriter` itself also uses (`canAdd`/`add`/`startWriting()`/`append(_:)`/
+/// `isReadyForMoreMediaData`/`finishWriting`), plus `AVAssetReader`/`AVAssetReaderOutput`'s own
+/// equivalents this file needs that `LegacyMasterWriter` never touches (`canAdd`/`add`/
+/// `startReading()`/`copyNextSampleBuffer()`) — with `fileType: .mp4` and exactly the one video
+/// input this export needs. Nothing here is the successor stack, and nothing here is
+/// `MasterWriting`; both would be the wrong shape for what this specific file does, independent
+/// of the stall.
+///
+/// **These calls are on `ARCHITECTURE.md` D6b-27's own list — every substantive one of them —
+/// and this file had said only "non-deprecated at this project's 26.0 floor," which is true and
+/// stops one clause early.** Code review (Task 7, round 2) caught the omission and cross-checked
+/// against the real 27.0 SDK headers; re-verified here directly (`scripts
+/// /scan-sdk-deprecations.py --out`, confirmed against `AVAssetReader.h`/`AVAssetWriter.h`/
+/// `AVAssetWriterInput.h`/`AVAssetReaderOutput.h` for the one call the scan's own regex misses —
+/// see below):
+///
+/// | call in this file | condemned symbol | successor named in the SDK |
+/// | --- | --- | --- |
+/// | `reader.add(readerOutput)` | `AVAssetReader.addOutput:` | `AVAssetReader.outputProvider(for:...)` |
+/// | `reader.startReading()` | `AVAssetReader.startReading` | `AVAssetReader.start()` |
+/// | `readerOutput.copyNextSampleBuffer()` | `AVAssetReaderOutput.copyNextSampleBuffer` | `AVAssetReaderOutput.Provider.next()` |
+/// | `writer.add(writerInput)` | `AVAssetWriter.addInput:` | `AVAssetWriter.inputReceiver(for:)` |
+/// | `writer.startWriting()` | `AVAssetWriter.startWriting` | `AVAssetWriter.start()` |
+/// | `writerInput.append(_:)` | `AVAssetWriterInput.appendSampleBuffer:` | `SampleBufferReceiver.append(_:)` / `.appendImmediately(_:)` |
+/// | `writerInput.isReadyForMoreMediaData` | `AVAssetWriterInput.readyForMoreMediaData` | "the input receiver's async `append(...)` method" |
+/// | `writerInput.expectsMediaDataInRealTime` | `AVAssetWriterInput.expectsMediaDataInRealTime` | (none named — `appendImmediately(_:)` IS the real-time behaviour, per `SuccessorMasterWriter.swift`'s own header) |
+///
+/// **`copyNextSampleBuffer()` is an EIGHTH condemned call, beyond the seven the review's own
+/// cross-check named** — found while writing this table, not by the review. Its own header
+/// explains the exact defect this file's § 14 probe check hit and fixed: *"In certain
+/// configurations, such as when outputSettings is nil, copyNextSampleBuffer may return
+/// marker-only sample buffers... identified by CMSampleBufferGetNumSamples returning 0."* That is
+/// precisely the bug `countVideoSampleBuffers` in `scripts/cross-boundary-digest-probe.swift`
+/// had and was fixed for — the deprecated method's own SDK documentation states the hazard the
+/// review's third check caught empirically. `writer.canAdd(_:)`/`reader.canAdd(_:)` are NOT on
+/// this list — measured directly in the same header pass, no `API_DEPRECATED` on either.
+///
+/// **Judgment, not a proof: this file is left unseamed.** Two things make that judgment different
+/// from "it compiles, ship it": every one of these eight calls sits behind exactly ONE track, in
+/// ONE small file (under 200 lines), with NO concurrent multi-track shape for `appendImmediately`
+/// to stall on — the specific hazard that makes `CaptureSession`'s own writer seam load-bearing
+/// does not exist here, because it cannot: this file was never going to open more than one
+/// receiver. A seam earns its cost by having something real to swap FOR; here the two sides of
+/// the swap are asymmetric in a way `MasterWriter.swift`'s seam is not — the writer half has a
+/// working, if 3-track-shaped, successor already measured twice in this project (Task 6's
+/// `SuccessorMasterWriter`, and this task's own supplementary single-receiver measurement above);
+/// the READER half (`AVAssetReader.outputProvider(for:...)` / `AVAssetReaderOutput.Provider
+/// .next()`) has never been touched by any task, spike, or probe in this repository — it would be
+/// new territory, not a known-working alternative slotted in behind a protocol.
+///
+/// **What the rewrite would cost, named rather than left implicit:** measuring
+/// `outputProvider(for:)`'s real shape (its exact overload for a video-composition output, what
+/// `Provider.next()` returns and how it signals end-of-stream, whether it is sync or async) is a
+/// Task-6-sized investigation on its own — `swift-api-digester` or `-typecheck` probes, the same
+/// discipline that found `SampleBufferReceiver`'s three members and `CVReadOnlyPixelBuffer`'s
+/// shape, because neither has a header comment or `.swiftinterface` friendly enough to read
+/// directly. The WRITER half's rewrite is cheap by comparison (Task 6 already did the equivalent
+/// work); the READER half is not measured at all, and pretending otherwise here would be writing
+/// the exact kind of code-against-an-unopened-callee this project's own brief-defect pattern
+/// (progress.md, "five across two tasks... before dispatch, grep the initialisers") already named
+/// as a repeat mistake to stop making.
+///
+/// **The trigger, same register as `MasterWriter.swift`'s own:** `ARCHITECTURE.md` D6b-27 says
+/// re-run `scripts/scan-sdk-deprecations.py` on every OS/SDK bump; this file's own row belongs
+/// there, not invented separately here. This project's floor is 26.0 and a macOS 27 binary still
+/// cannot be launched on this machine (`MasterWriter.swift`'s own header) — the same fact that
+/// makes the writer seam "scheduled, not speculative" rather than urgent applies here with LESS
+/// urgency, because this file's blast radius if the floor moves is one small file with a
+/// measured-cheap rewrite on one half and an honestly-unmeasured other half, not three
+/// concurrently-fed tracks a shipping recording depends on.
 enum MP4Exporter {
     /// Exports `asset`'s video, through the SAME `AVVideoComposition`
     /// `CompositionBuilder.composition(for:outputWidth:outputHeight:frameDuration:)` builds for

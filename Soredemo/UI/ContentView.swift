@@ -36,6 +36,17 @@ struct ContentView: View {
         Group {
             if let mediaURL = coordinator.mediaURL {
                 StageWindow(mediaURL: mediaURL)
+                    // Review finding (Task 7 round 2): the deletion this closure drives used to
+                    // live in `RecordingCoordinator.stopRecording()`, justified by a comment that
+                    // named the wrong invariant — it said `mediaURL` moving was what made the
+                    // deletion safe, but the actual guarantee came from `beginOpenRecording()`'s
+                    // earlier `mediaURL = nil`, three functions away and unnamed in the comment
+                    // that depended on it. `.onDisappear` removes that dependency instead of
+                    // documenting it: THIS view's own teardown — the actual event that drops
+                    // `StageWindow`'s `AVPlayer` — is what triggers the delete, not a guess about
+                    // when some other function last ran. See `RecordingCoordinator
+                    // .previewWasDismissed()` and `TemporaryFileMediaSink`'s own header.
+                    .onDisappear { coordinator.previewWasDismissed() }
             } else {
                 ContentUnavailableView(
                     coordinator.isRecording ? "Recording…" : "No recording yet",
@@ -81,10 +92,31 @@ final class RecordingCoordinator {
     /// **The lifecycle fix for `TemporaryFileMediaSink`'s own "not cleaned up by this type" —
     /// Task 4's review flagged it, Task 5.5 carried it forward, this is where it closes.** Which
     /// sink actually produced `mediaURL` — the file a live `AVPlayer` may currently have open.
-    /// Reference identity (`===` below), not `mediaURL` equality: the coordinator, not the sink,
-    /// is what a caller reasons about, and this is the one fact that says "is it safe to delete
-    /// this sink's directory yet."
+    /// Reference identity (`===` in `sourceSelected`, below), not `mediaURL` equality: the
+    /// coordinator, not the sink, is what a caller reasons about.
+    ///
+    /// **Deleting THIS sink's directory is `previewWasDismissed()`'s job, not `stopRecording()`'s
+    /// — a Task 7 review round 2 correction.** The first version deleted it inside
+    /// `stopRecording()`, justified by a comment claiming "`mediaURL` is about to move, so
+    /// nothing needs the old directory" — but that deletion ran BEFORE `mediaURL` actually moved,
+    /// and the real reason it was safe lived in `beginOpenRecording()`'s earlier `mediaURL = nil`
+    /// (which tears the previous `StageWindow`, and its `AVPlayer`, out of the view tree) — a
+    /// fact stated nowhere near the code that depended on it. `previewWasDismissed()` removes the
+    /// dependency instead of documenting it.
     private var mediaSourceSink: TemporaryFileMediaSink?
+
+    /// Called via `.onDisappear` at `ContentView`'s own call site, when the `StageWindow` showing
+    /// `mediaSourceSink`'s recording is actually torn down by SwiftUI — the real event a
+    /// still-playing `AVPlayer` would be relying on this NOT racing ahead of, rather than a
+    /// different function's timing this type would otherwise have to trust. Not `private`:
+    /// `ContentView.body` (same file, different type) is the only caller, and Swift's `private`
+    /// does not reach across type boundaries even within one file.
+    func previewWasDismissed() {
+        if let directory = mediaSourceSink?.packageURL {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        mediaSourceSink = nil
+    }
 
     /// `TemporaryFileMediaSink.sweepLeftoverDirectories()` once, at the coordinator's own
     /// construction — the earliest point this app ever runs, before any recording exists to
@@ -143,12 +175,14 @@ final class RecordingCoordinator {
             statusText = "Could not create a scratch location for the recording: \(error)"
             return
         }
-        // The OUTGOING sink, if this is a second-or-later recording. Deleted here, not left for
-        // `stopRecording()`, ONLY when it never became what `mediaURL` points at — a recording
-        // that was started and then abandoned (picker cancelled next time, `start()` failed) has
-        // nothing playing it, so there is nothing to wait for. A sink that DID produce the
-        // current `mediaURL` is left alone here — `stopRecording()` below is where that one gets
-        // deleted, once this new recording has actually replaced it.
+        // The OUTGOING sink, if this is a second-or-later recording. Deleted here, immediately,
+        // ONLY when it never became what `mediaURL` points at — a recording that was started and
+        // then abandoned (picker cancelled next time, `start()` failed) has nothing playing it,
+        // so there is nothing to wait for, unlike a sink `previewWasDismissed()` is still
+        // responsible for. Self-contained: this check does not depend on when any other function
+        // last ran, only on the current value of `mediaSourceSink` — if it still names `outgoing`,
+        // `previewWasDismissed()` has not fired yet for it and this leaves it alone, whichever
+        // order the two end up running in.
         if let outgoing = sink, outgoing !== mediaSourceSink, let directory = outgoing.packageURL {
             try? FileManager.default.removeItem(at: directory)
         }
@@ -184,15 +218,13 @@ final class RecordingCoordinator {
                 firstMediaFilename = table.segments.first?.mediaFilename
             }
             if let firstMediaFilename, let url = sink?.url(for: firstMediaFilename) {
-                // The sink that produced the PREVIOUSLY displayed recording, if any, is now
-                // superseded: `mediaURL` is about to move to this new file, so nothing still
-                // needs the old one's directory. Deleted now, not before — until this exact
-                // moment `mediaSourceSink`'s directory was still what a live `AVPlayer` could
-                // have open, which is the whole reason this was left undeleted in the first
-                // place (Task 4's review, carried forward through Task 5.5).
-                if let previous = mediaSourceSink, previous !== sink, let directory = previous.packageURL {
-                    try? FileManager.default.removeItem(at: directory)
-                }
+                // No deletion here — see `previewWasDismissed()` below. The PREVIOUSLY displayed
+                // sink (if any) is superseded by this assignment, but "superseded" is not the
+                // same fact as "safe to delete": the `StageWindow` that was showing it does not
+                // get torn down by this line, it gets torn down by SwiftUI reconciling the new
+                // `mediaURL`, which is a LATER, separate event this function does not control the
+                // timing of. `.onDisappear`, wired at `ContentView`'s call site, is what actually
+                // observes that event.
                 mediaURL = url
                 mediaSourceSink = sink
                 statusText = discardedCount == 0 ? "" :
@@ -266,15 +298,24 @@ final class RecordingCoordinator {
 /// somewhere convenient — it is two rules, both in `RecordingCoordinator` (this file), that
 /// together bound how long a directory this type creates can survive:
 ///
-/// 1. **Replaced-on-record-again**: `RecordingCoordinator.mediaSourceSink` tracks which sink
-///    produced the CURRENT `mediaURL` — the file a live `AVPlayer` may have open. Starting a new
-///    recording deletes the outgoing sink's directory immediately if it was never what `mediaURL`
-///    pointed at (an abandoned attempt — nothing was ever playing it); finishing a new recording
-///    deletes the PREVIOUSLY displayed one, because at that instant `mediaURL` has just moved off
-///    it and nothing needs it anymore.
+/// 1. **Torn down with the view that was showing it — a Task 7 review round 2 correction, not
+///    the original shape.** `RecordingCoordinator.mediaSourceSink` tracks which sink produced the
+///    CURRENT `mediaURL` — the file a live `AVPlayer` may have open. Starting a new recording
+///    deletes the OUTGOING sink's directory immediately if it was never what `mediaURL` pointed
+///    at (an abandoned attempt — nothing was ever playing it; `sourceSelected`'s own comment
+///    covers this case). The sink that WAS displayed is different: it is deleted by
+///    `RecordingCoordinator.previewWasDismissed()`, called from `.onDisappear` at `ContentView`'s
+///    own call site — tied to the actual SwiftUI event that removes `StageWindow` (and its
+///    `AVPlayer`) from the tree, not to a guess about when some other function last ran. The
+///    first version deleted it inside `stopRecording()` on the theory that "`mediaURL` moving to
+///    a new file" was what made the old directory safe to delete; review caught that the
+///    deletion ran BEFORE `mediaURL` actually moved, and that the real guarantee lived in
+///    `beginOpenRecording()`'s earlier `mediaURL = nil` — a fact the comment never named. Tying
+///    the deletion directly to the view's own disappearance removes that dependency instead of
+///    documenting it.
 /// 2. **Swept on launch**: `sweepLeftoverDirectories()`, below, called once from
 ///    `RecordingCoordinator.init()` — the backstop for exits rule 1 cannot reach (force-quit, a
-///    crash, `killall`), which never run `stopRecording()` at all. Every directory this sink ever
+///    crash, `killall`), none of which ever fire `.onDisappear`. Every directory this sink ever
 ///    creates is named `soredemo-preview-<uuid>`, a naming convention that did NOT change when
 ///    the layout below did — so a sweep keyed on that PREFIX deletes a leftover flat
 ///    `master-00.mov` directory (pre-Task-5.5) and a leftover `media/`+`observations/` package
