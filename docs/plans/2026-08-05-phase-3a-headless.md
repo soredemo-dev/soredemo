@@ -22,7 +22,7 @@ Every task's requirements implicitly include this section.
 - **Deterministic test targets must not depend on the `Headless` target.** A test that cannot link it cannot be written against it. `HeadlessTests` is the only test target that declares it. (The design doc says "`SoredemoHeadless`" here; that is the product the Xcode app links. Inside the package the dependency edge is on the target, and the target is what the manifest test asserts.)
 - **The cross-boundary probe compiles `Headless` sources BY PATH, as source.** It must not link `SoredemoHeadless`, and **no declaration may be widened to `public` in order to make the probe compile.** Widening for the probe's sake grows the public surface, which the entry rule then requires tests for, which puts pressure on loosening the scanner.
 - **`ArchitectureCheck`'s plugin source may never pass `--mode` or `--ban`.** Those flags exist for `HeadlessCheck`. A test pins this.
-- **Numbers in reports are executable.** `swift test`'s total comes from `scripts/count-tests.sh`, never from a hand-written `grep` and never from memory. Measured baseline at the start of this plan: **454** (`--skip RenderTests` 422 + `--filter RenderTests` 32 = 454, confirmed). `ROADMAP.md` says 464 and `docs/ARCHITECTURE.md` says 462; both are stale and Task 8 fixes them.
+- **Numbers in reports are executable, and a test count never goes into a prose document.** `swift test`'s total comes from `scripts/count-tests.sh` — never from a hand-written `grep`, never from memory, and never copied into a `.md` that changes less often than the number does. Baseline measured once, on 2026-08-05 at `f8b9998`, for this plan's own arithmetic only: **454** (`--skip RenderTests` 422 + `--filter RenderTests` 32 = 454, confirmed). Three documents currently disagree with it and with each other — `ROADMAP.md` 464, `docs/ARCHITECTURE.md` 462, the design doc's § 4 example 466. **Task 8 removes all three rather than correcting them**, and gates the position they were written at.
 - **The probe is 349 checks.** `scripts/run-cross-boundary-probe.sh` must stay green at every task boundary.
 - **No recording, log or frame dump is committed** except the one deliberately redacted fixture Task 5 creates. Capture output goes to temp directories and is deleted; never write to `$HOME`.
 - **Never `git add -A`.** Add named paths.
@@ -458,6 +458,63 @@ Moving the whole bridge would drag `ApplicationServices`, the AX decoders and th
 **The answer is a second bridge, one per tier**, matching the shape already chosen for the plugins: two bridges with two scopes, not one bridge stretched across a boundary it no longer fits. `CGGeometryBridge`'s last three functions — `outputCanvas(width:height:)`, `renderSize(width:height:)` and `point(x:y:)` — are the RENDER-side exits. They take plain scalars, they touch no AX and no ScreenCaptureKit, and all three exist only because the render path needed them (their own doc comments say so, each naming the Phase 2B task that added it). They move to `Sources/Headless/HeadlessGeometryBridge.swift`; everything else stays for 3A-2.
 
 `CGGeometryBridge`'s header currently opens **"The only file in this repository allowed to name a CoreGraphics geometry type."** That sentence becomes false in this task and must be corrected in the same commit — it becomes the only file in the APP TARGET, with a pointer to the Headless bridge and one line on why there are now two. A sentence that quietly outlives its truth is this phase's subject; leaving that one standing while making it false would be the plan writing its own D6a-N row.
+
+**MOVE, never copy — and the measurement that says a copy is not even tempting.** Call sites, counted with the code view before this plan was written:
+
+| function | callers | in |
+| --- | --- | --- |
+| `outputCanvas(width:height:)` | 2 | `CoreImageFrameRenderer` |
+| `renderSize(width:height:)` | 1 | `CompositionBuilder` |
+| `point(x:y:)` | 14 | `CursorArt` |
+
+**Zero callers in `Soredemo/Capture/`, for all three.** So after the move there is one implementation and nothing left behind to drift from it; `CGGeometryBridge` does not delegate to `HeadlessGeometryBridge` because it has nothing to delegate, and adding `import Headless` to it would be a dependency edge carrying no call.
+
+What is NOT free is the future: nothing stops someone adding a `point(x:y:)` to whichever bridge they happen to be in, and then two implementations pass two tests while disagreeing. The invariant worth enforcing is therefore **the two bridges' function names are disjoint**, and it is worth one test rather than one dependency edge:
+
+```swift
+/// **Two bridges, one definition each.** The tiers are split because their ENTRANCES
+/// differ — AX and ScreenCaptureKit need `ApplicationServices`, the render exits need
+/// nothing — but a function defined in both would be the split's actual failure mode:
+/// one copy gets a fix, the other does not, and both pass their own tier's test.
+///
+/// Measured when the split was made: the three render exits had 17 call sites and not
+/// one of them in `Soredemo/Capture/`, so there is nothing to delegate and no edge to
+/// add. This test is about the day after that measurement stops being true.
+///
+/// When `Capture` moves in 3A-2 the two bridges become one and this test is deleted
+/// with them — it is scaffolding for a boundary that is meant to be temporary, which
+/// is stated here so it is not mistaken for a permanent rule.
+@Test func theTwoGeometryBridgesShareNoFunctionName() throws {
+    func functionNames(inFileAt relativePath: String) throws -> Set<String> {
+        let text = try String(contentsOf: repositoryRoot.appending(path: relativePath),
+                              encoding: .utf8)
+        var names: Set<String> = []
+        for line in SwiftSourceLexer.codeViewLines(of: text) {
+            let words = line.split(whereSeparator: { !SwiftSourceLexer.isIdentifierCharacter($0) })
+                .map(String.init)
+            guard let funcIndex = words.firstIndex(of: "func"), funcIndex + 1 < words.count
+            else { continue }
+            names.insert(words[funcIndex + 1])
+        }
+        return names
+    }
+
+    let app = try functionNames(inFileAt: "Soredemo/Capture/CGGeometryBridge.swift")
+    let headless = try functionNames(inFileAt: "Sources/Headless/HeadlessGeometryBridge.swift")
+    try #require(!app.isEmpty && !headless.isEmpty, "a bridge scanned as empty — the scan is broken, not the bridges")
+
+    #expect(app.isDisjoint(with: headless), """
+        both geometry bridges define \(app.intersection(headless).sorted()).
+        Two implementations of the same conversion drift: one gets the fix, the other does not, \
+        and each passes its own tier's rule-5 test while disagreeing with the other.
+        Define it once. `Soredemo/Capture/` is the upper tier and can `import Headless` if it \
+        genuinely needs a render-side exit — but measure the call sites first; when this split \
+        was made there were none.
+        """)
+}
+```
+
+This goes in `Tests/AppSourceTests/HeadlessEntryRuleTests.swift` beside rule 5's two halves. Note `rect(from:)` is overloaded on `PixelRect`/`PointRect` and stays entirely in the app bridge — name-based disjointness is the right granularity here precisely because an overload set is one name.
 
 - [ ] **Step 1: Move `CursorArt` and split the bridge**
 
@@ -901,16 +958,23 @@ if [ "${1:-}" = "--split" ]; then
     HEADLESS=$(count_run --filter HeadlessTests)
     EVERYTHING=$(count_run)
 
-    printf '  swift test — deterministic  %6d passed\n' "$DETERMINISTIC"
-    printf '  swift test — headless       %6d passed    (GPU / timing sensitive)\n' "$HEADLESS"
-    printf '  ---------------------------------------\n'
-    printf '  %6d  total\n' "$EVERYTHING"
-
+    # The partition check runs BEFORE anything is printed. Printing three numbers and
+    # letting the reader add them up is how two instruments answering different
+    # questions get read as agreeing — and here all three numbers would look equally
+    # plausible whichever way it broke. So the relation is enforced, and the output
+    # says it was enforced rather than inviting anyone to check.
     if [ $((DETERMINISTIC + HEADLESS)) -ne "$EVERYTHING" ]; then
         echo "the two populations do not partition the suite: $DETERMINISTIC + $HEADLESS != $EVERYTHING" >&2
         echo "either a suite is counted twice or one is counted by neither filter. The split is not a split." >&2
+        echo "no numbers printed: a partition that is not one has no two counts to report." >&2
         exit 3
     fi
+
+    printf '  swift test — deterministic  %6d passed\n' "$DETERMINISTIC"
+    printf '  swift test — headless       %6d passed    (GPU / timing sensitive)\n' "$HEADLESS"
+    printf '  ---------------------------------------\n'
+    printf '  %6d  total (partition verified: %d + %d)\n' \
+        "$EVERYTHING" "$DETERMINISTIC" "$HEADLESS"
     exit 0
 fi
 ```
@@ -1755,13 +1819,16 @@ At this point `Soredemo/Render/` and `Soredemo/Export/` are empty. Remove the di
 
 **Files:**
 - Create: `Tests/CheckerLexerTests/LexerImportDisciplineTests.swift`
-- Modify: `Package.swift` (comment only), `ROADMAP.md`, `docs/ARCHITECTURE.md`
+- Create: `Tests/AppSourceTests/ProseClaimTests.swift`
+- Modify: `Package.swift` (comment only), `ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/design/2026-08-04-phase-3a-foundation-design.md`
 
 **Interfaces:** none produced.
 
 **Finding 1 — `CheckerLexer`'s reason IS written where its maintainer looks, and its consequences are not enforced.** The carried question was whether the missing `ArchitectureCheck` is deliberate and whether the reason lives anywhere but a commit message. Measured: `Package.swift:41-55` states it is deliberate, gives the reason (attaching the plugin closes `AppSourceTests → CheckerLexer → ArchitectureCheck → architecture-checker → CheckerLexer`), names both consequences, and points at the test that pins the exemption; `ArchitectureCheckTests.swift:554-566` says the same beside the list. **So the documentation half is already done and needs nothing.** What is missing is the enforcement half: the comment says rule 1 for this target is "kept by hand", and nothing checks it.
 
-**Finding 2 — the written test counts are stale in two documents, by two different amounts.** Measured today on a clean tree at `c0ba0a0`: `swift test` = 454, all passing. `ROADMAP.md:85` says 464. `docs/ARCHITECTURE.md:649` says 462. Both are wrong, and `scripts/count-tests.sh` exists precisely because "the number was got wrong three times by hand".
+**Finding 2 — three documents state three different wrong test counts, and the tool built to prevent exactly that is wired to nothing.** Measured on a clean tree at `f8b9998`: `swift test` = 454, all passing, two instruments agreeing. `ROADMAP.md:85` says 464; `docs/ARCHITECTURE.md:649` says 462; the design doc's § 4 example says 466. `scripts/count-tests.sh` exists precisely because "the number was got wrong three times by hand" — and it sits unused at every site where the number is written.
+
+**The finding is not that the digits are wrong.** It is that a number changing on most commits was written into documents changing rarely, three times, by someone with the measuring tool already in the repository. Correcting the digits leaves that fully intact and produces a fourth wrong value within a week. **The fix is to remove the claim and gate the position**, which is what steps 3 and 3b do.
 
 - [ ] **Step 1: Enforce `CheckerLexer`'s rule-1 consequence**
 
@@ -1826,18 +1893,74 @@ Observe its red by temporarily adding `import CoreGraphics` to `Sources/CheckerL
 
 Try adding `"CheckerLexer"` to `DeterminismTests`' dependencies in `Package.swift` and run `swift test --filter DeterminismTests`. If `determinismTestTargetDependsOnEveryCheckedModule` and the symbol scan both stay green, keep the change and delete the last paragraph of the doc comment above — the second hand-kept consequence is then enforced too. If either fails, revert and record the exact failure in the task report and in the `Package.swift` comment, so the next reader inherits a measurement rather than a plan.
 
-- [ ] **Step 3: Fix the two stale counts**
+- [ ] **Step 3: Take the number out of prose entirely — do not correct it**
 
-Run `scripts/count-tests.sh --split` and use its output. Replace the number at `ROADMAP.md:85` and at `docs/ARCHITECTURE.md:649` with the current measured figures, and in both places name the instrument (`scripts/count-tests.sh`) beside the number so the next reader can recompute rather than trust.
+**Writing 454 into the documents is the wrong fix**: a number that changes on most commits, written into documents that change rarely, expires by construction. It expired twice already, into two different wrong values, in files edited by someone who had `scripts/count-tests.sh` available. **A tool built to prevent an error, not wired to the place the error happens, prevents nothing** — that is the finding, and correcting the digits would leave it fully intact.
 
-**Deliberately no gate here.** A test that shells out to `swift test` from inside `swift test` recurses, and a gate that hangs is worse than a stale number. What replaces it is the instrument being named at the point of the claim — the same move `theUnexercisedPublicAPITableMatchesTheTree` makes for D6a-V's counts, at the level this claim can afford. Say so in a sentence at both sites, so the absence of a gate is a stated decision and not an oversight a reader has to infer.
+So: **the test count does not appear in prose.** It lives in the gate's output and nowhere else.
+
+- `ROADMAP.md:85` — rewrite the sentence without a count. It is making a point about the app target having no executing instrument; the number was decoration on that point, not its content. Say "`swift test`'s suite does not link the app" and cite `scripts/count-tests.sh` for the figure.
+- `docs/ARCHITECTURE.md:649` — same rewrite, same reason.
+- **The design doc, `docs/design/2026-08-04-phase-3a-foundation-design.md` § 4**, whose example block prints `466 passed`. Left alone it becomes a FOURTH source disagreeing with the other three. Replace the digits with `N` in both rows of that block — it is illustrating a FORMAT, and a format example does not need a real number to illustrate it.
+
+- [ ] **Step 3b: Wire the gate to the position the error happened at**
+
+```swift
+/// **A test count may not appear in prose.** Three documents carried three different
+/// wrong values — 464, 462 and 466 — while `scripts/count-tests.sh` sat unused, and
+/// that script exists because the number had already been got wrong three times by
+/// hand. The tool was built and never connected to the place the mistake is made.
+///
+/// **The rule is narrow on purpose.** "No number near the word tests" would fire on
+/// `AGENTS.md`'s "it survived 450 unit tests, 350 probe checks" — a HISTORICAL claim
+/// about one moment in the past, correctly frozen, and one of the most valuable
+/// sentences in that file. The general form of this rule was already measured on this
+/// tree once, at roughly 97% false positives, and a gate at that rate gets switched
+/// off. So this pins one shape: `swift test` followed closely by a bare integer, which
+/// is exactly how both live claims were spelled and is never how a historical one is.
+///
+/// The count is not unavailable — it is one command away, and both sites now say which.
+@Test func noProseDocumentStatesTheCurrentTestCount() throws {
+    let documents = ["ROADMAP.md", "AGENTS.md", "docs/ARCHITECTURE.md", "KICKOFF.md",
+                     "docs/design/2026-08-04-phase-3a-foundation-design.md"]
+    for name in documents {
+        let url = repositoryRoot.appending(path: name)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+        for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            var search = line.startIndex..<line.endIndex
+            while let hit = line.range(of: "swift test", range: search) {
+                // The 40 characters after the phrase: enough to cover "`swift test`'s 464
+                // tests" and "swift test — deterministic   466 passed", short enough that a
+                // sentence mentioning the command and, later, an unrelated number does not fire.
+                let windowEnd = line.index(hit.upperBound, offsetBy: 40, limitedBy: line.endIndex)
+                    ?? line.endIndex
+                let window = line[hit.upperBound..<windowEnd]
+                let hasCount = window.contains { $0.isNumber }
+                #expect(!hasCount, """
+                    \(name):\(index + 1) states a test count in prose:
+                      \(line.trimmingCharacters(in: .whitespaces))
+                    That number changes on most commits and this document does not. Three \
+                    documents carried three different wrong values before this gate existed.
+                    Cite `scripts/count-tests.sh` instead; the gate's output is where the \
+                    number belongs.
+                    """)
+                search = hit.upperBound..<line.endIndex
+            }
+        }
+    }
+}
+```
+
+Put it in `Tests/AppSourceTests/`. **Observe its red before removing the numbers**: run it against the tree as it stands and confirm it names `ROADMAP.md:85`, `docs/ARCHITECTURE.md:649` and the design doc's § 4 block — three hits, the three known ones. A gate whose first run finds exactly the defects that motivated it is a gate with grade-1 evidence; one written after the cleanup would only ever have been green.
+
+**Why not a gate that recomputes the number.** A test that shells out to `swift test` from inside `swift test` recurses, and a gate that hangs is worse than a stale number. Removing the claim is the fix that needs no recomputation at all — there is nothing left to go stale.
 
 - [ ] **Step 4: Gates and commit**
 
 ```bash
 swift build && scripts/count-tests.sh --split && scripts/run-cross-boundary-probe.sh
-git add Tests/CheckerLexerTests/LexerImportDisciplineTests.swift Package.swift ROADMAP.md docs/ARCHITECTURE.md
-git commit -m "Phase 3A-1 Task 8: CheckerLexer's hand-kept rule enforced, and two stale counts remeasured"
+git add Tests/CheckerLexerTests/LexerImportDisciplineTests.swift Tests/AppSourceTests/ProseClaimTests.swift Package.swift ROADMAP.md docs/ARCHITECTURE.md docs/design/2026-08-04-phase-3a-foundation-design.md
+git commit -m "Phase 3A-1 Task 8: CheckerLexer's hand-kept rule enforced, and the test count leaves prose for good"
 ```
 
 ---
