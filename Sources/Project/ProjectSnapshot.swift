@@ -36,10 +36,14 @@ public struct ProjectSnapshot: Codable, Sendable, Equatable {
     /// on the next save (the older build's encoder has no `segments` case
     /// to write), and the failure `ProjectFormatError.tooNew` exists to
     /// prevent has happened anyway, just one field at a time instead of
-    /// all at once. That risk is accepted for this task because nothing in
-    /// Phase 2 writes a real segment table yet (`SegmentTable` is
-    /// currently code with no caller) — there is no data to lose in
-    /// practice before Task 8 or 11 exist to produce it. A future
+    /// all at once. **The reason this risk was accepted has since expired,
+    /// and the trade has not been re-made.** It was accepted while
+    /// `SegmentTable` was code with no caller, so there was no data to lose;
+    /// `CaptureSession.stop()` now produces a real segment table on every
+    /// recording. What still holds is narrower and worth stating plainly:
+    /// nothing PERSISTS one — that table is discarded at the end of `stop()`
+    /// and no `.soredemo` package on disk carries a `segments` key. The day a
+    /// caller writes one, this decision needs re-making, not inheriting. A future
     /// additive field should re-examine this trade explicitly rather than
     /// assume the precedent, and MUST bump when it changes what an
     /// existing key means or how it decodes, not just when it adds one.

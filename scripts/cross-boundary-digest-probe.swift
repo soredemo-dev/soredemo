@@ -554,6 +554,35 @@ enum CrossBoundaryProbe {
               "hostNow advances",
               actual: "\(after.rawValue) vs \(before.rawValue)")
 
+        // THE UNIT, AGAINST A CLOCK THAT IS NOT `Minting`'s.
+        //
+        // Everything else in this file that touches the host clock reads it through
+        // `Minting.hostNow()`, so every one of those checks holds just as well if the
+        // `mach_timebase_info` multiply inside `hostNow` regressed and it started returning raw
+        // mach TICKS instead of nanoseconds: "advances" is true of ticks, "continuousNow >=
+        // hostNow" is true of ticks, and § 7.2 — which calls itself the standing check on this
+        // unit — mints its synthetic `CGEventTimestamp` FROM `hostNow()` itself, so a regression
+        // would move stamp and clock together and leave the skew at ≈0. On Apple Silicon the
+        // timebase is 125/3, so the failure is a factor of ~41.67, not a rounding error.
+        //
+        // `clock_gettime_nsec_np(CLOCK_UPTIME_RAW)` is the independent instrument: nanoseconds by
+        // definition, same origin (boot, not counting sleep) as `mach_absolute_time`, and it does
+        // not go through `Minting`. Agreement to a millisecond over two reads taken microseconds
+        // apart is far tighter than the ~41x a lost timebase multiply would produce.
+        //
+        // This is the last known instance in this tree of the shape that hid `1a98402` for a
+        // phase: a check whose expected value is computed by the code it is checking. See
+        // AGENTS.md, "Every automatic check inherits the implementation's misunderstanding".
+        let mintedNanos = Minting.hostNow().rawValue
+        let independentNanos = Int64(clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+        let unitSkew = abs(independentNanos - mintedNanos)
+        check(unitSkew < 1_000_000,
+              "hostNow() is in NANOSECONDS, measured against clock_gettime_nsec_np(CLOCK_UPTIME_RAW) "
+              + "— an instrument Minting does not own. A lost mach_timebase multiply would show here "
+              + "as a ~41.67x disagreement and nowhere else in this file",
+              actual: "hostNow=\(mintedNanos) CLOCK_UPTIME_RAW=\(independentNanos) "
+              + "skew=\(unitSkew) ns (< 1_000_000 required)")
+
         let hostTime = Minting.hostNow()
         let continuousTime = Minting.continuousNow()
         check(continuousTime.rawValue >= hostTime.rawValue,
@@ -5812,6 +5841,21 @@ enum CrossBoundaryProbe {
         generator.videoComposition = composition
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
+
+        // THIS SECTION LEAVES `StageCompositor`'s PROCESS-WIDE STATE AS IT FOUND IT.
+        //
+        // What follows deliberately sets `renderer` to `nil` and then to a throwing stub — the two
+        // configurations that make the drop counter tick. Both are states no LATER section could
+        // survive: a `nil` renderer makes every composition request fail the leading guard. Until
+        // now this section was correct only because it happens to run last, which is an ordering
+        // fact nobody declared and the next section appended to this file would silently break.
+        // § 12 already restores `observationLogURL`/`overrides` this way; the same discipline, for
+        // the same reason.
+        let restoreRenderer = StageCompositor.renderer
+        defer {
+            StageCompositor.renderer = restoreRenderer
+            StageCompositor.resetDiagnostics()
+        }
 
         // 16.1 — cause 1: the leading guard, via no renderer configured at all.
         StageCompositor.renderer = nil
