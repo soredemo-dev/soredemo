@@ -577,7 +577,7 @@ with no row is a belief about macOS held only in a guard.
 | 11 | `CGEventTapEnable(tap, false)` from inside the process **does** deliver `kCGEventTapDisabledByUserInput` | measured, Task 10 human step 1 | 26.5.2 | that step validates edge arithmetic, not the poll. If the notification stopped, the step silently starts testing the poll instead — and its label would be wrong |
 | 12 | `CGEventTimestamp` is nanoseconds on the same base as `CMClockGetHostTimeClock` | measured: 395 real tapped timestamps inside the plausible band; `CGEvent(source: nil)!.timestamp` is **0**, so there is no permission-free source of one | 26.5.2 | every instant in the observation log, and the `implausibleEventTimestampCount` band |
 | 13 | Terminal's Secure Keyboard Entry is **off** by default, and a `sudo` password prompt does **not** raise system-wide secure input | measured, with the credential verified expired beforehand so the cached-credential explanation was excluded | 26.5.2 | only the verification instruction. Recorded because the wrong answer cost a run |
-| 14 | ~~A pointer-only `.listenOnly` tap needs no Input Monitoring grant; a keyboard tap does~~ **VOID — never measured** | inferred from which step first failed. Every one of those steps ran under `com.cmuxterm.app`, which already held both grants, so no step ever tested the spike's own permission state | — | `CapturePermissions`' degradation model, and what a first-run user can do before granting anything |
+| 14 | ~~A pointer-only `.listenOnly` tap needs no Input Monitoring grant~~ **FALSIFIED AS A UNIVERSAL, and the two states are not the same.** Direct observations only; the mechanism is deliberately not stated — see D6b-14a | **two instruments, one subject, opposite answers.** Both ran as `video.soredemo.Soredemo` on 26.5.2 (25F84). Harness, `.denied`: `tapCreate` non-nil, `tapIsEnabled` **false on 50 of 50 polls** over 4.9 s, five synthetic mouse-moved events posted, **zero delivered**. Real recording, `notDetermined` after `tccutil reset ListenEvent`: over the 9.35 s before the grant landed, 82 disabled windows losing 8.40 s (**89.9%**) — and **49 pointer samples and 2 button events were delivered anyway** | 26.5.2 (25F84) | `CapturePermissions`' degradation model, and what a first-run user can do before granting anything. "Creates successfully but delivers nothing" is false as a universal: it holds under `.denied` and not under `notDetermined` |
 | 15 | `mach_timebase_info` is 125/3 on this hardware | measured twice, a day apart | Apple Silicon, 26.5.2 | nothing directly — every conversion goes through `CMTime`/`Nanoseconds`. Kept because it is the constant a hand-rolled conversion would need, and hand-rolling it is the mistake |
 | 18 | **`CGPreflightScreenCaptureAccess()` returning `granted` is not evidence that capture will work.** The absence direction still holds; the presence direction does not | measured twice, Phase 2B human step: `tccutil reset ScreenCapture video.soredemo.Soredemo` → "Successfully reset", then `CGPreflightScreenCaptureAccess()` → `granted`, then `SCStream.startCapture()` → **-3801** | 26.5.2 (25F84) | any guard of the form `status(of: .screenRecording) != .granted` — it never fires on this machine, so a first-run path gated on it is dead code. `CapturePermissions.degradation` is unaffected: it is about absence |
 | 19 | **`SCStreamErrorUserDeclined` (-3801) names screen recording, and the service actually denied may be the microphone.** The error code's subject and the failing service are not the same thing | measured, Phase 2B human step. `log show --predicate 'subsystem == "com.apple.TCC"'` says verbatim: *"Prompting policy for hardened runtime; service: kTCCServiceMicrophone requires entitlement com.apple.security.device.audio-input but it is missing"* → *"Policy disallows prompt"* → *"access to kTCCServiceMicrophone denied"* | 26.5.2 (25F84) | every diagnosis that reads -3801 as a Screen Recording problem. The instrument that answers correctly is the TCC log, not the error code |
@@ -608,6 +608,53 @@ never had a measurement to file.
 **product's** bundle identifier is a spent-once asset: `capture-permissions` needs it to test the
 first-run degradation path. Every spike therefore uses its own identifier (`video.soredemo.SpikeA`,
 `SpikeB`, `SpikeC`) so a throwaway tool cannot consume it.
+
+### D6b-14a — the row-14 recording, as direct observation
+
+**Written before the mechanism is settled, on purpose.** Two of this project's own instruments gave
+opposite answers about the same subject, and a register row that picks one of them before the
+conflict is resolved becomes a row that contradicts its own evidence. What follows is what was
+observed. Nothing here depends on why.
+
+**Subject.** macOS 26.5.2 (25F84), `video.soredemo.Soredemo`, 2026-08-04 08:04, one segment of
+19.90 s. Evidence: `observations/segment-00.jsonl`, 411 lines, with `media/master-00.mov`, plus a
+`log show --predicate 'subsystem == "com.apple.TCC"'` capture.
+
+**The cut between the two halves is the TCC log's `kTCCServiceListenEvent` reading `authValue=2`
+at 08:04:04.775**, which is +9.345 s into the recording. It is *not* the `kTCCServiceAccessibility`
+`Modify` at 08:04:03.674 — those are 1.1 s apart and picking the other one moves every boundary
+below. Named because these numbers cannot be rebuilt without it.
+
+| | disabled windows | lost | share | pointer | button |
+| --- | --- | --- | --- | --- | --- |
+| before the grant (9.35 s) | 82 | 8.40 s | **89.9%** | **49** | **2** |
+| after the grant (10.55 s) | 67 | 6.55 s | **62.1%** | 202 | 4 |
+
+**What this settles on its own.** "Creates successfully but delivers no events" is **false as a
+universal**: delivery before the grant was non-zero. And the grant does not end the disabling —
+62.1% of the span after it is still blind. So the grant explains the step from 89.9% to 62.1% and
+does not explain the remainder.
+
+**One quantity left unexplained rather than smoothed.** The single alive stretch longer than 300 ms
+begins at **9.173 s**, which is **172 ms before** the grant reading at 9.345 s. The poll interval is
+100 ms, so 172 ms is **not** within polling resolution and must not be written as though it were. It
+may be nothing. It may be the first hint that the grant is not what revived the tap.
+
+**`[hypothesis]`, not measured:** that the residual 62.1% is the callback-overload disabling of D6b
+row 10. The knob that would settle it: run once with the compositor off and once with the AX walk
+off, and see whether 62.1% moves. **A number that does not move when you change the resource was
+never about that resource** — the same discriminator that saved an hour on the writer-receiver
+stall, used here in the positive direction.
+
+**`authReason` is not decoded.** The TCC log reports `authReason=4`; no machine-checkable table maps
+those values, so the number is recorded and not interpreted.
+
+**Still open, and it is what row 14 now turns on:** whether `.denied` and `notDetermined` genuinely
+differ in tap behaviour, or whether something else separates the two runs. Both reported
+`authValue=0` before their grants, so TCC's own value does not distinguish them — which is D6b
+row 18's shape again, one service over.
+
+---
 
 ### D6b-27 — the 78 declarations condemned at exactly macOS 27.0
 
