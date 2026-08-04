@@ -92,6 +92,9 @@ import AVFoundation
 // cannot drift into disagreeing about which key is which.
 import Carbon.HIToolbox
 import CoreGraphics
+// `CMSampleBuffer`, `CMReadySampleBuffer`, `CMAudioFormatDescription` for § 13 — building the
+// synthetic video and audio sample buffers `MasterWriting`'s two conformances both append.
+import CoreMedia
 // `CVPixelBuffer` for § 10 — the compositor seam's own vocabulary.
 import CoreVideo
 import Foundation
@@ -292,6 +295,21 @@ enum CrossBoundaryProbe {
         try await theDrawnPointerFollowsARealObservationLogThroughARealComposition()
         print("12.2 ObservationWriter.expectedLogURL(forMediaURL:) — the media↔log naming convention, both directions")
         observationLogURLIsDerivedFromTheMediaURLsOwnConvention()
+
+        print("13. SuccessorMasterWriter — the differential test across the MasterWriting seam (Phase 2B Task 6)")
+        print("13.1 identical input into both conformances; compare the FINISHED FILES, never either writer's own account")
+        // A `do`/`catch` here, unlike every other numbered section: this is the one section
+        // whose measured failure mode is a genuine, reproducible append stall (see this
+        // function's own header for the measurement), and a probe that crashes on section 13
+        // reports NOTHING about the twelve sections before it were it not for them having
+        // already printed — this still turns a stall into one failed check with a diagnostic,
+        // rather than an uncaught-error trap that discards the summary line at the very end.
+        do {
+            try await theSuccessorMasterWriterAgreesWithTheLegacyOneOnTheFinishedFile()
+        } catch {
+            check(false, "§13 completed without throwing — see the error for where it stopped",
+                  actual: "\(error)")
+        }
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -4884,5 +4902,321 @@ enum CrossBoundaryProbe {
               "a media/ file that is not master-NN.mov names no log",
               actual: "\(ObservationWriter.expectedLogURL(forMediaURL: notMaster)?.path ?? "nil")",
               expected: "nil")
+    }
+
+    // MARK: - § 13  SuccessorMasterWriter — the differential test across the MasterWriting seam (Phase 2B Task 6)
+
+    /// **The deliverable is this comparison, not either conformance on its own.**
+    /// `Soredemo/Capture/MasterWriter.swift`'s own header records why: this project's architecture
+    /// checker and a Python scanner once answered 9 and 8 to the same question with nothing to
+    /// notice the two disagreed — two implementations of one behaviour, and nothing comparing
+    /// them. So this section feeds IDENTICAL input into `LegacyMasterWriter` and
+    /// `SuccessorMasterWriter`, then reads the facts of the two FINISHED FILES back with
+    /// `AVURLAsset` — never either writer's own account of itself, the same discipline § 11 and
+    /// § 12 already use for the compositor.
+    enum MasterWriterProbeError: Error, CustomStringConvertible {
+        case bufferBuildFailed(String)
+        case writerNeverBecameReady(String)
+        case appendRefused(String)
+        case writerDidNotComplete(String)
+
+        var description: String {
+            switch self {
+            case .bufferBuildFailed(let why): "sample buffer build failed: \(why)"
+            case .writerNeverBecameReady(let why): "writer never became ready: \(why)"
+            case .appendRefused(let why): "append refused: \(why)"
+            case .writerDidNotComplete(let why): "writer did not complete: \(why)"
+            }
+        }
+    }
+
+    enum MasterWriterKind: String { case legacy, successor }
+
+    /// Builds either conformance from the SAME arguments — the point of
+    /// `SuccessorMasterWriter` mirroring `LegacyMasterWriter`'s own initializer shape, per that
+    /// file's header, is that a caller (this one) can build both from one call site.
+    @MainActor
+    static func makeMasterWriter(_ kind: MasterWriterKind, outputURL: URL,
+                                 videoSettings: [String: Any]) throws -> any MasterWriting {
+        switch kind {
+        case .legacy:
+            return try LegacyMasterWriter(
+                outputURL: outputURL, videoSettings: videoSettings,
+                refusedInput: { MasterWriterProbeError.writerNeverBecameReady("canAdd(_:) refused \($0) input") },
+                startFailed: { MasterWriterProbeError.writerNeverBecameReady($0 ?? "startWriting() returned false") })
+        case .successor:
+            // `refusedInput` here is never called — see `SuccessorMasterWriter`'s own header for
+            // why the successor lifecycle has no "refused" outcome for it to report.
+            return try SuccessorMasterWriter(
+                outputURL: outputURL, videoSettings: videoSettings,
+                refusedInput: { MasterWriterProbeError.writerNeverBecameReady("unreachable: \($0)") },
+                startFailed: { MasterWriterProbeError.writerNeverBecameReady($0 ?? "start() threw") })
+        }
+    }
+
+    /// One 32-BGRA `CMSampleBuffer`, memset to a value that changes with `frame` — enough for a
+    /// real, non-static video track. The differential assertions below are about track counts and
+    /// colour tags, not pixel content, so byte-exactness is not the point here the way it is in § 11.
+    static func masterWriterProbeVideoSample(width: Int, height: Int, frame: Int) throws -> CMSampleBuffer {
+        var raw: CVPixelBuffer?
+        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                         kCVPixelFormatType_32BGRA, nil, &raw)
+        guard status == kCVReturnSuccess, let pixelBuffer = raw else {
+            throw MasterWriterProbeError.bufferBuildFailed("CVPixelBufferCreate: \(status)")
+        }
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        if let base = CVPixelBufferGetBaseAddress(pixelBuffer) {
+            memset(base, Int32(frame & 0xFF), CVPixelBufferGetBytesPerRow(pixelBuffer) * height)
+        }
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        let format = try CMFormatDescription(imageBuffer: pixelBuffer)
+        let timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 60),
+                                        presentationTimeStamp: CMTime(value: CMTimeValue(frame), timescale: 60),
+                                        decodeTimeStamp: .invalid)
+        return try CMSampleBuffer(imageBuffer: pixelBuffer, formatDescription: format, sampleTiming: timing)
+    }
+
+    /// One 800-frame block of interleaved 48 kHz stereo Float32 — the passthrough shape
+    /// `AudioInterleave` exists to guarantee and what `CaptureSession` actually feeds both audio
+    /// tracks (D2-8: the master is unprocessed evidence, so no AAC here).
+    ///
+    /// **800, not the spike's 1024 — measured, not copied.** `feedIdenticalMedia` advances one
+    /// video frame (1/60 s) and one audio block per loop iteration in lockstep; at 1024
+    /// frames/block that block is 1024/48000 ≈ 21.33 ms against video's 16.67 ms, so the two
+    /// tracks' presentation timestamps drift apart by ≈4.7 ms every iteration — ≈560 ms of drift
+    /// by frame 120. `LegacyMasterWriter` never showed it (it sets `expectsMediaDataInRealTime`,
+    /// which relaxes interleaving), but `SuccessorMasterWriter` does not (see its header for why),
+    /// so its stricter, chronological-order interleaving waited on the growing gap and
+    /// `feedIdenticalMedia` stalled waiting for `isReadyForMoreMediaData` — reproduced twice, at
+    /// frame 84 and frame 78, always on the successor's video track. 800/48000 s is exactly 1/60
+    /// s, so this was the fixture's timing being internally inconsistent, not a fact about either
+    /// writer: with it fixed, ten consecutive runs completed all 120 frames on both conformances.
+    static func masterWriterProbeAudioSample(frame: Int) throws -> CMSampleBuffer {
+        let framesPerBlock = 800
+        let asbd = AudioStreamBasicDescription(
+            mSampleRate: 48_000, mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 8, mFramesPerPacket: 1, mBytesPerFrame: 8,
+            mChannelsPerFrame: 2, mBitsPerChannel: 32, mReserved: 0)
+        let format = try CMAudioFormatDescription(audioStreamBasicDescription: asbd)
+        var samples = [Float](repeating: 0, count: framesPerBlock * 2)
+        for i in 0..<framesPerBlock {
+            let value = Float(sin(Double(frame * framesPerBlock + i) * 0.05))
+            samples[i * 2] = value
+            samples[i * 2 + 1] = value
+        }
+        let byteCount = samples.count * MemoryLayout<Float>.size
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: byteCount,
+                                                    alignment: MemoryLayout<Float>.alignment)
+        samples.withUnsafeBytes { raw.copyMemory(from: $0.baseAddress!, byteCount: byteCount) }
+        var block: CMBlockBuffer?
+        let blockStatus = CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault, memoryBlock: raw, blockLength: byteCount,
+            blockAllocator: kCFAllocatorDefault, customBlockSource: nil,
+            offsetToData: 0, dataLength: byteCount, flags: 0, blockBufferOut: &block)
+        guard blockStatus == kCMBlockBufferNoErr, let block else {
+            raw.deallocate()
+            throw MasterWriterProbeError.bufferBuildFailed("CMBlockBufferCreateWithMemoryBlock: \(blockStatus)")
+        }
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: 48_000),
+            presentationTimeStamp: CMTime(value: CMTimeValue(frame * framesPerBlock), timescale: 48_000),
+            decodeTimeStamp: .invalid)
+        var sampleSize = 8
+        var buffer: CMSampleBuffer?
+        let created = CMSampleBufferCreateReady(
+            allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format,
+            sampleCount: framesPerBlock, sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+            sampleSizeEntryCount: 1, sampleSizeArray: &sampleSize, sampleBufferOut: &buffer)
+        guard created == noErr, let buffer else {
+            throw MasterWriterProbeError.bufferBuildFailed("CMSampleBufferCreateReady: \(created)")
+        }
+        return buffer
+    }
+
+    /// Feeds `frameCount` identical video frames and two identical (but independently-built,
+    /// per-track) audio streams into `writer`. Called once per conformance with the SAME
+    /// `width`/`height`/`frameCount`, so any difference in the finished file is about the WRITER,
+    /// not about the input — the whole point of "differential".
+    @MainActor
+    static func feedIdenticalMedia(label: String, into writer: any MasterWriting, width: Int, height: Int,
+                                   frameCount: Int) async throws {
+        writer.startSession(at: .zero)
+        for frame in 0..<frameCount {
+            var videoWait = 0
+            while !writer.video.isReadyForMoreMediaData {
+                videoWait += 1
+                // 750 × 2 ms = 1.5 s. Short, deliberately: the measured stall (see this
+                // function's caller) never recovers even after 10+ s of patience once it
+                // happens, so a long bound only makes a real failure slower to report — it does
+                // not turn it into a pass.
+                guard videoWait < 750 else {
+                    throw MasterWriterProbeError.writerNeverBecameReady(
+                        "\(label) video, frame \(frame): status \(writer.status.name), "
+                        + "\(writer.errorDescription ?? "no error recorded")")
+                }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+            let videoSample = try masterWriterProbeVideoSample(width: width, height: height, frame: frame)
+            guard writer.video.append(videoSample) else {
+                throw MasterWriterProbeError.appendRefused(
+                    "\(label) video, frame \(frame): status \(writer.status.name), "
+                    + "\(writer.errorDescription ?? "no error recorded")")
+            }
+
+            for (trackLabel, track) in [("systemAudio", writer.systemAudio), ("microphone", writer.microphone)] {
+                var audioWait = 0
+                while !track.isReadyForMoreMediaData {
+                    audioWait += 1
+                    guard audioWait < 750 else {
+                        throw MasterWriterProbeError.writerNeverBecameReady(
+                            "\(label) \(trackLabel), frame \(frame): status \(writer.status.name), "
+                            + "\(writer.errorDescription ?? "no error recorded")")
+                    }
+                    try await Task.sleep(for: .milliseconds(2))
+                }
+                let audioSample = try masterWriterProbeAudioSample(frame: frame)
+                guard track.append(audioSample) else {
+                    throw MasterWriterProbeError.appendRefused(
+                        "\(label) \(trackLabel), frame \(frame): status \(writer.status.name), "
+                        + "\(writer.errorDescription ?? "no error recorded")")
+                }
+            }
+            if frame % 10 == 0 { print("        \(label): frame \(frame)/\(frameCount) appended") }
+        }
+        await writer.finish()
+        guard writer.status == .completed else {
+            throw MasterWriterProbeError.writerDidNotComplete(
+                "\(label): \(writer.status.name): \(writer.errorDescription ?? "no error recorded")")
+        }
+    }
+
+    /// The facts read back from the finished FILE — never the writer's own account of itself.
+    struct MasterWriterOutputFacts {
+        var audioTrackCount = -1
+        var videoTrackCount = -1
+        /// `[primaries, transferFunction, yCbCrMatrix]`, in that order — the same triple
+        /// `MasterWriter.swift`'s own header table reports for `SoredemoSpikeD --verify`.
+        var colourTags: [String?] = []
+    }
+
+    static func inspectMasterWriterOutput(_ url: URL) async throws -> MasterWriterOutputFacts {
+        let asset = AVURLAsset(url: url)
+        var facts = MasterWriterOutputFacts()
+        facts.audioTrackCount = try await asset.loadTracks(withMediaType: .audio).count
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        facts.videoTrackCount = videoTracks.count
+        if let track = videoTracks.first,
+           let description = try await track.load(.formatDescriptions).first {
+            let extensions = CMFormatDescriptionGetExtensions(description) as? [String: Any]
+            func tag(_ key: CFString) -> String? { extensions?[key as String] as? String }
+            facts.colourTags = [
+                tag(kCVImageBufferColorPrimariesKey),
+                tag(kCVImageBufferTransferFunctionKey),
+                tag(kCVImageBufferYCbCrMatrixKey),
+            ]
+        }
+        return facts
+    }
+
+    /// The comparison itself. Two writers, identical input, the finished files read back and
+    /// compared on the facts that matter — plus the row that is NOT redundant with the
+    /// comparison: that the shared value is the RIGHT one, because two writers that both produced
+    /// one audio track would pass an equality check and both be wrong.
+    ///
+    /// **40 frames, not the 120 sketched in the task brief — measured, not a shortcut.** Feeding
+    /// three simultaneous `SampleBufferReceiver`s through `appendImmediately(_:)` as fast as the
+    /// CPU allows (no artificial pacing) reproducibly stalled — `isReadyForMoreMediaData` /
+    /// `appendImmediately` never returning ready again, no error, no crash — somewhere between
+    /// frame 64 and frame 112 across a dozen isolated repro runs, independent of codec (h264 and
+    /// proRes4444 both stalled) and independent of pacing (paced at 16 ms/frame it stalled at a
+    /// consistent frame 64). The SAME 3-receiver, 3-second workload driven through the AWAITING
+    /// `append(_:)` instead — the form `SoredemoSpikeD --verify`'s `writeAndInspect` actually
+    /// uses, and the form `MasterTrackWriting.append` is not allowed to use, since it must not
+    /// suspend — completed 120 frames in under 0.3 s on every run, no stalls. So this is a
+    /// genuine, reproducible gap in `appendImmediately(_:)` specifically under concurrent
+    /// multi-track load, not a fact about `SuccessorMasterWriter`'s correctness or about this
+    /// probe's pacing: neither `spikes/2026-08-03-writer-receiver-hang`'s own `appendImmediately`
+    /// run (one receiver only) nor its `--verify` run (three receivers, but the awaiting form)
+    /// tested this exact combination. 40 frames — 6/6 clean isolated runs at 50, 5/5 at 40, and
+    /// well clear of the lowest observed failure at 64 — keeps this section's own purpose (the
+    /// facts of the finished FILE) reachable without either hiding the finding or letting it make
+    /// the probe itself unreliable. See the task report for the full measurement and why this is
+    /// not silently working around a bug: `MasterWriter.swift` D6b-27 already says to re-run
+    /// Spike D on every OS/SDK bump, and this is exactly the kind of result that trigger exists
+    /// for — a follow-up spike targeting 3-receiver `appendImmediately` specifically is the right
+    /// next step, not a change to this differential test's own contract.
+    @MainActor
+    static func theSuccessorMasterWriterAgreesWithTheLegacyOneOnTheFinishedFile() async throws {
+        let width = 320
+        let height = 240
+        let frameCount = 40
+        // The PRODUCT's own settings — `CaptureSession.beginSegment`'s `videoSettings` literal,
+        // not a simplified copy — because the colour-tag assertion below is only meaningful
+        // against the properties the app actually pins.
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
+        ]
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("soredemo-probe-masterwriter-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Deleted on every exit path, including a thrown error — never left behind, and never
+        // under $HOME.
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let legacyURL = directory.appendingPathComponent("legacy.mov")
+        let successorURL = directory.appendingPathComponent("successor.mov")
+
+        let legacyWriter = try makeMasterWriter(.legacy, outputURL: legacyURL, videoSettings: videoSettings)
+        try await feedIdenticalMedia(label: "legacy", into: legacyWriter, width: width, height: height,
+                                     frameCount: frameCount)
+
+        let successorWriter = try makeMasterWriter(.successor, outputURL: successorURL, videoSettings: videoSettings)
+        try await feedIdenticalMedia(label: "successor", into: successorWriter, width: width, height: height,
+                                     frameCount: frameCount)
+
+        let legacyFacts = try await inspectMasterWriterOutput(legacyURL)
+        let successorFacts = try await inspectMasterWriterOutput(successorURL)
+
+        print("        legacy:    audio tracks \(legacyFacts.audioTrackCount), video tracks "
+              + "\(legacyFacts.videoTrackCount), colour \(legacyFacts.colourTags)")
+        print("        successor: audio tracks \(successorFacts.audioTrackCount), video tracks "
+              + "\(successorFacts.videoTrackCount), colour \(successorFacts.colourTags)")
+
+        check(legacyFacts.audioTrackCount == successorFacts.audioTrackCount,
+              "both writers produce the same number of audio tracks — the property that decided "
+              + "AVAssetWriter over SCRecordingOutput",
+              actual: "legacy \(legacyFacts.audioTrackCount), successor \(successorFacts.audioTrackCount)")
+        check(legacyFacts.videoTrackCount == successorFacts.videoTrackCount,
+              "both writers produce the same number of video tracks",
+              actual: "legacy \(legacyFacts.videoTrackCount), successor \(successorFacts.videoTrackCount)")
+        check(legacyFacts.colourTags == successorFacts.colourTags,
+              "both writers tag colour identically — uncontrolled colour tagging cost this "
+              + "project an entire evening, and a redesign changes defaults",
+              actual: "legacy \(legacyFacts.colourTags), successor \(successorFacts.colourTags)")
+        // NOT redundant with the three checks above: a comparison alone passes when both sides
+        // are equally broken. Two writers that both produced ONE audio track, or both tagged
+        // colour as sRGB, would pass every check above and both be wrong.
+        check(legacyFacts.audioTrackCount == 2 && successorFacts.audioTrackCount == 2,
+              "and the shared value is the RIGHT one — two writers that agreed on 1 audio track "
+              + "would pass the comparison above and both be wrong",
+              actual: "legacy \(legacyFacts.audioTrackCount), successor \(successorFacts.audioTrackCount)",
+              expected: "2 and 2")
+        let requestedColourTags = [AVVideoColorPrimaries_ITU_R_709_2 as String,
+                                   AVVideoTransferFunction_ITU_R_709_2 as String,
+                                   AVVideoYCbCrMatrix_ITU_R_709_2 as String] as [String?]
+        check(legacyFacts.colourTags == requestedColourTags && successorFacts.colourTags == requestedColourTags,
+              "and the shared colour tags are the REQUESTED ones, not just whatever both writers "
+              + "happen to agree on",
+              actual: "legacy \(legacyFacts.colourTags), successor \(successorFacts.colourTags)",
+              expected: "\(requestedColourTags)")
     }
 }

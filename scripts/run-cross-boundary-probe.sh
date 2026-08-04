@@ -68,6 +68,7 @@ xcrun swiftc \
   Soredemo/Capture/CaptureSource.swift \
   Soredemo/Capture/AudioInterleave.swift \
   Soredemo/Capture/MasterWriter.swift \
+  Soredemo/Capture/SuccessorMasterWriter.swift \
   Soredemo/Capture/CaptureSession.swift \
   Soredemo/Capture/CaptureError.swift \
   Soredemo/App/BuildProvenance.swift \
