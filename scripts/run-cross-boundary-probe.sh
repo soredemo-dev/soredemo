@@ -78,7 +78,8 @@ xcrun swiftc \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/Capture/ObservationWriter.swift \
   Soredemo/Render/FrameRenderer.swift \
-  Soredemo/Render/CursorArt.swift \
+  Sources/Headless/HeadlessGeometryBridge.swift \
+  Sources/Headless/CursorArt.swift \
   Soredemo/Render/CoreImageFrameRenderer.swift \
   Soredemo/Render/StageCompositor.swift \
   Soredemo/Render/CompositionBuilder.swift \

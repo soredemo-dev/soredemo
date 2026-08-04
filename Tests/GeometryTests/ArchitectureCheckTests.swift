@@ -477,15 +477,17 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     #expect(foundationAlways.status == 0, "stderr: \(foundationAlways.stderr)")
 }
 
-/// Deleting `plugins: archCheck` from a target silently voids rule 1 for it —
-/// no build failure, no diagnostic. This is the phase's largest silent-void risk.
+/// `swift package dump-package`'s `targets` array.
 ///
-/// Asserted against the RESOLVED manifest rather than its text, so it also catches
-/// `archCheck` being redefined to `[]` and `archCheck` being repointed at some
-/// other plugin — neither of which a grep for `plugins: archCheck` would notice.
+/// **The same helper exists in `Tests/AppSourceTests/HeadlessEntryRuleTests.swift`,
+/// and the duplication is a target boundary rather than carelessness**: the two live
+/// in different test targets, which cannot share a file-scope declaration, and the
+/// only module both can import is `CheckerLexer` — the one target outside plugin
+/// enforcement, and so the least-guarded place in the package to put shared code.
+///
 /// A separate `--scratch-path` keeps this off the `.build` directory the enclosing
 /// `swift test` is holding.
-@Test func everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest() throws {
+func resolvedManifestTargets() throws -> [[String: Any]] {
     let scratch = URL(filePath: NSTemporaryDirectory())
         .appending(path: "dump-\(ProcessInfo.processInfo.globallyUniqueString)")
     defer { try? FileManager.default.removeItem(at: scratch) }
@@ -506,7 +508,19 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     try #require(process.terminationStatus == 0, "swift package dump-package failed")
 
     let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-    let targets = try #require(root["targets"] as? [[String: Any]])
+    return try #require(root["targets"] as? [[String: Any]])
+}
+
+/// Deleting `plugins: archCheck` from a target silently voids rule 1 for it —
+/// no build failure, no diagnostic. This is the phase's largest silent-void risk.
+///
+/// Asserted against the RESOLVED manifest rather than its text, so it also catches
+/// `archCheck` being redefined to `[]` and `archCheck` being repointed at some
+/// other plugin — neither of which a grep for `plugins: archCheck` would notice.
+/// A separate `--scratch-path` keeps this off the `.build` directory the enclosing
+/// `swift test` is holding.
+@Test func everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest() throws {
+    let targets = try resolvedManifestTargets()
 
     // EVERY regular target, not a remembered list — a seventh target added without
     // the plugin is precisely the silent void this test exists to prevent. The six
@@ -516,12 +530,39 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     #expect(regularNames.isSuperset(of: libraryModules),
             "expected at least \(libraryModules) among the regular targets, got \(regularNames.sorted())")
 
+    // Every regular target carries a guard; WHICH guard depends on the tier. `Headless`
+    // is not exempt — it carries `HeadlessCheck`, whose single rule (no AppKit, no
+    // SwiftUI) is its own invariant. An entry here is the opposite of an exemption:
+    // adding a name to this map asserts that target has a guard, and the assertion is
+    // checked below.
+    let guardForTarget: [String: String] = ["Headless": "HeadlessCheck"]
+
     for target in regular where !pluginExemptTargets.contains(target["name"] as? String ?? "") {
         let name = target["name"] as? String ?? "<unnamed>"
         let usages = target["pluginUsages"] as? [[String: Any]] ?? []
         let plugins = usages.compactMap { ($0["plugin"] as? [Any])?.first as? String }
-        #expect(plugins.contains("ArchitectureCheck"),
-                "regular target \(name) does not use the ArchitectureCheck plugin — rule 1 is void for it. pluginUsages: \(usages)")
+        let required = guardForTarget[name] ?? "ArchitectureCheck"
+        #expect(plugins.contains(required),
+                "regular target \(name) does not use the \(required) plugin — its architecture rule is void for it. pluginUsages: \(usages)")
+    }
+
+    // And the tiers do not swap guards. `ArchitectureCheck` on `Headless` would ban
+    // AVFoundation and CGRect — a loud failure, so this is belt to that brace.
+    // `HeadlessCheck` on a pure target is the dangerous direction and silent: rule 1's
+    // allow-list and rule 2 would both be off and the build would stay green.
+    for target in regular {
+        let name = target["name"] as? String ?? "<unnamed>"
+        let plugins = (target["pluginUsages"] as? [[String: Any]] ?? [])
+            .compactMap { ($0["plugin"] as? [Any])?.first as? String }
+        if guardForTarget[name] == nil {
+            #expect(!plugins.contains("HeadlessCheck"), """
+                \(name) uses HeadlessCheck. That mode turns OFF rule 1's import allow-list and \
+                rule 2's CG ban — for a pure target this is a silent void, not a build failure.
+                """)
+        } else {
+            #expect(!plugins.contains("ArchitectureCheck"),
+                    "\(name) uses both guards; the pure guard cannot pass on this tier's imports")
+        }
     }
 
     // The checker's own target must NOT be checked: its source legitimately names

@@ -14,8 +14,19 @@ import CoreGraphics
 import Foundation
 import Geometry
 
-/// **The only file in this repository allowed to name a CoreGraphics geometry
-/// type.** Architecture **rule 2** keeps `CGRect`, `CGPoint`, `CGSize` and
+/// **The only file in the APP TARGET allowed to name a CoreGraphics geometry
+/// type.**
+///
+/// It used to say "in this repository", and Phase 3A-1 Task 2 made that false in
+/// the same commit that corrected it: `Sources/Headless/HeadlessGeometryBridge
+/// .swift` is now the RENDER tier's bridge, holding the three exits that moved out
+/// of this file with `CursorArt`. **There are two because the tiers' ENTRANCES
+/// differ** — the AX decoders and the ScreenCaptureKit attachment decoder below
+/// need `ApplicationServices`, and the render exits need nothing — not because one
+/// bridge was inconvenient. When `Capture` moves to the package in 3A-2 the two are
+/// reconsidered together, and the expected outcome is one bridge again.
+///
+/// Architecture **rule 2** keeps `CGRect`, `CGPoint`, `CGSize` and
 /// `CGFloat` out of the package entirely — `Plugins/ArchitectureCheck` fails the
 /// build on one. Keeping them out of the rest of the **app** is a different rule
 /// with a different mechanism: **rule 5**, enforced by a package **test** rather
@@ -224,47 +235,15 @@ enum CGGeometryBridge {
         CGRect(x: points.x, y: points.y, width: points.width, height: points.height)
     }
 
-    /// The render pipeline's own exit: `RenderPlan.outputWidth`/`.outputHeight`, as the `CGRect`
-    /// `CIImage.cropped(to:)` needs.
-    ///
-    /// **Added for the compositor seam (Phase 2B Task 3), not in that task's brief.** The brief's
-    /// literal text for `CoreImageFrameRenderer.render(_:source:into:)` builds
-    /// `CGRect(x: 0, y: 0, width: CGFloat(plan.outputWidth), height: CGFloat(plan.outputHeight))`
-    /// inline, which is exactly what
-    /// `AppSourceAllowListTests.coreGraphicsGeometryTypesAppearOnlyInTheBridge` (rule 5) exists to
-    /// catch: measured red, naming `CGRect` and `CGFloat` at
-    /// `Soredemo/Render/CoreImageFrameRenderer.swift:32-34`. `plan.outputWidth`/`.outputHeight` are
-    /// plain `Int`s, not a package geometry type, so this takes scalars rather than adding a
-    /// `StageRect` overload — a `StageRect` decode-then-discard-the-position would be a fact this
-    /// call site does not have (the output canvas has no position, only an extent).
-    nonisolated static func outputCanvas(width: Int, height: Int) -> CGRect {
-        CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-    }
-
-    /// The composition's own exit: `AVVideoComposition.Configuration.renderSize` is a `CGSize`,
-    /// and `CompositionBuilder` (Phase 2B Task 4) holds only the plain `Int`s a `RenderPlan`
-    /// carries. Same shape as `outputCanvas(width:height:)` immediately above — an extent with no
-    /// position — added for the same reason: rule 5 confines `CGSize` to this one file, and
-    /// `CompositionBuilder.swift` writing `CGSize(width:height:)` inline would be exactly the
-    /// violation `outputCanvas` was added to fix in `CoreImageFrameRenderer.swift`.
-    nonisolated static func renderSize(width: Int, height: Int) -> CGSize {
-        CGSize(width: CGFloat(width), height: CGFloat(height))
-    }
-
-    /// The cursor art's own exit: `Soredemo/Render/CursorArt.swift` (Phase 2B Task 5) builds
-    /// `CGMutablePath`s for the drawn pointer and its click ripple, and every `move(to:)`/
-    /// `addLine(to:)`/`addCurve(to:control1:control2:)` on a `CGMutablePath` takes a `CGPoint`.
-    /// Scalars in, `CGPoint` out — the same shape as `outputCanvas(width:height:)` and
-    /// `renderSize(width:height:)` immediately above: `NormalizedPointerPlacement.x`/`.y` and the
-    /// path-geometry constants `CursorArt` computes from them are plain `Double`s, not a package
-    /// geometry type, so this takes scalars rather than adding a `StageRect`-shaped overload.
-    ///
-    /// **Added for the drawn pointer (Phase 2B Task 5), not in that task's brief.** The brief's
-    /// interface list asks for `CursorArt.pointerPath(scale:)` and `.ripplePath(phase:)` with no
-    /// point-making function named anywhere to build either `CGPath` from — the same gap
-    /// `outputCanvas`/`renderSize` closed for Tasks 3 and 4, this time for the one CoreGraphics
-    /// type this file had not yet needed to hand back out.
-    nonisolated static func point(x: Double, y: Double) -> CGPoint {
-        CGPoint(x: x, y: y)
-    }
+    // **The render-side exits that used to sit here — `outputCanvas(width:height:)`,
+    // `renderSize(width:height:)` and `point(x:y:)` — are now
+    // `Sources/Headless/HeadlessGeometryBridge.swift`** (Phase 3A-1 Task 2), moved
+    // with `CursorArt`, their heaviest caller. They took plain scalars and touched
+    // neither accessibility nor ScreenCaptureKit, so nothing about them needed this
+    // file's `ApplicationServices` import; what remains here is the entrances, which
+    // do. They were MOVED, not copied: measured at the split, their seventeen call
+    // sites included not one in `Soredemo/Capture/`, so this file has nothing to
+    // delegate and `import Headless` here would be an edge carrying no call.
+    // `HeadlessEntryRuleTests.theTwoGeometryBridgesShareNoFunctionName` is what keeps
+    // that true while two bridges exist.
 }

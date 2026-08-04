@@ -17,8 +17,58 @@
 #
 # Usage:  scripts/count-tests.sh          per-target breakdown and the total
 #         scripts/count-tests.sh --total  the total alone, for scripting
+#         scripts/count-tests.sh --split  the two populations, partition verified
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# --split: the two populations, and the invariant that makes them two counts rather
+# than two numbers.
+#
+# `swift test` now holds suites with different guarantees. The deterministic targets
+# answer the same on any machine; HeadlessTests may need a GPU, may be time-sensitive,
+# and may answer differently elsewhere. Reporting one "N tests pass" silently changes
+# what that number means — one symbol for two things is the shape this project has
+# caught most often.
+#
+# The sum check is the load-bearing part. Two filtered runs alone could double-count a
+# suite or drop one and both numbers would still look plausible; only the total says
+# the partition is a partition. Cost: three full test runs. That is why --split is
+# opt-in and the default stays one run.
+if [ "${1:-}" = "--split" ]; then
+    count_run() {
+        local output
+        output=$(swift test "$@" 2>&1) || {
+            echo "swift test $* FAILED — no count. Its output:" >&2
+            echo "$output" | tail -40 >&2
+            exit 1
+        }
+        printf '%s\n' "$output" | grep -oE "Test run with [0-9]+ tests?" \
+            | grep -oE "[0-9]+" | awk '{s+=$1} END {print s+0}'
+    }
+
+    DETERMINISTIC=$(count_run --skip HeadlessTests)
+    HEADLESS=$(count_run --filter HeadlessTests)
+    EVERYTHING=$(count_run)
+
+    # The partition check runs BEFORE anything is printed. Printing three numbers and
+    # letting the reader add them up is how two instruments answering different
+    # questions get read as agreeing — and here all three numbers would look equally
+    # plausible whichever way it broke. So the relation is enforced, and the output
+    # says it was enforced rather than inviting anyone to check.
+    if [ $((DETERMINISTIC + HEADLESS)) -ne "$EVERYTHING" ]; then
+        echo "the two populations do not partition the suite: $DETERMINISTIC + $HEADLESS != $EVERYTHING" >&2
+        echo "either a suite is counted twice or one is counted by neither filter. The split is not a split." >&2
+        echo "no numbers printed: a partition that is not one has no two counts to report." >&2
+        exit 3
+    fi
+
+    printf '  swift test — deterministic  %6d passed\n' "$DETERMINISTIC"
+    printf '  swift test — headless       %6d passed    (GPU / timing sensitive)\n' "$HEADLESS"
+    printf '  ---------------------------------------\n'
+    printf '  %6d  total (partition verified: %d + %d)\n' \
+        "$EVERYTHING" "$DETERMINISTIC" "$HEADLESS"
+    exit 0
+fi
 
 OUTPUT=$(swift test 2>&1) || {
     echo "swift test FAILED — no count. Its output:" >&2

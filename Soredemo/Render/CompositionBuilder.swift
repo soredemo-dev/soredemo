@@ -1,5 +1,9 @@
 import AVFoundation
 import Foundation
+// For `HeadlessGeometryBridge`, which moved into the `Headless` target in Phase
+// 3A-1 Task 2. `Headless` is the module name; the product the app target links is
+// `SoredemoHeadless`.
+import Headless
 import Render
 
 /// Builds ONE composition, handed to both the preview and the export.
@@ -44,12 +48,13 @@ enum CompositionBuilder {
             for: asset,
             prototypeInstruction: AVVideoCompositionInstruction(configuration: instruction))
         configuration.customVideoCompositorClass = StageCompositor.self
-        // `CGGeometryBridge.renderSize`, not a literal `CGSize(...)` here: rule 5
+        // `HeadlessGeometryBridge.renderSize`, not a literal `CGSize(...)` here: rule 5
         // (`AppSourceAllowListTests.coreGraphicsGeometryTypesAppearOnlyInTheBridge`) confines
-        // `CGSize` to that one file — see the bridge's own doc comment on `renderSize(width:
+        // `CGSize` to one file per tier — see the bridge's own doc comment on `renderSize(width:
         // height:)` for why this is a correction to the task brief, the same correction Task 3
-        // made for `CoreImageFrameRenderer`'s crop rectangle.
-        configuration.renderSize = CGGeometryBridge.renderSize(width: outputWidth, height: outputHeight)
+        // made for `CoreImageFrameRenderer`'s crop rectangle. It moved to
+        // `Sources/Headless/HeadlessGeometryBridge.swift` in Phase 3A-1 Task 2.
+        configuration.renderSize = HeadlessGeometryBridge.renderSize(width: outputWidth, height: outputHeight)
         configuration.frameDuration = frameDuration
         return AVVideoComposition(configuration: configuration)
     }

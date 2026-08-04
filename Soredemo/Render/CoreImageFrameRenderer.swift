@@ -1,6 +1,10 @@
 import CoreImage
 import CoreVideo
 import Foundation
+// For `CursorArt` and `HeadlessGeometryBridge`. Both moved into the `Headless`
+// target in Phase 3A-1 Task 2 — `Headless` is the module name, `SoredemoHeadless`
+// the product the app target links.
+import Headless
 import Metal
 import Render
 
@@ -42,13 +46,14 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let pointer = plan.pointer {
             composed = cursorImage(for: pointer, outputHeight: plan.outputHeight).composited(over: composed)
         }
-        // `CGGeometryBridge.outputCanvas`, not a literal `CGRect(...)` here: rule 5
+        // `HeadlessGeometryBridge.outputCanvas`, not a literal `CGRect(...)` here: rule 5
         // (`AppSourceAllowListTests.coreGraphicsGeometryTypesAppearOnlyInTheBridge`) confines
-        // `CGRect`/`CGFloat` to that one file, and `CIImage.cropped(to:)` is the exit point where
-        // this app's own `Int`s become CoreGraphics' unit for Core Image. See the bridge's own doc
-        // comment on `outputCanvas` for why this was a correction to the task brief.
+        // `CGRect`/`CGFloat` to one file per tier, and `CIImage.cropped(to:)` is the exit point
+        // where this app's own `Int`s become CoreGraphics' unit for Core Image. The function moved
+        // to `Sources/Headless/HeadlessGeometryBridge.swift` in Phase 3A-1 Task 2 with the rest of
+        // the render-side exits; see its doc comment for why it exists at all.
         let cropped = composed
-            .cropped(to: CGGeometryBridge.outputCanvas(width: plan.outputWidth, height: plan.outputHeight))
+            .cropped(to: HeadlessGeometryBridge.outputCanvas(width: plan.outputWidth, height: plan.outputHeight))
         context.render(cropped, to: destination,
                        bounds: cropped.extent,
                        colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
@@ -134,7 +139,7 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// and ready to draw into.
     private func cursorCanvas(size: Int) -> CGContext? {
         if let existing = cursorCanvases[size] {
-            existing.clear(CGGeometryBridge.outputCanvas(width: size, height: size))
+            existing.clear(HeadlessGeometryBridge.outputCanvas(width: size, height: size))
             return existing
         }
         guard let created = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,

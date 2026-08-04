@@ -27,6 +27,81 @@ enforces, so without it the pure/impure boundary is a convention rather than a b
 
 ---
 
+## D1a — Three tiers, and which one a new file belongs in
+
+D1's two-way split (package / app) is now a three-way one. The third tier exists because
+`swift test` **cannot link an `executableTarget` or an Xcode app target**: code in `Soredemo/` is
+only ever read as text or run by a person, and defect `1a98402` lived in
+`Soredemo/Render/StageCompositor.swift` for a whole phase because of it.
+
+**The tiers are defined by what can exercise them, not by a framework list.** An allow-list of
+frameworks is a mechanism with no principle behind it — a table that grows one row at a time.
+
+| Tier | Invariant | Guard |
+| --- | --- | --- |
+| `Sources/Geometry…Render` | **Deterministic**: same input, same output. No GPU, no clock, no window | `ArchitectureCheck` — Foundation plus declared siblings; no CG geometry |
+| `Sources/Headless` | **Runnable under `swift test` on a developer machine**, even where not bit-deterministic — real pixel buffers, GPU and wall time are all allowed | `HeadlessCheck` — no AppKit, no SwiftUI |
+| `Soredemo/` | **Only a running app can reach it** | the app-side scans in `Tests/AppSourceTests` |
+
+**Deciding where a new file goes: does it need a window or an app lifecycle?** If yes, it is
+`Soredemo/`. If no, and it needs the GPU, a real pixel buffer, a real file or the wall clock, it is
+`Sources/Headless`. If no to both, it is a deterministic target and the pure guard applies. The name
+states the exclusion, which is why the invariant survives Phase 3A-2: `Render` as a tier name would
+expire when `Capture` moves in; `Headless` does not.
+
+**`Sources/Headless` carries `HeadlessCheck`, never `ArchitectureCheck`, and that is not a hole in
+the pure guard.** Attaching the pure guard there is impossible rather than merely inconvenient: rule
+1's allow-list would ban AVFoundation, CoreImage, CoreVideo, Metal and CoreGraphics, and rule 2
+would ban the `CGRect` this tier exists to convert. Loosening the pure guard to fit is forbidden —
+two guards with two rules, not one guard with an exception.
+`everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` asserts both directions against the
+resolved manifest: every regular target carries the guard its tier requires, and no target carries
+the other tier's. Attaching `HeadlessCheck` to a pure target is the dangerous direction because it
+is **silent** — rules 1 and 2 would simply be off, and the build would stay green.
+
+**Rule 5 has one bridge per tier, and neither test has an exception.** The app tier confines
+`CGRect`/`CGPoint`/`CGSize`/`CGFloat` to `Soredemo/Capture/CGGeometryBridge.swift`
+(`coreGraphicsGeometryTypesAppearOnlyInTheBridge`); `Sources/Headless` confines them to
+`Sources/Headless/HeadlessGeometryBridge.swift`
+(`coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge`). The split is by tier — the AX and
+ScreenCaptureKit *entrances* need `ApplicationServices`, the render *exits* need nothing — and it is
+temporary: when `Capture` moves in 3A-2 the two bridges are reconsidered together.
+`theTwoGeometryBridgesShareNoFunctionName` is what stops a conversion being defined on both sides
+while both exist.
+
+### The entry rule, and the two levels it is enforced at
+
+**Every `public` type in `Headless` must have a test in `swift test` that CONSTRUCTS AND EXERCISES
+it.** A target that can be linked is a target things get dumped into; the entry rule is the price of
+entry.
+
+The two levels are not the same thing, and conflating them would plant this project's own recurring
+defect inside the gate built to prevent it:
+
+* **the scanner** (`everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct`) enforces a
+  **necessary condition only** — the type's identifier appears at a word boundary in the code view
+  of a file under `Tests/HeadlessTests`. A type annotation or an unused `import` satisfies it while
+  the type is never built and never run, and for a generic name (`Frame`, `Track`, `Renderer`) it is
+  close to vacuous. Its own failure message says so.
+* **review** enforces the rule. There is no mechanical substitute, and claiming one is the failure
+  mode D6a records over and over.
+
+`public` on a member of an already-admitted type is a known free-entry gap: it needs no separate
+scanner entry, so the surface can grow without the scanner noticing. Add `public` to a member only
+when a caller outside the module already exists.
+
+**The two test populations are kept apart by the build graph, not by a rule.** `HeadlessTests` is
+the only test target that may depend on `Headless`; a deterministic target that cannot link it
+cannot have a GPU-dependent or time-sensitive test written against it.
+`noDeterministicTestTargetDependsOnHeadless` keeps the manifest honest, and
+`scripts/count-tests.sh --split` reports the two counts with the partition verified rather than
+printing one number that means two different things.
+
+*Full reasoning: `docs/design/2026-08-04-phase-3a-foundation-design.md` §§ 2-4. This section is what
+a reader of this file needs in order to place a new file; it is not a restatement of that document.*
+
+---
+
 ## D2 — macOS 26, Apple Silicon, Swift 6.4, no fallbacks
 
 `platforms: [.macOS(.v26)]`. Strict concurrency. No availability branches.
@@ -1137,6 +1212,12 @@ Sources/                         Foundation only, at the repository root
   Timeline/                      integer-nanosecond output↔source mapping
   Variants/                      16:9 · 9:16 · 1:1 re-framing, platform profiles
   Project/                       versioned document model, upgrades, atomic save
+
+Sources/Headless/                NOT Foundation-only — the tier `swift test` can link and run
+                                 (D1a). Product: SoredemoHeadless. Guard: HeadlessCheck
+  CursorArt.swift                the drawn pointer and click ripple, as vector paths
+  HeadlessGeometryBridge.swift   the render tier's CoreGraphics exit — the only file here
+                                 allowed to name CGRect/CGPoint/CGSize/CGFloat
 
 Soredemo/                        Xcode app target
   Capture/                       ScreenCaptureKit, audio, permissions

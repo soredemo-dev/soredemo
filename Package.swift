@@ -16,7 +16,12 @@ let package = Package(
         .library(
             name: "SoredemoCore",
             targets: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
-        )
+        ),
+
+        // NOT added to `SoredemoCore`'s targets array, and not named `SoredemoCore`:
+        // that product is Foundation-only by definition in five documents, and this
+        // target's whole purpose is the platform frameworks that definition excludes.
+        .library(name: "SoredemoHeadless", targets: ["Headless"]),
     ],
     targets: [
         // `plugins: [archCheck]` on the six library targets — and deliberately NOT
@@ -30,6 +35,18 @@ let package = Package(
         .target(name: "Project", dependencies: ["Graph", "Geometry", "Timeline"], swiftSettings: strict, plugins: archCheck),
         .target(name: "Render", dependencies: ["Geometry", "Timeline", "Project"],
                 swiftSettings: strict, plugins: archCheck),
+
+        // **The tier `swift test` can run but a person still has to believe.**
+        // Deterministic modules above; a running app below. This one may use the GPU,
+        // real pixel buffers and wall time — what it may NOT do is need a window or an
+        // app lifecycle, which is what the name states and what `HeadlessCheck`
+        // enforces by banning AppKit and SwiftUI.
+        //
+        // `plugins: headlessCheck`, NOT `archCheck`: rule 1 would ban AVFoundation and
+        // rule 2 would ban the CGRect this target exists to convert. Two guards with two
+        // rules, not one guard with a hole.
+        .target(name: "Headless", dependencies: ["Geometry", "Timeline", "Project", "Render"],
+                swiftSettings: strict, plugins: headlessCheck),
 
         // The checker's lexical layer — the "code view" that blanks comment and
         // string CONTENT so a banned name mentioned in prose does not fire. It is
@@ -93,6 +110,15 @@ let package = Package(
         .testTarget(name: "VariantsTests", dependencies: ["Variants"], swiftSettings: strict),
         .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
         .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],
+                    swiftSettings: strict),
+
+        // The ONLY test target that depends on `Headless`. The deterministic targets
+        // must not: a test that cannot link the product cannot be written against it,
+        // so the two populations are kept apart by the build graph rather than by
+        // anyone remembering which suite a test belongs in.
+        // `noDeterministicTestTargetDependsOnHeadless` asserts this against the
+        // resolved manifest.
+        .testTarget(name: "HeadlessTests", dependencies: ["Headless", "Geometry", "Timeline", "Project", "Render"],
                     swiftSettings: strict),
     ]
 )

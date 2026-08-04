@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		8824C373301E441900E18130 /* SoredemoCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8824C372301E441900E18130 /* SoredemoCore */; };
+		A1B2C3D4E5F60718293A4B5C /* SoredemoHeadless in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B5D /* SoredemoHeadless */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8824C373301E441900E18130 /* SoredemoCore in Frameworks */,
+				A1B2C3D4E5F60718293A4B5C /* SoredemoHeadless in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = Soredemo;
 			packageProductDependencies = (
 				8824C372301E441900E18130 /* SoredemoCore */,
+				A1B2C3D4E5F60718293A4B5D /* SoredemoHeadless */,
 			);
 			productName = Soredemo;
 			productReference = 8824C350301E13DE00E18130 /* Soredemo.app */;
@@ -360,6 +363,10 @@
 		8824C372301E441900E18130 /* SoredemoCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SoredemoCore;
+		};
+		A1B2C3D4E5F60718293A4B5D /* SoredemoHeadless */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SoredemoHeadless;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
