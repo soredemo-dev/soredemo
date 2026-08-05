@@ -3,7 +3,20 @@
 **Status:** design, approved section by section 2026-08-04.
 **Scope:** move `Soredemo/Render/` (5 files) and `Soredemo/Export/MP4Exporter.swift`
 into a new SwiftPM target. 404 non-comment lines. `Soredemo/Capture/` (2,293 lines)
-is 3A-2 and not in this design.
+is not in this design.
+
+> **This line originally read "`Soredemo/Capture/` (2,293 lines) is 3A-2".**
+> Corrected 2026-08-05, after 3A-1 shipped: Capture extraction is **3A-3**. 3A-2 is
+> the three things 3A-1 deferred — repair the strict-memory-safety gate, then clear
+> the 11 sites it should have caught; make `1a98402`'s clock-domain confusion a
+> compile error; narrow `MP4Exporter.swift`'s whole-file ambient-time permit to
+> named functions. The reason is 3A-1's own outcome: it carried a code move AND the
+> instruments that move needed, and the move is what finished — one instrument
+> shipped structurally broken and three items were deferred. Attaching those three
+> to a 2,293-line move repeats that arrangement with the same losing side, and they
+> would be deferred to 3A-3 anyway. A phase name that claims a scope it does not
+> have is the defect this project has now hit in a file, an identifier, a test file
+> name, a probe heading and a git ref; this is it at phase level.
 
 ---
 

@@ -134,8 +134,11 @@ it, four seconds into a recording.
 > geometric.
 >
 > **Phase 3A-2's FIRST task, and the ordering is binding: repair the memory-safety
-> gate before clearing what it should have caught.** `scripts/check-strict-memory-safety.sh`
-> does not hold rule 9 today, and three separate things are wrong with it. (a) A warm
+> gate before clearing what it should have caught. The repair's target is
+> REPRODUCIBILITY, not strictness** — a stricter gate that still answers differently
+> on identical input is the same instrument with a higher failure rate.
+> `scripts/check-strict-memory-safety.sh` does not hold rule 9 today, and three
+> separate things are wrong with it. (a) A warm
 > `--build-tests` does not recompile test files it considers up to date, so a warning
 > in one cannot reach the log at all. (b) The nothing-compiled guard added to catch
 > exactly that is satisfied by a link-task progress line on a build that compiled no
@@ -146,14 +149,44 @@ it, four seconds into a recording.
 > which is worse than a consistent false pass, because a false green is a stable
 > error you can find and this is not stably anything.
 >
-> Measured from nothing on 2026-08-05 (`rm -rf` a scratch path, `swift build
-> --build-tests`): **zero sites under `Sources/`** — the library claim holds — and
-> **11 under `Tests/`**, of which 10 are in `HeadlessTests/PixelBufferSupport.swift`,
-> introduced by this phase's own Task 3, and 1 pre-existing in
-> `ProjectTests/AXChainRecordTests.swift`. No run of the gate has ever reported one
-> of them.
+> **The repair's completion condition, and its red credential.** Done means: N
+> consecutive runs on identical state, zero source edits, produce the SAME exit code
+> — that is the property that is missing, and it is checkable. The red credential is
+> a seeded warning: put an unmarked unsafe construct in a test file and the gate must
+> go red on a COLD build and on a WARM one. The warm half is the actual difficulty and
+> is exactly where it fails today, so a repair demonstrated only against a cold build
+> has not been demonstrated.
 >
-> **Clearing the 11 comes second, and reversing the order buys nothing**: clearing
+> **What happened at the 3A-1 merge is not evidence either way, and must not be
+> recorded as if it were.** Running the gate on the merge commit exited **3** — the
+> nothing-compiled branch. That is consistent with the nondeterminism registered
+> above, in which the same state has already produced 0, 3, 3, 0; it is one more
+> draw from that distribution and **does not constitute evidence that the guard
+> works.** Writing it down as "the gate correctly refused at the merge" would read
+> as a working guard and would earn this instrument trust it has not got.
+>
+> **The count has a unit, and the unit is SITES.** Measured from nothing on
+> 2026-08-05 (`rm -rf` a scratch path, `swift build --build-tests`): **zero sites
+> under `Sources/`** — the library claim holds — and **11 sites under `Tests/`**, of
+> which 10 are in `HeadlessTests/PixelBufferSupport.swift`, introduced by this
+> phase's own Task 3, and 1 pre-existing in `ProjectTests/AXChainRecordTests.swift`.
+> No run of the gate has ever reported one of them.
+>
+> Three different quantities can all be called "the number of warnings", they are
+> never equal, and this phase already got confused between two of them: **sites**
+> (distinct `file:line:column` positions in real source — 11), **emissions** (lines
+> the compiler prints; higher, because a module compiled for more than one product
+> re-emits every one of its warnings), and **`(file, line)` pairs** (lower, because
+> `PixelBufferSupport.swift:31` carries two sites in different columns). A fourth
+> reading hides between them: four emissions on this build carry no real
+> `file:line` at all, being attributed to a synthetic `macro expansion #require`
+> buffer, and they resolve — via `note: expanded code originates here` — to
+> `PixelBufferSupport.swift:31:66` and `49:65`, two lines already inside the 11.
+> **The repaired gate must report in sites, the same unit**, or the two numbers will
+> diverge again and the next person will not go and chase warnings that have no
+> `file:line` to chase.
+>
+> **Clearing the 11 sites comes second, and reversing the order buys nothing**: clearing
 > them while the gate is still blind lets the next batch in by the identical route.
 > The gate's verdict text and `docs/ARCHITECTURE.md` D6 row 9 have both been narrowed
 > to the measurement in the meantime — narrowing a claim to its evidence does not
