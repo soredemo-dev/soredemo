@@ -38,7 +38,12 @@ public enum CompositionBuilder {
     /// fail at `MP4Exporter.swift`'s call site with the SAME diagnostic tag the paragraph above
     /// already names — `#RegionIsolation::SendingRisksDataRace` — even though `MP4Exporter.export`
     /// and this function were both already `nonisolated` before the move. `swift build`/`swift
-    /// test` never saw it: neither compiles `MP4Exporter.swift`, an app-target file. Root cause:
+    /// test` never saw it: at the time, neither compiled `MP4Exporter.swift`, which was still an
+    /// app-target file (`Soredemo/Export/MP4Exporter.swift`) through Task 6 — **corrected here in
+    /// Task 7, which moved that file into this same `Headless` module** (`Sources/Headless
+    /// /MP4Exporter.swift`), so `swift build`/`swift test` compile it now; this paragraph
+    /// describes why the mismatch was invisible to them AT THE TIME it was found, not a fact that
+    /// still holds today. Root cause:
     /// the app target builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`
     /// (`Soredemo.xcodeproj`'s own setting), which enables the `NonisolatedNonsendingByDefault`
     /// upcoming feature for code the APP TARGET declares — but the calling convention of a

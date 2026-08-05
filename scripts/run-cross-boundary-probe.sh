@@ -83,7 +83,7 @@ xcrun swiftc \
   Sources/Headless/CoreImageFrameRenderer.swift \
   Sources/Headless/StageCompositor.swift \
   Sources/Headless/CompositionBuilder.swift \
-  Soredemo/Export/MP4Exporter.swift \
+  Sources/Headless/MP4Exporter.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \
   scripts/cross-boundary-digest-probe.swift
