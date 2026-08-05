@@ -90,13 +90,33 @@ let package = Package(
         // `CheckerLexer`; attaching the plugin to `CheckerLexer` would close that
         // into a dependency cycle and SwiftPM would refuse to resolve the package.
         // It is the same reason `architecture-checker` itself carries no plugin.
-        // Consequences, both kept by hand rather than enforced:
+        // Consequences:
         //   * rule 1 (Foundation only) — this target imports Foundation and must
-        //     keep to it;
+        //     keep to it. Phase 3A-1 Task 8 stopped keeping this by hand:
+        //     `Tests/CheckerLexerTests/LexerImportDisciplineTests.swift` reads this
+        //     target's own sources through `SwiftSourceLexer.codeViewLines` and fails
+        //     if any import names a module other than Foundation.
         //   * rule 3 (no ambient time or randomness) — `DeterminismTests` derives
-        //     its module list from the targets the PLUGIN is attached to, so this
-        //     target is outside that scan too. The code view is a pure function of
-        //     its input string and must stay one.
+        //     its module list from the targets the PLUGIN is attached to
+        //     (`scannedModules(inDump:)` in `Tests/DeterminismTests/SymbolDeterminismTests.swift`
+        //     filters the resolved manifest for `ArchitectureCheck` plugin usage), so
+        //     this target is outside that scan and STAYS outside it. Task 8 tried the
+        //     obvious fix — adding `"CheckerLexer"` to `DeterminismTests`'
+        //     dependencies (the `.testTarget(name: "DeterminismTests", …)` declaration
+        //     below) — and measured it not to work: with the edge added,
+        //     both `determinismTestTargetDependsOnEveryCheckedModule` and
+        //     `noLibraryModuleReferencesAmbientTimeOrRandomness` stayed green, but
+        //     green there is vacuous — `scannedModules(inDump:)` still never lists
+        //     `CheckerLexer` because it still carries no `ArchitectureCheck` plugin,
+        //     so the symbol scan still never reads `CheckerLexer.o`. Confirmed by
+        //     adding a real `Date()` call to `SwiftSourceLexer.swift` with the
+        //     dependency edge in place: `noLibraryModuleReferencesAmbientTimeOrRandomness`
+        //     stayed green over a genuine violation. The edge was reverted along with
+        //     the probe call. This remains kept by hand; a real fix needs
+        //     `scannedModules(inDump:)`'s own derivation changed to include this
+        //     target by name, not just its dependency graph — out of this task's
+        //     scope. The code view is a pure function of its input string and must
+        //     stay one.
         // `everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` names this
         // target as the single permitted exemption, so a SEVENTH regular target
         // added without the plugin still fails.

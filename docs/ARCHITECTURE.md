@@ -757,11 +757,14 @@ gone through `TemporaryFileMediaSink` instead.
 
 ### What the test count covers, and what it cannot
 
-**`swift test`'s 462 tests do not link the app.** There is no app test target:
+**`swift test`'s suite does not link the app.** There is no app test target:
 an `executableTarget` cannot be imported by a `testTarget` (`Package.swift`'s own
 comment), so `Tests/AppSourceTests` reads `Soredemo/`'s sources **as text**
 through `CheckerLexer` — it checks that code SAYS the right things, and cannot
 run a line of it. Everything under `Sources/` is genuinely linked and executed.
+(For the current count, run `scripts/count-tests.sh` — a number written here
+would go stale on the next commit; `Tests/AppSourceTests/ProseClaimTests.swift`
+is why it no longer is.)
 
 The consequence is precise and worth stating wherever a count is quoted: for app
 code, the executing instruments are `scripts/run-cross-boundary-probe.sh` (349

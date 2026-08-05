@@ -82,9 +82,11 @@ is that `import AppKit` there fails the build. `Headless` states its own invaria
 **needs a window or a running app, does not belong here** — which excludes SwiftUI by the name
 rather than by a rule beside it, and stays true when `Capture` moves in.)*
 
-The app target has no automated executing instrument at all. `swift test`'s 464
-tests do not link it — an `executableTarget` cannot be imported by a `testTarget`
-— so `Tests/AppSourceTests` reads `Soredemo/` **as text**. The only things that
+The app target has no automated executing instrument at all. `swift test`'s suite
+does not link it — an `executableTarget` cannot be imported by a `testTarget`
+— so `Tests/AppSourceTests` reads `Soredemo/` **as text**. (Run `scripts/count-tests.sh`
+for the current count; it does not belong written into this document — see
+`Tests/AppSourceTests/ProseClaimTests.swift`.) The only things that
 execute app code are `scripts/run-cross-boundary-probe.sh` and a person running
 the built `.app`. `1a98402` lived in app code for a whole phase and a person found
 it, four seconds into a recording.

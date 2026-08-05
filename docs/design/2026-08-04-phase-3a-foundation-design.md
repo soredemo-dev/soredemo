@@ -132,7 +132,7 @@ be written against it, so the split is enforced by the manifest rather than by
 anyone remembering. `Headless` tests live in their own target, which is the only
 one that depends on the product.
 
-    swift test — deterministic   466 passed
+    swift test — deterministic     N passed
     swift test — headless          N passed    (GPU / timing sensitive)
     cross-boundary probe         349 checks
 
