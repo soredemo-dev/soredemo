@@ -834,15 +834,17 @@ line exists in it at all) — an instance scan can never find it, and the next
 fixture recorded by someone who used a keyboard shortcut would carry their
 typing into git. `Tests/AppSourceTests/FixtureRedactionTests.swift`'s
 `everyStringFieldInTheObservationLogSchemaHasAVerdict` walks every
-`String`/`String?`/`[String]`-typed stored property of every record type under
-`Sources/Project` (not only the observation-log record types — the scan is
-directory-scoped, not file-scoped) and fails the build the day an unadjudicated
-one appears:
+`String`/`String?`/`[String]`-typed stored property, AND every enum case
+carrying a `String`/`String?`/`[String]` associated value (added in fix round
+1, below), of every record type under `Sources/Project` (not only the
+observation-log record types — the scan is directory-scoped, not file-scoped)
+and fails the build the day an unadjudicated one appears. 21 entries today:
 
-| Field | Verdict | Reason |
+| Field or case | Verdict | Reason |
 | --- | --- | --- |
 | `AXElementRecord.title` | **REDACT** | user data — UI text (button/window labels), already legible in the recording's own video; appears in `hit`, `ancestors[]`, `children[]` |
 | `KeySample.shortcut` | **REDACT** | reflects what key combination a person pressed, even filtered to an approved-shortcut identifier by `InputObserver`; zero occurrences in this fixture, which is exactly why an instance scan cannot find it |
+| `SegmentBoundary.failed` | **REDACT** | carries `String(describing: error)` from `CaptureSession.stream(_:didStopWithError:)` — AVFoundation/ScreenCaptureKit error descriptions routinely embed a file URL (home path, username, package name). Persisted via `MasterSegment.endedBy` into `project.json`, **not** into an observation log, so it cannot appear in `Tests/HeadlessFixtures/*.jsonl` and Gate 1 below does not search for it there — see fix round 1, item 1 |
 | `AXElementRecord.role` | keep | system AX role constant (e.g. `AXButton`), not user-authored text |
 | `PointerSample.kind` | keep | literal discriminator `"pointer"` |
 | `ButtonEvent.kind` | keep | literal discriminator `"button"` |
@@ -852,9 +854,15 @@ one appears:
 | `AXChainRecord.kind` | keep | literal discriminator `"axChain"` |
 | `ObservationLogHeader.kind` | keep | literal discriminator `"logHeader"` |
 | `ObservationLogTrailer.kind` | keep | literal discriminator `"logTrailer"` |
+| `KindOnly.kind` | keep | `ObservationLog.kind(of:)`'s private decode-only helper; reads the same `kind` wire field as the ten rows above, not a second field — found only after fix round 1's one-line-declaration fix (item 4) |
 | `ObservationLogHeader.mediaFilename` | keep | app-minted relative filename (`ProjectPackageIO`), never typed by a person; the log↔recording join key, not content |
 | `MasterSegment.mediaFilename` | keep | same app-minted filename, on `SegmentTable`; not present in this observation log (lives in `project.json`) — reported because the scan walks all of `Sources/Project` |
 | `ProjectSnapshot.mediaFilenames` | keep | array of the same app-minted filenames, on the project manifest; not present in this observation log either, same reason as above |
+| `ObservationLogError.foreignEpoch` | keep | `Error`, never `Codable`, never persisted — cannot reach a committed fixture |
+| `ObservationLogError.noEpoch` | keep | same type, same reason |
+| `ProjectFormatError.malformed` | keep | `Error`, never `Codable`, never persisted — cannot reach a committed fixture |
+| `ProjectFormatError.sidecarAlreadyExists` | keep | same type, same reason |
+| `ProjectFormatError.invalidSidecarName` | keep | same type, same reason |
 
 **A correction to this task's own brief, recorded rather than silently fixed.**
 The brief's first-draft table (one person's reading of the schema, offered as the
@@ -877,25 +885,120 @@ verified by running it (`swift test --filter FixtureRedaction`), not transcribed
 from the brief.
 
 **Two gates, both in `FixtureRedactionTests.swift`, both observed red before
-being trusted green:**
+being trusted green — and both strengthened again in fix round 1, below:**
 
 1. **Content** — `noCommittedFixtureCarriesAnUnredactedStringField` reads every
-   `.jsonl` under `Tests/HeadlessFixtures/` and requires every `"title":"…"` and
-   `"shortcut":"…"` value to be exactly the placeholder `[redacted]`. Observed
-   red against a synthetic scratch fixture (`"title":"SYNTHETIC-NOT-REAL-USER-DATA"`,
-   never real user data, deleted immediately after). **Fixed en route**: the
-   brief's `#expect(value == "[redacted]", …)` form leaks the compared value into
-   Swift Testing's own auto-diagnostic regardless of the message text — measured
+   committed `.jsonl` fixture and requires every `REDACT`-marked field's value to
+   be exactly the placeholder `[redacted]`. Observed red against a synthetic
+   scratch fixture (`"title":"SYNTHETIC-NOT-REAL-USER-DATA"`, never real user
+   data, deleted immediately after). **Fixed en route**: the brief's
+   `#expect(value == "[redacted]", …)` form leaks the compared value into Swift
+   Testing's own auto-diagnostic regardless of the message text — measured
    directly, the framework printed `value → "SYNTHETIC-NOT-REAL-USER-DATA"`
-   despite the custom message never naming it. The gate now computes the
-   `Bool` first (`let isRedacted = value == "[redacted]"; #expect(isRedacted, …)`)
-   so there is nothing left for the macro to decompose — the framework's own
-   diagnostic machinery does not become a second leak path alongside the one the
-   message text guards against.
+   despite the custom message never naming it. The gate now computes the `Bool`
+   first (`let isRedacted = …; #expect(isRedacted, …)`) so there is nothing left
+   for the macro to decompose — the framework's own diagnostic machinery does
+   not become a second leak path alongside the one the message text guards
+   against. **Rewritten again in fix round 1** (item 2) from a `"field":"…"`
+   substring search to a structural walk of parsed JSON — see that item below.
 2. **Consumption** — `theRenderPathNeverReadsARedactedField` scans
-   `Sources/Headless` and `Sources/Render` for a `.title` or `.shortcut` read.
-   Observed red against a scratch symbol temporarily appended to
-   `Sources/Headless/CursorArt.swift` and reverted in the same step.
+   `Sources/Headless` and `Sources/Render` for a `.title` or `.shortcut` (or any
+   other `REDACT`-marked field's) read. Observed red against a scratch symbol
+   temporarily appended to `Sources/Headless/CursorArt.swift` and reverted in
+   the same step.
+
+---
+
+**Fix round 1 (code review of this section's first version) — four items, all
+addressed in the same commit that added them:**
+
+1. **Important — the "enum fields are closed" claim was true only for
+   RAW-VALUE enums, and was written as if it covered every enum.** Swift
+   forbids associated values on a raw-value enum, so `GapSite`,
+   `TapDisableReason` and the rest really are a fixed ASCII case-name set. An
+   enum case with a `String` ASSOCIATED value is not closed at all, and
+   `SegmentBoundary.failed(reason: String)` — `Codable`, persisted via
+   `MasterSegment.endedBy` into `project.json` — is exactly that shape; its one
+   producer, `CaptureSession.stream(_:didStopWithError:)`, writes
+   `String(describing: error)` into it, which for AVFoundation/ScreenCaptureKit
+   errors routinely embeds a file URL carrying the recording machine's home
+   path and username. The scan now also reports `Type.caseName` for any enum
+   case with a `String`/`String?`/`[String]` associated value; `stringCaseField`
+   in `FixtureRedactionTests.swift` implements it, guarded against mistaking a
+   `switch` pattern-match (`case .foo(let x):`) for a declaration by refusing
+   any case name starting with `.` — no such pattern exists in `Sources/Project`
+   today (checked before writing the guard), but the distinction is real and
+   cheap to state. `SegmentBoundary.failed` is adjudicated `REDACT` in the table
+   above; the scan also picked up five `Error`-type cases
+   (`ObservationLogError.foreignEpoch`/`.noEpoch`,
+   `ProjectFormatError.malformed`/`.sidecarAlreadyExists`/`.invalidSidecarName`)
+   that are adjudicated `keep` for the same reason in each case: never
+   `Codable`, never persisted. **Observed red**: temporarily deleted
+   `SegmentBoundary.failed`'s table row and re-ran the schema-verdict test,
+   which reported it `UNADJUDICATED`, exactly as the review predicted; restored
+   the row and re-verified green.
+
+2. **Important — Gate 1 and the redaction script shared an unpinned
+   whitespace assumption, and Gate 1 had no guard against finding nothing.**
+   Both hardcoded the byte sequence `"field":"` with no tolerance for
+   `"field" : "…"`. The test guarding `ObservationLog.outputFormatting` asserted
+   only `.contains(.sortedKeys)` — a `.prettyPrinted` addition would leave it
+   green while breaking every downstream assumption of compact, no-space JSON.
+   **Fixed two ways.** First, `sortedKeysIsSetOnTheEncoder`
+   (`Tests/ProjectTests/ObservationLogTests.swift`) now pins the exact value,
+   `== [.sortedKeys]`, so the format assumption reddens where it is made, not
+   only where something downstream happens to notice. Second, and load-bearing:
+   Gate 1 no longer pattern-matches bytes at all. It parses each line with
+   `JSONSerialization` and walks the decoded value structurally
+   (`stringValues(named:in:)`), which does not care about whitespace, key
+   order, or indentation — so it no longer shares an assumption with the
+   script that produced the fixture, the same "independent tool" principle the
+   two-direction verification above already used. A **vacuity guard** was
+   added on top: for each fixture, the total occurrences of every `REDACT`
+   field found across the whole file must be greater than zero, or the gate
+   fails and says so explicitly, rather than passing over a fixture it
+   examined nothing real in. **Observed red**: wrote a scratch fixture with a
+   literal space before the colon (`"title" :"…"`, invented text, never real
+   data) — confirmed the OLD `"title":"` substring pattern matched zero times
+   against it (`grep -c` = 0) — then ran the rewritten Gate 1, which still
+   caught it (`isFullyRedacted` false, reporting file, line, and the value's
+   length only). Deleted the scratch fixture immediately after.
+
+3. **Important — Gate 1 read one hardcoded directory,
+   `Tests/HeadlessFixtures`.** The brief itself named
+   `Tests/HeadlessTests/Fixtures/` as the fallback resource location, so a
+   fixture landing there would have been invisible to this gate, and
+   `#require(!fixtures.isEmpty)` would have stayed satisfied by the fixture
+   that already exists elsewhere — no red, ever, for a second fixture in the
+   uncovered location. `committedJSONLFixtures()` now recursively enumerates
+   every `.jsonl` under `Tests/`, in one place that every caller shares, rather
+   than each gate hardcoding its own directory. **Observed red**: created
+   `Tests/HeadlessTests/Fixtures/` (the brief's own named fallback), wrote a
+   scratch fixture there with an unredacted synthetic `title` value, ran Gate 1
+   — it found and flagged the file (`zz-scratch-scope-drill.jsonl:1`) — then
+   deleted the scratch file and the directory it required.
+
+4. **Minor, but concrete and already true — the scan missed one-line type
+   declarations.** `private struct KindOnly: Decodable { let kind: String }`
+   (`ObservationLog.swift`) packs a stored property onto the same line as the
+   type keyword; the scan set `enclosing` and `continue`d past that line
+   without ever reading what followed the brace, so `KindOnly.kind` went
+   unreported — "every `String`-typed stored property" was already inexact, in
+   the unsafe direction. Fixed: the text after a one-line type declaration's
+   own opening `{`, up to its closing `}`, is now scanned the same way an
+   ordinary line is (isolating it from the type's own `: SomeProtocol`
+   conformance list, so that colon is never mistaken for a property's). Two
+   further misses are stated rather than fixed, because neither exists in this
+   schema today (checked by running the scan before writing this): `let x:
+   String = "…"` (an initial value leaves trailing text after `String`) and a
+   composite carrying `String` (`[String: String]`, not `String`/`String?`/
+   `[String]`) — the same rule that already, correctly, excludes
+   `ObservationLogTrailer.recordCounts` (`[String: Int]`). Also fixed in the
+   same pass: Gate 1's line numbering used `split(separator: "\n",
+   omittingEmptySubsequences: true)`, which shifts every reported line number
+   past any blank line; it now uses `components(separatedBy: "\n")`, which
+   keeps a blank line as an (skipped, but counted) empty component, so a leak
+   message names the physical line it is actually on.
 
 **The redaction script, `scripts/redact-observation-log.swift`, is a text
 transform over the raw bytes — not a decode/re-encode.** It walks the file once,
