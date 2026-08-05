@@ -1,11 +1,11 @@
 import AVFoundation
 import CoreVideo
 import Foundation
-// For `FrameRendering` and `FrameRenderingError`, which moved into the `Headless` target in
-// Phase 3A-1 Task 3 — `Headless` is the module name, `SoredemoHeadless` the product this app
-// target links. Not needed before: through Task 2 both names were declared in this same app
-// target and needed no import to be in scope.
-import Headless
+// `FrameRendering` and `FrameRenderingError` (Task 3) no longer need an import: this file now
+// lives IN the `Headless` module that declares them, moved here by Phase 3A-1 Task 4. A module
+// does not import itself — the `import Headless` this file carried while it still lived in the
+// app target is gone, not merely redundant.
+//
 // `PointerSample`, `ObservationLog`, `JSONLReader`, `SecureInputInterval`, `TapDisabledInterval`
 // for `buildPointerTrack(from:)` — reading the segment's observation log to build the
 // `PointerTrack` `startRequest` reads from. Not previously imported here: nothing in this file
@@ -46,24 +46,24 @@ import Timeline
 /// the same Swift name the brief used — turns out to want a `CVReadOnlyPixelBuffer` too, so the
 /// freshly rendered `destination` (still a plain `CVPixelBuffer` from `newPixelBuffer()`) is
 /// wrapped with `CVReadOnlyPixelBuffer(unsafeBuffer:)` before being handed back.
-nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
+public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// Set once before the composition is handed to AVFoundation. `nonisolated(unsafe)` for the
     /// same reason `CaptureSession`'s writer references are: AVFoundation calls back on its own
     /// queue and the value is published before any callback can see it.
-    nonisolated(unsafe) static var renderer: (any FrameRendering)?
-    nonisolated(unsafe) static var style: StageStyle = .default
+    public nonisolated(unsafe) static var renderer: (any FrameRendering)?
+    public nonisolated(unsafe) static var style: StageStyle = .default
     /// The observation log this segment's pointer track is read from. `nil` — the default — means
     /// no pointer is ever drawn, which is not a fifth `PointerReading` case smuggled in through a
     /// side door: it is simply nothing having been configured to read from yet, the same state a
     /// caller that never sets `renderer` leaves this compositor in for the whole render.
-    nonisolated(unsafe) static var observationLogURL: URL?
+    public nonisolated(unsafe) static var observationLogURL: URL?
     /// A reviewer's permanent decisions to suppress the pointer — `CursorOverride`'s own header —
     /// set the same way `renderer`/`style`/`observationLogURL` are: by whoever owns this
     /// composition, before playback starts. Not read from the observation log; see
     /// `buildPointerTrack(from:)`'s own header for why. Empty by default, which is not a fifth
     /// `PointerReading` case either — it means nobody has overridden anything yet, the same
     /// "nothing configured" state `observationLogURL == nil` is for the log.
-    nonisolated(unsafe) static var overrides: [CursorOverride] = []
+    public nonisolated(unsafe) static var overrides: [CursorOverride] = []
 
     /// Counters a caller can read after playback or export has run — never only a console line,
     /// the same "a dropped record with nothing counting it is indistinguishable from a record that
@@ -82,12 +82,17 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// `renderer`/`style`/`observationLogURL`/`overrides`) while `lock` guards one instance's own
     /// `pointerTrack`/`clickTrack`/`tracksLoaded`. Two locks, two different things each protects.
     private static let diagnosticsLock = NSLock()
-    static var diagnostics: Diagnostics { diagnosticsLock.withLock { _diagnostics } }
+    // Every access to `_diagnostics` below runs inside `diagnosticsLock.withLock` — the lock the
+    // compiler cannot see through `nonisolated(unsafe)`, the same "only ever called from inside
+    // the lock" shape `CoreImageFrameRenderer.cursorCanvas(size:)` documents for its own
+    // `cursorCanvases`. `unsafe` at each site below is a true statement about that shape, not a
+    // suppression of a real race.
+    public static var diagnostics: Diagnostics { diagnosticsLock.withLock { unsafe _diagnostics } }
     /// Resets the counters below to zero — called by `StageWindow.load()` when a (possibly new)
     /// recording is opened, so a stale count from a previously opened file cannot be read as
     /// belonging to this one.
-    static func resetDiagnostics() { diagnosticsLock.withLock { _diagnostics = Diagnostics() } }
-    private static func recordDroppedFrame() { diagnosticsLock.withLock { _diagnostics.framesDropped += 1 } }
+    public static func resetDiagnostics() { diagnosticsLock.withLock { unsafe _diagnostics = Diagnostics() } }
+    private static func recordDroppedFrame() { diagnosticsLock.withLock { unsafe _diagnostics.framesDropped += 1 } }
 
     /// **A complete account, not a partial one — Task 5.5's own counters needed three fix rounds
     /// to reach this bar and this one is written against that standard from the start.**
@@ -139,13 +144,13 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// frame for a request it received" — a real, narrower question than "how many frames did the
     /// preview visibly skip". A `framesDropped == 0` preview session can still have visibly
     /// stuttered or skipped ahead on a scrub, and this counter would not know.
-    struct Diagnostics: Sendable {
+    public struct Diagnostics: Sendable {
         public internal(set) var framesDropped = 0
     }
 
-    let sourcePixelBufferAttributes: [String: any Sendable]? =
+    public let sourcePixelBufferAttributes: [String: any Sendable]? =
         [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-    let requiredPixelBufferAttributesForRenderContext: [String: any Sendable] =
+    public let requiredPixelBufferAttributesForRenderContext: [String: any Sendable] =
         [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
 
     private nonisolated(unsafe) var renderContext: AVVideoCompositionRenderContext?
@@ -190,16 +195,26 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     private nonisolated(unsafe) var logAnchor: EpochAnchor?
     private nonisolated(unsafe) var tracksLoaded = false
 
-    func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
-        renderContext = newRenderContext
+    public func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
+        // `renderContext` is `nonisolated(unsafe)` for the reason its own declaration comment
+        // gives: write-once-then-read, published before any `startRequest` callback can see it.
+        // The `StrictMemorySafety` gate cannot see that shape from the property's type alone, so
+        // this is the one write marked `unsafe` — a true statement about this specific call site,
+        // not a suppression of one the shape doesn't actually hold.
+        unsafe renderContext = newRenderContext
     }
 
-    func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
+    public func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
+        // `Self.renderer` (published once, before playback starts — see its own declaration
+        // comment) and `renderContext` (write-once-then-read, immediately above) are each read
+        // here under that same "published before any callback can see it" guarantee, not under
+        // `lock` — `lock` guards `pointerTrack`/`clickTrack`/`tracksLoaded`/`logAnchor` only, the
+        // values `loadedTracks()` below actually mutates on the hot path.
         guard let trackID = request.sourceTrackIDs.first?.int32Value,
               let source = request.sourceReadOnlyPixelBuffer(byTrackID: trackID),
-              let context = renderContext,
+              let context = unsafe renderContext,
               let destination = context.newPixelBuffer(),
-              let renderer = Self.renderer else {
+              let renderer = unsafe Self.renderer else {
             Self.recordDroppedFrame()
             request.finish(with: CompositorError.notConfigured)
             return
@@ -207,7 +222,7 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         let basePlan = StagePlanner.plan(
             outputWidth: Int(context.size.width), outputHeight: Int(context.size.height),
             sourceWidth: source.size.width, sourceHeight: source.size.height,
-            style: Self.style)
+            style: unsafe Self.style)
         let plan = RenderPlan(outputWidth: basePlan.outputWidth, outputHeight: basePlan.outputHeight,
                               card: basePlan.card, cornerRadius: basePlan.cornerRadius,
                               style: basePlan.style,
@@ -227,7 +242,12 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         }
     }
 
-    enum CompositorError: Error { case notConfigured }
+    /// `Equatable`, added on the move so `theCompositorErrorIsDistinguishableFromAnotherError`
+    /// (`StageCompositorTests.swift`) can write `error as? CompositorError == .notConfigured`
+    /// rather than pattern-matching by hand — the single-case enum this file declared through
+    /// Task 3 had no need of `==` because nothing outside AVFoundation's own `finish(with:)` call
+    /// ever compared two of these.
+    public enum CompositorError: Error, Equatable { case notConfigured }
 
     // MARK: - the pointer track
 
@@ -243,8 +263,29 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// that type's own header. Naming all four cases here (rather than `default: return nil`) is
     /// what makes a FIFTH case added later a compile error at this call site instead of a silent
     /// fall-through.
-    private func pointerPlacement(at compositionTime: CMTime,
-                                  in plan: RenderPlan) -> NormalizedPointerPlacement? {
+    /// **The one deliberate widening in this move, and the reason it is spent here rather than
+    /// somewhere else.** `startRequest(_:)` above takes an `AVAsynchronousVideoCompositionRequest`,
+    /// a type only AVFoundation can construct — no `swift test` test can call it, so nothing
+    /// `swift test` runs can reach the two lines that matter most in this file: the read of
+    /// `Self.observationLogURL`/`Self.overrides` and the composition-time → host-clock conversion
+    /// this function's own body comments at length. `pointerPlacement(at:in:)` is where the log,
+    /// the anchor and that conversion actually meet, and unlike `startRequest` it takes only a
+    /// `CMTime` and a `RenderPlan` — both constructible in a test with no AVFoundation cooperation
+    /// at all. Making it `public` is what makes it the seam `swift test` reaches; `startRequest`
+    /// stays the seam it cannot, and the AVFoundation glue immediately around it (the leading
+    /// `guard`, the render call, `request.finish`) remains covered only by the cross-boundary
+    /// probe and by a person watching a preview, exactly as before this move. Task 6 depends on
+    /// this being public: it is where a wrong composition-time→host-clock conversion — the exact
+    /// defect commit `1a98402` left uncaught for a full phase — would be caught by `swift test`
+    /// rather than by someone recording four seconds and looking.
+    ///
+    /// A method on an already-`public` type is the entry rule's known free-entry gap (see this
+    /// task's own design note): a type admitted for one member does not require every member to
+    /// earn its own admission independently. This is that gap being used deliberately, once, for
+    /// the reason above — not a precedent for widening anything else in this file without a
+    /// caller (a real one, or `swift test`) that needs it.
+    public func pointerPlacement(at compositionTime: CMTime,
+                                 in plan: RenderPlan) -> NormalizedPointerPlacement? {
         guard compositionTime.isValid,
               let offset = Nanoseconds(rationalSeconds: compositionTime.value,
                                        timescale: compositionTime.timescale) else { return nil }
@@ -308,17 +349,25 @@ nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// `CoreImageFrameRenderer`'s own header notes can cost milliseconds — happens in `startRequest`
     /// AFTER this function has already returned and released `lock`; nothing here reaches into it.
     private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?, anchor: EpochAnchor?) {
+        // Every access to `tracksLoaded`/`pointerTrack`/`clickTrack`/`logAnchor` below runs inside
+        // `lock.withLock` — this function's whole reason for existing, per its own header above.
+        // `Self.observationLogURL`/`Self.overrides` are read once here too, under the SAME
+        // guarantee `Self.renderer`/`Self.style` rest on in `startRequest` (published before
+        // playback starts, never mutated afterward) rather than under `lock` — `lock` protects
+        // this instance's cached tracks, not that shared configuration. `unsafe` at each site below
+        // states which of those two guarantees applies to it; neither is a suppression of a race
+        // this file actually has.
         lock.withLock {
-            if !tracksLoaded {
-                tracksLoaded = true
-                if let url = Self.observationLogURL,
-                   let built = try? Self.buildTracks(from: url, overrides: Self.overrides) {
-                    pointerTrack = built.pointer
-                    clickTrack = built.click
-                    logAnchor = built.anchor
+            if !(unsafe tracksLoaded) {
+                unsafe tracksLoaded = true
+                if let url = unsafe Self.observationLogURL,
+                   let built = try? Self.buildTracks(from: url, overrides: unsafe Self.overrides) {
+                    unsafe pointerTrack = built.pointer
+                    unsafe clickTrack = built.click
+                    unsafe logAnchor = built.anchor
                 }
             }
-            return (pointerTrack, clickTrack, logAnchor)
+            return unsafe (pointerTrack, clickTrack, logAnchor)
         }
     }
 

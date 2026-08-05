@@ -1,5 +1,10 @@
 import AVFoundation
 import Foundation
+// For `CompositionBuilder`, which moved into the `Headless` target in Phase 3A-1 Task 4 —
+// `Headless` is the module name, `SoredemoHeadless` the product this app target links. Not
+// needed before: through Task 3 `CompositionBuilder` was still declared in this same app target
+// and needed no import to be in scope.
+import Headless
 
 /// One MP4 (H.264) export of a recorded master — the deliverable Phase 2B's own completion
 /// sentence closes on: "export → open the exported file in QuickTime and watch it."

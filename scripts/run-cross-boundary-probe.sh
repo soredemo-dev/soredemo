@@ -81,8 +81,8 @@ xcrun swiftc \
   Sources/Headless/HeadlessGeometryBridge.swift \
   Sources/Headless/CursorArt.swift \
   Sources/Headless/CoreImageFrameRenderer.swift \
-  Soredemo/Render/StageCompositor.swift \
-  Soredemo/Render/CompositionBuilder.swift \
+  Sources/Headless/StageCompositor.swift \
+  Sources/Headless/CompositionBuilder.swift \
   Soredemo/Export/MP4Exporter.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \
