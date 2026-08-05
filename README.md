@@ -34,7 +34,7 @@ Six documents. That is all of it.
 | [`docs/FEATURES.md`](docs/FEATURES.md) | **Every feature and the Apple framework behind it.** Four pillars: record, edit, launch video, CLI + agent |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Eight binding decisions (D1–D8) and the module map |
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
-| [`KICKOFF.md`](KICKOFF.md) | Copy-paste prompts for Claude Code + a skill chain |
+| [`KICKOFF.md`](KICKOFF.md) | Historical copy-paste prompts for Phases 0–2, kept as a record |
 
 ---
 

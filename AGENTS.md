@@ -29,23 +29,34 @@ rule most likely to be eroded by a well-meaning convenience feature. Do not add 
 
 ---
 
-## Method: a skill chain
+## Method
 
-This project uses the [a skill chain](https://github.com/a skill chain) skill chain:
+**There is no skill chain, and no per-task subagent ceremony.** This project ran on the
+[a skill chain](https://github.com/a skill chain) chain through Phase 3A and the owner ended it:
+the per-task briefs, worktrees and two-stage reviews cost more than they caught at this size. The
+per-task ledger they produced was never committed and no longer exists — do not go looking for it,
+and do not cite it.
 
-1. **brainstorming** — before any code. Questions, alternatives, design presented in readable chunks.
-2. **using-git-worktrees** — isolated branch, clean test baseline.
-3. **writing-plans** — 2–5 minute tasks with exact file paths and verification steps.
-4. **subagent-driven-development** — fresh subagent per task, two-stage review.
-5. **test-driven-development** — RED-GREEN-REFACTOR. Code written before its test gets deleted.
-6. **requesting-code-review** — between tasks. Critical issues block progress.
-7. **finishing-a-development-branch** — verify, merge, clean up.
+What replaced it is four practices, kept because each one caught something the others did not:
 
-Design documents from `brainstorming` land in `docs/design/`. They are the durable record of *why*.
+1. **A design document before substantial work**, in `docs/design/` — questions, the alternatives
+   considered, and the decision. That directory is the durable record of *why*, and now the only
+   one. Per-phase execution plans are not kept; once a phase ships, the design document and
+   `git log` are the record.
+2. **Test-driven, and the red must be behavioural.** Write the test first. A compile failure is not
+   a RED — see the rule of that name below. Code written before its test gets deleted.
+3. **Verify before claiming done.** Run the command, read its output, then write the sentence — in
+   that order, on the bytes being committed. Numbers come from a script, never from a hand count:
+   `scripts/count-tests.sh` for the test total, `scripts/scan-decode-validation.py` for the
+   decode-validation count.
+4. **Review before merging**, against the rules below rather than against taste.
 
-The SDD ledger that drives `subagent-driven-development` lives under `a skill chain/`, which
-`.gitignore` excludes — it does not survive a clone. **At the end of a phase, promote what later
-phases need into `docs/design/<date>-phase-N-carried-forward.md`** before the branch merges.
+Everything under **Rules** is unchanged by this and is the part that actually holds. Those rules
+were each written after something went wrong, and none of them depended on the chain.
+
+Any working notes a phase keeps are scratch and are not committed. **At the end of a phase, promote
+what later phases need into `docs/design/<date>-phase-N-carried-forward.md`** before the branch
+merges — that file is the only thing that survives.
 Phase 1's is the worked example: code with no caller yet, rules held by convention rather than
 enforcement, and verification that runs only when a person runs it.
 

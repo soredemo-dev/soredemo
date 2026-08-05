@@ -111,7 +111,6 @@ sw_vers                                # 26.x is enough — the floor is macOS 2
 
 | Tool | Why |
 | --- | --- |
-| **a skill chain** | `/plugin install a skill chain@claude-plugins-official` — user scope. The working method in `AGENTS.md` |
 | **Icon Composer** | Layered Liquid Glass app icon from `../soredemo-web/soredemo-brand-kit/` |
 | **SF Symbols 8** | 7,000+ symbols, aligns with the system font |
 | **Rust toolchain** | Phase 0 only, to build the old Tauri app |
