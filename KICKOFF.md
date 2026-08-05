@@ -6,11 +6,8 @@ Repo: `~/Documents/Soredemo/soredemo-main`
 
 ## Setup, once
 
-```
-/plugin install a skill chain@claude-plugins-official
-```
-
-User scope. Toolchain setup is in `docs/TOOLCHAIN.md`.
+Toolchain setup is in `docs/TOOLCHAIN.md`. There is no plugin to install: the a skill chain
+chain this file's prompts assume was dropped after Phase 3A — see `AGENTS.md` § Method.
 
 ---
 
@@ -41,7 +38,7 @@ User scope. Toolchain setup is in `docs/TOOLCHAIN.md`.
 
 > **⚠ This block is out of date and Phase 1 is already under way.** It is kept as the historical
 > kickoff. Do not paste it to restart Phase 1 — read `docs/design/2026-08-01-phase-1-foundation-design.md`
-> and `docs/plans/2026-08-01-phase-1-foundation.md` instead, which supersede it.
+> instead, which supersedes it.
 >
 > Corrections since it was written, all decided deliberately: the floor is **macOS 26.0**, not 27;
 > the package sits at the **repository root**, not under `Packages/`; `project-format` uses a
@@ -129,6 +126,9 @@ User scope. Toolchain setup is in `docs/TOOLCHAIN.md`.
 
 ## Phase 2 — Record
 
+> **⚠ Historical. Phase 2 shipped.** Kept as the record of what was asked for; the workflow line
+> at the end of this block no longer applies — see `AGENTS.md` § Method.
+>
 > Read `AGENTS.md`, `docs/FEATURES.md` § Pillar 1, and `ROADMAP.md` Phase 2.
 >
 > We are building the recorder. Fourteen rows, ending at a build that records a demo, plays it back,

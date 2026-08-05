@@ -3,10 +3,8 @@ import Foundation
 import Headless
 import Testing
 
-/// The render tier's three CoreGraphics exits, exercised. Trivial functions, and the
-/// entry rule does not exempt trivial ones: `outputCanvas` and `renderSize` differ
-/// only in which of two same-shaped CG types they build, which is exactly the pair a
-/// copy-paste swaps.
+/// The render tier's three CoreGraphics exits. Trivial, but `outputCanvas` and `renderSize`
+/// differ only in which same-shaped CG type they build — exactly the pair a copy-paste swaps.
 @Test func theOutputCanvasIsOriginedAtZeroWithTheGivenExtent() {
     let canvas = HeadlessGeometryBridge.outputCanvas(width: 1920, height: 1080)
     #expect(canvas.origin.x == 0 && canvas.origin.y == 0)

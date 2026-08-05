@@ -4,25 +4,9 @@ import CoreVideo
 import Headless
 import Render
 
-/// **The seam's entry-rule obligation, discharged by the production conformer and
-/// not by a double.**
-///
-/// `FrameRendering` is exempt from construction and not from exercise, and the
-/// exercised conforming type may not be a test-only one. A `struct` in this file
-/// conforming to `FrameRendering` would satisfy the letter and invert the meaning:
-/// the seam would be fully verified through a double while `CoreImageFrameRenderer`
-/// — the only thing that ever runs in the app — never executed. That is the exact
-/// shape of the defect this whole phase exists to end.
-///
-/// **`renderer` is typed `any FrameRendering`, not left to infer `CoreImageFrameRenderer`**
-/// — the call below goes through the protocol's own dispatch, so this test exercises the
-/// SEAM, with the production type behind it, rather than exercising the class directly and
-/// leaving the protocol itself untouched by anything but a comment.
-///
-/// **This test needs a GPU**, which is why `HeadlessTests` is a separate population.
-/// On a machine with no Metal device `CoreImageFrameRenderer.init` throws
-/// `FrameRenderingError.noRenderDevice`; that is recorded as a real failure below, not
-/// silently skipped — `Issue.record` still leaves the test red.
+/// The `FrameRendering` seam exercised through the PRODUCTION conformer, never a double.
+/// `renderer` is typed `any FrameRendering` on purpose, so the call dispatches through the
+/// protocol. Needs a GPU: a missing Metal device is recorded as a real failure, not skipped.
 @Test func theProductionRendererDrawsIntoTheDestinationBuffer() throws {
     let width = 640, height = 360
     let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
@@ -41,28 +25,15 @@ import Render
     }
     try renderer.render(plan, source: source, into: destination)
 
-    // Not "the call returned" — pixels the renderer actually wrote. The destination
-    // started all-black; the stage background is (0.09, 0.09, 0.11) and the card
-    // carries the source fill, so a renderer that did nothing leaves this all zero.
+    // Pixels actually written, not "the call returned": the destination started all-black and
+    // neither the stage background nor the card fill is black, so doing nothing leaves it zero.
     let written = try pixels(of: destination).filter { $0 != (0, 0, 0) }
     #expect(!written.isEmpty, "the destination is still the all-black buffer it started as")
 }
 
-/// **The entry rule, discharged for real — not through the `catch` above.**
-///
-/// `FrameRenderingError.noRenderDevice` is thrown only when
-/// `MTLCreateSystemDefaultDevice()` returns `nil`, which does not happen on any
-/// machine this suite runs on: `theProductionRendererDrawsIntoTheDestinationBuffer`
-/// above always takes the `try` branch, never the `catch`. So the ONE place in this
-/// file that named the case sat behind a branch that never executes — the scanner
-/// (`everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct`) was satisfied by
-/// a mention, not by exercise, which is the exact gap that rule exists to close and
-/// the one public type in `Headless` it was genuinely passing on the scanner alone.
-///
-/// Same fix `theExportErrorDescriptionsNameWhatTheyClaim`
-/// (`Tests/HeadlessTests/MP4ExporterTests.swift`) applied to `MP4Exporter.ExportError`'s
-/// six unexercised cases at Task 7's own review: construct the value directly,
-/// independent of whether a GPU is present, and assert something it determines.
+/// `noRenderDevice` exercised for real, not through the `catch` above — that branch never runs
+/// on a machine with a Metal device, so the case would be named but never executed. Constructed
+/// directly here, independent of whether a GPU is present.
 @Test func theNoRenderDeviceCaseDescribesItself() throws {
     let error = FrameRenderingError.noRenderDevice
     #expect(error.description.contains("Metal"))

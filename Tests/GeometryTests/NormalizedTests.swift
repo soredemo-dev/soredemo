@@ -27,8 +27,7 @@ private func frame(_ x: Double, _ y: Double, _ w: Double, _ h: Double,
 }
 
 @Test func zeroSizeIsAllowed() {
-    // A zero-area frame (e.g. a not-yet-dragged selection) is legitimate;
-    // only NEGATIVE dimensions are rejected.
+    // A zero-area frame is legitimate; only NEGATIVE dimensions are rejected.
     _ = NormalizedSize(width: 0, height: 0)
 }
 
@@ -122,13 +121,8 @@ private func frame(_ x: Double, _ y: Double, _ w: Double, _ h: Double,
 
 // MARK: - the cross-revision precondition
 //
-// A `precondition` failure kills the process; Swift Testing has no crash
-// expectation, so it cannot be exercised with `#expect` in this suite. It is
-// verified out-of-process instead — compiling the real, unmodified `Geometry`
-// module against a small driver and inspecting the child process's exit
-// status and stderr — recorded in the task report, not here. What CAN be
-// shown in-process is the negative control: two frames sharing a revision
-// never trap, which every test above already demonstrates by not crashing.
+// Swift Testing has no crash expectation, so the trap is verified
+// out-of-process; this is only its negative control.
 @Test func sameRevisionFramesNeverReachThePreconditionEitherDirection() {
     let a = frame(0, 0, 1, 1, revision: revA)
     let b = frame(0, 0, 1, 1, revision: revA)

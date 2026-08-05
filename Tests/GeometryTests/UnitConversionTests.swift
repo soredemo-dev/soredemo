@@ -2,11 +2,8 @@ import Testing
 import Foundation
 @testable import Geometry
 
-/// Task 10.5: `PointRect` and `DisplayGeometry.pixels(from:)` /
-/// `.points(from:)`. Every fixture here uses `scale: 2` — never `scale: 1`,
-/// which is the identity of the conversion these tests exist to check
-/// (`AGENTS.md`'s fixture rule; the same rule `ArrangementTests.swift` now
-/// follows for the same reason).
+/// `scale: 2`, never `scale: 1`, which is the identity of the conversion these
+/// tests exist to check.
 private let scaledGeometry = DisplayGeometry(
     displayUUID: UUID(uuidString: "00000000-0000-0000-0000-0000000000C1")!,
     pixelWidth: 2000,
@@ -28,18 +25,12 @@ private let scaledGeometry = DisplayGeometry(
 
 // MARK: - description names its own unit
 //
-// Added after `Soredemo/App/SoredemoApp.swift`'s `--present-picker`
-// diagnostic printed a `.display`'s size as "1512x982 pt" and a `.window`'s
-// buffer as "3024x1964 px" by hand-writing the unit into two separate format
-// strings — silent unit-mixing one layer above the type system that exists
-// to make it a compile error. `description` is the fix: the unit is now
-// part of the type's own printed form, so no caller can print one without
-// the other coming along.
+// The unit belongs to the type's printed form, so no caller can print the
+// numbers without it.
 
 @Test func pointRectDescriptionNamesPoints() {
-    // Off-centre, non-square fixture (`AGENTS.md`'s identity-fixture rule) —
-    // an all-zero rect would still produce a description containing "pt",
-    // but would not prove every field actually made it into the string.
+    // Off-centre and non-square: an all-zero rect would still contain "pt"
+    // without proving every field reached the string.
     let r = PointRect(x: 12, y: 34, width: 800, height: 600)
     let description = r.description
     #expect(description.contains("pt"))
@@ -55,10 +46,8 @@ private let scaledGeometry = DisplayGeometry(
 }
 
 @Test func pointRectAndPixelRectDescribeTheSameNumbersDifferently() {
-    // The whole point: two rects with IDENTICAL fields, one of each type,
-    // must not print identically — that would be the exact silent-mixing
-    // bug this pair of types exists to make impossible, reproduced in the
-    // one place (`description`) the type system cannot reach on its own.
+    // Identical fields, one rect of each type: they must not print identically,
+    // since `description` is the one place the type system cannot reach.
     let points = PointRect(x: 12, y: 34, width: 800, height: 600)
     let pixels = PixelRect(x: 12, y: 34, width: 800, height: 600)
     #expect(points.description != pixels.description)
@@ -98,12 +87,10 @@ private let scaledGeometry = DisplayGeometry(
     #expect(roundTripped == original)
 }
 
-// MARK: - negative control: at `scale: 1`, points and pixels genuinely coincide
+// MARK: - negative control: at `scale: 1`, points and pixels coincide
 //
-// Not the primary evidence for the conversion (that's the scale-2 cases
-// above, which are the only ones that can fail if the division/multiplication
-// is dropped or inverted) — this just confirms `scale: 1` isn't itself
-// mishandled as a special case.
+// Confirms `scale: 1` is not mishandled as a special case; the scale-2 cases
+// above are the ones that catch a dropped or inverted conversion.
 
 private let unscaledGeometry = DisplayGeometry(
     displayUUID: UUID(uuidString: "00000000-0000-0000-0000-0000000000C2")!,

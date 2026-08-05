@@ -56,7 +56,7 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     try ObservationLog.decode(ObservationLog.encode(value))
 }
 
-// MARK: - the three distinctions the type exists for (task brief, step 2)
+// MARK: - the three distinctions the type exists for
 
 @Test func everyTruncationReasonSurvivesARoundTrip() throws {
     for reason in [ChainTruncation.reachedRoot, .depthCapReached, .budgetExceeded, .hitTestReturnedNothing] {
@@ -65,12 +65,8 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     }
 }
 
-/// **"There were no more ancestors" and "I stopped asking" must not be the same
-/// bytes on disk** (D2-2). Both records below have an empty `ancestors`, which
-/// is the case where the distinction is carried entirely by `truncation` — if
-/// the field were dropped from the encoding, or defaulted on decode, these two
-/// would become one record and a derivation could no longer tell a chain that
-/// ended from a chain that was cut off.
+/// "No more ancestors" and "I stopped asking" must not be the same bytes.
+/// Both fixtures are empty on purpose, so `truncation` alone carries it.
 @Test func anEmptyChainThatHitTheDepthCapIsNotAnEmptyChainThatReachedTheRoot() throws {
     let complete = record(ancestors: [], truncation: .reachedRoot)
     let truncated = record(ancestors: [], truncation: .depthCapReached)
@@ -86,8 +82,7 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
             "both are empty — the difference is carried by truncation alone, which is the point")
 }
 
-/// **An element with no children is not an element whose children were never
-/// read.** `[]` is a measurement; `nil` is an absence of one.
+/// `[]` is a measurement; `nil` is the absence of one.
 @Test func noChildrenAndNoChildrenListAreDifferentRecords() throws {
     let leaf = record(children: [])
     let notAsked = record(children: nil)
@@ -115,24 +110,14 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
 
 // MARK: - a wrong element must not be attributable to the wrong layer
 
-/// **The positive direction: a click inside the element the hit-test returned.**
-///
-/// This is the assertion the whole coordinate/timing split rests on, so it is
-/// also the one that had to be observed failing. Feeding it a click point
-/// outside the same element's frame — the mutation in the task report — turns
-/// it red with `.doesNotContainTheClick`; the check is not satisfiable by any
-/// point on the display.
+/// The positive direction: a click inside the element the hit-test returned.
 @Test func aClickInsideTheReturnedElementsFrameIsRecordedAsContained() {
     let inside = record(clickAt: NormalizedPoint(x: 0.5, y: 0.5))
     #expect(inside.clickContainment == .containsTheClick)
 }
 
-/// **The negative direction, in all four axes.** A click outside the returned
-/// element's own frame is a *coordinate* fault: AX staleness moves an element
-/// by a frame or two of animation, it does not move it out of the coordinate
-/// space it reported itself in. Each of these four is a conversion that
-/// dropped a step — the pixel step, the routing step, or the Y flip — and none
-/// of them produces an out-of-range value that would be caught any other way.
+/// The negative direction, in all four axes: a click outside the returned
+/// element's frame is a coordinate fault, not AX staleness.
 @Test func aClickOutsideTheReturnedElementsFrameIsACoordinateFault() {
     let outside: [(String, NormalizedPoint)] = [
         ("left of it",   NormalizedPoint(x: 0.30, y: 0.50)),
@@ -146,9 +131,7 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     }
 }
 
-/// Inclusive on the boundary, deliberately: `false` is this predicate's loud
-/// direction, so a click exactly on a control's edge must not be reported as a
-/// coordinate fault.
+/// Inclusive on the boundary: a click on a control's edge is not a fault.
 @Test func aClickExactlyOnTheFramesEdgeCounts() {
     for corner in [NormalizedPoint(x: 0.4, y: 0.4), NormalizedPoint(x: 0.6, y: 0.6),
                    NormalizedPoint(x: 0.4, y: 0.6), NormalizedPoint(x: 0.6, y: 0.4)] {
@@ -156,10 +139,7 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     }
 }
 
-/// Two frames normalised against different displays are not comparable, and
-/// the record says so rather than trapping the way `NormalizedFrame.contains`
-/// would — a window straddling two displays produces this legitimately, and it
-/// is neither a coordinate fault nor a timing one.
+/// Frames from different displays are not comparable, and say so rather than trapping.
 @Test func containmentRefusesAcrossDisplayRevisions() {
     let straddling = record(clickAt: NormalizedPoint(x: 0.5, y: 0.5),
                             clickRevision: otherRev,
@@ -174,16 +154,13 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
 }
 
 /// The timing half of the same split: how long the click waited for the answer.
-/// F2-2 measured this to 125.47 ms at worst, which is 7.5 frames at 60 fps.
 @Test func theTimingExposureIsReadableFromTheRecordAlone() {
     let click = at(1_000_000)
     let answered = record(instant: click, hitTestInterval: span(1_020_000, 4_000_000))
     #expect(answered.clickToHitTestAnswerNanos == 4_020_000)
 }
 
-/// Across a boot epoch the two instants are not on one clock, so there is no
-/// duration to report — and a plausible-looking number would be worse than
-/// none.
+/// Across a boot epoch there is no duration to report, and none beats a guess.
 @Test func theTimingExposureIsAbsentRatherThanWrongAcrossEpochs() {
     let mismatched = record(instant: at(1_000_000),
                             hitTestInterval: span(1_020_000, 4_000_000, epoch: otherEp))
@@ -192,26 +169,9 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
 
 // MARK: - a damaged file must not read as a coordinate fault
 
-/// **The failure this guards against is silent and it lands in the one type
-/// whose job is telling faults apart.** `NormalizedPoint` and `NormalizedSize`
-/// `precondition` on finiteness, and their *synthesised* `Decodable`
-/// conformances bypass it — so a non-finite coordinate cannot be built in
-/// memory but could be read off disk, and every comparison against `NaN` is
-/// `false`, which makes `clickContainment` answer `.doesNotContainTheClick`:
-/// a confident coordinate-fault verdict for a file that is merely damaged.
-///
-/// **Measured, and it changes what this test can claim.** Foundation's
-/// `JSONDecoder` refuses every route to a non-finite `Double` before this
-/// type's own validation runs — checked against this SDK with four payloads,
-/// `1e400`, `-1e400`, a bare `NaN` token and the string `"NaN"`, all four
-/// `DecodingError`. So through `ObservationLog`, which is a plain
-/// `JSONDecoder`, the hole is already closed one layer down and a JSON-based
-/// test here would pass for Foundation's reason, not this type's.
-///
-/// This test therefore uses a property list, which **does** carry infinity
-/// through (measured: encode `.infinity`, decode, `isFinite == false`). That
-/// makes the guard's own behaviour observable instead of shadowed, which is
-/// the difference between a check and a check-shaped statement.
+/// A non-finite coordinate off disk would read as a coordinate fault rather
+/// than a damaged file. Property list, not JSON, on purpose: `JSONDecoder`
+/// refuses non-finite doubles itself, so JSON would pass for its reason.
 @Test func aNonFiniteClickPositionIsRefusedByThisTypeAndNotOnlyByFoundation() throws {
     let valid = try PropertyListEncoder().encode(record())
     var object = try #require(PropertyListSerialization.propertyList(
@@ -220,8 +180,6 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     let damaged = try PropertyListSerialization.data(fromPropertyList: object,
                                                      format: .binary, options: 0)
 
-    // The property-list layer really does deliver it — without this the test
-    // below could pass because the payload never got that far.
     struct JustThePoint: Decodable { let clickPosition: NormalizedPoint }
     let delivered = try PropertyListDecoder().decode(JustThePoint.self, from: damaged)
     #expect(!delivered.clickPosition.x.isFinite,
@@ -232,9 +190,7 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     }
 }
 
-/// A negative dimension is ordinary, legal JSON — Foundation has no opinion on
-/// it — so this one is reachable through the real path and the refusal can
-/// only be this type's own.
+/// A negative dimension is legal JSON, so the refusal is this type's own.
 @Test func aFrameWithANegativeDimensionIsRefused() throws {
     let valid = try ObservationLog.encode(record(hit: element()))
     var object = try #require(try JSONSerialization.jsonObject(with: valid) as? [String: Any])
@@ -250,9 +206,7 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     }
 }
 
-/// `axCalls` is arithmetic a reader divides and compares — against F2-2's
-/// distribution, against the depth cap. A negative one is not a value this
-/// producer can emit, and it is legal JSON.
+/// A negative `axCalls` is legal JSON but not a value this producer can emit.
 @Test func aNegativeCallCountIsRefused() throws {
     let valid = try ObservationLog.encode(record())
     var object = try #require(try JSONSerialization.jsonObject(with: valid) as? [String: Any])
@@ -264,8 +218,7 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
     }
 }
 
-/// The hand-written conformance must not have changed the wire form — the
-/// same guarantee `HostRange` and `DisplayGeometry` state for theirs.
+/// The hand-written conformance must not have changed the wire form.
 @Test func validationDidNotChangeTheEncodedShape() throws {
     let full = record(hit: element(), ancestors: [element(role: "AXGroup", title: nil)],
                       children: [element(role: "AXStaticText", title: nil)])

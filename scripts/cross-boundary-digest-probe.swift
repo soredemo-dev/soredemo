@@ -964,8 +964,8 @@ enum CrossBoundaryProbe {
     // names `CGEvent`, `CGEventFlags` and `CGDirectDisplayID`, and its
     // conversion begins at a `CGPoint` — four things no package test may
     // touch. The four functions below are the machine-checkable half of the
-    // `input-observation` row. The half that needs a person is
-    // `spikes/2026-08-02-input-observation/`: creating the tap needs Input
+    // `input-observation` row. The half that needs a person has no harness
+    // in the tree: creating the tap needs Input
     // Monitoring, and only a real password field makes
     // `IsSecureEventInputEnabled()` true.
 
@@ -1864,8 +1864,8 @@ enum CrossBoundaryProbe {
     //
     // What is left for a person is exactly one claim — that
     // `LiveAXElementSource` asks the real API the right questions, and that
-    // the resulting distributions still look like F2-2's.
-    // `spikes/2026-08-02-pairing-latency/` is that step.
+    // the resulting distributions still look like F2-2's. That step has no
+    // harness in the tree.
 
     /// One node of a synthetic accessibility tree. Deliberately holds the same
     /// shapes `AXElementSource` returns, so the fake cannot answer a question
@@ -5225,7 +5225,7 @@ enum CrossBoundaryProbe {
     /// suspend — completed 120 frames in under 0.3 s on every run, no stalls. So this is a
     /// genuine, reproducible gap in `appendImmediately(_:)` specifically under concurrent
     /// multi-track load, not a fact about `SuccessorMasterWriter`'s correctness or about this
-    /// probe's pacing: neither `spikes/2026-08-03-writer-receiver-hang`'s own `appendImmediately`
+    /// probe's pacing: neither the writer/receiver-hang spike's own `appendImmediately`
     /// run (one receiver only) nor its `--verify` run (three receivers, but the awaiting form)
     /// tested this exact combination. 40 frames — 6/6 clean isolated runs at 50, 5/5 at 40, and
     /// well clear of the lowest observed failure at 64 — keeps this section's own purpose (the

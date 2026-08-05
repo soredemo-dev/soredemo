@@ -6,12 +6,8 @@ import Timeline
 
 // MARK: - JSONLReader
 //
-// Controller addendum ruling 3, and the identity rule from AGENTS.md: a
-// fixture set that only contains well-terminated files tests nothing,
-// because a well-terminated file (0-byte tail) is the identity of "drop the
-// trailing partial line". Every row below is drawn from the addendum's
-// fixture table, EXCEPT one — see the comment on
-// `dropsAPartialJSONObjectTailAfterTwoFullLines` below.
+// A well-terminated file (0-byte tail) is the identity of "drop the trailing
+// partial line", so the fixtures below must include unterminated ones.
 
 @Test func jsonlReaderKeepsAllThreeLinesOfAWellTerminatedFile() {
     let result = JSONLReader.lines(from: Data("a\nb\nc\n".utf8))
@@ -25,13 +21,8 @@ import Timeline
     #expect(result.droppedBytes == 1)
 }
 
-/// The addendum's fixture table gives this row as `droppedBytes == 12`. It
-/// is wrong: the tail after the final `\n` is `{"partial":`, which is 11
-/// bytes — verified independently with `printf '{"partial":' | wc -c` and
-/// with `len('{"partial":')` in Python, both giving 11, and by hand-count
-/// (`{`,`"`,`p`,`a`,`r`,`t`,`i`,`a`,`l`,`"`,`:` = 11 characters). AGENTS.md:
-/// "When a document is wrong, say so" — this test asserts the value the
-/// bytes actually produce, not the table's arithmetic.
+/// 11, not 12: the tail after the final `\n` is `{"partial":`, which is
+/// 11 bytes.
 @Test func dropsAPartialJSONObjectTailAfterTwoFullLines() {
     let result = JSONLReader.lines(from: Data("a\nb\n{\"partial\":".utf8))
     #expect(result.lines == [Data("a".utf8), Data("b".utf8)])

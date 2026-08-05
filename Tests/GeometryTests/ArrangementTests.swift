@@ -2,26 +2,11 @@ import Testing
 import Foundation
 @testable import Geometry
 
-/// A two-display arrangement: a "main" display at the global origin whose
-/// **point**-space size is 1000×800, and a "secondary" whose point-space
-/// size is 800×600, placed `sideOriginX` points to the right (or, for a
-/// negative value, to the left) of it.
-///
-/// **Both displays are `scale: 2`, deliberately not `scale: 1`.** `scale: 1`
-/// is the identity of the points↔pixels conversion — every Phase 1 fixture
-/// used it, which is exactly why 97 green tests coexisted with `route`
-/// comparing points against raw pixel dimensions directly (design doc §
-/// Geometry: the Y-axis flip; `AGENTS.md`'s fixture rule). Native pixel
-/// dimensions here are double the point-space numbers above — 2000×1600 and
-/// 1600×1200 — chosen so that every global/local coordinate used below is
-/// still the exact point-space value a reader expects, while `pixelWidth`/
-/// `pixelHeight` genuinely disagree with it. A mutation dropping the scale
-/// division in `route` compares against these doubled pixel numbers instead
-/// and lets a point through that point-space bounds would reject.
-///
-/// Numbers are chosen so the routing arithmetic in the tests below lands on
-/// exact `Double`s, the same reasoning `ConversionTests.swift` uses for its
-/// fixture geometry.
+/// Main display at the global origin, 1000×800 POINTS; secondary 800×600
+/// points, placed `sideOriginX` points to its right (negative: left).
+/// Both are `scale: 2` on purpose — `scale: 1` is the identity of the
+/// points↔pixels conversion, so pixel dimensions here (2000×1600, 1600×1200)
+/// genuinely disagree with the point values every test below uses.
 private func arrangement(sideOriginX: Double = 1000) -> DisplayArrangement {
     let main = DisplayGeometry(
         displayUUID: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!,
@@ -35,7 +20,7 @@ private func arrangement(sideOriginX: Double = 1000) -> DisplayArrangement {
     ])
 }
 
-// MARK: - the two tests the brief pins verbatim
+// MARK: - the two pinned tests
 
 @Test func rearrangingDisplaysChangesNoRevision() {
     let before = arrangement(sideOriginX: 1000).placements.map(\.geometry.revision)
@@ -45,12 +30,8 @@ private func arrangement(sideOriginX: Double = 1000) -> DisplayArrangement {
 
 @Test func clickOnSecondaryNormalizesAgainstSecondary() throws {
     let hit = try #require(arrangement().route(globalTopLeftX: 1400, globalTopLeftY: 300))
-    // `hit.localX`/`hit.localY` are POINTS (400, 300 — secondary's point-space
-    // width is 800). `normalize` requires PIXELS, so the pipeline's missing
-    // middle step (design doc § Geometry: the Y-axis flip) has to run here:
-    // convert via `DisplayGeometry.pixels(from:)` before calling `normalize`.
-    // Skipping it would divide by the display's *pixel* width (1600) instead
-    // of its point width (800) and silently halve `p.x`.
+    // `hit.localX`/`localY` are POINTS but `normalize` requires PIXELS, so the
+    // `pixels(from:)` conversion must run here; skipping it halves `p.x`.
     let pixels = hit.geometry.pixels(from: PointRect(x: hit.localX, y: hit.localY, width: 0, height: 0))
     let p = NormalizationContext(geometry: hit.geometry).normalize(topLeftX: pixels.x, topLeftY: pixels.y)
     #expect(p.x == 0.5)   // pixels.x == 800; 800/1600, not 1400/1000 and not 400/1600
@@ -68,8 +49,7 @@ private func arrangement(sideOriginX: Double = 1000) -> DisplayArrangement {
 // MARK: - off every display
 
 @Test func pointOnNoDisplayReturnsNil() {
-    // Between the two displays' relevant band vertically, and past the last
-    // display's right edge horizontally: on neither.
+    // Past the last display's right and bottom edges: on neither.
     #expect(arrangement().route(globalTopLeftX: 5000, globalTopLeftY: 5000) == nil)
 }
 
@@ -88,11 +68,8 @@ private func arrangement(sideOriginX: Double = 1000) -> DisplayArrangement {
 }
 
 @Test func pointOnRightEdgeDoesNotBelongToTheDisplay() throws {
-    // Main is 1000 points wide (pixelWidth 2000 at scale 2) at origin 0, so
-    // x == 1000 is one past its last point column — and also the
-    // secondary's own left edge in the default arrangement, so this
-    // simultaneously proves the two displays don't overlap-claim that
-    // column.
+    // x == 1000 is one past main's last point column and is the secondary's
+    // left edge, so this also proves the two don't both claim that column.
     let a = arrangement()
     let hit = try #require(a.route(globalTopLeftX: 1000, globalTopLeftY: 400),
                            "x==1000 belongs to the secondary, not nobody")
@@ -101,9 +78,7 @@ private func arrangement(sideOriginX: Double = 1000) -> DisplayArrangement {
 }
 
 @Test func pointOnBottomEdgeDoesNotBelongToTheDisplay() {
-    // Main is 800 points tall (pixelHeight 1600 at scale 2) at origin 0, so
-    // y == 800 is one past its last point row, and no other display in this
-    // arrangement occupies that row.
+    // y == 800 is one past main's last point row, and no other display covers it.
     #expect(arrangement().route(globalTopLeftX: 500, globalTopLeftY: 800) == nil)
 }
 
@@ -122,13 +97,10 @@ private func arrangement(sideOriginX: Double = 1000) -> DisplayArrangement {
     #expect(a.route(globalTopLeftX: -801, globalTopLeftY: 300) == nil)
 }
 
-// MARK: - the Task 10.5 defect, reproduced exactly and confirmed fixed
+// MARK: - the points-versus-pixels routing defect
 //
-// The design doc's own worked example: a single 3840×2160 display at
-// `scale: 2` is 1920×1080 POINTS. `route(globalTopLeftX: 2500, …)` — a point
-// value, exactly what `CGEventGetLocation` would report — must be routed
-// against the 1920-point width, not the 3840-pixel width. Before the fix,
-// `route` compared 2500 against 3840 directly and accepted it.
+// A 3840×2160 display at `scale: 2` is 1920×1080 POINTS; a point value must be
+// routed against the 1920-point width, not the 3840-pixel width.
 
 private func singleDisplay3840x2160Scale2() -> DisplayArrangement {
     let display = DisplayGeometry(
@@ -139,10 +111,8 @@ private func singleDisplay3840x2160Scale2() -> DisplayArrangement {
     ])
 }
 
-// This is the mutation-catching test (see task report): removing the `/
-// placement.geometry.scale` division from `route`'s bounds computation makes
-// `widthInPoints` equal `3840` again, `2500 < 3840` becomes true, and this
-// assertion — expecting `nil` — goes red.
+// Removing the `/ placement.geometry.scale` division from `route`'s bounds
+// computation reddens this.
 @Test func pointPastPointWidthButInsidePixelWidthIsOnNoDisplay() {
     #expect(singleDisplay3840x2160Scale2().route(globalTopLeftX: 2500, globalTopLeftY: 100) == nil,
             "2500 points is past the display's 1920-point width, even though it is well inside its 3840-pixel width")
@@ -155,8 +125,7 @@ private func singleDisplay3840x2160Scale2() -> DisplayArrangement {
 }
 
 @Test func pointExactlyAtThePointWidthIsOnNoDisplay() {
-    // 1920 points is the display's point-space width — half-open, so this
-    // is exactly one point past the last column, distinct from (and a
-    // tighter bound than) the 2500 case above.
+    // Half-open: 1920 is exactly one point past the last column, a tighter
+    // bound than the 2500 case above.
     #expect(singleDisplay3840x2160Scale2().route(globalTopLeftX: 1920, globalTopLeftY: 100) == nil)
 }

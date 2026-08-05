@@ -1,42 +1,19 @@
-/// 32 opaque bytes identifying the exact content evidence was cited against
-/// (design doc D-P4).
+/// 32 opaque bytes identifying the exact content evidence was cited against.
 ///
-/// **This package compares digests. It never computes one.** Computing a
-/// cryptographic digest here would need CryptoKit, which `import Foundation`-only
-/// D6 forbids; a hand-rolled hash would be the wrong way to obtain one either
-/// way. The value is injected by whoever produced the evidence — the app, via
-/// CryptoKit's SHA-256 — the same shape as time and randomness (§ Determinism).
+/// This package compares digests and never computes one; the value is injected by
+/// whoever produced the evidence (the app, via CryptoKit SHA-256). Never a
+/// non-cryptographic hash such as `fnv1a64`: constructible collisions would let an
+/// approval bound to reviewed content be redeemed against substituted content.
 ///
-/// **Deliberately not `fnv1a64`.** `GeometryRevision` is a 64-bit non-cryptographic
-/// identity hash: fine for registry lookup, where the only adversary is
-/// coincidence. `ContentDigest` sits on the evidence path Phase 8's
-/// `approval-gate` binds per-post human approval to, over input
-/// `ARCHITECTURE.md § Agentic security` designates attacker-controllable.
-/// FNV-1a collisions can be constructed to order, which would let an approval
-/// bound to reviewed text be redeemed against substituted text. `fnv1a64`
-/// stays `internal` to `Geometry` and is not visible here, so there is no route
-/// by which the identity hash reaches the evidence path.
-///
-/// Validated in two places, for two different reasons: `init(_:)` **traps** on
-/// the wrong byte count, because a caller in this package handing in the wrong
-/// length is a programmer error. `init(from:)` **throws**, because a digest
-/// decoded from disk is untrusted input — corrupted, hand-edited, or written
-/// by a future version of this app — and trapping on untrusted input is how a
-/// bad file becomes an unopenable document (same split as
-/// `GeometryRegistry.insert` vs `init(from:)`).
+/// `init(_:)` traps on the wrong byte count (programmer error); `init(from:)` throws,
+/// because a digest decoded from disk is untrusted input.
 public struct ContentDigest: Hashable, Sendable {
-    /// SHA-256 output length. Frozen: changing it is a breaking change to
-    /// every digest already on disk.
+    /// SHA-256 output length. Frozen: changing it breaks every digest on disk.
     public static let byteCount = 32
 
     public let bytes: [UInt8]
 
-    /// Traps if `bytes.count != Self.byteCount`. Like every precondition in
-    /// this package, this cannot be exercised with `#expect` — a precondition
-    /// failure kills the process — so it is not covered by
-    /// `EvidenceTests.swift`; the untrusted-input path (`init(from:)`, below)
-    /// is what stands between a corrupted digest and the rest of the program,
-    /// and that path throws instead, so it is what the test suite exercises.
+    /// Traps if `bytes.count != Self.byteCount`.
     public init(_ bytes: [UInt8]) {
         precondition(bytes.count == Self.byteCount,
                      "ContentDigest must be \(Self.byteCount) bytes, got \(bytes.count)")
@@ -45,9 +22,7 @@ public struct ContentDigest: Hashable, Sendable {
 }
 
 extension ContentDigest: Codable {
-    /// A digest decoded from disk whose byte count is not `ContentDigest.byteCount`
-    /// — corruption, a hand edit, or a future encoding this version does not
-    /// understand. Thrown, never trapped: see the type's documentation.
+    /// A decoded digest whose byte count is not `ContentDigest.byteCount`.
     public struct DecodingFailure: Error, Equatable {
         public let byteCount: Int
     }
@@ -63,10 +38,8 @@ extension ContentDigest: Codable {
         self.bytes = decoded
     }
 
-    /// Encodes as a flat JSON array of 32 numbers — no wrapping object, so
-    /// there is no key order for `.sortedKeys` to have any effect on and
-    /// nothing here can be a source of the per-process byte-order hazard
-    /// (design doc § Canonical encoding, point 0).
+    /// Encodes as a flat JSON array of 32 numbers: no wrapping object, so there is no
+    /// key order and no per-process byte-order hazard.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(bytes)
@@ -74,9 +47,7 @@ extension ContentDigest: Codable {
 }
 
 extension ContentDigest: CustomStringConvertible {
-    /// Fixed-width hex, matching `GeometryRevision.description`, so a digest
-    /// is greppable and comparable in a log instead of printing as an opaque
-    /// Swift array literal.
+    /// Fixed-width hex, so a digest is greppable in a log rather than an array literal.
     public var description: String {
         let hex = bytes.map { byte -> String in
             let s = String(byte, radix: 16)

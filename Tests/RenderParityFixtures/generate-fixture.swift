@@ -1,28 +1,12 @@
-// Regenerates `two-tone.mov`, the committed fixture `scripts/cross-boundary-digest-probe.swift`
-// § 15 (`render-parity`, Phase 2B Task 8) reads. Committed alongside the fixture itself — code
-// review (Task 8, fix round 1), Minor finding 8 — so the file is reproducible from the repo rather
-// than being a binary whose origin lives only in a report.
+// Regenerates the committed `two-tone.mov` fixture: 64×64 ProRes4444, 10 fps, 2 seconds,
+// first second solid red and second solid blue, so a parity check can tell "the right
+// frame was read" from "any plausible frame was read". Colour tags are pinned to
+// ITU_R_709_2 because an untagged AVAssetWriter/AVAssetReader round trip shifts colour.
 //
-// A short, small, two-colour source movie: the first second solid red (255, 0, 0), the second
-// solid blue (0, 0, 255), so a parity check sampling a composition time inside either half can
-// tell "the right frame was read" apart from "any plausible-looking frame was read" — a stronger
-// property than a single-colour fixture would let it test. Colour tags mirror
-// `scripts/cross-boundary-digest-probe.swift`'s `writeSolidColorMovie` (`AVVideoColorPropertiesKey`
-// pinned to ITU_R_709_2 on all three keys) for the same measured reason that function's own header
-// gives: an untagged round trip through `AVAssetWriter`/`AVAssetReader` shifts colour.
-//
-// 64×64, ProRes4444, 10 fps, 2 seconds (20 frames) — small on purpose. The committed file is
-// ~6.5 KB; `.gitignore:63`'s `!Tests/**/*.mov` negation is what lets it be tracked at all.
-//
-// Run with (matching this repository's own SDK-selection discipline —
-// `scripts/run-cross-boundary-probe.sh`'s own header explains why `SDKROOT` must be unset first):
+// Not a SwiftPM target; run it directly:
 //
 //     unset SDKROOT
 //     xcrun swift Tests/RenderParityFixtures/generate-fixture.swift Tests/RenderParityFixtures/two-tone.mov
-//
-// Not a SwiftPM target — this file sits under `Tests/RenderParityFixtures/`, which `Package.swift`
-// declares no target over, so `swift build`/`swift test` never see it. Run directly with `swift`,
-// the same way a one-off spike under `spikes/` is run.
 import AVFoundation
 import CoreVideo
 import Foundation

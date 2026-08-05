@@ -41,9 +41,8 @@ private func up(_ ns: Int64, x: Double = 0.5, y: Double = 0.5) -> ButtonEvent {
     #expect(track.ripplePhase(at: Nanoseconds(10_000_000_000)) == nil)
 }
 
-/// The exact behaviour Task 5's fix report and `ClickTrack.ripplePhase(at:)`'s own header commit
-/// to: the LATER click wins outright, computed from its own instant — not a blend of the two, and
-/// not the earlier click's ripple simply running longer.
+/// On overlap the LATER click wins outright, computed from its own instant — not a
+/// blend, and not the earlier ripple running longer.
 @Test func twoClicksCloseTogetherOverlapAndTheLaterOneWins() {
     let earlier: Int64 = 0
     let later: Int64 = 100_000_000        // 100ms later — inside the earlier ripple's 400ms window
@@ -54,8 +53,7 @@ private func up(_ ns: Int64, x: Double = 0.5, y: Double = 0.5) -> ButtonEvent {
     #expect(phase != nil)
     // The LATER click's own elapsed time: 150ms - 100ms = 50ms of 400ms = 0.125.
     #expect(abs(phase! - 0.125) < 0.0001)
-    // NOT the earlier click's elapsed time, which would read 150ms of 400ms = 0.375 — the value
-    // this test exists to rule out.
+    // NOT the earlier click's elapsed time, 150ms of 400ms = 0.375.
     #expect(abs(phase! - 0.375) > 0.01)
 
     // Ordering in the input array must not matter — the track sorts internally.
@@ -63,9 +61,7 @@ private func up(_ ns: Int64, x: Double = 0.5, y: Double = 0.5) -> ButtonEvent {
     #expect(reordered.ripplePhase(at: Nanoseconds(query)) == phase)
 }
 
-/// `.up` events are not read at all — a ripple starts on contact, not on release, and mixing a
-/// press-only reading with an `.up`-triggered one would be two different policies about what "a
-/// click" means for a ripple.
+/// `.up` events are not read at all: a ripple starts on contact, not on release.
 @Test func onlyDownEventsStartARipple() {
     let track = ClickTrack(events: [up(0)])
     #expect(track.ripplePhase(at: Nanoseconds(0)) == nil)

@@ -18,7 +18,7 @@ import Timeline
 //   contract, pinned by its own tests (`RegistryTests.swift`), not this
 //   file's business.
 // - One `DisplayGeometry` with `scale: 2` — `scale: 1` is the identity that
-//   hid a real bug in Task 10.5.
+//   once hid a real points↔pixels bug.
 // - `mediaFilenames` deliberately NOT in sorted order, so round-trip proves
 //   order is preserved rather than coincidentally reproduced.
 
@@ -47,7 +47,7 @@ private let segmentRevB = GeometryRevision(id: 0x2222_0000_0000_0002)
 /// `endedBy: .displayReconfigured(newRevision:)` rather than `.paused` for
 /// the same reason: `.paused`/`.stopped` carry no associated value, so a
 /// round trip that silently dropped `SegmentBoundary`'s payload would pass
-/// unnoticed with either of them (`Important 2`, task 4 review). The two
+/// unnoticed with either of them. The two
 /// segments touch exactly at the boundary — "close together" is the
 /// realistic shape for a reconfiguration-forced file split, immediately
 /// closing one segment and opening the next with no capture gap.
@@ -103,8 +103,8 @@ private func richSnapshot() throws -> ProjectSnapshot {
     let g = try #require(text.range(of: "\"geometries\""))
     let m = try #require(text.range(of: "\"mediaFilenames\""))
     let s = try #require(text.range(of: "\"schemaVersion\""))
-    // "segments" was left unasserted until the task 4 review: a hand-written
-    // `Codable` (`ProjectSnapshot.encode(to:)`, added by Task 4) is exactly
+    // "segments" is asserted too: a hand-written
+    // `Codable` (`ProjectSnapshot.encode(to:)`) is exactly
     // the place a key can be emitted out of position — synthesis can't get
     // key order wrong on its own, but a hand-written `container.encode(...,
     // forKey:)` call sequence can, and `.sortedKeys` is what recovers from

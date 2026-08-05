@@ -1,8 +1,7 @@
 # Phase 1 — what it does not deliver
 
-The SDD ledger that ran Phase 1 lives under `a skill chain/`, which `.gitignore` excludes. It does
-not survive a clone. This file is the part of it that later phases need, promoted into the
-repository before the branch merged.
+The SDD ledger that ran Phase 1 was never committed and no longer exists. This file is the part of
+it that later phases need, promoted into the repository before the branch merged.
 
 The design document says what Phase 1 decided and why. `AGENTS.md` says how to work. This says what
 is missing, unenforced, or true only by convention — the things that will bite someone who assumes

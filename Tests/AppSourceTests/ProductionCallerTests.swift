@@ -1,41 +1,23 @@
 import Foundation
 import Testing
 
-// MARK: - Task 5.5: the first production caller of five things at once
+// MARK: - the first production caller of five things at once
 //
-// This target cannot compile or run `Soredemo/` — `AppSourceTests` depends only on
-// `CheckerLexer` (see `Package.swift`), the same reason every scan in
-// `AppSourceAllowListTests.swift` is a text scan rather than a call. So what this file pins is
-// SHAPE, not behaviour: that the wiring this task adds exists, in the file it belongs in, exactly
-// as many times as it should. What the wiring actually DOES under a real recording — a log with a
-// non-zero pointer count and at least one AX chain, the drawn cursor moving — is measured in
-// `a skill chain/sdd/2026-08-03-phase-2b-render/task-5.5-report.md`, with real values, because this
-// target has no way to produce or check that itself.
-//
-// Reuses `appSourceFiles()`, `codeLinesNaming(_:in:)`, `violationsEverywhere(banned:in:)` and
-// `repositoryRoot` from `AppSourceAllowListTests.swift` — file-scope declarations in this same
-// test target, not duplicated here for the reason that file's own header gives for sharing
-// `CheckerLexer` rather than re-deriving it.
+// This target cannot compile or run `Soredemo/` — it depends only on `CheckerLexer`, so every
+// check here is a text scan pinning SHAPE, not behaviour. Reuses `appSourceFiles()`,
+// `codeLinesNaming(_:in:)` and `repositoryRoot` from `AppSourceAllowListTests.swift`.
 
 // MARK: - Step 1: the microphone entitlement
 
-/// `project.pbxproj`'s raw text. Outside `Soredemo/`, so `appSourceFiles()` does not cover it —
-/// this is the one scan in this file that reads a different tree.
+/// `project.pbxproj`'s raw text — the one scan in this file that reads outside `Soredemo/`.
 func projectPbxprojText() throws -> String {
     let url = repositoryRoot.appending(path: "Soredemo.xcodeproj/project.pbxproj")
     return try String(contentsOf: url, encoding: .utf8)
 }
 
-/// Measured at the Task 4 human step, quoted in the brief: with
-/// `ENABLE_RESOURCE_ACCESS_AUDIO_INPUT`/`NSMicrophoneUsageDescription` absent and
-/// `CaptureSession.beginSegment` setting `configuration.captureMicrophone = true` unconditionally,
-/// `tccd` said verbatim "service: kTCCServiceMicrophone requires entitlement
-/// com.apple.security.device.audio-input but it is missing / Policy disallows prompt / access to
-/// kTCCServiceMicrophone denied", and the whole recording failed to start.
-///
-/// Both build settings, in **both** configurations — a fix present only in Debug (or only in
-/// Release) is a fix that changes behaviour depending on which scheme happens to be active, which
-/// is indistinguishable from no fix at all the day someone builds Release.
+/// Measured: with the entitlement and usage description absent, `tccd` refused
+/// kTCCServiceMicrophone and the whole recording failed to start. Both settings must be present
+/// in BOTH configurations, or the fix depends on which scheme happens to be active.
 @Test func theMicrophoneEntitlementAndUsageDescriptionAreDeclaredForBothConfigurations() throws {
     let text = try projectPbxprojText()
     let entitlementCount = text.components(separatedBy: "ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;").count - 1
@@ -55,12 +37,8 @@ func projectPbxprojText() throws -> String {
 
 // MARK: - Step 2: the degradation model matches what was measured
 
-/// `CapturePermissions.degradation(for: .microphone)` used to return `.noMicrophoneTrack`, which
-/// claims a distinct, milder consequence — system audio and video keep recording, just without a
-/// microphone track — than what Step 1's measurement showed: `SCStreamConfiguration` asks for a
-/// microphone as one inseparable request alongside video and system audio, and denying any part of
-/// that request failed the WHOLE stream, not just the microphone's own track. This pins the
-/// corrected mapping rather than the one it replaced.
+/// `SCStreamConfiguration` requests microphone, video and system audio as one inseparable unit,
+/// so a denied microphone fails the WHOLE stream: `.blocksRecording`, not `.noMicrophoneTrack`.
 @Test func microphoneDegradationMatchesTheMeasuredConsequence() throws {
     let mapping = try codeLinesNaming("case .microphone:      return", in: try appSourceFiles())
         .filter { $0.location.hasPrefix("Soredemo/Capture/CapturePermissions.swift:") }
@@ -83,11 +61,9 @@ func projectPbxprojText() throws -> String {
 
 // MARK: - Steps 3 and 4: the two permissions this app had never asked for
 
-/// `CGRequestScreenCaptureAccess` occurred zero times in this repository before Task 5.5 — the
-/// picker and `SCStream` never prompt on their own. It must now occur, exactly once, inside
-/// `CapturePermissions.requestScreenRecordingAccess()` — a second call site anywhere would be a
-/// second policy about when this app asks, the same shape `AppSourceAllowListTests` already pins
-/// for `IsSecureEventInputEnabled`/`CGEvent.tapIsEnabled`.
+/// `CGRequestScreenCaptureAccess` must occur exactly once, inside
+/// `CapturePermissions.requestScreenRecordingAccess()` — a second site is a second policy about
+/// when this app asks. Zero means a first-run user is told they declined without being asked.
 @Test func theScreenRecordingRequestIsCalledExactlyOnceAndWiredBeforeThePicker() throws {
     let files = try appSourceFiles()
     let rawCalls = try codeLinesNaming("CGRequestScreenCaptureAccess()", in: files)
@@ -119,11 +95,9 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
-/// The same shape one permission over. `AXIsProcessTrustedWithOptions` with the prompt option
-/// occurred zero times before Task 5.5 — `CapturePermissions.status(of: .accessibility)` only ever
-/// reads the non-prompting `AXIsProcessTrusted()`. Note this deliberately does NOT assert
-/// `AXIsProcessTrustedWithOptions` is called from `CaptureSession.swift` directly: it is called
-/// from `CapturePermissions.requestAccessibilityAccess()`, and `CaptureSession` calls that wrapper.
+/// The same shape one permission over. Deliberately does NOT assert that
+/// `AXIsProcessTrustedWithOptions` is called from `CaptureSession.swift`: it goes through
+/// `CapturePermissions.requestAccessibilityAccess()`, which `CaptureSession` calls.
 @Test func theAccessibilityRequestIsCalledExactlyOnceAndWiredIntoCaptureSession() throws {
     let files = try appSourceFiles()
     let rawCalls = try codeLinesNaming("AXIsProcessTrustedWithOptions(", in: files)
@@ -154,13 +128,9 @@ func projectPbxprojText() throws -> String {
 
 // MARK: - Step 5: the five first production callers
 
-/// `InputObserver`, `AXObserver` and `ObservationWriter` each had, per the brief's own measured
-/// table, zero (or read-only, for `ObservationWriter`) executed production call sites before this
-/// task. This pins that each now has at least one, OUTSIDE its own declaring file — a call from
-/// within the type's own file (its initialiser, its tests-only seams) does not count, which is why
-/// `InputObserver.swift`/`AXObserver.swift`/`ObservationWriter.swift` are excluded below the same
-/// way `theSynchronousAXWalkIsCalledOnlyFromWithinAXObserver` excludes `AXObserver.swift` from ITS
-/// own scan, in the opposite direction.
+/// `InputObserver`, `AXObserver` and `ObservationWriter` each had zero (or read-only) executed
+/// production call sites. Each must now have one OUTSIDE its own declaring file, which is why
+/// those files are excluded — a call from within the type's own file does not count.
 @Test func theFirstProductionCallersAreWiredIntoCaptureSession() throws {
     let files = try appSourceFiles()
 
@@ -199,8 +169,7 @@ func projectPbxprojText() throws -> String {
         observation is produced but never handed to the AX walk.
         """)
 
-    // All five in the SAME file, or the claim "CaptureSession is where this task attaches" is
-    // unproven by the four checks above individually passing in four different, unrelated places.
+    // All five in the SAME file, or "CaptureSession is where this attaches" is unproven.
     for (name, sites) in [("InputObserver(arrangement:", inputObserverConstructions),
                            ("AXObserver(arrangement:", axObserverConstructions),
                            ("ObservationWriter.open(segment:", observationWriterOpens),
@@ -217,20 +186,13 @@ func projectPbxprojText() throws -> String {
 
 // MARK: - Step 5: the log's naming convention, and the media layout it depends on
 
-/// `ObservationWriter.expectedLogURL(forMediaURL:)` only resolves to a real path for a media file
-/// at `<package>/media/master-NN.mov`. Before Task 5.5, `ContentView`'s scratch
-/// `TemporaryFileMediaSink` wrote flatly with no `media/` parent, so every recording made through
-/// this window was structurally unable to have an observation log found beside it, independent of
-/// whether `CaptureSession` ever wrote one. This pins the layout fix that makes the rest of this
-/// task's wiring reachable from `StageWindow` at all.
+/// `ObservationWriter.expectedLogURL(forMediaURL:)` resolves only for `<package>/media/master-NN.mov`.
+/// `TemporaryFileMediaSink` once wrote flatly, so no recording made through this window could
+/// have its observation log found, however correctly one was written.
 @Test func theTemporaryMediaSinkWritesUnderMediaMatchingObservationWritersConvention() throws {
-    // A RAW text scan, deliberately not `codeLinesNaming` — the needle names a string LITERAL's
-    // content ("media"), and `SwiftSourceLexer.codeViewLines` blanks string content by design (see
-    // `AppSourceAllowListTests`'s note on `ReadableAXAttribute`). That design exists to stop a ban
-    // being evaded inside a string; this is a presence check, not a ban, so the risk it guards
-    // against (a match hiding in a comment) is checked by hand here instead: the whole file
-    // contains this exact substring exactly twice, both in `TemporaryFileMediaSink`'s real code
-    // (`init` and `acceptMedia`), never in prose describing it.
+    // A RAW text scan, not `codeLinesNaming` — the needle names string-literal content, which
+    // the code view blanks by design. Checked by hand: this substring occurs exactly twice,
+    // both in TemporaryFileMediaSink's real code, never in prose.
     let url = appSourceDirectory.appending(path: "UI/ContentView.swift")
     let text = try String(contentsOf: url, encoding: .utf8)
     let sites = text.components(separatedBy: .newlines).filter { $0.contains(#".appending(path: "media""#) }
@@ -242,10 +204,8 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
-/// `MediaSink.packageURL` is what lets `CaptureSession` find where to open an `ObservationWriter`
-/// at all — without it, the only package-shaped consumer (`ProjectDocument`) happens to already
-/// have a same-shaped property, but nothing in the protocol says a `MediaSink` must, and
-/// `TemporaryFileMediaSink` had no reason to grow one.
+/// `MediaSink.packageURL` is what lets `CaptureSession` find where to open an `ObservationWriter`;
+/// nothing in the protocol required one before, and `TemporaryFileMediaSink` had no reason to.
 @Test func theMediaSinkProtocolRequiresAPackageURL() throws {
     let sites = try codeLinesNaming("var packageURL: URL? { get }", in: try appSourceFiles())
         .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
@@ -255,19 +215,11 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
-// MARK: - Fix round 2 (code review): the segment-close drop window is counted, not silent
+// MARK: - the segment-close drop window is counted, not silent
 
-/// **Code review, Important finding.** `finalizeCurrentSegment` nils `observationWriter` under
-/// `lock` immediately, then blocks on `axObserver.waitForQueuedClicks()` — up to hundreds of
-/// milliseconds, with the event tap still fully live — before the writer is actually closed. Every
-/// observation `appendObservation` sees during that window, at every segment boundary (`pause()`,
-/// a display reconfiguration, `stop()`), used to hit `guard let writer else { return }` and vanish
-/// with nothing counting it — exactly the silence `Diagnostics.observationAppendFailures`'s own doc
-/// comment says must not happen. This pins that the `guard` branch now increments a counter, and
-/// pins WHERE: between `guard let writer else {` and the branch's closing `}`, so a future edit that
-/// moves the increment into the success path (where it would count nothing, since a live writer
-/// never takes this branch) fails the ordering check below even though the line would still exist
-/// somewhere in the file.
+/// `finalizeCurrentSegment` nils `observationWriter` immediately, then blocks on
+/// `waitForQueuedClicks()` with the tap live, so observations in that window used to vanish
+/// uncounted. Pins that the guard branch increments a counter, and that it sits INSIDE it.
 @Test func theSegmentCloseDropWindowIsCountedNotSilent() throws {
     let files = try appSourceFiles()
 
@@ -315,30 +267,14 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
-// MARK: - Phase 2B Task 8, fix round 1 (code review): the drop counter's account, pinned mechanically
+// MARK: - the drop counter's account, pinned mechanically
 
-/// **Code review, Important finding 4.** `StageCompositor.Diagnostics.framesDropped`'s doc comment
-/// names exactly two causes — the leading `guard` in `startRequest` and the `catch` around
-/// `renderer.render(_:source:into:)` — and today's code matches it exactly. But nothing enforced
-/// that agreement mechanically, in a codebase that already does exactly this for
-/// `observationsDroppedAfterSegmentClose` above, precisely because that counter's prose drifted
-/// from its code once already. "The doc is right today" is not the standard this file's own
-/// neighbouring tests hold everything else to.
-///
-/// Pins two things: **exactly two call sites** of `StageCompositor.recordDroppedFrame()` (a third
-/// added later — a new failure branch — silently falsifies the doc comment, the D6a row, and § 16
-/// of the probe, all at once, unless this test also moves); and that **each call site sits
-/// immediately before an ERROR `finish(with:)`**, told apart from the success path
-/// (`finish(withComposedPixelBuffer:)`, which the needle `"request.finish(with:"` does not match —
-/// `withComposedPixelBuffer` has no `with:` substring). A counter incrementing anywhere else could
-/// count a frame that still reached the composed-buffer path, which would make `framesDropped`
-/// overstate real drops — a different, and equally silent, way for the number to stop meaning what
-/// its doc comment says.
+/// `StageCompositor.Diagnostics.framesDropped`'s doc comment names exactly two causes, and
+/// nothing enforced that mechanically. Pins two `recordDroppedFrame()` call sites, each
+/// immediately before an ERROR `finish(with:)` — the success path spells `withComposedPixelBuffer:`.
 @Test func theDroppedFrameCounterHasExactlyTwoCallSitesEachImmediatelyBeforeAnErrorFinish() throws {
-    // `headlessSourceFiles()`, not `appSourceFiles()` — `StageCompositor.swift` moved to
-    // `Sources/Headless/` in Phase 3A-1 Task 4 and is no longer under `Soredemo/` at all, so the
-    // old scan found zero matches instead of one. The file itself, and everything this test pins
-    // about it, is unchanged by the move.
+    // `headlessSourceFiles()`, not `appSourceFiles()` — `StageCompositor.swift` lives under
+    // `Sources/Headless/` now, so a `Soredemo/`-tree scan would find zero matches instead of one.
     let files = try headlessSourceFiles()
         .filter { $0.lastPathComponent == "StageCompositor.swift" }
     try #require(files.count == 1, """
@@ -375,16 +311,11 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
-// MARK: - Fix round 3 (code review): a third source of writer == nil, told apart from the second
+// MARK: - a third source of writer == nil, told apart from the second
 
-/// **Code review, Important finding.** The round-2 fix above conflated two different facts under
-/// one counter: an observation dropped because a segment was actively closing (a real loss), and
-/// one that arrived while NO segment was open at all — before the first one, between `pause()` and
-/// `resume()`, or during a reconfiguration gap (not uniformly a loss; see
-/// `Diagnostics.observationsOutsideAnOpenSegment`'s own doc comment). This pins that the two are now
-/// told apart by a dedicated flag, `finalizingCurrentSegment`, read in the SAME `lock.withLock` as
-/// `observationWriter` — not by two separate lock acquisitions, which would reopen a narrower version
-/// of the same conflation (see `routeInputObservation`'s own doc comment for why).
+/// Two different facts once shared one counter: an observation dropped because a segment was
+/// closing (a real loss), and one arriving while no segment was open (not uniformly a loss).
+/// Pins that `finalizingCurrentSegment` is read in the SAME `lock.withLock` as the writer.
 @Test func theOutsideSegmentCounterIsToldApartFromTheCloseWindowByAFlagReadWithTheWriter() throws {
     let files = try appSourceFiles()
 
@@ -419,9 +350,8 @@ func projectPbxprojText() throws -> String {
     let closeIncrements = try codeLinesNaming("_diagnostics.observationsDroppedAfterSegmentClose += 1", in: files)
     try #require(closeIncrements.count == 1, "expected exactly one increment of the close counter too")
 
-    // Both increments must sit inside appendObservation's writer==nil guard, and on OPPOSITE sides
-    // of an `if whileFinalizing`/`else` — proven by ordering against three landmarks, the same
-    // technique the round-2 test uses.
+    // Both increments must sit inside appendObservation's writer==nil guard, on OPPOSITE sides
+    // of an `if whileFinalizing`/`else` — proven by ordering against three landmarks.
     let guardLines = try codeLinesNaming("guard let writer else {", in: files)
         .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
     try #require(guardLines.count == 1, "expected exactly one appendObservation guard, found \(guardLines.count)")
@@ -453,31 +383,11 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
-// MARK: - Fix round 4 (code review): the ordering that makes "outside any hostRange" a proof, not a guess
+// MARK: - the ordering that makes "outside any hostRange" a proof, not a guess
 
-/// **Code review, Important finding.** The reviewer asked whether the startup window
-/// (`observationsOutsideAnOpenSegment`'s first case) could contain a genuinely-fixable loss: an
-/// observation whose `instant` falls inside the about-to-open segment's `hostRange` but which found
-/// `observationWriter == nil` because `SCStream` had already started producing samples before the
-/// writer existed. It cannot, PROVIDED `self.observationWriter` and the segment's `hostRange.start`
-/// (via `ledger.openSegment(at: openInstant, …)`) are set before `scStream.startCapture()` is ever
-/// called — see `Diagnostics.observationsOutsideAnOpenSegment`'s own doc comment for the full
-/// argument. This pins the ordering the argument depends on, so a future edit that moves
-/// `startCapture()` earlier (or the writer/ledger assignment later) fails a test instead of quietly
-/// invalidating a doc comment's proof.
-///
-/// **What this test is blind to, stated here rather than only in a report someone would have to go
-/// find (code review, fix round 5).** This is a LINE-ORDER check — it reads which of two lines comes
-/// first in the file's text, nothing about when either actually executes. It catches a
-/// straightforward reordering of the three statements it names. It would **not** catch the same
-/// defect reached without moving any of those lines — for instance, deferring
-/// `scStream.startCapture()` into a `Task { … }` dispatched from earlier in `beginSegment`, which
-/// would keep every line in its current textual position while making the capture start run
-/// concurrently with, or before, the writer/ledger assignment. A per-record runtime
-/// `assert(record.instant ∈ segment.hostRange)` would catch that too, at the cost of a per-case
-/// switch over `some ObservationRecord` on the tap-callback hot path for every pointer sample up to
-/// display rate — rejected for that cost, not for being weaker; this test is the cheap side of that
-/// trade, not the complete one.
+/// The startup window cannot hide a fixable loss PROVIDED `self.observationWriter` and the
+/// segment's `hostRange.start` are both set before `scStream.startCapture()`; this pins that
+/// order. Blind spot: a LINE-ORDER check, so deferring `startCapture()` into a `Task` evades it.
 @Test func theFirstSegmentsWriterAndHostRangeAreSetBeforeCaptureStarts() throws {
     let files = try appSourceFiles()
 

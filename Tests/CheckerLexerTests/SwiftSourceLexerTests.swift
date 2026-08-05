@@ -4,29 +4,14 @@ import Testing
 
 // MARK: - why this file exists
 //
-// `SwiftSourceLexer.codeViewLines` is the product of four rounds of
-// evasion-closing on `ArchitectureCheck` rule 1, and until this file it had
-// **only ever been tested out of process** — by running the built
-// `architecture-checker` binary over a fixture directory and reading its exit
-// status (`Tests/GeometryTests/ArchitectureCheckTests.swift`). That is a good
-// end-to-end test and a poor unit test: it can only observe "the checker
-// rejected this", never "the code view of this line was *that*". Extracting the
-// lexer into its own target is what makes the direct question askable, and an
-// extraction with nothing exercising it is an unverified move.
-//
-// Every case below is one of the forms the design doc records as having defeated
-// an earlier design, or one of the distinctions its doc comment claims. The doc
-// comment is treated as the specification: these tests check the code against
-// it, not the reverse.
-//
-// The two INVARIANTS are asserted first, because most of the specific cases
-// depend on them and a regression in either silently misreports every line
-// number and column the checker prints.
+// `SwiftSourceLexer.codeViewLines` was previously tested only out of process, through the
+// `architecture-checker` binary's exit status — which can observe "the checker rejected this",
+// never "the code view of this line was *that*". Its own doc comment is the specification here.
+// The two INVARIANTS come first: most of the specific cases below depend on them.
 
-/// The code view has exactly as many lines as the source, always. A scanner that
-/// loses or gains a line reports `file:line:` positions that do not exist, and
-/// the error drifts further with every subsequent literal — `file:line:` is the
-/// contract with whoever has to fix the violation.
+/// The code view always has exactly as many lines as the source: `file:line:` is the contract
+/// with whoever has to fix a violation, and a lost or gained line makes every later position
+/// name somewhere that does not exist.
 @Test(arguments: [
     "let a = 1\nlet b = 2\n",
     "let s = \"\"\"\nabc\n\"\"\"\nlet t = 3\n",
@@ -38,9 +23,8 @@ import Testing
     "",
 ])
 func theCodeViewHasOneLinePerSourceLine(source: String) {
-    // Computed independently of the lexer, from Swift's OWN two line terminators:
-    // `\r\n` counts once (it is normalised before the scan, exactly as Swift does)
-    // and a lone `\r` counts as one on its own.
+    // Computed independently of the lexer, from Swift's own two terminators: `\r\n` counts once,
+    // a lone `\r` counts as one.
     let expected = source.replacingOccurrences(of: "\r\n", with: "\n")
         .split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r" })
         .count
@@ -48,9 +32,8 @@ func theCodeViewHasOneLinePerSourceLine(source: String) {
             "line count drifted for \(String(reflecting: source))")
 }
 
-/// Blanking preserves column count, so a reported column still indexes the
-/// source. Checked per line, not in total: two errors that cancel would pass a
-/// total.
+/// Blanking preserves column count, so a reported column still indexes the source. Checked per
+/// line, not in total: two errors that cancel would pass a total.
 @Test(arguments: [
     "let a = 1 // trailing",
     "let a = 1 /* mid */ let b = 2",
@@ -75,9 +58,8 @@ func blankingPreservesColumnCount(line: String) {
     #expect(view[1] == "let b = 2")
 }
 
-/// Swift block comments NEST, so the first `*/` does not necessarily close one.
-/// A non-nesting scanner reads `still */ let b = 2` as code — and, worse, an
-/// unbalanced one keeps blanking to end of file.
+/// Swift block comments NEST, so the first `*/` does not necessarily close one; a non-nesting
+/// scanner reads the tail as code, or keeps blanking to end of file.
 @Test func blockCommentsNest() {
     let view = SwiftSourceLexer.codeViewLines(of: "let a = 1 /* CGRect /* CGPoint */ still */ let b = 2\n")
     #expect(view[0] == "let a = 1                                  let b = 2")
@@ -105,30 +87,21 @@ func blankingPreservesColumnCount(line: String) {
     for index in 0...3 {
         #expect(!view[index].contains("CGRect") && !view[index].contains("UUID"))
     }
-    // and the file resumes as CODE afterwards — a `"""` that never closes would
-    // blank the rest of the file, which is known gap #5.
+    // The file resumes as CODE afterwards: a `"""` that never closes would blank the rest.
     #expect(view[4] == "let t = 3")
 }
 
-/// Interpolation puts the scanner back into CODE. This is why the frame stack
-/// exists rather than a boolean: `"\(CGRect.zero)"` really does name `CGRect`
-/// in a way the compiler resolves, so blanking it would let a violation through.
+/// Interpolation puts the scanner back into CODE — why the frame stack exists rather than a
+/// boolean: `"\(CGRect.zero)"` really names `CGRect`, so blanking it would hide a violation.
 @Test func interpolationBodiesSurviveAsCode() {
     let view = SwiftSourceLexer.codeViewLines(of: "let s = \"a \\(CGRect.zero) b\"\n")
     #expect(view[0].contains("CGRect.zero"))
     #expect(!view[0].contains("a"))     // the literal text around it is gone
 }
 
-/// The `.paren` frame, whose ONLY job is to make a `)` that closes a nested call
-/// pop the paren rather than the interpolation. Nothing else in this file
-/// distinguishes it: disabling the push leaves every other test green.
-///
-/// It is not cosmetic. Without it the first `)` inside the interpolation ends the
-/// interpolation early, and everything after it on that line goes back to being
-/// blanked string content — so a banned name sitting after a nested call, in code
-/// the compiler really does evaluate, becomes INVISIBLE to every rule. That is a
-/// miss on source that compiles, which is the one failure direction the design
-/// doc does not treat as survivable.
+/// The `.paren` frame: a `)` closing a nested call must pop the paren, not the interpolation.
+/// The only test that distinguishes it — disabling the push leaves every other one green — and
+/// without it a banned name after a nested call becomes invisible to every rule.
 @Test func aNestedCallInsideAnInterpolationDoesNotEndTheInterpolation() {
     let view = SwiftSourceLexer.codeViewLines(of: "let s = \"w=\\(round(scale) + CGRect.zero.width)\"\n")
     #expect(view[0] == "let s =      round(scale) + CGRect.zero.width  ")
@@ -136,17 +109,14 @@ func blankingPreservesColumnCount(line: String) {
             "the nested call's `)` ended the interpolation and hid real code")
 }
 
-/// The same mechanism at depth, pinned exactly: three closing parens in a row,
-/// all of them belonging to the call and none to the interpolation.
+/// The same mechanism at depth: three closing parens in a row, all belonging to the call.
 @Test func nestedParenthesesInsideAnInterpolationBalanceToAnyDepth() {
     #expect(SwiftSourceLexer.codeViewLines(of: "let s = \"\\(f(g(h(1)))) tail\"\n")[0]
             == "let s =    f(g(h(1)))       ")
 }
 
-/// The mirror image, and the reason the escape must carry the delimiter's exact
-/// pound count: inside `#"…"#` the sequence `\(` is ORDINARY TEXT, not an
-/// interpolation. Reading it as one would put the scanner into code inside a
-/// string and blank the wrong half of every line after it.
+/// Why the escape must carry the delimiter's exact pound count: inside `#"…"#` the sequence `\(`
+/// is ORDINARY TEXT, and reading it as interpolation blanks the wrong half of every later line.
 @Test func backslashParenInARawStringIsLiteralText() {
     let view = SwiftSourceLexer.codeViewLines(of: "let s = #\"a \\(CGRect) b\"#\n")
     #expect(view[0] == "let s =                  ")
@@ -159,71 +129,53 @@ func blankingPreservesColumnCount(line: String) {
     #expect(view[0].contains("CGRect.zero"))
 }
 
-/// A stray unterminated single-line string must not blank the rest of the file:
-/// a single-line literal cannot span a newline, so the newline closes it.
+/// An unterminated single-line string must not blank the rest of the file: such a literal cannot
+/// span a newline, so the newline closes it.
 @Test func anUnterminatedSingleLineStringDoesNotBlankTheFile() {
     let view = SwiftSourceLexer.codeViewLines(of: "let s = \"oops\nimport AppKit\n")
     #expect(view[1] == "import AppKit")
 }
 
-// MARK: - raw identifiers (SE-0451) — round 3
+// MARK: - raw identifiers (SE-0451)
 
-/// The round-3 defect, and the one that makes this the most important case here:
-/// a `"` inside `` `…` `` is ordinary content. Treating it as a string opener
-/// blanked the remainder of the file, on source that compiles — so a real
-/// `import AppKit` two lines down went invisible.
-/// The assertion is on the LINE ITSELF, not merely on the line after it. Deleting
-/// the raw-identifier branch entirely still leaves the following line intact,
-/// because the newline defensively closes the single-line string frame the quote
-/// wrongly opened — so a next-line assertion passes under a mutation that removes
-/// the whole feature, and would have been a test in name only. What actually
-/// changes is the rest of THIS line.
+/// A `"` inside `` `…` `` is ordinary content; treating it as a string opener blanked the rest of
+/// the file on source that compiles. The assertion on THIS line is the load-bearing one: deleting
+/// the raw-identifier branch still leaves the next line intact, so a next-line check alone passes.
 @Test func aQuoteInsideARawIdentifierDoesNotOpenAString() {
     let view = SwiftSourceLexer.codeViewLines(of: "let `a\"b` = 1\nimport AppKit\n")
     #expect(view[0] == "let `a_b` = 1", "the quote inside `…` blanked the rest of its own line")
     #expect(view[1] == "import AppKit", "the quote inside `…` swallowed the rest of the file")
 }
 
-/// Nor do the comment openers. Same reasoning, different opener — and the same
-/// insufficiency as above, which is why the assertion is on the line itself.
-///
-/// This was measured, not assumed. Against a copy of the lexer with the
-/// raw-identifier branch disabled, the next-line assertion alone passes for two
-/// of these three fixtures: `//` is popped by the newline, and `#"` is closed by
-/// the defensive single-line-string close. Only `/*` survives a newline and so
-/// only `/*` discriminates. Two thirds of the fixtures were passing vacuously,
-/// and a one-of-three red in the mutation log is what that looks like from the
-/// outside.
+/// Nor do the comment and raw-string openers, asserted on the line itself for the same reason:
+/// with the raw-identifier branch disabled, only `/*` survives a newline, so a next-line check
+/// would pass vacuously for two of these three fixtures.
 @Test(arguments: ["`a//b`", "`a/*b`", "`a#\"b`"])
 func commentAndRawStringOpenersInsideARawIdentifierAreContent(identifier: String) {
     let view = SwiftSourceLexer.codeViewLines(of: "let \(identifier) = 1\nimport AppKit\n")
-    // Each opener is two non-identifier characters between `a` and `b`, so all
-    // three normalise to the same interior.
+    // Each opener is two non-identifier characters, so all three normalise to the same interior.
     #expect(view[0] == "let `a__b` = 1", "\(identifier) blanked the rest of its own line")
     #expect(view[1] == "import AppKit", "\(identifier) swallowed the rest of the file")
 }
 
-/// The interior is normalised, not blanked, and it stays ONE token: that is what
-/// stops `` @Test func `rejects import AppKit`() `` — an ordinary Swift Testing
-/// name — from splitting into a bare `import` keyword and a stray module name.
-/// Round 3 existed because that false positive was blocking real work.
+/// The interior is normalised, not blanked, and stays ONE token — that is what stops an ordinary
+/// Swift Testing name like `` `rejects import AppKit` `` from splitting into a bare `import`
+/// keyword and a stray module name, a false positive that blocked real work.
 @Test func aRawIdentifierIsNormalisedIntoASingleToken() {
     let view = SwiftSourceLexer.codeViewLines(of: "@Test func `rejects import AppKit`() {}\n")
     #expect(view[0].contains("`rejects_import_AppKit`"))
     #expect(!view[0].contains(" import "), "the raw identifier split into a bare `import` keyword")
 }
 
-/// Identifier characters survive; a raw identifier that names a module really is
-/// still that module, because `` import `Foundation` `` must resolve.
+/// Identifier characters survive: `` import `Foundation` `` must still resolve as that module.
 @Test func anEscapedModuleNameSurvivesTheCodeView() {
     #expect(SwiftSourceLexer.codeViewLines(of: "import `Foundation`\n")[0] == "import `Foundation`")
 }
 
 // MARK: - extended regex literals (#/…/#), Swift 5.7
 
-/// A `"` inside `#/…/#` is ordinary content and the literal may span newlines,
-/// so it has to be a frame. This one was absent for several releases and was
-/// found by an audit, not by the language moving.
+/// A `"` inside `#/…/#` is ordinary content and the literal may span newlines, so it has to be
+/// its own frame.
 @Test func aQuoteInsideAnExtendedRegexLiteralDoesNotOpenAString() {
     let view = SwiftSourceLexer.codeViewLines(of: "let r = #/CGRect\"/#\nimport AppKit\n")
     #expect(view[0] == "let r =            ")
@@ -246,10 +198,8 @@ func poundDirectivesStayCode(line: String) {
 
 // MARK: - line terminators: exactly LF and CR, and nothing else
 
-/// Swift ends a `//` comment at a bare `\r` and compiles what follows, and its
-/// diagnostics count the CR as a line — both verified with `swiftc -typecheck`
-/// when the rule was written. Treating CR as content would blank from the CR to
-/// the next LF, hiding a real import (known gap #3, closed in round 2).
+/// Swift ends a `//` comment at a bare `\r` and counts the CR as a line; treating CR as content
+/// would blank from there to the next LF and hide a real import.
 @Test func aLoneCarriageReturnEndsALineComment() {
     let view = SwiftSourceLexer.codeViewLines(of: "// note\rimport AppKit\n")
     #expect(view.count == 3)
@@ -261,11 +211,9 @@ func poundDirectivesStayCode(line: String) {
     #expect(view == ["let a = 1", "let b = 2", ""])
 }
 
-/// The other half of the rule, and the half that is easy to get wrong by being
-/// generous: FF, VT, NEL, U+2028 and U+2029 are NOT line terminators for Swift.
-/// A `//` comment runs straight through all of them. Treating any as a newline
-/// would (a) un-blank text that is really still commented out, and (b) drift
-/// every subsequent line number away from the compiler's.
+/// The other half of the rule: FF, VT, NEL, U+2028 and U+2029 are NOT line terminators for Swift,
+/// so a `//` comment runs through them. Treating any as a newline un-blanks commented-out text
+/// and drifts every later line number away from the compiler's.
 @Test(arguments: [
     ("form feed", "\u{0C}"),
     ("vertical tab", "\u{0B}"),
@@ -283,9 +231,8 @@ func nonTerminatorsDoNotEndALineComment(name: String, character: String) {
 
 // MARK: - the negative direction
 
-/// The view must not invent code either. Plain code passes through untouched —
-/// a lexer that mangled it would turn every rule into a false-positive machine,
-/// which the design doc calls the serious failure.
+/// The view must not invent code either: plain code passes through untouched, or every rule
+/// becomes a false-positive machine.
 @Test(arguments: [
     "import Foundation",
     "public struct PixelRect: Sendable { public let width: Int }",
@@ -299,11 +246,9 @@ func ordinaryCodePassesThroughUnchanged(line: String) {
 
 // MARK: - the identifier predicate
 
-/// The predicate is defined by what an identifier CONTAINS, never by what
-/// separates identifiers — enumerating separators is what let
-/// `@_spi(A)@_spi(B)import AppKit` glue `)` to the keyword and go invisible.
-/// These are the four non-alphanumeric members, each settled by name in the doc
-/// comment, plus a sample of what must stay out.
+/// The predicate is defined by what an identifier CONTAINS, never by what separates identifiers —
+/// enumerating separators is what let `@_spi(A)@_spi(B)import AppKit` glue `)` to the keyword and
+/// go invisible. The four non-alphanumeric members, plus a sample of what must stay out.
 @Test func theIdentifierPredicateAdmitsExactlyTheFourNamedNonAlphanumerics() {
     for character: Character in ["_", "$", "`", ".", "a", "Z", "0", "é", "字"] {
         #expect(SwiftSourceLexer.isIdentifierCharacter(character), "\(character) must be admitted")
