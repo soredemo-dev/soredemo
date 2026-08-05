@@ -125,7 +125,28 @@ let adjudicatedStringFields: [String: String] = [
 /// so a one-liner's `: SomeProtocol` conformance list is never mistaken for a
 /// property's own colon) is now scanned the same way an ordinary line is.
 func stringValuedFieldsInObservationSchema() throws -> Set<String> {
+    try classifiedStringFieldsInObservationSchema().all
+}
+
+/// **Every `Type.caseName` the walk below classifies as an associated-value ENUM CASE, as
+/// opposed to a plain stored property — the same distinction `stringCaseField`/
+/// `stringPropertyField` already draw at the point of collection, carried through instead of
+/// being restated downstream.** Added at code review (Task 7): Gate 2 below originally hardcoded
+/// a literal `Set<String> = ["failed"]` naming which REDACT entry needed a stricter needle,
+/// duplicating a fact this file already computes. This is the derived version — Gate 2 asks
+/// `caseKeys.contains(key)` instead of asking whether `key`'s last component matches a literal it
+/// maintains by hand, so a second associated-value REDACT entry is handled the day it is
+/// adjudicated, with no second edit anywhere in this file.
+func stringValuedCaseFieldsInObservationSchema() throws -> Set<String> {
+    try classifiedStringFieldsInObservationSchema().caseFields
+}
+
+/// The single walk both functions above read from — factored out so the case/property
+/// distinction is computed exactly once, in exactly one place, rather than re-implemented by a
+/// second copy of this loop for each caller.
+private func classifiedStringFieldsInObservationSchema() throws -> (all: Set<String>, caseFields: Set<String>) {
     var fields: Set<String> = []
+    var caseFields: Set<String> = []
     for file in try swiftFiles(under: "Sources/Project") {
         let text = try String(contentsOf: file, encoding: .utf8)
         var enclosing = ""
@@ -142,16 +163,20 @@ func stringValuedFieldsInObservationSchema() throws -> Set<String> {
                     if afterBrace <= end {
                         let body = String(line[afterBrace..<end])
                         if let field = stringPropertyField(in: body, enclosing: enclosing) { fields.insert(field) }
-                        if let caseField = stringCaseField(in: body, enclosing: enclosing) { fields.insert(caseField) }
+                        if let caseField = stringCaseField(in: body, enclosing: enclosing) {
+                            fields.insert(caseField); caseFields.insert(caseField)
+                        }
                     }
                 }
                 continue
             }
             if let field = stringPropertyField(in: line, enclosing: enclosing) { fields.insert(field) }
-            if let caseField = stringCaseField(in: line, enclosing: enclosing) { fields.insert(caseField) }
+            if let caseField = stringCaseField(in: line, enclosing: enclosing) {
+                fields.insert(caseField); caseFields.insert(caseField)
+            }
         }
     }
-    return fields
+    return (all: fields, caseFields: caseFields)
 }
 
 /// `name: String`, `name: String?`, `name: [String]` on ONE (sub)line, as a
@@ -383,42 +408,40 @@ func stringValues(named fieldNames: Set<String>, in json: Any) -> [String] {
     }
 }
 
-/// **Case-associated REDACT entries need a stricter needle than a property does — found in
-/// Phase 3A-1 Task 7, not designed in ahead of time.** `SegmentBoundary.failed(reason: String)`
-/// is an ENUM CASE with a required associated value, and Swift will not compile a reference to
-/// it (construction OR pattern match) without an immediately-following `(` — `case .failed:`
-/// with no parens is a compile error for a case declared this way. A plain stored property
-/// (`AXElementRecord.title`, `KeySample.shortcut`) carries no such guarantee: `.title` alone is
-/// already a complete, valid reference. That difference matters here because AVFoundation
-/// declares its OWN, semantically unrelated, no-associated-value `.failed` case twice
-/// (`AVAssetWriter.Status.failed`, `AVAssetReader.Status.failed`), and `MP4Exporter.swift`
-/// compares against both directly (`writer.status == .failed`) — moving that file into
-/// `Sources/Headless` in this same task put it inside Gate 2's scan for the first time and
-/// collided on the bare substring `.failed`, which `codeLinesNaming` cannot tell apart from
-/// `SegmentBoundary.failed` by text alone. Requiring the trailing `(` for `failed` specifically
-/// closes exactly that collision — `SegmentBoundary.failed` is never referenced anywhere under
-/// `Sources/Headless`/`Sources/Render` today, so the real check (this REDACTED field is never
-/// read there) is unchanged; only the false alarm from an unrelated SDK enum case is. Applies to
-/// this one entry, not to every REDACT row, because it is the one row this reasoning is actually
-/// true for.
-let redactedCaseFields: Set<String> = ["failed"]
-
 /// **Gate 2 — consumption.** The render path never reads a `REDACT`-marked
 /// field. Scanned through `codeLinesNaming` over `Sources/Headless` and
 /// `Sources/Render`, so a mention in a doc comment does not count and a real
 /// read does.
+///
+/// **Case-associated REDACT entries need a stricter needle than a property does — found in
+/// Phase 3A-1 Task 7, corrected at that task's own code review.** `SegmentBoundary.failed(reason:
+/// String)` is an ENUM CASE with a required associated value. AVFoundation declares its OWN,
+/// semantically unrelated, no-associated-value `.failed` case twice (`AVAssetWriter.Status
+/// .failed`, `AVAssetReader.Status.failed`), and `MP4Exporter.swift` compares against both
+/// directly (`writer.status == .failed`) — moving that file into `Sources/Headless` in the same
+/// task put it inside this gate's scan for the first time and collided on the bare substring
+/// `.failed`, which `codeLinesNaming` cannot tell apart from `SegmentBoundary.failed` by text
+/// alone.
+///
+/// **What is actually true, corrected from this fix's own first draft — the first draft claimed
+/// Swift refuses to compile ANY reference to an associated-value case without a trailing `(`,
+/// and that is false: `case .failed:` and `if case .failed = x` both compile, matching the case
+/// without extracting its payload.** What is true, and what this gate actually depends on, is
+/// narrower: a spelling that READS the payload (`.failed(let reason)`, `.failed(reason:)`,
+/// construction) always carries the paren; a spelling that merely MATCHES the case does not, and
+/// does not need to be caught here, because it never touches the string this gate exists to
+/// protect. Requiring the trailing `(` for exactly the entries `stringValuedCaseFieldsInObservationSchema()`
+/// reports as associated-value cases (rather than a hand-maintained literal naming which entry
+/// that is) closes the real collision without narrowing what this gate checks for a plain stored
+/// property, and does not need a second edit the day a second case-shaped REDACT entry exists.
 @Test func theRenderPathNeverReadsARedactedField() throws {
-    let redactedFields = adjudicatedStringFields
-        .filter { $0.value.hasPrefix("REDACT") }
-        .map { String($0.key.split(separator: ".").last!) }
+    let redactedEntries = adjudicatedStringFields.filter { $0.value.hasPrefix("REDACT") }
+    let caseKeys = try stringValuedCaseFieldsInObservationSchema()
     let renderFiles = try swiftFiles(under: "Sources/Headless") + swiftFiles(under: "Sources/Render")
 
-    for field in redactedFields {
-        // See `redactedCaseFields`'s own doc comment: an associated-value ENUM CASE is never
-        // validly referenced without a trailing `(`, so requiring one here for exactly that kind
-        // of entry closes a real false-positive collision without narrowing what this gate
-        // actually checks for a plain stored property.
-        let needle = redactedCaseFields.contains(field) ? ".\(field)(" : ".\(field)"
+    for (key, _) in redactedEntries {
+        let field = String(key.split(separator: ".").last!)
+        let needle = caseKeys.contains(key) ? ".\(field)(" : ".\(field)"
         let readers = try codeLinesNaming(needle, in: renderFiles)
         #expect(readers.isEmpty, """
             the render path reads `\(field)`, a field the fixture redacts:

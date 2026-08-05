@@ -123,4 +123,41 @@ extension StageCompositorTests {
                 """)
         }
     }
+
+    /// **`ExportError`'s other six cases, unconstructed anywhere else `swift test` reaches —
+    /// code review (Task 7).** `noVideoTrack`, `readerRefusedOutput`, `writerRefusedInput`,
+    /// `readerFailed`, `writerFailed` and `appendRefused` became `public` with the type itself
+    /// (Task 7's move set access levels per TYPE, not per case — an individual enum case cannot
+    /// be made non-public while its enum is public, so narrowing access to only the two cases the
+    /// other tests in this file already construct is not an option). `docs/ARCHITECTURE.md`
+    /// D6a-V: unexercised public API is an unverified capability claim, not only a dead-code
+    /// smell — so this constructs each of the six directly and checks that its `description`
+    /// actually names what the case claims to, the same diagnostic a person hitting a real export
+    /// failure would read. Chosen over a D6a-V table row because these are simple values with no
+    /// external dependency to fake (no writer, no reader, no disk) — cheap enough that recording
+    /// them as "unexercised, and here is why" would cost more than just exercising them.
+    @Test func theRemainingExportErrorCasesDescribeWhatTheyClaim() {
+        #expect(MP4Exporter.ExportError.noVideoTrack.description.contains("no video track"))
+
+        #expect(MP4Exporter.ExportError.readerRefusedOutput.description.contains("AVAssetReader"))
+        #expect(MP4Exporter.ExportError.readerRefusedOutput.description.contains("refused"))
+
+        #expect(MP4Exporter.ExportError.writerRefusedInput.description.contains("AVAssetWriter"))
+        #expect(MP4Exporter.ExportError.writerRefusedInput.description.contains("refused"))
+
+        let readerFailure = MP4Exporter.ExportError.readerFailed("synthetic reader failure, test-only")
+        #expect(readerFailure.description.contains("AVAssetReader failed"))
+        #expect(readerFailure.description.contains("synthetic reader failure, test-only"),
+                "the underlying reason passes through, not just a fixed label")
+
+        let writerFailure = MP4Exporter.ExportError.writerFailed("synthetic writer failure, test-only")
+        #expect(writerFailure.description.contains("AVAssetWriter failed"))
+        #expect(writerFailure.description.contains("synthetic writer failure, test-only"),
+                "the underlying reason passes through, not just a fixed label")
+
+        let appendFailure = MP4Exporter.ExportError.appendRefused("synthetic append refusal, test-only")
+        #expect(appendFailure.description.contains("append refused"))
+        #expect(appendFailure.description.contains("synthetic append refusal, test-only"),
+                "the underlying reason passes through, not just a fixed label")
+    }
 }
