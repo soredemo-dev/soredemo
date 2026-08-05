@@ -339,7 +339,7 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
 | 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
-| 9 | The package builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` warnings | `scripts/check-strict-memory-safety.sh`, greps a fresh `swift build`'s output for the diagnostic's own tag | its own script only — see below |
+| 9 | The package builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` warnings | `scripts/check-strict-memory-safety.sh`, greps an incremental `swift build`'s output for the diagnostic's own tag, with a positive-evidence guard against an unobserved (empty or success-marker-less) log | its own script only — see below |
 
 Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
 target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
@@ -494,8 +494,14 @@ mechanism here on purpose: `swift build` and `xcodebuild` both exit 0 with `Stri
 warnings present, because the mode reports them as warnings and neither build adds
 `-warnings-as-errors`. Turning every warning in the tree into a hard error would be a much larger
 change than this rule asks for, so the check lives in `scripts/check-strict-memory-safety.sh`
-instead: it runs a fresh `swift build`, greps the output for the diagnostic's own `StrictMemorySafety`
-tag, and fails loudly — file, line and the unsafe construct named — on any hit. Not folded into
+instead: it runs an **incremental** `swift build` (not `rm -rf .build && swift build` — that is
+minutes, and this pays the same incremental cost every other gate here already pays), greps the
+output for the diagnostic's own `StrictMemorySafety` tag, and fails loudly — file, line and the
+unsafe construct named — on any hit. It also refuses to pass on an unobserved build: an empty log or
+one missing `swift build`'s own `Build complete!` marker fails with a distinct exit code and message
+rather than reading as clean, closing the hole `Tests/AppSourceTests`'s entry-rule scanner and
+`scripts/count-tests.sh --split` were each separately caught with earlier in this same phase — a gate
+that passes having measured nothing is worse than one that fails. Not folded into
 `scripts/run-cross-boundary-probe.sh`, whose own `swift build` step exists only to produce link
 products for the `xcrun swiftc` invocation after it; conflating the two would make a probe failure
 ambiguous between an actual cross-boundary defect and an unmarked unsafe construct. Like the probe,

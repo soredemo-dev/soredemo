@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fails if a fresh `swift build` emits any `StrictMemorySafety` warning.
+# Fails if an incremental `swift build` emits any `StrictMemorySafety` warning.
 #
 # `Package.swift`'s `strict` array carries `.strictMemorySafety()` on every regular
 # target, which turns each unmarked unsafe-construct call site into a compiler
@@ -13,8 +13,23 @@
 # Zero, not a maintained count: a number written down here that had to match a
 # number written down in a comment somewhere else is the shape this project has
 # gotten wrong before (`scripts/count-tests.sh`'s own header). This script has
-# nothing to keep in sync — it greps a fresh build for the diagnostic's own tag
-# and fails on any hit, so there is no count to let drift.
+# nothing to keep in sync — it greps a build for the diagnostic's own tag and
+# fails on any hit, so there is no count to let drift.
+#
+# **Incremental, not clean** — this runs plain `swift build`, not `rm -rf .build &&
+# swift build`. A clean build is minutes; an incremental one is the cost every other
+# gate here already pays. This is sound for the property the gate exists to hold —
+# "the count cannot climb again" — because a warning can only newly APPEAR in a file
+# that was just compiled, and any edit forces its own file to recompile whether or
+# not the rest of `.build` is warm; there is nothing an incremental build can hide
+# from a change made to the file it is hiding in. It does NOT independently prove
+# the whole tree is clean from a cold cache — that claim was established once, by
+# hand, with `rm -rf .build && swift build`, to produce this task's own report, and
+# reaching for that command again is the right move if this script's soundness is
+# ever in doubt. Task 3's fix round 2 corrected this file's own header, which
+# previously said "fresh" and meant "I happened to run it after `rm -rf .build`" —
+# a description that outlived the command it described the moment the loop below
+# was written to run plain `swift build`.
 #
 # Not folded into `scripts/run-cross-boundary-probe.sh`: that script's `swift build`
 # exists only to produce link products for the `xcrun swiftc` step after it, and is
@@ -40,6 +55,39 @@ trap 'rm -f "$LOG"' EXIT
 
 swift build 2>&1 | tee "$LOG"
 
+# **"Verified clean" and "measured nothing" are different outcomes, and this gate
+# must not confuse them** — the same hole `scripts/count-tests.sh` already guards
+# against ("silence and zero both read as an answer"), now closed here too. Two
+# failure modes short of a real pass, checked in order and each with its own exit
+# code so a caller can tell which one fired without re-reading the log:
+#
+#   - an empty log (a build whose output never reached `tee` — `set -euo pipefail`
+#     already fails closed on a nonzero exit, but a build that exits 0 while
+#     printing nothing is a silent success this loop must not trust) — exit 2;
+#   - a non-empty log with no "Build complete!" marker (`swift build` DID produce
+#     output but never reported success — the run didn't finish, or finished some
+#     other way this script doesn't recognise) — exit 2 as well, distinct message;
+#   - a `StrictMemorySafety` hit anywhere in a log that DID report success — exit 1,
+#     the actual finding this gate exists to catch.
+#
+# Verified round-trip (fix round 2): `true | tee "$LOG"` in place of the real build
+# left `$LOG` empty, and before this guard existed the script printed "STRICT
+# MEMORY SAFETY: zero warnings" and exited 0 — a gate reporting a verified-clean
+# build having verified nothing. The guard below is what that observation produced.
+if [ ! -s "$LOG" ]; then
+    echo "FAILED: swift build's log is empty — nothing was measured, and an empty" >&2
+    echo "log reads as a clean pass unless something refuses it outright. This is" >&2
+    echo "not a clean build; it is an unobserved one." >&2
+    exit 2
+fi
+
+if ! grep -q 'Build complete!' "$LOG"; then
+    echo "FAILED: swift build produced output but no 'Build complete!' marker — a" >&2
+    echo "clean pass was never confirmed, only the absence of the warning tag in" >&2
+    echo "whatever output there was. Treat this as unverified, not as clean." >&2
+    exit 2
+fi
+
 if grep -q 'StrictMemorySafety' "$LOG"; then
     echo
     echo "FAILED: swift build emitted a StrictMemorySafety warning (see above)." >&2
@@ -49,4 +97,4 @@ if grep -q 'StrictMemorySafety' "$LOG"; then
     exit 1
 fi
 
-echo "STRICT MEMORY SAFETY: zero warnings"
+echo "STRICT MEMORY SAFETY: zero warnings (verified against a build that reported success)"
