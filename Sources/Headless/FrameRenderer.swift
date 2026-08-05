@@ -27,7 +27,7 @@ public enum FrameRenderingError: Error {
 
 /// Draws one frame from a plan. **No Core Image type, no Metal type, no pixel-buffer type in this
 /// file** — that is enforced by a test (`RenderSeamTests.swift`), not by care.
-nonisolated protocol FrameRendering: Sendable {
+public nonisolated protocol FrameRendering: Sendable {
     /// `CVPixelBuffer` in and out. CoreVideo, not Core Image and not Metal — the one vocabulary
     /// both candidate implementations already speak, so the signature chooses neither.
     func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws

@@ -3,6 +3,11 @@ import AVFoundation
 // `FileManager` — checking whether the observation log `ObservationWriter.expectedLogURL(for
 // MediaURL:)` names actually exists on disk, below.
 import Foundation
+// For `CoreImageFrameRenderer`, which moved into the `Headless` target in Phase
+// 3A-1 Task 3 — `Headless` is the module name, `SoredemoHeadless` the product
+// this app target links. Not needed until now: through Task 2 this file's only
+// reference was to a type still declared in this same app target.
+import Headless
 import SwiftUI
 
 /// 100% standard SwiftUI, zero glass code — D7. The system gives standard components Liquid Glass

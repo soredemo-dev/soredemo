@@ -1,6 +1,11 @@
 import AVFoundation
 import CoreVideo
 import Foundation
+// For `FrameRendering` and `FrameRenderingError`, which moved into the `Headless` target in
+// Phase 3A-1 Task 3 — `Headless` is the module name, `SoredemoHeadless` the product this app
+// target links. Not needed before: through Task 2 both names were declared in this same app
+// target and needed no import to be in scope.
+import Headless
 // `PointerSample`, `ObservationLog`, `JSONLReader`, `SecureInputInterval`, `TapDisabledInterval`
 // for `buildPointerTrack(from:)` — reading the segment's observation log to build the
 // `PointerTrack` `startRequest` reads from. Not previously imported here: nothing in this file

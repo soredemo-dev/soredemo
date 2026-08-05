@@ -1,10 +1,11 @@
 import CoreImage
 import CoreVideo
 import Foundation
-// For `CursorArt` and `HeadlessGeometryBridge`. Both moved into the `Headless`
-// target in Phase 3A-1 Task 2 — `Headless` is the module name, `SoredemoHeadless`
-// the product the app target links.
-import Headless
+// `CursorArt` and `HeadlessGeometryBridge` need no import: this file moved into the
+// `Headless` target itself in Phase 3A-1 Task 3, so both are same-module names now.
+// (Through Task 2 this file lived in the app target and reached them via `import
+// Headless` — importing your own module is an error, so that line is gone, not
+// forgotten.)
 import Metal
 import Render
 
@@ -20,10 +21,10 @@ import Render
 /// does not apply a shadow one. `StageStyle.shadowRadius`/`.shadowOpacity` are modelled and
 /// persisted (`RenderPlan.swift`) but `render(_:source:into:)` below never reads either — see
 /// `docs/ARCHITECTURE.md` D6a's own row on exactly this, added at the same finding.
-nonisolated final class CoreImageFrameRenderer: FrameRendering {
+public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private let context: CIContext
 
-    init() throws {
+    public init() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             throw FrameRenderingError.noRenderDevice
         }
@@ -35,7 +36,7 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
         ])
     }
 
-    func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
+    public func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
         let background = backgroundImage(plan)
         let card = cardImage(plan, source: source)
         var composed = card.composited(over: background)

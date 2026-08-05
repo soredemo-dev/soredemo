@@ -77,10 +77,10 @@ xcrun swiftc \
   Soredemo/Capture/AXObserver.swift \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/Capture/ObservationWriter.swift \
-  Soredemo/Render/FrameRenderer.swift \
+  Sources/Headless/FrameRenderer.swift \
   Sources/Headless/HeadlessGeometryBridge.swift \
   Sources/Headless/CursorArt.swift \
-  Soredemo/Render/CoreImageFrameRenderer.swift \
+  Sources/Headless/CoreImageFrameRenderer.swift \
   Soredemo/Render/StageCompositor.swift \
   Soredemo/Render/CompositionBuilder.swift \
   Soredemo/Export/MP4Exporter.swift \
