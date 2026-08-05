@@ -77,12 +77,13 @@ xcrun swiftc \
   Soredemo/Capture/AXObserver.swift \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/Capture/ObservationWriter.swift \
-  Soredemo/Render/FrameRenderer.swift \
-  Soredemo/Render/CursorArt.swift \
-  Soredemo/Render/CoreImageFrameRenderer.swift \
-  Soredemo/Render/StageCompositor.swift \
-  Soredemo/Render/CompositionBuilder.swift \
-  Soredemo/Export/MP4Exporter.swift \
+  Sources/Headless/FrameRenderer.swift \
+  Sources/Headless/HeadlessGeometryBridge.swift \
+  Sources/Headless/CursorArt.swift \
+  Sources/Headless/CoreImageFrameRenderer.swift \
+  Sources/Headless/StageCompositor.swift \
+  Sources/Headless/CompositionBuilder.swift \
+  Sources/Headless/MP4Exporter.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \
   scripts/cross-boundary-digest-probe.swift

@@ -132,8 +132,21 @@ private func topLevelKeys(from json: Data) -> [String] {
 /// `encodedKeysAreInSortedOrderNotJustRoundTrippable` below for the
 /// complementary byte-order check, and its doc comment for why that one
 /// alone is not this project's bar for "reliably catches this mutation."
+///
+/// **Pinned to the EXACT set, not `.contains(.sortedKeys)`, since Phase 3A-1
+/// Task 5's fix round 1.** `Tests/HeadlessFixtures/segment-00-redacted.jsonl`'s
+/// own redaction script and Gate 1's original form both hardcoded the byte
+/// sequence `"field":"` with no whitespace tolerance — an assumption this test
+/// was the one place that COULD have pinned and did not: `.contains(.sortedKeys)`
+/// stays green if `.prettyPrinted` is added alongside it, and a pretty-printed
+/// log writes `"title" : "…"` (one space), which a bare-substring redaction scan
+/// silently stops matching. Gate 1 no longer shares that assumption (it walks
+/// parsed JSON — see `FixtureRedactionTests.swift`'s `stringValues(named:in:)`),
+/// but the format assumption itself should still be asserted exactly, where it
+/// is made, rather than left as something only a downstream consumer's own
+/// workaround happens to tolerate.
 @Test func sortedKeysIsSetOnTheEncoder() {
-    #expect(ObservationLog.outputFormatting.contains(.sortedKeys))
+    #expect(ObservationLog.outputFormatting == [.sortedKeys])
 }
 
 /// Closes the gap the brief names for mutation 2 (dropping `.sortedKeys`):

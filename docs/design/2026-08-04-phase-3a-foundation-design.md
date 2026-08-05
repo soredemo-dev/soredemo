@@ -132,17 +132,25 @@ be written against it, so the split is enforced by the manifest rather than by
 anyone remembering. `Headless` tests live in their own target, which is the only
 one that depends on the product.
 
-    swift test — deterministic   466 passed
+    swift test — deterministic     N passed
     swift test — headless          N passed    (GPU / timing sensitive)
     cross-boundary probe         349 checks
 
 ## 5. The completion condition
 
-A person can see this: **`swift test` contains a test that `import SoredemoHeadless`,
+A person can see this: **`swift test` contains a test that `import Headless`,
 constructs a `StageCompositor`, feeds it a RECORDED observation log, and asserts
 the drawn pointer's position at a given frame. Changing
 `StageCompositor.pointerPlacement`'s `let time = anchor.hostTime + offset` back to
 `let time = offset` turns it red.**
+
+*(**`import Headless`, corrected in place when Phase 3A-1 Task 6 landed.** This line
+read `import SoredemoHeadless` as drafted. `SoredemoHeadless` is the PRODUCT name —
+still real, still what the Xcode app target links — but the importable module is the
+TARGET, `Headless`, and `import SoredemoHeadless` does not compile. Nothing about the
+decision changed, only the spelling; corrected here rather than left for the next
+reader to copy. The test that satisfies this condition is
+`Tests/HeadlessTests/RecordedPointerPositionTests.swift`.)*
 
 **Red for the right reason, in two layers.** That mutation makes the lookup time a
 small fraction while the records are mach absolute times (~5.2 × 10¹⁴), so nothing

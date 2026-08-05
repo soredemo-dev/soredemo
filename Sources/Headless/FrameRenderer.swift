@@ -21,13 +21,29 @@ import Render
 ///
 /// `MasterWriting` (`Soredemo/Capture/MasterWriter.swift`) settled the same shape earlier, and that
 /// seam was re-decided on evidence hours later — precisely because it existed first.
-public enum FrameRenderingError: Error {
+public enum FrameRenderingError: Error, CustomStringConvertible {
     case noRenderDevice
+
+    // `CustomStringConvertible`, added at the final whole-branch review for the same
+    // reason `MP4Exporter.ExportError` carries one: on every machine where the test
+    // suite passes, `MTLCreateSystemDefaultDevice()` never returns `nil`, so this case
+    // is never constructed by the code that throws it and the one place that named
+    // it (`catch FrameRenderingError.noRenderDevice` in
+    // `Tests/HeadlessTests/CoreImageFrameRendererTests.swift`) never runs either — the
+    // entry rule was satisfied by an unreachable branch, not by exercise.
+    // `theNoRenderDeviceCaseDescribesItself` in that same file now constructs this
+    // case directly, independent of whether a GPU is present, and asserts on it.
+    public var description: String {
+        switch self {
+        case .noRenderDevice:
+            "no Metal render device is available (MTLCreateSystemDefaultDevice() returned nil) — CoreImageFrameRenderer needs one to build its CIContext"
+        }
+    }
 }
 
 /// Draws one frame from a plan. **No Core Image type, no Metal type, no pixel-buffer type in this
 /// file** — that is enforced by a test (`RenderSeamTests.swift`), not by care.
-nonisolated protocol FrameRendering: Sendable {
+public nonisolated protocol FrameRendering: Sendable {
     /// `CVPixelBuffer` in and out. CoreVideo, not Core Image and not Metal — the one vocabulary
     /// both candidate implementations already speak, so the signature chooses neither.
     func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws

@@ -3,6 +3,11 @@ import AVFoundation
 // `FileManager` — checking whether the observation log `ObservationWriter.expectedLogURL(for
 // MediaURL:)` names actually exists on disk, below.
 import Foundation
+// For `CoreImageFrameRenderer`, which moved into the `Headless` target in Phase
+// 3A-1 Task 3 — `Headless` is the module name, `SoredemoHeadless` the product
+// this app target links. Not needed until now: through Task 2 this file's only
+// reference was to a type still declared in this same app target.
+import Headless
 import SwiftUI
 
 /// 100% standard SwiftUI, zero glass code — D7. The system gives standard components Liquid Glass
@@ -90,7 +95,8 @@ struct StageWindow: View {
     /// plumbing with no bearing on what gets composed) stays outside it, which is also why
     /// `load()` below still builds its own `AVPlayerItem`'s asset rather than this function
     /// returning one — `MP4Exporter.export` already builds its own asset from the same URL
-    /// independently (`Soredemo/Export/MP4Exporter.swift`), the same "each real consumer loads the
+    /// independently (`Sources/Headless/MP4Exporter.swift`, moved from `Soredemo/Export/` in
+    /// Phase 3A-1 Task 7), the same "each real consumer loads the
     /// file itself" shape this follows.
     static func configuredComposition(for mediaURL: URL) async throws -> AVVideoComposition {
         StageCompositor.renderer = try CoreImageFrameRenderer()

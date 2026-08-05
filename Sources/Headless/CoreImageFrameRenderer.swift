@@ -1,6 +1,11 @@
 import CoreImage
 import CoreVideo
 import Foundation
+// `CursorArt` and `HeadlessGeometryBridge` need no import: this file moved into the
+// `Headless` target itself in Phase 3A-1 Task 3, so both are same-module names now.
+// (Through Task 2 this file lived in the app target and reached them via `import
+// Headless` — importing your own module is an error, so that line is gone, not
+// forgotten.)
 import Metal
 import Render
 
@@ -16,10 +21,10 @@ import Render
 /// does not apply a shadow one. `StageStyle.shadowRadius`/`.shadowOpacity` are modelled and
 /// persisted (`RenderPlan.swift`) but `render(_:source:into:)` below never reads either — see
 /// `docs/ARCHITECTURE.md` D6a's own row on exactly this, added at the same finding.
-nonisolated final class CoreImageFrameRenderer: FrameRendering {
+public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private let context: CIContext
 
-    init() throws {
+    public init() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             throw FrameRenderingError.noRenderDevice
         }
@@ -31,7 +36,7 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
         ])
     }
 
-    func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
+    public func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
         let background = backgroundImage(plan)
         let card = cardImage(plan, source: source)
         var composed = card.composited(over: background)
@@ -42,13 +47,14 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let pointer = plan.pointer {
             composed = cursorImage(for: pointer, outputHeight: plan.outputHeight).composited(over: composed)
         }
-        // `CGGeometryBridge.outputCanvas`, not a literal `CGRect(...)` here: rule 5
+        // `HeadlessGeometryBridge.outputCanvas`, not a literal `CGRect(...)` here: rule 5
         // (`AppSourceAllowListTests.coreGraphicsGeometryTypesAppearOnlyInTheBridge`) confines
-        // `CGRect`/`CGFloat` to that one file, and `CIImage.cropped(to:)` is the exit point where
-        // this app's own `Int`s become CoreGraphics' unit for Core Image. See the bridge's own doc
-        // comment on `outputCanvas` for why this was a correction to the task brief.
+        // `CGRect`/`CGFloat` to one file per tier, and `CIImage.cropped(to:)` is the exit point
+        // where this app's own `Int`s become CoreGraphics' unit for Core Image. The function moved
+        // to `Sources/Headless/HeadlessGeometryBridge.swift` in Phase 3A-1 Task 2 with the rest of
+        // the render-side exits; see its doc comment for why it exists at all.
         let cropped = composed
-            .cropped(to: CGGeometryBridge.outputCanvas(width: plan.outputWidth, height: plan.outputHeight))
+            .cropped(to: HeadlessGeometryBridge.outputCanvas(width: plan.outputWidth, height: plan.outputHeight))
         context.render(cropped, to: destination,
                        bounds: cropped.extent,
                        colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
@@ -132,17 +138,26 @@ nonisolated final class CoreImageFrameRenderer: FrameRendering {
 
     /// Fetches (building on first use) the `CGContext` bitmap for a `size`×`size` canvas, cleared
     /// and ready to draw into.
+    ///
+    /// **Only ever called from inside `cursorCanvasLock.withLock` — `cursorImage(for:outputHeight:)`
+    /// below is this function's one call site, and holds the lock across the whole fetch.** That is
+    /// what makes each `unsafe` marker below a true statement and not just a silenced diagnostic:
+    /// `cursorCanvases` is `nonisolated(unsafe)` so the compiler cannot see the lock that actually
+    /// guards it, and flags every access as though nothing did.
     private func cursorCanvas(size: Int) -> CGContext? {
-        if let existing = cursorCanvases[size] {
-            existing.clear(CGGeometryBridge.outputCanvas(width: size, height: size))
+        if let existing = unsafe cursorCanvases[size] {
+            existing.clear(HeadlessGeometryBridge.outputCanvas(width: size, height: size))
             return existing
         }
-        guard let created = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
+        // `data: nil` — CGContext allocates and owns its own backing store; no raw pointer from
+        // this call site is ever read or written directly, which is what makes the `unsafe`
+        // initializer safe to use unsafely here.
+        guard let created = unsafe CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
             return nil
         }
-        cursorCanvases[size] = created
+        unsafe cursorCanvases[size] = created
         return created
     }
 

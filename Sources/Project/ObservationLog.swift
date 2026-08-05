@@ -360,8 +360,14 @@ public struct GapWatch: Hashable, Codable, Sendable {
     /// `InputObserver.Diagnostics.tapAccounting` already prints.
     public var accounting: String {
         let seconds = Double(watchedSpanNanos) / 1e9
+        // `String(format:_:)` is flagged because its underlying C varargs machinery is
+        // unauditable in general — but this call passes exactly one `Double` matched to
+        // exactly one `%.3f`, both fixed at the call site, so there is nothing a caller
+        // could vary to make it unsafe in practice. `unsafe` cannot appear to the right of
+        // `+`, hence the local rather than an inline call.
+        let secondsFormatted = unsafe String(format: "%.3f", seconds)
         var line = "\(site.rawValue): \(gapsFound) gap(s), \(lost) \(lostUnit.rawValue) lost"
-            + "  ←  \(looks) look(s) over " + String(format: "%.3f", seconds) + " s"
+            + "  ←  \(looks) look(s) over " + secondsFormatted + " s"
         if !isAMeasurement { line += "   ← NOTHING WAS LOOKING; the count left of the arrow is not a measurement" }
         return line
     }

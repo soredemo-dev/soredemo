@@ -8,7 +8,7 @@ import Testing
 /// it would be a translation layer rather than an alternative — at which point the 4K frame-time
 /// measurement can no longer change the answer, which is the only reason the choice was deferred.
 @Test func theFrameRendererProtocolNamesNeitherCoreImageNorMetal() throws {
-    let url = repositoryRoot.appending(path: "Soredemo/Render/FrameRenderer.swift")
+    let url = repositoryRoot.appending(path: "Sources/Headless/FrameRenderer.swift")
     let source = try String(contentsOf: url, encoding: .utf8)
     let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
     // CVPixelBuffer is deliberately NOT banned: it is CoreVideo, which both a Core Image path

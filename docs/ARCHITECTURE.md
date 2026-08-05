@@ -27,6 +27,92 @@ enforces, so without it the pure/impure boundary is a convention rather than a b
 
 ---
 
+## D1a — Three tiers, and which one a new file belongs in
+
+D1's two-way split (package / app) is now a three-way one. The third tier exists because
+`swift test` **cannot link an `executableTarget` or an Xcode app target**: code in `Soredemo/` is
+only ever read as text or run by a person, and defect `1a98402` lived in
+`Soredemo/Render/StageCompositor.swift` for a whole phase because of it.
+
+**The tiers are defined by what can exercise them, not by a framework list.** An allow-list of
+frameworks is a mechanism with no principle behind it — a table that grows one row at a time.
+
+| Tier | Invariant | Guard |
+| --- | --- | --- |
+| `Sources/Geometry…Render` | **Deterministic**: same input, same output. No GPU, no clock, no window | `ArchitectureCheck` — Foundation plus declared siblings; no CG geometry |
+| `Sources/Headless` | **Runnable under `swift test` on a developer machine**, even where not bit-deterministic — real pixel buffers, GPU and wall time are all allowed | `HeadlessCheck` — no AppKit, no SwiftUI |
+| `Soredemo/` | **Only a running app can reach it** | the app-side scans in `Tests/AppSourceTests` |
+
+**Deciding where a new file goes: does it need a window or an app lifecycle?** If yes, it is
+`Soredemo/`. If no, and it needs the GPU, a real pixel buffer, a real file or the wall clock, it is
+`Sources/Headless`. If no to both, it is a deterministic target and the pure guard applies. The name
+states the exclusion, which is why the invariant survives Phase 3A-2: `Render` as a tier name would
+expire when `Capture` moves in; `Headless` does not.
+
+**`Sources/Headless` carries `HeadlessCheck`, never `ArchitectureCheck`, and that is not a hole in
+the pure guard.** Attaching the pure guard there is impossible rather than merely inconvenient: rule
+1's allow-list would ban AVFoundation, CoreImage, CoreVideo, Metal and CoreGraphics, and rule 2
+would ban the `CGRect` this tier exists to convert. Loosening the pure guard to fit is forbidden —
+two guards with two rules, not one guard with an exception.
+`everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` asserts both directions against the
+resolved manifest: every regular target carries the guard its tier requires, and no target carries
+the other tier's. Attaching `HeadlessCheck` to a pure target is the dangerous direction because it
+is **silent** — rules 1 and 2 would simply be off, and the build would stay green.
+
+**Rule 5 has one bridge per tier, and neither test has an exception.** The app tier confines
+`CGRect`/`CGPoint`/`CGSize`/`CGFloat` to `Soredemo/Capture/CGGeometryBridge.swift`
+(`coreGraphicsGeometryTypesAppearOnlyInTheBridge`); `Sources/Headless` confines them to
+`Sources/Headless/HeadlessGeometryBridge.swift`
+(`coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge`). The split is by tier — the AX and
+ScreenCaptureKit *entrances* need `ApplicationServices`, the render *exits* need nothing — and it is
+temporary: when `Capture` moves in 3A-2 the two bridges are reconsidered together.
+`theTwoGeometryBridgesShareNoFunctionSignature` is what stops a conversion being defined on both sides
+while both exist.
+
+### The entry rule, and the two levels it is enforced at
+
+**Every `public` type in `Headless` must have a test in `swift test` that CONSTRUCTS AND EXERCISES
+it.** A target that can be linked is a target things get dumped into; the entry rule is the price of
+entry.
+
+The two levels are not the same thing, and conflating them would plant this project's own recurring
+defect inside the gate built to prevent it:
+
+* **the scanner** (`everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct`) enforces a
+  **necessary condition only** — the type's identifier appears at a word boundary in the code view
+  of a file under `Tests/HeadlessTests`. A type annotation or an unused `import` satisfies it while
+  the type is never built and never run, and for a generic name (`Frame`, `Track`, `Renderer`) it is
+  close to vacuous. Its own failure message says so.
+* **review** enforces the rule. There is no mechanical substitute, and claiming one is the failure
+  mode D6a records over and over.
+
+`public` on a member of an already-admitted type is a known free-entry gap: it needs no separate
+scanner entry, so the surface can grow without the scanner noticing. Add `public` to a member only
+when a caller outside the module already exists.
+
+**The two test populations are kept apart by the build graph, not by a rule.** `HeadlessTests` is
+the only test target that may depend on `Headless`; a deterministic target that cannot link it
+cannot have a GPU-dependent or time-sensitive test written against it.
+`noDeterministicTestTargetDependsOnHeadless` keeps the manifest honest, and
+`scripts/count-tests.sh --split` reports the two counts with the partition verified rather than
+printing one number that means two different things.
+
+**The CAPABILITY is graph-separated; the COUNTS are name-separated, and those are not the same
+claim.** What the build graph enforces, in both directions, is real and load-bearing: a
+deterministic target genuinely cannot link `Headless`, so it genuinely cannot contain a
+GPU-dependent or time-sensitive test. But `--split`'s two numbers come from `--skip HeadlessTests` /
+`--filter HeadlessTests` — a substring match over test IDENTIFIERS, not a query over which target
+built which test — so a test whose NAME happens to contain `HeadlessTests` (a suite, or a function,
+declared in a deterministic target) would be counted in the headless population regardless of which
+target it actually lives in. The partition-verified sum this section describes catches double-counting
+and undercounting; it does not prove the split is BY the build graph, only that it agrees with it on
+the names this repository happens to use today.
+
+*Full reasoning: `docs/design/2026-08-04-phase-3a-foundation-design.md` §§ 2-4. This section is what
+a reader of this file needs in order to place a new file; it is not a restatement of that document.*
+
+---
+
 ## D2 — macOS 26, Apple Silicon, Swift 6.4, no fallbacks
 
 `platforms: [.macOS(.v26)]`. Strict concurrency. No availability branches.
@@ -242,7 +328,7 @@ user has the document open.**
 
 ## D6 — Architecture rules, enforced by the build
 
-Rules that are not executable stop being true. Three mechanisms, in descending order of strength.
+Rules that are not executable stop being true. Four mechanisms, in descending order of strength.
 
 ### The numbering, stated once
 
@@ -264,10 +350,12 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
 | 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
+| 9 | **`Sources/` — the library targets — builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` warnings.** The test targets carry the same setting and are **NOT** covered by any working instrument; see the scope note | **Claim established once, by hand**: `rm -rf` a scratch path and `swift build` from nothing, 2026-08-05 — zero sites under `Sources/`. **Not** established by `scripts/check-strict-memory-safety.sh`, which is currently unsound: (a) a warm `--build-tests` does not recompile test files it considers up to date, so their warnings cannot reach its log at all; (b) its nothing-compiled guard is satisfied by a link-task progress line on a build that compiled no Swift file, and its `Compiling ` alternative never appears on this toolchain, so the guard is dead code; (c) four consecutive runs on identical state with zero source edits exited 0, 3, 3, 0 — **nondeterministic**, which is worse than a consistent false pass. The script now prints all three limits on every run. **Measured from nothing, 2026-08-05: 11 unmarked sites under `Tests/`** — 10 in `HeadlessTests/PixelBufferSupport.swift` (introduced by Phase 3A-1 Task 3), 1 pre-existing in `ProjectTests/AXChainRecordTests.swift`. Repairing the gate is 3A-2's first task, **ordered before clearing those sites** | its own script only, and that script does not currently hold the rule |
 
 Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
 target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
-write.
+write. Rule 9 fails neither `swift build` nor `xcodebuild` automatically — both exit 0 on a warning —
+so it fails only its own script; see mechanism 4 below.
 
 The project's other binding rules are **not** in this numbering and never were: comparing
 `NormalizedFrame` across `geometryRevision` is a precondition failure (D3), Swift 6 strict
@@ -410,6 +498,48 @@ constraints on that one module are **held by hand**. `Package.swift` says so; so
 >
 > **Cache pairing.** Every cache-hit test is paired with an invalidation test. A cache never proven to
 > invalidate is a correctness bug waiting for a demo.
+
+**4. A standalone script, for a diagnostic the compiler itself does not fail on.** Rule 9 —
+`.strictMemorySafety()` (`Package.swift`, every regular target **and every test target**) with zero
+warnings — is the weakest
+mechanism here on purpose: `swift build` and `xcodebuild` both exit 0 with `StrictMemorySafety`
+warnings present, because the mode reports them as warnings and neither build adds
+`-warnings-as-errors`. Turning every warning in the tree into a hard error would be a much larger
+change than this rule asks for, so the check lives in `scripts/check-strict-memory-safety.sh`
+instead: it runs an **incremental** `swift build --build-tests` (not `rm -rf .build && …` — that is
+minutes, and this pays the same incremental cost every other gate here already pays), greps the
+output for the diagnostic's own `StrictMemorySafety` tag, and fails loudly — file, line and the
+unsafe construct named — on any hit. It also refuses to pass on an unobserved build: an empty log or
+one missing `swift build`'s own `Build complete!` marker fails with a distinct exit code and message
+rather than reading as clean, closing the hole `Tests/AppSourceTests`'s entry-rule scanner and
+`scripts/count-tests.sh --split` were each separately caught with earlier in this same phase — a gate
+that passes having measured nothing is worse than one that fails. **`--build-tests` was added at
+Phase 3A-1 Task 6's code review, and the gap it closed is exactly the shape of the sentence above.**
+**A third guard was added at the final whole-branch review**: `Build complete!` is a success marker
+for the BUILD, not for the SCAN — on an already-up-to-date `.build` the log carries that marker and
+no `StrictMemorySafety` tag because nothing was compiled, not because nothing warned, so a real
+warning left unmarked in a file that was already built would pass this gate silently if it only
+checked for the marker. The script now also requires positive evidence a compile or link task
+actually ran (a per-task progress line or a `Compiling` line) before it will report clean, and exits
+with a third, distinct code and message — "this build compiled nothing; it is an unobserved pass, not
+a clean one" — when that evidence is absent.
+The manifest applies `strict` — `.swiftLanguageMode(.v6)` and `.strictMemorySafety()` — to the
+eleven test targets as well as the library targets, but the script ran plain `swift build`, which
+compiles no test target at any cache warmth. So the gate's own soundness argument ("a warning can
+only newly appear in a file that was just compiled, and any edit forces its own file to recompile")
+was false for every test file in the repository: not because the build was warm, but because the
+build never reached it. It reported "zero warnings" over about half the declared scope and named
+neither half. Re-measured with `--build-tests`: still zero, so nothing was hiding — but the claim
+and the measurement now cover the same set. Not folded into
+`scripts/run-cross-boundary-probe.sh`, whose own `swift build` step exists only to produce link
+products for the `xcrun swiftc` invocation after it; conflating the two would make a probe failure
+ambiguous between an actual cross-boundary defect and an unmarked unsafe construct. Like the probe,
+nothing runs this automatically — there is no CI in this repo yet — so it is a gate a person runs,
+not one the build enforces for them. First run (Phase 3A-1 Task 3's fix round) found four sites: one
+pre-existing (`Sources/Project/ObservationLog.swift`, `String(format:)`'s C varargs initialiser) and
+three new (`Sources/Headless/CoreImageFrameRenderer.swift`'s `cursorCanvases` cache and its
+`CGContext(data: nil, ...)` construction). All four are marked `unsafe` at the expression with a
+comment at the site saying why each is safe despite the diagnostic, not merely silenced.
 
 ---
 
@@ -646,11 +776,14 @@ gone through `TemporaryFileMediaSink` instead.
 
 ### What the test count covers, and what it cannot
 
-**`swift test`'s 462 tests do not link the app.** There is no app test target:
+**`swift test`'s suite does not link the app.** There is no app test target:
 an `executableTarget` cannot be imported by a `testTarget` (`Package.swift`'s own
 comment), so `Tests/AppSourceTests` reads `Soredemo/`'s sources **as text**
 through `CheckerLexer` — it checks that code SAYS the right things, and cannot
 run a line of it. Everything under `Sources/` is genuinely linked and executed.
+(For the current count, run `scripts/count-tests.sh` — a number written here
+would go stale on the next commit; `Tests/AppSourceTests/ProseClaimTests.swift`
+is why it no longer is.)
 
 The consequence is precise and worth stating wherever a count is quoted: for app
 code, the executing instruments are `scripts/run-cross-boundary-probe.sh` (349
@@ -709,6 +842,235 @@ doc comment and a string in the architecture checker's own exemption list**: a
 deadness verdict that counts a scanner's configuration as usage. That mistake was
 made here, caught by eye, and would not have been caught by the next person. The
 instrument already exists; the rule is to use it.
+
+### D6a-R — The recorded fixture: redacted by schema, not by instance
+
+**`Tests/HeadlessFixtures/segment-00-redacted.jsonl` is a real observation log from
+a real recording of the task author's own screen** (row14,
+`soredemo-preview-98460A97-…`, 411 lines: 251 `pointer`, 149 `tapDisabled`, 6
+`button`, 3 `axChain`, 1 `logHeader`, 1 `logTrailer`), redacted and committed as
+the first fixture Phase 3A-1's headless compositor tests read as a bundle
+resource. **Half its value is that it is dirty**: 149 tap-disabled windows, an
+`accessibilityUnavailable` flip in the header's `blindness`, two different blind
+rates in one session. A four-second synthetic recording against an empty desktop
+would not produce any of that, and it would repeat probe § 12's failure mode —
+a fixture whose values were produced by the same misunderstanding as the code
+under test — which a value the real writer recorded, through the real capture
+path, before this test existed, structurally cannot.
+
+**Adjudicated by schema, not by instance.** Enumerating the string fields
+PRESENT IN THIS FILE finds one piece of user data (`AXElementRecord.title`).
+Enumerating the string fields IN THE SCHEMA finds two: the second,
+`KeySample.shortcut`, has **zero occurrences** in this file (no `"kind":"key"`
+line exists in it at all) — an instance scan can never find it, and the next
+fixture recorded by someone who used a keyboard shortcut would carry their
+typing into git. `Tests/AppSourceTests/FixtureRedactionTests.swift`'s
+`everyStringFieldInTheObservationLogSchemaHasAVerdict` walks every
+`String`/`String?`/`[String]`-typed stored property, AND every enum case
+carrying a `String`/`String?`/`[String]` associated value (added in fix round
+1, below), of every record type under `Sources/Project` (not only the
+observation-log record types — the scan is directory-scoped, not file-scoped)
+and fails the build the day an unadjudicated one appears. 21 entries today:
+
+| Field or case | Verdict | Reason |
+| --- | --- | --- |
+| `AXElementRecord.title` | **REDACT** | user data — UI text (button/window labels), already legible in the recording's own video; appears in `hit`, `ancestors[]`, `children[]` |
+| `KeySample.shortcut` | **REDACT** | reflects what key combination a person pressed, even filtered to an approved-shortcut identifier by `InputObserver`; zero occurrences in this fixture, which is exactly why an instance scan cannot find it |
+| `SegmentBoundary.failed` | **REDACT** | carries `String(describing: error)` from `CaptureSession.stream(_:didStopWithError:)` — AVFoundation/ScreenCaptureKit error descriptions routinely embed a file URL (home path, username, package name). Persisted via `MasterSegment.endedBy` into `project.json`, **not** into an observation log, so it cannot appear in `Tests/HeadlessFixtures/*.jsonl` and Gate 1 below does not search for it there — see fix round 1, item 1 |
+| `AXElementRecord.role` | keep | system AX role constant (e.g. `AXButton`), not user-authored text |
+| `PointerSample.kind` | keep | literal discriminator `"pointer"` |
+| `ButtonEvent.kind` | keep | literal discriminator `"button"` |
+| `KeySample.kind` | keep | literal discriminator `"key"` (unused in this fixture; still schema) |
+| `SecureInputInterval.kind` | keep | literal discriminator `"secureInput"` |
+| `TapDisabledInterval.kind` | keep | literal discriminator `"tapDisabled"` |
+| `AXChainRecord.kind` | keep | literal discriminator `"axChain"` |
+| `ObservationLogHeader.kind` | keep | literal discriminator `"logHeader"` |
+| `ObservationLogTrailer.kind` | keep | literal discriminator `"logTrailer"` |
+| `KindOnly.kind` | keep | `ObservationLog.kind(of:)`'s private decode-only helper; reads the same `kind` wire field as the ten rows above, not a second field — found only after fix round 1's one-line-declaration fix (item 4) |
+| `ObservationLogHeader.mediaFilename` | keep | app-minted relative filename (`ProjectPackageIO`), never typed by a person; the log↔recording join key, not content |
+| `MasterSegment.mediaFilename` | keep | same app-minted filename, on `SegmentTable`; not present in this observation log (lives in `project.json`) — reported because the scan walks all of `Sources/Project` |
+| `ProjectSnapshot.mediaFilenames` | keep | array of the same app-minted filenames, on the project manifest; not present in this observation log either, same reason as above |
+| `ObservationLogError.foreignEpoch` | keep | `Error`, never `Codable`, never persisted — cannot reach a committed fixture |
+| `ObservationLogError.noEpoch` | keep | same type, same reason |
+| `ProjectFormatError.malformed` | keep | `Error`, never `Codable`, never persisted — cannot reach a committed fixture |
+| `ProjectFormatError.sidecarAlreadyExists` | keep | same type, same reason |
+| `ProjectFormatError.invalidSidecarName` | keep | same type, same reason |
+
+**A correction to this task's own brief, recorded rather than silently fixed.**
+The brief's first-draft table (one person's reading of the schema, offered as the
+reason this scan has to exist rather than a substitute for running it) named
+`KeyRecord.shortcut` — the type is `KeySample`, not `KeyRecord` — `kind (×6
+types)` where the scan finds **8** (`AXChainRecord`, `ButtonEvent`, `KeySample`,
+`ObservationLogHeader`, `ObservationLogTrailer`, `PointerSample`,
+`SecureInputInterval`, `TapDisabledInterval` each carry their own `kind: String`),
+and `epoch.id`, `blindness[]`, `detectedBy`, `disabledBy`, `phase`, `button`,
+`truncation`, `lowerBoundFrom`, `gapWatches[].site`, `gapWatches[].lostUnit` —
+none of which the scan reports, because every one of those is stored as an
+**enum** (`BootEpoch`, `[ObservationBlindness]`, `TapDisableDetection`,
+`TapDisableReason?`, `ButtonPhase`, `PointerButton`, `ChainTruncation`,
+`TapBlindWindowLowerBound`, `GapSite`, `GapUnit`), several with a `String` raw
+value. That is exactly the distinction "by schema" exists to draw: the STORED
+PROPERTY's type is the enum, a small closed set of ASCII case names, not open
+`String` text — real discipline this schema already had, not a scan failing to
+see something. The corrected table above is what the scan actually reports,
+verified by running it (`swift test --filter FixtureRedaction`), not transcribed
+from the brief.
+
+**Two gates, both in `FixtureRedactionTests.swift`, both observed red before
+being trusted green — and both strengthened again in fix round 1, below:**
+
+1. **Content** — `noCommittedFixtureCarriesAnUnredactedStringField` reads every
+   committed `.jsonl` fixture and requires every `REDACT`-marked field's value to
+   be exactly the placeholder `[redacted]`. Observed red against a synthetic
+   scratch fixture (`"title":"SYNTHETIC-NOT-REAL-USER-DATA"`, never real user
+   data, deleted immediately after). **Fixed en route**: the brief's
+   `#expect(value == "[redacted]", …)` form leaks the compared value into Swift
+   Testing's own auto-diagnostic regardless of the message text — measured
+   directly, the framework printed `value → "SYNTHETIC-NOT-REAL-USER-DATA"`
+   despite the custom message never naming it. The gate now computes the `Bool`
+   first (`let isRedacted = …; #expect(isRedacted, …)`) so there is nothing left
+   for the macro to decompose — the framework's own diagnostic machinery does
+   not become a second leak path alongside the one the message text guards
+   against. **Rewritten again in fix round 1** (item 2) from a `"field":"…"`
+   substring search to a structural walk of parsed JSON — see that item below.
+2. **Consumption** — `theRenderPathNeverReadsARedactedField` scans
+   `Sources/Headless` and `Sources/Render` for a `.title` or `.shortcut` (or any
+   other `REDACT`-marked field's) read. Observed red against a scratch symbol
+   temporarily appended to `Sources/Headless/CursorArt.swift` and reverted in
+   the same step.
+
+---
+
+**Fix round 1 (code review of this section's first version) — four items, all
+addressed in the same commit that added them:**
+
+1. **Important — the "enum fields are closed" claim was true only for
+   RAW-VALUE enums, and was written as if it covered every enum.** Swift
+   forbids associated values on a raw-value enum, so `GapSite`,
+   `TapDisableReason` and the rest really are a fixed ASCII case-name set. An
+   enum case with a `String` ASSOCIATED value is not closed at all, and
+   `SegmentBoundary.failed(reason: String)` — `Codable`, persisted via
+   `MasterSegment.endedBy` into `project.json` — is exactly that shape; its one
+   producer, `CaptureSession.stream(_:didStopWithError:)`, writes
+   `String(describing: error)` into it, which for AVFoundation/ScreenCaptureKit
+   errors routinely embeds a file URL carrying the recording machine's home
+   path and username. The scan now also reports `Type.caseName` for any enum
+   case with a `String`/`String?`/`[String]` associated value; `stringCaseField`
+   in `FixtureRedactionTests.swift` implements it, guarded against mistaking a
+   `switch` pattern-match (`case .foo(let x):`) for a declaration by refusing
+   any case name starting with `.` — no such pattern exists in `Sources/Project`
+   today (checked before writing the guard), but the distinction is real and
+   cheap to state. `SegmentBoundary.failed` is adjudicated `REDACT` in the table
+   above; the scan also picked up five `Error`-type cases
+   (`ObservationLogError.foreignEpoch`/`.noEpoch`,
+   `ProjectFormatError.malformed`/`.sidecarAlreadyExists`/`.invalidSidecarName`)
+   that are adjudicated `keep` for the same reason in each case: never
+   `Codable`, never persisted. **Observed red**: temporarily deleted
+   `SegmentBoundary.failed`'s table row and re-ran the schema-verdict test,
+   which reported it `UNADJUDICATED`, exactly as the review predicted; restored
+   the row and re-verified green.
+
+2. **Important — Gate 1 and the redaction script shared an unpinned
+   whitespace assumption, and Gate 1 had no guard against finding nothing.**
+   Both hardcoded the byte sequence `"field":"` with no tolerance for
+   `"field" : "…"`. The test guarding `ObservationLog.outputFormatting` asserted
+   only `.contains(.sortedKeys)` — a `.prettyPrinted` addition would leave it
+   green while breaking every downstream assumption of compact, no-space JSON.
+   **Fixed two ways.** First, `sortedKeysIsSetOnTheEncoder`
+   (`Tests/ProjectTests/ObservationLogTests.swift`) now pins the exact value,
+   `== [.sortedKeys]`, so the format assumption reddens where it is made, not
+   only where something downstream happens to notice. Second, and load-bearing:
+   Gate 1 no longer pattern-matches bytes at all. It parses each line with
+   `JSONSerialization` and walks the decoded value structurally
+   (`stringValues(named:in:)`), which does not care about whitespace, key
+   order, or indentation — so it no longer shares an assumption with the
+   script that produced the fixture, the same "independent tool" principle the
+   two-direction verification above already used. A **vacuity guard** was
+   added on top: for each fixture, the total occurrences of every `REDACT`
+   field found across the whole file must be greater than zero, or the gate
+   fails and says so explicitly, rather than passing over a fixture it
+   examined nothing real in. **Observed red**: wrote a scratch fixture with a
+   literal space before the colon (`"title" :"…"`, invented text, never real
+   data) — confirmed the OLD `"title":"` substring pattern matched zero times
+   against it (`grep -c` = 0) — then ran the rewritten Gate 1, which still
+   caught it (`isFullyRedacted` false, reporting file, line, and the value's
+   length only). Deleted the scratch fixture immediately after.
+
+3. **Important — Gate 1 read one hardcoded directory,
+   `Tests/HeadlessFixtures`.** The brief itself named
+   `Tests/HeadlessTests/Fixtures/` as the fallback resource location, so a
+   fixture landing there would have been invisible to this gate, and
+   `#require(!fixtures.isEmpty)` would have stayed satisfied by the fixture
+   that already exists elsewhere — no red, ever, for a second fixture in the
+   uncovered location. `committedJSONLFixtures()` now recursively enumerates
+   every `.jsonl` under `Tests/`, in one place that every caller shares, rather
+   than each gate hardcoding its own directory. **Observed red**: created
+   `Tests/HeadlessTests/Fixtures/` (the brief's own named fallback), wrote a
+   scratch fixture there with an unredacted synthetic `title` value, ran Gate 1
+   — it found and flagged the file (`zz-scratch-scope-drill.jsonl:1`) — then
+   deleted the scratch file and the directory it required.
+
+4. **Minor, but concrete and already true — the scan missed one-line type
+   declarations.** `private struct KindOnly: Decodable { let kind: String }`
+   (`ObservationLog.swift`) packs a stored property onto the same line as the
+   type keyword; the scan set `enclosing` and `continue`d past that line
+   without ever reading what followed the brace, so `KindOnly.kind` went
+   unreported — "every `String`-typed stored property" was already inexact, in
+   the unsafe direction. Fixed: the text after a one-line type declaration's
+   own opening `{`, up to its closing `}`, is now scanned the same way an
+   ordinary line is (isolating it from the type's own `: SomeProtocol`
+   conformance list, so that colon is never mistaken for a property's). Two
+   further misses are stated rather than fixed, because neither exists in this
+   schema today (checked by running the scan before writing this): `let x:
+   String = "…"` (an initial value leaves trailing text after `String`) and a
+   composite carrying `String` (`[String: String]`, not `String`/`String?`/
+   `[String]`) — the same rule that already, correctly, excludes
+   `ObservationLogTrailer.recordCounts` (`[String: Int]`). Also fixed in the
+   same pass: Gate 1's line numbering used `split(separator: "\n",
+   omittingEmptySubsequences: true)`, which shifts every reported line number
+   past any blank line; it now uses `components(separatedBy: "\n")`, which
+   keeps a blank line as an (skipped, but counted) empty component, so a leak
+   message names the physical line it is actually on.
+
+**The redaction script, `scripts/redact-observation-log.swift`, is a text
+transform over the raw bytes — not a decode/re-encode.** It walks the file once,
+rewriting only the value span of a `"title":"…"` or `"shortcut":"…"` key
+(JSON-escape-aware, so an embedded `\"` does not end the value early) to the
+placeholder, and copies every other byte through unchanged. **Nothing the
+compositor consumes is touched**: every timestamp, every coordinate, the
+`anchor`, the boot epoch, the geometry revision, and all 149 `tapDisabled`
+intervals in the committed fixture are byte-for-byte what the real writer
+recorded. Verified two ways after producing the fixture, neither of which prints
+a field value: (a) every `title`/`shortcut` occurrence in the output equals the
+placeholder (4 `title`, 0 `shortcut`); (b) `diff` between the original and the
+redacted file, with both sides' `title`/`shortcut` values independently
+normalised to the same placeholder text by `sed` — a tool distinct from the
+redaction script itself — returns empty, twice (once cross-checked against the
+script's own normalisation of the original). An empty diff under that
+normalisation is evidence about **every other byte** in a 98,155-byte, 411-line
+file.
+
+**The reproducibility cost, stated rather than left as zero by omission.**
+Reproducing this exact redaction run needs the unredacted original, which exists
+only on the machine that recorded it and is never committed. **This redaction is
+auditable by its author and not by its readers.** A future reader of the
+committed fixture can mechanically verify the negative — Gate 1, forever, on
+every commit — that no `title` or `shortcut` value is anything but the
+placeholder. What a reader cannot do is verify that the right things were
+removed and nothing else changed, because the original is not there to diff
+against. That is a known, accepted cost of choosing a recorded fixture (dirty,
+uncomputed, half its value the recording's own mess) over a synthetic one, and
+it is written down here because an unwritten cost reads as a zero cost, and this
+one is not zero.
+
+**Resource path, decided by measurement.** `HeadlessTests`' `Package.swift`
+target declares `resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")]`
+— the parent-directory form SwiftPM was expected to possibly reject. It did not:
+`swift build` succeeded and the file was found copied into
+`.build/…/SoredemoCore_HeadlessTests.bundle/Contents/Resources/segment-00-redacted.jsonl`.
+The fixture therefore stays at `Tests/HeadlessFixtures/`, sibling to `Tests/`
+rather than nested under `Tests/HeadlessTests/`, so a future fixture shared by a
+second test target does not have to live inside the first one's directory.
 
 ## D6b — The platform-premise register: what this app believes about macOS
 
@@ -1137,6 +1499,12 @@ Sources/                         Foundation only, at the repository root
   Timeline/                      integer-nanosecond output↔source mapping
   Variants/                      16:9 · 9:16 · 1:1 re-framing, platform profiles
   Project/                       versioned document model, upgrades, atomic save
+
+Sources/Headless/                NOT Foundation-only — the tier `swift test` can link and run
+                                 (D1a). Product: SoredemoHeadless. Guard: HeadlessCheck
+  CursorArt.swift                the drawn pointer and click ripple, as vector paths
+  HeadlessGeometryBridge.swift   the render tier's CoreGraphics exit — the only file here
+                                 allowed to name CGRect/CGPoint/CGSize/CGFloat
 
 Soredemo/                        Xcode app target
   Capture/                       ScreenCaptureKit, audio, permissions

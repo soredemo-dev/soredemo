@@ -1,5 +1,9 @@
 import AVFoundation
 import Foundation
+// No `import Headless` here, deliberately — this file itself moved INTO the `Headless` module
+// in Phase 3A-1 Task 7. Through Task 6 this file lived in the app target and needed the import
+// to see `CompositionBuilder`, declared in `Headless`; a module does not import itself, so the
+// import that made sense before the move is gone, not merely redundant, after it.
 
 /// One MP4 (H.264) export of a recorded master — the deliverable Phase 2B's own completion
 /// sentence closes on: "export → open the exported file in QuickTime and watch it."
@@ -120,7 +124,7 @@ import Foundation
 /// urgency, because this file's blast radius if the floor moves is one small file with a
 /// measured-cheap rewrite on one half and an honestly-unmeasured other half, not three
 /// concurrently-fed tracks a shipping recording depends on.
-enum MP4Exporter {
+public enum MP4Exporter {
     /// Exports `asset`'s video, through the SAME `AVVideoComposition`
     /// `CompositionBuilder.composition(for:outputWidth:outputHeight:frameDuration:)` builds for
     /// the preview (`StageWindow.load()` calls the identical function with the identical
@@ -139,7 +143,7 @@ enum MP4Exporter {
     /// frame the writer was not ready for yet — and `framesRead`/`framesWritten` are counted
     /// independently and compared at the end; a mismatch throws rather than being silently
     /// reported. A count that is only reported is a count nobody reads.
-    nonisolated static func export(asset: AVAsset, to outputURL: URL,
+    public nonisolated static func export(asset: AVAsset, to outputURL: URL,
                                     outputWidth: Int, outputHeight: Int) async throws -> ExportReport {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
@@ -186,11 +190,39 @@ enum MP4Exporter {
         var framesWritten = 0
         while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
             framesRead += 1
-            // Never drop: wait for readiness rather than skip this sample.
+            // Never drop: wait for readiness rather than skip this sample — but bounded, not
+            // forever. Spike D measured a real, indefinite hang behind this same readiness
+            // signal's successor (`readinessDeadlineSeconds`'s own doc comment); an uncapped
+            // `while` here would spin on that exact condition with no diagnosis.
+            // `SuspendingClock`, not `Date`. Two problems with `Date` here, not one: it is
+            // wall-clock (`gettimeofday`-backed) and therefore settable/NTP-adjustable — an
+            // ambient clock going backward mid-export makes `elapsed` negative, the cap above
+            // never fires, and the poll is unbounded again, which is exactly the condition
+            // Spike D measured and this cap exists to bound. It is also ambient time full
+            // stop, which is what Sources/Headless's own rule-3 textual scan (see
+            // Tests/AppSourceTests/AppSourceAllowListTests.swift) now checks this file
+            // against; `ambientBannedNames` finding `Date()` here again is the closed loop.
+            // `SuspendingClock` over `ContinuousClock`: this deadline measures how long a
+            // WRITER has failed to make progress, not wall time elapsed. `ContinuousClock`
+            // keeps advancing while the system is asleep, so an export left running across a
+            // lid-close would see `elapsed` jump by the whole sleep duration the instant the
+            // machine wakes and misreport a stall that never happened — the writer was never
+            // given a chance to be not-ready, because nothing was running. `SuspendingClock`
+            // does not advance during sleep, so elapsed reflects only the time the writer
+            // actually had to become ready, which is the quantity this deadline is about.
+            let pollStart = SuspendingClock.now
             while !writerInput.isReadyForMoreMediaData {
                 if writer.status == .failed {
                     throw ExportError.writerFailed(writer.error.map { String(describing: $0) }
                         ?? "writer failed while waiting for readiness at frame \(framesRead)")
+                }
+                let elapsedDuration = SuspendingClock.now - pollStart
+                let elapsed = Double(elapsedDuration.components.seconds)
+                    + Double(elapsedDuration.components.attoseconds) / 1e18
+                if elapsed >= Self.readinessDeadlineSeconds {
+                    // Names WHERE, because "it hung" is not a diagnosis: the frame index this
+                    // stalled at, and how long it waited before this file gave up on it.
+                    throw ExportError.writerNotReadyInTime(frame: framesRead, elapsedSeconds: elapsed)
                 }
                 try await Task.sleep(for: .milliseconds(2))
             }
@@ -224,7 +256,47 @@ enum MP4Exporter {
         return ExportReport(outputURL: outputURL, framesRead: framesRead, framesWritten: framesWritten)
     }
 
-    nonisolated enum ExportError: Error, CustomStringConvertible, Sendable {
+    /// How long the readiness poll above may wait for `AVAssetWriterInput.isReadyForMoreMediaData`
+    /// to turn true again before this file treats the wait as a stall rather than a writer that
+    /// is still genuinely busy.
+    ///
+    /// **Chosen by argument, not by copying a measured duration — Spike D's own subject
+    /// (`ARCHITECTURE.md` 1288-1290) has no number to cite.** The one field report on
+    /// `AVAssetWriterInput.PixelBufferReceiver.append` — the successor call this legacy poll
+    /// stands in for — is an INDEFINITE hang: "the task suspends and never resumes, no crash, no
+    /// error, CPU to zero." An indefinite hang has no duration; there is nothing to copy into a
+    /// deadline constant, only a bound to argue for.
+    ///
+    /// So: how long can a writer that is genuinely still working — not stalled — take to drain
+    /// its internal queue and report ready again, on a machine under real pressure (disk
+    /// contention, thermal throttling, a slow codec catching up)? The poll above already runs at
+    /// a 2ms cadence, tuned for the ordinary case of a writer that frees up well inside one frame
+    /// interval (~16.7ms at 60fps, the frame duration `CompositionBuilder.composition` is built
+    /// with above). A writer under real but non-pathological load might legitimately fall behind
+    /// by low hundreds of milliseconds between readiness windows; it has no legitimate reason to
+    /// stay not-ready for whole seconds — `AVAssetWriter` has no I/O step that takes that long
+    /// short of the disk itself being unavailable, a condition `writer.status == .failed` above
+    /// already catches independently.
+    ///
+    /// Five seconds is roughly an order of magnitude past that plausible worst case: comfortably
+    /// clear of anything a busy-but-working writer would ever need, while still short enough that
+    /// a real stall fails as a diagnosis — naming the frame and the elapsed time — in a handful of
+    /// seconds, not never. Not tuned finer than that: this file has no measurement of the
+    /// legitimately-busy case to tune a tighter bound against, only Spike D's measurement that the
+    /// STALLED case never recovers at all. Any finite bound already separates the two; this one is
+    /// chosen to sit far on the side of "never triggered by real work."
+    ///
+    /// **`nonisolated`, for the same reason `export` above carries the annotation** —
+    /// measured directly by `scripts/run-cross-boundary-probe.sh`, which builds with
+    /// `-default-isolation MainActor` (matching the app target's own `SWIFT_DEFAULT_ACTOR_ISOLATION`)
+    /// and rejected an unmarked `private static let` here with "main actor-isolated static
+    /// property 'readinessDeadlineSeconds' cannot be accessed from outside of the actor" —
+    /// `swift build` never saw it, because `Package.swift` sets no such default for `Headless`.
+    /// The same probe/app-target-vs-package gap `CompositionBuilder.composition`'s own doc
+    /// comment already names for a different declaration.
+    private nonisolated static let readinessDeadlineSeconds: Double = 5.0
+
+    public nonisolated enum ExportError: Error, CustomStringConvertible, Sendable {
         case noVideoTrack
         case readerRefusedOutput
         case writerRefusedInput
@@ -232,8 +304,13 @@ enum MP4Exporter {
         case writerFailed(String)
         case appendRefused(String)
         case frameCountMismatch(read: Int, written: Int)
+        /// The readiness poll exhausted `readinessDeadlineSeconds` — see that constant's own
+        /// doc comment for how the bound was chosen. Names the frame index the writer was
+        /// waiting to accept and how long it had waited: a stall that only says "it hung" gives
+        /// a reader nowhere to look.
+        case writerNotReadyInTime(frame: Int, elapsedSeconds: Double)
 
-        var description: String {
+        public var description: String {
             switch self {
             case .noVideoTrack: "the asset has no video track to export"
             case .readerRefusedOutput: "AVAssetReader refused the video composition output"
@@ -243,6 +320,15 @@ enum MP4Exporter {
             case .appendRefused(let why): "append refused: \(why)"
             case .frameCountMismatch(let read, let written):
                 "export dropped a frame: read \(read), wrote \(written)"
+            case .writerNotReadyInTime(let frame, let elapsedSeconds):
+                // `.formatted(.number.precision(...))`, not `String(format:)` — the latter is a
+                // `StrictMemorySafety`-flagged unsafe initializer (measured: `swift build` warns
+                // on it directly), and this file's own zero-warning gate does not carve out
+                // exceptions for formatting.
+                "AVAssetWriterInput never became ready for frame \(frame) after "
+                + "\(elapsedSeconds.formatted(.number.precision(.fractionLength(2))))s (deadline "
+                + "\(MP4Exporter.readinessDeadlineSeconds.formatted(.number.precision(.fractionLength(2))))s) — "
+                + "treated as a stall, not a slow but working writer"
             }
         }
     }
@@ -252,8 +338,8 @@ enum MP4Exporter {
 /// exporter's own counters (never dropped without a check, per this file's header) rather than
 /// only from the finished asset — a person reading a report should not have to re-open the file
 /// to learn whether the export dropped anything.
-nonisolated struct ExportReport: Sendable {
-    let outputURL: URL
-    let framesRead: Int
-    let framesWritten: Int
+public nonisolated struct ExportReport: Sendable {
+    public let outputURL: URL
+    public let framesRead: Int
+    public let framesWritten: Int
 }

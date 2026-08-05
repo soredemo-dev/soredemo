@@ -335,11 +335,15 @@ func projectPbxprojText() throws -> String {
 /// overstate real drops — a different, and equally silent, way for the number to stop meaning what
 /// its doc comment says.
 @Test func theDroppedFrameCounterHasExactlyTwoCallSitesEachImmediatelyBeforeAnErrorFinish() throws {
-    let files = try appSourceFiles()
+    // `headlessSourceFiles()`, not `appSourceFiles()` — `StageCompositor.swift` moved to
+    // `Sources/Headless/` in Phase 3A-1 Task 4 and is no longer under `Soredemo/` at all, so the
+    // old scan found zero matches instead of one. The file itself, and everything this test pins
+    // about it, is unchanged by the move.
+    let files = try headlessSourceFiles()
         .filter { $0.lastPathComponent == "StageCompositor.swift" }
     try #require(files.count == 1, """
-        expected exactly one StageCompositor.swift under Soredemo/, found \(files.count) — this \
-        scan's file-scoped filter needs a unique target.
+        expected exactly one StageCompositor.swift under Sources/Headless/, found \(files.count) — \
+        this scan's file-scoped filter needs a unique target.
         """)
 
     let callSites = try codeLinesNaming("Self.recordDroppedFrame()", in: files)

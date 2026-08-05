@@ -1581,8 +1581,21 @@ enum CrossBoundaryProbe {
               "currentArrangement() found at least one display — an empty arrangement would make "
               + "every check below vacuous",
               actual: "\(arrangement.placements.count) placements")
-        guard let screen = NSScreen.main else {
-            check(false, "NSScreen.main is nil — there is no independent source to check against")
+        // NSScreen.main is documented as the screen holding the key window —
+        // and with no key window, the screen under the cursor. It is NOT the
+        // menu-bar display. CGMainDisplayID() names the menu-bar display.
+        // Those two agree only by coincidence on a multi-display machine, so
+        // this check's answer used to depend on where the cursor happened to
+        // be, and it passed for a whole phase on exactly that coincidence.
+        // The independent source of truth for the display CGMainDisplayID()
+        // names is the NSScreen that reports that same NSScreenNumber — that
+        // pairing, and not NSScreen.main, is what makes this comparison a
+        // cross-boundary invariant rather than a coincidence.
+        let mainDisplayID = CGMainDisplayID()
+        guard let screen = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == mainDisplayID
+        }) else {
+            check(false, "no NSScreen reports NSScreenNumber == CGMainDisplayID() — there is no independent source to check against")
             return
         }
         guard let mainIdentity = Minting.displayIdentity(of: CGMainDisplayID()),
