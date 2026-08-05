@@ -317,7 +317,7 @@ user has the document open.**
 
 ## D6 — Architecture rules, enforced by the build
 
-Rules that are not executable stop being true. Three mechanisms, in descending order of strength.
+Rules that are not executable stop being true. Four mechanisms, in descending order of strength.
 
 ### The numbering, stated once
 
@@ -339,10 +339,12 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
 | 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
+| 9 | The package builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` warnings | `scripts/check-strict-memory-safety.sh`, greps a fresh `swift build`'s output for the diagnostic's own tag | its own script only — see below |
 
 Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
 target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
-write.
+write. Rule 9 fails neither `swift build` nor `xcodebuild` automatically — both exit 0 on a warning —
+so it fails only its own script; see mechanism 4 below.
 
 The project's other binding rules are **not** in this numbering and never were: comparing
 `NormalizedFrame` across `geometryRevision` is a precondition failure (D3), Swift 6 strict
@@ -485,6 +487,24 @@ constraints on that one module are **held by hand**. `Package.swift` says so; so
 >
 > **Cache pairing.** Every cache-hit test is paired with an invalidation test. A cache never proven to
 > invalidate is a correctness bug waiting for a demo.
+
+**4. A standalone script, for a diagnostic the compiler itself does not fail on.** Rule 9 —
+`.strictMemorySafety()` (`Package.swift`, every regular target) with zero warnings — is the weakest
+mechanism here on purpose: `swift build` and `xcodebuild` both exit 0 with `StrictMemorySafety`
+warnings present, because the mode reports them as warnings and neither build adds
+`-warnings-as-errors`. Turning every warning in the tree into a hard error would be a much larger
+change than this rule asks for, so the check lives in `scripts/check-strict-memory-safety.sh`
+instead: it runs a fresh `swift build`, greps the output for the diagnostic's own `StrictMemorySafety`
+tag, and fails loudly — file, line and the unsafe construct named — on any hit. Not folded into
+`scripts/run-cross-boundary-probe.sh`, whose own `swift build` step exists only to produce link
+products for the `xcrun swiftc` invocation after it; conflating the two would make a probe failure
+ambiguous between an actual cross-boundary defect and an unmarked unsafe construct. Like the probe,
+nothing runs this automatically — there is no CI in this repo yet — so it is a gate a person runs,
+not one the build enforces for them. First run (Phase 3A-1 Task 3's fix round) found four sites: one
+pre-existing (`Sources/Project/ObservationLog.swift`, `String(format:)`'s C varargs initialiser) and
+three new (`Sources/Headless/CoreImageFrameRenderer.swift`'s `cursorCanvases` cache and its
+`CGContext(data: nil, ...)` construction). All four are marked `unsafe` at the expression with a
+comment at the site saying why each is safe despite the diagnostic, not merely silenced.
 
 ---
 

@@ -138,17 +138,26 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
 
     /// Fetches (building on first use) the `CGContext` bitmap for a `size`×`size` canvas, cleared
     /// and ready to draw into.
+    ///
+    /// **Only ever called from inside `cursorCanvasLock.withLock` — `cursorImage(for:outputHeight:)`
+    /// below is this function's one call site, and holds the lock across the whole fetch.** That is
+    /// what makes each `unsafe` marker below a true statement and not just a silenced diagnostic:
+    /// `cursorCanvases` is `nonisolated(unsafe)` so the compiler cannot see the lock that actually
+    /// guards it, and flags every access as though nothing did.
     private func cursorCanvas(size: Int) -> CGContext? {
-        if let existing = cursorCanvases[size] {
+        if let existing = unsafe cursorCanvases[size] {
             existing.clear(HeadlessGeometryBridge.outputCanvas(width: size, height: size))
             return existing
         }
-        guard let created = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
+        // `data: nil` — CGContext allocates and owns its own backing store; no raw pointer from
+        // this call site is ever read or written directly, which is what makes the `unsafe`
+        // initializer safe to use unsafely here.
+        guard let created = unsafe CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
             return nil
         }
-        cursorCanvases[size] = created
+        unsafe cursorCanvases[size] = created
         return created
     }
 
