@@ -132,13 +132,31 @@ fi
 # backend combinations and this gate must not go blind to a warning just because
 # it runs somewhere the line format differs from the one measured here.
 #
-# Verified round-trip: an unmarked `nonisolated(unsafe)` left in
-# `Sources/Headless/CoreImageFrameRenderer.swift` with `.build` already warm —
-# `swift build` run first (as the gate list prescribes), which exits 0 on
-# warnings and leaves `.build` up to date — then THIS script run second saw a
-# no-op incremental build, no `[N / M]` line, no `Compiling` line, and (before
-# this guard) would have printed "STRICT MEMORY SAFETY: zero warnings" over a
-# real, in-scope, uninspected warning. This guard is what turns that into exit 3.
+# **This guard does not work, and the two factual claims above it are refuted.**
+# Left in place, with its failure recorded, because deleting it would remove the
+# only marker of where the repair goes. Measured after the final whole-branch
+# review, on identical state with zero source edits:
+#
+#   * A no-op build DOES emit a progress line. One run printed
+#     `[1 / 26] HeadlessTests-product`, the next printed a bare `[1 / 1]`, and
+#     BOTH satisfied the pattern below and passed. SwiftPM emits a progress line
+#     for a link task on a build that compiled no Swift file at all, so the
+#     first alternative is satisfied by a line that says nothing about whether
+#     anything was scanned. The paragraph above asserting "a build with nothing
+#     to do prints none of those lines" is false.
+#   * `Compiling ` NEVER appears on this toolchain, even on a genuine
+#     multi-target recompile — verified by touching `CursorArt.swift` and seeing
+#     only `[N / M] <Target>` lines. The second alternative is dead code, so the
+#     whole "positive evidence" test reduces to a line shape that is identical
+#     whether or not any Swift file was recompiled.
+#   * Consequence: four consecutive runs on identical state exited 0, 3, 3, 0.
+#     Nondeterministic, which is worse than a consistent false pass — a false
+#     green is a stable error you can find; this is not stably anything.
+#
+# The verdict text at the bottom of this script now says so on every run. The
+# repair — make the run genuinely recompile the test targets, delete the dead
+# alternative, remove the nondeterminism — is 3A-2's first task, and it is
+# ordered before clearing the 11 known sites for the reason ROADMAP states.
 if ! grep -qE '^\[[0-9]+[^]]*/[^]]*[0-9]+\]|Compiling ' "$LOG"; then
     echo "FAILED: swift build reported success but compiled or linked nothing —" >&2
     echo "no per-task progress line and no 'Compiling' line appear anywhere in" >&2
@@ -157,4 +175,32 @@ if grep -q 'StrictMemorySafety' "$LOG"; then
     exit 1
 fi
 
-echo "STRICT MEMORY SAFETY: zero warnings across library AND test targets (verified against a --build-tests build that reported success)"
+# **The verdict is narrowed to what was measured, and the gate declares its own
+# limits on every run.** It previously read "zero warnings across library AND test
+# targets". That sentence was false, and the gate was structurally incapable of
+# noticing: see the three bullets it now prints. Narrowing a claim to its evidence
+# does not require repairing the instrument first — the same move ROADMAP's row 14
+# made when a citation turned out not to hold. Repair is 3A-2's first task, and it
+# is ordered BEFORE clearing the sites, because clearing them while the gate is
+# still blind lets the next batch in exactly the same way.
+echo "STRICT MEMORY SAFETY: no StrictMemorySafety tag in THIS run's output."
+echo
+echo "  SCOPE — read this before treating the line above as a pass:"
+echo
+echo "  * Sources/ (the library targets): genuinely zero. Established"
+echo "    2026-08-05 by a from-nothing \`swift build\` at a clean scratch path,"
+echo "    not by this script. That claim holds."
+echo
+echo "  * Test targets: NOT COVERED by this run, despite --build-tests. A warm"
+echo "    build does not recompile files it considers up to date, so their"
+echo "    warnings cannot appear in this log at all. Measured 2026-08-05 from"
+echo "    nothing: 11 unmarked sites exist under Tests/ — 10 in"
+echo "    HeadlessTests/PixelBufferSupport.swift, introduced by Phase 3A-1"
+echo "    Task 3, and 1 pre-existing in ProjectTests/AXChainRecordTests.swift."
+echo "    No run of this gate has ever reported one of them."
+echo
+echo "  * This gate is NOT REPRODUCIBLE. Four consecutive runs on identical"
+echo "    state, zero source edits: exit 0, 3, 3, 0. Something that answers"
+echo "    differently on the same input is not a gate. A false green is a"
+echo "    stable error; this is not even stably wrong. Do not read a pass here"
+echo "    as evidence of anything until 3A-2 repairs it."

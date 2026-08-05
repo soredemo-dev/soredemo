@@ -133,6 +133,43 @@ it, four seconds into a recording.
 > correctly carries no media, so the source frame is synthesised and the assertion is
 > geometric.
 >
+> **Phase 3A-2's FIRST task, and the ordering is binding: repair the memory-safety
+> gate before clearing what it should have caught.** `scripts/check-strict-memory-safety.sh`
+> does not hold rule 9 today, and three separate things are wrong with it. (a) A warm
+> `--build-tests` does not recompile test files it considers up to date, so a warning
+> in one cannot reach the log at all. (b) The nothing-compiled guard added to catch
+> exactly that is satisfied by a link-task progress line on a build that compiled no
+> Swift file — one run emitted `[1 / 26] HeadlessTests-product`, the next a bare
+> `[1 / 1]`, and both passed — while its `Compiling ` alternative never appears on
+> this toolchain at all, so that half is dead code. (c) Four consecutive runs on
+> identical state with zero source edits exited **0, 3, 3, 0**: nondeterministic,
+> which is worse than a consistent false pass, because a false green is a stable
+> error you can find and this is not stably anything.
+>
+> Measured from nothing on 2026-08-05 (`rm -rf` a scratch path, `swift build
+> --build-tests`): **zero sites under `Sources/`** — the library claim holds — and
+> **11 under `Tests/`**, of which 10 are in `HeadlessTests/PixelBufferSupport.swift`,
+> introduced by this phase's own Task 3, and 1 pre-existing in
+> `ProjectTests/AXChainRecordTests.swift`. No run of the gate has ever reported one
+> of them.
+>
+> **Clearing the 11 comes second, and reversing the order buys nothing**: clearing
+> them while the gate is still blind lets the next batch in by the identical route.
+> The gate's verdict text and `docs/ARCHITECTURE.md` D6 row 9 have both been narrowed
+> to the measurement in the meantime — narrowing a claim to its evidence does not
+> require repairing the instrument first, which is the same move row 14 made when a
+> citation turned out not to hold.
+>
+> **Phase 3A-2 item — narrow `MP4Exporter.swift`'s ambient-time permit to a named
+> boundary.** The app-side rule-3 scan currently exempts the whole file. The
+> precedent it cites, `Minting.swift`, does not support that granularity: that file's
+> own header says every function in it is a pure ambient→package mapping, so the
+> whole file IS the boundary and exempting it costs nothing. `MP4Exporter.swift` is a
+> 345-line general-purpose exporter in which roughly fifteen lines need a clock, so a
+> whole-file permit means a future `UUID()`, `random()` or wall-clock read anywhere
+> in it passes unaudited. That is exemption-scope creep, the same family as the
+> `architecture-checker` exemption list. Narrow it to the specific functions.
+>
 > **Phase 3A-2 item, recorded rather than fixed at the final whole-branch review for
 > Phase 3A-1.** The clock domain `1a98402` confused is still not stated at the TYPE
 > level: `pointerPlacement`'s `let time = anchor.hostTime + offset` adds a
@@ -140,7 +177,11 @@ it, four seconds into a recording.
 > — which carries the epoch and is what the samples are actually stamped in — already
 > exists and is discarded at that exact seam. Reintroducing `1a98402` still compiles
 > today; what this phase achieved is that a test now catches it, not that the
-> compiler does. Phase 3A-2 should give the two domains distinct types, shaped either
+> compiler does. **Those are two instruments of different grade, and the difference
+> is not pedantic: a test is edited by whoever finds it inconvenient, and a type is
+> not.** So the goal is stated as *make `1a98402`'s whole class a compile error*, not
+> as *add type safety* — the second is a preference and the first is a checkable
+> outcome. Phase 3A-2 should give the two domains distinct types, shaped either
 > as `PointerTrack.position(at: HostInstant)` (push the conversion into the track so
 > callers never hold a bare `Nanoseconds` of ambiguous domain) or a `CompositionOffset`
 > wrapper (keep `Nanoseconds` but make the composition-time argument a distinct type
