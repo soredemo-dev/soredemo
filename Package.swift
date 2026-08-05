@@ -148,6 +148,7 @@ let package = Package(
         // `noDeterministicTestTargetDependsOnHeadless` asserts this against the
         // resolved manifest.
         .testTarget(name: "HeadlessTests", dependencies: ["Headless", "Geometry", "Timeline", "Project", "Render"],
+                    resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")],
                     swiftSettings: strict),
     ]
 )

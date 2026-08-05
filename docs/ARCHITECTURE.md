@@ -811,6 +811,132 @@ deadness verdict that counts a scanner's configuration as usage. That mistake wa
 made here, caught by eye, and would not have been caught by the next person. The
 instrument already exists; the rule is to use it.
 
+### D6a-R — The recorded fixture: redacted by schema, not by instance
+
+**`Tests/HeadlessFixtures/segment-00-redacted.jsonl` is a real observation log from
+a real recording of the task author's own screen** (row14,
+`soredemo-preview-98460A97-…`, 411 lines: 251 `pointer`, 149 `tapDisabled`, 6
+`button`, 3 `axChain`, 1 `logHeader`, 1 `logTrailer`), redacted and committed as
+the first fixture Phase 3A-1's headless compositor tests read as a bundle
+resource. **Half its value is that it is dirty**: 149 tap-disabled windows, an
+`accessibilityUnavailable` flip in the header's `blindness`, two different blind
+rates in one session. A four-second synthetic recording against an empty desktop
+would not produce any of that, and it would repeat probe § 12's failure mode —
+a fixture whose values were produced by the same misunderstanding as the code
+under test — which a value the real writer recorded, through the real capture
+path, before this test existed, structurally cannot.
+
+**Adjudicated by schema, not by instance.** Enumerating the string fields
+PRESENT IN THIS FILE finds one piece of user data (`AXElementRecord.title`).
+Enumerating the string fields IN THE SCHEMA finds two: the second,
+`KeySample.shortcut`, has **zero occurrences** in this file (no `"kind":"key"`
+line exists in it at all) — an instance scan can never find it, and the next
+fixture recorded by someone who used a keyboard shortcut would carry their
+typing into git. `Tests/AppSourceTests/FixtureRedactionTests.swift`'s
+`everyStringFieldInTheObservationLogSchemaHasAVerdict` walks every
+`String`/`String?`/`[String]`-typed stored property of every record type under
+`Sources/Project` (not only the observation-log record types — the scan is
+directory-scoped, not file-scoped) and fails the build the day an unadjudicated
+one appears:
+
+| Field | Verdict | Reason |
+| --- | --- | --- |
+| `AXElementRecord.title` | **REDACT** | user data — UI text (button/window labels), already legible in the recording's own video; appears in `hit`, `ancestors[]`, `children[]` |
+| `KeySample.shortcut` | **REDACT** | reflects what key combination a person pressed, even filtered to an approved-shortcut identifier by `InputObserver`; zero occurrences in this fixture, which is exactly why an instance scan cannot find it |
+| `AXElementRecord.role` | keep | system AX role constant (e.g. `AXButton`), not user-authored text |
+| `PointerSample.kind` | keep | literal discriminator `"pointer"` |
+| `ButtonEvent.kind` | keep | literal discriminator `"button"` |
+| `KeySample.kind` | keep | literal discriminator `"key"` (unused in this fixture; still schema) |
+| `SecureInputInterval.kind` | keep | literal discriminator `"secureInput"` |
+| `TapDisabledInterval.kind` | keep | literal discriminator `"tapDisabled"` |
+| `AXChainRecord.kind` | keep | literal discriminator `"axChain"` |
+| `ObservationLogHeader.kind` | keep | literal discriminator `"logHeader"` |
+| `ObservationLogTrailer.kind` | keep | literal discriminator `"logTrailer"` |
+| `ObservationLogHeader.mediaFilename` | keep | app-minted relative filename (`ProjectPackageIO`), never typed by a person; the log↔recording join key, not content |
+| `MasterSegment.mediaFilename` | keep | same app-minted filename, on `SegmentTable`; not present in this observation log (lives in `project.json`) — reported because the scan walks all of `Sources/Project` |
+| `ProjectSnapshot.mediaFilenames` | keep | array of the same app-minted filenames, on the project manifest; not present in this observation log either, same reason as above |
+
+**A correction to this task's own brief, recorded rather than silently fixed.**
+The brief's first-draft table (one person's reading of the schema, offered as the
+reason this scan has to exist rather than a substitute for running it) named
+`KeyRecord.shortcut` — the type is `KeySample`, not `KeyRecord` — `kind (×6
+types)` where the scan finds **8** (`AXChainRecord`, `ButtonEvent`, `KeySample`,
+`ObservationLogHeader`, `ObservationLogTrailer`, `PointerSample`,
+`SecureInputInterval`, `TapDisabledInterval` each carry their own `kind: String`),
+and `epoch.id`, `blindness[]`, `detectedBy`, `disabledBy`, `phase`, `button`,
+`truncation`, `lowerBoundFrom`, `gapWatches[].site`, `gapWatches[].lostUnit` —
+none of which the scan reports, because every one of those is stored as an
+**enum** (`BootEpoch`, `[ObservationBlindness]`, `TapDisableDetection`,
+`TapDisableReason?`, `ButtonPhase`, `PointerButton`, `ChainTruncation`,
+`TapBlindWindowLowerBound`, `GapSite`, `GapUnit`), several with a `String` raw
+value. That is exactly the distinction "by schema" exists to draw: the STORED
+PROPERTY's type is the enum, a small closed set of ASCII case names, not open
+`String` text — real discipline this schema already had, not a scan failing to
+see something. The corrected table above is what the scan actually reports,
+verified by running it (`swift test --filter FixtureRedaction`), not transcribed
+from the brief.
+
+**Two gates, both in `FixtureRedactionTests.swift`, both observed red before
+being trusted green:**
+
+1. **Content** — `noCommittedFixtureCarriesAnUnredactedStringField` reads every
+   `.jsonl` under `Tests/HeadlessFixtures/` and requires every `"title":"…"` and
+   `"shortcut":"…"` value to be exactly the placeholder `[redacted]`. Observed
+   red against a synthetic scratch fixture (`"title":"SYNTHETIC-NOT-REAL-USER-DATA"`,
+   never real user data, deleted immediately after). **Fixed en route**: the
+   brief's `#expect(value == "[redacted]", …)` form leaks the compared value into
+   Swift Testing's own auto-diagnostic regardless of the message text — measured
+   directly, the framework printed `value → "SYNTHETIC-NOT-REAL-USER-DATA"`
+   despite the custom message never naming it. The gate now computes the
+   `Bool` first (`let isRedacted = value == "[redacted]"; #expect(isRedacted, …)`)
+   so there is nothing left for the macro to decompose — the framework's own
+   diagnostic machinery does not become a second leak path alongside the one the
+   message text guards against.
+2. **Consumption** — `theRenderPathNeverReadsARedactedField` scans
+   `Sources/Headless` and `Sources/Render` for a `.title` or `.shortcut` read.
+   Observed red against a scratch symbol temporarily appended to
+   `Sources/Headless/CursorArt.swift` and reverted in the same step.
+
+**The redaction script, `scripts/redact-observation-log.swift`, is a text
+transform over the raw bytes — not a decode/re-encode.** It walks the file once,
+rewriting only the value span of a `"title":"…"` or `"shortcut":"…"` key
+(JSON-escape-aware, so an embedded `\"` does not end the value early) to the
+placeholder, and copies every other byte through unchanged. **Nothing the
+compositor consumes is touched**: every timestamp, every coordinate, the
+`anchor`, the boot epoch, the geometry revision, and all 149 `tapDisabled`
+intervals in the committed fixture are byte-for-byte what the real writer
+recorded. Verified two ways after producing the fixture, neither of which prints
+a field value: (a) every `title`/`shortcut` occurrence in the output equals the
+placeholder (4 `title`, 0 `shortcut`); (b) `diff` between the original and the
+redacted file, with both sides' `title`/`shortcut` values independently
+normalised to the same placeholder text by `sed` — a tool distinct from the
+redaction script itself — returns empty, twice (once cross-checked against the
+script's own normalisation of the original). An empty diff under that
+normalisation is evidence about **every other byte** in a 98,155-byte, 411-line
+file.
+
+**The reproducibility cost, stated rather than left as zero by omission.**
+Reproducing this exact redaction run needs the unredacted original, which exists
+only on the machine that recorded it and is never committed. **This redaction is
+auditable by its author and not by its readers.** A future reader of the
+committed fixture can mechanically verify the negative — Gate 1, forever, on
+every commit — that no `title` or `shortcut` value is anything but the
+placeholder. What a reader cannot do is verify that the right things were
+removed and nothing else changed, because the original is not there to diff
+against. That is a known, accepted cost of choosing a recorded fixture (dirty,
+uncomputed, half its value the recording's own mess) over a synthetic one, and
+it is written down here because an unwritten cost reads as a zero cost, and this
+one is not zero.
+
+**Resource path, decided by measurement.** `HeadlessTests`' `Package.swift`
+target declares `resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")]`
+— the parent-directory form SwiftPM was expected to possibly reject. It did not:
+`swift build` succeeded and the file was found copied into
+`.build/…/SoredemoCore_HeadlessTests.bundle/Contents/Resources/segment-00-redacted.jsonl`.
+The fixture therefore stays at `Tests/HeadlessFixtures/`, sibling to `Tests/`
+rather than nested under `Tests/HeadlessTests/`, so a future fixture shared by a
+second test target does not have to live inside the first one's directory.
+
 ## D6b — The platform-premise register: what this app believes about macOS
 
 **Every row is a claim about the operating system that this code depends on and that Apple has not
