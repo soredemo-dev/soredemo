@@ -3,70 +3,24 @@ import Foundation
 
 // MARK: - why this is a test and not a plugin rule
 //
-// `ArchitectureCheck` rule 3 — no ambient time or randomness in the package — is
-// checked over LINK-TIME SYMBOLS rather than source text (design doc F7). Text
-// scanning is a proxy for a semantic question ("does this code call a
-// non-deterministic API"), and it leaks: an earlier implementation caught plain
-// `Date()` while `"\(Date())"` and `#"\#(Date())"#` both passed. Every syntactic
-// evasion collapses into the same mangled symbol, so the symbol is the exact
-// question.
-//
-// A build-tool plugin cannot ask it. Its command runs BEFORE its own target
-// compiles, so the object files do not exist yet, and `PluginContext` exposes only
-// `package`, `pluginWorkDirectoryURL` and `tool(named:)` — there is no accessor for
-// any target's build products. (`PackageManager`, which does have `builtArtifacts`,
-// is a member of `CommandPlugin`, not `BuildToolPlugin`; and its artifact kinds are
-// executable / dynamicLibrary / staticLibrary, never object files.)
-//
-// So the check lives here. This target depends on all six library modules, which is
-// what orders their compilation before this test body runs — see the comment on
-// `.testTarget(name: "DeterminismTests")` in Package.swift. Nothing here builds
-// anything: it only READS object files that the test's own dependencies guaranteed
-// into existence, so there is no nested `swift build`, no `.build` lock and no
-// deadlock.
+// Rule 3 is checked over LINK-TIME SYMBOLS, not source text: every syntactic evasion
+// of `Date()` collapses into one mangled symbol. A build-tool plugin cannot read
+// object files, so this lives in a test whose deps order the compilation ahead of it.
 
 /// …/Tests/DeterminismTests/SymbolDeterminismTests.swift → the repository root.
 let repositoryRoot = URL(filePath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-/// The library modules, asserted as a floor so a filter that quietly matches
-/// nothing cannot look like a pass. The authoritative list comes from the resolved
-/// manifest — see `scannedModules()`.
+/// A floor, so a filter that quietly matches nothing cannot look like a pass; the
+/// authoritative list comes from the resolved manifest (`scannedModules()`).
 let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
 
 // MARK: - the banned symbols
 //
-// DERIVED, NOT GUESSED. Every name below was read off `nm -u` of a scratch module
-// that calls the construct, compiled by this toolchain
-// (Apple Swift 6.4, swiftlang-6.4.0.27.1). The command was:
-//
-//     swiftc -swift-version 6 -emit-object -o Probe.o Probe.swift
-//     nm -u Probe.o | while read s; do echo "$s  $(swift demangle --compact "$s")"; done
-//
-// `bannedConstructFixture` below reproduces exactly that derivation inside the
-// suite, so a toolchain that changes a mangling turns this table RED instead of
-// silently emptying it.
-//
-// WHAT IS *NOT* HERE, deliberately:
-//
-//   * `Date` and `UUID` as TYPES. `public let at: Date` and `public let
-//     displayUUID: UUID` are correct and required — timestamps and identifiers are
-//     minted in the app and passed in as plain values. Only the constructors and
-//     clock reads are banned. `Geometry.o` already proves the distinction is real
-//     at the symbol level: it references `Foundation.UUID`'s metadata, `==` and
-//     `.uuid`, and does not reference `UUID.init()`.
-//
-//   * `Date.timeIntervalSinceReferenceDate` as an INSTANCE property. The static
-//     property of the same name reads the clock; the instance property is a plain
-//     accessor on a value you already hold. The two mangle identically except for a
-//     trailing `Z` (`…SdvgZ` vs `…Sdvg`), which is why matching is exact and never
-//     by substring.
-//
-//   * `random(in:using:)`, `shuffled(using:)`, `randomElement(using:)`. Randomness
-//     drawn from an INJECTED generator is deterministic, which is the property this
-//     rule protects; it is the implicit system generator that is not. There is no
-//     hole here, because the only way to obtain the system generator is
-//     `SystemRandomNumberGenerator.init()`, which is banned below.
+// Derived, not guessed: each name was read off `nm -u` of a scratch module on this
+// toolchain, a derivation `bannedConstructFixture` reproduces. Absent on purpose:
+// `Date`/`UUID` as TYPES, the INSTANCE `timeIntervalSinceReferenceDate` (the static
+// one mangles with a trailing `Z`, so matching is exact), and `random(in:using:)`.
 let bannedSymbols: [String: String] = [
     // ── ambient time ────────────────────────────────────────────────────────────
     "_$s10Foundation4DateVACycfC":                              "Date.init()",
@@ -85,37 +39,22 @@ let bannedSymbols: [String: String] = [
     "_CFAbsoluteTimeGetCurrent":                                "CFAbsoluteTimeGetCurrent()",
     "_mach_absolute_time":                                      "mach_absolute_time()",
     "_mach_approximate_time":                                   "mach_approximate_time()",
-    // Sibling of `mach_absolute_time`, introduced the same day by the same author
-    // (`Minting.continuousNow()`, Task 5) and missed by this table until Task 5.5.
-    // Advances during sleep where `mach_absolute_time` does not (D2-4) — a
-    // different reading, not a spelling variant.
+    // Advances during sleep where `mach_absolute_time` does not: a different reading.
     "_mach_continuous_time":                                    "mach_continuous_time()",
     "_clock_gettime_nsec_np":                                   "clock_gettime_nsec_np()",
     "_clock_gettime":                                           "clock_gettime()",
-    // Sibling of `clock_gettime`, and a DIFFERENT reading: processor time
-    // consumed by this process, not wall or monotonic time. Still ambient — it
-    // depends on scheduling — and it is the name someone reaches for when
-    // `clock_gettime` is refused. Verified open by Task 5.5's sweep and closed
-    // here. `_clock` is exact-matched like every other entry: `_clock_gettime`
-    // is a different symbol and always was.
+    // Processor time for this process: ambient, and exact-matched, not by substring.
     "_clock":                                                   "clock()",
     "_gettimeofday":                                            "gettimeofday()",
     "_time":                                                    "time()",
-    // Objective-C clock reads. `NSDate` is over-approximated: ANY reference to the
-    // class trips this, including a bridge that never reads the clock. That is the
-    // loud direction, and a Foundation-only value package has no ObjC boundary to
-    // bridge across — `Date` is the Swift type it holds.
+    // ObjC clock reads. `NSDate` is over-approximated: ANY reference trips this.
     "_OBJC_CLASS_$_NSDate":                                     "NSDate (any reference)",
     "_objc_msgSend$timeIntervalSinceReferenceDate":             "-[NSDate timeIntervalSinceReferenceDate]",
     "_objc_msgSend$systemUptime":                               "-[NSProcessInfo systemUptime]",
 
     // ── ambient randomness ──────────────────────────────────────────────────────
     "_$s10Foundation4UUIDVACycfC":                              "UUID.init()",
-    // The ObjC identifier class, over-approximated exactly as `NSDate` is: ANY
-    // reference trips it. `NSUUID` is the sibling of `NSDate`, which was already
-    // banned that way, and D2-16 lists it as the third of three staleness
-    // findings — each of them a sibling of something already on this list. Task
-    // 5.5 verified it still open on both sides; this is the package side.
+    // Over-approximated exactly as `NSDate` is: ANY reference trips it.
     "_OBJC_CLASS_$_NSUUID":                                     "NSUUID (any reference)",
     "_$ss17FixedWidthIntegerPsE6random2inxSnyxG_tFZ":           "FixedWidthInteger.random(in: Range)",
     "_$ss17FixedWidthIntegerPsE6random2inxSNyxG_tFZ":           "FixedWidthInteger.random(in: ClosedRange)",
@@ -136,63 +75,23 @@ let bannedSymbols: [String: String] = [
 
     // ── the `drand48` family, and the process-global state it mutates ───────────
     //
-    // `drand48()` is the one entry here whose case D2-16 records as WEAKER, and
-    // it is worth stating rather than assuming. Unseeded it is deterministic —
-    // a fixed 48-bit LCG from a fixed starting state — so on the letter of "no
-    // ambient randomness" it does not offend. Three reasons it is banned anyway:
-    //
-    //   1. the state is PROCESS-GLOBAL and shared. Determinism holds only while
-    //      nothing else in the process has called it or seeded it, which is not
-    //      a property any module can assert about itself. `srand48`, `seed48`
-    //      and `lcong48` are how that happens, which is why they are here too:
-    //      the reader is deterministic exactly until a writer runs.
-    //   2. it is unavailable to a caller who wants determinism anyway — an
-    //      injected `RandomNumberGenerator` gives it with the state carried in
-    //      the value, which is what this package already does everywhere.
-    //   3. nothing in a Foundation-only geometry and timeline package has a
-    //      reason to call it, so the cost of the ban is zero and a false
-    //      positive is not reachable.
-    //
-    // **Two members of the family are deliberately NOT here**, and the reason is
-    // the reason for the rest. `erand48` takes its state IN AN ARGUMENT, so it
-    // has no process-global state to lose — it is the injected-generator shape
-    // this package endorses everywhere else, and banning it would contradict the
-    // argument above. `srandom` seeds `random()`, which Swift marks unavailable,
-    // so it can only ever write state nothing in Swift can read. Both were
-    // banned in the first draft of this list on family resemblance alone. A ban
-    // list is worth exactly the reason on each line, and "it looks like its
-    // neighbours" is not one.
-    //
-    // Swept and found UNAVAILABLE to Swift on this toolchain, so no ban is
-    // possible or needed: `lrand48`, `mrand48`, `nrand48`, `jrand48`, `rand`,
-    // `random`, `srand` — all `__swift_unavailable("Use arc4random instead.")`.
-    // Recorded because the value of a sweep is mostly in its negatives (D2-16).
+    // Unseeded `drand48` is deterministic, but its state is PROCESS-GLOBAL: the
+    // reader stays deterministic exactly until `srand48`/`seed48`/`lcong48` runs, so
+    // the writers are banned too. `erand48` takes its state in an argument, and the
+    // rest of the family is unavailable to Swift, so neither needs a ban.
     "_drand48":                                                 "drand48()",
     "_srand48":                                                 "srand48()",
     "_seed48":                                                  "seed48()",
     "_lcong48":                                                 "lcong48()",
-    // `Security`'s CSPRNG, reachable with plain `import Foundation` — Foundation
-    // re-exports it on Darwin the same way it re-exports `Security`'s other C API,
-    // so no package target has to name `Security` to reach it and rule 1's import
-    // scan never sees it arrive. Distinct source from `arc4random`, not a spelling
-    // of it: `arc4random` reads the kernel's `/dev/random`-backed PRNG directly;
-    // `SecRandomCopyBytes` goes through `Security`'s own CSPRNG plumbing. Both are
-    // Minting-shaped ambient randomness. `kSecRandomDefault` is the parameter that
-    // selects the default generator — inert by itself, but named separately because
-    // it is its own undefined symbol and the fixture invariant is one call site per
-    // table entry.
+    // `Security`'s CSPRNG, reachable with plain `import Foundation`, so rule 1's
+    // import scan never sees it arrive. `kSecRandomDefault` is listed separately
+    // because it is its own symbol and the fixture keeps one call site per entry.
     "_SecRandomCopyBytes":                                      "SecRandomCopyBytes()",
     "_kSecRandomDefault":                                       "kSecRandomDefault (any reference)",
 ]
 
-/// One call site per entry in `bannedSymbols`, and nothing else. Compiled and read
-/// back by `everyBannedSymbolIsStillWhatTheConstructEmits`, which is the guard
-/// against the table going stale: a toolchain that renames a mangling makes that
-/// test RED rather than making this check silently enforce less.
-///
-/// `rand()` and `random()` are absent because Swift marks them unavailable
-/// (`'rand()' is unavailable in Swift: Use arc4random instead.`), so no package
-/// source can call them; `getentropy` is not exposed to Swift at all.
+/// One call site per entry in `bannedSymbols` — read back by
+/// `everyBannedSymbolIsStillWhatTheConstructEmits`, so a renamed mangling goes red.
 let bannedConstructFixture = """
 import Foundation
 
@@ -248,10 +147,8 @@ public func t45(_ x: inout [UInt16]) { lcong48(&x) }
 public func t46() { arc4random_stir() }
 """
 
-/// The other side of the rule, and the one that decides whether it is usable. Every
-/// line here is idiomatic, correct, deterministic package code — a stored `Date`, a
-/// stored `UUID`, a value parsed from bytes someone handed us, and randomness drawn
-/// from an injected generator. A false positive on any of it would block real work.
+/// The other side: idiomatic deterministic code — stored `Date`/`UUID`, values parsed
+/// from bytes, an injected generator. A false positive here would block real work.
 let deterministicFixture = """
 import Foundation
 
@@ -288,8 +185,7 @@ func undefinedSymbols(in objectFile: URL) throws -> Set<String> {
     process.standardOutput = out
     process.standardError = err
     try process.run()
-    // Drained before waiting: a Pipe nobody reads blocks the child once it fills,
-    // and these outputs run to hundreds of lines.
+    // Drained before waiting: a Pipe nobody reads blocks the child once it fills.
     let data = out.fileHandleForReading.readDataToEndOfFile()
     let errorText = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     process.waitUntilExit()
@@ -301,13 +197,8 @@ func undefinedSymbols(in objectFile: URL) throws -> Set<String> {
         .filter { !$0.isEmpty })
 }
 
-/// Every object file that carries `module`'s code, under `binDirectory`.
-///
-/// Two layouts are searched because SwiftPM has two. The Swift Build backend in use
-/// here emits one linked `<Module>.o` per module directly in the products directory;
-/// the older llbuild backend emits per-source objects under `<Module>.build/`. If
-/// neither is present this returns empty, and the caller's `#require` turns that into
-/// a loud failure rather than a silent pass.
+/// Every object file carrying `module`'s code. Both SwiftPM layouts are searched: a
+/// linked `<Module>.o`, and per-source objects under `<Module>.build/`.
 func objectFiles(forModule module: String, in binDirectory: URL) -> [URL] {
     var found: [URL] = []
 
@@ -324,8 +215,7 @@ func objectFiles(forModule module: String, in binDirectory: URL) -> [URL] {
     return found
 }
 
-/// The resolved manifest, not its text — so a target renamed, added or repointed is
-/// picked up rather than remembered.
+/// The resolved manifest, not its text, so a renamed or added target is picked up.
 func dumpPackage() throws -> [String: Any] {
     let scratch = URL(filePath: NSTemporaryDirectory())
         .appending(path: "determinism-dump-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -333,8 +223,7 @@ func dumpPackage() throws -> [String: Any] {
 
     let process = Process()
     process.executableURL = URL(filePath: "/usr/bin/env")
-    // A separate --scratch-path keeps this off the `.build` directory the enclosing
-    // `swift test` is holding.
+    // A separate --scratch-path keeps this off the `.build` the enclosing test holds.
     process.arguments = ["swift", "package", "dump-package",
                          "--scratch-path", scratch.path(percentEncoded: false)]
     process.currentDirectoryURL = repositoryRoot
@@ -348,9 +237,8 @@ func dumpPackage() throws -> [String: Any] {
     return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
 }
 
-/// The modules rule 3 applies to: every regular target the `ArchitectureCheck`
-/// plugin is attached to. Derived rather than listed, so a seventh library target is
-/// covered the day it is added.
+/// Every regular target the `ArchitectureCheck` plugin is attached to — derived
+/// rather than listed, so a seventh library target is covered the day it is added.
 func scannedModules(inDump dump: [String: Any]) throws -> [String] {
     let targets = try #require(dump["targets"] as? [[String: Any]])
     let names = targets.filter { target in
@@ -364,9 +252,7 @@ func scannedModules(inDump dump: [String: Any]) throws -> [String] {
     return names.sorted()
 }
 
-/// Compiles a fixture to an object file with the real compiler. This is the only
-/// way to derive symbols honestly: reimplementing Swift's mangler in the test would
-/// be testing the test.
+/// The real compiler: reimplementing Swift's mangler here would test the test.
 func compileToObject(_ source: String, named name: String) throws -> URL {
     let dir = URL(filePath: NSTemporaryDirectory())
         .appending(path: "determinism-fixture-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -397,8 +283,7 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
 
 // MARK: - the rule
 
-/// RULE 3. No package module may reference an ambient clock or the system random
-/// number generator.
+/// RULE 3. No package module may reference an ambient clock or the system RNG.
 @Test func noLibraryModuleReferencesAmbientTimeOrRandomness() throws {
     let binDirectory = repositoryRoot.appending(path: ".build/debug")
     let modules = try scannedModules(inDump: try dumpPackage())
@@ -406,8 +291,7 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
     var allObjectFiles: [URL] = []
     for module in modules {
         let files = objectFiles(forModule: module, in: binDirectory)
-        // Per module, not just in total: five modules present and one missing is a
-        // hole in exactly one module, and the aggregate check cannot see it.
+        // Per module, not just in total: the aggregate cannot see one module missing.
         try #require(!files.isEmpty,
                      """
                      no object files found for \(module) under \
@@ -417,11 +301,7 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
         allObjectFiles += files
     }
 
-    // An empty file list and a file list yielding no symbols fail for different
-    // reasons, and both would look exactly like success. The per-module guard above
-    // subsumes this one for any non-empty module list, and it is kept anyway: the
-    // two describe different failures, and a future refactor that drops the loop
-    // must not silently drop the floor with it.
+    // Kept beside the per-module guard: a different failure, and it looks like a pass.
     try #require(!allObjectFiles.isEmpty,
                  "no object files found under \(binDirectory.path()) — the symbol check would pass vacuously")
 
@@ -448,10 +328,8 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
 
 // MARK: - the table is not allowed to go stale
 
-/// Every entry in `bannedSymbols` is still the symbol its construct emits on THIS
-/// toolchain. Without this, a mangling change would empty the rule silently — the
-/// scan would keep passing while enforcing nothing, which is the failure mode this
-/// rule is least able to notice.
+/// Every entry is still the symbol its construct emits on THIS toolchain. Without
+/// this, a mangling change would empty the rule silently and still read as a pass.
 @Test func everyBannedSymbolIsStillWhatTheConstructEmits() throws {
     let objectFile = try compileToObject(bannedConstructFixture, named: "BannedConstructs")
     let undefined = try undefinedSymbols(in: objectFile)
@@ -470,8 +348,8 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
             """)
 }
 
-/// THE RED. The scan really does reject a module that reads the clock or the system
-/// RNG — checked against the compiled fixture rather than asserted.
+/// THE RED: the scan really does reject a module that reads the clock or the system
+/// RNG, checked against the compiled fixture rather than asserted.
 @Test func theScanRejectsAModuleThatReadsTheClockOrTheSystemRNG() throws {
     let objectFile = try compileToObject(bannedConstructFixture, named: "BannedConstructs")
     let found = try bannedSymbolsReferenced(by: objectFile)
@@ -481,16 +359,9 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
 
 // MARK: - the other side: what must NOT be rejected
 
-/// A module that STORES a `Date` and a `UUID` without ever constructing one is
-/// correct, and must not trip the rule. This is the distinction the whole design
-/// rests on: `public let at: Date` is required, because timestamps are injected.
-///
-/// It also pins three narrower distinctions:
-///   * the INSTANCE `timeIntervalSinceReferenceDate` (allowed) against the static
-///     one (banned) — the mangled names differ only by a trailing `Z`;
-///   * `Date(timeIntervalSince1970:)` and `UUID(uuidString:)`, which build a value
-///     from bytes rather than from the environment;
-///   * `random(in:using:)` with an injected generator, which is deterministic.
+/// A module that STORES a `Date` and a `UUID` without constructing one must not trip
+/// the rule. Also pins the instance `timeIntervalSinceReferenceDate` (allowed; the
+/// banned static one differs only by a trailing `Z`) and `random(in:using:)`.
 @Test func aModuleThatOnlyStoresDatesAndUUIDsIsAccepted() throws {
     let objectFile = try compileToObject(deterministicFixture, named: "Deterministic")
     let undefined = try undefinedSymbols(in: objectFile)
@@ -510,9 +381,8 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
             """)
 }
 
-/// The live version of the same distinction, in real shipped code rather than a
-/// fixture: `DisplayGeometry.displayUUID` is a stored `UUID`, so `Geometry.o`
-/// references `Foundation.UUID` and does not reference `UUID.init()`.
+/// The same distinction in shipped code: `DisplayGeometry.displayUUID` is a stored
+/// `UUID`, so `Geometry.o` references the type but never `UUID.init()`.
 @Test func geometryReferencesTheUUIDTypeWithoutConstructingOne() throws {
     let files = objectFiles(forModule: "Geometry",
                             in: repositoryRoot.appending(path: ".build/debug"))
@@ -529,10 +399,8 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
 
 // MARK: - the vacuous-pass guards
 
-/// A rule that silently enforces nothing is the failure this check is most likely to
-/// ship, because it is invisible: an empty search finds no violations and reads as a
-/// pass. These two tests pin the CONDITIONS the guards fire on, so that the guards
-/// are known to be reachable and not merely written down.
+/// An empty search finds no violations and reads as a pass. These two tests pin the
+/// CONDITIONS the guards fire on, so the guards are known to be reachable.
 
 @Test func anEmptySearchDirectoryYieldsNoObjectFiles() throws {
     let empty = URL(filePath: NSTemporaryDirectory())
@@ -546,9 +414,8 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
     }
 }
 
-/// The second guard's condition is a different one, and it is reachable: an object
-/// file can exist and yield nothing. `nm -u` on a self-contained object returns an
-/// empty set, which the banned-symbol filter would report as clean.
+/// The second guard is reachable too: a self-contained object yields no undefined
+/// symbols, which the banned-symbol filter reports as clean.
 @Test func anObjectFileCanYieldNoUndefinedSymbolsAtAll() throws {
     let dir = URL(filePath: NSTemporaryDirectory())
         .appending(path: "determinism-zero-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -579,8 +446,7 @@ func bannedSymbolsReferenced(by objectFile: URL) throws -> [String: String] {
 // MARK: - the mechanism must not be voidable
 
 /// Deleting a module from `DeterminismTests`' dependency list voids the ordering
-/// guarantee that makes this check work, with no build failure and no diagnostic —
-/// the same silent-void shape as removing `plugins: archCheck` from a target.
+/// guarantee this check rests on, with no build failure and no diagnostic.
 @Test func determinismTestTargetDependsOnEveryCheckedModule() throws {
     let dump = try dumpPackage()
     let modules = try scannedModules(inDump: dump)

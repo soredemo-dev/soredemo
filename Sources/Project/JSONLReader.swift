@@ -1,43 +1,21 @@
 import Foundation
 
-/// Reads an append-only observation log, applying the truncated-tail rule
-/// (D-P3, Controller addendum ruling 3).
+/// Reads an append-only observation log, applying the truncated-tail rule: a
+/// crash mid-write leaves a partial final line, which is dropped but whose byte
+/// count is reported. That report is why this exists rather than `split`.
 ///
-/// A crash mid-write leaves a partial final line on disk. Silently dropping
-/// it would turn a crash into a quietly shortened observation log — a log
-/// short by one record is a derivation that is wrong with no diagnostic.
-/// So the reader drops the partial tail (there is no way to make a partial
-/// JSON record usable) but REPORTS how many bytes it dropped, which is the
-/// whole point of this type existing rather than `data.split(separator:)`.
-///
-/// Takes `Data`, not a URL: the reader stays a pure function of its input,
-/// which is what lets it be tested exhaustively without a filesystem. A
-/// one-line helper (`linesOfFile(at:)` below) does the one `Data(contentsOf:)`
-/// call needed to use this against a real file.
+/// Takes `Data`, not a URL, so it stays a pure function; `linesOfFile(at:)` is the
+/// filesystem helper.
 public enum JSONLReader {
     public struct Result: Sendable, Equatable {
         public let lines: [Data]
         public let droppedBytes: Int
-        /// **How many bytes this reader actually examined.** `droppedBytes`'s
-        /// companion, and the reason it is here is `ARCHITECTURE.md` D6a's
-        /// closing rule: an empty gap record and an absent gap detector
-        /// produce the same bytes.
-        ///
-        /// `droppedBytes == 0` had two readings and no way to tell them
-        /// apart — a whole log read cleanly, and nothing read at all. Both
-        /// are the same zero, and the second is not hypothetical: a log file
-        /// that failed to open, a path that pointed at the wrong package, a
-        /// segment whose writer never got as far as its first record. This
-        /// is the first of D6a's five sites and it was the one with the
-        /// thinnest cover, because a byte count of a loss reads as thorough.
-        ///
-        /// Read them together. `droppedBytes 0 of bytesScanned 0` is not a
-        /// clean file; it is no file. `GapWatch(site: .jsonlTruncatedTail)`
-        /// is where this pair goes on disk.
+        /// How many bytes this reader examined; `droppedBytes`'s companion. Read
+        /// them together: `droppedBytes 0 of bytesScanned 0` is not a clean file,
+        /// it is no file.
         public let bytesScanned: Int
 
-        /// The two numbers that only mean something together, in the shape
-        /// `InputObserver.Diagnostics.tapAccounting` already prints.
+        /// The two numbers above, which only mean something together.
         public var accounting: String {
             var line = "dropped \(droppedBytes) byte(s) of \(bytesScanned) scanned"
                 + " across \(lines.count) complete line(s)"
@@ -46,20 +24,9 @@ public enum JSONLReader {
         }
     }
 
-    /// A line is terminated by `\n` (0x0A). Any bytes after the final `\n`
-    /// are an incomplete record and are dropped; their count is
-    /// `droppedBytes`.
-    ///
-    /// Decision, stated per Controller addendum ruling 3: an empty line
-    /// (two adjacent `\n`s, or a leading `\n`) is a complete, zero-length
-    /// record — preserved as an empty `Data` in `lines`, not dropped and not
-    /// collapsed into the next line. This falls directly out of taking "a
-    /// line is terminated by `\n`" literally: nothing here special-cases a
-    /// zero-length line, so it gets exactly the same treatment as any other
-    /// terminated line. The alternative (silently skipping empty lines)
-    /// would be defensible too, but would need its own justification for
-    /// why an empty line is not itself a valid append the way every other
-    /// terminated line is.
+    /// A line is terminated by `\n` (0x0A); bytes after the final `\n` are dropped
+    /// and counted in `droppedBytes`. An empty line is a complete zero-length
+    /// record, preserved as empty `Data` rather than skipped.
     public static func lines(from data: Data) -> Result {
         var lines: [Data] = []
         var recordStart = data.startIndex
@@ -68,14 +35,8 @@ public enum JSONLReader {
 
         while index < data.endIndex {
             if data[index] == newline {
-                // `Data(data[recordStart..<index])` — NOT the bare slice.
-                // `Data`'s subscript range returns a slice that keeps the
-                // parent's indices (`startIndex` == `recordStart`, not 0).
-                // `Data`'s `==` is content-based so no equality test can see
-                // this, but a caller indexing `line[0]` on any line after
-                // the first traps at runtime. Re-wrapping in `Data(...)`
-                // normalizes indices to start at 0, same as any other
-                // freshly constructed `Data`.
+                // `Data(...)`, not the bare slice: a slice keeps the parent's
+                // indices, so `line[0]` traps on every line after the first.
                 lines.append(Data(data[recordStart..<index]))
                 index = data.index(after: index)
                 recordStart = index
@@ -89,9 +50,7 @@ public enum JSONLReader {
                       bytesScanned: data.distance(from: data.startIndex, to: data.endIndex))
     }
 
-    /// The one-line filesystem helper the doc comment above promises.
-    /// Everything about the truncated-tail rule itself lives in `lines(from:)`,
-    /// which never touches a URL.
+    /// The filesystem helper; the truncated-tail rule itself lives in `lines(from:)`.
     public static func linesOfFile(at url: URL) throws -> Result {
         lines(from: try Data(contentsOf: url))
     }

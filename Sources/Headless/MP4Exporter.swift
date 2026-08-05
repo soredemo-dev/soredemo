@@ -1,148 +1,21 @@
 import AVFoundation
 import Foundation
-// No `import Headless` here, deliberately — this file itself moved INTO the `Headless` module
-// in Phase 3A-1 Task 7. Through Task 6 this file lived in the app target and needed the import
-// to see `CompositionBuilder`, declared in `Headless`; a module does not import itself, so the
-// import that made sense before the move is gone, not merely redundant, after it.
 
-/// One MP4 (H.264) export of a recorded master — the deliverable Phase 2B's own completion
-/// sentence closes on: "export → open the exported file in QuickTime and watch it."
+/// One MP4 (H.264) export of a recorded master, written directly against `AVAssetReader` /
+/// `AVAssetWriter`. Neither master writer is usable here: one hardcodes `fileType: .mov`, and
+/// `MasterWriting` requires video plus two audio tracks while
+/// `AVAssetReaderVideoCompositionOutput` produces exactly one stream.
 ///
-/// **`AVAssetReader` → `AVAssetWriter`, on the LEGACY API, not the successor — and that is a
-/// measured correction to this task's own brief, not a preference.** The brief's `Interfaces:`
-/// line names `SuccessorMasterWriter`; `Soredemo/Capture/MasterWriter.swift`'s header (Task 6)
-/// already carried the caveat that the directive "new media-writing code goes to the successor"
-/// assumes `appendImmediately(_:)` tolerates the concurrent-receiver load real writing needs, and
-/// that this was unmeasured for anything other than three receivers fed together. This export's
-/// own shape is different — `AVAssetReaderVideoCompositionOutput` produces exactly ONE stream,
-/// so only the video track would ever be FED — and `SuccessorMasterWriter.init` still opens
-/// all three receivers unconditionally (video, system audio, microphone; `MasterWriting` requires
-/// all three), because that is what `CaptureSession` needs it for. Nobody had measured "three
-/// created, one fed" before this task. Measured it directly, before writing this file (throwaway
-/// harness, not committed, 320×240 h264, `SuccessorMasterWriter` unmodified):
+/// Several AVFoundation calls used here are deprecated as of the 27.0 SDK; the file is left
+/// unseamed because it drives one track and the successor reader API is unmeasured.
 ///
-/// - **3 receivers created, only the video one fed, 200 frames (well past Task 6's observed
-///   64–112 stall window), 12 runs, no pacing: 12/12 stalled.** Frame numbers: 84, 116, 79, 80,
-///   86, 77, 89, 123, 85, 91, 77, 81 — the same window Task 6 measured with all three tracks FED,
-///   even though this shape feeds only one. That rules out "the stall is about feeding three
-///   tracks" — it is about three receivers being CREATED, full stop.
-/// - **Supplementary, not the deciding measurement:** a genuinely single-receiver writer (built
-///   directly on `AVAssetWriter.start()` / `inputReceiver(for:)` / `appendImmediately(_:)`, NOT
-///   `SuccessorMasterWriter`, with no unused audio inputs at all) completed 200 frames cleanly in
-///   47 of 48 runs across four batches (one early failure at frame 4, never reproduced again — not
-///   investigated further, since this measurement does not decide anything this file ships). This
-///   says the defect is specific to `SuccessorMasterWriter`'s three-receiver shape, not to
-///   `appendImmediately(_:)` at any concurrency — worth a future D6b-27 run building a real
-///   purpose-built single-receiver successor writer, but that writer does not exist and is not
-///   what this file uses.
-///
-/// **So: `LegacyMasterWriter`'s underlying AVFoundation calls, not its type.** The decision
-/// procedure this task was given is "it stalls → use `LegacyMasterWriter`", and it stalled — but
-/// `LegacyMasterWriter` itself is the wrong TYPE to instantiate here regardless of which
-/// conformance stalls, for two independent reasons neither measurement above touches:
-///
-/// 1. `LegacyMasterWriter.init` hardcodes `AVAssetWriter(url:fileType: .mov)` — no parameter
-///    selects a container. This task's own scope is "one MP4 (H.264). Full stop." A `.mov` file
-///    renamed `.mp4` is not that; the deliverable must actually carry the MPEG-4 file type, which
-///    only `AVAssetWriter(url:fileType: .mp4)` produces.
-/// 2. `MasterWriting` requires video, system audio AND microphone — three tracks, always. This
-///    export's own signature (`export(asset:to:outputWidth:outputHeight:)`) carries no audio
-///    parameter, and `AVAssetReaderVideoCompositionOutput` — the ONLY reader output this file
-///    uses, per the brief's own Step 1 — produces exactly one stream. There is no second or third
-///    track's worth of samples anywhere in this function to feed two more receivers with, and
-///    silently shipping a file with two empty, zero-sample audio tracks would be the same kind of
-///    unmeasured shape this whole task exists to not ship.
-///
-/// So this function is written directly against `AVAssetWriter`/`AVAssetWriterInput` — calls
-/// `LegacyMasterWriter` itself also uses (`canAdd`/`add`/`startWriting()`/`append(_:)`/
-/// `isReadyForMoreMediaData`/`finishWriting`), plus `AVAssetReader`/`AVAssetReaderOutput`'s own
-/// equivalents this file needs that `LegacyMasterWriter` never touches (`canAdd`/`add`/
-/// `startReading()`/`copyNextSampleBuffer()`) — with `fileType: .mp4` and exactly the one video
-/// input this export needs. Nothing here is the successor stack, and nothing here is
-/// `MasterWriting`; both would be the wrong shape for what this specific file does, independent
-/// of the stall.
-///
-/// **These calls are on `ARCHITECTURE.md` D6b-27's own list — every substantive one of them —
-/// and this file had said only "non-deprecated at this project's 26.0 floor," which is true and
-/// stops one clause early.** Code review (Task 7, round 2) caught the omission and cross-checked
-/// against the real 27.0 SDK headers; re-verified here directly (`scripts
-/// /scan-sdk-deprecations.py --out`, confirmed against `AVAssetReader.h`/`AVAssetWriter.h`/
-/// `AVAssetWriterInput.h`/`AVAssetReaderOutput.h` for the one call the scan's own regex misses —
-/// see below):
-///
-/// | call in this file | condemned symbol | successor named in the SDK |
-/// | --- | --- | --- |
-/// | `reader.add(readerOutput)` | `AVAssetReader.addOutput:` | `AVAssetReader.outputProvider(for:...)` |
-/// | `reader.startReading()` | `AVAssetReader.startReading` | `AVAssetReader.start()` |
-/// | `readerOutput.copyNextSampleBuffer()` | `AVAssetReaderOutput.copyNextSampleBuffer` | `AVAssetReaderOutput.Provider.next()` |
-/// | `writer.add(writerInput)` | `AVAssetWriter.addInput:` | `AVAssetWriter.inputReceiver(for:)` |
-/// | `writer.startWriting()` | `AVAssetWriter.startWriting` | `AVAssetWriter.start()` |
-/// | `writerInput.append(_:)` | `AVAssetWriterInput.appendSampleBuffer:` | `SampleBufferReceiver.append(_:)` / `.appendImmediately(_:)` |
-/// | `writerInput.isReadyForMoreMediaData` | `AVAssetWriterInput.readyForMoreMediaData` | "the input receiver's async `append(...)` method" |
-/// | `writerInput.expectsMediaDataInRealTime` | `AVAssetWriterInput.expectsMediaDataInRealTime` | (none named — `appendImmediately(_:)` IS the real-time behaviour, per `SuccessorMasterWriter.swift`'s own header) |
-///
-/// **`copyNextSampleBuffer()` is an EIGHTH condemned call, beyond the seven the review's own
-/// cross-check named** — found while writing this table, not by the review. Its own header
-/// explains the exact defect this file's § 14 probe check hit and fixed: *"In certain
-/// configurations, such as when outputSettings is nil, copyNextSampleBuffer may return
-/// marker-only sample buffers... identified by CMSampleBufferGetNumSamples returning 0."* That is
-/// precisely the bug `countVideoSampleBuffers` in `scripts/cross-boundary-digest-probe.swift`
-/// had and was fixed for — the deprecated method's own SDK documentation states the hazard the
-/// review's third check caught empirically. `writer.canAdd(_:)`/`reader.canAdd(_:)` are NOT on
-/// this list — measured directly in the same header pass, no `API_DEPRECATED` on either.
-///
-/// **Judgment, not a proof: this file is left unseamed.** Two things make that judgment different
-/// from "it compiles, ship it": every one of these eight calls sits behind exactly ONE track, in
-/// ONE small file (under 200 lines), with NO concurrent multi-track shape for `appendImmediately`
-/// to stall on — the specific hazard that makes `CaptureSession`'s own writer seam load-bearing
-/// does not exist here, because it cannot: this file was never going to open more than one
-/// receiver. A seam earns its cost by having something real to swap FOR; here the two sides of
-/// the swap are asymmetric in a way `MasterWriter.swift`'s seam is not — the writer half has a
-/// working, if 3-track-shaped, successor already measured twice in this project (Task 6's
-/// `SuccessorMasterWriter`, and this task's own supplementary single-receiver measurement above);
-/// the READER half (`AVAssetReader.outputProvider(for:...)` / `AVAssetReaderOutput.Provider
-/// .next()`) has never been touched by any task, spike, or probe in this repository — it would be
-/// new territory, not a known-working alternative slotted in behind a protocol.
-///
-/// **What the rewrite would cost, named rather than left implicit:** measuring
-/// `outputProvider(for:)`'s real shape (its exact overload for a video-composition output, what
-/// `Provider.next()` returns and how it signals end-of-stream, whether it is sync or async) is a
-/// Task-6-sized investigation on its own — `swift-api-digester` or `-typecheck` probes, the same
-/// discipline that found `SampleBufferReceiver`'s three members and `CVReadOnlyPixelBuffer`'s
-/// shape, because neither has a header comment or `.swiftinterface` friendly enough to read
-/// directly. The WRITER half's rewrite is cheap by comparison (Task 6 already did the equivalent
-/// work); the READER half is not measured at all, and pretending otherwise here would be writing
-/// the exact kind of code-against-an-unopened-callee this project's own brief-defect pattern
-/// (progress.md, "five across two tasks... before dispatch, grep the initialisers") already named
-/// as a repeat mistake to stop making.
-///
-/// **The trigger, same register as `MasterWriter.swift`'s own:** `ARCHITECTURE.md` D6b-27 says
-/// re-run `scripts/scan-sdk-deprecations.py` on every OS/SDK bump; this file's own row belongs
-/// there, not invented separately here. This project's floor is 26.0 and a macOS 27 binary still
-/// cannot be launched on this machine (`MasterWriter.swift`'s own header) — the same fact that
-/// makes the writer seam "scheduled, not speculative" rather than urgent applies here with LESS
-/// urgency, because this file's blast radius if the floor moves is one small file with a
-/// measured-cheap rewrite on one half and an honestly-unmeasured other half, not three
-/// concurrently-fed tracks a shipping recording depends on.
+/// `copyNextSampleBuffer()` may return marker-only buffers with zero samples; a caller counting
+/// frames must check `CMSampleBufferGetNumSamples`.
 public enum MP4Exporter {
-    /// Exports `asset`'s video, through the SAME `AVVideoComposition`
-    /// `CompositionBuilder.composition(for:outputWidth:outputHeight:frameDuration:)` builds for
-    /// the preview (`StageWindow.load()` calls the identical function with the identical
-    /// arguments) — D8's whole point: one compositor, one composition object, so "preview and
-    /// export agree" is a fact about a type rather than a rule two call sites must remember.
-    ///
-    /// `nonisolated`, not the app target's default `@MainActor` — `writer.finishWriting(_:)`
-    /// below calls its completion handler from an AVFoundation-owned queue, not necessarily the
-    /// main actor's executor; a `@MainActor`-isolated closure literal there is exactly the trap
-    /// "things the brief cannot know" item 2 describes (compiles clean, fails at runtime with only
-    /// a warning). `MasterWriter.swift`'s whole file carries the identical `nonisolated` for the
-    /// identical reason.
-    ///
-    /// **Never drops a frame.** Every sample `AVAssetReaderVideoCompositionOutput` hands back is
-    /// appended — the poll loop below waits on `isReadyForMoreMediaData` rather than skipping a
-    /// frame the writer was not ready for yet — and `framesRead`/`framesWritten` are counted
-    /// independently and compared at the end; a mismatch throws rather than being silently
-    /// reported. A count that is only reported is a count nobody reads.
+    /// Exports `asset`'s video through the same `AVVideoComposition` the preview uses, so the two
+    /// cannot disagree. Never drops a frame: the poll loop waits on `isReadyForMoreMediaData`
+    /// rather than skipping, and a `framesRead`/`framesWritten` mismatch throws. `nonisolated`
+    /// because `finishWriting(_:)` calls back on an AVFoundation-owned queue.
     public nonisolated static func export(asset: AVAsset, to outputURL: URL,
                                     outputWidth: Int, outputHeight: Int) async throws -> ExportReport {
         if FileManager.default.fileExists(atPath: outputURL.path) {
@@ -152,7 +25,7 @@ public enum MP4Exporter {
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         guard !videoTracks.isEmpty else { throw ExportError.noVideoTrack }
 
-        // The SAME composition the preview uses — see this type's own header.
+        // The same composition the preview uses.
         let composition = try await CompositionBuilder.composition(
             for: asset, outputWidth: outputWidth, outputHeight: outputHeight,
             frameDuration: CMTime(value: 1, timescale: 60))
@@ -190,26 +63,8 @@ public enum MP4Exporter {
         var framesWritten = 0
         while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
             framesRead += 1
-            // Never drop: wait for readiness rather than skip this sample — but bounded, not
-            // forever. Spike D measured a real, indefinite hang behind this same readiness
-            // signal's successor (`readinessDeadlineSeconds`'s own doc comment); an uncapped
-            // `while` here would spin on that exact condition with no diagnosis.
-            // `SuspendingClock`, not `Date`. Two problems with `Date` here, not one: it is
-            // wall-clock (`gettimeofday`-backed) and therefore settable/NTP-adjustable — an
-            // ambient clock going backward mid-export makes `elapsed` negative, the cap above
-            // never fires, and the poll is unbounded again, which is exactly the condition
-            // Spike D measured and this cap exists to bound. It is also ambient time full
-            // stop, which is what Sources/Headless's own rule-3 textual scan (see
-            // Tests/AppSourceTests/AppSourceAllowListTests.swift) now checks this file
-            // against; `ambientBannedNames` finding `Date()` here again is the closed loop.
-            // `SuspendingClock` over `ContinuousClock`: this deadline measures how long a
-            // WRITER has failed to make progress, not wall time elapsed. `ContinuousClock`
-            // keeps advancing while the system is asleep, so an export left running across a
-            // lid-close would see `elapsed` jump by the whole sleep duration the instant the
-            // machine wakes and misreport a stall that never happened — the writer was never
-            // given a chance to be not-ready, because nothing was running. `SuspendingClock`
-            // does not advance during sleep, so elapsed reflects only the time the writer
-            // actually had to become ready, which is the quantity this deadline is about.
+            // Wait for readiness rather than skip the sample, but bounded. `SuspendingClock`:
+            // `Date` is settable, and `ContinuousClock` advances across system sleep.
             let pollStart = SuspendingClock.now
             while !writerInput.isReadyForMoreMediaData {
                 if writer.status == .failed {
@@ -220,8 +75,6 @@ public enum MP4Exporter {
                 let elapsed = Double(elapsedDuration.components.seconds)
                     + Double(elapsedDuration.components.attoseconds) / 1e18
                 if elapsed >= Self.readinessDeadlineSeconds {
-                    // Names WHERE, because "it hung" is not a diagnosis: the frame index this
-                    // stalled at, and how long it waited before this file gave up on it.
                     throw ExportError.writerNotReadyInTime(frame: framesRead, elapsedSeconds: elapsed)
                 }
                 try await Task.sleep(for: .milliseconds(2))
@@ -247,8 +100,7 @@ public enum MP4Exporter {
                 ?? "writer did not complete: \(writer.status.rawValue)")
         }
 
-        // Step 2: assert the export dropped nothing. A count that is only reported is a count
-        // nobody reads.
+        // Assert the export dropped nothing.
         guard framesRead == framesWritten else {
             throw ExportError.frameCountMismatch(read: framesRead, written: framesWritten)
         }
@@ -256,44 +108,10 @@ public enum MP4Exporter {
         return ExportReport(outputURL: outputURL, framesRead: framesRead, framesWritten: framesWritten)
     }
 
-    /// How long the readiness poll above may wait for `AVAssetWriterInput.isReadyForMoreMediaData`
-    /// to turn true again before this file treats the wait as a stall rather than a writer that
-    /// is still genuinely busy.
-    ///
-    /// **Chosen by argument, not by copying a measured duration — Spike D's own subject
-    /// (`ARCHITECTURE.md` 1288-1290) has no number to cite.** The one field report on
-    /// `AVAssetWriterInput.PixelBufferReceiver.append` — the successor call this legacy poll
-    /// stands in for — is an INDEFINITE hang: "the task suspends and never resumes, no crash, no
-    /// error, CPU to zero." An indefinite hang has no duration; there is nothing to copy into a
-    /// deadline constant, only a bound to argue for.
-    ///
-    /// So: how long can a writer that is genuinely still working — not stalled — take to drain
-    /// its internal queue and report ready again, on a machine under real pressure (disk
-    /// contention, thermal throttling, a slow codec catching up)? The poll above already runs at
-    /// a 2ms cadence, tuned for the ordinary case of a writer that frees up well inside one frame
-    /// interval (~16.7ms at 60fps, the frame duration `CompositionBuilder.composition` is built
-    /// with above). A writer under real but non-pathological load might legitimately fall behind
-    /// by low hundreds of milliseconds between readiness windows; it has no legitimate reason to
-    /// stay not-ready for whole seconds — `AVAssetWriter` has no I/O step that takes that long
-    /// short of the disk itself being unavailable, a condition `writer.status == .failed` above
-    /// already catches independently.
-    ///
-    /// Five seconds is roughly an order of magnitude past that plausible worst case: comfortably
-    /// clear of anything a busy-but-working writer would ever need, while still short enough that
-    /// a real stall fails as a diagnosis — naming the frame and the elapsed time — in a handful of
-    /// seconds, not never. Not tuned finer than that: this file has no measurement of the
-    /// legitimately-busy case to tune a tighter bound against, only Spike D's measurement that the
-    /// STALLED case never recovers at all. Any finite bound already separates the two; this one is
-    /// chosen to sit far on the side of "never triggered by real work."
-    ///
-    /// **`nonisolated`, for the same reason `export` above carries the annotation** —
-    /// measured directly by `scripts/run-cross-boundary-probe.sh`, which builds with
-    /// `-default-isolation MainActor` (matching the app target's own `SWIFT_DEFAULT_ACTOR_ISOLATION`)
-    /// and rejected an unmarked `private static let` here with "main actor-isolated static
-    /// property 'readinessDeadlineSeconds' cannot be accessed from outside of the actor" —
-    /// `swift build` never saw it, because `Package.swift` sets no such default for `Headless`.
-    /// The same probe/app-target-vs-package gap `CompositionBuilder.composition`'s own doc
-    /// comment already names for a different declaration.
+    /// How long the readiness poll may wait for `isReadyForMoreMediaData` before calling it a
+    /// stall: past what a busy-but-working writer needs, short enough to report rather than hang.
+    /// `nonisolated` because the cross-boundary probe builds this module with
+    /// `-default-isolation MainActor`.
     private nonisolated static let readinessDeadlineSeconds: Double = 5.0
 
     public nonisolated enum ExportError: Error, CustomStringConvertible, Sendable {
@@ -304,10 +122,7 @@ public enum MP4Exporter {
         case writerFailed(String)
         case appendRefused(String)
         case frameCountMismatch(read: Int, written: Int)
-        /// The readiness poll exhausted `readinessDeadlineSeconds` — see that constant's own
-        /// doc comment for how the bound was chosen. Names the frame index the writer was
-        /// waiting to accept and how long it had waited: a stall that only says "it hung" gives
-        /// a reader nowhere to look.
+        /// The readiness poll exhausted `readinessDeadlineSeconds`.
         case writerNotReadyInTime(frame: Int, elapsedSeconds: Double)
 
         public var description: String {
@@ -321,10 +136,7 @@ public enum MP4Exporter {
             case .frameCountMismatch(let read, let written):
                 "export dropped a frame: read \(read), wrote \(written)"
             case .writerNotReadyInTime(let frame, let elapsedSeconds):
-                // `.formatted(.number.precision(...))`, not `String(format:)` — the latter is a
-                // `StrictMemorySafety`-flagged unsafe initializer (measured: `swift build` warns
-                // on it directly), and this file's own zero-warning gate does not carve out
-                // exceptions for formatting.
+                // `.formatted(...)`: `StrictMemorySafety` flags `String(format:)` as unsafe.
                 "AVAssetWriterInput never became ready for frame \(frame) after "
                 + "\(elapsedSeconds.formatted(.number.precision(.fractionLength(2))))s (deadline "
                 + "\(MP4Exporter.readinessDeadlineSeconds.formatted(.number.precision(.fractionLength(2))))s) — "
@@ -334,10 +146,7 @@ public enum MP4Exporter {
     }
 }
 
-/// What Step 2 exists to prove: the exported file's frame accounting, read back from the
-/// exporter's own counters (never dropped without a check, per this file's header) rather than
-/// only from the finished asset — a person reading a report should not have to re-open the file
-/// to learn whether the export dropped anything.
+/// The export's frame accounting, from the exporter's counters, not the finished asset.
 public nonisolated struct ExportReport: Sendable {
     public let outputURL: URL
     public let framesRead: Int

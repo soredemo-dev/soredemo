@@ -28,7 +28,7 @@ public struct CursorOverride: Hashable, Sendable {
     ///
     /// **This field does not change behaviour yet, and that is deliberate.**
     /// `PointerTrack.position(at:)` takes a bare `Nanoseconds` and so cannot compare epochs; making
-    /// it take a `HostInstant` is the Phase 3 change (final-review I4). What lands today is the
+    /// it take a `HostInstant` is deferred work. What this field adds is the
     /// FORMAT's ability to express the distinction. It is required on decode rather than defaulted
     /// precisely so it cannot be quietly omitted: a file without it fails to decode instead of
     /// inheriting whatever the reader assumes.

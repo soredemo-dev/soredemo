@@ -8,11 +8,9 @@ private func sample(width: Int) -> DisplayGeometry {
     DisplayGeometry(displayUUID: displayA, pixelWidth: width, pixelHeight: 100, scale: 1)
 }
 
-/// Pulls every `"id":<digits>` occurrence out of the raw JSON text, in document
-/// order. `DisplayGeometry`'s own fields never contain a key named `id`, so this
-/// only ever matches `GeometryRevision.id` inside each entry's `revision` object —
-/// which is exactly what `encodingIsStableAcrossProcesses` needs to inspect
-/// without depending on `JSONEncoder`'s private formatting.
+/// Pulls every `"id":<digits>` out of the raw JSON in document order. No
+/// `DisplayGeometry` field is named `id`, so this only matches
+/// `GeometryRevision.id`, without depending on `JSONEncoder`'s formatting.
 private func extractRevisionIDs(from json: String) -> [UInt64] {
     var ids: [UInt64] = []
     var rest = Substring(json)
@@ -43,9 +41,8 @@ private func extractRevisionIDs(from json: String) -> [UInt64] {
     #expect(registry.firstObserved(for: GeometryRevision(id: 0)) == nil)
 }
 
-/// First observation wins. Re-inserting the identical geometry — the ordinary
-/// case, e.g. two observation records citing the same display — is a no-op
-/// that must not clobber `firstObserved` with the later timestamp.
+/// First observation wins: re-inserting an identical geometry must not clobber
+/// `firstObserved` with the later timestamp.
 @Test func reinsertingKeepsTheFirstObservation() {
     var registry = GeometryRegistry()
     let geometry = sample(width: 100)
@@ -56,8 +53,7 @@ private func extractRevisionIDs(from json: String) -> [UInt64] {
 }
 
 /// Identity is the geometry, not the event: two independently built registries
-/// that observed the same display configuration agree with no coordination —
-/// the property `selective-rerecord` (Phase 4) needs (D-P2).
+/// observing the same display configuration agree with no coordination.
 @Test func twoRegistriesAgreeOnOneGeometry() {
     var r1 = GeometryRegistry()
     var r2 = GeometryRegistry()
@@ -70,11 +66,9 @@ private func extractRevisionIDs(from json: String) -> [UInt64] {
 
 // MARK: - Decoding untrusted input throws, never traps
 
-/// A corrupt or hand-edited file is INPUT, not program state. It must throw,
-/// never trap: trapping on untrusted input is how a bad file becomes an
-/// unopenable document (D-P2). The JSON below is well-formed but its stored
-/// `revision.id` does not match `recompute(geometry).revision` — exactly the
-/// shape of damage a hand edit or a future-version writer could produce.
+/// A corrupt file is input, not program state: it must throw, never trap. The
+/// JSON is well-formed but its stored `revision.id` does not match
+/// `recompute(geometry).revision`.
 @Test func decodingRejectsAMismatchedKey() throws {
     let json = Data("""
     [{"revision":{"id":1},"geometry":{"displayUUID":"6BA7B810-9DAD-11D1-80B4-00C04FD430C8","pixelWidth":100,"pixelHeight":100,"scale":1},"firstObserved":0}]
@@ -84,9 +78,7 @@ private func extractRevisionIDs(from json: String) -> [UInt64] {
     }
 }
 
-/// Same corrupt input as above, but inspecting *which* revision the failure
-/// names — a `DecodingFailure` that always says "something, somewhere" would be
-/// useless for diagnosing a damaged document.
+/// Same corrupt input, but inspecting *which* revision the failure names.
 @Test func decodingFailureNamesTheOffendingRevision() {
     let json = Data("""
     [{"revision":{"id":1},"geometry":{"displayUUID":"6BA7B810-9DAD-11D1-80B4-00C04FD430C8","pixelWidth":100,"pixelHeight":100,"scale":1},"firstObserved":0}]
@@ -101,8 +93,7 @@ private func extractRevisionIDs(from json: String) -> [UInt64] {
     }
 }
 
-/// A well-formed, self-consistent document — key really does match
-/// `recompute(geometry).revision` — decodes cleanly.
+/// A self-consistent document decodes cleanly.
 @Test func decodingAcceptsAConsistentEntry() throws {
     var registry = GeometryRegistry()
     let geometry = sample(width: 100)
@@ -121,11 +112,8 @@ private func extractRevisionIDs(from json: String) -> [UInt64] {
 
 // MARK: - Canonical, sorted encoding
 
-/// Dictionaries encode in per-process-random iteration order (design §
-/// Canonical encoding). Two encodes in ONE process prove nothing about that —
-/// this test asserts the actual contract: the entries appear in the JSON in
-/// ascending `revision.id` order, which is what makes the encoding independent
-/// of `Dictionary`'s iteration order in the first place.
+/// Entries appear in ascending `revision.id` order, which is what makes the
+/// encoding independent of `Dictionary`'s per-process-random iteration order.
 @Test func encodingIsStableAcrossProcesses() throws {
     var registry = GeometryRegistry()
     for i in 1...8 {
@@ -138,12 +126,8 @@ private func extractRevisionIDs(from json: String) -> [UInt64] {
     #expect(ids == ids.sorted(), "entries must be encoded sorted by revision id")
 }
 
-/// Round-tripping through multiple insertion orders must converge on the same
-/// bytes — the point of sorting by `revision.id` rather than trusting
-/// `Dictionary`'s own order. `firstObserved` is stored per entry but excluded
-/// from nothing here: this test only pins the *order*, not a specific byte
-/// string, because that's the contract this task actually owes (identity
-/// itself is `DisplayGeometry.canonicalBytes`, pinned in `DigestTests.swift`).
+/// Different insertion orders must converge on the same entry order. Only the
+/// order is pinned here; identity itself is pinned in `DigestTests.swift`.
 @Test func encodingOrderIsIndependentOfInsertionOrder() throws {
     var forward = GeometryRegistry()
     var backward = GeometryRegistry()

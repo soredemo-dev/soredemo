@@ -2,21 +2,13 @@ import Foundation
 import CoreVideo
 import Testing
 
-/// **The source fill, and why it is this colour.**
-///
-/// `CursorArt` draws a WHITE-filled, BLACK-stroked arrow. A white or near-white source
-/// frame makes "find the drawn pointer" fail for a reason that has nothing to do with
-/// position — red for the wrong reason, which is the failure mode this whole phase is
-/// about. A saturated mid-blue is far from both the fill and the stroke, and far from
-/// `StageStyle.default`'s (0.09, 0.09, 0.11) background too, so a differing pixel is
-/// attributable.
+/// Saturated mid-blue on purpose: the arrow is white-filled and black-stroked and the stage
+/// background is near-black, so this is far from all three and a differing pixel is attributable.
 let sourceFill: (r: UInt8, g: UInt8, b: UInt8) = (32, 96, 224)
 
-/// A 32BGRA buffer of the given size, every pixel set to `fill`.
-///
-/// 32BGRA because that is what `StageCompositor.sourcePixelBufferAttributes` and
-/// `requiredPixelBufferAttributesForRenderContext` both declare; a test that composed
-/// in another format would be exercising a path the app never takes.
+/// A 32BGRA buffer of the given size, every pixel set to `fill`. 32BGRA because that is what
+/// `StageCompositor`'s own pixel-buffer attributes declare; another format is a path the app
+/// never takes.
 func makePixelBuffer(width: Int, height: Int,
                      fill: (r: UInt8, g: UInt8, b: UInt8)) throws -> CVPixelBuffer {
     var buffer: CVPixelBuffer?

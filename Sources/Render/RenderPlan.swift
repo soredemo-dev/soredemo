@@ -26,9 +26,8 @@ extension StageRect {
     /// shape as `HostRange.init(from:)` / `DisplayGeometry.init(from:)`: rule 8
     /// (ARCHITECTURE.md D6, D2-14) requires a validating decoder initialiser on any
     /// `Codable` type whose memberwise `init` preconditions, because the synthesised
-    /// `init(from:)` assigns stored properties directly and never calls it. Not in
-    /// the task 1 brief verbatim — added because the architecture-checker plugin
-    /// refuses the brief's `StageRect` as written; see the task 1 report.
+    /// `init(from:)` assigns stored properties directly and never calls it. The
+    /// architecture-checker plugin refuses a `StageRect` written without it.
     private enum CodingKeys: String, CodingKey {
         case x, y, width, height
     }
@@ -92,7 +91,7 @@ extension StageStyle {
     /// Matches the synthesised shape exactly — `insetFraction`, `cornerRadius`,
     /// `shadowRadius`, `shadowOpacity`, `background` — so this hand-written
     /// conformance changes validation, not the wire form. Same rule-8 reason as
-    /// `StageRect.init(from:)` above; not in the task 1 brief verbatim.
+    /// `StageRect.init(from:)` above.
     private enum CodingKeys: String, CodingKey {
         case insetFraction, cornerRadius, shadowRadius, shadowOpacity, background
     }

@@ -5,45 +5,18 @@ import Project
 import SwiftUI
 import Synchronization
 
-/// The hand-written `NSDocument` coordinator for a `.soredemo` package
-/// (design doc D-P3, F3, F4).
-///
-/// **Why `NSDocument` and not SwiftUI's document protocols.** macOS 27's
-/// `ReadableDocument`/`WritableDocument` handle a package directory correctly —
-/// their `Source`/`Destination` associated types merely default to `URL`, so a
-/// reader may read one small manifest and leave gigabytes alone, verified by
-/// compilation in F3. But they live in SwiftUI and are `@available(macOS 27, *)`,
-/// and this app's floor is macOS 26 (D2), so they are unusable. F4 verified
-/// `NSDocument` reaches the same place at the floor.
-///
-/// **The cost, recorded up front (F4).** `read(from:ofType:)` and
-/// `writeSafely(to:ofType:for:)` are `nonisolated` on `NSDocument`; marking an
-/// override `@MainActor` is a hard compile error — *"main actor-isolated
-/// instance method has different actor isolation from nonisolated overridden
-/// declaration"*. Document state therefore cannot live behind the class's own
-/// main-actor isolation, and lives in a `Mutex` instead. The macOS 27 protocol
-/// avoids this by making `snapshot(contentType:)` `@MainActor` and handing a
-/// `sending` value to a `@concurrent` writer. This is an ongoing tax on every
-/// piece of state this class grows, not a one-off.
-///
-/// This class **coordinates**; it does not reimplement storage. Every read,
-/// write, sidecar and sweep below is a call into `Sources/Project` — the atomic
-/// manifest replace, the schema probe, the upgrade chain, the write-once check
-/// and the orphan scan all live there and are tested there. A `replaceItemAt`
-/// or a `JSONDecoder` appearing in this file would be the two halves starting
-/// to drift.
+/// Hand-written `NSDocument` coordinator for a `.soredemo` package. SwiftUI's
+/// `ReadableDocument`/`WritableDocument` are macOS 27+, above this app's macOS 26
+/// floor. Storage lives in `Sources/Project`; this class only coordinates.
 final class ProjectDocument: NSDocument {
     /// Must match `UTExportedTypeDeclarations` in `Soredemo-Info.plist`.
     static let contentTypeIdentifier = "com.soredemo.project"
 
-    /// Document state. `nonisolated` and behind a `Mutex` because the two
-    /// overrides that touch it cannot be main-actor isolated — see the class
-    /// documentation.
+    /// Document state. `nonisolated` behind a `Mutex`: `NSDocument`'s `read` and
+    /// `writeSafely` overrides are `nonisolated` and cannot be `@MainActor`.
     private nonisolated let state: Mutex<ProjectSnapshot>
 
-    /// The snapshot as of this instant. A value copy: callers get something
-    /// they can read without holding the lock, which is what makes it safe to
-    /// hand to a SwiftUI view.
+    /// A value copy of the current state, safe to read without holding the lock.
     nonisolated var snapshot: ProjectSnapshot {
         state.withLock { $0 }
     }
@@ -59,15 +32,10 @@ final class ProjectDocument: NSDocument {
 
     // MARK: - Reading
 
-    /// `url` is the package **directory**. Only `project.json` is read;
-    /// `media/` and `observations/` are never opened, which is what keeps
-    /// opening a document independent of how much footage it holds.
-    ///
-    /// `ProjectPackageIO.load` routes through `SchemaProbe` before decoding
-    /// anything, so a document written by a future build throws
-    /// `ProjectFormatError.tooNew` rather than being partially read — the
-    /// failure that matters is not a bad read, it is a partial read followed by
-    /// a save that silently drops every field this build does not know about.
+    /// `url` is the package directory; only `project.json` is read, never
+    /// `media/` or `observations/`. `ProjectPackageIO.load` probes the schema
+    /// first, so a future build's document throws `ProjectFormatError.tooNew`
+    /// rather than being partially read.
     override nonisolated func read(from url: URL, ofType typeName: String) throws {
         let loaded = try ProjectPackageIO.load(from: url)
         state.withLock { $0 = loaded }
@@ -75,120 +43,43 @@ final class ProjectDocument: NSDocument {
 
     // MARK: - Writing
 
-    /// **This override exists to bypass `NSDocument`'s whole-package copy, and
-    /// that is the entire point of it.**
-    ///
-    /// `super.writeSafely(to:ofType:for:)` implements the textbook safe-save:
-    /// write the complete document into a temporary directory, then swap it
-    /// into place. For a package document that means every byte of `media/` is
-    /// copied on every save — gigabytes of footage, to persist a few kilobytes
-    /// of edit state. Worse than slow, it is *wrong* here: this class's
-    /// `write(to:ofType:)` writes the manifest and nothing else, by design
-    /// (D-P3: media is write-once and a save must never be able to destroy it),
-    /// so letting `super` swap a freshly built temporary directory over the
-    /// real package would leave a package whose `media/` is empty.
-    ///
-    /// So the safety is relocated rather than dropped: `ProjectPackageIO.save`
-    /// makes the *manifest alone* atomic via `replaceItemAt`, and media needs
-    /// no atomicity because it is never mutated after it is written. Saves stay
-    /// in milliseconds regardless of footage size, on any filesystem.
-    ///
-    /// (Atomicity is not durability. `replaceItemAt` guarantees a reader sees
-    /// the old manifest or the new one, never a torn one; it does not guarantee
-    /// the bytes reached the platter, which would need `fcntl(F_FULLFSYNC)`.
-    /// D-P3 records that as a decision — one save's edit state is an acceptable
-    /// loss because the media it references is already durable.)
-    ///
-    /// **File coordination is dropped too, and that one is unresolved rather
-    /// than decided.** `super.writeSafely` does not only copy — it performs the
-    /// write inside an `NSFileCoordinator` coordinated write, which is what
-    /// tells other coordinated readers (Finder previews, iCloud/Dropbox-style
-    /// sync daemons, another instance of this app) to stand off while the
-    /// document changes. Bypassing `super` bypasses that, and nothing here
-    /// replaces it. It is called out rather than left silent because the two
-    /// losses above are deliberate and this one is not yet: unlike atomicity,
-    /// it has no substitute in `ProjectPackageIO`, and unlike durability, the
-    /// argument for declining it has not been made. Phase 1 gets away with it —
-    /// `save` is single-writer by construction and `autosavesInPlace` is
-    /// `false`, so there is one writer and it is the user pressing Save. It
-    /// stops being free as soon as a project package lives in a synced folder,
-    /// which is a normal place to keep one. Revisit before Phase 2 ships a
-    /// recording path that writes while the user has the document open.
+    /// Bypasses `super`'s safe-save, which copies the whole package (all of
+    /// `media/`) into a temporary and swaps it in — leaving `media/` empty,
+    /// since `write(to:ofType:)` writes only the manifest. `ProjectPackageIO.save`
+    /// makes that manifest atomic via `replaceItemAt`; write-once media needs no
+    /// atomicity. This also drops `super`'s `NSFileCoordinator` coordinated
+    /// write, with nothing replacing it.
     override nonisolated func writeSafely(to url: URL,
                                           ofType typeName: String,
                                           for saveOperation: NSDocument.SaveOperationType) throws {
         try write(to: url, ofType: typeName)
     }
 
-    /// Writes `project.json` and nothing else. Creates the package directory
-    /// and its `media/`/`observations/` subdirectories if absent, so a
-    /// Save-As to a fresh URL produces a well-formed package.
+    /// Writes `project.json` and nothing else. Creates the package directory and
+    /// its `media/`/`observations/` subdirectories if absent.
     override nonisolated func write(to url: URL, ofType typeName: String) throws {
         try ProjectPackageIO.save(snapshot, to: url)
     }
 
-    /// `false`, deliberately. Autosaving in place drives saves through
-    /// `NSFileCoordinator` on a schedule the user did not ask for; a document
-    /// whose save path is a hand-rolled partial write (above) should not be
-    /// doing that unattended until Phase 2 has a real editing model to say what
-    /// a "change" even is.
+    /// `false`: the hand-rolled partial write above must not run unattended.
     override nonisolated class var autosavesInPlace: Bool { false }
 
     // MARK: - Media
 
-    /// Writes a media sidecar under a freshly minted name and records it in the
-    /// snapshot.
-    ///
-    /// The name is minted here because the package cannot mint one — it has no
-    /// ambient randomness by construction (`AGENTS.md` § Determinism), which is
-    /// why `ProjectPackageIO.writeSidecar` takes a name rather than inventing
-    /// one. `writeSidecar` refuses, without writing a byte, if that name is
-    /// already on disk; a UUID collision is not a real risk, but write-once is
-    /// an invariant and an invariant that is only true by probability is not
-    /// mechanical.
-    ///
-    /// Returns the name, which is what the caller stores in whatever references
-    /// the media.
-    ///
-    /// **`updateChangeCount` is load-bearing here, not boilerplate.** This is
-    /// the one method in this class that puts a file on disk and records the
-    /// only reference to it in memory, and the window between the two closes
-    /// only when the manifest is saved. `autosavesInPlace` is `false`, so
-    /// nothing saves on its own; without marking the document dirty, closing it
-    /// takes the no-unsaved-changes path with no prompt, the reference is lost,
-    /// and the sidecar becomes an orphan that the next `compactMedia()`
-    /// correctly identifies as unreferenced and **deletes**. That is D-P3's "a
-    /// save must never be able to destroy media" arriving by the back door: not
-    /// through the save path, which is careful, but through a change that was
-    /// never offered a save at all.
+    /// Writes a media sidecar under a freshly minted name, records it in the
+    /// snapshot, and returns the name. Minted here because `Project` has no
+    /// ambient randomness; `writeSidecar` refuses a name already on disk.
     @MainActor
     func addMedia(_ data: Data, fileExtension: String) throws -> String {
         try addMedia(data, named: "\(Minting.newIdentifier().uuidString.lowercased()).\(fileExtension)")
     }
 
-    /// The same, under a name the caller has already minted.
-    ///
-    /// **Added in Task 11, and it is the half `CaptureSession` needed.** A
-    /// segment's media filename is minted at `beginSegment` — before a single
-    /// byte exists — because `SegmentLedger` records it when the segment
-    /// opens, and `MasterSegment.mediaFilename` is what the manifest's segment
-    /// table names. So the recording path cannot use the minting overload
-    /// above: by the time the bytes are ready, the name is already on the
-    /// ledger and in the table.
-    ///
-    /// **Routing capture through here rather than through
-    /// `ProjectPackageIO.writeSidecar` directly is not bookkeeping.** The
-    /// package function writes the file and nothing else. The two lines below
-    /// it are what make the file *referenced*: without the `mediaFilenames`
-    /// append the sidecar is invisible to the manifest, and without
-    /// `updateChangeCount` the document closes with no prompt, the reference
-    /// is lost, and the next `compactMedia()` correctly identifies the
-    /// recording as unreferenced and **deletes it**. `CaptureSession` wrote
-    /// sidecars around this method until this task, which is that failure
-    /// waiting for its first compaction.
-    ///
-    /// `writeSidecar` still does the refusing — write-once, and the
-    /// single-path-component check — so nothing about that moves here.
+    /// The same, under a name the caller already minted — `CaptureSession` mints
+    /// a segment's filename at `beginSegment`, before any bytes exist. Capture
+    /// must route through here, not `ProjectPackageIO.writeSidecar`: the
+    /// `mediaFilenames` append makes the file referenced, and `updateChangeCount`
+    /// keeps the document from closing unprompted and leaving the sidecar for
+    /// the next `compactMedia()` to delete as unreferenced.
     @MainActor
     @discardableResult
     func addMedia(_ data: Data, named name: String) throws -> String {
@@ -199,23 +90,17 @@ final class ProjectDocument: NSDocument {
         return name
     }
 
-    /// Names under `media/` this document no longer references. Reports only;
-    /// deleting is `compactMedia()`.
-    ///
-    /// Throws rather than returning `[]` when the document has no URL, for the
-    /// same reason `addMedia` does: there is no package to scan, so "no
-    /// unreferenced sidecars" would be an answer to a question that could not
-    /// be asked. An empty array here is indistinguishable from a genuinely
-    /// clean package, and the caller acting on it is `compactMedia`.
+    /// Names under `media/` this document no longer references; reports only,
+    /// deleting is `compactMedia()`. Throws when the document has no URL rather
+    /// than returning `[]`, which is indistinguishable from a clean package.
     @MainActor
     func unreferencedMedia() throws -> [String] {
         guard let packageURL = fileURL else { throw MediaError.documentHasNoURL }
         return try ProjectPackageIO.unreferencedSidecars(in: packageURL, snapshot: snapshot)
     }
 
-    /// The only path by which this app deletes media, and it is explicit.
-    /// Never called from `write`/`writeSafely`: a save that could delete
-    /// footage as a side effect is the failure D-P3 is built to prevent.
+    /// The only path by which this app deletes media. Never called from
+    /// `write`/`writeSafely`: a save must not delete footage as a side effect.
     @MainActor
     @discardableResult
     func compactMedia() throws -> [String] {
@@ -224,17 +109,12 @@ final class ProjectDocument: NSDocument {
     }
 
     enum MediaError: Error {
-        /// The document has never been saved, so there is no package to write
-        /// a sidecar into, scan, or compact.
+        /// The document has never been saved, so there is no package.
         case documentHasNoURL
     }
 
-    /// Where the document's package lives, for a caller that needs to write a
-    /// sibling of `media/` — `observations/`, and nothing else today.
-    ///
-    /// Read-only and optional, mirroring `addMedia`'s own refusal: an unsaved
-    /// document has no package, and a caller must not be handed a plausible
-    /// temporary directory in place of one.
+    /// The document's package directory, for a caller writing a sibling of
+    /// `media/`. `nil` until the document has been saved.
     @MainActor
     var packageURL: URL? { fileURL }
 
@@ -249,28 +129,15 @@ final class ProjectDocument: NSDocument {
 }
 
 extension ProjectDocument: MediaSink {
-    /// `CaptureSession`'s route into `addMedia(_:named:)`. Nothing more —
-    /// deliberately, so that "capture writes media through the document" is a
-    /// statement about one call and not about a second implementation living
-    /// here.
+    /// `CaptureSession`'s route into `addMedia(_:named:)`, and nothing more.
     func acceptMedia(_ data: Data, named name: String) throws {
         try addMedia(data, named: name)
     }
 }
 
-/// Phase 1's document window: enough to show that a `.soredemo` package opened
-/// and what came out of its manifest.
-///
-/// Standard SwiftUI, opaque, no `.glassEffect()` — `ARCHITECTURE.md` **D7**.
-/// (It cited "`AGENTS.md` architecture rule 6" until Task 19, under a second
-/// numbering that no longer exists; native-only Liquid Glass is a decision with
-/// a letter, not one of D6's numbered rules.)
-///
-/// Takes a snapshot **value**, not the document: `ProjectSnapshot` is `Sendable`
-/// and this view is main-actor, whereas the document's state deliberately is
-/// not. The consequence is that this view does not update when the snapshot
-/// changes, which is correct for Phase 1 — there is no editing yet, so there is
-/// nothing to observe. Phase 2 introduces an observable model between the two.
+/// Phase 1's document window: what came out of an opened package's manifest.
+/// Opaque, no `.glassEffect()` (D7). Takes a `Sendable` snapshot value rather
+/// than the document, so it does not update when the snapshot changes.
 private struct ProjectDocumentView: View {
     let snapshot: ProjectSnapshot
 

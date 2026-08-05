@@ -1,42 +1,24 @@
 import AppKit
 import AVFoundation
-// `FileManager` — checking whether the observation log `ObservationWriter.expectedLogURL(for
-// MediaURL:)` names actually exists on disk, below.
 import Foundation
-// For `CoreImageFrameRenderer`, which moved into the `Headless` target in Phase
-// 3A-1 Task 3 — `Headless` is the module name, `SoredemoHeadless` the product
-// this app target links. Not needed until now: through Task 2 this file's only
-// reference was to a type still declared in this same app target.
+// `Headless` is the module name; `SoredemoHeadless` is the product this app target links.
 import Headless
 import SwiftUI
 
-/// 100% standard SwiftUI, zero glass code — D7. The system gives standard components Liquid Glass
-/// automatically and, decisively, makes them respond to the system-level Liquid Glass slider, which
-/// a hand-rolled surface does not.
-///
-/// **This header used to name `NavigationSplitView` + `Inspector` as though this view had both. It
-/// has neither.** `Inspector` appeared exactly once in `Soredemo/` — in that sentence — so the
-/// description WAS the only evidence for the component. `app-shell`'s ROADMAP row still claims the
-/// pair; building them is Phase 3, and until then this file says what it is: a window hosting a
-/// preview and an Export button.
+/// A window hosting a preview and an Export button. Standard SwiftUI with no hand-rolled glass:
+/// standard components get Liquid Glass automatically and respond to the system-level Liquid
+/// Glass slider, which a custom surface does not.
 struct StageWindow: View {
     @State private var player: AVPlayer?
     @State private var failure: String?
-    // MARK: - export-basic (Phase 2B Task 7)
+    // MARK: - export-basic
     @State private var isExporting = false
     @State private var exportStatus: String?
     let mediaURL: URL
 
-    /// The output size passed to BOTH `CompositionBuilder.composition` calls in this file — the
-    /// preview's (`configuredComposition(for:)`, below) and the export's (`exportRecording()`) —
-    /// so "preview and export agree" stays true of the actual arguments, not only of the shared
-    /// function.
-    ///
-    /// **Not `private` — corrected here, code review (Task 8, fix round 1), Important finding 1.**
-    /// `scripts/cross-boundary-digest-probe.swift` § 15 (`render-parity`) used to hardcode its own
-    /// `320×180` rather than reading this app's real `1920×1080`, which meant a regression that
-    /// changed only THIS app's own output size could not be seen by that check. It reads these two
-    /// constants directly now, so the two cannot silently drift apart.
+    /// The output size passed to both `CompositionBuilder.composition` calls in this file, so the
+    /// preview and the export agree on the actual arguments. Not `private`: the render-parity
+    /// check in `scripts/cross-boundary-digest-probe.swift` reads these two constants directly.
     static let outputWidth = 1920
     static let outputHeight = 1080
 
@@ -58,15 +40,8 @@ struct StageWindow: View {
         }
         .task(id: mediaURL) { await load() }
         .toolbar {
-            // **The Export command, and why it is a plain toolbar `Button` rather than a
-            // `.commands { CommandGroup }` menu item.** The brief's file list puts this command in
-            // `StageWindow.swift` itself. `SoredemoApp.swift`'s own doc comment records the SAME
-            // brief-vs-reality gap for Task 4's "Open Recording…": `.commands` can only attach to
-            // a `Scene`, never to a plain `View`, so that command had to move to `SoredemoApp`
-            // regardless of which file its brief named. A toolbar `Button` has no such
-            // restriction — it is ordinary SwiftUI content a `View` hosts directly — so THIS
-            // command, unlike that one, can live exactly where its own brief put it without
-            // repeating Task 4's file-list correction.
+            // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`
+            // can only attach to a `Scene`, never to a plain `View`.
             ToolbarItem {
                 Button("Export…") { Task { await exportRecording() } }
                     .disabled(player == nil || isExporting)
@@ -81,40 +56,16 @@ struct StageWindow: View {
         }
     }
 
-    /// Everything the preview needs configured before a composed frame can be read — the shared
-    /// compositor statics, and the `AVVideoComposition` itself — extracted out of `load()` here.
-    ///
-    /// **Why this is its own function — code review (Task 8, fix round 1), Important finding 1.**
-    /// `scripts/cross-boundary-digest-probe.swift` § 15's preview leg used to reconstruct this
-    /// logic itself: its own inline `CompositionBuilder.composition(...)` call, at its own
-    /// hardcoded output size, never touching `StageWindow` at all. That meant a regression
-    /// confined to what THIS function does — a wrong output size, a wrong `frameDuration`, a
-    /// renderer left unconfigured, a broken `observationLogURL` lookup — left § 15 green while the
-    /// app's real preview had genuinely diverged from export. Calling the SAME function the real
-    /// preview calls closes that gap; only `AVPlayerItem`/`AVPlayer` construction below (UI
-    /// plumbing with no bearing on what gets composed) stays outside it, which is also why
-    /// `load()` below still builds its own `AVPlayerItem`'s asset rather than this function
-    /// returning one — `MP4Exporter.export` already builds its own asset from the same URL
-    /// independently (`Sources/Headless/MP4Exporter.swift`, moved from `Soredemo/Export/` in
-    /// Phase 3A-1 Task 7), the same "each real consumer loads the
-    /// file itself" shape this follows.
+    /// Everything the preview needs configured before a composed frame can be read: the shared
+    /// compositor statics and the `AVVideoComposition` itself. Kept as its own function so the
+    /// render-parity check exercises the same code the real preview runs, rather than a copy.
     static func configuredComposition(for mediaURL: URL) async throws -> AVVideoComposition {
         StageCompositor.renderer = try CoreImageFrameRenderer()
-        // A fresh recording gets a fresh drop count — see `StageCompositor.diagnostics`'s own
-        // header for why a stale count from a previously opened file must not be readable as
-        // belonging to this one.
+        // A fresh recording gets a fresh drop count; a stale one must not read as this file's.
         StageCompositor.resetDiagnostics()
-        // `ObservationWriter.expectedLogURL(forMediaURL:)` names where a log for THIS media
-        // would be, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl`
-        // pairing `beginSegment`/`ObservationWriter` already define — it does not claim one is
-        // there. The filesystem check right here is what turns "where it would be" into
-        // "whether it is": a recording made without Input Monitoring, or one made before
-        // Task 5.5 gave `CaptureSession` an `ObservationWriter` to write to at all,
-        // legitimately has none, and `nil` is what tells
-        // `StageCompositor` to draw no pointer rather than fabricating an empty log or guessing
-        // a default path. `PointerReading`'s four cases exist so "no log" and "a log that says
-        // nothing" stay distinguishable; this is the one point that decides which of those two
-        // this session is in.
+        // `expectedLogURL(forMediaURL:)` names where a log for this media would be; it does not
+        // claim one exists. The filesystem check decides between "no log" and "a log", which
+        // `PointerReading`'s cases keep distinguishable — `nil` means draw no pointer.
         let candidateLogURL = ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
         StageCompositor.observationLogURL = candidateLogURL.flatMap {
             FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
@@ -137,12 +88,9 @@ struct StageWindow: View {
         }
     }
 
-    /// Presents a save panel, then runs `MP4Exporter.export` — see that type's own header for
-    /// which writer this goes through and why. `StageCompositor`'s statics (`renderer`, `style`,
-    /// `observationLogURL`) are already set by `load()` above by the time this can be invoked
-    /// (the toolbar button is disabled while `player == nil`, and `player` is set only after
-    /// `load()`'s composition succeeds), so the export's composition draws the identical framing
-    /// and pointer the preview already showed — the same statics, not a second configuration.
+    /// Presents a save panel, then runs `MP4Exporter.export`. `StageCompositor`'s statics are
+    /// already set by `load()` (the toolbar button is disabled while `player == nil`), so the
+    /// export composes the identical framing and pointer the preview showed.
     private func exportRecording() async {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]

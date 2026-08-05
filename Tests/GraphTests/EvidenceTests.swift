@@ -13,8 +13,7 @@ private func digest(_ seed: UInt8) -> ContentDigest {
     ContentDigest(Array(repeating: seed, count: ContentDigest.byteCount))
 }
 
-/// Deliberately not `String(format:)`, which is an unsafe construct under
-/// `.strictMemorySafety()` and warns. Matches the helper in `DigestTests.swift`.
+/// Not `String(format:)`, which is unsafe under `.strictMemorySafety()` and warns.
 private func hex(_ bytes: [UInt8]) -> String {
     bytes.map { byte in
         let s = String(byte, radix: 16)
@@ -35,9 +34,8 @@ private func hex(_ bytes: [UInt8]) -> String {
 
 // MARK: - ContentDigest: decode validation (the untrusted-input path)
 
-/// This is the case the design doc's staleness/approval-binding rationale
-/// actually depends on: a digest arriving from disk, not one this package
-/// constructed itself.
+/// The case approval-binding depends on: a digest arriving from disk, not one this
+/// package constructed itself.
 @Test func contentDigestRejects31BytesOnDecode() {
     let json = Data(("[" + (0..<31).map { _ in "1" }.joined(separator: ",") + "]").utf8)
     #expect(throws: ContentDigest.DecodingFailure.self) {
@@ -78,8 +76,6 @@ private func hex(_ bytes: [UInt8]) -> String {
     #expect(decoded == d)
 }
 
-/// Encodes as a flat array of numbers, not a wrapping object — there is no
-/// key for `.sortedKeys` to have anything to do here.
 @Test func contentDigestEncodesAsAFlatArray() throws {
     let d = digest(0x01)
     let data = try JSONEncoder().encode(d)
@@ -156,9 +152,7 @@ private func hex(_ bytes: [UInt8]) -> String {
     #expect(evidence.tail.isEmpty)
 }
 
-/// The reason `Evidence` needs this initialiser at all: Swift cannot splat an
-/// array into a variadic parameter, and Phase 3's framing producers hold
-/// `[EvidenceRef]`.
+/// Swift cannot splat an array into a variadic parameter, and producers hold arrays.
 @Test func evidenceArrayInitStoresHeadAndTail() throws {
     let a = EvidenceRef(kind: .observation, id: observationID, contentDigest: digest(1))
     let b = EvidenceRef(kind: .transcript, id: transcriptID, contentDigest: digest(2))
@@ -168,8 +162,7 @@ private func hex(_ bytes: [UInt8]) -> String {
     #expect(evidence.tail == [b, c])
 }
 
-/// The load-bearing case: an uncited generated value must be unrepresentable,
-/// in memory, not merely on disk.
+/// An uncited generated value must be unrepresentable in memory, not merely on disk.
 @Test func evidenceArrayInitReturnsNilForAnEmptyArray() {
     #expect(Evidence([]) == nil)
 }
@@ -198,13 +191,9 @@ private func hex(_ bytes: [UInt8]) -> String {
     #expect(evidence.count == 1)
 }
 
-/// `Collection.first` is synthesised from `startIndex`/`subscript`, not from
-/// the stored `head` property — they must agree, or `Evidence` has exactly
-/// the `first`-shadowing trap this type was built to avoid by naming the
-/// property `head` instead of `first`. `genericFirst` goes through a fully
-/// generic `Collection` context, the path the design doc says silently
-/// resolves to a *different* member when the stored property is named
-/// `first`.
+/// `Collection.first` is synthesised from `startIndex`/`subscript`, not from stored
+/// `head` — they must agree, which is why the property is not named `first`.
+/// `genericFirst` exercises the generic path where that shadowing would bite.
 private func genericFirst<C: Collection>(_ c: C) -> C.Element? { c.first }
 
 @Test func collectionFirstAgreesWithHead() {
@@ -226,8 +215,7 @@ private func genericFirst<C: Collection>(_ c: C) -> C.Element? { c.first }
     encoder.outputFormatting = [.sortedKeys]
     let data = try encoder.encode(evidence)
 
-    // Decoding the same bytes as a plain [EvidenceRef] must succeed and match
-    // exactly, proving the wire shape is a flat array with no head/tail keys.
+    // Decoding as a plain array proves the wire shape has no head/tail keys.
     let asPlainArray = try JSONDecoder().decode([EvidenceRef].self, from: data)
     #expect(asPlainArray == [a, b])
 }
@@ -245,9 +233,7 @@ private func genericFirst<C: Collection>(_ c: C) -> C.Element? { c.first }
     #expect(Array(decoded) == Array(evidence))
 }
 
-/// The load-bearing case, disk side: the non-empty guarantee must survive a
-/// round trip through storage, not just live in memory. Without this
-/// rejection, a corrupted or hand-edited document could read back as valid,
+/// Disk side: without this rejection a hand-edited document reads back as valid,
 /// citation-free "evidence".
 @Test func evidenceRejectsAnEmptyJSONArrayOnDecode() {
     let json = Data("[]".utf8)
@@ -266,9 +252,7 @@ private func genericFirst<C: Collection>(_ c: C) -> C.Element? { c.first }
     #expect(decoded.tail.isEmpty)
 }
 
-/// A malformed `contentDigest` nested inside one of the cited refs must still
-/// surface as a decode failure — `Evidence`'s own emptiness check does not
-/// swallow errors from the elements it decodes.
+/// `Evidence`'s emptiness check must not swallow errors from the elements it decodes.
 @Test func evidenceDecodePropagatesAMalformedNestedContentDigest() {
     let badRefJSON = """
     {"kind":"observation","id":"\(observationID.uuidString)","contentDigest":[1,2,3]}

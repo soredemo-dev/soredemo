@@ -2,34 +2,15 @@ import Foundation
 import Geometry
 import Timeline
 
-/// One element in an AX observation. Each carries its **own** interval, not one
-/// for the chain: the levels are read at different moments, and at p95 the UI
-/// has three frames to move between the top and bottom of what is stored as a
-/// single observation (F2-2). The interval's width is the uncertainty (D2-2a).
-///
-/// **Every field except `readInterval` is optional, and each `nil` means "the
-/// AX call did not answer", never "the element has none".** An element with no
-/// title and an element whose `kAXTitleAttribute` read failed are different
-/// facts; both are recorded as `nil` here, and the *count* of the second is
-/// carried by `AXObserver.Diagnostics` rather than being inferred from a log
-/// full of nulls. `readInterval` is not optional because it is this process's
-/// own measurement — the one thing about an element that cannot fail to be
-/// known.
-///
-/// `frame` is a `NormalizedFrame`, so it carries the `GeometryRevision` of the
-/// display the element's own origin routed to. That revision is what makes
-/// `AXChainRecord.clickContainment` computable — and what makes it refuse to
-/// compute when the element and the click were normalised against different
-/// displays, rather than comparing two numbers from two coordinate spaces.
+/// One element in an AX observation; `readInterval`'s width is the uncertainty.
+/// A `nil` field means "the AX call did not answer", never "the element has none".
+/// `frame` carries the `GeometryRevision` of the display its origin routed to.
 public struct AXElementRecord: Hashable, Codable, Sendable {
     public let role: String?
     public let title: String?
     public let frame: NormalizedFrame?
     /// From immediately before the first attribute read of this element to
-    /// immediately after the last. Four AX calls wide in the live observer —
-    /// role, position, size, title — because `kAXFrameAttribute` is not
-    /// exposed to Swift and a frame therefore costs **two** IPC round trips,
-    /// not one.
+    /// immediately after the last.
     public let readInterval: HostRange
 
     public init(role: String?, title: String?, frame: NormalizedFrame?, readInterval: HostRange) {
@@ -45,25 +26,10 @@ extension AXElementRecord {
         case role, title, frame, readInterval
     }
 
-    /// Untrusted input, validated — the same stance `HostRange.init(from:)`
-    /// and `DisplayGeometry.init(from:)` take, and here for a sharper reason
-    /// than either.
-    ///
-    /// **`NormalizedPoint` and `NormalizedSize` `precondition` on finiteness
-    /// in their memberwise initialisers and their synthesised `Decodable`
-    /// conformances bypass it**, assigning the stored properties directly. So
-    /// a `NaN` in a frame's origin cannot be constructed in memory and can be
-    /// read off disk — and it does not look like corruption when it arrives:
-    /// every comparison against `NaN` is `false`, so
-    /// `AXChainRecord.clickContainment` would return `.doesNotContainTheClick`
-    /// for it. That is the coordinate-fault verdict, reported confidently, for
-    /// a file that is merely damaged, **in the one type whose job is telling
-    /// faults apart**.
-    ///
-    /// Throwing rather than trapping, because this is document content: a
-    /// `.soredemo` package's bytes are attacker-influenced by
-    /// `agentic-threat-model`'s assumption, and killing the process on a
-    /// malformed one is a worse answer than refusing the record.
+    /// Untrusted input, validated: `NormalizedPoint`/`NormalizedSize` synthesised
+    /// `Decodable` conformances bypass their finiteness preconditions, and a `NaN`
+    /// frame would make `clickContainment` report `.doesNotContainTheClick`.
+    /// Throws rather than traps — this is document content, not programmer error.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let role = try container.decodeIfPresent(String.self, forKey: .role)
@@ -89,11 +55,8 @@ extension AXElementRecord {
         self.init(role: role, title: title, frame: frame, readInterval: readInterval)
     }
 
-    /// Matches the synthesised shape exactly, so this hand-written
-    /// conformance changes validation and not the wire form. `encodeIfPresent`
-    /// on the three optionals is what keeps `nil` as an **absent key** rather
-    /// than `null` — the distinction `AXChainRecord.children` depends on one
-    /// level up.
+    /// Matches the synthesised wire shape exactly; only validation is hand-written.
+    /// `encodeIfPresent` keeps `nil` an absent key rather than `null`.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(role, forKey: .role)
@@ -103,46 +66,17 @@ extension AXElementRecord {
     }
 }
 
-/// Why the walk stopped. "There were no more ancestors" and "I stopped asking"
-/// are otherwise the same bytes on disk (D2-2).
-///
-/// **A statement about the whole observation, not only the upward walk.** The
-/// ancestor walk is what `.reachedRoot` and `.depthCapReached` are about, but
-/// `.budgetExceeded` is also set when the wall-clock budget ran out while the
-/// hit element's children were being read — see `AXChainRecord.children`. A
-/// reader who needs to know whether the *upward* walk itself completed has
-/// that from the chain's own top: F2-3 measured all 107 complete walks topping
-/// out at `AXApplication`, against `AXGroup`/`AXWebArea`/`AXWindow` for the 11
-/// truncated ones.
+/// Why the walk stopped; distinguishes "no more ancestors" from "stopped asking".
+/// Covers the whole observation, not only the upward walk: `.budgetExceeded` is
+/// also set when the budget ran out while reading the hit element's children.
 public enum ChainTruncation: String, Codable, Sendable {
     case reachedRoot, depthCapReached, budgetExceeded, hitTestReturnedNothing
 }
 
-/// Whether the click this observation is the object half of actually falls
-/// inside the element the hit-test returned.
-///
-/// **Computed, never stored** (D2-1: capture records, it does not judge). The
-/// inputs are all on disk — `clickPosition`, `clickRevision`, and the hit
-/// element's own `frame` — so a reader recomputes this from the record rather
-/// than trusting a verdict a producer wrote at capture time. Storing it would
-/// make `producerVersion` meaningless for exactly this decision, which is the
-/// argument D2-1 makes for element choice, one field over.
-///
-/// The five cases are five different findings, and collapsing any two of them
-/// into `false` would hide the one that matters:
-///
-/// * `.doesNotContainTheClick` is the **coordinate** fault. Nothing about AX
-///   staleness moves an element out from under the pointer *in the recorded
-///   frame's own coordinate space* — a stale frame is where the element was a
-///   frame or two ago, which still overlaps the click in almost every case
-///   that matters, whereas a conversion that skipped a step is off by the
-///   display's `scale` or by its global origin, every time, for every click.
-/// * `.notComparable` is neither fault: the element's origin routed to a
-///   different display than the click did. A window straddling two displays
-///   does that legitimately.
-/// * `.noFrameRecorded` and `.noHitElement` are absences, and they are
-///   different absences — one means AX answered with an element it would not
-///   describe, the other that it answered with nothing at all.
+/// Whether the click falls inside the element the hit-test returned. Computed
+/// from the record, never stored. `.doesNotContainTheClick` is a coordinate
+/// fault; `.notComparable` means the element and click routed to different
+/// displays; the two absences are distinct and must not collapse into one.
 public enum ClickContainment: String, Hashable, Sendable {
     case containsTheClick
     case doesNotContainTheClick
@@ -151,107 +85,43 @@ public enum ClickContainment: String, Hashable, Sendable {
     case noHitElement
 }
 
-/// The AX observation for one click: the whole chain, with **no element
-/// chosen** (D2-1).
-///
-/// The preference `ROADMAP.md` states for well-bounded descendants is a gate,
-/// and `ARCHITECTURE.md` D4 requires a gate's thresholds to be fitted to
-/// measured distributions that do not exist yet. Choosing here would discard
-/// the alternatives, and a `Derived` value whose evidence structurally cannot
-/// support any other answer is not evidence.
-///
-/// **The four fields that let a wrong element be attributed to the right
-/// layer.** If the coordinates were wrong, the symptom is "the hit-test
-/// returned the wrong element" — and that symptom has a ready, credible
-/// alternative explanation in F2-2's numbers (AX is stale during animation,
-/// 12% of clicks by more than one 60 fps frame). A coordinate bug hides behind
-/// that prior perfectly. So every record carries, without re-running anything:
-///
-/// | field | question it answers |
-/// | --- | --- |
-/// | `hitTestGlobalX`/`Y` | what point was the hit-test actually performed at |
-/// | `instant` | when was the button event stamped |
-/// | `hitTestInterval` | when did the hit-test start, and when did it answer |
-/// | `hit?.frame` | where did the element it returned say it was |
-///
-/// `clickContainment` is the arithmetic over those: a click outside the
-/// returned element's own frame is a **coordinate** fault, and no amount of AX
-/// staleness explains it. `hitTestInterval.end - instant.hostTime` is the
-/// **timing** exposure, and `hit?.readInterval` says how much later the frame
-/// itself was read. The two questions are separable after the fact, from the
-/// record alone, which is the whole reason both are stored.
+/// The AX observation for one click: the whole chain, with no element chosen.
+/// `hitTestGlobalX`/`Y`, `instant`, `hitTestInterval` and `hit?.frame` are all
+/// stored so a coordinate fault and an AX timing fault stay separable from the
+/// record alone, without re-running anything.
 public struct AXChainRecord: Hashable, Codable, Sendable {
     public let kind: String            // "axChain"
-    /// The instant the **button event** was stamped by the window server —
-    /// `ButtonEvent.instant`, copied unchanged. This is the join key: the verb
-    /// half of "click the Save button" is the `ButtonEvent` at this instant,
-    /// the object half is this record.
+    /// `ButtonEvent.instant` copied unchanged — the join key pairing this record
+    /// with its button event.
     public let instant: HostInstant
-    /// The click's position as `input-observation` recorded it, and the
-    /// revision it was normalised against. Stored rather than re-derived so a
-    /// reader can check this record against the `ButtonEvent` it claims to
-    /// pair with, byte for byte.
+    /// The click's recorded position and the revision it was normalised against,
+    /// stored so a reader can check this record against its `ButtonEvent`.
     public let clickPosition: NormalizedPoint
     public let clickRevision: GeometryRevision
-    /// The **global, top-left, points** coordinate handed to
-    /// `AXUIElementCopyElementAtPosition` — the input the answer below is an
-    /// answer to.
-    ///
-    /// **Bare scalars, and this is the same call the bridge already made.**
-    /// There is no package type for an un-normalised point: `NormalizedPoint`
-    /// is 0…1 bottom-left and would be a lie at this end of the pipeline, and
-    /// `PointRect` is a rectangle (`DisplayArrangement`'s documentation
-    /// rejects a zero-size rect as a spelling for a point). See
-    /// `CGGeometryBridge.location(from:)`, which returns the same shape for
-    /// the same reason.
-    ///
-    /// **Stored even though it is derivable from `clickPosition` and
-    /// `clickRevision`.** Derivable *given the arrangement at the time*, which
-    /// is extrinsic, is not digested, and is gone by the time anyone reads
-    /// this file. Without it, "the hit-test was performed at the wrong point"
-    /// and "the hit-test was performed at the right point and answered wrongly"
-    /// are the same record.
+    /// The global, top-left, points coordinate handed to
+    /// `AXUIElementCopyElementAtPosition`. Bare scalars: no package type spells an
+    /// un-normalised point. Stored because re-deriving it needs the arrangement at
+    /// capture time, which is extrinsic and gone by the time this file is read.
     public let hitTestGlobalX: Double
     public let hitTestGlobalY: Double
-    /// Before and after the single `AXUIElementCopyElementAtPosition` call.
-    /// The API returns no timestamp of its own, so its width is the
-    /// uncertainty and never a single instant (D2-2a). F2-2: p50 1.05 ms,
-    /// p90 21.25 ms, max 125.47 ms over 118 clicks.
+    /// Before and after the single `AXUIElementCopyElementAtPosition` call. The API
+    /// returns no timestamp, so this is an interval whose width is the uncertainty.
     public let hitTestInterval: HostRange
     /// `nil` exactly when `truncation == .hitTestReturnedNothing`.
     public let hit: AXElementRecord?
-    /// Innermost first — the hit element's parent, then its parent, and so on
-    /// up. Truncation therefore drops the **outermost** ancestors, which are
-    /// the ones least likely to be the camera's target (F2-3).
+    /// Innermost first — parent, then its parent, and so on up. Truncation
+    /// therefore drops the outermost ancestors.
     public let ancestors: [AXElementRecord]
-    /// One level down from the hit element (D2-3), or `nil`.
-    ///
-    /// **`nil` and `[]` are different facts and that is the point of the
-    /// optional.** `[]` means the children attribute was read and the element
-    /// has none. `nil` means no list was recorded at all — the budget was gone
-    /// before the call could be made, or `kAXChildrenAttribute` did not
-    /// answer. Without the distinction, "this element is a leaf" and "I never
-    /// asked" are byte-identical on disk, which is `JSONLReader`'s
-    /// truncated-tail rule and D2-2's truncation rule for the third time.
-    ///
-    /// One level, not a search. The downward direction is a tree search, an
-    /// order of magnitude more expensive and considerably more judgement-laden,
-    /// so it must not happen at capture time (D2-1) — but it also cannot happen
-    /// later unless this one call was made, because a derivation cannot search
-    /// a tree that was never captured.
+    /// One level down from the hit element, never a deeper search. `[]` means the
+    /// children attribute was read and the element has none; `nil` means no list
+    /// was recorded at all (budget exhausted, or the attribute did not answer).
     public let children: [AXElementRecord]?
     public let truncation: ChainTruncation
-    /// Every AX IPC round trip this observation made, including the hit-test
-    /// and including the two that a single frame costs. F2-2: p50 41, p90 106,
-    /// max 131.
+    /// Every AX IPC round trip this observation made, including the hit-test.
     public let axCalls: Int
-    /// The bounds that were in force for this observation.
-    ///
-    /// Recorded per record, not left to a constant in a source file, because
-    /// the budget is a **D4 placeholder awaiting calibration** and will move —
-    /// on a slower machine, and once there are recorded demos to fit it to. A
-    /// log written under a 35 ms budget and one written under a recalibrated
-    /// one are not the same measurement, and nothing else on disk would say so.
+    /// The bounds in force for this observation, recorded per record rather than
+    /// left to a source constant: they are uncalibrated and will move, and logs
+    /// written under different bounds are not the same measurement.
     public let depthCap: Int
     public let walkBudgetNanos: Int64
 
@@ -290,21 +160,9 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
         case depthCap, walkBudgetNanos
     }
 
-    /// Untrusted input, validated. See `AXElementRecord.init(from:)` for the
-    /// full argument; the short version is that a `NaN` in `clickPosition`
-    /// decodes cleanly through `NormalizedPoint`'s synthesised conformance and
-    /// then makes `clickContainment` answer `.doesNotContainTheClick` — a
-    /// confident coordinate-fault verdict produced by a damaged file.
-    ///
-    /// `hitTestGlobalX`/`Y` are checked for the same reason one level out:
-    /// they are the record's statement of *where the question was asked*, and
-    /// a non-finite one would make every after-the-fact comparison against the
-    /// click's own position meaningless while looking like data.
-    ///
-    /// The three counts are checked for non-negativity because they are
-    /// arithmetic a reader does subtraction and division on — `axCalls` per
-    /// click, `ancestors.count` against `depthCap` — and a negative one is not
-    /// a value this producer can emit.
+    /// Untrusted input, validated. Throws on a non-finite `clickPosition` or
+    /// hit-test coordinate (a `NaN` decodes cleanly and would make
+    /// `clickContainment` report a coordinate fault) and on a negative count.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.kind = try container.decode(String.self, forKey: .kind)
@@ -344,9 +202,8 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
         }
     }
 
-    /// Matches the synthesised shape exactly — validation changes, the wire
-    /// form does not. `encodeIfPresent` on `hit` and `children` is what keeps
-    /// "no children list was read" an absent key rather than `null`.
+    /// Matches the synthesised wire shape exactly. `encodeIfPresent` on `hit` and
+    /// `children` keeps "no children list was read" an absent key, not `null`.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(kind, forKey: .kind)
@@ -365,25 +222,10 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
         try container.encode(walkBudgetNanos, forKey: .walkBudgetNanos)
     }
 
-    /// Whether `clickPosition` falls inside the hit element's own recorded
-    /// frame — the check that separates a coordinate fault from an AX timing
-    /// fault, computed from this record and nothing else.
-    ///
-    /// **Revisions are compared first, and a mismatch is `.notComparable`
-    /// rather than a trap.** `NormalizedFrame.contains` preconditions on
-    /// revision equality, which is right for a caller that has already
-    /// established the two frames describe one display; here the mismatch is
-    /// one of the answers, and killing the process while reading a log file is
-    /// not.
-    ///
-    /// **Inclusive on all four edges, and no epsilon.** Inclusive so that a
-    /// click landing exactly on a control's boundary is not reported as a
-    /// coordinate fault — this predicate should over-report containment, since
-    /// its `false` is the loud direction. No tolerance, because a tolerance is
-    /// a threshold and D4 requires thresholds to be fitted to measured
-    /// distributions; both sides of this comparison come out of the same
-    /// normalisation arithmetic, so there is no accumulated error for an
-    /// epsilon to absorb.
+    /// Whether `clickPosition` falls inside the hit element's recorded frame,
+    /// computed from this record alone. Revisions are compared first and a mismatch
+    /// answers `.notComparable` rather than tripping `NormalizedFrame.contains`'s
+    /// precondition. Inclusive on all four edges, with no epsilon.
     public var clickContainment: ClickContainment {
         guard let hit else { return .noHitElement }
         guard let frame = hit.frame else { return .noFrameRecorded }
@@ -393,48 +235,18 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
         return inside ? .containsTheClick : .doesNotContainTheClick
     }
 
-    /// How long the click waited **before anyone asked AX anything**: from the
-    /// instant the window server stamped the button event to the instant the
-    /// hit-test began.
-    ///
-    /// **This is the price of not doing AX work on the tap callback thread,
-    /// and it is recorded rather than absorbed.** The observation is
-    /// dispatched to another queue, which makes it later than the click by
-    /// whatever this says.
-    ///
-    /// The reason for that dispatch is the asymmetry of what is lost when a
-    /// target application hangs — AX on the callback thread risks the whole
-    /// pointer track, AX behind a bounded queue risks the AX chains of the
-    /// affected clicks, counted — and **not** a per-callback time budget. An
-    /// earlier version of this comment cited a 10–50 ms budget that was an
-    /// artefact of stalling every `mouseMoved`; 125 ms of stall on clicks
-    /// alone — 18 stalls over 30 s — was later measured to leave the tap
-    /// enabled. `Soredemo/Capture/AXObserver.swift`'s header carries the
-    /// argument, that correction, and a second one about the number itself.
-    ///
-    /// A stale hit-test is recorded staleness; a dead pointer track is
-    /// silence. This field is what keeps the trade visible instead of turning
-    /// it into an unexplained drift between the verb and the object.
-    ///
-    /// Together with `hitTestInterval.duration` it decomposes
-    /// `clickToHitTestAnswerNanos` into the part this app chose (the queue)
-    /// and the part the target application imposed (the IPC). A gate that
-    /// wants to reject stale observations needs them apart: raising a budget
-    /// fixes one and does nothing for the other.
+    /// From the button event's instant to the start of the hit-test: the queue
+    /// delay from dispatching AX work off the tap callback thread. With
+    /// `hitTestInterval.duration` it decomposes `clickToHitTestAnswerNanos` into
+    /// the queue's share and the target application's IPC. `nil` across epochs.
     public var clickToHitTestStartNanos: Int64? {
         guard hitTestInterval.epoch == instant.epoch else { return nil }
         return hitTestInterval.start.rawValue - instant.hostTime.rawValue
     }
 
-    /// How long the click waited for the hit-test to answer: from the instant
-    /// the window server stamped the button event to the instant
-    /// `AXUIElementCopyElementAtPosition` returned. The sum of
-    /// `clickToHitTestStartNanos` (the queue) and `hitTestInterval.duration`
-    /// (the IPC).
-    ///
-    /// `nil` across a boot-epoch mismatch rather than a wrong number — the two
-    /// instants are then not on one clock, and subtracting them would produce
-    /// a plausible-looking duration that means nothing.
+    /// From the button event's instant to the hit-test's answer — the sum of
+    /// `clickToHitTestStartNanos` and `hitTestInterval.duration`. `nil` across a
+    /// boot-epoch mismatch, where the two instants are not on one clock.
     public var clickToHitTestAnswerNanos: Int64? {
         guard hitTestInterval.epoch == instant.epoch else { return nil }
         return hitTestInterval.end.rawValue - instant.hostTime.rawValue
@@ -442,22 +254,15 @@ public struct AXChainRecord: Hashable, Codable, Sendable {
 }
 
 extension AXElementRecord {
-    /// Not an `ObservationRecord` itself — it is never a line of its own — but
-    /// it carries an instant, so the epochs of a chain include one per
-    /// element. See `AXChainRecord.epochs`.
+    /// Not an `ObservationRecord` — never a line of its own — but it carries an
+    /// instant, so a chain's epochs include one per element.
     public var epochs: [BootEpoch] { [readInterval.epoch] }
 }
 
 extension AXChainRecord: ObservationRecord {
-    /// The click's epoch, the hit-test's, and one per element read interval.
-    ///
-    /// **All of them, not just `instant.epoch`.** `clickToHitTestStartNanos`
-    /// and `clickToHitTestAnswerNanos` already return `nil` across an epoch
-    /// mismatch rather than a wrong number — which is correct, and is also
-    /// silent. This is the loud half: a chain whose element reads landed in
-    /// another boot session is refused at the writer instead of decaying into
-    /// a record whose two most useful derived fields are permanently `nil`
-    /// with nothing on disk saying why.
+    /// The click's epoch, the hit-test's, and one per element read interval — all
+    /// of them, so the writer refuses a chain whose element reads landed in
+    /// another boot session instead of letting derived fields go silently `nil`.
     public var epochs: [BootEpoch] {
         var all = [instant.epoch, hitTestInterval.epoch]
         if let hit { all.append(contentsOf: hit.epochs) }

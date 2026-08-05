@@ -4,26 +4,13 @@ import AVFoundation
 import CoreMedia
 @testable import Headless
 
-/// **Joins the `StageCompositorTests` serialized suite — deliberately not a new suite of its
-/// own.** `StageCompositor.renderer`/`.style`/`.observationLogURL`/`.overrides` are process-global
-/// mutable state (`StageCompositorTests.swift`'s own header), and a real `MP4Exporter.export`
-/// call drives that same compositor through `CompositionBuilder.composition`'s installed
-/// `customVideoCompositorClass`, exactly as `RecordedPointerPositionTests.swift` already does for
-/// the same reason. That file's own header states the rule this one follows: a second
-/// `@Suite(.serialized)` here would not serialise against `StageCompositorTests`'s own suite —
-/// Swift Testing does not serialise sibling top-level suites against each other — so the only
-/// way to actually stop racing those tests on the same statics is to extend that suite, not
-/// declare a new one.
+/// Extends the `StageCompositorTests` serialized suite rather than declaring its own: a real
+/// export drives the same process-global `StageCompositor` statics, and Swift Testing does not
+/// serialise sibling top-level suites against each other.
 extension StageCompositorTests {
-    /// A wall-clock ceiling around the WHOLE export, distinct from `MP4Exporter`'s own internal
-    /// per-frame `readinessDeadlineSeconds` (5s, `MP4Exporter.swift`'s own doc comment). That
-    /// per-frame cap is the real fix for Spike D's stall; this is what stops a REGRESSION in that
-    /// cap — an edit that widens or removes it — from hanging this test, and therefore `swift
-    /// test`, with no output. A `Task.sleep`-based cancelling arm races the real export inside a
-    /// `withThrowingTaskGroup`, not a second copy of the production bound. 30s is generous for a
-    /// 64×64, 2-second, 20-frame source (`Tests/RenderParityFixtures/two-tone.mov`) composed at a
-    /// small output size — the real export is expected to finish in well under a second; this
-    /// only fires on a genuine regression.
+    /// 30s wall-clock ceiling on the whole export, so a regression in `MP4Exporter`'s own 5s
+    /// per-frame `readinessDeadlineSeconds` cannot hang `swift test` with no output. Generous:
+    /// the 20-frame fixture really exports in well under a second.
     private static let testTimeoutSeconds: Double = 30
 
     private enum TestTimeoutError: Error, CustomStringConvertible {
@@ -38,17 +25,10 @@ extension StageCompositorTests {
         }
     }
 
-    /// The entry-rule discharge for `MP4Exporter`, against the same real fixture
-    /// `CompositionBuilderTests` already uses — `Tests/RenderParityFixtures/two-tone.mov` — run
-    /// through the real `CompositionBuilder`/`StageCompositor`/`CoreImageFrameRenderer` stack,
-    /// not a synthesised asset. Output goes under `FileManager.default.temporaryDirectory`, never
-    /// `$HOME`, and is deleted in a `defer` regardless of how the test exits; nothing this test
-    /// writes is committed.
+    /// A real export of `Tests/RenderParityFixtures/two-tone.mov` through the real
+    /// `CompositionBuilder`/`StageCompositor`/`CoreImageFrameRenderer` stack, not a synthesised
+    /// asset. Output lands in the temporary directory and is removed in a `defer`.
     @Test func exportingTheFixtureNeverDropsAFrameAndFinishesWithinTheTestsOwnTimeout() async throws {
-        // `nonisolated(unsafe) static var` on all four — `StageCompositorTests.swift`'s own
-        // header explains why (`observationLogURL`/`overrides` published before playback starts,
-        // read by any `StageCompositor` instance); `unsafe` here states that shape at this call
-        // site, matching that file's own precedent for the two it already touches.
         unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
         unsafe StageCompositor.style = .default
         unsafe StageCompositor.observationLogURL = nil
@@ -81,10 +61,8 @@ extension StageCompositorTests {
                 restated here so a future change that removed that throw would still show up
                 """)
 
-        // `resourceValues(forKeys:)`, not `fileExists(atPath:isDirectory:)` — the latter's
-        // `isDirectory` out-parameter is an `UnsafeMutablePointer`, a `StrictMemorySafety`-flagged
-        // construct (measured: `swift build` warns on it directly); this reaches the same fact
-        // through a safe API.
+        // `resourceValues(forKeys:)`, not `fileExists(atPath:isDirectory:)`: the latter's
+        // out-parameter is an `UnsafeMutablePointer`, which `StrictMemorySafety` warns on.
         let resourceValues = try outputURL.resourceValues(forKeys: [.isDirectoryKey])
         #expect(FileManager.default.fileExists(atPath: outputURL.path)
                 && resourceValues.isDirectory == false, "the exported file exists on disk")
@@ -94,15 +72,9 @@ extension StageCompositorTests {
         #expect(size > 0, "the exported file is non-empty")
     }
 
-    /// **Distinguishable — the entry rule's own third requirement for the new case.** Not
-    /// exercised by forcing a real stall inside `swift test`: that would need either shrinking
-    /// the production `readinessDeadlineSeconds` for the test (changing the shipped constant to
-    /// make a test pass) or genuinely hanging for 5 real seconds on every run, and the task's own
-    /// instructions ask for the real stall to be observed BY HAND, once, with the deadline forced
-    /// to zero, then reverted — see `task-7-report.md`'s "observed red" section — not re-run here
-    /// on every `swift test`. Constructed directly instead: enough to prove the case exists,
-    /// carries its own frame/elapsed payload, and does not collide with any other `ExportError`
-    /// case's own pattern.
+    /// The readiness-timeout case exists, carries its frame/elapsed payload, and does not match
+    /// another case's pattern. Constructed directly: forcing a real stall would mean either
+    /// shrinking the shipped deadline or hanging 5 real seconds on every run.
     @Test func theReadinessTimeoutCaseIsDistinguishableAndNamesFrameAndElapsedTime() {
         let timeoutError = MP4Exporter.ExportError.writerNotReadyInTime(frame: 42, elapsedSeconds: 5.0)
         let mismatchError = MP4Exporter.ExportError.frameCountMismatch(read: 3, written: 2)
@@ -124,18 +96,9 @@ extension StageCompositorTests {
         }
     }
 
-    /// **`ExportError`'s other six cases, unconstructed anywhere else `swift test` reaches —
-    /// code review (Task 7).** `noVideoTrack`, `readerRefusedOutput`, `writerRefusedInput`,
-    /// `readerFailed`, `writerFailed` and `appendRefused` became `public` with the type itself
-    /// (Task 7's move set access levels per TYPE, not per case — an individual enum case cannot
-    /// be made non-public while its enum is public, so narrowing access to only the two cases the
-    /// other tests in this file already construct is not an option). `docs/ARCHITECTURE.md`
-    /// D6a-V: unexercised public API is an unverified capability claim, not only a dead-code
-    /// smell — so this constructs each of the six directly and checks that its `description`
-    /// actually names what the case claims to, the same diagnostic a person hitting a real export
-    /// failure would read. Chosen over a D6a-V table row because these are simple values with no
-    /// external dependency to fake (no writer, no reader, no disk) — cheap enough that recording
-    /// them as "unexercised, and here is why" would cost more than just exercising them.
+    /// `ExportError`'s other six public cases, unconstructed anywhere else: each one's
+    /// `description` names what the case claims, which is the diagnostic a person hitting a real
+    /// export failure reads.
     @Test func theRemainingExportErrorCasesDescribeWhatTheyClaim() {
         #expect(MP4Exporter.ExportError.noVideoTrack.description.contains("no video track"))
 

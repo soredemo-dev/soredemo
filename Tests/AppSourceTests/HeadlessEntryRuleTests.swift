@@ -2,9 +2,8 @@ import CheckerLexer
 import Foundation
 import Testing
 
-// Reuses `repositoryRoot`, `codeLinesNaming(_:in:)`, `violations(banned:permittedPath:in:)`
-// and `pathRelativeToRepositoryRoot(_:)` from `AppSourceAllowListTests.swift` —
-// file-scope declarations in this same target.
+// Reuses `repositoryRoot`, `codeLinesNaming`, `violations` and `pathRelativeToRepositoryRoot`
+// from `AppSourceAllowListTests.swift` — file-scope declarations in this same target.
 
 /// Every `.swift` file under `Sources/Headless`.
 func headlessSourceFiles() throws -> [URL] {
@@ -16,10 +15,8 @@ func headlessTestFiles() throws -> [URL] {
     try swiftFiles(under: "Tests/HeadlessTests")
 }
 
-/// Same enumeration `firstPartySourceFiles()` uses, over one directory. Non-empty is
-/// required for the reason that helper gives: a scan over nothing passes vacuously,
-/// and a scanner that passes vacuously is worse than no scanner because someone is
-/// counting on it.
+/// Same enumeration `firstPartySourceFiles()` uses, over one directory. Empty is a failure:
+/// a scan over nothing passes vacuously, and someone is counting on it.
 func swiftFiles(under relativePath: String) throws -> [URL] {
     let root = repositoryRoot.appending(path: relativePath)
     let enumerator = try #require(
@@ -35,15 +32,9 @@ func swiftFiles(under relativePath: String) throws -> [URL] {
 
 // MARK: - rule 5's Headless half
 
-/// **Rule 5's Headless half.** The app tier confines CoreGraphics geometry to
-/// `Soredemo/Capture/CGGeometryBridge.swift`; this tier confines it to
-/// `Sources/Headless/HeadlessGeometryBridge.swift`. Two tiers, two bridges, two
-/// tests — and neither test has an exception, which is the only reason either is
-/// worth having.
-///
-/// `HeadlessCheck` cannot do this job: rule 2 is OFF in headless mode, deliberately,
-/// because this tier is where CG conversion legitimately happens. "Where it happens"
-/// still has to be one file, and that is what this pins.
+/// **Rule 5's Headless half.** CoreGraphics geometry is confined to
+/// `Sources/Headless/HeadlessGeometryBridge.swift`, with no exception. `HeadlessCheck` cannot
+/// do this job: rule 2 is off in headless mode, which is where CG conversion legitimately happens.
 @Test func coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge() throws {
     let found = try violations(
         banned: ["CGRect", "CGPoint", "CGSize", "CGFloat"],
@@ -58,33 +49,9 @@ func swiftFiles(under relativePath: String) throws -> [URL] {
         """)
 }
 
-/// Every function declared in one file, by **full signature** — base name plus
-/// argument labels, `point(x:y:)` rather than `point`.
-///
-/// **The granularity is a correction to this task's brief, and it is a measured
-/// one.** The brief specified bare base names, on the argument that an overload set
-/// is one name — true, but the two bridges already share the base name `point`:
-/// `CGGeometryBridge.point(fromAXValue:)` decodes an accessibility value into
-/// scalars and `HeadlessGeometryBridge.point(x:y:)` builds a `CGPoint` from them.
-/// They are opposite directions of the pipeline and neither can drift from the
-/// other, so a base-name check would have been red on the day it was written — a
-/// gate that cannot go green gets an exception added to it, and an exception is
-/// exactly what the two-bridge split refuses to buy. Full signatures still catch the
-/// failure mode the check exists for: a second `point(x:y:)`, or a second
-/// `outputCanvas(width:height:)`, appearing in whichever bridge someone happened to
-/// be editing.
-///
-/// **The residual weakening, stated rather than left as an unstated cost:** a
-/// duplicate written with DIFFERENT labels — `point(atX:y:)` beside `point(x:y:)` —
-/// is two signatures and this check does not see it, where a base-name check would
-/// have. That is unavoidable, because the base-name check is not writable at all
-/// here (`point` is already shared, legitimately), but it is a real hole and review
-/// is what covers it. The same trade the entry scanner makes one section down: the
-/// instrument is a necessary condition, and saying so is the only thing that keeps
-/// it from being read as more.
-///
-/// A line scan, so a declaration whose parameter list wraps is not parsed — which
-/// would be a silent miss. The count check below turns it into a loud one instead.
+/// Every function declared in one file by **full signature** — `point(x:y:)`, not `point`:
+/// both bridges legitimately declare the base name `point`, so a base-name check could never
+/// go green. A line scan; a wrapped parameter list is caught loudly by the count check below.
 func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
     let text = try String(contentsOf: repositoryRoot.appending(path: relativePath),
                           encoding: .utf8)
@@ -145,25 +112,9 @@ func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
     return Set(signatures)
 }
 
-/// **Two bridges, one definition each.** The tiers are split because their ENTRANCES
-/// differ — AX and ScreenCaptureKit need `ApplicationServices`, the render exits need
-/// nothing — but a function defined in both would be the split's actual failure mode:
-/// one copy gets a fix, the other does not, and both pass their own tier's test.
-///
-/// Measured when the split was made: the three render exits had 17 call sites and not
-/// one of them in `Soredemo/Capture/`, so there is nothing to delegate and no edge to
-/// add. This test is about the day after that measurement stops being true.
-///
-/// When `Capture` moves in 3A-2 the two bridges become one and this test is deleted
-/// with them — it is scaffolding for a boundary that is meant to be temporary, which
-/// is stated here so it is not mistaken for a permanent rule.
-///
-/// **`…ShareNoFunctionSignature`, not `…ShareNoFunctionName`, and the rename is the
-/// point.** Under the first name this test was green while the two bridges
-/// demonstrably DO share the function name `point` — a title claiming more than the
-/// check verifies, which is the exact defect this file's own entry scanner carries a
-/// paragraph about. A doc comment does not travel with `--list-tests` output; the
-/// identifier does.
+/// **Two bridges, one definition each.** A function defined in both is the split's own failure
+/// mode: one copy gets a fix, the other does not, and each passes its own tier's test. Named
+/// `…ShareNoFunctionSignature`, not `…ShareNoFunctionName` — the bridges do share `point`.
 @Test func theTwoGeometryBridgesShareNoFunctionSignature() throws {
     let app = try functionSignatures(inFileAt: "Soredemo/Capture/CGGeometryBridge.swift")
     let headless = try functionSignatures(inFileAt: "Sources/Headless/HeadlessGeometryBridge.swift")
@@ -182,31 +133,15 @@ func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
 
 // MARK: - the entry rule
 
-/// Every `public` type declared in a set of files, at any nesting depth, read
-/// through the code view so a `public struct` inside a doc comment is not one.
-///
-/// A line scan, not a brace-matching parse. `architecture-checker` has the real
-/// parser (`declarationSites(in:file:)`) and a test target cannot import an
-/// `executableTarget`, so this is the second-cheapest thing that answers the
-/// question — and the question is only ever a NECESSARY condition, so a line scan
-/// is the right size of instrument for it. Nested declarations are found because
-/// they are still lines beginning (after whitespace and modifiers) with `public`.
+/// Every `public`/`open` type declared in a set of files, at any nesting depth, read through the
+/// code view. A line scan, not a parse — only ever a NECESSARY condition for the entry rule.
 func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location: String)] {
     let typeKeywords: Set<String> = ["struct", "class", "enum", "actor", "protocol"]
-    // `open` and `public` are DISTINCT, MUTUALLY EXCLUSIVE access levels — `open`
-    // is never spelled `public open`, which is not valid Swift — so `open class
-    // Foo {}` carries no `public` token anywhere on its line and the old scan,
-    // which looked ONLY for `public` and treated `open` as a modifier reachable
-    // after it, never found the line at all: `open` sat in `modifiers` below,
-    // reachable only through a spelling that cannot occur. Found by the final
-    // whole-branch review. Both are now accepted as the declaration's own ENTRY
-    // keyword, not one as a modifier of the other.
+    // `open` and `public` are distinct, mutually exclusive access levels — `open class Foo`
+    // carries no `public` token, so both must be accepted as the declaration's entry keyword.
     let entryKeywords: Set<String> = ["public", "open"]
-    // Modifiers Swift permits between the entry keyword and the type keyword.
-    // `final`, `nonisolated`, `indirect` and `static` all appear in this tree
-    // today; the list is walked, not matched, so an unknown modifier costs a
-    // missed declaration rather than a wrong name — and a missed declaration is
-    // caught by review, which is the level that enforces the rule anyway.
+    // Modifiers Swift permits between the entry keyword and the type keyword. The list is
+    // walked, not matched: an unknown modifier costs a missed declaration, not a wrong name.
     let modifiers: Set<String> = ["final", "nonisolated", "indirect", "static"]
     var found: [(name: String, location: String)] = []
     for file in files {
@@ -218,14 +153,8 @@ func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location:
             var cursor = entryIndex + 1
             while cursor < words.count, modifiers.contains(words[cursor]) { cursor += 1 }
             guard cursor + 1 < words.count, typeKeywords.contains(words[cursor]) else { continue }
-            // `public typealias` is deliberately NOT among `typeKeywords` and is not
-            // scanned for under another name either: a typealias cannot be
-            // constructed on its own. It names an existing type, which either is
-            // itself `public`/`open` (already found here, under its OWN
-            // declaration) or is not — and a typealias cannot widen its aliased
-            // type's access, so nothing new becomes constructible either way. There
-            // is no entry-rule obligation a typealias could carry that the type it
-            // names does not already carry.
+            // `public typealias` is deliberately not scanned: it names an existing type, found
+            // here under its own declaration, and cannot widen that type's access.
             let name = words[cursor + 1].replacingOccurrences(of: "`", with: "")
             guard !name.isEmpty else { continue }
             found.append((name: name,
@@ -235,23 +164,9 @@ func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location:
     return found
 }
 
-/// **The entry rule's SCANNER — a necessary condition, and not the rule.**
-///
-/// The rule is: every `public` type in `Headless` has a test that CONSTRUCTS AND
-/// EXERCISES it. No scanner can see that. A type annotation, a doc comment that
-/// survived the code view, or an unused `import` would satisfy this check while the
-/// type is never built and never run. **Review enforces the rule; this enforces
-/// that the type is at least mentioned in code by a test that links the product.**
-///
-/// Saying otherwise would plant this project's own recurring defect inside the gate
-/// built to prevent it: probe § 12 passed because its fixture and the code under
-/// test shared one wrong frame of reference, and its title claimed more than it
-/// checked. A gate that overstates itself is that shape exactly.
-///
-/// **Discriminating power falls as the name gets generic.** `Frame`, `Track`,
-/// `Renderer` appear at a word boundary in almost any test file, so for names like
-/// those this check is close to vacuous — and a dumping ground is full of names
-/// like those. That is stated in the failure message too, not only here.
+/// **The entry rule's SCANNER — a necessary condition, and not the rule.** The rule is that a
+/// test CONSTRUCTS AND EXERCISES every `public` type in `Headless`, which no scanner can see;
+/// for a generic name (`Frame`, `Track`, `Renderer`) this check is close to vacuous.
 @Test func everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct() throws {
     let declarations = try publicTypeDeclarations(in: try headlessSourceFiles())
     try #require(!declarations.isEmpty,
@@ -261,10 +176,8 @@ func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location:
     for declaration in declarations {
         let mentions = try codeLinesNaming(declaration.name, in: testFiles)
             .filter { line in
-                // Word boundary, the same filter `theUnexercisedPublicAPITableMatchesTheTree`
-                // uses and for the same reason: without it `CMTimeRange` counts as a use of
-                // `TimeRange`, and a presence count is exactly where that difference decides
-                // the answer.
+                // Word boundary, or `CMTimeRange` counts as a use of `TimeRange` — and a
+                // presence count is exactly where that difference decides the answer.
                 var searchRange = line.text.startIndex..<line.text.endIndex
                 while let hit = line.text.range(of: declaration.name, range: searchRange) {
                     let before = hit.lowerBound > line.text.startIndex
@@ -297,16 +210,9 @@ func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location:
 
 // MARK: - the manifest's own shape
 
-/// `swift package dump-package`'s `targets` array.
-///
-/// **Duplicated from `Tests/GeometryTests/ArchitectureCheckTests.swift`, and the
-/// duplication is a target boundary rather than carelessness**: the two live in
-/// different test targets, which cannot share a file-scope declaration, and the only
-/// module both can import is `CheckerLexer` — the one target outside plugin
-/// enforcement, which is the least-guarded place in the package to put shared code.
-///
-/// A separate `--scratch-path` keeps this off the `.build` directory the enclosing
-/// `swift test` is holding.
+/// `swift package dump-package`'s `targets` array. Duplicated from
+/// `Tests/GeometryTests/ArchitectureCheckTests.swift` because separate test targets cannot share
+/// a file-scope declaration. A separate `--scratch-path` keeps this off the enclosing `.build`.
 func resolvedManifestTargets() throws -> [[String: Any]] {
     let scratch = URL(filePath: NSTemporaryDirectory())
         .appending(path: "dump-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -337,33 +243,9 @@ func manifestDependencyNames(of target: [String: Any]) -> [String] {
         .compactMap { ($0["byName"] as? [Any] ?? $0["target"] as? [Any])?.first as? String }
 }
 
-/// **The tier boundary in the other direction, and the manifest is the ONLY place it
-/// can be checked.**
-///
-/// `noDeterministicTestTargetDependsOnHeadless` below covers test targets. This one
-/// covers the library targets, and the reason it is not redundant is that
-/// `ArchitectureCheck` cannot possibly catch it: the plugin passes one `--allow` per
-/// DECLARED dependency, so **rule 1's allow-list IS the manifest**. Declare
-/// `Headless` as a dependency of a pure target and `import Headless` inside it
-/// immediately becomes legal — rule 1 permits it, rule 2 never looks at what a
-/// permitted import drags in, and the deterministic tier has absorbed AVFoundation,
-/// the GPU and wall time with every guard still green.
-///
-/// **Which pure targets can actually do this, measured rather than assumed.**
-/// `Headless` depends on `Project`, which depends on `Graph`, so `Geometry`,
-/// `Timeline`, `Project`, `Graph` and `Render` are all cycle-blocked: SwiftPM
-/// refuses to resolve the package (`cyclic dependency declaration found:
-/// DeterminismTests -> Graph -> Headless -> Project -> Graph`) and the failure
-/// arrives before any test runs. `Framing` and `Variants` are NOT reachable from
-/// `Headless`, so for those two the edge resolves cleanly and every guard stays
-/// green — which is what this test was observed red on. A rule that holds for five
-/// targets by accident of the graph and for two only because nobody has tried is
-/// exactly the shape this phase exists to replace, so the manifest is asserted
-/// directly.
-///
-/// `Headless` itself is excluded for the obvious reason, and the exclusion is by
-/// exact name rather than by a pattern: a second headless-ish target would be a
-/// second tier and must argue for itself here.
+/// **The tier boundary in the other direction, and the manifest is the only place it can be
+/// checked.** `ArchitectureCheck` passes one `--allow` per DECLARED dependency, so the edge
+/// itself is what would make `import Headless` legal inside a pure target, every guard green.
 @Test func noPureTargetDependsOnHeadless() throws {
     let targets = try resolvedManifestTargets()
     let regular = targets.filter { $0["type"] as? String == "regular" }
@@ -386,12 +268,8 @@ func manifestDependencyNames(of target: [String: Any]) -> [String] {
     }
 }
 
-/// **The two test populations are kept apart by the build graph, not by a rule.**
-///
-/// Two counts are an assertion until something prevents a test landing in the wrong
-/// one. A deterministic test target that cannot LINK `Headless` cannot have a
-/// GPU-dependent or time-sensitive test written against it, so the manifest is the
-/// mechanism and this test is what keeps the manifest honest.
+/// **The two test populations are kept apart by the build graph, not by a rule.** A deterministic
+/// target that cannot LINK `Headless` cannot host a GPU-dependent or time-sensitive test.
 @Test func noDeterministicTestTargetDependsOnHeadless() throws {
     let targets = try resolvedManifestTargets()
     let testTargets = targets.filter { $0["type"] as? String == "test" }

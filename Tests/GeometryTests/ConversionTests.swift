@@ -2,10 +2,8 @@ import Testing
 import Foundation
 @testable import Geometry
 
-/// A 1000×800 display at 2x scale. Numbers chosen so pixel/normalised
-/// fractions are exact `Double`s (no repeating binary fractions), which keeps
-/// the tolerance in `isApproximatelyEqual` doing nothing but guard against
-/// genuine floating-point round-off, not hide a formula bug.
+/// A 1000×800 display at 2x scale, sized so every normalised fraction below is
+/// an exact `Double` and the tolerance cannot hide a formula bug.
 private let testGeometry = DisplayGeometry(
     displayUUID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
     pixelWidth: 1000,
@@ -24,16 +22,14 @@ private let context = NormalizationContext(geometry: testGeometry)
 
 // MARK: - direction: top vs. bottom
 
-// This is the test that actually pins the sign of the flip. `(0.5, 0.5)`
-// alone is symmetric under `1 - y` vs. `y` — this is not.
+// Pins the sign of the flip; `(0.5, 0.5)` alone could not.
 @Test func rectAtTheInputTopLeftCornerLandsAtHighNormalizedY() {
-    // topLeftY: 0, i.e. flush against the top edge in top-left pixel space.
     let f = context.normalize(topLeftX: 0, topLeftY: 0, width: 100, height: 50)
     #expect(f.origin.y > 0.9, "a rect at the top of the display must normalise near y=1, got \(f.origin.y)")
 }
 
 @Test func rectAtTheInputBottomLeftCornerLandsAtLowNormalizedY() {
-    // topLeftY + height == pixelHeight, i.e. flush against the bottom edge.
+    // topLeftY + height == pixelHeight: flush against the bottom edge.
     let f = context.normalize(topLeftX: 0, topLeftY: 750, width: 100, height: 50)
     #expect(f.origin.y.isApproximatelyEqual(to: 0),
             "a rect at the bottom of the display must normalise near y=0, got \(f.origin.y)")
@@ -50,7 +46,7 @@ private let context = NormalizationContext(geometry: testGeometry)
             "a point at the bottom of the display must normalise near y=0, got \(p.y)")
 }
 
-// MARK: - centre — necessary but not sufficient on its own
+// MARK: - centre
 
 @Test func pointAtExactCentreMapsToHalfHalf() {
     let p = context.normalize(topLeftX: 500, topLeftY: 400)
@@ -61,11 +57,8 @@ private let context = NormalizationContext(geometry: testGeometry)
 // MARK: - the anchor: top edge vs. bottom edge of the rect
 
 @Test func normalizedYAnchorsOnTheRectsBottomEdgeNotItsTopEdge() {
-    // A rect whose TOP edge sits exactly at the display's vertical centre.
-    // Using the (wrong) top-edge formula `1 - topLeftY/H` would put origin.y
-    // at exactly 0.5. The correct, bottom-edge formula
-    // `1 - (topLeftY + height)/H` must instead land below 0.5, by exactly
-    // height/H.
+    // The rect's TOP edge sits at the display's vertical centre, so the wrong
+    // top-edge formula gives exactly 0.5 and the bottom-edge one lands below it.
     let f = context.normalize(topLeftX: 0, topLeftY: 400, width: 0, height: 100)
     let expected = 1 - (500.0 / 800.0) // (topLeftY + height) / pixelHeight, flipped
     #expect(f.origin.y.isApproximatelyEqual(to: expected))
@@ -74,10 +67,7 @@ private let context = NormalizationContext(geometry: testGeometry)
 
 // MARK: - round trip — a rect that is NOT vertically centred
 
-// A vertically centred rect round-trips even if the flip were inverted, by
-// symmetry — it would not catch a sign error. This rect's vertical centre
-// (100 + 120/2 = 160) is far from the display's (400), so it doesn't share
-// that blind spot.
+// Off-centre on purpose: a centred rect round-trips even under an inverted flip.
 @Test func denormalizeInvertsNormalizeForANonCentredRect() {
     let original = PixelRect(x: 50, y: 100, width: 200, height: 120)
     let frame = context.normalize(topLeftX: original.x, topLeftY: original.y,
@@ -114,14 +104,8 @@ private let context = NormalizationContext(geometry: testGeometry)
 
 // MARK: - denormalize's revision precondition
 //
-// A `precondition` failure kills the process; Swift Testing has no crash
-// expectation, so the cross-revision trap on `denormalize` cannot be
-// exercised with `#expect` in this suite — same limitation as
-// `NormalizedFrame.contains`/`intersects` (see `NormalizedTests.swift`). It
-// is verified out-of-process instead, recorded in the task report, not here.
-// What CAN be shown in-process is the negative control: denormalizing a
-// frame that DOES match the context's revision never traps, which the round
-// trip tests above already demonstrate by not crashing.
+// No crash expectation exists, so the cross-revision trap is verified
+// out-of-process; this is only its negative control.
 @Test func denormalizeOfASameRevisionFrameNeverTraps() {
     let f = context.normalize(topLeftX: 10, topLeftY: 10, width: 20, height: 20)
     let r = context.denormalize(f)

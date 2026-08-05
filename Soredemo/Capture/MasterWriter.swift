@@ -2,94 +2,28 @@ import AVFoundation
 import CoreMedia
 import Foundation
 
-/// **The seam the writer migration will happen behind.**
+/// The seam the writer migration will happen behind.
 ///
-/// `AVAssetWriter.addInput:`, `startWriting`, `AVAssetWriterInput.append(_:)`
-/// and `AVAssetWriterInputPixelBufferAdaptor` are all deprecated at macOS
-/// **27.0** — measured, not announced: `scripts/scan-sdk-deprecations.py`
-/// reports 78 declarations condemned at exactly that version, and this file's
-/// implementation uses four of them. Their successors (`AVAssetWriter.start()`,
-/// `inputReceiver(for:)`, `SampleBufferReceiver.append(_:)`) exist and work at
-/// this project's 26.0 floor; `spikes/2026-08-03-writer-receiver-hang` writes
-/// 3000 frames through them without stalling — **one receiver at a time**
-/// (`main.swift:440`, "pushing, one receiver at a time"). Three receivers
-/// together — video and two audio, what any real writer needs — reproducibly
-/// stall under `appendImmediately(_:)`, with no error and no recovery: see
-/// `SuccessorMasterWriter.swift`'s "known gap" paragraph for the measurement.
-/// Read that before trusting the sentence above it.
+/// `AVAssetWriter.addInput:`, `startWriting`, `AVAssetWriterInput.append(_:)` and
+/// `AVAssetWriterInputPixelBufferAdaptor` are deprecated at macOS 27.0; their successors
+/// (`AVAssetWriter.start()`, `inputReceiver(for:)`, `SampleBufferReceiver.append(_:)`) work at
+/// this project's 26.0 floor. The shipping capture path stays on the legacy implementation
+/// because the successor's `appendImmediately(_:)` stalls under three concurrent receivers — see
+/// `SuccessorMasterWriter`. New media-writing code goes to the successor.
 ///
-/// **So the migration is scheduled, not speculative.** The predecessor dies at
-/// 27.0 and this project's floor moves eventually; only the date is unknown.
-/// That is what makes this seam different from generalising on spec: today it
-/// is one file, and after Phase 2B — with `render-core`, `export-basic` and
-/// `render-parity` all writing media — it is a migration.
-///
-/// **Which implementation sits behind it — re-decided, because the first reason
-/// was falsified thirty minutes after it was written.** That reason was "the
-/// successor stack cannot write a recording", measured at 2.3 seconds of video.
-/// The discriminating experiment then showed the stall was a usage error, and
-/// the successors write 3000 frames without pausing. The seam survives that —
-/// it is justified by a scheduled deprecation, not by a hang — but the choice
-/// behind it had to be made again on true premises. `ARCHITECTURE.md` D2-17 is
-/// the same shape: a correct argument outliving the world it referred to.
-///
-/// **The two properties that decided `AVAssetWriter` over `SCRecordingOutput`
-/// were re-measured through the successor, because a redesign changes defaults
-/// and neither had ever been checked on that path.** Both are reasons about what
-/// the writer does to the FILE: `SCRecordingOutput` mixes the microphone into
-/// the system-audio track, and uncontrolled colour tagging cost this project an
-/// entire evening. `SoredemoSpikeD --verify` writes a file each way and reads the
-/// finished asset back:
-///
-/// | | audio tracks | colour tags |
-/// | --- | --- | --- |
-/// | legacy `AVAssetWriterInput` | 2 | ITU_R_709_2 ×3, as requested |
-/// | successor `inputReceiver(for:)` | 2 | ITU_R_709_2 ×3, as requested |
-///
-/// Identical. Neither decisive property is lost on the successor path.
-///
-/// **So the split is by age of the code, not by capability.** This path — the
-/// shipping capture path — stays on the legacy implementation, because what is
-/// unverified about the successor is not whether it works but whether a *real*
-/// recording works: ScreenCaptureKit's own buffers, a real microphone, a display
-/// reconfiguration mid-segment. Those were established by human verification
-/// runs (Task 8), and re-establishing them is the actual cost of switching, not
-/// the eighty lines of a second conformance.
-///
-/// **New media-writing code in Phase 2B goes to the successor** — with the same
-/// caveat as above carried forward: that directive assumes `appendImmediately(_:)`
-/// tolerates the concurrent-track load real writing needs, which is exactly what
-/// is not yet established. `export-basic` and `render-core` have no migration
-/// cost, because they do not exist yet, and writing them against an API that
-/// dies at 27.0 would create the second thing this seam exists to prevent. The
-/// synchronous `appendImmediately(_:)` maps one-to-one onto today's
-/// `append(_:) -> Bool` in SHAPE, so neither side needs an async restructuring
-/// to make that split work — but see `SuccessorMasterWriter.swift` before
-/// assuming it maps onto it in RELIABILITY too.
-///
-/// **The trigger is written down where it will fire:** `ARCHITECTURE.md` D6b-27
-/// says re-run Spike D on every OS or SDK version bump. `26 fails / 27 works`
-/// and `both fail` point at opposite strategies, and the run costs a minute.
-///
-/// **Deliberately not a general media abstraction.** It has exactly the three
-/// tracks `CaptureSession` writes and exactly the operations it performs. A
-/// wider surface would be a second thing to migrate rather than a smaller one.
+/// Not a general media abstraction: exactly the three tracks `CaptureSession` writes and exactly
+/// the operations it performs.
 
-/// The writer's own state, as this app needs to read it.
-///
-/// Its own enum rather than `AVAssetWriter.Status`: the framework's type on this
-/// side of the seam would make every `switch` in `CaptureSession` a place the
-/// migration has to touch, which is the thing the seam exists to prevent. The
-/// cases are the same five because those are the five states that exist, not
-/// because they are being passed through.
+/// The writer's own state, as this app needs to read it. Its own enum rather than
+/// `AVAssetWriter.Status`, so the migration does not have to touch every `switch` in
+/// `CaptureSession`.
 nonisolated enum MasterWriterStatus: Sendable, Equatable {
     case unknown
     case writing
     case completed
     case failed
     case cancelled
-    /// A state this build does not know. Carries the raw value so a report can
-    /// say which, rather than "unrecognised".
+    /// A state this build does not know; carries the raw value so a report can say which.
     case unrecognised(Int)
 
     var name: String {
@@ -106,22 +40,15 @@ nonisolated enum MasterWriterStatus: Sendable, Equatable {
 
 /// One track of the master recording.
 ///
-/// **`nonisolated`, and every type in this file is.** The app target builds with
-/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so an unannotated declaration is
-/// MainActor-isolated — and every append here happens on a ScreenCaptureKit
-/// delivery queue, which is not the main actor. Reaching an isolated member from
-/// there traps at runtime with only a warning at compile time, which is how
-/// `ObservationWriter` and `LiveAXElementSource` each cost this project a
-/// debugging session. A seam that traps the first time a real frame arrives is
-/// worse than no seam.
+/// `nonisolated`, as is every type in this file: the app target builds with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and every append happens on a ScreenCaptureKit
+/// delivery queue, where reaching a MainActor-isolated member traps at runtime.
 nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
-    /// The writer's backpressure signal. An append while this is `false` is
-    /// refused, and — for a passthrough audio input — refusing once fails the
-    /// whole writer, taking the video track with it.
+    /// The writer's backpressure signal. An append while this is `false` is refused, and for a
+    /// passthrough audio input one refusal fails the whole writer, video track included.
     var isReadyForMoreMediaData: Bool { get }
 
-    /// `false` means the writer refused it. The caller records that; it never
-    /// retries, because a refusal here is a writer that has already failed.
+    /// `false` means the writer refused it and has already failed; the caller never retries.
     func append(_ sampleBuffer: CMSampleBuffer) -> Bool
 }
 
@@ -136,24 +63,19 @@ nonisolated protocol MasterWriting: AnyObject, Sendable {
     var status: MasterWriterStatus { get }
     var errorDescription: String? { get }
 
-    /// The session's source-time origin. Called once, on the first frame that
-    /// is actually appended — not at `start`, because the origin has to be a
-    /// timestamp that exists.
+    /// The session's source-time origin. Called once, on the first frame actually appended — not
+    /// at `start`, because the origin has to be a timestamp that exists.
     func startSession(at presentationTime: CMTime)
 
     func finish() async
 }
 
-/// **Today's implementation, on the API that dies at macOS 27.0.**
+/// Today's implementation, on the API deprecated at macOS 27.0.
 ///
-/// `@unchecked Sendable` for the same reason `CaptureSession` declares its
-/// writer references `nonisolated(unsafe)`: `AVAssetWriter` and
-/// `AVAssetWriterInput` are not `Sendable`, and the discipline that makes their
-/// use safe here is the caller's — every append happens on a ScreenCaptureKit
-/// delivery queue, guarded by the readiness check above it, and the references
-/// are published once under `CaptureSession`'s lock before any callback can see
-/// them. Moving that discipline behind this type would hide it; this comment
-/// keeps it where it already lives.
+/// `@unchecked Sendable`: `AVAssetWriter` and `AVAssetWriterInput` are not `Sendable`, and the
+/// discipline that makes them safe here is the caller's — every append happens on a
+/// ScreenCaptureKit delivery queue, guarded by the readiness check, on references published once
+/// under `CaptureSession`'s lock before any callback can see them.
 nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let videoTrack: LegacyMasterTrack
@@ -178,12 +100,8 @@ nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
         }
     }
 
-    /// Builds the writer with all three tracks and starts it, or throws.
-    ///
-    /// The video settings and the two passthrough audio inputs are the
-    /// caller's, unchanged — see `CaptureSession` for why audio is passthrough
-    /// (`D2-8`: the master is unprocessed evidence) and why the colour
-    /// properties are pinned.
+    /// Builds the writer with all three tracks and starts it, or throws. The video settings and
+    /// the two passthrough audio inputs are the caller's, unchanged.
     init(outputURL: URL, videoSettings: [String: Any],
          refusedInput: (String) -> Error, startFailed: (String?) -> Error) throws {
         let writer = try AVAssetWriter(url: outputURL, fileType: .mov)

@@ -9,8 +9,7 @@ let repositoryRoot = URL(filePath: #filePath)
 /// The seven library targets the plugin must be attached to.
 let libraryModules = ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
 
-/// Launches the real built checker. Never reimplement the checking logic
-/// in-process — that tests the test.
+/// Launches the real built checker; never reimplement the checking logic in-process.
 func launchChecker(targetName: String,
                    sourcesPath: String,
                    allow: [String] = [],
@@ -56,9 +55,7 @@ func runChecker(targetName: String = "Geometry",
     }
 }
 
-/// Rule 4 helper: writes the given manifest files into a fresh temp directory
-/// and invokes the real built checker with `--manifests <dir>` alone — the
-/// same shape a manifest-only invocation of the checker takes.
+/// Rule 4 helper: writes manifests into a temp dir and runs the checker with `--manifests <dir>` alone.
 func runManifestChecker(files: [String: String]) throws -> (status: Int32, stderr: String) {
     let dir = URL(filePath: NSTemporaryDirectory())
         .appending(path: "arch-manifests-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -116,9 +113,7 @@ let package = Package(
     "@testable import AppKit",
     "@_exported import AppKit",
     "@preconcurrency @_exported import AppKit",
-    // SE-0409 access-level modifiers. These are the IDIOMATIC Swift 6 spellings,
-    // pushed further by the InternalImportsByDefault upcoming feature, and a
-    // naive attribute-only strip lets every one of them through.
+    // SE-0409 access-level spellings: an attribute-only strip lets every one of them through.
     "public import AppKit",
     "internal import AppKit",
     "package import AppKit",
@@ -139,20 +134,16 @@ func rejectsDisallowedImport(_ line: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
-/// Real code hidden behind a literal or comment construct that a line-local or
-/// naive scanner mis-tracks. Each of these ends the literal/comment correctly,
-/// so the trailing `import AppKit` is genuine code and must be caught.
+/// Real code hidden behind a literal or comment construct that ends correctly, so the trailing
+/// `import AppKit` is genuine code and must be caught.
 @Test(arguments: [
     // A `//` inside a string literal must not start a comment.
     ##"let s = "//"; import AppKit"##,
-    // Interpolation body is CODE; closing it must return to string state and then close.
     ##"let s = "\(Date())"; import AppKit"##,
     // Raw-string interpolation: the pound count in \#( must match the delimiter.
     ##"let s = #"\#(Date())"#; import AppKit"##,
-    // In a raw string `\(` is literal text — no interpolation is opened, so the
-    // string still closes at the first `"#`.
+    // In a raw string `\(` is literal text, so the string still closes at the first `"#`.
     ##"let s = #"a \(b) c"#; import AppKit"##,
-    // Nested interpolation, nested parens.
     ##"let s = "\("\(Date())")"; import AppKit"##,
     // Multiline string: string state must survive newlines AND terminate.
     "let s = \"\"\"\nnot code\n\"\"\"\nimport AppKit",
@@ -160,7 +151,6 @@ func rejectsDisallowedImport(_ line: String) throws {
     "// he said \"hi\nimport AppKit",
     // Escaped backslash: the string DOES end at the following quote.
     ##"let s = "a \\"; import AppKit"##,
-    // Raw multiline string, correctly closed.
     "let s = #\"\"\"\nnot code\n\"\"\"#\nimport AppKit",
 ])
 func rejectsImportHiddenBehindLiterals(_ source: String) throws {
@@ -169,9 +159,7 @@ func rejectsImportHiddenBehindLiterals(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
-/// Spellings NOT in the original evasion list, found by probing `swiftc -typecheck`
-/// during Task 2. `import` + newline + module fully typechecks and grants access to
-/// the module's API, so a line-local statement scan lets AppKit straight in.
+/// `import` + newline + module fully typechecks, so a line-local statement scan lets AppKit in.
 @Test(arguments: [
     "import\nAppKit",
     "import\n\nAppKit",
@@ -186,9 +174,7 @@ func rejectsImportSpelledUnusually(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
-/// `file:line:` is the contract. A `\` line continuation inside a `"""` literal
-/// must not swallow its newline, or every reported line after it drifts by one,
-/// compounding with each continuation.
+/// `file:line:` is the contract: a `\` continuation inside a multiline literal must not swallow its newline.
 @Test func reportsAccurateLineNumberAfterStringLineContinuation() throws {
     let source = "let s = \"\"\"\na \\\nb\n\"\"\"\nimport AppKit"   // import is on line 5
     let result = try runChecker(source: source)
@@ -197,9 +183,7 @@ func rejectsImportSpelledUnusually(_ source: String) throws {
             "line number drifted: \(result.stderr)")
 }
 
-/// The same contract for the regex frame. A guard that exists in one branch and
-/// not its sibling is a guard that gets deleted by whoever tidies next, so both
-/// branches are pinned.
+/// The same line-number contract for the regex frame; both branches are pinned so neither is tidied away.
 @Test func reportsAccurateLineNumberAfterRegexLineContinuation() throws {
     let source = "public let r = #/\n  a\\\n  b\n/#\nimport AppKit"   // import is on line 5
     let result = try runChecker(source: source)
@@ -208,15 +192,7 @@ func rejectsImportSpelledUnusually(_ source: String) throws {
             "line number drifted: \(result.stderr)")
 }
 
-/// Separators Swift accepts between `import` and the module name that a
-/// space/tab/newline tokenizer does not. Each of these was verified to typecheck
-/// under `swiftc` with `public func probeUse() -> NSColor { NSColor.red }`
-/// appended — the module really is imported and its API resolves — while the
-/// checker exited 0. Form feed is the dangerous one: invisible in every diff
-/// viewer and on GitHub, and one `printf` to introduce.
-///
-/// The fix is not a longer separator list. Tokens are maximal *identifier* runs,
-/// so every separator closes at once, including U+00A0 and whatever comes next.
+/// Separators Swift accepts between `import` and the module name that a space/tab/newline tokenizer does not. Form feed is the dangerous one: invisible in every diff viewer.
 @Test(arguments: [
     "import\u{000C}AppKit",             // FORM FEED
     "import\u{000B}AppKit",             // VERTICAL TAB
@@ -233,12 +209,7 @@ func rejectsImportBehindExoticSeparators(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
-/// Swift terminates the `import` keyword at a backtick, so no space is needed
-/// before an escaped module name. Each of these typechecks clean — `NSColor`
-/// resolves — and they are one keystroke from `import \`AppKit\``, which was
-/// already caught. The backtick is in `isIdentifierCharacter` so that escaped
-/// module names survive as one token; that is exactly what welded it to the
-/// keyword, so the tokenizer has to flush at a backtick and keep it.
+/// Swift terminates the `import` keyword at a backtick, so the tokenizer must flush at a backtick and keep it.
 @Test(arguments: [
     "import`AppKit`",
     "public import`AppKit`",
@@ -251,25 +222,14 @@ func rejectsBacktickGluedImport(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
-/// Sibling edges have the same hole — the allow-list is consulted with the same
-/// token, so a bypass in the tokenizer is a bypass for F2 as well as F1.
+/// Sibling edges consult the same token, so a tokenizer bypass is a bypass for F2 as well as F1.
 @Test func rejectsBacktickGluedSiblingImport() throws {
     let result = try runChecker(targetName: "Framing", source: "import`Timeline`")
     #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
 }
 
-/// Lexical constructs in which a `"` is ORDINARY CONTENT, so a scanner that does
-/// not model them opens a string frame on source that compiles clean.
-///
-/// SE-0451 raw identifiers (Swift 6.2; this toolchain is 6.4) and extended regex
-/// literals `#/…/#` are both such constructs. `"""` inside either one is worse
-/// than `"`: the frame it opens is MULTILINE, which the defensive force-close
-/// deliberately declines to close, so it blanks the remainder of the file and the
-/// import does not even need to share a line. `/*` inside a raw identifier does
-/// the same through the block-comment frame.
-///
-/// Every one of these was verified to typecheck under `swiftc` with
-/// `public func probeUse() -> NSColor { NSColor.red }` appended.
+/// Constructs where a quote is ORDINARY CONTENT — SE-0451 raw identifiers and extended regex literals —
+/// so a scanner that does not model them opens a string frame on source that compiles clean.
 @Test(arguments: [
     ##"public let `a"b` = 1; import AppKit"##,
     "public let `a\"\"\"b` = 1\nimport AppKit",
@@ -286,21 +246,14 @@ func rejectsImportHiddenBehindRawIdentifierOrRegex(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
-/// The same construction defeats the sibling-edge rule, not just the
-/// Foundation-only rule — both consult the same token stream.
+/// The same construction defeats the sibling-edge rule; both consult the same token stream.
 @Test func rejectsSiblingImportHiddenBehindRawIdentifier() throws {
     let result = try runChecker(targetName: "Framing",
                                 source: "public let `a\"\"\"b` = 1\nimport Timeline")
     #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
 }
 
-/// Swift ends a `//` comment at a lone CR and compiles what follows. A scanner
-/// that only ends line comments at LF blanks the import — and everything else up
-/// to the next LF, so the blast radius is a whole line, not one token.
-///
-/// FF, VT, NEL, U+2028 and U+2029 do NOT end a Swift line comment (verified: the
-/// import stays commented out and `NSColor` does not resolve), so they must stay
-/// on the accepted side — see `acceptsLineCommentsThatDoNotEnd`.
+/// Swift ends a `//` comment at a lone CR and compiles what follows; FF, VT, NEL, U+2028 and U+2029 do NOT end one — see `acceptsLineCommentsThatDoNotEnd`.
 @Test func rejectsImportAfterCarriageReturnInLineComment() throws {
     let result = try runChecker(source: "// note\u{000D}import AppKit")
     #expect(result.status == 1)
@@ -311,8 +264,7 @@ func rejectsImportHiddenBehindRawIdentifierOrRegex(_ source: String) throws {
 
 @Test(arguments: [
     "import Foundation",
-    // The same access-level forms on a LEGITIMATE module must not be false-positived —
-    // a Swift 6 library author writes these routinely.
+    // The same access-level forms on a LEGITIMATE module must not be false-positived.
     "internal import Foundation",
     "public import Foundation",
     "// import AppKit",
@@ -329,16 +281,13 @@ func acceptsLegitimateSource(_ line: String) throws {
 @Test(arguments: [
     // A raw string contains NO interpolation: `\(` is literal text.
     ##"let s = #"a \(b) c"#"##,
-    // Multiline string content is content, across newlines.
     "let s = \"\"\"\nimport AppKit\n\"\"\"",
     // Swift block comments nest.
     "/* /* nested */ import AppKit */",
     ##"let s = #"import AppKit"#"##,
     // An escaped quote does not close the string.
     ##"let s = "a \" import AppKit""##,
-    // Raw multiline string.
     "let s = #\"\"\"\nimport AppKit\n\"\"\"#",
-    // Interpolation body is code, but a string literal *inside* it is still content.
     ##"let s = "\("import AppKit")""##,
 ])
 func acceptsLiteralsAndComments(_ source: String) throws {
@@ -346,12 +295,10 @@ func acceptsLiteralsAndComments(_ source: String) throws {
     #expect(result.status == 0, "should accept: \(source)\nstderr: \(result.stderr)")
 }
 
-/// `import` appearing as something other than an import declaration, and a
-/// legitimate module spelled unusually. Neither may be false-positived.
+/// `import` appearing as something other than an import declaration, and a legitimate module spelled unusually.
 @Test(arguments: [
     "import `Foundation`",
-    // A backtick-escaped `import` is an IDENTIFIER, not the keyword. Flushing the
-    // token run at a backtick must not turn it back into one.
+    // A backtick-escaped `import` is an IDENTIFIER; flushing the token run at a backtick must not restore the keyword.
     "public let `import` = 1",
     "let `import` = 1; let `AppKit` = 2",
     "let importAppKit = 1",
@@ -365,10 +312,7 @@ func acceptsNonImportsThatLookLikeImports(_ source: String) throws {
     #expect(result.status == 0, "should accept: \(source)\nstderr: \(result.stderr)")
 }
 
-/// Characters that are NOT line terminators for Swift: a `//` comment runs
-/// straight through them, so the import stays commented out. Treating them as
-/// newlines would both false-positive here and drift every reported line number
-/// away from the compiler's.
+/// Characters that are NOT Swift line terminators: a `//` comment runs straight through them, so the import stays commented out.
 @Test(arguments: [
     "// note\u{000C}import AppKit",     // FORM FEED
     "// note\u{000B}import AppKit",     // VERTICAL TAB
@@ -381,20 +325,7 @@ func acceptsLineCommentsThatDoNotEnd(_ source: String) throws {
     #expect(result.status == 0, "should accept: \(source.debugDescription)\nstderr: \(result.stderr)")
 }
 
-/// THE REASON THIS ROUND EXISTS. A raw identifier is one token and its interior
-/// is not code; splitting it on its interior spaces reports
-/// "'work' is not importable" for `` `does import work` ``.
-///
-/// This is not hypothetical. SE-0451 raw identifiers exist primarily so that test
-/// names can be sentences, and this package is tested with Swift Testing — so a
-/// suite about the import rule naturally contains names like
-/// `` @Test func `rejects import AppKit`() ``. The measured trigger is: a raw
-/// identifier containing `import` NOT at the start, followed by a word that is not
-/// an allowed module. When `import` is first the round-2 backtick flush left the
-/// delimiter attached and it passed — by luck, not by logic.
-///
-/// Regex literal content is not code either, and `#/import AppKit/#` is exactly
-/// what a tool that greps for imports would contain.
+/// A raw identifier is one token and its interior is not code; splitting it on interior spaces misreports `` `does import work` ``. Regex literal content is not code either.
 @Test(arguments: [
     "public func `does import work`() -> Int { 1 }",
     "public func `test import handling`() {}",
@@ -417,9 +348,7 @@ func acceptsRawIdentifiersAndRegexLiterals(_ source: String) throws {
 
 // MARK: - the allow-list is the manifest
 
-/// Direct declared edges only. The transitive closure would let `Framing` import
-/// `Timeline` and `Variants` import `Geometry` — undeclared edges that SwiftPM
-/// itself degrades to a warning on a warm `.build`, so nothing else catches them.
+/// Direct declared edges only: the transitive closure would admit undeclared edges that SwiftPM itself only warns about.
 @Test func rejectsTransitiveButUndeclaredEdge() throws {
     let framing = try runChecker(targetName: "Framing", source: "import Timeline")
     #expect(framing.status == 1, "Framing does not declare Timeline\nstderr: \(framing.stderr)")
@@ -428,8 +357,7 @@ func acceptsRawIdentifiersAndRegexLiterals(_ source: String) throws {
     #expect(variants.status == 1, "Variants does not declare Geometry\nstderr: \(variants.stderr)")
 }
 
-/// Dependencies as declared in `Package.swift`, parsed from the manifest text so
-/// this test cannot drift away from it.
+/// Dependencies parsed out of `Package.swift`, so this test cannot drift away from it.
 func declaredDependencies(of module: String, inManifest manifest: String) throws -> Set<String> {
     let declaration = try #require(
         manifest.split(separator: "\n").first { $0.contains(".target(name: \"\(module)\"") },
@@ -442,10 +370,7 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
         .filter { !$0.isEmpty })
 }
 
-/// Every sibling pair, checked against what the manifest actually declares. This
-/// is what stops the checker's fallback table from silently mirroring the wrong
-/// graph — in a real build the plugin passes the edges from PluginContext, so
-/// there is nothing to mirror at all.
+/// Every sibling pair, checked against what the manifest declares, so the fallback table cannot mirror the wrong graph.
 @Test func fallbackAllowListMatchesManifestEdges() throws {
     let manifest = try String(contentsOf: repositoryRoot.appending(path: "Package.swift"),
                               encoding: .utf8)
@@ -477,16 +402,7 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
     #expect(foundationAlways.status == 0, "stderr: \(foundationAlways.stderr)")
 }
 
-/// `swift package dump-package`'s `targets` array.
-///
-/// **The same helper exists in `Tests/AppSourceTests/HeadlessEntryRuleTests.swift`,
-/// and the duplication is a target boundary rather than carelessness**: the two live
-/// in different test targets, which cannot share a file-scope declaration, and the
-/// only module both can import is `CheckerLexer` — the one target outside plugin
-/// enforcement, and so the least-guarded place in the package to put shared code.
-///
-/// A separate `--scratch-path` keeps this off the `.build` directory the enclosing
-/// `swift test` is holding.
+/// `swift package dump-package`'s `targets` array. A separate `--scratch-path` keeps this off the `.build` directory the enclosing `swift test` is holding.
 func resolvedManifestTargets() throws -> [[String: Any]] {
     let scratch = URL(filePath: NSTemporaryDirectory())
         .appending(path: "dump-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -500,7 +416,6 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
     let out = Pipe()
     process.standardOutput = out
     // Drained, not buffered: a Pipe nobody reads blocks the child once it fills.
-    // Harmless while the package has no dependencies; a latent hang the moment it does.
     process.standardError = FileHandle.nullDevice
     try process.run()
     let data = out.fileHandleForReading.readDataToEndOfFile()
@@ -511,30 +426,18 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
     return try #require(root["targets"] as? [[String: Any]])
 }
 
-/// Deleting `plugins: archCheck` from a target silently voids rule 1 for it —
-/// no build failure, no diagnostic. This is the phase's largest silent-void risk.
-///
-/// Asserted against the RESOLVED manifest rather than its text, so it also catches
-/// `archCheck` being redefined to `[]` and `archCheck` being repointed at some
-/// other plugin — neither of which a grep for `plugins: archCheck` would notice.
-/// A separate `--scratch-path` keeps this off the `.build` directory the enclosing
-/// `swift test` is holding.
+/// Deleting `plugins: archCheck` from a target silently voids rule 1 for it. Asserted against the RESOLVED
+/// manifest, so it also catches `archCheck` redefined to `[]` or repointed at another plugin.
 @Test func everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest() throws {
     let targets = try resolvedManifestTargets()
 
-    // EVERY regular target, not a remembered list — a seventh target added without
-    // the plugin is precisely the silent void this test exists to prevent. The six
-    // known ones are asserted as a floor so the filter cannot quietly match nothing.
+    // EVERY regular target, not a remembered list; the known ones are asserted as a floor so the filter cannot match nothing.
     let regular = targets.filter { $0["type"] as? String == "regular" }
     let regularNames = Set(regular.compactMap { $0["name"] as? String })
     #expect(regularNames.isSuperset(of: libraryModules),
             "expected at least \(libraryModules) among the regular targets, got \(regularNames.sorted())")
 
-    // Every regular target carries a guard; WHICH guard depends on the tier. `Headless`
-    // is not exempt — it carries `HeadlessCheck`, whose single rule (no AppKit, no
-    // SwiftUI) is its own invariant. An entry here is the opposite of an exemption:
-    // adding a name to this map asserts that target has a guard, and the assertion is
-    // checked below.
+    // Every regular target carries a guard; WHICH guard depends on the tier. An entry here asserts a guard, not an exemption.
     let guardForTarget: [String: String] = ["Headless": "HeadlessCheck"]
 
     for target in regular where !pluginExemptTargets.contains(target["name"] as? String ?? "") {
@@ -546,10 +449,8 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
                 "regular target \(name) does not use the \(required) plugin — its architecture rule is void for it. pluginUsages: \(usages)")
     }
 
-    // And the tiers do not swap guards. `ArchitectureCheck` on `Headless` would ban
-    // AVFoundation and CGRect — a loud failure, so this is belt to that brace.
-    // `HeadlessCheck` on a pure target is the dangerous direction and silent: rule 1's
-    // allow-list and rule 2 would both be off and the build would stay green.
+    // And the tiers do not swap guards. `HeadlessCheck` on a pure target is the dangerous, silent
+    // direction: rule 1's allow-list and rule 2 would both be off and the build would stay green.
     for target in regular {
         let name = target["name"] as? String ?? "<unnamed>"
         let plugins = (target["pluginUsages"] as? [[String: Any]] ?? [])
@@ -565,26 +466,13 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
         }
     }
 
-    // The checker's own target must NOT be checked: its source legitimately names
-    // the banned modules.
+    // The checker's own target must NOT be checked: its source legitimately names the banned modules.
     let checker = try #require(targets.first { $0["name"] as? String == "architecture-checker" })
     let checkerPlugins = (checker["pluginUsages"] as? [[String: Any]] ?? [])
         .compactMap { ($0["plugin"] as? [Any])?.first as? String }
     #expect(!checkerPlugins.contains("ArchitectureCheck"))
 
-    // And the exemption is real, not aspirational: `CheckerLexer` must be present
-    // and must NOT carry the plugin. An exemption list whose members have vanished
-    // silently exempts nothing.
-    //
-    // Honest note on reachability, since a claim of coverage is worth no more than
-    // its reason: the SECOND assertion here can almost certainly never fire.
-    // Attaching the plugin to `CheckerLexer` was tried, and SwiftPM refuses to
-    // resolve the package at all — `cyclic dependency declaration found:
-    // AppSourceTests -> CheckerLexer -> ArchitectureCheck -> architecture-checker
-    // -> CheckerLexer` — so the failure arrives before any test runs. It is kept
-    // because it costs a line and states the invariant where a reader will look
-    // for it. The load-bearing assertion is the FIRST one, and the loop above,
-    // whose red was observed by removing `plugins: archCheck` from `Timeline`.
+    // The exemption is real, not aspirational: `CheckerLexer` must exist and must not carry the plugin (attaching it closes a dependency cycle SwiftPM refuses to resolve, so that second assert can hardly fire).
     for name in pluginExemptTargets {
         let target = try #require(targets.first { $0["name"] as? String == name },
                                   "\(name) is exempt from the plugin but no longer exists")
@@ -595,39 +483,11 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
     }
 }
 
-/// The one regular target the `ArchitectureCheck` plugin is deliberately not
-/// attached to.
-///
-/// `CheckerLexer` holds the checker's code view. `ArchitectureCheck` depends on
-/// `architecture-checker`, which depends on `CheckerLexer`, so attaching the
-/// plugin to `CheckerLexer` closes a dependency cycle and SwiftPM refuses to
-/// resolve the package. Same reason `architecture-checker` carries no plugin —
-/// that one is an `executableTarget`, so it never reaches the `regular` filter
-/// above and needs no entry here.
-///
-/// Rule 1 is therefore kept BY HAND in `Sources/CheckerLexer`. A single-name list
-/// is the point: anything else added without the plugin still fails.
+/// The one regular target the plugin is deliberately not attached to: attaching `ArchitectureCheck` to `CheckerLexer` closes a dependency cycle SwiftPM refuses to resolve, so rule 1 is kept BY HAND there.
 let pluginExemptTargets: Set<String> = ["CheckerLexer"]
 
-/// **The exemption list is a hole in every check above it, so its CONTENTS are an
-/// assertion and not a configuration value.**
-///
-/// `everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` skips whatever is
-/// named here. Until this test existed, the cheapest way to void a target's guard
-/// was not to delete `plugins:` — that is caught — but to add the target's name to
-/// this set in the same diff: the first loop then skips it, the second only asserts
-/// it does not carry the OTHER tier's plugin (vacuously true of a target carrying
-/// none), and the loop over the set itself only asserts the target still exists and
-/// lacks `ArchitectureCheck` (also vacuously true). Everything green, and `Headless`
-/// may now `import AppKit`.
-///
-/// An entry here means **"carries no architecture check at all"**, which is true of
-/// exactly one target and for a structural reason — a dependency cycle SwiftPM
-/// refuses to resolve. It is not the way to record "carries a different guard":
-/// `Headless` carries `HeadlessCheck`, which the guard-coverage test expresses as a
-/// REQUIREMENT keyed by target name, the opposite of an exemption. `Headless` is
-/// also the target most likely to drift, which is exactly why it must never appear
-/// in this set.
+/// **The exemption list is a hole in every check above it, so its CONTENTS are an assertion.** Adding a name
+/// here skips that target in the guard-coverage loop, voiding its rule with every test still green.
 @Test func theOnlyPluginExemptTargetIsTheLexer() {
     #expect(pluginExemptTargets == ["CheckerLexer"], """
         pluginExemptTargets is \(pluginExemptTargets.sorted()), not ["CheckerLexer"].
@@ -732,8 +592,7 @@ func acceptsCGTypeMention(_ line: String) throws {
 }
 
 @Test func rejectsDependencyInVersionSpecificManifest() throws {
-    // SwiftPM prefers Package@swift-6.4.swift. Verified: a dependency declared
-    // there resolves and builds while Package.swift declares none.
+    // SwiftPM prefers Package@swift-6.4.swift: a dependency declared there resolves and builds while Package.swift declares none.
     let result = try runManifestChecker(files: [
         "Package.swift": manifestWithoutDependency,
         "Package@swift-6.4.swift": manifestWithDependency,
@@ -752,27 +611,13 @@ func acceptsCGTypeMention(_ line: String) throws {
 
 // MARK: - rule 8: a validating initialiser under a synthesised `Decodable`
 //
-// Swift's synthesised `init(from:)` assigns stored properties directly and never
-// calls yours, so every `precondition` and every `throw` defining the invariant
-// is skipped exactly on the path carrying untrusted input — a `.soredemo`
-// package is a shareable document. D2-14.
-//
-// The fixtures below are the SHAPES of the real cases, not inventions. The eight
-// types still open are `Authorship`, `HostInstant`, `NormalizedFrame`,
-// `NormalizedPoint`, `NormalizedSize`, `PixelRect`, `PointRect` and `TimeRange`;
-// the closed ones this file's negative controls are modelled on are
-// `DisplayGeometry` (decoder init on the declaration), `GeometryRegistry`,
-// `ContentDigest` and `Evidence` (conformance AND decoder init on an extension),
-// `HostRange`, `SegmentTable`, `GapWatch` and `ProjectSnapshot`.
-//
-// The fixture names are deliberately not the real ones: the real ones are in
-// `ArchitectureChecker.decodeValidationExemptTypes` and would be waved through.
+// The synthesised `init(from:)` assigns stored properties directly and never calls yours, so every `precondition`
+// and `throw` defining the invariant is skipped exactly on the path carrying untrusted input. The fixture names
+// are deliberately not the real ones, which are exempt and would be waved through.
 
 /// Rejected. Each of these is a shape a real violator is written in.
 @Test(arguments: [
-    // The commonest shape: a `precondition` in the initialiser, `Codable` on the
-    // declaration line. NormalizedPoint, PixelRect, TimeRange, Authorship,
-    // HostInstant.
+    // The commonest shape: a `precondition` in the initialiser, `Codable` on the declaration line.
     """
     public struct FixtureScale: Codable {
         public let factor: Double
@@ -793,10 +638,7 @@ func acceptsCGTypeMention(_ line: String) throws {
     }
     public enum FixtureError: Error { case wrongLength }
     """,
-    // THE MISS D2-14 RECORDS: the conformance is on an EXTENSION. A scan keyed
-    // on the declaration line lets this through, and did — for GeometryRegistry,
-    // ContentDigest and Evidence, all three of which happened to be closed, so
-    // the mistake was invisible.
+    // The conformance is on an EXTENSION; a scan keyed on the declaration line lets this through, and did.
     """
     public struct FixtureRegistry {
         public let entries: [String]
@@ -808,8 +650,7 @@ func acceptsCGTypeMention(_ line: String) throws {
     extension FixtureRegistry: Codable {}
     public enum FixtureError: Error { case empty }
     """,
-    // The other half of the same miss: the validating initialiser is on the
-    // extension and the conformance on the declaration.
+    // The mirror: the validating initialiser on the extension, the conformance on the declaration.
     """
     public struct FixtureSpan: Codable {
         public let start: Double
@@ -831,8 +672,7 @@ func acceptsCGTypeMention(_ line: String) throws {
         public init(n: Int) { precondition(n >= 0); self.n = n }
     }
     """,
-    // THE SECOND TYPE IN THE FILE. A scan that stops at the first public type
-    // counted Normalized.swift's three as one.
+    // THE SECOND TYPE IN THE FILE: a scan that stops at the first public type counts three as one.
     """
     public struct FixtureFirst: Codable {
         public let a: Int
@@ -845,8 +685,7 @@ func acceptsCGTypeMention(_ line: String) throws {
         public init(b: Int) { precondition(b >= 0); self.b = b }
     }
     """,
-    // A decoder initialiser on a NEIGHBOUR does not close this type. The scan is
-    // per type, not per file.
+    // A decoder initialiser on a NEIGHBOUR does not close this type; the scan is per type, not per file.
     """
     public struct FixtureNeighbour: Codable {
         public let a: Int
@@ -863,19 +702,14 @@ func acceptsCGTypeMention(_ line: String) throws {
     }
     public enum FixtureError: Error { case negative }
     """,
-    // `init(fromRaw:)` is not the decoder initialiser. The first parameter LABEL
-    // is matched exactly, so a substring scan for "init(from" cannot close a type
-    // by accident.
+    // `init(fromRaw:)` is not the decoder initialiser — the first parameter LABEL is matched exactly.
     """
     public struct FixtureRaw: Codable {
         public let v: Int
         public init(fromRaw raw: Int) { precondition(raw >= 0); self.v = raw }
     }
     """,
-    // A `precondition` outside the initialiser still counts — deliberately over-
-    // approximate, and in the loud direction. A precondition is a stated
-    // invariant, and a synthesised decode bypasses the initialiser that would
-    // have established it.
+    // A `precondition` outside the initialiser still counts: deliberately over-approximate, in the loud direction.
     """
     public struct FixtureMethod: Codable {
         public let v: Int
@@ -892,12 +726,7 @@ func acceptsCGTypeMention(_ line: String) throws {
         public init(v: Int) { precondition(v >= 0); self.v = v }
     }
     """,
-    // A FAILABLE initialiser states an invariant too, and the tree contains the
-    // proof: `Evidence.init?(_ refs:)` returns nil on the empty array and its own
-    // comment calls that half of a guarantee whose other half is `init(from:)`.
-    // Deleting that decoder init leaves a rule that knows only `throws` and
-    // `precondition` green on exactly the defect it exists to catch — verified
-    // against the real `Sources/Graph/Evidence.swift`, not argued.
+    // A FAILABLE initialiser states an invariant too — verified against the real `Sources/Graph/Evidence.swift`.
     """
     public struct FixtureNonEmpty: Codable {
         public let head: Int
@@ -909,11 +738,7 @@ func acceptsCGTypeMention(_ line: String) throws {
         }
     }
     """,
-    // THE PARAMETER'S TYPE, not only its label. `init(from data: Data)` coexists
-    // legally with the synthesised `init(from decoder: any Decoder)`, so a
-    // label-only test lets a validating type be decoded without validation and
-    // stays silent forever. `init(from url:)` and `init(from raw:)` are the same
-    // shape and just as idiomatic.
+    // THE PARAMETER'S TYPE, not only its label: `init(from data: Data)` coexists legally with the synthesised one.
     """
     public struct FixtureFromData: Codable {
         public let name: String
@@ -923,10 +748,7 @@ func acceptsCGTypeMention(_ line: String) throws {
         }
     }
     """,
-    // A conformance INHERITED THROUGH A PROTOCOL. `ObservationRecord: Codable,
-    // Sendable` is declared in `Sources/Project`, and Tasks 9-11 write records
-    // against it; all five conformers today name `Codable` on their declaration
-    // line by house style, which is not enforcement.
+    // A conformance INHERITED THROUGH A PROTOCOL; naming `Codable` on the declaration line is house style, not enforcement.
     """
     public protocol FixtureRecord: Codable, Sendable {
         var kind: String { get }
@@ -937,8 +759,7 @@ func acceptsCGTypeMention(_ line: String) throws {
         public init(delta: Double) { precondition(delta.isFinite); self.delta = delta }
     }
     """,
-    // Two levels of protocol, because inheritance is transitive and a one-level
-    // check would look like it worked.
+    // Two levels of protocol, because inheritance is transitive.
     """
     public protocol FixtureBase: Codable {}
     public protocol FixtureDerived: FixtureBase {}
@@ -951,9 +772,7 @@ func acceptsCGTypeMention(_ line: String) throws {
     }
     public enum FixtureError: Error { case negative }
     """,
-    // A `where` clause containing `==`. The declaration head ends at `{`, and a
-    // scan that stops at any `=` never registers this extension at all — silent
-    // direction.
+    // A `where` clause containing `==`: a scan that stops at any `=` never registers this extension — silent direction.
     """
     public struct FixtureBox2<T> {
         public let v: T
@@ -969,9 +788,7 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
             "rejected for the wrong reason: \(result.stderr)")
 }
 
-/// Accepted. Each is the shape of a type D2-14 records as closed, or of a type
-/// the rule must not touch at all. A false positive here is worse than a miss:
-/// it is a build failure someone fixes by deleting the rule.
+/// Accepted. A false positive here is worse than a miss: it is a build failure someone fixes by deleting the rule.
 @Test(arguments: [
     // DisplayGeometry: decoder initialiser on the declaration.
     """
@@ -988,9 +805,7 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
     }
     public enum FixtureError: Error { case notPositive }
     """,
-    // GeometryRegistry, ContentDigest, Evidence: BOTH the conformance and the
-    // decoder initialiser live on an extension. This is the pair the first
-    // hand-written scan got wrong in both directions at once.
+    // BOTH the conformance and the decoder initialiser live on an extension.
     """
     public struct FixtureRegistry {
         public let entries: [String]
@@ -1017,8 +832,7 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
         }
     }
     """,
-    // A validating type that is not Codable at all. Nothing decodes it, so
-    // nothing bypasses its initialiser.
+    // A validating type that is not Codable at all, so nothing bypasses its initialiser.
     """
     public struct FixturePlain: Sendable {
         public let v: Int
@@ -1029,8 +843,7 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
     }
     public enum FixtureError: Error { case negative }
     """,
-    // `Encodable` alone. A synthesised ENCODE reads properties that an
-    // initialiser already validated; it bypasses nothing.
+    // `Encodable` alone: a synthesised encode reads validated properties and bypasses nothing.
     """
     public struct FixtureOut: Encodable {
         public let v: Int
@@ -1043,8 +856,7 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
         public let v: Int
     }
     """,
-    // A NESTED type's throwing initialiser is not the outer type's. The outer
-    // body is scanned with every nested declaration's body removed.
+    // A NESTED type's throwing initialiser is not the outer type's.
     """
     public struct FixtureOuter: Codable {
         public struct Inner: Sendable {
@@ -1056,16 +868,14 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
     }
     public enum FixtureError: Error { case negative }
     """,
-    // `rethrows` is not `throws`: the initialiser throws only if its argument
-    // does, so it states no invariant of its own.
+    // `rethrows` is not `throws`: it states no invariant of its own.
     """
     public struct FixtureRethrow: Codable {
         public let v: Int
         public init(make: () throws -> Int) rethrows { v = try make() }
     }
     """,
-    // A protocol that is NOT Codable does not make its conformers Codable. The
-    // closure over protocol inheritance must terminate somewhere.
+    // A protocol that is NOT Codable does not make its conformers Codable; the closure must terminate.
     """
     public protocol FixtureTagged: Sendable {
         var tag: String { get }
@@ -1075,8 +885,7 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
         public init(tag: String) { precondition(!tag.isEmpty); self.tag = tag }
     }
     """,
-    // A parameter labelled `from` whose type IS a decoder closes the type, in
-    // both spellings of the signature.
+    // A parameter labelled `from` whose type IS a decoder closes the type, in both spellings.
     """
     public struct FixtureBothSpellings: Codable {
         public let v: Int
@@ -1086,9 +895,7 @@ func rejectsValidatingInitialiserUnderSynthesisedDecodable(_ source: String) thr
         }
     }
     """,
-    // Prose about the rule is not the rule. `Codable`, `precondition(` and
-    // `init(from` in comments and string literals must not fire — a scanner that
-    // fires on its own documentation is a scanner people delete.
+    // Prose about the rule is not the rule: the rule's own vocabulary in comments and literals must not fire.
     """
     // FixtureProse is Codable and has a precondition( in its init(from decoder:)
     /* Codable precondition( init(from decoder: */
@@ -1102,22 +909,15 @@ func acceptsAnExplicitDecoderInitialiserOrNothingToBypass(_ source: String) thro
     #expect(result.status == 0, "should accept:\n\(source)\nstderr: \(result.stderr)")
 }
 
-/// The names in `ArchitectureChecker.decodeValidationExemptTypes`, read out of
-/// the checker's own source.
-///
-/// Parsed rather than mirrored, for the same reason
-/// `fallbackAllowListMatchesManifestEdges` parses `Package.swift`: a second copy
-/// of a list is a list that drifts, and this one is meant to SHRINK — every copy
-/// is somewhere a deleted line can fail to be deleted.
+/// The names in `ArchitectureChecker.decodeValidationExemptTypes`, parsed out of the checker's own source
+/// rather than mirrored: a second copy is a copy that drifts, and this list is meant to SHRINK.
 func decodeValidationExemptTypes() throws -> Set<String> {
     let source = try String(contentsOf: repositoryRoot
         .appending(path: "Sources/architecture-checker/main.swift"), encoding: .utf8)
     let marker = "static let decodeValidationExemptTypes: Set<String> = ["
     let start = try #require(source.range(of: marker),
                              "decodeValidationExemptTypes is gone from the checker — rule 8 has no exemption list")
-    // The list's closing bracket at its own indentation, not the first `]` — the
-    // entries carry comments, and a comment saying why a name is there is the
-    // most valuable text in the list.
+    // The list's closing bracket at its own indentation, not the first `]`: the entries carry comments.
     let end = try #require(source.range(of: "\n    ]", range: start.upperBound..<source.endIndex))
 
     // Only the quoted literals count. Splitting on commas swallows the prose.
@@ -1131,27 +931,9 @@ func decodeValidationExemptTypes() throws -> Set<String> {
     return names
 }
 
-/// **The exemption list is the remaining work, and it must not be able to lie in
-/// either direction.**
-///
-/// Running the real checker over the real sources with the exemptions switched
-/// OFF answers, from the binary rather than from a document, which types still
-/// violate rule 8. Two failures this catches, both otherwise silent:
-///
-/// 1. a NINTH violator — although the plugin already fails the build for that,
-///    so this is the belt to that brace;
-/// 2. a type CLOSED without its line being deleted. Nothing else notices: the
-///    build goes green, the list keeps a name that covers nothing, and the
-///    record of what is left to do is wrong in the direction that makes the work
-///    look bigger than it is. `AGENTS.md` records this count being got wrong
-///    three times by hand; `scripts/scan-decode-validation.py` is the other
-///    mechanism, and it is not run by any gate.
-///
-/// D2-14 says TEN. It measured before Task 4.5 closed `DisplayGeometry` and
-/// `HostRange` — the two of the ten reachable from `ProjectSnapshot`. **Eight**
-/// is what the sources say today, plus `Nanoseconds`, which is not a debt but
-/// the price of counting `init?` — nine names, and the list says which is which.
-/// The sources are what this test reads.
+/// **The exemption list must not be able to lie in either direction.** Running the real checker over the real
+/// sources with the exemptions OFF answers from the binary which types still violate rule 8: it catches a new
+/// violator, and a type closed without its line being deleted — otherwise silent.
 @Test func theDecodeValidationExemptionListIsExactlyWhatStillViolatesRule8() throws {
     let exempt = try decodeValidationExemptTypes()
     try #require(!exempt.isEmpty,
@@ -1183,10 +965,8 @@ func decodeValidationExemptTypes() throws -> Set<String> {
             """)
 }
 
-/// A rule with no fixture on the real sources is a rule that could be scanning
-/// nothing. `--ignore-decode-validation-exemptions` over the real package must
-/// FAIL while the list is non-empty — that is the same red the plugin printed
-/// before the eight names were written down.
+/// A rule with no fixture on the real sources could be scanning nothing: with the exemptions off the real
+/// package must FAIL while the list is non-empty.
 @Test func theRuleStillFiresOnTheRealSourcesWithTheExemptionsOff() throws {
     let sources = repositoryRoot.appending(path: "Sources/Geometry")
     let withExemptions = try launchChecker(targetName: "Geometry",
@@ -1202,15 +982,8 @@ func decodeValidationExemptTypes() throws -> Set<String> {
     #expect(without.stderr.contains("NormalizedFrame"), "stderr: \(without.stderr)")
 }
 
-/// **Rule 8 answers per TARGET, not per file**, and the per-file version failed
-/// in the silent direction.
-///
-/// `Sources/Graph/Derivation.swift` already carries eight extensions of types
-/// declared elsewhere, so a type in one file with `extension Foo: Codable {}` in
-/// another is the house style rather than a contrivance — and per-file it was a
-/// pass. The mirror case (the decoder init in the other file) would have been a
-/// loud false positive, so the asymmetry ran the wrong way: the silent side was
-/// the one the codebase makes easy.
+/// **Rule 8 answers per TARGET, not per file.** A type in one file with `extension Foo: Codable {}` in another
+/// is the house style here, and per-file it was a silent pass.
 @Test func conformanceInAnotherFileIsStillAConformance() throws {
     let result = try runChecker { dir in
         try """
@@ -1229,9 +1002,7 @@ func decodeValidationExemptTypes() throws -> Set<String> {
     #expect(result.stderr.contains("FixtureSplit"))
 }
 
-/// The other direction of the same fact: a decoder initialiser in a third file
-/// closes the type. Without this, target-wide scanning would trade a silent miss
-/// for a loud false positive on the same house style.
+/// The other direction of the same fact: a decoder initialiser in a third file closes the type.
 @Test func aDecoderInitialiserInAnotherFileClosesTheType() throws {
     let result = try runChecker { dir in
         try """
@@ -1261,10 +1032,8 @@ func decodeValidationExemptTypes() throws -> Set<String> {
     #expect(result.status == 0, "stderr: \(result.stderr)")
 }
 
-/// **Two nested `Entry` types are two types.** `GeometryRegistry` already
-/// declares a nested `Entry`; merging declarations by simple name means the day
-/// a second one appears, one gaining `init(from:)` silences the other — in the
-/// silent direction. Types are keyed by their nesting-qualified name.
+/// **Two nested `Entry` types are two types.** Merging by simple name would let one gaining `init(from:)`
+/// silence the other, so types are keyed by their nesting-qualified name.
 @Test func twoNestedTypesOfTheSameNameAreNotMerged() throws {
     let result = try runChecker(source: """
         import Foundation
@@ -1292,12 +1061,8 @@ func decodeValidationExemptTypes() throws -> Set<String> {
 
 // MARK: - the second guard: --mode headless
 //
-// `Sources/Headless` is the tier `swift test` can run but a person still has to
-// believe. It legitimately imports AVFoundation, CoreImage, CoreVideo, CoreMedia,
-// Metal and CoreGraphics, and it legitimately names CGRect — it is the boundary
-// where CG geometry gets converted (ARCHITECTURE.md D3), so rule 2's ban is not
-// its rule. Attaching `ArchitectureCheck` to it is therefore impossible, and the
-// answer is a SECOND GUARD with its own single rule, not a hole in the first.
+// `Sources/Headless` legitimately imports AVFoundation, CoreImage, CoreVideo, CoreMedia, Metal and CoreGraphics
+// and legitimately names CGRect, so `ArchitectureCheck` cannot be attached; it gets a SECOND guard of its own.
 
 /// Runs the real built checker in headless mode over a one-file fixture.
 func runHeadlessChecker(ban: [String] = ["AppKit", "SwiftUI", "Cocoa", "Quartz"],
@@ -1310,10 +1075,7 @@ func runHeadlessChecker(ban: [String] = ["AppKit", "SwiftUI", "Cocoa", "Quartz"]
                    })
 }
 
-/// The one rule. Every spelling `rejectsDisallowedImport` already closes for rule 1
-/// is closed here too, because both rules read the SAME token stream — a bypass in
-/// the tokenizer is a bypass for both, and a guard that only knows the plain
-/// spelling is a guard whose evasions start again at round zero.
+/// The one rule. Every spelling rule 1 closes is closed here too: both rules read the SAME token stream.
 @Test(arguments: [
     "import AppKit",
     "import SwiftUI",
@@ -1326,10 +1088,8 @@ func runHeadlessChecker(ban: [String] = ["AppKit", "SwiftUI", "Cocoa", "Quartz"]
     "import class AppKit.NSColor",
     "import Foundation; import SwiftUI",
     "public let `a\"\"\"b` = 1\nimport AppKit",
-    // `Cocoa` and `Quartz` both re-export `AppKit` (measured: `NSWindow(...)`
-    // typechecks under either import alone at this package's deployment target),
-    // so a two-name deny-list of AppKit/SwiftUI would let a file that needs a
-    // window straight into `Sources/Headless` under either alias.
+    // `Cocoa` and `Quartz` both re-export `AppKit` (measured), so a two-name AppKit/SwiftUI deny-list
+    // would let a file that needs a window straight into `Sources/Headless` under either alias.
     "import Cocoa",
     "import Quartz",
     "@preconcurrency import Cocoa",
@@ -1341,8 +1101,7 @@ func headlessModeRejectsTheBannedModules(_ source: String) throws {
     #expect(!result.stderr.isEmpty)
 }
 
-/// What the tier EXISTS to permit. If any of these fails the guard is the pure
-/// guard wearing a different name, and the whole design has bought nothing.
+/// What the tier EXISTS to permit; if any of these fails the guard is the pure guard wearing a different name.
 @Test(arguments: [
     "import AVFoundation",
     "import CoreImage",
@@ -1360,10 +1119,8 @@ func headlessModeAllowsThePlatformFrameworksTheTierIsFor(_ source: String) throw
     #expect(result.status == 0, "should accept: \(source)\nstderr: \(result.stderr)")
 }
 
-/// Rule 2 is OFF in headless mode, deliberately and with a reason: this tier is
-/// the app boundary where CG geometry is converted to and from the package's own
-/// types. `CursorArt` draws in CG space; banning CGRect here would ban the tier's
-/// purpose.
+/// Rule 2 is OFF in headless mode: this tier is the boundary where CG geometry is converted, so banning
+/// CGRect here would ban the tier's purpose.
 @Test func headlessModeDoesNotBanCGGeometry() throws {
     let result = try runHeadlessChecker(source: """
         import CoreGraphics
@@ -1384,19 +1141,14 @@ func headlessModeDoesNotFireOnProse(_ source: String) throws {
     #expect(result.status == 0, "should accept: \(source)\nstderr: \(result.stderr)")
 }
 
-/// **A guard that bans nothing is not a guard.** Same rule as
-/// `failsOnSourcesDirectoryWithNoSwiftFiles`: a vacuous pass is not a pass, and
-/// `--mode headless` with the `--ban` flags dropped would be a silent void of the
-/// entire second guard on every build.
+/// **A guard that bans nothing is not a guard**: `--mode headless` with the `--ban` flags dropped would silently void it.
 @Test func headlessModeWithNoBanListFailsClosed() throws {
     let result = try runHeadlessChecker(ban: [], source: "import Foundation")
     #expect(result.status == 2, "stderr: \(result.stderr)")
     #expect(result.stderr.contains("--ban"))
 }
 
-/// Rule 8 still runs in headless mode. It is not about frameworks — a synthesised
-/// `Decodable` bypasses a stated invariant wherever the type lives — so switching
-/// it off with rules 1 and 2 would be scope creep in the silent direction.
+/// Rule 8 still runs in headless mode — a synthesised `Decodable` bypasses a stated invariant wherever the type lives.
 @Test func headlessModeStillEnforcesDecodeValidation() throws {
     let result = try runHeadlessChecker(source: """
         import Foundation
@@ -1409,11 +1161,8 @@ func headlessModeDoesNotFireOnProse(_ source: String) throws {
     #expect(result.stderr.contains("init(from decoder:)"))
 }
 
-/// **The loosening flags must never reach the pure guard.** `--mode headless`
-/// turns off rule 1's allow-list and rule 2 entirely; a day where
-/// `ArchitectureCheck` passes it is a day `SoredemoCore` can import AppKit and the
-/// build stays green. Read through the code view so a mention in this plugin's own
-/// doc comment does not fire.
+/// **The loosening flags must never reach the pure guard**: `--mode headless` turns off rule 1's allow-list
+/// and rule 2, so a pure target passing them could import AppKit with the build still green.
 @Test func theArchitectureCheckPluginNeverPassesTheHeadlessFlags() throws {
     let source = try String(contentsOf: repositoryRoot
         .appending(path: "Plugins/ArchitectureCheck/ArchitectureCheck.swift"), encoding: .utf8)
@@ -1424,40 +1173,9 @@ func headlessModeDoesNotFireOnProse(_ source: String) throws {
             "ArchitectureCheck passes --ban: the deny-list belongs to HeadlessCheck alone")
 }
 
-/// The mirror: `HeadlessCheck` must pass both bans and must NOT pass `--allow`.
-/// A `--allow` there would read as an allow-list in a mode that has none — the
-/// shape that makes a reader believe a guard is stricter than it is.
-///
-/// **The three presence checks read `source`, not the code view — deliberately,
-/// and unlike the sibling test above.** `codeViewLines` blanks a string literal's
-/// content AND ITS DELIMITING QUOTES to spaces, not merely comment prose: proven
-/// at `Tests/CheckerLexerTests/SwiftSourceLexerTests.swift:99`, which pins
-/// `codeViewLines(of: "let s = \"CGRect\"\n")[0] == "let s =         "` — eight
-/// characters, quotes included, replaced by eight spaces. `"AppKit"`, `"SwiftUI"`
-/// and `"--mode", "headless"` in `HeadlessCheck.swift` are themselves string
-/// literals — they are the real, functional arguments the plugin passes, not
-/// prose about them — so `code.contains("\"AppKit\"")` is not merely false here,
-/// it is false for every Swift source file that could ever exist: no argument
-/// array can survive the code view's string-blanking to be found by a quoted
-/// search. (Measured: the brief's own Step 4 listing, transcribed verbatim, fails
-/// this exact assertion against the built checker — the case the brief anticipates
-/// at Step 2, "run the tests to verify they fail," settled by running them.) The
-/// negative check keeps the code view, because ITS rationale — a mention of
-/// `--allow` in this file's own doc comment must not cause a false failure — is
-/// exactly the case the code view exists for: prose, not a quoted argument.
-///
-/// **All three presence checks are anchored to the ARGUMENT-LIST shape —
-/// `"--ban", "AppKit"` — not the bare module name `"AppKit"` alone.** Reading
-/// raw source closes the code-view hole above, but a bare-name search reopens
-/// a narrower one: `source.contains("\"AppKit\"")` is satisfied just as well by
-/// `"AppKit"` sitting in a doc comment's prose (this file's own header uses
-/// backticks today, not quotes, so that is not triggered — which is exactly
-/// why it is worth closing before it is) as by the actual `--ban` argument
-/// that makes the guard real. A future edit that quotes `"AppKit"` in prose
-/// while dropping the functional argument would leave this test green and the
-/// guard banning nothing. Pairing the flag with its value is what ties the
-/// assertion to the thing that is actually passed to the subprocess, the same
-/// way `"--mode", "headless"` already was.
+/// The mirror: `HeadlessCheck` must pass both bans and must NOT pass `--allow`. The presence checks read
+/// `source`, not the code view, because `codeViewLines` blanks string literals — and each is anchored to the
+/// argument-list shape (a flag paired with its value), not the bare module name a doc comment could also contain.
 @Test func theHeadlessCheckPluginPassesBothBansAndNoAllowList() throws {
     let source = try String(contentsOf: repositoryRoot
         .appending(path: "Plugins/HeadlessCheck/HeadlessCheck.swift"), encoding: .utf8)

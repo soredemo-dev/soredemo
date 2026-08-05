@@ -1,8 +1,8 @@
 import AVKit
 import SwiftUI
 
-/// The preview surface. **Deliberately opaque** — D7: glass is for controls floating above
-/// content, and a video preview is content.
+/// The preview surface. Deliberately opaque: D7 reserves glass for controls
+/// floating above content, and a video preview is content.
 struct PreviewView: NSViewRepresentable {
     let player: AVPlayer
 

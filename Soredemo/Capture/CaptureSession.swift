@@ -8,88 +8,36 @@ import Geometry
 import Project
 import Timeline
 
-/// The master, written by `AVAssetWriter`. `ROADMAP.md`'s `capture-stream` and
-/// `audio-tracks` rows — one object because they are one writer: the thing
-/// that takes three ScreenCaptureKit streams and produces a `MasterSegment`.
+/// Takes three ScreenCaptureKit streams (screen, system audio, microphone) and
+/// writes them to a `MasterSegment` via three `AVAssetWriterInput`s.
+/// `SCRecordingOutput` is unusable: it mixes the microphone into the
+/// system-audio track, and `mixesAudioWithMicrophone` is macOS 27.0+.
 ///
-/// **`SCRecordingOutput` is not usable at our floor** (design doc F2-4,
-/// measured over four runs): it mixes the microphone into the system-audio
-/// track, and the property that would stop it, `mixesAudioWithMicrophone`, is
-/// `API_AVAILABLE(macos(27.0))` — confirmed against
-/// `ScreenCaptureKit/SCRecordingOutput.h` directly before writing a line of
-/// this file, not assumed from the design doc's paraphrase. `audio-tracks`
-/// requires independent tracks, so this type takes `SCStreamOutputTypeScreen`,
-/// `.audio` and `.microphone` as three separate `SCStreamOutput` deliveries
-/// and writes them to three `AVAssetWriterInput`s of its own.
+/// ScreenCaptureKit has no pause/resume, so `pause()` finalises the current
+/// segment and tears the stream down while `resume()` builds a new one; display
+/// reconfiguration and stream failure use the same mechanism.
+/// `showsCursor = false` — the compositor draws the cursor later from the
+/// pointer track. `colorSpaceName` is pinned to sRGB (a placeholder choice);
+/// unset, it follows the display and the master's colour meaning becomes
+/// machine-dependent.
 ///
-/// **`showsCursor = false`, and why (Step 0).** The master is unprocessed
-/// evidence (D2-8); the cursor is a derived value the compositor draws later
-/// from the pointer track, spring-smoothed. Burning it into the master would
-/// put a producer's output into the evidence layer.
+/// Locking: every mutable property is touched only inside `lock.withLock { … }`
+/// — raw `lock()`/`unlock()` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — and nothing
+/// awaits while holding the lock.
 ///
-/// **The master is a sequence, not one file (D2-9).** `pause` and `resume`
-/// appear zero times in `ScreenCaptureKit.framework`'s headers — confirmed by
-/// grep across every header in the framework, not inferred from prose — so
-/// there is no way to suspend and continue one `SCStream`/`AVAssetWriter`
-/// pair. `pause()` therefore finalises the current segment and tears the
-/// whole stream down; `resume()` builds a new one. Same mechanism handles
-/// display reconfiguration (D2-10) and a hard stream failure: all three are
-/// "close this segment, for this reason" events, and `SegmentBoundary`
-/// already has a case for each.
-///
-/// **Colour space is pinned, per D2-15, and the choice here is a documented
-/// placeholder, not a settled answer.** `SCStreamConfiguration.colorSpaceName`
-/// defaults to "the same color space as the display" — confirmed against the
-/// header (`SCStream.h`) — which makes an unset master's colour meaning
-/// *machine-dependent*, the same failure shape `GeometryRevision` exists to
-/// prevent on the geometry axis. D2-15 leaves open whether to pin sRGB or a
-/// wider gamut, and says explicitly that deciding needs a measurement of
-/// whether a wide-gamut master survives the (not-yet-built) compositor
-/// unchanged — a measurement this task cannot make, because there is no
-/// compositor yet. `kCGColorSpaceSRGB` is pinned here as the conservative
-/// choice — well-understood, matches what most viewers of an eventual export
-/// will have, and is what the human verification's Step 1 checks was
-/// actually written to the file, rather than assumed.
-///
-/// **Locking.** Every mutable property below is read or written only inside
-/// `lock.withLock { … }` — never via raw `lock.lock()`/`.unlock()`, which
-/// `NSLocking` marks `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` on this SDK (measured
-/// by compiling this file: the first draft used raw lock/unlock inside
-/// `async` methods and `swiftc` rejected it outright, "Use async-safe scoped
-/// locking instead" — a compile error, not a style preference). Critical
-/// sections are kept synchronous and short; nothing awaits while holding the
-/// lock.
-/// Where a finished master segment's bytes go.
-///
-/// **A protocol so that `CaptureSession` cannot reach `ProjectPackageIO`
-/// directly.** The session used to call `writeSidecar` itself, which put the
-/// file in `media/` and left nothing in the manifest referencing it — see
-/// `CaptureSession.init` and `ProjectDocument.addMedia(_:named:)` for why that
-/// is a defect with a delete at the end of it rather than untidiness.
-///
-/// Declared here rather than beside its conformer because this is the file that
-/// *consumes* it, and because `Soredemo/UI/ProjectDocument.swift` is not
-/// compiled by `spikes/2026-08-02-capture-master` — a spike has no `NSDocument`
-/// and supplies its own conformer, which is a test double and says so.
-///
-/// `@MainActor` on the requirement rather than on the protocol: the shipping
-/// conformer is `NSDocument`-derived and its state must be touched on the main
-/// actor, while `finalizeCurrentSegment` reaches this from a `nonisolated
-/// async` context and therefore has to hop deliberately rather than by
-/// inheriting an isolation it did not ask for.
+/// Where a finished master segment's bytes go. A protocol so `CaptureSession`
+/// cannot reach `ProjectPackageIO.writeSidecar` directly, which would write into
+/// `media/` with no manifest reference and be deleted as an orphan by the next
+/// `compactMedia()`. `@MainActor` on the requirement rather than the protocol:
+/// the shipping conformer is `NSDocument`-derived while `finalizeCurrentSegment`
+/// reaches it from a `nonisolated async` context.
 public protocol MediaSink: Sendable {
     @MainActor func acceptMedia(_ data: Data, named name: String) throws
 
-    /// **Added in Task 5.5**, for `CaptureSession` to open an `ObservationWriter` beside the
-    /// media, following the same `media/master-NN.mov` ↔ `observations/segment-NN.jsonl` pairing
-    /// `ObservationWriter.expectedLogURL(forMediaURL:)` already derives. `ProjectDocument` already
-    /// had a member of this exact shape (Task 5, for `StageWindow`'s reader half); this requirement
-    /// is what makes it load-bearing for the writer half too, rather than a coincidence of two
-    /// unrelated properties sharing a name.
-    ///
-    /// `nil` when there is no package to write into yet — `ProjectDocument.packageURL`'s own doc
-    /// comment gives the case (an unsaved document); a `MediaSink` with no package writes no
-    /// observation log for that segment, exactly as it already writes no media.
+    /// Where `CaptureSession` opens an `ObservationWriter` beside the media,
+    /// following the `media/master-NN.mov` ↔ `observations/segment-NN.jsonl`
+    /// pairing. `nil` when there is no package yet (an unsaved document): no
+    /// package means no observation log and no media for that segment.
     @MainActor var packageURL: URL? { get }
 }
 
@@ -104,29 +52,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private let epoch: BootEpoch
 
     /// Every Nth complete video frame is luminance-sampled for the black-frame
-    /// detector (Step 3). **Placeholder — not calibrated.** Chosen so a 30
-    /// fps capture checks roughly once a second; there is no measured
-    /// distribution behind this number, exactly as D4 requires such a number
-    /// to be labelled until one exists.
-    /// `nonisolated` on all three constants below — read from
-    /// `checkForBlackFrame`, which is itself `nonisolated` (called
-    /// synchronously from the `SCStreamOutput` callback), and an
-    /// unannotated `static let` is implicitly `@MainActor` here exactly
-    /// like every other case this task's report documents.
+    /// detector. Uncalibrated placeholder. `nonisolated` on all three constants
+    /// below because `checkForBlackFrame` reads them from the `SCStreamOutput`
+    /// callback, and an unannotated `static let` is implicitly `@MainActor` here.
     private nonisolated static let blackFrameCheckEveryNFrames = 30
-    /// Consecutive *checks* (not frames) with every grid sample at floor
-    /// before the detector logs. **Placeholder.** At the check cadence above,
-    /// 10 checks is roughly 10 seconds of a uniformly black signal — long
-    /// enough that a brief real black frame (a cut, a flash) will not trip
-    /// it, short enough to notice a revoked grant inside a short recording.
-    /// Not fitted to any measured recording; see the doc comment on
-    /// `checkForBlackFrame` for why this only logs.
+    /// Consecutive *checks* (not frames) with every grid sample at floor before
+    /// the detector logs. Uncalibrated placeholder.
     private nonisolated static let blackFrameConsecutiveThreshold = 10
-    /// "At floor" for a BGRA byte, normalised 0...1. Placeholder alongside
-    /// the two above — the whole detector is one undivided placeholder,
-    /// labelled as such per `AGENTS.md`/D4 rather than split into an
-    /// individually-tuned constant that would look more considered than it
-    /// is.
+    /// "At floor" for a BGRA byte, normalised 0...1. Uncalibrated placeholder.
     private nonisolated static let blackFrameLuminanceFloor = 0.02
 
     // MARK: - Public result types
@@ -139,303 +72,120 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         case streamFailed(String)
     }
 
-    /// What this session has observed, for `input-observation` and
-    /// `observation-log` (neither built yet) to consume — see the task
-    /// report for the exact shape those two rows need from here. Not
-    /// persisted by this type; `stop()`'s caller reads it after the fact.
+    /// What this session has observed. Not persisted by this type; `stop()`'s
+    /// caller reads it after the fact.
     public struct Diagnostics: Sendable {
         /// Keyed by `SCFrameStatus.rawValue` — 0 complete, 1 idle, 2 blank,
-        /// 3 suspended, 4 started, 5 stopped. F2-4 measured idle at 42–84% of
-        /// callbacks across four runs; this is what lets a caller reproduce
-        /// that measurement from a real session instead of trusting the
-        /// figure.
+        /// 3 suspended, 4 started, 5 stopped.
         public internal(set) var frameStatusCounts: [Int: Int] = [:]
         public internal(set) var completeFrameCount = 0
-        /// Frames whose `SCStreamFrameInfoContentScale` was successfully
-        /// read at all — distinct from `completeFrameCount` because
-        /// extraction can fail to parse the attachment (see
-        /// `recordContentScale`'s two-cast fallback). **This is the count a
-        /// caller must check is `> 0` before trusting `resampledFrameCount`
-        /// or the min/max fields below** — "N of N checked frames had
-        /// `ContentScale == 1`" is vacuously true at `N == 0`, exactly the
-        /// shape `Tests/DeterminismTests` guards against for the symbol
-        /// check (`#require(!objectFiles.isEmpty, "…would pass vacuously")`)
-        /// and the coordinator's own correction to this task caught here: a
-        /// human verification step that reports "all frames passed" without
-        /// this count first is not a check, whatever the diagnostics claim.
+        /// Frames whose `SCStreamFrameInfoContentScale` could be read at all.
+        /// A caller must check this is `> 0` before trusting
+        /// `resampledFrameCount` or the min/max fields below, which are
+        /// vacuously clean at zero.
         public internal(set) var contentScaleCheckedCount = 0
-        /// Frames whose `SCStreamFrameInfoContentScale` was not 1 — D2-13a:
-        /// "a frame whose content scale is not 1 *was* resampled", which is
-        /// what makes "the master is unresampled" (D2-8's core claim)
-        /// checkable rather than assumed. See `recordContentScale` for the
-        /// assert-vs-record decision.
+        /// Frames whose `SCStreamFrameInfoContentScale` was not 1, i.e. frames
+        /// ScreenCaptureKit resampled.
         public internal(set) var resampledFrameCount = 0
-        /// Resampled frames that were **written to the master**, as opposed
-        /// to merely delivered.
-        ///
-        /// This is the number D2-8 is about. `resampledFrameCount` counts
-        /// what ScreenCaptureKit handed over; during a display
-        /// reconfiguration the session deliberately drops frames rather than
-        /// append them, and those still appear there. A verification that
-        /// checked `resampledFrameCount == 0` would report a failure over a
-        /// master that is, in fact, entirely unresampled — the same
-        /// stream-versus-file confusion that let "310 complete frames" be
-        /// reported over a zero-byte file.
+        /// Resampled frames actually **written to the master**, as opposed to
+        /// merely delivered: frames delivered during a display reconfiguration
+        /// are counted in `resampledFrameCount` but deliberately dropped.
         public internal(set) var appendedResampledFrameCount = 0
         public internal(set) var minContentScaleObserved: Double?
         public internal(set) var maxContentScaleObserved: Double?
         /// The most recently observed `ContentRect`/`ScreenRect`, bridged to
-        /// `PointRect` immediately on extraction (never held as `CGRect` —
-        /// rule 5). D2-13a: these carry the window's extrinsic mapping and
-        /// "must not enter the digest" — kept here only as a diagnostic, the
-        /// latest value rather than a full per-frame history, which belongs
-        /// to `observation-log` once it exists.
+        /// `PointRect` on extraction (never held as `CGRect` — rule 5). These
+        /// carry the extrinsic mapping and must not enter the digest.
         public internal(set) var lastContentRect: PointRect?
         public internal(set) var lastScreenRect: PointRect?
-        /// A count only, per boundary this session actually closed with
-        /// `.displayReconfigured` — not every callback the OS delivered.
+        /// Boundaries this session actually closed with `.displayReconfigured`,
+        /// not every callback the OS delivered.
         public internal(set) var displayReconfigurationsHandled = 0
-        /// One entry per time the black-frame detector's placeholder
-        /// threshold was reached. Logged, never causes a `.failed` boundary
-        /// on its own — see `checkForBlackFrame`.
+        /// One entry per time the black-frame detector's placeholder threshold
+        /// was reached. Logged only; never causes a `.failed` boundary.
         public internal(set) var blackFrameDetections: [(segmentIndex: Int, consecutiveChecks: Int)] = []
-        /// PTS → callback latency, nanoseconds, one entry per complete video
-        /// frame — F2-4 measured p50 ~2 ms, p90 ~9 ms, a tail to 175 ms; this
-        /// is what lets that be reproduced from a real run rather than only
-        /// quoted from the spike.
+        /// PTS → callback latency, nanoseconds, one entry per complete video frame.
         public internal(set) var ptsToCallbackLatencyNanos: [Int64] = []
         /// Complete frames dropped because their presentation timestamp could
-        /// not be expressed as `Nanoseconds` — a non-positive timescale, or a
-        /// value too large for `Int64` nanoseconds.
-        ///
-        /// It is counted, not merely dropped, and it is counted *separately*
-        /// from `completeFrameCount` rather than folded into it. A silent
-        /// drop presents to a reader as "this frame never arrived", which is
-        /// indistinguishable from the stream being idle — the shape
-        /// `AGENTS.md` calls a measurement with no safe default. A non-zero
-        /// value here means the master is missing frames the OS did deliver.
-        ///
-        /// This should stay at zero on every real run: `SCStream` uses host
-        /// time at timescale 1e9, which is always convertible. It is a
-        /// diagnostic against the assumption, not a expected-to-fire path.
+        /// not be expressed as `Nanoseconds` (non-positive timescale, or too
+        /// large for `Int64` nanoseconds). Counted separately from
+        /// `completeFrameCount`; non-zero means the master is missing frames
+        /// the OS did deliver. Expected to stay at zero — `SCStream` uses host
+        /// time at timescale 1e9, which is always convertible.
         public internal(set) var unconvertiblePresentationTimeCount = 0
 
-        /// A segment whose media never reached the package, and everything
-        /// still knowable about why at the moment it happened.
-        ///
-        /// `SegmentTable` names a `mediaFilename` per segment. If this array
-        /// is non-empty, at least one of those names has no file behind it —
-        /// which the table itself cannot express, and which nothing else in
-        /// the process will notice.
+        /// A segment whose media never reached the package. Non-empty means at
+        /// least one `SegmentTable.mediaFilename` has no file behind it, which
+        /// the table itself cannot express.
         public struct DiscardedSegment: Sendable {
             public let mediaFilename: String
             public let writerStatus: String
-            /// `AVAssetWriter.error`, stringified at the point of failure.
-            /// The writer is released immediately afterwards; this is the
-            /// only moment the underlying `OSStatus` is still reachable.
+            /// `AVAssetWriter.error`, stringified at the point of failure — the
+            /// writer is released immediately afterwards.
             public let writerError: String
-            /// The scratch file, deliberately **not** deleted. These are the
-            /// captured bytes; whatever went wrong, they are recoverable
-            /// from here until the OS reclaims the temporary directory.
+            /// The scratch file, deliberately **not** deleted: these are the
+            /// captured bytes, recoverable until the OS reclaims the temp dir.
             public let retainedScratchPath: String
         }
         public internal(set) var discardedSegments: [DiscardedSegment] = []
 
-        /// Frames `AVAssetWriterInput.append(_:)` **accepted**, as distinct
-        /// from `completeFrameCount`, which counts frames that arrived.
-        ///
-        /// These were one number until Task 8's step 1 reported "309
-        /// complete frames, all with ContentScale == 1" over a scratch file
-        /// containing **zero bytes**. Every statement in that report was
-        /// true; none of them was about writing. `append(_:)` returns a
-        /// `Bool` and the call site discarded it with `_ =`, so a run in
-        /// which every single append failed was indistinguishable from a
-        /// perfect one. Splitting the counts is what makes the subject of
-        /// each number explicit — `completeFrameCount` is about the stream,
-        /// this is about the file.
+        /// Frames `AVAssetWriterInput.append(_:)` **accepted**, as distinct from
+        /// `completeFrameCount`, which counts frames that arrived. Separate
+        /// counts because a run in which every append failed would otherwise be
+        /// indistinguishable from a perfect one.
         public internal(set) var appendedVideoFrameCount = 0
         public internal(set) var appendedAudioSampleCount = 0
         /// Appends that returned `false`, by media type.
         public internal(set) var failedVideoAppendCount = 0
         public internal(set) var failedAudioAppendCount = 0
-        /// The writer's status and error captured at the **first** append
-        /// that returned `false`, not the last.
-        ///
-        /// `AVAssetWriter` latches the first failure and then rejects
-        /// everything afterwards, so by the end of a run the error describes
-        /// a consequence rather than the cause. This is the cause.
+        /// The writer's status and error at the **first** append that returned
+        /// `false`. `AVAssetWriter` latches the first failure and rejects
+        /// everything afterwards, so the last error describes a consequence.
         public internal(set) var firstAppendFailure: String?
 
-        /// **Task 5.5.** `ObservationWriter.append`/`.close` calls that threw,
-        /// across every record kind and every segment — `WriterError
-        /// .recordSpansTwoLines` shouldn't fire (`JSONEncoder` escapes
-        /// newlines), `.foreignEpoch` shouldn't fire (one `epoch` for the
-        /// whole session), but `.logIsClosed` legitimately can: an AX chain
-        /// enqueued from a click near a segment boundary is appended to the
-        /// writer instance open **at the click**, not the writer current when
-        /// the chain finally answers, and `finalizeCurrentSegment` waits on
-        /// `axObserver.waitForQueuedClicks()` before closing specifically to
-        /// keep this at zero — see that function. Counted rather than
-        /// silently dropped via `try?`, for the same reason every other
-        /// append path in this type is: a dropped record with nothing
-        /// counting it is indistinguishable from a record that was never
-        /// produced.
+        /// `ObservationWriter.append`/`.close` calls that threw, across every
+        /// record kind and segment. `.logIsClosed` is the one case that can
+        /// legitimately fire, which is why `finalizeCurrentSegment` waits on
+        /// `axObserver.waitForQueuedClicks()` before closing.
         public internal(set) var observationAppendFailures = 0
-        /// The first observation append/close failure, captured the same way
-        /// `firstAppendFailure` is — the writer's error, not the last one, is
-        /// the cause.
+        /// The first observation append/close failure, for the same reason
+        /// `firstAppendFailure` captures the first rather than the last.
         public internal(set) var firstObservationAppendFailure: String?
 
-        /// **Task 5.5, fix round 2 (code review), narrowed in fix round 3.**
-        /// An observation `appendObservation` found with `writer == nil`
-        /// **while a real segment was actively closing** — `finalizingCurrentSegment`
-        /// was `true` at the time (see that flag). The record was never
-        /// written anywhere, and until fix round 2 nothing said so, which is
-        /// exactly the silence `observationAppendFailures`'s own doc comment
-        /// forbids.
-        ///
-        /// **This is a genuine, unavoidable loss, and it is exactly this and
-        /// only this**, since fix round 3 — a third source of `writer ==
-        /// nil` was found sharing this counter and was moved to
-        /// `observationsOutsideAnOpenSegment` below instead, precisely
-        /// because it is not this fact.
-        ///
-        /// `finalizeCurrentSegment` sets `self.observationWriter = nil` under
-        /// `lock`, immediately — **before** `axObserver.waitForQueuedClicks()`,
-        /// which is a blocking `queue.sync {}` that can take up to `AXObserver
-        /// .walkBudgetNanos` (35 ms) × `AXObserver.maximumQueuedClicks` (8) —
-        /// hundreds of milliseconds — and before `closingWriter.close(...)`.
-        /// The event tap is never torn down during any of that: not for
-        /// `pause()`, not for a display reconfiguration (only `stream`/`master`
-        /// rotate; the tap keeps running for the whole session), and even for
-        /// `stop()` the tap is stopped only after this whole span. So every
-        /// pointer, button, key, secure-input and tap-disabled observation
-        /// that arrives during that window, **at every segment boundary**, is
-        /// silently lost before fix round 2 — not "at most one trailing
-        /// sample" (that bound describes the narrower writer-nilled→
-        /// tap-torn-down window at `stop()` only), and not only at `stop()`.
+        /// Observations `appendObservation` found with `writer == nil` while a
+        /// real segment was actively closing (`finalizingCurrentSegment ==
+        /// true`). A genuine loss: the record was never written anywhere. The
+        /// window spans `observationWriter = nil` through
+        /// `waitForQueuedClicks()` and `close(...)`, at every segment boundary,
+        /// and the event tap keeps running throughout.
         public internal(set) var observationsDroppedAfterSegmentClose = 0
 
-        /// **A third source of `writer == nil`, which this counter's own
-        /// account omitted — and which the correction that introduced it
-        /// also omitted, which is why the account is enumerated here rather
-        /// than described
-        /// of what produces it.**
+        /// Observations `appendObservation` found with `writer == nil` while no
+        /// segment was open at all (`finalizingCurrentSegment == false`).
         ///
-        /// Counts an observation `appendObservation` found with `writer ==
-        /// nil` while **no segment was open at all** —
-        /// `finalizingCurrentSegment` was `false`, meaning this is not the
-        /// close-drain window above.
+        /// A record belongs to a segment if and only if its `instant` falls
+        /// inside that segment's `hostRange`; attribution is by time, never by
+        /// which property happened to be `nil`. Every case reaching this counter
+        /// has an `instant` outside every `hostRange`: before the first segment
+        /// opens, between `pause()` and `resume()`, across a reconfiguration's
+        /// close/reopen gap, and between `stop()`'s finalize and the tap
+        /// teardown. Not a defect count — a long pause with an active mouse can
+        /// dominate it legitimately.
         ///
-        /// **The rule this counter answers to, stated once and applied
-        /// below (fix round 4, code review): a record belongs to a segment
-        /// if and only if its `instant` falls inside that segment's
-        /// `hostRange`. Attribution is by TIME, never by which stored
-        /// property happened to be `nil` when the record arrived.** This
-        /// counter earns its "not a loss" reading only because every case
-        /// that reaches it can be shown — not merely asserted — to have an
-        /// `instant` outside every segment's `hostRange`:
-        ///
-        ///   * **Before the first segment ever opens.** `start()` calls
-        ///     `setUpObservation()` — which arms the tap and starts routing
-        ///     observations — strictly before `beginSegment()`. The proof
-        ///     that this is time-safe, not merely mechanism-safe: `beginSegment`
-        ///     sets `self.observationWriter = writer` AND computes
-        ///     `openInstant` (which becomes `hostRange.start` the moment the
-        ///     segment later closes) in the SAME `lock.withLock` block, and
-        ///     `try await scStream.startCapture()` — the one call that can
-        ///     make `SCStream` actually start producing samples — is the
-        ///     LAST statement in `beginSegment`, strictly after that block.
-        ///     So nothing this session ever records — not a video frame, not
-        ///     an observation — can have an `instant` earlier than
-        ///     `hostRange.start`, and nothing routed here (which by
-        ///     definition arrived before `observationWriter` was set, hence
-        ///     before `hostRange.start` was computed) can be a member of the
-        ///     segment about to open. `theFirstSegmentsWriterAndHostRangeAre
-        ///     SetBeforeCaptureStarts` in `ProductionCallerTests.swift` pins
-        ///     this ordering so a future edit cannot separate the two without
-        ///     a test going red. **Measured once, on a real recording**
-        ///     (`a skill chain/sdd/.../task-5.5-report.md` § Step 6/7): this
-        ///     window was 62.1 ms wide (first pointer sample minus
-        ///     `hostRange.start`) — an observation, not a bound; slower disk
-        ///     I/O in `ObservationWriter.open` would widen it.
-        ///   * **Between `pause()` and `resume()`.** The tap runs the whole
-        ///     time a session is paused (only `stop()` tears it down), and
-        ///     nothing stops a person from moving the mouse while paused. No
-        ///     segment is open across this whole span — `finalizeCurrentSegment`
-        ///     has already fixed the closed segment's `hostRange.end`, and
-        ///     the next one's `hostRange.start` does not exist until
-        ///     `resume()` eventually calls `beginSegment` again — so every
-        ///     instant in between is, by the rule above, outside every
-        ///     `hostRange` there is. Not a loss in any sense worth flagging:
-        ///     pausing is a request to stop recording, so nothing SHOULD be
-        ///     attributed anywhere during it. **A large value here after a
-        ///     long pause with an active mouse is the expected, correct
-        ///     shape, not evidence of a defect** — read alongside a
-        ///     wall-clock pause duration, not alone.
-        ///   * **Between a display reconfiguration's `finalizeCurrentSegment`
-        ///     and its following `beginSegment`.** Same argument as the pause
-        ///     case, over the gap `await SCShareableContent.current` bounds —
-        ///     the same gap `skippedAwaitingReconfigurationCount` already
-        ///     names for video frames, for observations instead. Involuntary,
-        ///     unlike the pause case, but brief and already an accepted cost
-        ///     of D2-10's segment-splitting design.
-        ///   * **Between `finalizeCurrentSegment` finishing inside `stop()`
-        ///     and the tap actually being torn down.** `stop()` calls
-        ///     `finalizeCurrentSegment(…, stopping: true)` first — which sets
-        ///     `finalizingCurrentSegment = false` once the last segment's
-        ///     writer is closed — and only afterward fetches
-        ///     `inputObserver` and tears the tap down with `await MainActor
-        ///     .run { observerToStop.stop() }`. That `MainActor.run` hop is
-        ///     scheduling latency, not instant: an observation the tap
-        ///     delivers before the hop actually runs finds `writer == nil`,
-        ///     `finalizingCurrentSegment == false`, and lands here — found in
-        ///     code review, fix round 5, one scale down from the finding that
-        ///     produced this whole split. Still outside every `hostRange`,
-        ///     by the same rule as the other three: the last segment's
-        ///     `hostRange.end` is already fixed (`finalizeCurrentSegment`
-        ///     computed it before this window opens), and because the
-        ///     session is stopping, no successor segment will ever open to
-        ///     have a `hostRange.start` for this instant to fall before
-        ///     either — there is no `hostRange`, past or future, for it to
-        ///     be inside.
-        ///
-        /// **What this rule ruled OUT, which is the point of applying it
-        /// rather than trusting the flag alone: a fifth, genuinely-fixable
-        /// case — an observation whose `instant` DOES fall inside a
-        /// segment's `hostRange` but which found `observationWriter == nil`
-        /// because `SCStream` had already started producing samples before
-        /// the writer existed.** That case does not exist in this
-        /// implementation — the ordering proof above is exactly why — so
-        /// there is no third counter here for it. If `beginSegment` is ever
-        /// restructured so `startCapture()` can run before the writer is
-        /// set, this whole account becomes wrong and the ordering test named
-        /// above is what would say so.
-        ///
-        /// **Not itself a defect count**, unlike the counter above — the
-        /// report explains why these four were not split further (the pause
-        /// case in particular can dominate this number by orders of
-        /// magnitude and is not comparable to the other three).
+        /// This holds only because `beginSegment` sets `observationWriter` and
+        /// computes `openInstant` in one `lock.withLock` block, with
+        /// `startCapture()` strictly after it; changing that ordering invalidates
+        /// this counter's meaning.
         public internal(set) var observationsOutsideAnOpenSegment = 0
 
         /// The layout of the first audio buffer each source delivered.
         public internal(set) var systemAudioLayout: String?
         public internal(set) var microphoneLayout: String?
 
-        /// The same conservation law as the video path, **per audio track.**
-        ///
-        /// Per track, not summed, because the two sources are not alike: a
-        /// real run measured system audio as `2ch 32-bit float @48000Hz,
-        /// PLANAR` and the microphone as `1ch 32-bit float @44100Hz,
-        /// INTERLEAVED`, and only the planar one was being dropped. A single
-        /// total said "1045 buffers lost" and could not say by which source,
-        /// while the answer — *the one that needed converting* — was the
-        /// whole diagnosis.
-        ///
-        /// `delivered` is incremented at the top of `appendAudio`, before any
-        /// filter, for the same structural reason `completeFrameCount` had to
-        /// move: a total taken after a filter cannot show what the filter
-        /// removed.
+        /// The same conservation law as the video path, per audio track — the
+        /// two sources have different layouts and sample rates, so a summed
+        /// total cannot say which one lost buffers. `delivered` is incremented
+        /// at the top of `appendAudio`, before any filter.
         public struct AudioTrackAccounting: Sendable {
             public internal(set) var delivered = 0
             public internal(set) var appended = 0
@@ -463,60 +213,39 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                     + " + uninterleavable \(uninterleavable)"
                     + "  → \(balances ? "balances" : "DOES NOT BALANCE")"
             }
-            /// Loudest RMS seen on this track, 0…1, or `nil` if no buffer
-            /// was readable as interleaved Float32.
-            ///
-            /// **The counts below can all balance over silence.** Every
-            /// buffer arriving, converting and appending is compatible with
-            /// every sample being zero — and a track of digital silence is
-            /// exactly what "the microphone was muted" and "the tone was
-            /// never played" both look like. This is the only field here
-            /// that distinguishes "nothing was lost" from "there was nothing".
+            /// Loudest RMS seen on this track, 0…1, or `nil` if no buffer was
+            /// readable as interleaved Float32. The counts all balance over
+            /// digital silence, so this is the only field distinguishing
+            /// "nothing was lost" from "there was nothing".
             public internal(set) var peakRMS: Double?
 
-            /// A track that was delivered buffers and wrote none of them.
-            /// This is the state that produced a file with one audio track
-            /// where two were expected — and it was only visible by counting
-            /// tracks in the finished file, hours later.
+            /// A track that was delivered buffers and wrote none of them — the
+            /// state that produces a file with one audio track where two were
+            /// expected.
             public var deliveredButWroteNothing: Bool { delivered > 0 && appended == 0 }
         }
         public internal(set) var systemAudioAccounting = AudioTrackAccounting()
         public internal(set) var microphoneAccounting = AudioTrackAccounting()
 
-        /// Frames whose rect attachments could not be decoded at all.
-        ///
-        /// Non-zero here means `lastContentRect`/`lastScreenRect` are stale
-        /// or absent for a reason inside this process, not because
-        /// ScreenCaptureKit withheld them — a distinction that cost a whole
-        /// verification run when an `as? NSValue` cast silently failed on
-        /// every single frame.
+        /// Frames whose rect attachments could not be decoded at all. Non-zero
+        /// means `lastContentRect`/`lastScreenRect` are stale for a reason
+        /// inside this process, not because ScreenCaptureKit withheld them.
         public internal(set) var unreadableContentRectCount = 0
         public internal(set) var unreadableScreenRectCount = 0
 
-        /// The result of `CGDisplayRegisterReconfigurationCallback`.
-        ///
-        /// `.success` means the observer is installed; anything else means
-        /// D2-10's segment-splitting cannot happen at all, and every
-        /// downstream symptom — one segment where two were expected, one
-        /// `GeometryRevision` across a resolution change — would look like a
-        /// logic bug somewhere else entirely.
+        /// The result of `CGDisplayRegisterReconfigurationCallback`. Anything
+        /// other than `.success` means segment splitting cannot happen at all.
         public internal(set) var reconfigurationObserverRegistration: CGError?
 
-        /// What each segment was actually configured with, one entry per
-        /// `beginSegment`, in order.
-        ///
-        /// Added because a fix reasoned from two numbers (a buffer size and a
-        /// ratio) did not work, and the next step after a wrong diagnosis is
-        /// an instrument, not a second guess. These are the values handed to
-        /// `SCStreamConfiguration`, recorded where they are set.
+        /// The values handed to `SCStreamConfiguration`, one entry per
+        /// `beginSegment`, in order, recorded where they are set.
         public struct SegmentConfiguration: Sendable {
             public let bufferWidth: Int
             public let bufferHeight: Int
             public let destination: PixelRect
             public let scale: Double
-            /// `ContentScale` values actually observed while this segment was
-            /// the open one — the answer to "which segment was resampled",
-            /// which a session-wide min/max cannot give.
+            /// `ContentScale` observed while this segment was the open one —
+            /// which a session-wide min/max cannot attribute.
             public internal(set) var contentScaleMin: Double?
             public internal(set) var contentScaleMax: Double?
             public internal(set) var framesChecked = 0
@@ -524,55 +253,27 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         public internal(set) var segmentConfigurations: [SegmentConfiguration] = []
 
-        /// The `destinationRect` this session actually configured, recorded
-        /// **at the moment it was set**.
-        ///
-        /// Recorded rather than recomputed, and that is the whole point. A
-        /// caller checking "did ScreenCaptureKit put the content where we
-        /// asked?" needs two independent sources: this, which is what was
-        /// asked, and `lastContentRect`, which is per-frame
-        /// `SCStreamFrameInfoContentRect` — what was delivered. Recomputing
-        /// the request at check time from `SCWindow.frame` would read a
-        /// value that may have changed since (the frame is extrinsic and the
-        /// window can move), and comparing a fresh computation against its
-        /// own inputs is an assertion that cannot fail — reported, worst of
-        /// all, as the strongest check passing.
+        /// The `destinationRect` this session configured, recorded at the moment
+        /// it was set — what was *asked for*, against `lastContentRect`'s what
+        /// was *delivered*. Recomputing it at check time would compare a fresh
+        /// computation against its own inputs.
         public internal(set) var configuredDestinationRect: PixelRect?
 
-        /// Complete frames the video path skipped without appending, by the
-        /// reason it skipped them.
-        ///
-        /// These exist to make `everyCompleteFrameIsAccountedFor` provable
-        /// rather than hopeful. Skipping is legitimate — an input under
-        /// backpressure returns `isReadyForMoreMediaData == false` and
-        /// dropping is what `expectsMediaDataInRealTime` asks for — but a
-        /// skip that no counter names is indistinguishable from a frame that
-        /// never arrived, which is how a run in which the writer had already
-        /// failed still reported 310 complete frames.
+        /// Complete frames the video path skipped without appending, by reason.
+        /// Skipping is legitimate (backpressure), but a skip no counter names is
+        /// indistinguishable from a frame that never arrived.
         public internal(set) var skippedWriterNotWritingCount = 0
         public internal(set) var skippedInputNotReadyCount = 0
-        /// Frames dropped between a display-reconfiguration callback and the
-        /// new segment opening. Bounded by how long
-        /// `SCShareableContent.current` takes; non-zero only across a
-        /// reconfiguration, and the alternative to dropping them is writing
-        /// resampled frames into the master.
+        /// Frames dropped between a display-reconfiguration callback and the new
+        /// segment opening; the alternative is writing resampled frames into the
+        /// master.
         public internal(set) var skippedAwaitingReconfigurationCount = 0
 
-        /// **A conservation law, and the invariant the zero-byte file broke.**
-        ///
-        /// Every complete video frame leaves the handler exactly one way:
-        /// appended, refused, or skipped for one of three named reasons.
-        /// The counts must therefore sum to `completeFrameCount` — always,
-        /// on every run, with no tolerance.
-        ///
-        /// Stating it as a sum rather than as `completeFrameCount ==
-        /// appendedVideoFrameCount` is deliberate. That simpler equality is
-        /// not actually an invariant: a real-time input under backpressure
-        /// legitimately refuses frames, so the equality would fire on a
-        /// healthy recording and get relaxed into uselessness within a week.
-        /// This one has no legitimate violation. If it fails, a frame took a
-        /// path through `handleScreenSample` that nothing counts, and the
-        /// next defect of this family will hide exactly there.
+        /// A conservation law: every complete video frame leaves the handler
+        /// exactly one way, so the counts must sum to `completeFrameCount` on
+        /// every run, with no tolerance. It is a sum rather than
+        /// `completeFrameCount == appendedVideoFrameCount` because a real-time
+        /// input under backpressure legitimately refuses frames.
         public var everyCompleteFrameIsAccountedFor: Bool {
             completeFrameCount == appendedVideoFrameCount
                 + failedVideoAppendCount
@@ -598,19 +299,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     // MARK: - Mutable session state, all behind `lock`
     //
-    // `nonisolated(unsafe)` on every stored property below, deliberately —
-    // not left to `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Verified by
-    // compiling this file: with no annotation, each property is implicitly
-    // `@MainActor`, and `handleScreenSample`/`appendAudio` (called
-    // synchronously from `SCStreamOutput`'s callback, which cannot be
-    // `async`) cannot touch a `@MainActor` property without one — the
-    // compiler's own error was "can not be mutated from a nonisolated
-    // context" against nearly every property here in turn. `unsafe` is
-    // honest, not a suppression: nothing here is protected by actor
-    // isolation, everything is protected by `lock`, and `withLock`'s closure
-    // is what actually keeps concurrent access safe. This is the same
-    // `@unchecked Sendable` contract the class itself already declares, one
-    // level down at the property.
+    // `nonisolated(unsafe)` on every stored property below: unannotated they
+    // are implicitly `@MainActor` under this target's default isolation, and
+    // `handleScreenSample`/`appendAudio` touch them synchronously from the
+    // `SCStreamOutput` callback. Nothing here is protected by actor isolation;
+    // everything is protected by `lock`.
 
     private let lock = NSLock()
     private let sampleQueue = DispatchQueue(label: "video.soredemo.CaptureSession.samples")
@@ -619,14 +312,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated(unsafe) var ledger = SegmentLedger()
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var stream: SCStream?
-    /// The master file, behind `MasterWriting` rather than as an
-    /// `AVAssetWriter` and three `AVAssetWriterInput`s.
-    ///
-    /// Everything this holds is deprecated at macOS 27.0 — `addInput:`,
-    /// `startWriting`, `AVAssetWriterInput.append(_:)` — so the migration is
-    /// scheduled and only its date is open. Behind the seam it is one file; in
-    /// front of it, after Phase 2B's render and export rows also write media,
-    /// it would have been a migration. See `MasterWriter.swift`.
+    /// The master file, behind `MasterWriting` rather than a bare
+    /// `AVAssetWriter`: everything it holds is deprecated at macOS 27.0, so the
+    /// seam is where that migration will land. See `MasterWriter.swift`.
     private nonisolated(unsafe) var master: (any MasterWriting)?
     private nonisolated(unsafe) var writerTempURL: URL?
     private nonisolated(unsafe) var writerSessionStarted = false
@@ -636,100 +324,61 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated(unsafe) var currentDestination: PixelRect?
     /// Set synchronously by `reconfigurationCallback`, cleared when the next
     /// segment opens. While true, complete frames are counted and dropped
-    /// rather than appended — see the callback for why.
+    /// rather than appended.
     private nonisolated(unsafe) var suspendAppendsForReconfiguration = false
     private nonisolated(unsafe) var currentMediaFilename: String?
     private nonisolated(unsafe) var lastFrameInstant: HostInstant?
     private nonisolated(unsafe) var frameCounterForBlackCheck = 0
     private nonisolated(unsafe) var blackFrameConsecutive = 0
-    /// Opaque token for `CGDisplayRegisterReconfigurationCallback`'s
-    /// `userInfo`, so the free-function callback can reach back into this
-    /// instance without a global. `Unmanaged.passUnretained` — the callback
-    /// is unregistered in `stop()`/`deinit` before the session can be freed.
+    /// Opaque token for `CGDisplayRegisterReconfigurationCallback`'s `userInfo`,
+    /// so the free-function callback can reach this instance without a global.
+    /// `Unmanaged.passUnretained` is safe because the callback is unregistered
+    /// in `stop()`/`deinit` before the session can be freed.
     private nonisolated(unsafe) var reconfigToken: Unmanaged<CaptureSession>?
 
-    // MARK: - Observation (Task 5.5)
+    // MARK: - Observation
     //
-    // One `InputObserver` and one `AXObserver` for the life of the SESSION —
-    // `start()` to `stop()` — not one per segment: the tap and the AX queue
-    // are the expensive, permission-gated things to stand up, and D2-12's own
-    // straddling rule already assumes an AX chain can outlive the segment
-    // boundary its click happened in. `observationWriter` is the thing that
-    // rotates per segment, opened in `beginSegment` and closed in
-    // `finalizeCurrentSegment` — the same split `master`/`stream` already
-    // have relative to `self.source`.
+    // One `InputObserver` and one `AXObserver` for the life of the SESSION, not
+    // one per segment: both are expensive and permission-gated, and an AX chain
+    // may outlive the segment boundary its click happened in. Only
+    // `observationWriter` rotates per segment.
 
     private nonisolated(unsafe) var inputObserver: InputObserver?
     private nonisolated(unsafe) var axObserver: AXObserver?
-    /// What `setUpObservation()` found when it tried to start the tap and
-    /// asked for Accessibility — the same list every segment's
-    /// `ObservationLogHeader.blindness` carries, because both permissions are
-    /// read once for the whole session, not re-checked per segment.
+    /// What `setUpObservation()` found when starting the tap and asking for
+    /// Accessibility. Read once for the whole session, not per segment.
     private nonisolated(unsafe) var observationBlindness: [ObservationBlindness] = []
     private nonisolated(unsafe) var observationWriter: ObservationWriter?
-    /// `InputObserver.diagnostics`/`AXObserver.diagnostics` as they stood the
-    /// moment the CURRENT segment opened — both are monotonic cumulative
-    /// counters over the whole session, so a segment's own `GapWatch` rows are
-    /// this snapshot subtracted from the diagnostics read at close, the same
-    /// snapshot-then-diff shape `Diagnostics.SegmentConfiguration` already
-    /// uses for per-segment `ContentScale`.
+    /// `InputObserver`/`AXObserver` diagnostics as of the current segment's
+    /// open. Both are session-cumulative, so a segment's `GapWatch` rows are
+    /// this snapshot subtracted from the diagnostics read at close.
     private nonisolated(unsafe) var inputDiagnosticsAtSegmentStart = InputObserver.Diagnostics()
     private nonisolated(unsafe) var axDiagnosticsAtSegmentStart = AXObserver.Diagnostics()
     private nonisolated(unsafe) var frameStatusCountsAtSegmentStart: [Int: Int] = [:]
-    /// The sum of every `SecureInputInterval.interval.duration` routed to the
-    /// current segment's writer. Not derivable from `InputObserver.Diagnostics`
-    /// by subtraction the way the tap/AX counters above are — that type counts
-    /// intervals, never their total width — so this accumulates the one
-    /// number `GapWatch.secureInput(suppressedNanos:)` needs directly, reset
-    /// to zero at each `beginSegment`.
+    /// Sum of every `SecureInputInterval.interval.duration` routed to the
+    /// current segment's writer, reset at each `beginSegment`. Not derivable by
+    /// subtraction from `InputObserver.Diagnostics`, which counts intervals but
+    /// never their total width.
     private nonisolated(unsafe) var secureInputSuppressedNanosAtCurrentSegment: Int64 = 0
-    /// `true` from the instant
-    /// `finalizeCurrentSegment` nils `observationWriter` until the instant it
-    /// finishes closing it — bracketing exactly the window
-    /// `Diagnostics.observationsDroppedAfterSegmentClose` is named for and no
-    /// wider. `appendObservation`'s `guard let writer else` branch reads this
-    /// to decide which of the two "no writer" counters an observation belongs
-    /// to: this flag `true` means a segment WAS open and is actively closing;
-    /// `false` with no writer means no segment is open **at all** right now,
-    /// which is `Diagnostics.observationsOutsideAnOpenSegment`'s case instead
-    /// — see that field for why the two are not the same fact, found in the
-    /// same round of review that added this flag to tell them apart.
+    /// `true` from the instant `finalizeCurrentSegment` nils `observationWriter`
+    /// until it finishes closing it. `appendObservation` reads it to choose
+    /// between `observationsDroppedAfterSegmentClose` (`true`) and
+    /// `observationsOutsideAnOpenSegment` (`false`).
     private nonisolated(unsafe) var finalizingCurrentSegment = false
 
     // MARK: - Init
 
-    /// `scale` and `displayUUID` are supplied by the caller, exactly
-    /// mirroring `CaptureSource.geometry(scale:displayUUID:)`'s own
-    /// parameters (Task 7) — this type does not derive them itself, for the
-    /// same reason that function does not: deriving a display's UUID/scale
-    /// is ambient CoreGraphics/AppKit state this file has no need to own,
-    /// and the caller (eventually `capture-permissions`'s successor in
-    /// `app-shell`) already has to compute them once to drive the picker.
+    /// `scale` and `displayUUID` are supplied by the caller rather than derived
+    /// here, mirroring `CaptureSource.geometry(scale:displayUUID:)`.
     ///
-    /// `mediaSink` is where each finished segment's bytes go, and it replaced
-    /// a bare `packageURL` in Task 11.
+    /// `mediaSink` is where each finished segment's bytes go, and it is
+    /// non-optional: media must go through `ProjectDocument.addMedia(_:named:)`,
+    /// which records the manifest reference and marks the document dirty.
+    /// `ProjectPackageIO.writeSidecar` alone leaves an orphan the next
+    /// `compactMedia()` deletes.
     ///
-    /// **The session used to call `ProjectPackageIO.writeSidecar` itself, and
-    /// that was a live defect rather than a layering preference.**
-    /// `writeSidecar` puts the file in `media/` and does nothing else — so
-    /// every segment this session produced was a file the manifest did not
-    /// reference, invisible to `ProjectSnapshot.mediaFilenames`, and correctly
-    /// identified as an orphan by the next `ProjectDocument.compactMedia()`,
-    /// which deletes it. The write-once refusal and the path-component check
-    /// still happen, one layer further in: `ProjectDocument.addMedia(_:named:)`
-    /// calls the same `writeSidecar` and then records the reference and marks
-    /// the document dirty, which are the two steps that were missing.
-    ///
-    /// It is an `any MediaSink` and not an optional: a session with nowhere to
-    /// put media is a session whose recording is discarded at the end, and
-    /// having to say where at construction is what makes that unsayable by
-    /// accident.
-    ///
-    /// `epoch` is the recording's `BootEpoch` (`Minting.bootEpoch()`), supplied
-    /// once so every `HostInstant` this session mints shares one epoch — the
-    /// same reasoning `SegmentTable.init(segments:)`'s `mixedEpochs` guard
-    /// exists to catch if it were ever wrong, and the same reasoning
-    /// `ObservationLogHeader.epoch` carries one line per log.
+    /// `epoch` is supplied once so every `HostInstant` this session mints shares
+    /// one `BootEpoch`.
     public init(source: CaptureSource, scale: Double, displayUUID: UUID,
                 mediaSink: any MediaSink, epoch: BootEpoch) {
         self.source = source
@@ -741,8 +390,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     }
 
     deinit {
-        // No lock here: by the time `deinit` runs there is, by definition,
-        // no other reference through which a concurrent access could occur.
+        // No lock: at `deinit` no other reference can concurrently access this.
         if let reconfigToken {
             CGDisplayRemoveReconfigurationCallback(CaptureSession.reconfigurationCallback,
                                                     reconfigToken.toOpaque())
@@ -751,10 +399,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     // MARK: - Public lifecycle
 
-    /// Opens segment 0. Registers the display-reconfiguration observer
-    /// **before** starting capture, per D2-10: unregistered, reconfiguration
-    /// is inferred later from frames stopping or sizes not matching, after
-    /// the file is already wrong.
+    /// Opens segment 0. Registers the display-reconfiguration observer **before**
+    /// starting capture; otherwise a reconfiguration is only inferred later,
+    /// after the file is already wrong.
     public nonisolated func start() async throws {
         let wasAlreadyRunning = lock.withLock { () -> Bool in
             if isRunning { return true }
@@ -764,44 +411,27 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         guard !wasAlreadyRunning else { throw SessionError.alreadyRunning }
 
         registerReconfigurationObserver()
-        // Task 5.5, Step 5: once per SESSION, not once per segment — see the
-        // "Observation" stored-property block above.
+        // Once per SESSION, not once per segment.
         await setUpObservation()
         try await beginSegment(geometry: source.geometry(scale: scale, displayUUID: displayUUID),
                                 destination: source.destinationRect(scale: scale))
     }
 
     /// Constructs this session's `InputObserver`/`AXObserver`, asks for
-    /// Accessibility (Step 4), starts the tap, and records what happened as
-    /// `observationBlindness` — the list every segment's
-    /// `ObservationLogHeader.blindness` carries.
+    /// Accessibility, starts the tap, and records what happened as
+    /// `observationBlindness`.
     ///
-    /// **`@MainActor`, not `nonisolated`**, unlike almost everything else in
-    /// this file: `InputObserver.start(onObservation:)` is itself
-    /// MainActor-isolated (its own doc comment explains why — it touches
-    /// `CFRunLoopGetMain()`), and `CapturePermissions.requestAccessibilityAccess()`
-    /// reads `Bundle`-adjacent process state the same way `dumpText()` does.
-    /// `start()` is `nonisolated async`, so `await setUpObservation()` there
-    /// is an ordinary actor hop, the same shape `finalizeCurrentSegment`
-    /// already uses for `MainActor.run { try sink.acceptMedia(...) }`.
-    ///
-    /// **Assumes neither answer about Input Monitoring.** This is the first
-    /// production call to `InputObserver.start(onObservation:)` anywhere in
-    /// this app (`docs/.../task-5.5-report.md` § Step 6) — nothing here
-    /// guards on `CapturePermissions.status(of: .inputMonitoring)` before
-    /// calling it, and nothing pre-empts the grant. Whatever `CGEvent
-    /// .tapCreate` does under this bundle's own identity is what happens;
-    /// `CaptureError.inputMonitoringUnavailable` is caught below exactly like
-    /// any other expected outcome, not specially avoided.
+    /// `@MainActor`, unlike most of this file, because
+    /// `InputObserver.start(onObservation:)` is MainActor-isolated (it touches
+    /// `CFRunLoopGetMain()`) and `CapturePermissions.requestAccessibilityAccess()`
+    /// reads process state. Nothing here pre-checks Input Monitoring;
+    /// `CaptureError.inputMonitoringUnavailable` is caught as a normal outcome.
     @MainActor
     private func setUpObservation() async {
-        // Step 4 — ask for Accessibility once, before the AX walk's first
-        // use. The return value IS this session's accessibility reading for
-        // the whole run: `CapturePermissions.status(of: .accessibility)` is
-        // deliberately not also called here — `AppSourceAllowListTests
-        // .theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt`
-        // pins that call to `AXObserver`'s own injection point, and a second
-        // reader here would be a second policy about what the grant means.
+        // Asked once, before the AX walk's first use; this return value is the
+        // session's whole accessibility reading. `CapturePermissions.status(of:
+        // .accessibility)` is deliberately not read here too — a second reader
+        // would be a second policy about what the grant means.
         let accessibilityGranted = CapturePermissions.requestAccessibilityAccess()
 
         let arrangement = InputObserver.currentArrangement()
@@ -819,9 +449,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             // NOT "no events happened" — see `CaptureError`'s own cases.
             if let mapped = error.blindness { blindness.append(mapped) }
         } catch {
-            // `InputObserver.start` only ever throws `CaptureError` per its
-            // own signature's callers; an unrecognised error type is not
-            // silently absorbed into a blindness case that would misname it.
+            // `InputObserver.start` only throws `CaptureError`; an unrecognised
+            // error is not absorbed into a blindness case that would misname it.
             FileHandle.standardError.write(Data((
                 "CaptureSession: InputObserver.start threw an unexpected error: \(error)\n"
             ).utf8))
@@ -834,22 +463,20 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    /// Finalises the current segment with `.paused` and tears the stream
-    /// down. There is no pause in ScreenCaptureKit (D2-9) — this is the
-    /// whole mechanism, not a partial one.
+    /// Finalises the current segment with `.paused` and tears the stream down.
+    /// ScreenCaptureKit has no pause, so this is the whole mechanism.
     public nonisolated func pause() async throws {
         try await finalizeCurrentSegment(endedBy: .paused)
     }
 
-    /// Opens the next segment, same geometry revision as before pausing —
-    /// pausing is a user action, not a display change, so nothing here
-    /// re-derives geometry the way `handleReconfiguration` does.
+    /// Opens the next segment with the same geometry revision as before pausing;
+    /// pausing is a user action, not a display change, so geometry is not
+    /// re-derived the way `handleReconfiguration` does.
     public nonisolated func resume() async throws {
         let (running, savedGeometry, savedDestination) =
             lock.withLock { (isRunning, currentGeometry, currentDestination) }
         guard running else { throw SessionError.notRunning }
-        // Both saved values, or both re-derived — never one of each, which is
-        // the mismatch `beginSegment`'s doc comment describes.
+        // Both saved values, or both re-derived — never one of each.
         if let savedGeometry, let savedDestination {
             try await beginSegment(geometry: savedGeometry, destination: savedDestination)
         } else {
@@ -858,24 +485,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    /// The result of stopping a recording.
-    ///
-    /// **Why this is not just a `SegmentTable`.** It was, and that was the
-    /// defect. A `SegmentTable` names a `mediaFilename` per segment; nothing
-    /// in it can say whether a file exists behind that name. When Task 8's
-    /// step 1 produced a segment whose media never reached the package,
-    /// `stop()` returned a table that was structurally perfect and
-    /// factually a lie — the failure value landed *inside the legal range of
-    /// the success type*, which is the shape this project has been bitten by
-    /// before and now refuses by construction.
-    ///
-    /// The fix is the same one `Evidence`'s non-empty requirement and
-    /// `NormalizedPoint`'s validating initialiser use: make the bad state
-    /// impossible to hold accidentally. A caller cannot reach the table
-    /// without first writing down which case they are in. They may still
-    /// choose to use an incomplete table — that is a legitimate thing to
-    /// want, since it is the only record of what was recorded — but it is
-    /// now a decision in their source, not a default.
+    /// The result of stopping a recording. Not a bare `SegmentTable`, because a
+    /// table names a `mediaFilename` per segment but cannot say whether a file
+    /// exists behind that name; a caller must state which case they are in
+    /// before reaching the table.
     public enum Outcome: Sendable {
         /// Every segment's media is in the package.
         case complete(SegmentTable)
@@ -886,23 +499,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     }
 
     /// Finalises the current segment with `.stopped`, unregisters the
-    /// reconfiguration observer, and returns an `Outcome` carrying the
-    /// `SegmentTable` — the validated, ordered record
-    /// `SegmentTable.init(segments:)` (Task 4) throws out of if anything is
-    /// out of order, overlapping, or spans two boot epochs.
-    ///
-    /// **Deliberately not `@discardableResult`**, which it used to be. That
-    /// attribute belongs to the same family as the defect `Outcome` exists
-    /// to close: it made "ignore the entire record of what was just
-    /// recorded" the shortest thing a caller could write. Stopping a
-    /// recording has exactly one interesting output and every caller has a
-    /// use for it.
+    /// reconfiguration observer, and returns an `Outcome` carrying the validated
+    /// `SegmentTable`. Deliberately not `@discardableResult`: the record of what
+    /// was just recorded is the only interesting output.
     public nonisolated func stop() async throws -> Outcome {
         guard lock.withLock({ isRunning }) else { throw SessionError.notRunning }
 
-        // A stop with no segment open (e.g. called again after a stream
-        // failure already finalised the last one) is not an error — it
-        // just has nothing left to close.
+        // A stop with no segment open (e.g. after a stream failure already
+        // finalised the last one) is not an error.
         if lock.withLock({ ledger.isSegmentOpen }) {
             try await finalizeCurrentSegment(endedBy: .stopped, stopping: true)
         } else {
@@ -910,8 +514,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             lock.withLock { isRunning = false }
         }
 
-        // Tears the tap down for the whole session — `InputObserver.start(onObservation:)` was
-        // called exactly once, in `setUpObservation()`, and this is its matching `stop()`.
+        // Matching `stop()` for the single `InputObserver.start(onObservation:)`
+        // call in `setUpObservation()`; tears the tap down for the session.
         let observerToStop = lock.withLock { () -> InputObserver? in
             let observer = inputObserver
             inputObserver = nil
@@ -929,41 +533,21 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     // MARK: - Segment open/close
 
     /// Shared by `start()`, `resume()`, and reconfiguration handling: mint a
-    /// filename, build a fresh `AVAssetWriter` with three inputs, build a
-    /// fresh `SCStream` sized to `geometry`, and open the ledger's next
-    /// segment. The write-once refusal (`ProjectPackageIO.writeSidecar`)
-    /// applies once the segment's bytes are finished — see
-    /// `finalizeCurrentSegment` for why it cannot apply here, at open time.
-    /// **`geometry` and `destination` are passed together, from one
-    /// `CaptureSource`, and that is the invariant this signature exists to
-    /// hold.** They used to be derived separately: `geometry` from the
-    /// caller, `destination` from `self.source` — and `self.source` is a
-    /// snapshot taken when the session was constructed. Across a display
-    /// reconfiguration the two disagreed: the buffer followed the new
-    /// display (2704x1690) while the destination rectangle still asked for
-    /// the old one (3024x1964), so ScreenCaptureKit scaled every frame of
-    /// the new segment by exactly 3024/2704 = 1.1183 — measured, 335 of 664
-    /// frames with `ContentScale != 1`, which is D2-8's central claim broken
-    /// for half a recording.
+    /// filename, build a fresh `AVAssetWriter` with three inputs, build a fresh
+    /// `SCStream` sized to `geometry`, and open the ledger's next segment.
     ///
-    /// It is worth naming what caused it: setting `destinationRect` at all
-    /// was the fix for an uncontracted default, and the fix introduced this.
-    /// A value that is now chosen has to be chosen *from the same place* as
-    /// everything derived alongside it, on every path — including the one
-    /// that only runs when the display changes underneath a recording.
+    /// `geometry` and `destination` must come from one `CaptureSource`. Derived
+    /// separately they can disagree across a display reconfiguration — buffer
+    /// following the new display while `destinationRect` still asks for the old
+    /// one — and ScreenCaptureKit then resamples every frame of the new segment.
     private nonisolated func beginSegment(geometry: DisplayGeometry, destination: PixelRect) async throws {
         let index = lock.withLock { ledger.closedSegments.count }
         let mediaFilename = "master-\(String(format: "%02d", index)).mov"
 
-        // AVAssetWriter refuses to write to a path that already exists (its
-        // own header: "Writing will fail if a file already exists at the
-        // specified URL"), so it cannot target `media/<name>` directly —
-        // `writeSidecar`'s own write-once check would have to run *after*
-        // the writer already created that file, which is too late. Instead
-        // the writer targets a scratch path outside the package, and the
-        // finished bytes are handed to `writeSidecar` whole once recording
-        // of this segment ends — see `finalizeCurrentSegment`. `.mappedIfSafe`
-        // there avoids doubling this in RAM.
+        // AVAssetWriter fails if a file already exists at its output URL, so it
+        // cannot target `media/<name>` directly. It writes to a scratch path
+        // outside the package and the finished bytes are handed over whole in
+        // `finalizeCurrentSegment`.
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("soredemo-capture-\(Minting.newIdentifier().uuidString).mov")
 
@@ -977,16 +561,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
         ]
-        // Passthrough (`nil` settings), deliberately, for both audio tracks
-        // — not AAC. The master is unprocessed evidence (D2-8); lossy
-        // compression is exactly the kind of processing that principle
-        // argues against, and passthrough into a QuickTime movie needs no
-        // format hint (the header: a hint is only required for a
-        // non-QuickTime container). This also sidesteps having to predict
-        // the microphone's own native format, which
-        // `SCStreamConfiguration.sampleRate`/`.channelCount` do not control
-        // (those govern only the *system-audio* stream — confirmed against
-        // `SCStream.h`'s wording for each property).
+        // Passthrough (`nil` settings) for both audio tracks, not AAC: the master
+        // is unprocessed evidence, QuickTime needs no format hint for
+        // passthrough, and the microphone's native format cannot be predicted
+        // (`SCStreamConfiguration.sampleRate`/`.channelCount` govern only the
+        // system-audio stream).
         let master: any MasterWriting = try LegacyMasterWriter(
             outputURL: tempURL,
             videoSettings: videoSettings,
@@ -999,11 +578,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         configuration.showsCursor = false                 // Step 0 / D2-8
         configuration.scalesToFit = false                  // D2-13a
         configuration.preservesAspectRatio = true           // D2-13a
-        // D2-13a, and NOT a default. Unset, where ScreenCaptureKit places
-        // content that does not fill the surface is undocumented — measured
-        // as origin-anchored on this OS build and promised nowhere. See
-        // `CaptureSource.destinationRect(scale:)` for why an uncontracted
-        // anchor is the same failure this project already refused twice.
+        // Set explicitly: unset, where ScreenCaptureKit places content that does
+        // not fill the surface is undocumented.
         configuration.destinationRect = CGGeometryBridge.rect(from: destination)
         lock.withLock {
             _diagnostics.configuredDestinationRect = destination
@@ -1016,9 +592,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         configuration.captureMicrophone = true
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned, placeholder gamut choice
-        // A floor, not a cadence (F2-4: 9–37 fps observed against 60
-        // requested) — presentation times are taken from each sample
-        // buffer, never assumed from this number.
+        // A floor, not a cadence — presentation times come from each sample
+        // buffer and are never assumed from this number.
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
 
         let filter = source.filter()
@@ -1027,10 +602,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         try scStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
         try scStream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
 
-        // Task 5.5, Step 5 — one `ObservationWriter` per segment, beside the media. `packageURL`
-        // is read through the sink rather than assumed, the same refusal `ProjectDocument
-        // .addMedia` already makes for an unsaved document: no package, no log, for this segment —
-        // exactly as it already writes no media for one.
+        // One `ObservationWriter` per segment, beside the media. No package means
+        // no log for this segment, exactly as it already means no media.
         let packageURL = await MainActor.run { mediaSink.packageURL }
         let (input, ax, blindness) = lock.withLock { (inputObserver, axObserver, observationBlindness) }
         var writer: ObservationWriter?
@@ -1045,11 +618,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                     "CaptureSession: ObservationWriter.open failed for segment \(index): \(error)\n"
                 ).utf8))
             }
-            // Declared only for the channels this session is actually observing — see
-            // `ObservationLogTrailer.recordCounts`'s own "a key present with a zero value and a
-            // key absent are different facts": a run blind to input monitoring must not claim
-            // `pointer: 0`, which would read as "the mouse never moved" rather than "nothing was
-            // watching".
+            // Declared only for channels this session is actually observing: in
+            // `ObservationLogTrailer.recordCounts` a zero value and an absent key
+            // are different facts, so a run blind to input monitoring must not
+            // claim `pointer: 0`.
             if let writer {
                 let inputBlind = blindness.contains(.inputMonitoringUnavailable)
                     || blindness.contains(.eventTapRunLoopSourceUnavailable)
@@ -1119,33 +691,19 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         if let master = snapshot.master, master.status == .completed,
            let tempURL = snapshot.tempURL, let mediaFilename = snapshot.mediaFilename {
-            // `.mappedIfSafe`: the finished file can be large (design doc:
-            // "several GB of video"); mapping avoids doubling that in RAM
-            // the way `Data(contentsOf:)`'s default eager read would.
+            // `.mappedIfSafe`: the finished file can be several GB, and an eager
+            // read would double that in RAM.
             let bytes = try Data(contentsOf: tempURL, options: .mappedIfSafe)
-            // Through the document, never around it: `addMedia` is what records
-            // the reference and marks the document dirty. See `init`.
+            // Through the document, never around it: `addMedia` records the
+            // reference and marks the document dirty.
             let sink = mediaSink
             try await MainActor.run { try sink.acceptMedia(bytes, named: mediaFilename) }
             try? FileManager.default.removeItem(at: tempURL)
         } else {
-            // The recording for this segment did not make it into the
-            // package. This branch used to delete the scratch file and say
-            // nothing — `stop()` returned a `SegmentTable` naming a
-            // `mediaFilename` that did not exist, and the first thing to
-            // notice was whatever tried to open the file, minutes or weeks
-            // later, with no way left to say why. Task 8's step 1 hit it and
-            // the only evidence was an absent directory.
-            //
-            // Two changes, and both are the same principle: a failure must
-            // leave more behind than a success, not less.
-            //   * the writer's own status and error are recorded, because
-            //     `AVAssetWriter.error` is populated exactly here and
-            //     nowhere else — once the writer is released it is gone;
-            //   * the scratch file is NOT deleted, and its path is recorded.
-            //     Those bytes are the only copy of what the user recorded.
-            //     Leaking one file into `NSTemporaryDirectory` (which the OS
-            //     reclaims) is the cheaper mistake by a wide margin.
+            // This segment's recording did not reach the package. The writer's
+            // status and error are captured here because `AVAssetWriter.error` is
+            // gone once the writer is released, and the scratch file is
+            // deliberately NOT deleted — those bytes are the only copy.
             let statusDescription: String
             switch snapshot.master?.status {
             case .none: statusDescription = "no writer"
@@ -1172,28 +730,20 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             self.currentMediaFilename = nil
             let writer = self.observationWriter
             self.observationWriter = nil
-            // **Task 5.5, fix round 3.** `true` only when there is a real
-            // writer about to be drained-and-closed below — a segment with no
-            // writer at all (no `packageURL`) was never "finalizing" one, and
-            // an observation arriving during ITS whole life already belongs
-            // to `observationsOutsideAnOpenSegment`, not this window. Set
-            // inside the SAME lock as `observationWriter = nil` so a
-            // concurrent `appendObservation` reading either can never see the
-            // writer already gone but this flag not yet caught up.
+            // `true` only when a real writer is about to be drained and closed
+            // below. Set inside the SAME lock as `observationWriter = nil` so a
+            // concurrent `appendObservation` can never see the writer gone with
+            // this flag not yet caught up.
             self.finalizingCurrentSegment = (writer != nil)
             if stopping { isRunning = false }
             return (segment, writer)
         }
 
         if let closingWriter {
-            // **Wait for the AX queue before closing, or D2-12's straddling rule is a lie this
-            // writer tells.** `AXObserver.enqueue` may still be walking a chain for a click that
-            // happened just before this boundary; `routeInputObservation` already captured THIS
-            // writer at the moment that click was recorded (not "whichever writer is open when the
-            // chain answers"), so the chain is correctly headed here rather than to the next
-            // segment's log — but only if this writer is still open when it arrives. Without this,
-            // a trailing click's AX chain finds `WriterError.logIsClosed` and is lost, silently, to
-            // exactly the kind of two-instruments gap this project keeps re-finding.
+            // Wait for the AX queue before closing: `AXObserver.enqueue` may still
+            // be walking a chain for a click just before this boundary, which
+            // `routeInputObservation` already routed to THIS writer. Without the
+            // wait the chain hits `WriterError.logIsClosed` and is lost.
             let ax = lock.withLock { axObserver }
             ax?.waitForQueuedClicks()
             let gapWatches = observationGapWatches(hostRange: segment.hostRange)
@@ -1207,9 +757,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                     }
                 }
             }
-            // The close-drain window ends here, whether `close(...)` succeeded or threw — either
-            // way there is no longer a writer being finalized, and the next `nil`-writer
-            // observation (until the next segment opens) belongs to `observationsOutsideAnOpenSegment`.
+            // The close-drain window ends here whether `close(...)` succeeded or
+            // threw; later `nil`-writer observations belong to
+            // `observationsOutsideAnOpenSegment`.
             lock.withLock { finalizingCurrentSegment = false }
         }
 
@@ -1218,11 +768,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    /// The four D6a `GapWatch` rows for the segment that just closed, as the
-    /// diagnostics read now minus the snapshot `beginSegment` took when it
-    /// opened — see the "Observation" stored-property block for why a
-    /// snapshot-then-diff is needed at all (the observers are session-long,
-    /// the log is per-segment).
+    /// The four `GapWatch` rows for the segment that just closed: diagnostics as
+    /// of now minus the snapshot `beginSegment` took, because the observers are
+    /// session-long while the log is per-segment.
     private nonisolated func observationGapWatches(hostRange: HostRange) -> [GapWatch] {
         let (inputNow, inputBase, axNow, axBase, secureInputSuppressed, framesBase) = lock.withLock {
             (inputObserver?.diagnostics ?? InputObserver.Diagnostics(), inputDiagnosticsAtSegmentStart,
@@ -1255,34 +803,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     }
 
     /// Routes one `InputObserver.Observation` to the segment's
-    /// `ObservationWriter` and, for a button-down, enqueues its AX chain.
+    /// `ObservationWriter` and, for a button-down, enqueues its AX chain. Called
+    /// on the tap callback thread, so `nonisolated`, with everything it touches
+    /// behind `lock`.
     ///
-    /// **Called on the tap callback thread — `nonisolated`, and everything it
-    /// touches is behind `lock` or is itself thread-safe.** This is the first
-    /// production call to `InputObserver.start(onObservation:)`'s sink
-    /// anywhere in this app; see the task report for what that first call
-    /// surfaced.
-    ///
-    /// **The writer is captured once, at the top, and that single reference —
-    /// not a fresh `lock.withLock { observationWriter }` per case — is what
-    /// the AX completion closure below uses too.** D2-12: an AX chain
-    /// belongs to the segment its click happened in, and the chain answers
-    /// asynchronously, possibly after this segment's writer has already been
-    /// replaced by the next one's. Capturing the writer that was open at the
-    /// moment of the click (this function runs synchronously off the tap
-    /// callback, with no gap) is what keeps the chain on the right log
-    /// without re-deriving "which segment was this click in" from a instant
-    /// comparison.
-    ///
-    /// **`finalizingCurrentSegment` is captured in the SAME `lock.withLock`
-    /// as `observationWriter`, for the same reason — found in fix round 3.**
-    /// A first version of this fix read the flag separately, inside
-    /// `appendObservation`, after `writer` had already been fetched here;
-    /// `finalizeCurrentSegment` can run — and change both together — in the
-    /// gap between the two reads, which would let a `nil` writer captured
-    /// BEFORE any segment ever opened be paired with a `finalizingCurrentSegment`
-    /// reading from a LATER segment's close, misattributing the drop to the
-    /// wrong counter. One read of both, together, closes that.
+    /// The writer is captured once at the top and that single reference is what
+    /// the AX completion closure uses: an AX chain belongs to the segment its
+    /// click happened in, and it answers after that segment's writer may have
+    /// been replaced. `finalizingCurrentSegment` must be read in the SAME
+    /// `lock.withLock` as `observationWriter`, or a close running between two
+    /// separate reads would misattribute a drop to the wrong counter.
     private nonisolated func routeInputObservation(_ observation: InputObserver.Observation) {
         let (writer, finalizing) = lock.withLock { (observationWriter, finalizingCurrentSegment) }
         switch observation {
@@ -1305,27 +835,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     }
 
     /// One `ObservationWriter.append`, with every way of losing the record
-    /// counted rather than dropped in silence.
-    ///
-    /// **`writer == nil` used to `return` here with nothing counting it at
-    /// all — found in code review, fix round 2 — and the single counter fix
-    /// round 2 added then turned out to conflate two different facts, found
-    /// by the SAME reviewer reading the round-2 fix itself (fix round 3).**
-    /// `writer == nil` means one of two different things, told apart by
-    /// `finalizingCurrentSegment`:
-    ///
-    ///   * a real segment is open and is, right now, being closed —
-    ///     `Diagnostics.observationsDroppedAfterSegmentClose`, a genuine loss;
-    ///   * no segment is open at all, for any of three reasons (before the
-    ///     first one, between `pause()` and `resume()`, or between a
-    ///     reconfiguration's close and its reopen) —
-    ///     `Diagnostics.observationsOutsideAnOpenSegment`, which is not
-    ///     uniformly a loss (see that field).
-    ///
-    /// `whileFinalizing` is `routeInputObservation`'s single, paired read of
-    /// `finalizingCurrentSegment` alongside `writer` — see that function's
-    /// own doc comment for why the two must come from one `lock.withLock`
-    /// rather than two.
+    /// counted rather than dropped in silence. `writer == nil` splits by
+    /// `whileFinalizing`: `true` is a segment closing right now
+    /// (`observationsDroppedAfterSegmentClose`, a genuine loss), `false` is no
+    /// segment open at all (`observationsOutsideAnOpenSegment`). `whileFinalizing`
+    /// must be `routeInputObservation`'s paired read, not a fresh one.
     private nonisolated func appendObservation(_ record: some ObservationRecord, to writer: ObservationWriter?,
                                                 whileFinalizing: Bool) {
         guard let writer else {
@@ -1352,13 +866,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     // MARK: - SCStreamOutput
 
-    /// **Deliberately `nonisolated`, not left to `SWIFT_DEFAULT_ACTOR_ISOLATION
-    /// = MainActor`.** `SCStreamOutput`/`SCStreamDelegate` are plain ObjC
-    /// protocols, not documented to call back on the main thread — this
-    /// project's own `CaptureSourcePicker` (Task 7) made the identical call
-    /// for the identical reason, and ScreenCaptureKit explicitly delivers
-    /// these on the `sampleHandlerQueue` supplied to `addStreamOutput`,
-    /// which here is `sampleQueue`, never the main queue.
+    /// `nonisolated` because ScreenCaptureKit delivers these on the
+    /// `sampleHandlerQueue` given to `addStreamOutput` — here `sampleQueue` —
+    /// never the main queue.
     public nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
                                     of type: SCStreamOutputType) {
         switch type {
@@ -1373,14 +883,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    /// A revoked Screen Recording grant does not reach here — F2-4/D2-8's
-    /// TCC finding is that it produces **black frames**, not a stream error
-    /// (see `checkForBlackFrame`). What does reach here is a genuine stream
-    /// failure — the display sleeping in a way ScreenCaptureKit cannot
-    /// recover from, the process losing its grant entirely mid-run, etc.
-    /// Closed with `.failed`, from a detached `Task`: there is no user
-    /// action to wait for, unlike `pause`, and this callback itself must
-    /// stay synchronous and non-async, matching the protocol.
+    /// A revoked Screen Recording grant does NOT reach here — it produces black
+    /// frames, not a stream error (see `checkForBlackFrame`). Genuine stream
+    /// failures close the segment with `.failed` from a detached `Task`, since
+    /// this callback must stay synchronous to match the protocol.
     public nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
         Task {
             try? await self.finalizeCurrentSegment(endedBy: .failed(reason: String(describing: error)))
@@ -1419,18 +925,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             return
         }
         // Integer nanoseconds, not `CMTimeGetSeconds(pts) * 1e9` — `Nanoseconds`
-        // is deliberately never a `Double` (its own doc comment), and this is
-        // the one place a `CMTime` crosses into that type.
-        //
-        // The arithmetic itself lives in `Nanoseconds` rather than here, and
-        // that is not tidiness. Written inline it was
-        // `Int64(pts.value) * 1_000_000_000 / Int64(pts.timescale)`, which
-        // trapped on `Int64` overflow for every frame after 9.2 s of uptime
-        // — the whole capture path, on every run — and no test could reach
-        // it, because reaching it needed a real `SCStream` sample buffer.
-        // Moved into a Foundation-only leaf module, the part that was wrong
-        // is covered by `Tests/TimelineTests/RationalConversionTests.swift`
-        // and the part that needs ScreenCaptureKit is just these two reads.
+        // is never a `Double`. The conversion lives in `Nanoseconds` because the
+        // naive inline form overflows `Int64` and is untestable from here.
         guard let ptsNanoseconds = Nanoseconds(rationalSeconds: pts.value, timescale: pts.timescale) else {
             lock.withLock { _diagnostics.unconvertiblePresentationTimeCount += 1 }
             return
@@ -1455,11 +951,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             checkForBlackFrame(pixelBuffer)
         }
 
-        // Each exit counted separately. Both are legitimate — a writer that
-        // has already failed, and a real-time input under backpressure — and
-        // both used to leave through one anonymous `return`, which is how
-        // 308 frames vanished between "complete" and "written" while the
-        // report said nothing was wrong.
+        // Each exit counted separately: an already-failed writer and a real-time
+        // input under backpressure are both legitimate but distinguishable.
         if lock.withLock({ suspendAppendsForReconfiguration }) {
             lock.withLock { _diagnostics.skippedAwaitingReconfigurationCount += 1 }
             return
@@ -1483,12 +976,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         recordAppend(accepted, of: masterRef, isVideo: true)
     }
 
-    /// Records whether an append was accepted, and captures the writer's
-    /// error at the first refusal.
-    ///
-    /// The `Bool` this consumes used to be dropped with `_ =`. That is why
-    /// this exists as a named function rather than an inline `if`: the whole
-    /// defect was that the value looked ignorable.
+    /// Records whether an append was accepted, and captures the writer's error at
+    /// the first refusal. A named function rather than an inline `if` so the
+    /// `Bool` cannot look ignorable.
     private nonisolated func recordAppend(_ accepted: Bool, of master: any MasterWriting, isVideo: Bool) {
         lock.withLock {
             if accepted {
@@ -1506,24 +996,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     }
 
     private nonisolated func appendAudio(_ sampleBuffer: CMSampleBuffer, isSystemAudio: Bool) {
-        // Counted FIRST, before any filter — the same structural requirement
-        // the video path had to be rearranged for. A total taken after a
-        // filter cannot show what the filter removed, and what the filter
-        // removed is the entire question. This is what makes
-        // `AudioTrackAccounting.balances` a statement rather than a hope.
-        //
-        // Per source, not summed. The first version of this counted every
-        // dropped audio buffer into one number, and that number (1045) could
-        // not say whether the loss was system audio or the microphone — while
-        // the two sources had different layouts, different sample rates, and
-        // only one of them was broken. A conservation law that cannot name
-        // the track it broke on is a smoke alarm without a location.
+        // Counted first, before any filter, and per source rather than summed —
+        // a total taken after a filter cannot show what the filter removed, and
+        // a summed one cannot name which track it removed from.
         updateAudioAccounting(isSystemAudio) { $0.delivered += 1 }
 
-        // Recorded before anything is done to the buffer, and only once per
-        // source. This is the layout ScreenCaptureKit actually delivered —
-        // the fact `AudioInterleave` was written against, stated by the OS
-        // rather than inferred from an error code.
+        // The layout ScreenCaptureKit actually delivered, recorded before the
+        // buffer is touched and only once per source.
         lock.withLock {
             if isSystemAudio, _diagnostics.systemAudioLayout == nil {
                 _diagnostics.systemAudioLayout = AudioInterleave.layoutDescription(of: sampleBuffer)
@@ -1544,22 +1023,18 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             updateAudioAccounting(isSystemAudio) { $0.skippedInputNotReady += 1 }
             return
         }
-        // Audio arriving before the first complete video frame has nowhere
-        // valid to land — dropped rather than starting the session off an
-        // audio PTS, keeping "the master's session starts at the first video
-        // frame" a single, simple rule instead of a race between three
-        // streams. Counted, because at the head of a recording this is the
-        // normal case and a silent version of it would look like the source
-        // producing nothing.
+        // Audio arriving before the first complete video frame is dropped rather
+        // than starting the writer session off an audio PTS: the master's session
+        // always starts at the first video frame. Counted, since at the head of a
+        // recording this is the normal case.
         guard sessionAlreadyStarted else {
             updateAudioAccounting(isSystemAudio) { $0.skippedSessionNotStarted += 1 }
             return
         }
 
-        // A `.mov` cannot store non-interleaved LPCM, and a passthrough
-        // input cannot re-lay-out what it is given: without this, the first
-        // audio append is refused and the refusal fails the writer for the
-        // video track too. See `AudioInterleave`.
+        // A `.mov` cannot store non-interleaved LPCM and a passthrough input
+        // cannot re-lay-out what it is given; without this the first audio append
+        // is refused and that failure kills the video track too.
         guard let writable = AudioInterleave.interleaved(sampleBuffer) else {
             updateAudioAccounting(isSystemAudio) { $0.uninterleavable += 1 }
             return
@@ -1583,48 +1058,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     // MARK: - `SCStreamFrameInfoContentScale` — D2-13a: recorded, not asserted
 
-    /// **Decision: record, not assert.** `ContentScale != 1` means this
-    /// frame was resampled, which is exactly what D2-8 says the master must
-    /// never be — so the tempting move is `precondition(scale == 1)`. Two
-    /// reasons that would be the wrong instrument here, both from
-    /// `AGENTS.md`'s own vocabulary:
+    /// Records every complete frame's `ContentScale` in `Diagnostics` rather than
+    /// asserting `== 1`: resampling can legitimately occur (a window grown past
+    /// the display, with `scalesToFit = false`), and a `precondition` would kill
+    /// the process and discard the segment already captured. A caller can decide
+    /// the master is unusable after the fact.
     ///
-    /// 1. **The failure mode of a false-positive crash is catastrophic and
-    ///    irreversible.** A `precondition` mid-recording does not fail this
-    ///    frame; it kills the process and discards the segment already
-    ///    captured, for a value this task cannot fully characterise across
-    ///    every combination of window/display capture, HiDPI displays, and
-    ///    the resize edge case D2-13a itself names ("if a window grows past
-    ///    the whole display", `scalesToFit = false` resamples it *by
-    ///    design*, on a fixed, display-sized buffer). Trapping recording
-    ///    over a case the design doc already says can legitimately occur is
-    ///    the "measurement with no safe default" rule pointed at itself: a
-    ///    crash is not a safer answer than a wrong number when the
-    ///    alternative to both is simply recording what happened.
-    /// 2. **It matches this task's own black-frame detector's stance,** for
-    ///    the same reason: log now, because the threshold for "this is bad
-    ///    enough to abort" is not calibrated against a real recording yet
-    ///    (D4). A future producer reading `resampledFrameCount` can decide
-    ///    the master is unusable; this recorder's job is to make that
-    ///    decision possible, not to make it here, mid-capture, with no
-    ///    calibration behind it.
-    ///
-    /// So: every complete frame's `ContentScale` is read, tallied, and its
-    /// range tracked in `Diagnostics` — D2-8's "the master is unresampled"
-    /// claim becomes a number a caller can check after the fact, per the
-    /// design doc's own framing ("checkable per frame ... rather than
-    /// assumed"), without recording putting that check ahead of finishing
-    /// the recording.
-    /// Returns the `ContentScale` this frame carried, or `nil` if the
-    /// attachment was unreadable.
-    ///
-    /// **It returns the value as well as recording it** so the caller can
-    /// tell `resampledFrameCount` (frames the STREAM delivered resampled)
-    /// apart from frames that were resampled *and written*. Those are
-    /// different claims about different things, and only the second one is
-    /// what D2-8 is about. Sixteen frames arriving resampled during a
-    /// reconfiguration and being dropped is fine; sixteen reaching the
-    /// master is not — and a single count cannot say which happened.
+    /// Returns the value as well as recording it, so the caller can distinguish
+    /// frames the stream delivered resampled from frames resampled *and written*.
+    /// `nil` when the attachment was unreadable.
     @discardableResult
     private nonisolated func recordContentScale(from attachments: [SCStreamFrameInfo: Any]) -> Double? {
         let scaleValue: Double?
@@ -1641,10 +1083,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             if scale != 1 { _diagnostics.resampledFrameCount += 1 }
             _diagnostics.minContentScaleObserved = min(_diagnostics.minContentScaleObserved ?? scale, scale)
             _diagnostics.maxContentScaleObserved = max(_diagnostics.maxContentScaleObserved ?? scale, scale)
-            // Also attributed to the segment that was open when it arrived.
-            // A session-wide count cannot say WHICH segment was resampled,
-            // and across a reconfiguration that is the only interesting
-            // question.
+            // Also attributed to the segment open when it arrived; a session-wide
+            // count cannot say which segment was resampled.
             if var current = _diagnostics.segmentConfigurations.last {
                 current.framesChecked += 1
                 if scale != 1 { current.framesResampled += 1 }
@@ -1656,14 +1096,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         return scale
     }
 
-    /// `SCStreamFrameInfoContentRect`/`.screenRect` are `CGRect`-valued
-    /// (wrapped in `NSValue`, matching `SCStreamFrameInfoDirtyRects`'s
-    /// documented shape in the header) — bridged through
-    /// `CGGeometryBridge.pointRect(from:)` immediately, never held as
-    /// `CGRect` past this function (rule 5). D2-13a: this is the extrinsic
-    /// mapping and "must not enter the digest" — kept only as the latest
-    /// diagnostic value, never fed into `GeometryRevision` computation
-    /// anywhere in this file.
+    /// `SCStreamFrameInfoContentRect`/`.screenRect` are `CGRect`s wrapped in
+    /// `NSValue`, bridged to `PointRect` immediately and never held as `CGRect`
+    /// past this function (rule 5). They are the extrinsic mapping and must never
+    /// feed `GeometryRevision` computation.
     private nonisolated func recordExtrinsicRects(from attachments: [SCStreamFrameInfo: Any]) {
         if let point = CGGeometryBridge.pointRect(fromFrameAttachment: attachments[.contentRect]) {
             lock.withLock { _diagnostics.lastContentRect = point }
@@ -1679,19 +1115,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     // MARK: - Step 3: black-frame detection
 
-    /// A revoked Screen Recording grant yields black frames, not an error
-    /// (F2-4/TCC section) — a status check at start does not cover this,
-    /// because the grant can be revoked *during* a recording. This samples
-    /// a small fixed grid's luminance on every Nth complete frame.
-    ///
-    /// **The threshold is a placeholder and is labelled as one** (see the
-    /// three `blackFrame*` constants at the top of this file). A genuinely
-    /// black screen exists — a screensaver, a full-screen dark video — so
-    /// until this is calibrated against real recordings, **detection only
-    /// logs**; it never closes the segment with `.failed` on its own. The
-    /// mechanism to do so (`finalizeCurrentSegment(endedBy: .failed(...))`)
-    /// exists and is exercised by `stream(_:didStopWithError:)`, so wiring
-    /// this detector to it later is a threshold change, not new plumbing.
+    /// A revoked Screen Recording grant yields black frames, not an error, and
+    /// can be revoked *during* a recording, so a status check at start does not
+    /// cover it. Samples a small fixed grid's luminance on every Nth complete
+    /// frame. The threshold is an uncalibrated placeholder and a genuinely black
+    /// screen exists, so detection only logs and never closes a segment.
     private nonisolated func checkForBlackFrame(_ pixelBuffer: CVPixelBuffer) {
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return }
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
@@ -1702,10 +1130,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
         guard width > 0, height > 0, bytesPerRow > 0 else { return }
 
-        // A small fixed grid — 4x4 interior points, never the very edge
-        // (which can carry menu-bar/notch chrome at a different luminance
-        // than the content). BGRA, 8 bits per channel, matching the pixel
-        // format this session configures.
+        // 4x4 interior points, never the very edge (menu-bar/notch chrome sits at
+        // a different luminance). BGRA 8-bit, matching the configured format.
         let buffer = base.assumingMemoryBound(to: UInt8.self)
         var allAtFloor = true
         outer: for row in 1...4 {
@@ -1744,18 +1170,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     // MARK: - Step 2: display reconfiguration as an observed event
 
-    /// Registered before `startCapture()`, per D2-10: unregistered,
-    /// reconfiguration is inferred later from frames stopping or sizes not
-    /// matching, after the file is already wrong.
+    /// Must be registered before `startCapture()`; otherwise a reconfiguration is
+    /// only inferred later, after the file is already wrong.
     private nonisolated func registerReconfigurationObserver() {
         let token = Unmanaged.passUnretained(self)
         lock.withLock { reconfigToken = token }
-        // The `CGError` was discarded. A registration that failed and a
-        // registration that succeeded but never fired produced identical
-        // evidence — zero reconfigurations handled — and D2-10's whole
-        // mechanism rests on this one call. Same family as the discarded
-        // `append(_:)` result: the value that says whether the thing worked
-        // was the value nothing looked at.
+        // The `CGError` is recorded: a registration that failed and one that
+        // succeeded but never fired otherwise leave identical evidence.
         let error = CGDisplayRegisterReconfigurationCallback(
             CaptureSession.reconfigurationCallback, token.toOpaque())
         lock.withLock { _diagnostics.reconfigurationObserverRegistration = error }
@@ -1772,34 +1193,20 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    /// A free function, not a closure over `self` — `CGDisplayRegisterReconfigurationCallback`
-    /// takes a plain C function pointer, which cannot capture context;
-    /// `userInfo` is how `self` crosses that boundary (mirrors the spike's
-    /// own `reconfigCallback`, except this one recovers a specific instance
-    /// instead of writing to a global). **`nonisolated`, deliberately** —
-    /// left to this file's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`
-    /// default, this `static let` becomes `@MainActor`-isolated and neither
-    /// `deinit` (which cannot be actor-isolated) nor a plain C callback
-    /// context can reference it; caught by `swiftc`, not by inspection.
+    /// A plain C function pointer, since `CGDisplayRegisterReconfigurationCallback`
+    /// cannot capture context; `userInfo` carries `self` across that boundary.
+    /// `nonisolated` because unannotated this `static let` is `@MainActor` and
+    /// neither `deinit` nor a C callback context could reference it.
     private nonisolated static let reconfigurationCallback: CGDisplayReconfigurationCallBack = { displayID, flags, userInfo in
         guard let userInfo else { return }
         let session = Unmanaged<CaptureSession>.fromOpaque(userInfo).takeUnretainedValue()
 
-        // **Appending stops synchronously, here, on BOTH callbacks.**
-        //
-        // Splitting the segment needs `SCShareableContent.current`, which is
-        // an await and a cross-process round trip. Measured, that gap let 16
-        // frames of a 660-frame recording reach the master already resampled
-        // — the display had changed, the old segment's buffer had not, and
-        // `ContentScale` on those frames was 1.1183. Six assertions passed
-        // over that file. D2-8 says the master is unresampled, and "except
-        // for about a second at each boundary" is a different claim.
-        //
-        // So the flag is set in the callback itself, before any suspension
-        // point, and `.beginConfigurationFlag` is deliberately NOT filtered
-        // out for this purpose: the "begin" callback arrives *before* the
-        // change, which is the earliest instant this process can know about
-        // it at all. Only the completed callback goes on to split.
+        // Appending stops synchronously here, on BOTH callbacks, before any
+        // suspension point: splitting the segment needs `SCShareableContent
+        // .current`, and frames arriving during that await reach the master
+        // already resampled. `.beginConfigurationFlag` is deliberately not
+        // filtered out, since "begin" arrives before the change and is the
+        // earliest this process can know. Only the completed callback splits.
         session.lock.withLock { session.suspendAppendsForReconfiguration = true }
 
         guard !flags.contains(.beginConfigurationFlag) else { return }
@@ -1866,14 +1273,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     }
 }
 
-// MARK: - Segment lifecycle bookkeeping (Task 8's "yours" half)
+// MARK: - Segment lifecycle bookkeeping
 
 /// Pure segment-lifecycle bookkeeping: mint an index, open a segment, close
 /// it with a `HostRange` and a `SegmentBoundary`, and hand the accumulated
-/// list to `SegmentTable.init(segments:)` (Task 4) — which throws — when
+/// list to `SegmentTable.init(segments:)` — which throws — when
 /// asked to `finish()`. No `ScreenCaptureKit`, no `AVFoundation`, no
-/// permission, no picker: this is the piece the task brief calls "segment
-/// lifecycle against a fake frame source", and it is tested that way in
+/// permission, no picker: segment lifecycle against a fake frame source,
+/// and it is tested that way in
 /// `scripts/cross-boundary-digest-probe.swift` — a fake frame source there
 /// is nothing more than a sequence of synthetic `HostInstant`s and
 /// `SegmentBoundary`s fed straight to this type's two mutating methods.
@@ -1900,8 +1307,8 @@ struct SegmentLedger {
     /// rejected `ledger.openSegment(...)` called from `beginSegment` (itself
     /// `nonisolated` for the same reason) with "call to main actor-isolated
     /// instance method ... in a synchronous nonisolated context" — the same
-    /// shape as `Minting.swift`'s and `CGGeometryBridge.swift`'s own fixes
-    /// in this task, applied one level down to a plain `struct` rather than
+    /// shape as `Minting.swift`'s and `CGGeometryBridge.swift`'s own fixes,
+    /// applied one level down to a plain `struct` rather than
     /// an `enum` of static functions. This type touches no ambient state at
     /// all — every value it holds is a parameter its caller supplied — so
     /// `nonisolated` matches what was already true of the implementation.

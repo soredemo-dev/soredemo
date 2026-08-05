@@ -1,86 +1,40 @@
-/// Rules for any bytes that get digested. See the design doc § Canonical encoding.
+/// Rules for any bytes that get digested — byte-identical for equal values, across processes and
+/// across time. Four constraints, each of which fails silently if broken:
 ///
-/// A canonical encoding is byte-identical for equal values, across processes and
-/// across time. Three separate things break that, and each fails silently:
-///
-/// 1. **Dictionaries do not encode deterministically.** With a key that is not
-///    `String` or `Int`, `Codable` synthesis emits an *unkeyed* container of
-///    alternating key/value in iteration order, and iteration order comes from
-///    the per-process random hash seed. `JSONEncoder.sortedKeys` does not help —
-///    it sorts keyed containers only. So: **no type whose bytes are digested may
-///    rely on synthesised `Codable` for a dictionary.** Nothing in this file's
-///    encoding path goes through `Codable` at all; `Codable` conformances here
-///    are the document path, and the two are deliberately separate.
-/// 2. **Field order and shape must be frozen** — hence `version` below.
-/// 3. **Floating point needs a bit-exact rule** — digest `Double.bitPattern`,
-///    never a decimal rendering, with preconditions rejecting values for which
-///    the encoding would not be well defined.
-///
-/// **4. Variable-length fields are permitted only behind a length prefix
-/// (added by Task 13).** Task 6 recorded that no variable-length field may be
-/// appended to `DisplayGeometry.canonicalBytes`, because its fields are
-/// unambiguous only by virtue of being fixed-width. `Derived.approvalBytes`
-/// cannot honour that as written: `Evidence` is variable-length by nature and
-/// `ProducerID` is a string. So the discipline is extended rather than broken —
-/// a variable-length field is always preceded by a **fixed-width `UInt64`
-/// little-endian** count (of bytes, or of records), written by
-/// `appendLengthPrefixed`/`appendCount` below. That restores the property the
-/// fixed-width rule was protecting: every field boundary is determined by bytes
-/// already read, so no two distinct values can concatenate to the same string.
-/// The rule that remains absolute is that a variable-length field may never be
-/// appended *without* one.
+/// 1. No digested type may rely on synthesised `Codable` for a dictionary: with a non-`String`,
+///    non-`Int` key it emits an unkeyed container in hash-seed-dependent order, and
+///    `JSONEncoder.sortedKeys` sorts only keyed containers. Nothing here goes through `Codable`,
+///    which is the separate document path.
+/// 2. Field order and shape are frozen — hence `version` below.
+/// 3. `Double` is digested as its bit pattern, never as a decimal rendering.
+/// 4. A variable-length field may only be appended behind a fixed-width `UInt64` little-endian
+///    count, via `appendLengthPrefixed`/`appendCount`. That keeps every field boundary determined
+///    by bytes already read, so no two distinct values concatenate to the same string.
 public enum CanonicalEncoding {
-    /// Leading byte of every canonical encoding.
+    /// Leading byte of every canonical encoding. Bump it only as a deliberate breaking change
+    /// shipping with a re-approval path, since adding or reordering a field in a digested type
+    /// changes every previously computed digest.
     ///
-    /// Adding a field to a digested type, or reordering existing ones, changes
-    /// every previously computed digest. The failure is not a validation error —
-    /// it is validation quietly checking a different thing, which is worse. This
-    /// byte makes such a change explicit and detectable. Bump it ONLY as a
-    /// deliberate breaking change shipping with a re-approval path.
-    ///
-    /// **Exception, and it expires.** Before Phase 8's `approval-gate` exists,
-    /// no `approvalBytes` this package has ever emitted is bound to a stored
-    /// human approval — there is nothing yet for a shape change to silently
-    /// invalidate. `EvidenceRef`'s canonical encoding grew from 66 to 82 bytes
-    /// in Phase 2 Task 2 (`sourceInterval` picked up its `HostRange` epoch) on
-    /// exactly this basis: the pinned test vectors were re-derived and
-    /// re-pinned, not carried across a bump, because there was no approval to
-    /// protect yet. **From Phase 8 onward this exception is gone**: any shape
-    /// change to a digested type bumps this byte and ships a re-approval path,
-    /// full stop, because by then a shape change without one really would
-    /// silently invalidate something. A change made under this exception after
-    /// Phase 8 has shipped is the bug this comment exists to prevent.
-    ///
-    /// Deliberately **not** `ProjectSnapshot.schemaVersion`: a document schema
-    /// upgrade must leave existing approvals verifiable, so the two version
-    /// lines move independently.
+    /// Deliberately not `ProjectSnapshot.schemaVersion`: a document schema upgrade must leave
+    /// existing approvals verifiable, so the two version lines move independently.
     public static let version: UInt8 = 1
 
-    /// Appends `payload` preceded by its byte count as a fixed-width `UInt64`.
-    /// The only sanctioned way to put a variable-length field into a canonical
-    /// encoding — see point 4 above.
+    /// Appends `payload` preceded by its byte count as a fixed-width `UInt64`. The only sanctioned
+    /// way to put a variable-length field into a canonical encoding.
     public static func appendLengthPrefixed(_ payload: [UInt8], to bytes: inout [UInt8]) {
         appendCount(payload.count, to: &bytes)
         bytes.append(contentsOf: payload)
     }
 
-    /// Appends a `String` as its raw UTF-8, length-prefixed.
-    ///
-    /// **No Unicode normalisation.** Two canonically-equivalent strings — `"é"`
-    /// as one scalar versus `"e"` plus a combining acute — compare `==` in Swift
-    /// yet encode to different bytes here. That is deliberate: normalising would
-    /// make every digest depend on the ICU tables of whichever OS version is
-    /// running, so an OS update could silently change bytes that human approvals
-    /// are already bound to. Raw UTF-8 depends on nothing outside the value. The
-    /// residual asymmetry fails *closed* — it asks for a re-approval, it never
-    /// lets an approval be redeemed against different text.
+    /// Appends a `String` as its raw UTF-8, length-prefixed. No Unicode normalisation, so two
+    /// canonically-equivalent strings that compare `==` in Swift encode differently: normalising
+    /// would tie every digest to the running OS's ICU tables. The asymmetry fails closed.
     public static func appendLengthPrefixed(_ string: String, to bytes: inout [UInt8]) {
         appendLengthPrefixed(Array(string.utf8), to: &bytes)
     }
 
-    /// Appends a non-negative count as a fixed-width `UInt64`. Used for element
-    /// counts of variable-length collections, where the elements themselves are
-    /// fixed-width and so need no prefix of their own.
+    /// Appends a non-negative count as a fixed-width `UInt64`, for collections whose elements are
+    /// themselves fixed-width. Traps on a negative count.
     public static func appendCount(_ count: Int, to bytes: inout [UInt8]) {
         precondition(count >= 0, "canonical encoding count must be non-negative, got \(count)")
         bytes.append(contentsOf: UInt64(count).littleEndianBytes)
@@ -91,71 +45,42 @@ public enum CanonicalEncoding {
         bytes.append(contentsOf: UInt64(bitPattern: value).littleEndianBytes)
     }
 
-    /// Appends a `Double` as its IEEE-754 bit pattern, little-endian — never a
-    /// decimal rendering, which is lossy, locale- and formatter-dependent, and
-    /// is exactly what `JSONEncoder` would emit for the same value.
-    ///
-    /// Traps on a non-finite value: NaN has many bit patterns, so a NaN field
-    /// would be many encodings of one value and the encoding would not be well
-    /// defined. Callers whose types already reject non-finite values at
-    /// construction (`NormalizedPoint`, `DisplayGeometry.scale`) can never reach
-    /// this.
+    /// Appends a `Double` as its IEEE-754 bit pattern, little-endian, never a decimal rendering.
+    /// Traps on a non-finite value: NaN has many bit patterns, so the encoding would not be well
+    /// defined.
     public static func appendDouble(_ value: Double, to bytes: inout [UInt8]) {
         precondition(value.isFinite, "canonical encoding requires a finite Double, got \(value)")
         bytes.append(contentsOf: value.bitPattern.littleEndianBytes)
     }
 }
 
-/// A value whose canonical bytes this package controls.
+/// A value whose canonical bytes this package controls. Separate from `Codable`, which is the
+/// document path and renders `Double` as decimal text; `Derived` constrains `Value` to this
+/// protocol so a payload that forgets to conform does not compile.
 ///
-/// **Why this exists rather than `Codable`.** `Derived<Value>.approvalBytes` is
-/// what Phase 8's `approval-gate` binds human approval to. If `Value` were
-/// constrained to `Codable`, the only route to the payload's bytes would be an
-/// encoder — and `JSONEncoder`, even with `.sortedKeys`, renders `Double` as
-/// decimal text, which is precisely what `DisplayGeometry` rejects one layer up.
-/// The payload is the part actually being approved (a framing target, a beat, a
-/// post's text), so routing it through `Codable` would move the determinism
-/// hazard inward, to the layer that matters most.
-///
-/// `Codable` stays — it is the document/JSON path — and the two are deliberately
-/// separate, the same split Task 12 recorded for `EvidenceRef`.
-///
-/// **The conformance is required by the type system, not by convention.**
-/// `Derived` constrains `Value` to this protocol, so a payload type that forgets
-/// to conform does not compile. A guarantee that degrades silently — falling
-/// back to whatever `Codable` gives — is the failure mode this project keeps
-/// recording.
-///
-/// **Contract for an implementation.**
-/// * Append only; never clear or reorder what is already in `bytes`.
-/// * Emit **no** `CanonicalEncoding.version` byte. The version is written once,
-///   by the outermost encoding (`approvalBytes`), not once per nested value.
-/// * Every field fixed-width, little-endian; `Double` via `appendDouble`.
-/// * Any variable-length field goes through `appendLengthPrefixed`, and any
-///   variable-length collection through `appendCount` followed by fixed-width
-///   elements.
-/// * The layout is frozen: changing it changes every digest ever computed, so it
-///   changes only alongside `CanonicalEncoding.version` and a re-approval path.
+/// An implementation must: append only; emit no `CanonicalEncoding.version` byte (the outermost
+/// encoding writes it once); keep every field fixed-width little-endian, with `Double` via
+/// `appendDouble`; route any variable-length field through `appendLengthPrefixed` and any
+/// collection through `appendCount` plus fixed-width elements. The layout is frozen and changes
+/// only alongside `CanonicalEncoding.version` and a re-approval path.
 public protocol CanonicallyEncodable {
     func encodeCanonically(into bytes: inout [UInt8])
 }
 
-// MARK: - Conformances for the payload types that exist today
+// MARK: - Payload conformances
 //
 // Kept together so "what is digest-significant" is auditable in one place.
 
 extension Int: CanonicallyEncodable {
-    /// Eight bytes, two's complement little-endian — the width is fixed at 64
-    /// rather than `Int.bitWidth`, so the encoding does not change if this ever
-    /// builds for a 32-bit target.
+    /// Eight bytes, two's complement little-endian. Fixed at 64 rather than `Int.bitWidth`, so a
+    /// 32-bit target would not change the encoding.
     public func encodeCanonically(into bytes: inout [UInt8]) {
         CanonicalEncoding.appendInt64(Int64(self), to: &bytes)
     }
 }
 
 extension String: CanonicallyEncodable {
-    /// Length-prefixed raw UTF-8. See `appendLengthPrefixed(_:to:)` for why
-    /// there is no Unicode normalisation.
+    /// Length-prefixed raw UTF-8, with no Unicode normalisation.
     public func encodeCanonically(into bytes: inout [UInt8]) {
         CanonicalEncoding.appendLengthPrefixed(self, to: &bytes)
     }
@@ -191,12 +116,9 @@ extension NormalizedSize: CanonicallyEncodable {
 }
 
 extension NormalizedFrame: CanonicallyEncodable {
-    /// 40 bytes, fixed width: `origin` (16) ‖ `size` (16) ‖ `revision` (8).
-    ///
-    /// The revision is part of the digest for the same reason it is part of the
-    /// type (D-P2): the same numbers normalised against a different display
-    /// configuration describe a different physical rectangle, and an approval
-    /// must not carry across one.
+    /// 40 bytes, fixed width: `origin` (16) ‖ `size` (16) ‖ `revision` (8). The revision is
+    /// digested because the same numbers under a different display configuration describe a
+    /// different physical rectangle.
     public func encodeCanonically(into bytes: inout [UInt8]) {
         origin.encodeCanonically(into: &bytes)
         size.encodeCanonically(into: &bytes)
@@ -205,14 +127,9 @@ extension NormalizedFrame: CanonicallyEncodable {
 }
 
 extension UInt64 {
-    /// Little-endian, fixed at eight bytes. Fixed width is what lets fields be
-    /// concatenated without separators and still parse back unambiguously —
-    /// a variable-width encoding of adjacent integers is where two distinct
-    /// values collapse onto one byte string.
-    ///
-    /// `public` since Task 13: `Graph`'s `approvalBytes` needs the same
-    /// primitive, and a second copy of a little-endian writer in another module
-    /// is two canonical encoders that can drift apart silently.
+    /// Little-endian, fixed at eight bytes, so adjacent fields concatenate without separators and
+    /// still parse back unambiguously. `public` so `Graph` uses this writer rather than a second
+    /// copy that could drift.
     public var littleEndianBytes: [UInt8] {
         (0..<8).map { UInt8(truncatingIfNeeded: (self >> (8 * UInt64($0))) & 0xff) }
     }

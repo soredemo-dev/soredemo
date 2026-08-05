@@ -7,32 +7,23 @@ public enum EvidenceKind: String, Hashable, Codable, Sendable {
     case observation
     /// A transcript segment.
     case transcript
-    /// A prior release — cited when a generated value derives from what was
-    /// already published, not from a fresh observation.
+    /// A prior release, cited when a generated value derives from what was already
+    /// published rather than from a fresh observation.
     case release
 }
 
-/// A citation to one piece of evidence: what kind of record it is, which
-/// record, the content it was cited against, and — when the evidence has a
-/// natural place in time — the interval of it that was actually used
-/// (design doc D-P4).
+/// A citation to one piece of evidence: its kind, which record, the content it was
+/// cited against, and the interval of it used where the evidence sits in time.
 ///
-/// **`contentDigest` records the evidence as cited, not the evidence as it is
-/// now.** Comparing it against a freshly computed digest of the current
-/// record is how staleness is detected: a mismatch means the cited content
-/// has since changed underneath the citation. See `ContentDigest`'s
-/// documentation for why this is SHA-256, injected, and never `fnv1a64`.
-///
-/// `id` is a plain `UUID` — minted by the app, never by this package (design
-/// doc § Determinism): this type only ever receives one, it never constructs
-/// one.
+/// `contentDigest` records the evidence as cited, not as it is now; a mismatch
+/// against a freshly computed digest is how staleness is detected. `id` is minted by
+/// the app, never by this package.
 public struct EvidenceRef: Hashable, Codable, Sendable {
     public let kind: EvidenceKind
     public let id: UUID
     public let contentDigest: ContentDigest
-    /// Host time, stamped with its boot epoch. `TimeRange` was not enough:
-    /// `mach_absolute_time()` restarts at boot, so a bare interval from one
-    /// session compares silently and wrongly against another (D2-11).
+    /// Host time, stamped with its boot epoch: `mach_absolute_time()` restarts at
+    /// boot, so a bare `TimeRange` from one session compares wrongly against another.
     public let sourceInterval: HostRange?
 
     public init(kind: EvidenceKind, id: UUID, contentDigest: ContentDigest,

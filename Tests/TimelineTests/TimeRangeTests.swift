@@ -42,8 +42,7 @@ import Foundation
     #expect(r.end == Nanoseconds(150))
 }
 
-// The half-open boundary, pinned so an off-by-one on either `contains` or
-// `overlaps` cannot pass:
+// The half-open boundary, pinned against an off-by-one in `contains`/`overlaps`.
 
 @Test func containsStartIsTrue() {
     let r = TimeRange(start: Nanoseconds(100), duration: Nanoseconds(50))
@@ -65,11 +64,8 @@ import Foundation
     #expect(!r.contains(Nanoseconds(99)))
 }
 
-// A zero-duration range's [start, start) is empty by construction of
-// half-openness — it contains nothing, not even `start` itself. This is
-// intended, not a bug to "fix": a zero-duration range represents an instant
-// with no extent, and half-open semantics make its containment set empty
-// rather than a single point.
+// Intended, not a bug: [start, start) is empty under half-openness, so a
+// zero-duration range contains nothing, not even `start`.
 @Test func zeroDurationRangeContainsNothing() {
     let r = TimeRange(start: Nanoseconds(100), duration: Nanoseconds(0))
     #expect(!r.contains(Nanoseconds(100)))
@@ -77,9 +73,8 @@ import Foundation
     #expect(!r.contains(Nanoseconds(101)))
 }
 
-// Touching ranges (a.end == b.start) must NOT overlap — this is the
-// half-open contract `Graph.EvidenceRef.sourceInterval` relies on so two
-// adjacent evidence intervals never both claim the same instant.
+// Touching ranges (a.end == b.start) must NOT overlap, so two adjacent evidence
+// intervals never both claim the same instant.
 @Test func touchingRangesDoNotOverlap() {
     let a = TimeRange(start: Nanoseconds(0), duration: Nanoseconds(100))   // [0, 100)
     let b = TimeRange(start: Nanoseconds(100), duration: Nanoseconds(100)) // [100, 200)

@@ -2,13 +2,11 @@ import Foundation
 
 /// Ties one boot epoch to a wall-clock reading, for display and rough placement.
 ///
-/// **The wall clock is not an ordering key.** It runs backwards under NTP
-/// correction and can be set by hand. Segment order is recorded explicitly in
-/// `SegmentTable`; anything that sorts by `wallClockUnixNanos` is wrong.
-///
-/// Deliberately not `Comparable`, so there is nothing to reach for. `kern.boottime`
-/// is *not* the epoch identity for the same reason — it is computed as now-minus-uptime
-/// and moves when the clock is corrected, which would make one boot look like two.
+/// The wall clock is not an ordering key: it runs backwards under NTP correction and
+/// can be set by hand, so sorting by `wallClockUnixNanos` is wrong — segment order
+/// lives in `SegmentTable`. Not `Comparable`, so there is nothing to reach for.
+/// `kern.boottime` is not the epoch identity for the same reason: it is now-minus-
+/// uptime and moves on correction, making one boot look like two.
 public struct EpochAnchor: Hashable, Codable, Sendable {
     public let epoch: BootEpoch
     public let hostTime: Nanoseconds

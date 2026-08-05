@@ -4,7 +4,7 @@ import Timeline
 
 /// A stretch of output time for which the observation track has nothing, **and why**.
 ///
-/// The `cause` is a `GapSite` — Task 11's existing vocabulary — and not a new enum. Two
+/// The `cause` is a `GapSite` — the existing vocabulary — and not a new enum. Two
 /// vocabularies for one fact is how two instruments start disagreeing, which this project has
 /// already paid for once (`AGENTS.md`, the definite-singular audit's row 3).
 public struct BlindInterval: Hashable, Sendable {

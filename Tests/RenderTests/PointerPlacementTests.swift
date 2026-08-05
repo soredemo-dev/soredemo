@@ -5,7 +5,7 @@ import Timeline
 import Project
 @testable import Render
 
-// task-5-brief.md Step 1, verbatim.
+// Placement maps a normalised source point onto the stage card.
 
 @Test func aNormalisedPointBecomesOutputPixelsInsideTheCard() {
     let plan = StagePlanner.plan(outputWidth: 1000, outputHeight: 1000,
@@ -23,12 +23,8 @@ import Project
     #expect(abs(placement.y - plan.card.y) < 0.5)
 }
 
-/// The opposite corner from the origin case above: `(1, 1)` must land at the card's TOP-RIGHT —
-/// `card.x + card.width`, `card.y + card.height` — not merely "somewhere positive". Between this
-/// and the two brief tests, all four placement extremes (both axes, both ends) are pinned; a sign
-/// error on either axis would pass the brief's own two tests (both touch `x` and `y` together at
-/// values where a flip is invisible: `(0.5, 0.5)` is symmetric, and `(0, 0)` maps to `(card.x,
-/// card.y)` regardless of which axis a flip happened on) but fail here.
+/// `(1, 1)` must land at the card's TOP-RIGHT. The `(0.5, 0.5)` and `(0, 0)` cases above
+/// are both blind to an axis flip; this one is not.
 @Test func aPointerAtTheSourcesFarCornerLandsAtTheCardsTopRight() {
     let plan = StagePlanner.plan(outputWidth: 1000, outputHeight: 1000,
                                  sourceWidth: 1000, sourceHeight: 1000, style: .default)
@@ -37,9 +33,8 @@ import Project
     #expect(abs(placement.y - (plan.card.y + plan.card.height)) < 0.5)
 }
 
-/// `ripplePhase` passes straight through when the caller supplies one, and stays `nil` — not
-/// substituted for a default click phase — when it does not. `placement(for:in:)` does not derive a
-/// phase from anything of its own; it only carries the one it was handed.
+/// `ripplePhase` passes straight through and stays `nil` when unsupplied;
+/// `placement(for:in:)` never derives a phase of its own.
 @Test func placementCarriesTheRipplePhaseItWasGivenAndOnlyThat() {
     let plan = StagePlanner.plan(outputWidth: 1000, outputHeight: 1000,
                                  sourceWidth: 1000, sourceHeight: 1000, style: .default)
@@ -51,12 +46,8 @@ import Project
     #expect(withRipple.ripplePhase == 0.4)
 }
 
-/// A non-square, inset card (the shape `StagePlanner.plan` actually produces for a realistic
-/// output/source pair) rather than the brief's identity-sized 1000×1000 fixture, where the card
-/// fills the whole output and `x * width` could coincidentally look right even with the wrong
-/// origin. The card here is measurably smaller than and offset from the output canvas, so a
-/// placement computed from the wrong rectangle (the output's instead of the card's) would miss by
-/// more than this test's tolerance.
+/// A non-square, inset card, unlike the 1000×1000 fixtures above where the card fills the
+/// output and the wrong origin would still look right.
 @Test func placementUsesTheCardsOwnOriginAndExtentNotTheOutputCanvass() {
     let plan = StagePlanner.plan(outputWidth: 1920, outputHeight: 1080,
                                  sourceWidth: 1600, sourceHeight: 1000, style: .default)

@@ -34,24 +34,14 @@ import Project
     #expect(plan.cornerRadius == min(plan.card.width, plan.card.height) / 2)
 }
 
-// MARK: - decode validation (rule 8)
+// MARK: - decode validation
 //
-// Same reasoning and same shape as `HostRange`'s
-// `decodingANegativeDurationHostRangeThrows` (Tests/TimelineTests/EpochTests.swift):
-// synthesised `Decodable` would assign stored properties directly and never call
-// the validating memberwise `init`, so these decode a hand-built JSON literal
-// carrying an out-of-invariant value — not a value encoded and re-decoded, because
-// that route is closed: the memberwise `init`s traps before such a value could ever
-// be constructed to encode in the first place. Asserts `.dataCorrupted`
-// specifically, not merely "a `DecodingError`", for the same reason `HostRange`'s
-// test does: only `.dataCorrupted` is proof the hand-written validation ran and
-// rejected the value, rather than the type falling back to a bare `precondition`
-// (which would trap, not throw) or to fully-synthesised `Codable` (which would
-// decode successfully and never throw at all).
+// Synthesised `Decodable` bypasses the validating memberwise `init`, so the JSON is
+// hand-built — `init` traps before such a value could be encoded. `.dataCorrupted`
+// specifically: a bare `precondition` would trap and synthesised `Codable` would not
+// throw at all.
 
-/// `StageRect`'s own `encode(to:)` output for `{x:0, y:0, width:1, height:2}`,
-/// confirmed against a scratch build of the type, with `width` then hand-edited
-/// negative.
+/// A `StageRect` with `width` hand-edited negative.
 @Test func decodingAStageRectWithNegativeExtentThrows() throws {
     let json = Data("""
     {"x":0,"y":0,"width":-1,"height":10}
@@ -69,10 +59,7 @@ import Project
     }
 }
 
-/// `StageStyle`'s own `encode(to:)` output, confirmed against a scratch build of
-/// the type (`StageBackground`'s synthesised shape nests the case name, so
-/// `.solid` becomes `{"solid":{"red":...,"green":...,"blue":...}}`), with
-/// `insetFraction` hand-edited to `0.5` — the exact boundary `init` rejects,
+/// `insetFraction` is hand-edited to `0.5`, the exact boundary `init` rejects
 /// since the precondition requires strictly less than `0.5`.
 @Test func decodingAStageStyleWithOutOfRangeInsetFractionThrows() throws {
     let json = Data("""
@@ -92,9 +79,7 @@ import Project
     }
 }
 
-/// Codable round trip for `StageRect`, because `RenderPlan` (and everything that
-/// carries a `StageRect`) is expected to travel intact through the same encoder
-/// every persisted document uses.
+/// Codable round trip for `StageRect`.
 @Test func stageRectRoundTrips() throws {
     let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
     let rect = StageRect(x: 12.5, y: -3, width: 200, height: 150)

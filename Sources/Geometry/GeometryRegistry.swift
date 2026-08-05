@@ -1,32 +1,16 @@
 import Foundation
 
-/// Maps a `GeometryRevision` back to the `DisplayGeometry` it was derived from,
-/// and to when it was first seen (D-P2).
+/// Maps a `GeometryRevision` back to the `DisplayGeometry` it was derived from and
+/// to when it was first seen.
 ///
-/// **The same invariant — `key == recompute(value).revision` — is checked in two
-/// places, with two different failure modes, because the inputs differ in
-/// kind:**
-///
-/// - `insert` **traps**. A revision collision reached while merging registries is
-///   a *programmer error*: a 64-bit non-cryptographic digest (`fnv1a64`, see
-///   `FNV1a.swift`) mapping two distinct geometries onto one revision would make
-///   those two geometries compare **equal**, which is the silent, dangerous
-///   direction, and it is only detectable exactly here, at the point of
-///   collision.
-/// - `init(from:)` **throws**. A registry decoded from disk is *input*, not
-///   program state — it may have been corrupted, hand-edited, or written by a
-///   future version of this app. Trapping on untrusted input is how a bad file
-///   becomes an unopenable document, so decoding validates the same invariant
-///   and reports a typed error instead.
-///
-/// `firstObserved` is stored per revision but never digested: ordering is kept
-/// out of identity, so *when* a geometry was first seen cannot affect *which*
-/// revision it has.
+/// The invariant `key == recompute(value).revision` is enforced twice: `insert`
+/// traps (a collision between two distinct geometries is a programmer error,
+/// detectable only there), `init(from:)` throws (a decoded registry is untrusted
+/// input). `firstObserved` is stored but never digested, so when a geometry was
+/// first seen cannot affect which revision it has.
 public struct GeometryRegistry: Hashable, Sendable {
-    /// A registry decoded from disk whose stored key does not match the
-    /// recomputed revision of its stored geometry — corruption, a hand edit, or
-    /// a future encoding this version does not understand. Thrown, never
-    /// trapped: see the type's documentation.
+    /// A decoded entry whose stored key does not match the recomputed revision of its
+    /// stored geometry. Thrown, never trapped: decoded registries are untrusted.
     public struct DecodingFailure: Error, Equatable {
         public let revision: GeometryRevision
     }
@@ -51,19 +35,10 @@ public struct GeometryRegistry: Hashable, Sendable {
         Set(entries.keys)
     }
 
-    /// Records that `geometry` was observed, at `observedAt`. First observation
-    /// wins: re-inserting an already-known geometry — the ordinary case, e.g.
-    /// two observation records citing the same display — is a no-op that
-    /// preserves the original `firstObserved` rather than overwriting it with
-    /// the later timestamp.
-    ///
-    /// Traps if `geometry`'s revision is already present under a *different*
-    /// geometry. That is a merge-time collision: two distinct `DisplayGeometry`
-    /// values hashed to the same 64-bit revision, which would make them compare
-    /// equal from here on — the silent direction a non-cryptographic digest can
-    /// fail in, and the only place it is detectable. This is a programmer-error
-    /// trap, not input validation; untrusted input goes through the throwing
-    /// `init(from:)` instead.
+    /// Records that `geometry` was observed at `observedAt`. First observation wins:
+    /// re-inserting a known geometry is a no-op that preserves the original
+    /// `firstObserved`. Traps if the revision is already present under a *different*
+    /// geometry — a 64-bit digest collision, which would make the two compare equal.
     public mutating func insert(_ geometry: DisplayGeometry, observedAt: Int64) {
         let revision = geometry.revision
         if let existing = entries[revision] {
@@ -84,40 +59,11 @@ extension GeometryRegistry: Codable {
         let firstObserved: Int64
     }
 
-    /// Hand-written. Synthesised `Codable` for `[GeometryRevision: DisplayGeometry]`
-    /// would encode as an *unkeyed* container in `Dictionary`'s iteration order,
-    /// and that order comes from a per-process random hash seed —
-    /// `JSONEncoder.sortedKeys` does not help, because it sorts keyed containers
-    /// only (design doc § Canonical encoding). These bytes are the document
-    /// path, inside `ProjectSnapshot` — which is **not** digested and is not
-    /// what Phase 8's approval gate binds to (`Project` Task 16, Controller
-    /// addendum ruling 5). The approval gate binds to `Derived.approvalBytes`,
-    /// which never touches `GeometryRegistry`'s encoding directly: it reaches
-    /// this module only through `GeometryRevision`, a `CanonicallyEncodable`
-    /// 8-byte value fed by `DisplayGeometry.canonicalBytes`, carried inside a
-    /// `NormalizedFrame` inside `Derived`. So `GeometryRegistry`'s own
-    /// determinism still matters — an encoding that varied per process would
-    /// make every future diff of a saved document, and every "did this
-    /// change?" question about it, unanswerable — it just isn't the path
-    /// approval hashes travel.
-    ///
-    /// The encoding is a **flat array sorted by `revision.id`** — deterministic
-    /// by construction, independent of both `Dictionary`'s order and the order
-    /// entries were inserted in. That guarantee covers array *position* only.
-    ///
-    /// Measured, not assumed: `JSONEncoder`'s ordering of keys *within* one
-    /// object (e.g. whether `"revision"` or `"geometry"` prints first) is
-    /// **also** not stable across processes without `.sortedKeys` — ten
-    /// subprocesses of this exact type produced ten different byte strings, all
-    /// with revision ids in the same sorted order but differently-ordered object
-    /// keys inside each entry. That is a second, separate manifestation of the
-    /// per-process-seed hazard, distinct from the Dictionary-as-unkeyed-container
-    /// one above, and it does not threaten this type's contract — only the array
-    /// order is promised, not a specific byte string. It matters for whoever
-    /// next hashes raw `JSONEncoder` output directly for a digest anywhere in
-    /// this project (e.g. a naive `ContentDigest` over `ProjectSnapshot`): that
-    /// caller must pass `.sortedKeys`, or bypass `Codable` entirely the way
-    /// `DisplayGeometry.canonicalBytes` does.
+    /// A flat array sorted by `revision.id`. Hand-written because synthesised
+    /// `Codable` for a non-`String`-keyed dictionary emits an unkeyed container in
+    /// per-process-seeded order, which `JSONEncoder.sortedKeys` does not fix. Only
+    /// array position is promised, not a byte string: object key order still varies
+    /// per process, so anything digesting `JSONEncoder` output must set `.sortedKeys`.
     public func encode(to encoder: any Encoder) throws {
         let sorted = entries.keys.sorted { $0.id < $1.id }.map { revision in
             Entry(revision: revision, geometry: entries[revision]!, firstObserved: observed[revision] ?? 0)
@@ -126,10 +72,8 @@ extension GeometryRegistry: Codable {
         try container.encode(sorted)
     }
 
-    /// Untrusted input: validates `key == recompute(value).revision` for every
-    /// entry and throws `DecodingFailure` on the first mismatch, rather than
-    /// trapping. See the type's documentation for why this differs from
-    /// `insert`.
+    /// Untrusted input: validates `key == recompute(value).revision` for every entry
+    /// and throws `DecodingFailure` on the first mismatch rather than trapping.
     public init(from decoder: any Decoder) throws {
         let list = try decoder.singleValueContainer().decode([Entry].self)
         entries = [:]

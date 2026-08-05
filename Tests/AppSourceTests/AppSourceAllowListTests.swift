@@ -4,70 +4,26 @@ import Testing
 
 // MARK: - why these are package tests and not plugin rules
 //
-// `Plugins/ArchitectureCheck` attaches to SwiftPM targets. The app lives in
-// `Soredemo.xcodeproj`, which the plugin cannot see at all, so the two app-side
-// allow-lists below cannot be plugin rules however much they look like ones.
-//
-// They scan through `SwiftSourceLexer.codeViewLines` — the SAME code view the
-// plugin's rules 1, 2 and 4 use — so a banned name inside a comment or a string
-// literal does not fire. That sharing is the whole point of the `CheckerLexer`
-// target: a second copy of the lexer written here would start at round zero of
-// the four evasion-closing rounds the real one has been through, and would then
-// drift away from the enforcement it exists to mirror.
-//
-// A scanner that fires on a comment is a scanner people route around. Being
-// precise about what that buys TODAY, because the obvious-sounding version of
-// this sentence is false: the files actually scanned here — everything under
-// `Soredemo/` except the one permitted file — carry almost no prose about these
-// names. `ProjectDocument.swift:146` mentions "a UUID collision" in a `///`
-// line, and that is the lot; it would not match `UUID(` in any case. The two
-// files thick with such prose are `CGGeometryBridge.swift` and `Minting.swift`,
-// which are the PERMITTED files and are never scanned at all.
-//
-// So comment-immunity is not load-bearing on today's sources. What it buys is
-// that the rule stays DOCUMENTABLE: the first person to write
-// `// mint identifiers in Minting, never `UUID()` here` at the top of
-// `ProjectDocument.swift` — the most natural thing to write, and a thing that
-// makes the codebase better — would trip a naive scan on the documentation of
-// the rule itself, and the fix they would reach for is deleting the check. The
-// evidence that it holds is the mutation pair in this task's report, not the
-// current contents of these files: the same banned text was placed in a `//`
-// comment, a `/* */` comment, a plain string, a raw string and a `"""` string,
-// and the scan stayed green in all five.
-//
-// SUBSTRING, NOT TOKEN EQUALITY, deliberately — settled for rule 2 in Task 3.
-// `contains("CGRect")` matches `` `CGRect` ``, a backtick-escaped identifier
-// resolving to the same declaration; token equality would not, because the code
-// view keeps the backticks as part of the token's text. For a question about
-// which NAMES appear, substring is the stronger mechanism, not a weaker one.
-// It over-approximates in the loud direction: `contains("Date(")` would also
-// fire on a hypothetical `refreshDate(`. That is a visible false positive, which
-// this project's design doc treats as survivable, and a miss is not.
+// The app lives in `Soredemo.xcodeproj`, which `Plugins/ArchitectureCheck` cannot
+// see. These scans read `SwiftSourceLexer.codeViewLines`, so a banned name in a
+// comment or a string literal does not fire; and they match by substring, not token
+// equality, so the backtick-escaped spelling of a name matches too.
 
-/// `<root>/Tests/AppSourceTests/AppSourceAllowListTests.swift` → `<root>`.
-/// Three `deletingLastPathComponent()` calls: one drops the file name, one drops
-/// `AppSourceTests`, one drops `Tests`. If this file is ever moved, the count is
-/// wrong and `appSourceFiles()` finds nothing — which the `#require` there turns
-/// into a loud failure rather than a scan of an empty set.
+/// `<root>/Tests/AppSourceTests/<this file>` → `<root>`. Move this file and the
+/// three `deletingLastPathComponent()` calls are wrong; `appSourceFiles()`'s own
+/// `#require` then fails loudly rather than scanning an empty set.
 let repositoryRoot = URL(filePath: #filePath)
     .deletingLastPathComponent()
     .deletingLastPathComponent()
     .deletingLastPathComponent()
 
-/// The app's sources, and ONLY the app's sources.
-///
-/// Scoped to `Soredemo/` rather than the repository, deliberately:
+/// The app's sources, and ONLY the app's sources. Scoped to `Soredemo/` because
 /// `scripts/cross-boundary-digest-probe.swift` legitimately names `CGRect` and
-/// calls `UUID()` — it is a standalone probe, not app code — and `Sources/` is
-/// the package, which has its own enforcement in the plugin.
+/// calls `UUID()`, and `Sources/` has its own enforcement in the plugin.
 let appSourceDirectory = repositoryRoot.appending(path: "Soredemo")
 
-/// Every `.swift` file under `Soredemo/`.
-///
-/// A missing or empty app source tree is a FAILURE, not a vacuous pass: an empty
-/// scan finds no violations and reads exactly like a clean one. `AGENTS.md`
-/// carries this rule because a probe on this plan already reported a green from
-/// having measured nothing.
+/// Every `.swift` file under `Soredemo/`. A missing or empty tree is a FAILURE,
+/// not a vacuous pass: an empty scan finds no violations and reads like a clean one.
 func appSourceFiles() throws -> [URL] {
     let enumerator = try #require(
         FileManager.default.enumerator(at: appSourceDirectory, includingPropertiesForKeys: nil),
@@ -82,13 +38,9 @@ func appSourceFiles() throws -> [URL] {
     return files.sorted { $0.path < $1.path }
 }
 
-/// `Soredemo/UI/ProjectDocument.swift`, not the absolute path — the form the
-/// checker prints, and the form that is greppable from the repository root.
-///
-/// `repositoryRoot` is a DIRECTORY URL, so its `path` already ends in `/`;
-/// appending another one produced `…soredemo-main//Soredemo/…`, matched nothing,
-/// and left every reported path absolute. Found by the mutation check in Part 3
-/// of this task, which is the entire argument for running one.
+/// Repository-relative path — the form the checker prints and the form that is
+/// greppable from the root. `repositoryRoot.path` already ends in `/`; appending
+/// a second one matched nothing and left every reported path absolute.
 func pathRelativeToRepositoryRoot(_ url: URL) -> String {
     let root = repositoryRoot.path(percentEncoded: false)
     let prefix = root.hasSuffix("/") ? root : root + "/"
@@ -96,25 +48,17 @@ func pathRelativeToRepositoryRoot(_ url: URL) -> String {
     return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
 }
 
-/// One violation, in the `file:line:` form the checker prints, so a failure here
-/// reads the same way a plugin failure does.
-/// `permittedPath` is repository-relative and matched WHOLE, not by file name.
-///
-/// Matching on `lastPathComponent` would allow-list the file wherever it moved
-/// to. `#require(count == 1)` blocks a *second* file of that name, so the hole is
-/// relocation rather than duplication: moving `Minting.swift` into
-/// `Soredemo/UI/` would keep it permitted while destroying the thing the test
-/// stands for — that these values enter at one place you can point at. The
-/// permitted path is part of the claim, so it is part of the assertion.
+/// One violation, in the `file:line:` form the checker prints. `permittedPath` is
+/// repository-relative and matched WHOLE, not by file name: matching on
+/// `lastPathComponent` would keep the file permitted wherever it moved to.
 func violations(
     banned: [String],
     permittedPath: String,
     in files: [URL]
 ) throws -> [String] {
-    // The permitted file must exist AT THAT PATH. If it were renamed or moved
-    // away, this scan would still pass — the rename direction is the safe one,
-    // because the file's contents would then be scanned and fail loudly — but the
-    // CLAIM the test stands for would be about a place that no longer exists.
+    // The permitted file must exist AT THAT PATH. A rename is the safe direction
+    // — the file is then scanned and fails loudly — but the claim the test stands
+    // for would be about a place that no longer exists.
     let permitted = files.filter { pathRelativeToRepositoryRoot($0) == permittedPath }
     try #require(permitted.count == 1,
                  """
@@ -144,23 +88,10 @@ func violations(
 
 // MARK: - rule 5: the CoreGraphics bridge
 
-/// **Rule 2** (`ARCHITECTURE.md` D6, the only numbering) keeps `CGRect`, `CGPoint`,
-/// `CGSize` and `CGFloat` out of the
-/// PACKAGE, enforced by the plugin. This is the app-side half — **rule 5**, and
-/// both numbers are D6's: they may appear in
-/// exactly one file, the bridge, where CoreGraphics geometry is converted into
-/// this project's own types on entry and back out on exit. Nothing in between
-/// speaks in pixels (ARCHITECTURE.md D3).
-///
-/// **The mirror: `ArchitectureChecker.bannedCGTypes` in
-/// `Sources/architecture-checker/main.swift` holds the same four names for the
-/// package.** `grep bannedCGTypes` finds both sides, which is the point of naming
-/// it here. They are mirrored rather than shared deliberately — two rules over
-/// two different bodies of source, either of which may gain a name the other must
-/// not — but a fifth banned type means editing both, and nothing enforces that.
-/// The only target both sides can reach is `CheckerLexer`, which is the one
-/// target outside plugin enforcement, so a shared list would sit in the
-/// least-guarded place in the package.
+/// The app-side half of the CoreGraphics-geometry ban (ARCHITECTURE.md D6): the four
+/// types may appear only in the bridge that converts them to this project's own types
+/// on entry and back on exit. Mirrors `ArchitectureChecker.bannedCGTypes`, which does
+/// the same for the package; a fifth banned type means editing both, unenforced.
 @Test func coreGraphicsGeometryTypesAppearOnlyInTheBridge() throws {
     let found = try violations(
         banned: ["CGRect", "CGPoint", "CGSize", "CGFloat"],
@@ -179,14 +110,12 @@ func violations(
 // MARK: - rule 3's app-side half: where non-determinism enters
 
 /// The needles for rule 3's app-side half, at file scope so that
-/// `everyAmbientNeedleMatchesACallSiteInACompiledFixture` can prove each one
-/// still matches something. Inline in the test, they could only ever be
-/// asserted absent from the app — and a typo is absent from everything.
+/// `everyAmbientNeedleMatchesACallSiteInACompiledFixture` can prove each one still
+/// matches something — inline, a typo would be absent from everything.
 let ambientBannedNames: [String] = [
     // ── ambient time ────────────────────────────────────────────────
-    // `Date(` covers `Date()` and `Date(timeIntervalSinceNow:)`, and
-    // `NSDate(` besides; `Date.init` covers the explicit spelling, which
-    // shares no substring with it.
+    // `Date(` covers `Date()`, `Date(timeIntervalSinceNow:)` and `NSDate(`;
+    // `Date.init` shares no substring with it.
     "Date(", "Date.init", "Date.now",
     "timeIntervalSinceNow", "timeIntervalSinceReferenceDate",
     "DispatchTime.now", "DispatchWallTime.now",
@@ -195,21 +124,13 @@ let ambientBannedNames: [String] = [
     "ContinuousClock", "SuspendingClock",
     "CFAbsoluteTimeGetCurrent",
     "mach_absolute_time", "mach_approximate_time",
-    // Advances during sleep where `mach_absolute_time` does not (D2-4)
-    // — a different reading, not a spelling variant of the one above,
-    // and just as ambient. Added Task 5 review round 1: `Minting`
-    // gained `continuousNow()` and this list was not updated with it,
-    // so the claim below ("enters only through Minting") was true by
-    // hand-check, not by test, for exactly the gap this file exists
-    // to close.
+    // Advances during sleep where `mach_absolute_time` does not (D2-4) — a
+    // different reading, not a spelling variant, and just as ambient.
     "mach_continuous_time",
     // Subsumes `clock_gettime_nsec_np`.
     "clock_gettime", "gettimeofday",
-    // C `clock()` — processor time, a different reading from the two
-    // above and still ambient. Verified open on both sides by Task
-    // 5.5's sweep; the package side bans `_clock` by symbol. Broad on
-    // purpose, like `time(` below: it also fires on a hypothetical
-    // `refreshClock(`, which is the loud direction.
+    // C `clock()` — processor time, a different reading and still ambient. Broad
+    // on purpose: it also fires on a hypothetical `refreshClock(`, the loud direction.
     "clock(",
     // C `time()`. Broad on purpose: Swift's camelCase means a lowercase
     // `time` immediately before `(` is close to unwritable by accident.
@@ -218,26 +139,15 @@ let ambientBannedNames: [String] = [
 
     // ── ambient randomness ──────────────────────────────────────────
     "UUID(", "UUID.init",
-    // The ObjC class, as ANY reference — the same over-approximation
-    // `NSDate` already gets one section up, and `NSUUID` is exactly the
-    // sibling D2-16 lists as the third staleness finding. `UUID(` above
-    // happens to catch `NSUUID()`, because the constructor call contains
-    // it; it does not catch `NSUUID.init`, a stored `let x: NSUUID`, or
-    // a cast. Task 5.5 verified this open on both sides.
+    // The ObjC class, as ANY reference: `UUID(` above catches `NSUUID()` but not
+    // `NSUUID.init`, a stored `let x: NSUUID`, or a cast.
     "NSUUID",
-    // CommonCrypto's CSPRNG. The PACKAGE side needs no entry: rule 1's
-    // import allow-list is Foundation plus declared siblings, and
-    // `CCRandomGenerateBytes` needs `import CommonCrypto`, so no package
-    // target can reach it in the first place. The app target has no such
-    // rule, which is why this side has one. Task 5.5.
+    // CommonCrypto's CSPRNG. The package side needs no entry — rule 1's import
+    // allow-list keeps `import CommonCrypto` out of every package target.
     "CCRandomGenerateBytes",
-    // The `drand48` family. ONE needle for the whole family, where the
-    // package side names four symbols: a text scan pays nothing for the
-    // wider match, and a family is what this list keeps going stale one
-    // member at a time. It therefore also catches `erand48`, which the
-    // package side deliberately does NOT ban (its state is an argument,
-    // not process-global — see the note there). That asymmetry is the
-    // cheap direction and is stated rather than tidied away.
+    // The `drand48` family in one needle where the package side names four symbols.
+    // It therefore also catches `erand48`, which the package side deliberately does
+    // not ban; a text scan pays nothing for the wider match.
     "rand48", "seed48", "lcong48",
     // `.random(` catches `Int.random(in:)`, `Double.random(in:)` and
     // `Bool.random()`. It does NOT catch `.randomElement(`, because the
@@ -248,81 +158,31 @@ let ambientBannedNames: [String] = [
     "SystemRandomNumberGenerator",
     // Subsumes `arc4random_uniform` and `arc4random_buf`.
     "arc4random",
-    // `Security`'s CSPRNG — a distinct source from `arc4random`, not a
-    // spelling of it. `arc4random` reads the kernel's PRNG directly;
-    // `SecRandomCopyBytes` goes through `Security`'s own CSPRNG. Both are
-    // Minting-shaped ambient randomness, and `SecRandomCopyBytes` compiles
-    // and links with plain `import Foundation` — no `import Security`
-    // needed on Darwin — so nothing about the app's imports would flag it.
-    // Task 5.5.
+    // `Security`'s CSPRNG — a distinct source from `arc4random`, not a spelling of
+    // it, and it links with plain `import Foundation`, so no import check flags it.
     "SecRandomCopyBytes",
 
     // ── ambient hashing ─────────────────────────────────────────────
     "SHA256",
 
     // ── ambient identity (boot epoch) ───────────────────────────────
-    // `Minting.bootEpoch()` reads `kern.bootsessionuuid` through this
-    // call. Not time and not randomness, but the same shape of
-    // problem: a value only the environment can supply, entering the
-    // app at one audited place. Added alongside `mach_continuous_time`
-    // in the same review round, for the same reason — this file's
-    // list has to be re-derived every time `Minting` gains a new
-    // ambient source, not assumed to already cover it.
+    // `Minting.bootEpoch()` reads `kern.bootsessionuuid` through this call: not
+    // time and not randomness, but the same shape — a value only the environment
+    // can supply, entering the app at one audited place.
     "sysctlbyname",
-    // A display's persistent identity, from
-    // `CGDisplayCreateUUIDFromDisplayID` — added in Task 9 alongside
-    // `Minting.displayUUID(of:)`, in the same commit, because this
-    // list has to be re-derived every time `Minting` gains an ambient
-    // source rather than assumed to already cover it. It is also the
-    // only route from a `CGDirectDisplayID` to the `UUID`
-    // `DisplayGeometry` requires, so banning it here is what makes
-    // the `UUID(` ban above unevadable for display identity
-    // specifically: without it a caller could read the `CFUUID`
-    // anywhere and only the final `UUID(uuidString:)` would be
-    // caught, which is a check on the last line of the wrong file.
+    // A display's persistent identity, behind `Minting.displayUUID(of:)` — and the
+    // only route from a `CGDirectDisplayID` to a `UUID`, so banning it is what makes
+    // the `UUID(` ban unevadable for display identity.
     "CGDisplayCreateUUIDFromDisplayID",
 ]
 
 
-/// Architecture rule 3 — no ambient time or randomness — is checked over the
-/// LINK-TIME SYMBOLS in the package's object files (`Tests/DeterminismTests`).
-/// `Soredemo/Support/Minting.swift` is in the **app** target, so nothing checks
-/// it, and nothing stops `ProjectDocument.swift` calling `UUID()` directly.
-///
-/// That would produce no wrong result — a UUID is a UUID — which is exactly why
-/// it needs a test rather than a review habit. It would make the sentence
-/// "non-determinism enters at one audited place" false while `Minting.swift`'s
-/// own doc comment, `AGENTS.md` and the design doc all still assert it. That is
-/// the same failure as `NormalizationContext` having no caller: a true-sounding
-/// sentence with nothing underneath it.
-///
-/// `SHA256` is here for the same reason and one more: `ContentDigest` documents
-/// at length that the package COMPARES digests and never computes one, because
-/// computing needs CryptoKit and rule 1 forbids it. The producer is `Minting`,
-/// and it must stay the only one.
-///
-/// **The list below is derived from `bannedSymbols` in
-/// `Tests/DeterminismTests/SymbolDeterminismTests.swift`, one text spelling per
-/// construct, and it was four entries long until Task 19.** Those four —
-/// `UUID(`, `Date(`, `SHA256`, `SystemRandomNumberGenerator` — caught none of
-/// `Date.now`, `Int.random(in:)`, `UUID.init()`, `Date.init()`, `Bool.random()`
-/// or `arc4random()`, all six of which were appended to `ContentView.swift` and
-/// observed passing. The package side had already enumerated every one of them;
-/// this side was a strictly smaller subset of a problem solved next door, and the
-/// row in `ROADMAP.md` that reads "ambient time, randomness and hashing confined
-/// to `Minting.swift`" was broader than the check under it. The doc comment above
-/// warns about a true-sounding sentence with nothing underneath it, which is what
-/// that sentence had become.
-///
-/// **This is a text scan, and the design doc rejected text scanning for exactly
-/// this rule** (F7, § Determinism): it is a proxy for a semantic question and it
-/// leaks. That verdict stands and is not being reversed here — the package side
-/// reads link-time symbols and always will. The app target has no test target and
-/// its object files are not where `nm` can be pointed from a package test, so text
-/// is what is available on this side of the boundary. What text cannot reach is
-/// therefore a **known gap with a reachability row**, in the design doc's
-/// `ArchitectureCheck` gap table, alongside every other gap in this repository.
-/// It shipped without one, which is why nobody noticed the list was short.
+/// Rule 3's app-side half. The package's ambient-value ban is checked over LINK-TIME
+/// SYMBOLS, but `Soredemo/Support/Minting.swift` is in the **app** target, so nothing
+/// stops `ProjectDocument.swift` calling `UUID()` directly — it would produce no wrong
+/// result, only a false sentence in three documents. The needles are derived from
+/// `bannedSymbols` in `Tests/DeterminismTests/SymbolDeterminismTests.swift`; a text
+/// scan is the weaker instrument, and the only one available on this side.
 @Test func ambientTimeRandomnessAndHashingEnterOnlyThroughMinting() throws {
     let found = try violations(
         banned: ambientBannedNames,
@@ -339,33 +199,13 @@ let ambientBannedNames: [String] = [
             """)
 }
 
-/// **The consequence measured, not assumed.** `Sources/Headless/MP4Exporter.swift`
-/// called `Date()` twice (Phase 3A-1 Task 7) — `git show b72bee9:Soredemo/Export/MP4Exporter.swift
-/// | grep -c "Date()"` returns 0, so the calls did not exist before that file moved
-/// out of the app-side scan `appSourceFiles()` covers. The first ambient-time call
-/// to land in the one target no rule-3 scan could see arrived within one task of
-/// this gap opening — this test closes it with the SAME instrument
-/// `ambientTimeRandomnessAndHashingEnterOnlyThroughMinting` above uses, over the
-/// tier this target's own architecture note (ARCHITECTURE.md, the target-tier
-/// table) allows to touch wall time and the GPU: real-time behaviour is not banned
-/// from `Headless`, but reaching for it UNAUDITED is, same as the app.
-///
-/// `Sources/Headless/MP4Exporter.swift` is the permitted boundary for this half —
-/// `Headless`'s analogue of `Minting.swift` — because it is the one file in the
-/// tier with a genuine need for a clock reading: bounding
-/// `AVAssetWriterInput.isReadyForMoreMediaData`'s poll against the indefinite hang
-/// Spike D measured (that file's own `readinessDeadlineSeconds` doc comment). The
-/// clock there is `SuspendingClock`, not `Date` — `Date` is wall-clock and
-/// settable/NTP-adjustable, so a backward step mid-export would make the elapsed
-/// reading negative, the cap never fire, and the poll unbounded again; a monotonic
-/// instrument closes that hole rather than merely relocating it into the one
-/// permitted file. `SuspendingClock` over `ContinuousClock` because the deadline
-/// measures how long the WRITER failed to progress, not wall time exposed to a
-/// system sleep — see that file's own comment at the poll site for the argument.
+/// The same scan over `Sources/Headless`, whose permitted boundary is
+/// `MP4Exporter.swift` — the one file with a genuine need for a clock, to bound the
+/// writer-readiness poll against an indefinite hang. It uses `SuspendingClock`, not
+/// `Date`: a settable clock stepping backwards mid-export unbounds the poll again.
 @Test func ambientTimeRandomnessAndHashingEnterHeadlessOnlyThroughMP4Exporter() throws {
     // `headlessSourceFiles()` is declared in `HeadlessEntryRuleTests.swift`, this
-    // same target — reused rather than redeclared, so `Sources/Headless`'s file
-    // list has exactly one definition regardless of which scan is asking for it.
+    // same target — reused so the file list has exactly one definition.
     let found = try violations(
         banned: ambientBannedNames,
         permittedPath: "Sources/Headless/MP4Exporter.swift",
@@ -384,13 +224,9 @@ let ambientBannedNames: [String] = [
 
 // MARK: - the keystroke ban: no allow-listed file, because there is no legitimate caller
 
-/// Like `violations(banned:permittedPath:in:)`, but with **no permitted
-/// file**.
-///
-/// The other two scans are about where something may happen; this one is
-/// about something that may not happen anywhere. Passing an allow-listed path
-/// would be worse than useless: the only file that would ever want one is
-/// `InputObserver.swift`, which is precisely the file the rule is about.
+/// Like `violations(banned:permittedPath:in:)`, but with **no permitted file**:
+/// this rule is about something that may not happen anywhere. The only file that
+/// would ever want an exemption is the one the rule is about.
 func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] {
     try #require(!files.isEmpty, "no app sources were scanned — this scan would pass vacuously")
     var found: [String] = []
@@ -408,70 +244,22 @@ func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] 
     return found
 }
 
-/// **`ROADMAP.md`'s `input-observation` row: "the package must never receive
-/// an unfiltered keystroke — there is then nothing to redact later."**
-///
-/// `InputObserver.approvedShortcut(forKeyCode:flags:)` is the behavioural half
-/// of that claim, and it is checked behaviourally in `§ 7.3` of
-/// `scripts/cross-boundary-digest-probe.swift` — including with the filter
-/// removed, observed red. This is the other half, and it is a different
-/// statement: not "the filter refuses ordinary typing", but **"no code in
-/// this app can turn a key event into text at all"**. A filter can be
-/// bypassed by a second code path; this cannot, because the APIs that would
-/// do it are not nameable.
-///
-/// The list is the ways a `CGEvent` or an `NSEvent` yields characters:
-/// `CGEventKeyboardGetUnicodeString` and its `CGEventField` spelling,
-/// `NSEvent.characters` / `.charactersIgnoringModifiers`, and `UCKeyTranslate`
-/// (with the Text Input Source lookup that feeds it), which is the manual
-/// keycode → character route someone would reach for after finding the first
-/// three unavailable. Key *codes* and modifier flags stay legal: they are
-/// hardware positions and a bitmask, and they are what the allow-list matches
-/// on.
-///
-/// **This does not claim to be exhaustive**, and a text scan cannot be — it is
-/// the same known gap the ambient-value scan above documents at length, on the
-/// same side of the same boundary, for the same reason (the app target has no
-/// object files a package test can point `nm` at). What it does is make the
-/// obvious routes cost a deliberate edit to this file.
+/// **No code in this app can turn a key event into text at all** — a different and
+/// stronger claim than "the shortcut filter refuses ordinary typing", because a filter
+/// can be bypassed by a second code path and an unnameable API cannot. The list is the
+/// ways a `CGEvent` or `NSEvent` yields characters, plus the manual `UCKeyTranslate`
+/// route. Key CODES and modifier flags stay legal: they are what the filter matches on.
 @Test func noAppSourceReadsKeystrokeText() throws {
     let found = try violationsEverywhere(
         banned: [
-            // CoreGraphics: the event's own characters.
-            //
-            // **`keyboardGetUnicodeString` is the entry that does the work,
-            // and it was missing.** The C symbol below it is the spelling the
-            // header uses and the one this list originally carried alone —
-            // but it does not exist in Swift, so it was dead text guarding
-            // nothing while the natural Swift call sailed through. Measured,
-            // both spellings compiled against this SDK:
-            //
-            //     CGEventKeyboardGetUnicodeString(e, 4, &n, &buf)
-            //       error: 'CGEventKeyboardGetUnicodeString' has been replaced
-            //       by instance method 'CGEvent.keyboardGetUnicodeString(
-            //       maxStringLength:actualStringLength:unicodeString:)'
-            //
-            //     e.keyboardGetUnicodeString(maxStringLength: 4,
-            //                                actualStringLength: &n,
-            //                                unicodeString: &buf)
-            //       compiles.
-            //
-            // The C spelling is kept anyway, labelled: it costs a line, it is
-            // what someone reading `CGEvent.h` will try first, and a rule
-            // whose ban list omits the name in the documentation invites the
-            // ban to be read as narrower than it is. But it is NOT what makes
-            // this test bite — for that spelling the compiler is the
-            // enforcement, and for the Swift one this list is.
+            // CoreGraphics: the event's own characters. The Swift spelling is
+            // what bites — the C symbol below it does not exist in Swift, so it
+            // guarded nothing on its own, and is kept only as documentation.
             "keyboardGetUnicodeString",
             "CGEventKeyboardGetUnicodeString",
-            // **The setter, banned too.** Writing text into a keyboard event
-            // is not reading one, so it is not literally the leak this test
-            // is named for — but it is the same capability from the other
-            // side, and it is worse in two ways. A process that sets a
-            // keystroke's text is holding that text, which is the state this
-            // rule exists to make unreachable; and a `.listenOnly` tap that
-            // modifies an event is not listen-only, so the ban also protects
-            // the claim that this app never alters someone else's input.
+            // The setter, banned too: a process that writes a keystroke's text is
+            // holding that text, and a `.listenOnly` tap that modifies an event
+            // is not listen-only.
             "keyboardSetUnicodeString",
             "keyboardEventUnicodeString",
             // AppKit: `.characters` also covers `.charactersIgnoringModifiers`,
@@ -498,14 +286,9 @@ func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] 
 
 // MARK: - a required-presence scan: the mirror image of the three bans above
 
-/// Every code line under `Soredemo/` containing `needle`, in `file:line:` form
-/// with the line's own code-view text attached.
-///
-/// Read through `SwiftSourceLexer.codeViewLines` like every other scan here,
-/// so a mention in a doc comment does not count — which matters more for this
-/// scan than for the bans: the file this one is about documents the call at
-/// length, and a scan that counted prose would report the requirement
-/// satisfied by the sentence describing it.
+/// Every code line under `Soredemo/` containing `needle`, in `file:line:` form with
+/// the line's own text attached. Read through `codeViewLines`, so the doc comment
+/// describing a required call cannot itself satisfy the requirement.
 func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: String, text: String)] {
     try #require(!files.isEmpty, "no app sources were scanned — this scan would pass vacuously")
     var found: [(location: String, text: String)] = []
@@ -524,36 +307,11 @@ func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: St
     return found
 }
 
-/// **The other three scans in this file say where something may not happen.
-/// This one says that something must.**
-///
-/// `InputObserver` takes its secure-input predicate as an injected argument so
-/// the interval logic — open, close, the two end reasons, the suppression —
-/// can be exercised without another application's password field, which is the
-/// only thing that makes `IsSecureEventInputEnabled()` true. That injection
-/// buys real coverage and it opens a hole exactly one character wide:
-/// defaulting the parameter to `{ false }` disables the privacy guarantee
-/// outright, and every test in this package and every behavioural check that
-/// passes its own predicate in stays green, because none of them ever
-/// evaluates the default.
-///
-/// So both halves are pinned:
-///
-/// 1. `IsSecureEventInputEnabled` appears on **exactly one** code line. Zero
-///    means nothing reads the real predicate. More than one means there is a
-///    second reader, and a second reader is a second policy — the thing this
-///    file exists to prevent for `UUID()` and for CoreGraphics geometry.
-/// 2. That line is the **default argument** of the injection point. Moving the
-///    read anywhere else — into `handle`, into a helper — would satisfy (1)
-///    while making the injected predicate no longer the single source of the
-///    answer, which is the property `§ 7.4` of the probe relies on.
-///
-/// **This is strictly weaker than the probe's `§ 7.7`**, which enables secure
-/// input for real and asserts the observer goes silent. It pins spelling; that
-/// one pins behaviour. It is here because it fires under `swift test` without
-/// anyone running the probe, and the probe is documented as running nothing
-/// automatically — the same trade this file already accepts for `Minting`,
-/// where a text scan stands next to a link-time symbol check.
+/// **The other scans say where something may not happen; this one says something
+/// must.** `InputObserver`'s secure-input predicate is injected so the interval logic
+/// can be tested without a password field, and defaulting that parameter to
+/// `{ false }` would disable the guarantee with every other check still green. So both
+/// halves are pinned: exactly one read, and it is the injection point's default.
 @Test func theSecureInputPredicateIsReadExactlyOnceAndOnlyAtTheInjectionPoint() throws {
     let readers = try codeLinesNaming("IsSecureEventInputEnabled", in: try appSourceFiles())
 
@@ -578,67 +336,14 @@ func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: St
             """)
 }
 
-/// The line number out of a `codeLinesNaming` location (`path:line`).
-///
-/// Ordering checks need it: "this call happens inside that function, after
-/// that other call" is a claim about position in the file, and position is
-/// what a text scan can actually see.
+/// The line number out of a `codeLinesNaming` location (`path:line`), for the
+/// ordering checks below: position in the file is what a text scan can see.
 func lineNumber(of location: String) -> Int {
     Int(location.split(separator: ":").last.map(String.init) ?? "") ?? -1
 }
 
-/// **The poll must actually be started, and started where the tap exists.**
-///
-/// This is the hole the whole polling round would otherwise have left one
-/// level above where it was closed. `InputObserver.startPolling()` and
-/// `pollTapEnabled()` are driven **directly** by `§ 7.10` of the probe,
-/// because `start()` creates a real `CGEvent` tap and that needs Input
-/// Monitoring. So the probe cannot see whether the shipping path ever
-/// schedules the timer, and `theTapsEnabledFlagIsReadExactlyOnceAndOnlyInThe
-/// Observer` cannot either: `CGEvent.tapIsEnabled` stays named exactly once,
-/// inside a `pollTapEnabled()` nobody calls.
-///
-/// Delete the one production call and: 360 tests pass, 222 probe checks pass,
-/// `xcodebuild` succeeds, and the shipping app never polls — so
-/// `tapDisabledIntervals` is permanently empty and `tapEnabledPolls`
-/// permanently zero. That is exactly the "an empty list reads as no gaps"
-/// state this round existed to close, reintroduced at the one point no other
-/// check can reach.
-///
-/// Three claims, because the call can be broken three ways:
-///
-/// 1. it exists, exactly once, and is not merely the declaration;
-/// 2. it sits inside `start(onObservation:)` — after that function begins and
-///    before `stop()` does;
-/// 3. it comes **after** the tap has been created and enabled. Moved above
-///    `CGEvent.tapCreate`, the first poll reads a `nil` tap, takes the
-///    `tapPollsWithNoTap` path, and the timer then polls a tap it never sees
-///    — green everywhere, and blind.
-/// `disableTapForVerification()` exists so a human step can take a real
-/// `CFMachPort` down and watch the poll find it. It must never be reachable
-/// from anything the product runs.
-///
-/// **A scan, not a promise in a doc comment.** This project has twice written
-/// "keep these the same" or "never call this" in prose and had it missed one
-/// file away; the three scans below it are the mechanism that held where prose
-/// did not. Zero call sites, one declaration.
-@Test func theVerificationOnlyTapDisableIsNeverCalledFromProductCode() throws {
-    let files = try appSourceFiles()
-    let mentions = try codeLinesNaming("disableTapForVerification", in: files)
-    let declarations = mentions.filter { $0.text.contains("func disableTapForVerification") }
-    let calls = mentions.filter { !$0.text.contains("func disableTapForVerification") }
-
-    #expect(declarations.count == 1,
-            "expected one disableTapForVerification declaration, found \(declarations.count)")
-    #expect(calls.isEmpty,
-            """
-            disableTapForVerification() is called from product code at:
-            \(calls.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
-            It disables the event tap through the real port. Nothing the product runs may call it; \
-            only a spike, which is outside this scan.
-            """)
-}
-
+/// `startPolling()` is called exactly once, inside `start(onObservation:)`, after the
+/// tap is created and enabled.
 @Test func theTapPollIsStartedByStartAndNotOnlyDefined() throws {
     let files = try appSourceFiles()
     let mentions = try codeLinesNaming("startPolling", in: files)
@@ -691,20 +396,9 @@ func lineNumber(of location: String) -> Int {
             """)
 }
 
-/// **A rejected alternative that is only prose is a rejected alternative
-/// nobody is stopped from taking.**
-///
-/// `AXUIElementSetMessagingTimeout` bounds an AX call, which would make
-/// keeping the hit-test on the tap callback thread viable again — it is the
-/// clever-looking answer, and D2-18 rejects it: it trades "a call with no
-/// upper bound" for "a bounded call that fails by timing out", and a timeout
-/// failure is data loss of exactly the kind `clicksDroppedByBacklog` is, in a
-/// worse place. The delay is still spent on the callback thread and there is
-/// no queue to absorb a burst.
-///
-/// This is the zero-occurrence form of the three scans above. It costs one
-/// line and turns a paragraph someone has to have read into a diff someone has
-/// to defend.
+/// `AXUIElementSetMessagingTimeout` is the clever-looking answer D2-18 rejects: it
+/// trades an unbounded wait for a timeout failure, which is the same data loss as a
+/// queue drop, still on the callback thread. Prose alone stops nobody from taking it.
 @Test func theRejectedAXTimeoutIsNotReachedFor() throws {
     let found = try violationsEverywhere(banned: ["AXUIElementSetMessagingTimeout"],
                                          in: try appSourceFiles())
@@ -719,33 +413,9 @@ func lineNumber(of location: String) -> Int {
             """)
 }
 
-/// **Nothing counts straddling observations, and this is what will say so on
-/// the day something does.**
-///
-/// The tautology register's first row is the expectation *a straddle count
-/// cross-checked against a counter*. It cannot fail, and the reason is not that
-/// the predicate is weak: **the counter does not exist**. D2-12 says an
-/// observation whose AX chain crosses a segment boundary belongs to the
-/// segment its click happened in, and the chain items carry their own
-/// timestamps so a straddle is *detectable* — but nothing in `Soredemo/`
-/// detects one, so the expectation is about a number no code produces.
-///
-/// Deleting the expectation would be wrong; the rule it guards is real, and
-/// `framing-gates` is expected to want that count. So the register's answer is
-/// this scan, in its zero-occurrence form: assert the counter's ABSENCE, and
-/// let the day it arrives be the day the expectation is rewritten into a real
-/// cross-check. That is a diff someone has to defend rather than a register row
-/// someone has to remember.
-///
-/// Doc comments naming the concept — `AXObserver`'s routing note and
-/// `ObservationWriter`'s D2-12 header — do not fire: `codeViewLines` blanks
-/// comment and string CONTENT, which is the same property rules 1, 2 and 4
-/// depend on. Only an identifier in code counts.
-///
-/// **When this fires, do not exempt it.** Write the counter, replace the
-/// unfalsifiable expectation with one that compares it against the log's own
-/// straddling records, and delete this test in the same commit. Its whole value
-/// is being the thing that makes those three arrive together.
+/// **Nothing counts straddling observations yet**, which is why the tautology
+/// register's first row cannot fail. So assert the counter's ABSENCE: when this fires,
+/// write the real cross-check and delete this test in the same commit — do not exempt.
 @Test func nothingInTheAppCountsStraddlingObservationsYet() throws {
     let found = try violationsEverywhere(banned: ["straddl", "Straddl"],
                                          in: try appSourceFiles())
@@ -760,16 +430,9 @@ func lineNumber(of location: String) -> Int {
             """)
 }
 
-/// **`AXObserver.chain` is the synchronous walk, and only `AXObserver` may
-/// call it.**
-///
-/// Its own doc comment says not to call it from the tap callback, and a doc
-/// comment is what the previous two rounds of this task demonstrated is not a
-/// mechanism. The defect it guards against — a second app file calling the
-/// synchronous walk from a callback — is exactly the one this whole round
-/// exists to prevent, and it would look green everywhere.
-///
-/// `enqueue(_:onRecord:)` is the entry point for everyone else.
+/// **`AXObserver.chain` is the synchronous walk, and only `AXObserver` may call it.**
+/// A second app file calling it from the tap callback would look green everywhere, and
+/// its own doc comment is not a mechanism. `enqueue(_:onRecord:)` is the entry point.
 @Test func theSynchronousAXWalkIsCalledOnlyFromWithinAXObserver() throws {
     let callers = try codeLinesNaming("chain(at:", in: try appSourceFiles())
     let outside = callers.filter { !$0.location.hasPrefix("Soredemo/Capture/AXObserver.swift:") }
@@ -783,29 +446,11 @@ func lineNumber(of location: String) -> Int {
             """)
 }
 
-/// **The tap's own enabled flag must still be read, and read in one place.**
-///
-/// `InputObserver` polls `CGEvent.tapIsEnabled(tap:)` because the notification
-/// channel it used to rely on was measured never to fire for a `.listenOnly`
-/// tap: a deliberate callback stall swept 10/50/100/200/400/800/1600 ms
-/// produced 0 `kCGEventTapDisabledByTimeout` notifications at every rung —
-/// including the rungs where the flag showed the tap really was disabled —
-/// with a `.defaultTap` control receiving the notification in the same run.
-/// (Those rungs are sustained overload rather than a per-callback budget; that
-/// correction is in `AXObserver`'s header and does not affect this scan, which
-/// is about the channel and not the threshold.)
-///
-/// The poll is injectable (`tapIsEnabledOverride`) so the probe can drive it
-/// without Input Monitoring, and that injection has a failure mode this scan
-/// exists for: **delete the real read and every check stays green**, because
-/// the probe always passes its own. Zero occurrences means nothing in the
-/// shipping app ever asks the OS whether the tap is alive, which is precisely
-/// the state that shipped an hour ago; more than one means two policies about
-/// what "the tap is up" means.
-///
-/// It pins the count and the file, not the line — the read sits inside a
-/// `lock.withLock` block whose surrounding text is not a stable thing to
-/// assert on.
+/// **The tap's own enabled flag must still be read, and read in one place.** The
+/// `kCGEventTapDisabledByTimeout` notification was measured never to fire for a
+/// `.listenOnly` tap — 0 notifications at every rung of a swept callback stall — so
+/// `InputObserver` polls `CGEvent.tapIsEnabled` instead. That poll is injectable, so
+/// deleting the real read leaves every check green. Pins the count and file, not line.
 @Test func theTapsEnabledFlagIsReadExactlyOnceAndOnlyInTheObserver() throws {
     let readers = try codeLinesNaming("CGEvent.tapIsEnabled", in: try appSourceFiles())
 
@@ -824,31 +469,10 @@ func lineNumber(of location: String) -> Int {
             "the tap's enabled flag is read at \(reader.location), not in InputObserver: \(reader.text)")
 }
 
-/// The same shape one row over: **`AXObserver`'s accessibility predicate is
-/// injected, and the default has to stay the real reader.**
-///
-/// `AXObserver` takes `accessibilityIsGranted` as an argument so that
-/// `hitTestsReturnedNothingWithoutAccessibility` can be exercised in both
-/// directions by `§ 8.3` of the probe — which is a bare `swiftc` binary whose
-/// TCC reads are attributed to the shell that launched it, so the real
-/// predicate cannot answer about the right subject there at all.
-///
-/// That injection opens the same one-character hole the secure-input one does,
-/// and this one is quieter: defaulting it to `{ true }` leaves every check in
-/// this package and every check in the probe green, because none of them ever
-/// evaluates the default — while a whole recording made without the
-/// Accessibility grant would consist of empty chains attributed to *the
-/// clicks*, reading as "nobody clicked on anything" rather than as
-/// `Degradation.noElementIdentity`. That is the silence-is-not-a-value failure
-/// this project has now written down four times.
-///
-/// Weaker than its neighbour in one respect, and deliberately: it pins the
-/// **count** and the **file**, not the exact line, because the default
-/// argument is too long to fit on one line and a check that required it to
-/// would be a check about formatting. Zero occurrences means the default was
-/// replaced by a constant; two means there is a second policy about what the
-/// Accessibility grant implies, which is what `CapturePermissions` exists to
-/// prevent.
+/// `AXObserver`'s accessibility predicate is injected the same way, and defaulting it
+/// to `{ true }` leaves every check green while a recording made without the grant
+/// becomes empty chains attributed to the clicks rather than
+/// `Degradation.noElementIdentity`. Pins the count and the file, not the exact line.
 @Test func theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt() throws {
     let readers = try codeLinesNaming("CapturePermissions.status(of: .accessibility)",
                                       in: try appSourceFiles())
@@ -874,53 +498,13 @@ func lineNumber(of location: String) -> Int {
 
 // MARK: - the content rule: what an observation log may never carry
 
-/// **`ObservationLog`'s "what a record may contain" section, enforced.**
-///
-/// Task 11's Addition C required the content rule to be stated in the schema's
-/// own documentation — it is, on `ObservationLog` — and asked whether the
-/// mechanism that already enforces the keystroke half could cover the rest. It
-/// can, for the same reason and with the same limits: **a producer cannot write
-/// what it cannot read**, so banning the APIs that read user content is a
-/// stronger statement than any rule about what the writer does with it.
-///
-/// The banned list is the ways this app could learn something a recording does
-/// not already show:
-///
-///   * `kAXValueAttribute` and `kAXValueDescriptionAttribute` — the text
-///     *inside* a control, as distinct from the label *on* it. This is the
-///     natural next attribute for somebody extending `AXElementRecord`, and it
-///     is the one that would put a half-typed password into a log while
-///     `IsSecureEventInputEnabled()` was never consulted, because that
-///     predicate governs the event tap and says nothing about an AX walk this
-///     process performs itself.
-///   * `kAXSelectedTextAttribute` / `kAXSelectedTextRangeAttribute` — the same
-///     thing, narrowed to what is highlighted.
-///   * `NSPasteboard` — the clipboard is ambient user content in its entirety,
-///     and reading it is never a step towards describing a click.
-///   * `kCGWindowName`, `CGWindowListCopyWindowInfo` and
-///     `CGWindowListCreateDescriptionFromArray` — an enumeration of every
-///     window on the machine, including every document **not** being recorded.
-///     An earlier spike wrote 444 KB of window titles into a capture log.
-///
-/// **`kAXTitleAttribute` is deliberately absent from this list, and that is a
-/// correction to the task brief rather than an omission.** The brief described
-/// `AXChainRecord` as storing "roles and frames and deliberately not titles or
-/// values"; it stores titles, on purpose, and `AXObserver.title(of:)` carries
-/// the argument at the point of the read. A title belongs to something the
-/// recording already shows and is what makes "the Save button" identifiable in
-/// derivation. Values, keystrokes, the pasteboard and other applications'
-/// windows are none of those things. The line this list draws is **in-frame**
-/// versus **ambient**, not "text" versus "not text".
-///
-/// **The named gap: `SCWindow.title`.** ScreenCaptureKit's own window title is
-/// not textually separable from `NSWindow.title`, which
-/// `ProjectDocument.makeWindowControllers` sets legitimately on a window this
-/// app owns. A `.title` entry here would fire on both. The live site — a debug
-/// `print` in `SoredemoApp.swift` that named the picked window — was found by
-/// writing this test and removed in the same commit; what remains is that a new
-/// one would not be caught by this scan. It is the same class of known gap the
-/// two scans above document at length, on the same side of the same boundary,
-/// for the same reason.
+/// **`ObservationLog`'s "what a record may contain" section, enforced** by the same
+/// mechanism as the keystroke ban: a producer cannot write what it cannot read, so the
+/// ban is on the APIs that read user content — a control's contents, selected text,
+/// the pasteboard, every window on the machine. `kAXTitleAttribute` is deliberately
+/// absent; the line drawn is **in-frame** versus **ambient**, not text versus not-text.
+/// Named gap: `SCWindow.title` is not textually separable from the `NSWindow.title`
+/// this app sets legitimately on its own window.
 @Test func noAppSourceReadsUserContent() throws {
     let found = try violationsEverywhere(
         banned: [
@@ -951,32 +535,10 @@ func lineNumber(of location: String) -> Int {
 }
 
 /// **The bottleneck the content rule's closed attribute list depends on.**
-///
-/// `AXObserver.ReadableAXAttribute` makes `copyAttribute` closed: the set of AX
-/// attributes this app can name is six cases, and `kAXValueAttribute` is not one
-/// of them. That is the fix for the string-literal bypass —
-/// `copyAttribute("AXValue", of: element)` was invisible to
-/// `noAppSourceReadsUserContent`, because `SwiftSourceLexer.codeViewLines` blanks
-/// string content by design.
-///
-/// **But a closed enum makes `copyAttribute` closed, not exclusive.** Nothing
-/// about it stops a new file calling `AXUIElementCopyAttributeValue` directly
-/// with `"AXValue" as CFString` — the original Critical, one call deeper, with
-/// the enum intact, the scan silent and every gate green. This test is what
-/// makes the enum a bottleneck rather than a convention: the raw AX read happens
-/// at exactly one place, and that place is the one whose parameter type is the
-/// permitted list.
-///
-/// Same shape as `theTapsEnabledFlagIsReadExactlyOnceAndOnlyInTheObserver`,
-/// `theSecureInputPredicateIsReadExactlyOnceAndOnlyAtTheInjectionPoint` and
-/// `theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt`, and
-/// for the same reason: a rule about where something may happen is only a rule
-/// if the number of places is asserted.
-///
-/// **Zero is a failure too, and not a pedantic one.** `AXObserver`'s entire
-/// element description — role, title, position, size, parent, children — is this
-/// one call. Zero means the walk reads nothing and every `AXElementRecord` is
-/// empty, which is byte-identical on disk to Accessibility not being granted.
+/// `ReadableAXAttribute` makes `copyAttribute` closed but not exclusive: a direct
+/// `AXUIElementCopyAttributeValue` with `"AXValue" as CFString` is invisible to the
+/// scan above, because `codeViewLines` blanks string content. Zero is a failure too —
+/// empty `AXElementRecord`s are byte-identical to Accessibility being ungranted.
 @Test func theRawAXAttributeReadHappensAtExactlyOnePlace() throws {
     let readers = try codeLinesNaming("AXUIElementCopyAttributeValue(",
                                       in: try appSourceFiles())
@@ -1010,17 +572,10 @@ func lineNumber(of location: String) -> Int {
 
 // MARK: - the needles must be able to fire
 
-/// One call site per entry in `ambientBannedNames`, and it is **compiled**.
-///
-/// That is the whole mechanism: the compiler is what proves each spelling is a
-/// real API on this SDK, and the scan below is what proves each needle still
-/// matches one. `CCRandomGenerateBytse` fails the second check; a needle for an
-/// API that does not exist fails the first.
-///
-/// `import ColorSync` is load-bearing and was found by this fixture failing to
-/// compile without it: `CGDisplayCreateUUIDFromDisplayID` is declared in
-/// `ColorSync.framework`, not CoreGraphics, despite the prefix — the same fact
-/// `Minting.swift`'s header records at the top of the file.
+/// One call site per entry in `ambientBannedNames`, and it is **compiled**: the
+/// compiler proves each spelling is real API on this SDK, the scan below proves each
+/// needle still matches one. `import ColorSync` is load-bearing —
+/// `CGDisplayCreateUUIDFromDisplayID` is declared there, not in CoreGraphics.
 let ambientConstructFixture = """
 import ColorSync
 import CommonCrypto
@@ -1071,10 +626,9 @@ func ambientProbe() {
 }
 """
 
-/// Typechecks a fixture with the real compiler, and fails loudly if it does not
-/// compile. `-typecheck` rather than `-emit-object`: the question here is
-/// whether every spelling in the fixture is real API on this SDK, and nothing
-/// downstream reads a symbol.
+/// Typechecks a fixture with the real compiler and fails loudly if it does not
+/// compile. `-typecheck` rather than `-emit-object`: the question is whether every
+/// spelling is real API on this SDK, and nothing downstream reads a symbol.
 func typecheck(_ source: String, named name: String) throws {
     let directory = URL(filePath: NSTemporaryDirectory())
         .appending(path: "appsource-fixture-\(ProcessInfo.processInfo.globallyUniqueString)")
@@ -1096,20 +650,9 @@ func typecheck(_ source: String, named name: String) throws {
                  "fixture \(name) did not typecheck — a needle names an API this SDK does not have:\n\(errorText)")
 }
 
-/// **THE RED THIS FILE DID NOT HAVE.**
-///
-/// The three ban scans above can only ever assert that nothing in `Soredemo/`
-/// matches. A misspelled needle matches nothing either, so it is green forever,
-/// and the only evidence any of them ever fired was probe output pasted into a
-/// task report and then deleted. The package side has had this since Task 5
-/// (`everyBannedSymbolIsStillWhatTheConstructEmits` and
-/// `theScanRejectsAModuleThatReadsTheClockOrTheSystemRNG`, which between them
-/// pin every entry in `bannedSymbols`); this side inherited the gap and then
-/// grew by seven entries under it.
-///
-/// This closes it for the ambient list — the one Task 11.5 extended. The
-/// CoreGraphics, keystroke and user-content lists still have no fixture; that
-/// is recorded in ARCHITECTURE.md D6a rather than here.
+/// **THE RED THIS FILE DID NOT HAVE.** A misspelled needle matches nothing, so a ban
+/// scan asserting nothing matches is green forever. Closed here for the ambient list;
+/// the other three lists still have no fixture, recorded in ARCHITECTURE.md D6a.
 @Test func everyAmbientNeedleMatchesACallSiteInACompiledFixture() throws {
     try typecheck(ambientConstructFixture, named: "AmbientConstructs")
 
@@ -1132,10 +675,9 @@ func typecheck(_ source: String, named name: String) throws {
 
 // MARK: - D6a-V — unexercised public API, counted by the lexer and not by grep
 
-/// Every `.swift` file under `Sources/` AND `Soredemo/` — the whole first-party tree.
-///
-/// `appSourceFiles()` above covers only the app target. A deadness verdict needs both halves:
-/// `TimeRange` lives in `Sources/Timeline` and its would-be callers live in `Sources/Graph`.
+/// Every `.swift` file under `Sources/` AND `Soredemo/` — the whole first-party
+/// tree. A deadness verdict needs both halves: `TimeRange` lives in
+/// `Sources/Timeline` and its would-be callers live in `Sources/Graph`.
 func firstPartySourceFiles() throws -> [URL] {
     var files: [URL] = []
     for directory in ["Sources", "Soredemo"] {
@@ -1150,25 +692,11 @@ func firstPartySourceFiles() throws -> [URL] {
     return files.sorted { $0.path < $1.path }
 }
 
-/// **`docs/ARCHITECTURE.md`'s D6a-V table, as a machine check rather than as prose.**
-///
-/// That table's entire content is a set of call-site counts, and a table whose whole meaning is a
-/// number must not be maintained by hand. The counts below are the ones the register publishes; if
-/// one moves, this test says so and the register is edited deliberately rather than discovered
-/// stale months later — which is exactly how `geometry-types`' "never executed" clause outlived the
-/// bundle-identifier rename.
-///
-/// **Counted with `codeLinesNaming`, never with `grep`.** That helper reads
-/// `SwiftSourceLexer.codeViewLines(of:)`, so comments and string literals are blanked. A raw `grep`
-/// for `TimeRange` returns three hits and two of them are a doc comment and a string inside the
-/// architecture checker's own exemption list — a deadness verdict that counts a scanner's
-/// configuration as usage. That mistake was made while drafting this very table.
-///
-/// **What is counted: uses OUTSIDE the file that declares it.** Counting bare occurrences was the
-/// first draft and it was wrong in an instructive way — `shadowRadius` has six, every one of them
-/// inside `RenderPlan.swift`'s own initialiser and `Codable` conformance. The value is constructed,
-/// stored, encoded and decoded; nothing ever consults it. "Zero occurrences" would have been false
-/// and "zero readers" is what the register actually claims, so that is what this counts.
+/// **`docs/ARCHITECTURE.md`'s D6a-V table as a machine check** — a table whose whole
+/// meaning is a set of call-site counts must not be maintained by hand. Counted with
+/// `codeLinesNaming` and never `grep`, so a doc comment and the checker's own exemption
+/// list do not count as usage; and only uses OUTSIDE the declaring file count, since
+/// `shadowRadius`'s six occurrences are all inside its own type.
 @Test func theUnexercisedPublicAPITableMatchesTheTree() throws {
     let files = try firstPartySourceFiles()
 
@@ -1189,10 +717,8 @@ func firstPartySourceFiles() throws -> [URL] {
 
     for e in expectations {
         // `codeLinesNaming` blanks comments and strings but matches bare substrings, so
-        // `CMTimeRange(start:...)` counts as a use of `TimeRange`. That false positive appeared on
-        // the first run of this test. Require the character before the match to be a non-identifier
-        // one — the instrument was right about comments and naive about word boundaries, and a
-        // deadness count is exactly the place that difference decides the answer.
+        // `CMTimeRange(start:...)` counted as a use of `TimeRange`. Require the character
+        // before the match to be a non-identifier one.
         let uses = try codeLinesNaming(e.needle, in: files)
             .filter { !$0.location.hasPrefix(e.declaringFile) }
             .filter { line in
@@ -1217,28 +743,17 @@ func firstPartySourceFiles() throws -> [URL] {
     }
 }
 
-/// **D6a-N's checkable rows, pinned.** Each entry is a component or artefact that some sentence in
-/// this repository asserts exists. The test is the cheapest possible reading of that assertion:
-/// does the thing appear in CODE anywhere, or only in the sentences claiming it?
-///
-/// **This is deliberately a curated list and not the general rule**, and the general rule was
-/// attempted first. "Any identifier whose every occurrence in the tree falls inside comments is
-/// dead or fictional" was measured over this tree: 72 candidates, of which perhaps three are real.
-/// The bulk are REJECTED ALTERNATIVES — `DocumentGroup`, `AVMutableVideoComposition`,
-/// `SCRecordingOutput`, `FileDocument` — which good doc comments are supposed to discuss, and
-/// "mentioned as a road not taken" is not separable from "claimed as a component" by any reliable
-/// mechanical test. A gate at 97% false positives gets switched off, which is worse than none.
-///
-/// So the general rule stays a review habit (`docs/ARCHITECTURE.md` D6a-N) and the specific claims
-/// become checks. The list grows by one row each time a human finds another.
+/// **D6a-N's checkable rows, pinned:** does each component some sentence claims exists
+/// appear in CODE, or only in the sentences claiming it? Deliberately a curated list
+/// and not the general rule — "every occurrence falls inside comments" was measured at
+/// 72 candidates, mostly rejected alternatives, and a 97%-false-positive gate gets
+/// switched off.
 @Test func componentsAssertedInProseDoNotExistOnlyInProse() throws {
     let appFiles = try appSourceFiles()
 
-    // `Inspector`: `StageWindow.swift`'s header claimed `NavigationSplitView` + `Inspector` while
-    // the word appeared exactly once in `Soredemo/` — inside that claim. If someone BUILDS an
-    // inspector, this fails and the D6a-N row plus `app-shell`'s ROADMAP row are retired in the
-    // same commit. If someone re-asserts one in prose without building it, it stays failing-safe:
-    // the count only moves when real code appears.
+    // `Inspector`: `StageWindow.swift`'s header claimed one while the word appeared
+    // exactly once in `Soredemo/` — inside that claim. Fails only when real code
+    // appears, so re-asserting it in prose keeps it failing-safe.
     let inspectorInCode = try codeLinesNaming("Inspector", in: appFiles)
     #expect(inspectorInCode.isEmpty, """
         `Inspector` now appears in app CODE at \(inspectorInCode.count) site(s). If an inspector was
@@ -1246,21 +761,9 @@ func firstPartySourceFiles() throws -> [URL] {
         \(inspectorInCode.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
         """)
 
-    // `SoredemoCore` must never be a TARGET, and this nail carries its reason rather than its
-    // state — the first version did the opposite and was wrong because of it.
-    //
-    // It said `Sources/SoredemoCore` "does not exist yet" and would flip when Phase 3 created it.
-    // That froze a belief: that the name was unclaimed. It is not. `SoredemoCore` is the
-    // Foundation-only PRODUCT — `KICKOFF.md`'s D6 ("imports Foundation only. No AppKit, no
-    // ScreenCaptureKit, no AVFoundation"), the completion criterion for `architecture-plugin`
-    // ("adding `import AppKit` to `SoredemoCore` fails the build"), `AGENTS.md` ("runs with no
-    // screen and no permissions. Keep it that way"), and `Minting.swift`'s header ("the three
-    // things `SoredemoCore` is forbidden to do"). A directory of that name would put app logic
-    // inside an identity defined by excluding it.
-    //
-    // **A pin freezes what its author believed when they wrote it, and cannot protect the belief
-    // itself.** So each nail states why it is true, not merely that it currently is: the first form
-    // can be refuted by a reader who knows better, the second can only be obeyed.
+    // `SoredemoCore` must never be a TARGET, and this nail carries its reason rather
+    // than its state: the name belongs to the Foundation-only PRODUCT, so a directory
+    // of it would put app logic inside an identity defined by excluding it.
     let coreTargetExists = FileManager.default.fileExists(
         atPath: repositoryRoot.appending(path: "Sources/SoredemoCore").path(percentEncoded: false))
     #expect(!coreTargetExists, """
