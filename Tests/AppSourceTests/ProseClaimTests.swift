@@ -5,7 +5,7 @@ import Testing
 /// values while `scripts/count-tests.sh` sat unused. The rule pins one shape — `swift test`
 /// followed closely by a bare integer — because the general form measured ~97% false positives.
 @Test func noProseDocumentStatesTheCurrentTestCount() throws {
-    let documents = ["ROADMAP.md", "AGENTS.md", "docs/ARCHITECTURE.md", "KICKOFF.md",
+    let documents = ["ROADMAP.md", "AGENTS.md", "docs/ARCHITECTURE.md",
                      "docs/design/2026-08-04-phase-3a-foundation-design.md"]
     // An unreadable document is a FAILURE, not a skip: one of the five paths is date-stamped,
     // so a rename would silently drop a document this gate exists to catch.

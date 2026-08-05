@@ -77,7 +77,7 @@ Goal: a build that records and plays back. Nothing derived yet. **This phase alo
 `Headless` library target.**
 
 *(Named `SoredemoCore` in this row's first draft, which was wrong: `SoredemoCore` is the
-Foundation-only product — `KICKOFF.md` D6, and the `architecture-plugin` completion criterion
+Foundation-only product — `ARCHITECTURE.md` rule 1, and the `architecture-plugin` completion criterion
 is that `import AppKit` there fails the build. `Headless` states its own invariant instead:
 **needs a window or a running app, does not belong here** — which excludes SwiftUI by the name
 rather than by a rule beside it, and stays true when `Capture` moves in.)*

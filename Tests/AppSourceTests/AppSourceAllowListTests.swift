@@ -768,7 +768,7 @@ func firstPartySourceFiles() throws -> [URL] {
         atPath: repositoryRoot.appending(path: "Sources/SoredemoCore").path(percentEncoded: false))
     #expect(!coreTargetExists, """
         `Sources/SoredemoCore` exists as a directory. `SoredemoCore` is the Foundation-only product
-        name; a target under it would make KICKOFF.md's D6 false. Platform-touching code belongs in
+        name; a target under it would break ARCHITECTURE.md rule 1. Platform-touching code belongs in
         the `Headless` target instead. If this is deliberate, the five documents above change in the
         same commit.
         """)

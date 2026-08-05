@@ -56,7 +56,7 @@ it, and the invariant survives 3A-2: `Render` would expire when `Capture` moves 
 `Headless` does not.
 
 **It is not called `SoredemoCore`.** That name is already the Foundation-only
-product — `KICKOFF.md`'s D6 ("imports Foundation only. No AppKit, no
+product — `ARCHITECTURE.md` rule 1 ("imports Foundation only. No AppKit, no
 ScreenCaptureKit, no AVFoundation"), the completion criterion for
 `architecture-plugin` ("adding `import AppKit` to `SoredemoCore` **fails the
 build**"), `AGENTS.md`, and `Minting.swift`'s header ("the three things

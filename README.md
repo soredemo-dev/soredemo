@@ -14,8 +14,7 @@ macOS 26 · Swift 6.4 · Apple Silicon · local by default
 
 ## Start here
 
-**Coding agent:** read [`AGENTS.md`](AGENTS.md) first — it governs everything — then
-[`KICKOFF.md`](KICKOFF.md).
+**Coding agent:** read [`AGENTS.md`](AGENTS.md) first — it governs everything.
 
 **Person returning to this repo:** [`docs/PRODUCT.md`](docs/PRODUCT.md) for why, then
 [`ROADMAP.md`](ROADMAP.md) for what is next.
@@ -34,7 +33,6 @@ Six documents. That is all of it.
 | [`docs/FEATURES.md`](docs/FEATURES.md) | **Every feature and the Apple framework behind it.** Four pillars: record, edit, launch video, CLI + agent |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Eight binding decisions (D1–D8) and the module map |
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
-| [`KICKOFF.md`](KICKOFF.md) | Historical copy-paste prompts for Phases 0–2, kept as a record |
 
 ---
 
@@ -60,7 +58,6 @@ auto-publish, no "approve all", no CI bypass.
 soredemo-main/            ← this repo
 ├── AGENTS.md             the rules
 ├── ROADMAP.md            the work list
-├── KICKOFF.md            prompts
 ├── docs/
 │   ├── PRODUCT.md        why, who buys, what is not built
 │   ├── FEATURES.md       every feature and its Apple framework
