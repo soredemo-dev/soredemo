@@ -32,39 +32,43 @@ public enum CompositionBuilder {
     /// `@MainActor` by the app's default and calls this exactly as before — a `nonisolated async`
     /// function is callable from any isolation, so this is a widening, not a move.
     ///
-    /// **`(nonsending)`, added in Phase 3A-1 Task 4, and measured rather than guessed.** Moving
-    /// this function into the `Headless` module (from the app target, where it lived through
-    /// Task 3) made `xcodebuild -project Soredemo.xcodeproj` fail at `MP4Exporter.swift`'s call
-    /// site with the SAME diagnostic tag the paragraph above already names —
-    /// `#RegionIsolation::SendingRisksDataRace` — even though `MP4Exporter.export` and this
-    /// function were both already `nonisolated` before the move. `swift build`/`swift test`
-    /// never saw it: neither compiles `MP4Exporter.swift`, an app-target file. What changed
-    /// crossing the module boundary: the app target builds with `SWIFT_APPROACHABLE_CONCURRENCY =
-    /// YES` (`Soredemo.xcodeproj`'s own setting), which enables the `NonisolatedNonsendingByDefault`
+    /// **Cross-module concurrency mismatch found in Task 4, and the fix's own history — corrected
+    /// in code review, fix round 1.** Moving this function into the `Headless` module (from the
+    /// app target, where it lived through Task 3) made `xcodebuild -project Soredemo.xcodeproj`
+    /// fail at `MP4Exporter.swift`'s call site with the SAME diagnostic tag the paragraph above
+    /// already names — `#RegionIsolation::SendingRisksDataRace` — even though `MP4Exporter.export`
+    /// and this function were both already `nonisolated` before the move. `swift build`/`swift
+    /// test` never saw it: neither compiles `MP4Exporter.swift`, an app-target file. Root cause:
+    /// the app target builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`
+    /// (`Soredemo.xcodeproj`'s own setting), which enables the `NonisolatedNonsendingByDefault`
     /// upcoming feature for code the APP TARGET declares — but the calling convention of a
     /// `nonisolated async` function is a property of the module that DECLARES it, not of its
-    /// caller, and `Package.swift` enables no such feature for `Headless`. Without it, this
-    /// function hops to the global concurrent executor on every call, so the non-`Sendable`
-    /// `AVAsset` `MP4Exporter.export` passes in genuinely crosses an isolation domain its own
-    /// build no longer crosses for functions declared inside the app target itself.
+    /// caller, and `Package.swift` enabled no such feature for `Headless`. Without it, this
+    /// function hopped to the global concurrent executor on every call, so the non-`Sendable`
+    /// `AVAsset` `MP4Exporter.export` passes in genuinely crossed an isolation domain the app
+    /// target's own build no longer crosses for functions declared inside the app target itself.
     ///
-    /// **Why `(nonsending)` on this one declaration, not `-enable-upcoming-feature
-    /// NonisolatedNonsendingByDefault` on the whole `Headless` target — measured, not assumed.**
-    /// The module-wide flag was tried first and does make `xcodebuild` pass, but it also makes
-    /// `swift test --filter aCompositionIsBuiltFromARealAssetAndInstallsTheStageCompositor` crash
-    /// with `EXC_BAD_ACCESS` (`SIGSEGV`) inside `objc_msgSend`, reproducibly, called from this
-    /// function's own `asset.loadTracks(withMediaType:)` — a macOS-crash-report backtrace, not a
-    /// guess, and confirmed by toggling the flag off and back on and watching the crash disappear
-    /// and reappear. That is this toolchain (Swift 6.3 tools, Xcode-beta, macOS 27.0 SDK) reacting
-    /// badly to the module-wide flag under Swift Testing's parallel runner — a real defect, but
-    /// not this task's to chase down. `nonisolated(nonsending)` is the SE-0461 per-declaration
-    /// spelling of the identical calling convention, scoped to the one function that needs it,
-    /// and does not trigger the crash: every `HeadlessTests` run in this task's own gate passed
-    /// repeatedly with it in place. `sending AVAsset` on the parameter was tried too and rejected
-    /// by the compiler for the real reason its own diagnostic gives — `MP4Exporter.export` reads
-    /// `asset` again after this call (`AVAssetReader(asset: asset)`, `Soredemo/Export/
-    /// MP4Exporter.swift`), so the parameter cannot honestly claim ownership transfers here.
-    public nonisolated(nonsending) static func composition(for asset: AVAsset, outputWidth: Int, outputHeight: Int,
+    /// The first attempt fixed this with `nonisolated(nonsending)` on this one declaration
+    /// (SE-0461's per-declaration spelling of the same calling convention) rather than the
+    /// module-wide `Package.swift` flag, because the module-wide flag APPEARED to crash `swift
+    /// test` with `EXC_BAD_ACCESS` inside `objc_msgSend`, called from this function's own
+    /// `asset.loadTracks(withMediaType:)`. Fix round 1 re-measured that claim from a clean
+    /// `.build` and could not reproduce it — `swift test`, `swift test --parallel`, and
+    /// `xcodebuild` all passed repeatedly with the module-wide flag in place and no per-
+    /// declaration annotation. The likeliest explanation is a stale, mixed-ABI `.build` directory
+    /// from an incremental rebuild during the first attempt's own investigation, not a real
+    /// defect in this toolchain or in the flag — a `Package.swift`-level setting change was
+    /// tested incrementally rather than from `rm -rf .build`, and the crash never reproduced
+    /// again once verified clean. The actual, shipped fix is `.enableUpcomingFeature
+    /// ("NonisolatedNonsendingByDefault")` on the `Headless` target in `Package.swift` — narrower
+    /// than the app target's own setting (scoped to the one package target the app and the probe
+    /// both compile this file's kin against), and consistent with the principle
+    /// `scripts/run-cross-boundary-probe.sh` already states for its own compile of these same
+    /// two files (commit `ab941a9`): the probe, the app target and `Headless` must compile this
+    /// code under the SAME language semantics, or a change can pass one and fail another. This
+    /// function carries no isolation annotation of its own beyond the plain `nonisolated` above;
+    /// the calling convention comes from the target's build setting, as it should.
+    public nonisolated static func composition(for asset: AVAsset, outputWidth: Int, outputHeight: Int,
                             frameDuration: CMTime) async throws -> AVVideoComposition {
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard let track = tracks.first else { throw BuilderError.noVideoTrack }

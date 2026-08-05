@@ -51,7 +51,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// same reason `CaptureSession`'s writer references are: AVFoundation calls back on its own
     /// queue and the value is published before any callback can see it.
     public nonisolated(unsafe) static var renderer: (any FrameRendering)?
-    public nonisolated(unsafe) static var style: StageStyle = .default
+    // NOT `public` — code review, fix round 1. No caller outside this file sets `style`: the
+    // app (`StageWindow.load()`) never does, `StageCompositorTests.swift` never names it, and
+    // the cross-boundary probe compiles this file BY PATH (`scripts/cross-boundary-digest-probe
+    // .swift:4622,4827`) and so sees `internal` regardless of what this declaration says. If a
+    // later task needs to set this from outside the module, it gets widened then, with that
+    // caller named — not ahead of one existing.
+    nonisolated(unsafe) static var style: StageStyle = .default
     /// The observation log this segment's pointer track is read from. `nil` — the default — means
     /// no pointer is ever drawn, which is not a fifth `PointerReading` case smuggled in through a
     /// side door: it is simply nothing having been configured to read from yet, the same state a
@@ -265,19 +271,28 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// fall-through.
     /// **The one deliberate widening in this move, and the reason it is spent here rather than
     /// somewhere else.** `startRequest(_:)` above takes an `AVAsynchronousVideoCompositionRequest`,
-    /// a type only AVFoundation can construct — no `swift test` test can call it, so nothing
-    /// `swift test` runs can reach the two lines that matter most in this file: the read of
-    /// `Self.observationLogURL`/`Self.overrides` and the composition-time → host-clock conversion
-    /// this function's own body comments at length. `pointerPlacement(at:in:)` is where the log,
-    /// the anchor and that conversion actually meet, and unlike `startRequest` it takes only a
-    /// `CMTime` and a `RenderPlan` — both constructible in a test with no AVFoundation cooperation
-    /// at all. Making it `public` is what makes it the seam `swift test` reaches; `startRequest`
-    /// stays the seam it cannot, and the AVFoundation glue immediately around it (the leading
-    /// `guard`, the render call, `request.finish`) remains covered only by the cross-boundary
-    /// probe and by a person watching a preview, exactly as before this move. Task 6 depends on
-    /// this being public: it is where a wrong composition-time→host-clock conversion — the exact
-    /// defect commit `1a98402` left uncaught for a full phase — would be caught by `swift test`
-    /// rather than by someone recording four seconds and looking.
+    /// a type only AVFoundation can construct — no `swift test` test can call it, so before this
+    /// change nothing `swift test` ran could reach the two lines that matter most in this file:
+    /// the read of `Self.observationLogURL`/`Self.overrides` and the composition-time →
+    /// host-clock conversion this function's own body comments at length.
+    /// `pointerPlacement(at:in:)` is where the log, the anchor and that conversion actually meet,
+    /// and unlike `startRequest` it takes only a `CMTime` and a `RenderPlan` — both constructible
+    /// in a test with no AVFoundation cooperation at all. Making it `public` is what makes it the
+    /// seam `swift test` reaches; `startRequest` stays the seam it cannot, and the AVFoundation
+    /// glue immediately around it (the leading `guard`, the render call, `request.finish`)
+    /// remains covered only by the cross-boundary probe and by a person watching a preview,
+    /// exactly as before this move. Task 6 depends on this being public: it is where a wrong
+    /// composition-time→host-clock conversion — the exact defect commit `1a98402` left uncaught
+    /// for a full phase — would be caught by `swift test` rather than by someone recording four
+    /// seconds and looking.
+    ///
+    /// **Reachable is not yet exercised — code review, fix round 1.** This commit makes the
+    /// conversion reachable; it does not yet cover it. `StageCompositorTests.swift`'s
+    /// `noConfiguredLogPlacesNoPointer` — the only `swift test` test that calls this function
+    /// today — returns at the `guard let pointer, let anchor` below, before the offset-plus-
+    /// anchor conversion and the four-case `switch` ever run. Zero `swift test` coverage reaches
+    /// past that guard as of this commit. Closing that gap, against a real observation log, is
+    /// Task 6's job, not this one's.
     ///
     /// A method on an already-`public` type is the entry rule's known free-entry gap (see this
     /// task's own design note): a type admitted for one member does not require every member to

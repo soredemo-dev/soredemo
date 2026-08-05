@@ -45,8 +45,37 @@ let package = Package(
         // `plugins: headlessCheck`, NOT `archCheck`: rule 1 would ban AVFoundation and
         // rule 2 would ban the CGRect this target exists to convert. Two guards with two
         // rules, not one guard with a hole.
+        //
+        // **`.enableUpcomingFeature("NonisolatedNonsendingByDefault")`, added in Phase 3A-1
+        // Task 4, code review fix round 1 — measured, not guessed.** Moving
+        // `CompositionBuilder.composition(for:...)` into this target made
+        // `xcodebuild -project Soredemo.xcodeproj` fail at `MP4Exporter.swift`'s call site with
+        // `sending 'asset' risks causing data races [#RegionIsolation::SendingRisksDataRace]` —
+        // `swift build`/`swift test` never saw it, because neither compiles `MP4Exporter.swift`
+        // at all. Both `MP4Exporter.export` and `composition` are `nonisolated async` and were
+        // already both `nonisolated async` before the move; what changed is that the app target
+        // builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES` (`Soredemo.xcodeproj`'s own build
+        // settings), which enables this upcoming feature for code the APP TARGET declares — and
+        // the calling convention of a `nonisolated async` function is a property of the module
+        // that DECLARES it, not of its caller. Without this flag, a `nonisolated async` function
+        // in THIS target hops to the global concurrent executor on every call, so a non-
+        // `Sendable` argument a caller sends it is genuinely crossing an isolation domain the app
+        // target's own build no longer crosses for functions it declares internally. Enabling it
+        // here matches `scripts/run-cross-boundary-probe.sh`'s own `xcrun swiftc` invocation,
+        // which already compiles `Sources/Headless/StageCompositor.swift` and
+        // `Sources/Headless/CompositionBuilder.swift` with this same flag (commit `ab941a9`,
+        // "Compile the probe with the app's isolation semantics") — this target, the app target
+        // and the probe now agree, where before this change only two of the three did. Verified
+        // from a clean `.build`: `swift test`, `swift test --parallel` and `xcodebuild` all pass;
+        // an earlier, since-retracted attempt to fix this per-declaration
+        // (`nonisolated(nonsending)` on `composition` alone) recorded an `EXC_BAD_ACCESS` under
+        // this exact flag that did not reproduce once re-measured from a clean build — see
+        // `composition`'s own doc comment for that history. Not added to `strict` (every package
+        // target): the other six targets expose no `nonisolated async` API the app target or the
+        // probe calls, so there is no caller this would change behaviour for.
         .target(name: "Headless", dependencies: ["Geometry", "Timeline", "Project", "Render"],
-                swiftSettings: strict, plugins: headlessCheck),
+                swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
+                plugins: headlessCheck),
 
         // The checker's lexical layer — the "code view" that blanks comment and
         // string CONTENT so a banned name mentioned in prose does not fire. It is
