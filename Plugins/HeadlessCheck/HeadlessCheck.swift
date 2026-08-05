@@ -17,6 +17,18 @@ import PackagePlugin
 /// the tier's own invariant written as a mechanism: needing a window or a running
 /// app is exactly what disqualifies code from this target.
 ///
+/// **This is a deny-list, and a deny-list is enumerative, not closed by
+/// construction the way rule 1's allow-list is.** `Cocoa` re-exports `AppKit` —
+/// measured: `import Cocoa` followed by `NSWindow(...)` typechecks clean at this
+/// package's deployment target — so it is banned alongside `AppKit` itself.
+/// `Quartz` was checked the same way: it re-exports `AppKit` too (`NSWindow`
+/// typechecks under `import Quartz` alone) but NOT `SwiftUI` (`Text`/`View` do not
+/// resolve under `import Quartz` alone), so it is banned for the same reason as
+/// `Cocoa`. Both are named here because the checker matches the imported module by
+/// its own name, not by what it re-exports — so the next umbrella framework that
+/// reaches AppKit or SwiftUI through a re-export is a known gap in an enumerated
+/// list, not a silent surprise.
+///
 /// **`CheckerLexer`'s arrangement is deliberately NOT inherited.** That target
 /// carries no plugin (a dependency cycle makes it impossible) and keeps its rule-1
 /// consequence by hand. `Headless` is the target most likely to drift, so its rule
@@ -51,6 +63,8 @@ struct HeadlessCheck: BuildToolPlugin {
                             "--mode", "headless",
                             "--ban", "AppKit",
                             "--ban", "SwiftUI",
+                            "--ban", "Cocoa",
+                            "--ban", "Quartz",
                             "--touch", stamp.string],
                 inputFiles: target.sourceFiles.map(\.path) + manifests,
                 outputFiles: [stamp]

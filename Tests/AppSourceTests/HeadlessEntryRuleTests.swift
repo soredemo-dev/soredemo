@@ -193,22 +193,39 @@ func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
 /// they are still lines beginning (after whitespace and modifiers) with `public`.
 func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location: String)] {
     let typeKeywords: Set<String> = ["struct", "class", "enum", "actor", "protocol"]
-    // Modifiers Swift permits between `public` and the keyword. `final`, `nonisolated`
-    // and `indirect` all appear in this tree today; the list is walked, not matched,
-    // so an unknown modifier costs a missed declaration rather than a wrong name —
-    // and a missed declaration is caught by review, which is the level that enforces
-    // the rule anyway.
-    let modifiers: Set<String> = ["final", "nonisolated", "indirect", "open", "static"]
+    // `open` and `public` are DISTINCT, MUTUALLY EXCLUSIVE access levels — `open`
+    // is never spelled `public open`, which is not valid Swift — so `open class
+    // Foo {}` carries no `public` token anywhere on its line and the old scan,
+    // which looked ONLY for `public` and treated `open` as a modifier reachable
+    // after it, never found the line at all: `open` sat in `modifiers` below,
+    // reachable only through a spelling that cannot occur. Found by the final
+    // whole-branch review. Both are now accepted as the declaration's own ENTRY
+    // keyword, not one as a modifier of the other.
+    let entryKeywords: Set<String> = ["public", "open"]
+    // Modifiers Swift permits between the entry keyword and the type keyword.
+    // `final`, `nonisolated`, `indirect` and `static` all appear in this tree
+    // today; the list is walked, not matched, so an unknown modifier costs a
+    // missed declaration rather than a wrong name — and a missed declaration is
+    // caught by review, which is the level that enforces the rule anyway.
+    let modifiers: Set<String> = ["final", "nonisolated", "indirect", "static"]
     var found: [(name: String, location: String)] = []
     for file in files {
         let text = try String(contentsOf: file, encoding: .utf8)
         for (index, line) in SwiftSourceLexer.codeViewLines(of: text).enumerated() {
             let words = line.split(whereSeparator: { !SwiftSourceLexer.isIdentifierCharacter($0) })
                 .map(String.init)
-            guard let publicIndex = words.firstIndex(of: "public") else { continue }
-            var cursor = publicIndex + 1
+            guard let entryIndex = words.firstIndex(where: { entryKeywords.contains($0) }) else { continue }
+            var cursor = entryIndex + 1
             while cursor < words.count, modifiers.contains(words[cursor]) { cursor += 1 }
             guard cursor + 1 < words.count, typeKeywords.contains(words[cursor]) else { continue }
+            // `public typealias` is deliberately NOT among `typeKeywords` and is not
+            // scanned for under another name either: a typealias cannot be
+            // constructed on its own. It names an existing type, which either is
+            // itself `public`/`open` (already found here, under its OWN
+            // declaration) or is not — and a typealias cannot widen its aliased
+            // type's access, so nothing new becomes constructible either way. There
+            // is no entry-rule obligation a typealias could carry that the type it
+            // names does not already carry.
             let name = words[cursor + 1].replacingOccurrences(of: "`", with: "")
             guard !name.isEmpty else { continue }
             found.append((name: name,

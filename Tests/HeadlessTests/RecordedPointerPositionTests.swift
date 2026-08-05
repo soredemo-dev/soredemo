@@ -32,8 +32,12 @@ import Headless
 /// **What the re-read below is independent OF, stated narrowly — code review, item 5.** The
 /// expected position is re-derived from the fixture's bytes rather than taken from the code
 /// that produces the drawn one, and what that buys is calibrated: it catches a defect in the
-/// SAMPLE-SELECTION rule and in the normalised→output-pixel CARD MAPPING (mutation B′ in this
-/// task's report reddens exactly there). It does NOT make the two paths disjoint. Both go
+/// SAMPLE-SELECTION rule and a CHANGE in the normalised→output-pixel CARD MAPPING (mutation B′
+/// in this task's report reddens exactly there — final whole-branch review: `expectedX`/
+/// `expectedY` below compute `card.x + reading.position.x * card.width`, character-for-character
+/// `StagePlanner.placement`'s own formula, so this asserts the mapping against a COPY of itself
+/// and can only ever detect that the two copies diverged, not that the shared formula is wrong).
+/// It does NOT make the two paths disjoint. Both go
 /// through `JSONLReader.linesOfFile`, `ObservationLog.kind`/`decode`, the same read of the
 /// header's `EpochAnchor`, and `Nanoseconds(rationalSeconds:timescale:)` — each unit-tested in
 /// its own target, none of them re-implemented here. What is NOT shared is the CALL: this file

@@ -112,10 +112,23 @@ let package = Package(
         //     adding a real `Date()` call to `SwiftSourceLexer.swift` with the
         //     dependency edge in place: `noLibraryModuleReferencesAmbientTimeOrRandomness`
         //     stayed green over a genuine violation. The edge was reverted along with
-        //     the probe call. This remains kept by hand; a real fix needs
-        //     `scannedModules(inDump:)`'s own derivation changed to include this
-        //     target by name, not just its dependency graph — out of this task's
-        //     scope. The code view is a pure function of its input string and must
+        //     the probe call. **The symbol-scan route remains kept by hand — a real
+        //     fix there needs `scannedModules(inDump:)`'s own derivation changed to
+        //     include this target by name, not just its dependency graph, which is
+        //     still out of scope.** What is NOT hand-kept any more, as of the final
+        //     whole-branch review for Phase 3A-1:
+        //     `Tests/CheckerLexerTests/LexerImportDisciplineTests.swift` also carries
+        //     `theCheckerLexerNeverReadsAmbientTimeOrRandomness`, a textual scan of this
+        //     target's own code view against a needle list mirroring
+        //     `ambientBannedNames` (`Tests/AppSourceTests/AppSourceAllowListTests.swift`).
+        //     It is strictly WEAKER than the symbol scan — it reads only this target's
+        //     own source text, so it cannot see a violation reached transitively through
+        //     another module — but this target is one small Foundation-only,
+        //     string-in/string-out module with no dependencies of its own, so there is no
+        //     other module for a violation to hide behind, and it caught the exact
+        //     `Date()` repro described above. Rule 3 for `CheckerLexer` is therefore
+        //     textually enforced with that one stated limit, not hand-kept in full any
+        //     more. The code view is a pure function of its input string and must
         //     stay one.
         // `everyLibraryTargetUsesTheCheckerPluginInTheResolvedManifest` names this
         // target as the single permitted exemption, so a SEVENTH regular target

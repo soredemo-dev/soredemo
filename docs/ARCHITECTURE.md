@@ -97,6 +97,17 @@ cannot have a GPU-dependent or time-sensitive test written against it.
 `scripts/count-tests.sh --split` reports the two counts with the partition verified rather than
 printing one number that means two different things.
 
+**The CAPABILITY is graph-separated; the COUNTS are name-separated, and those are not the same
+claim.** What the build graph enforces, in both directions, is real and load-bearing: a
+deterministic target genuinely cannot link `Headless`, so it genuinely cannot contain a
+GPU-dependent or time-sensitive test. But `--split`'s two numbers come from `--skip HeadlessTests` /
+`--filter HeadlessTests` — a substring match over test IDENTIFIERS, not a query over which target
+built which test — so a test whose NAME happens to contain `HeadlessTests` (a suite, or a function,
+declared in a deterministic target) would be counted in the headless population regardless of which
+target it actually lives in. The partition-verified sum this section describes catches double-counting
+and undercounting; it does not prove the split is BY the build graph, only that it agrees with it on
+the names this repository happens to use today.
+
 *Full reasoning: `docs/design/2026-08-04-phase-3a-foundation-design.md` §§ 2-4. This section is what
 a reader of this file needs in order to place a new file; it is not a restatement of that document.*
 
@@ -339,7 +350,7 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
 | 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
-| 9 | Every target the `strict` array is applied to — **the library targets AND all eleven test targets** — builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` warnings | `scripts/check-strict-memory-safety.sh`, greps an incremental `swift build --build-tests`'s output for the diagnostic's own tag, with a positive-evidence guard against an unobserved (empty or success-marker-less) log. **`--build-tests` since Phase 3A-1 Task 6's review**: the script ran plain `swift build` before that, which compiles no test target, so the gate verified the rule over about half the sources the manifest declares it over while reporting a bare "zero warnings" | its own script only — see below |
+| 9 | Every target the `strict` array is applied to — **the library targets AND all eleven test targets** — builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` warnings | `scripts/check-strict-memory-safety.sh`, greps an incremental `swift build --build-tests`'s output for the diagnostic's own tag, with a positive-evidence guard against an unobserved (empty, success-marker-less, **or nothing-actually-compiled**) log. **`--build-tests` since Phase 3A-1 Task 6's review**: the script ran plain `swift build` before that, which compiles no test target, so the gate verified the rule over about half the sources the manifest declares it over while reporting a bare "zero warnings". **The nothing-compiled guard since the final whole-branch review**: `Build complete!` is a success marker for the BUILD, not for the SCAN — on an already-up-to-date `.build` the log contains that marker and no `StrictMemorySafety` tag because nothing was compiled, not because nothing warned, so the gate now also requires positive evidence a compile or link task actually ran before it will report clean | its own script only — see below |
 
 Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
 target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
@@ -504,6 +515,14 @@ rather than reading as clean, closing the hole `Tests/AppSourceTests`'s entry-ru
 `scripts/count-tests.sh --split` were each separately caught with earlier in this same phase — a gate
 that passes having measured nothing is worse than one that fails. **`--build-tests` was added at
 Phase 3A-1 Task 6's code review, and the gap it closed is exactly the shape of the sentence above.**
+**A third guard was added at the final whole-branch review**: `Build complete!` is a success marker
+for the BUILD, not for the SCAN — on an already-up-to-date `.build` the log carries that marker and
+no `StrictMemorySafety` tag because nothing was compiled, not because nothing warned, so a real
+warning left unmarked in a file that was already built would pass this gate silently if it only
+checked for the marker. The script now also requires positive evidence a compile or link task
+actually ran (a per-task progress line or a `Compiling` line) before it will report clean, and exits
+with a third, distinct code and message — "this build compiled nothing; it is an unobserved pass, not
+a clean one" — when that evidence is absent.
 The manifest applies `strict` — `.swiftLanguageMode(.v6)` and `.strictMemorySafety()` — to the
 eleven test targets as well as the library targets, but the script ran plain `swift build`, which
 compiles no test target at any cache warmth. So the gate's own soundness argument ("a warning can

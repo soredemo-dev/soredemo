@@ -77,7 +77,7 @@ swift build --build-tests 2>&1 | tee "$LOG"
 
 # **"Verified clean" and "measured nothing" are different outcomes, and this gate
 # must not confuse them** — the same hole `scripts/count-tests.sh` already guards
-# against ("silence and zero both read as an answer"), now closed here too. Two
+# against ("silence and zero both read as an answer"), now closed here too. THREE
 # failure modes short of a real pass, checked in order and each with its own exit
 # code so a caller can tell which one fired without re-reading the log:
 #
@@ -87,8 +87,17 @@ swift build --build-tests 2>&1 | tee "$LOG"
 #   - a non-empty log with no "Build complete!" marker (`swift build` DID produce
 #     output but never reported success — the run didn't finish, or finished some
 #     other way this script doesn't recognise) — exit 2 as well, distinct message;
-#   - a `StrictMemorySafety` hit anywhere in a log that DID report success — exit 1,
-#     the actual finding this gate exists to catch.
+#   - a "Build complete!" log with NO evidence any file was actually compiled or
+#     linked — an up-to-date `.build` prints "Building for debugging...",
+#     "[Computing dependencies]", "Build complete!" and nothing else, which
+#     contains no `StrictMemorySafety` tag for the same reason it contains no
+#     warning of any kind: nothing ran. `Build complete!` is a success marker for
+#     the BUILD, not for the SCAN — exit 3, distinct message, distinct from both
+#     exit 2 cases above because THIS one has a "Build complete!" marker and still
+#     is not a clean pass;
+#   - a `StrictMemorySafety` hit anywhere in a log that DID report success AND
+#     show evidence of compiling — exit 1, the actual finding this gate exists to
+#     catch.
 #
 # Verified round-trip (fix round 2): `true | tee "$LOG"` in place of the real build
 # left `$LOG` empty, and before this guard existed the script printed "STRICT
@@ -106,6 +115,37 @@ if ! grep -q 'Build complete!' "$LOG"; then
     echo "clean pass was never confirmed, only the absence of the warning tag in" >&2
     echo "whatever output there was. Treat this as unverified, not as clean." >&2
     exit 2
+fi
+
+# **"Build complete!" is a success marker for the BUILD, not for the SCAN.** On an
+# already-up-to-date `.build` (nothing to compile or link) this run prints exactly
+# three lines — "Building for debugging...", "[Computing dependencies]", "Build
+# complete!" — and none of them is `StrictMemorySafety`, because nothing was
+# compiled, not because nothing warned. Measured on this toolchain (swift-driver
+# 1.168.5 / Swift 6.4, the modern SwiftPM build backend): a build that does real
+# work prints per-task progress lines shaped `[N / M] <TargetName>` (the digits
+# either side of `/` are separated by a THIN SPACE, U+2009, not an ASCII space —
+# confirmed with `xxd`, which is why the pattern below does not require an ASCII
+# space around the slash); a build with nothing to do prints none of those lines.
+# Classic SwiftPM output (`Compiling <Module> <File>.swift`) is matched too, as a
+# second, OR'd signal, since the exact wording differs across toolchain/build-
+# backend combinations and this gate must not go blind to a warning just because
+# it runs somewhere the line format differs from the one measured here.
+#
+# Verified round-trip: an unmarked `nonisolated(unsafe)` left in
+# `Sources/Headless/CoreImageFrameRenderer.swift` with `.build` already warm —
+# `swift build` run first (as the gate list prescribes), which exits 0 on
+# warnings and leaves `.build` up to date — then THIS script run second saw a
+# no-op incremental build, no `[N / M]` line, no `Compiling` line, and (before
+# this guard) would have printed "STRICT MEMORY SAFETY: zero warnings" over a
+# real, in-scope, uninspected warning. This guard is what turns that into exit 3.
+if ! grep -qE '^\[[0-9]+[^]]*/[^]]*[0-9]+\]|Compiling ' "$LOG"; then
+    echo "FAILED: swift build reported success but compiled or linked nothing —" >&2
+    echo "no per-task progress line and no 'Compiling' line appear anywhere in" >&2
+    echo "its output. This build compiled nothing; it is an unobserved pass, not" >&2
+    echo "a clean one. Run \`swift build --build-tests\` on its own first so this" >&2
+    echo "gate has something to scan, or touch a file so the build has work to do." >&2
+    exit 3
 fi
 
 if grep -q 'StrictMemorySafety' "$LOG"; then

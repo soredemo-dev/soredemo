@@ -39,9 +39,27 @@ import Testing
 @Test func noProseDocumentStatesTheCurrentTestCount() throws {
     let documents = ["ROADMAP.md", "AGENTS.md", "docs/ARCHITECTURE.md", "KICKOFF.md",
                      "docs/design/2026-08-04-phase-3a-foundation-design.md"]
+    // **An unreadable document is a FAILURE, not a skip.** A silent `continue` here
+    // reads exactly like a clean pass — this test's own title says "no prose
+    // document states the current test count", not "no READABLE prose document" —
+    // and one of the five paths is date-stamped
+    // (`docs/design/2026-08-04-phase-3a-foundation-design.md`): the design doc was
+    // one of the three documents this gate exists to catch, so renaming or moving
+    // it would silently drop it from coverage while every restored wrong count in
+    // it goes uncaught, green. Named so a caller can tell "verified clean" from
+    // "examined nothing" without re-reading the loop below.
+    var examined = 0
     for name in documents {
         let url = repositoryRoot.appending(path: name)
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            Issue.record("""
+                \(name) could not be read as UTF-8 at \(url.path(percentEncoded: false)) — \
+                treated as a failure, not a skip: a renamed or moved document must not \
+                silently drop out of this gate's coverage.
+                """)
+            continue
+        }
+        examined += 1
         for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             var search = line.startIndex..<line.endIndex
             while let hit = line.range(of: "swift test", range: search) {
@@ -77,4 +95,9 @@ import Testing
             }
         }
     }
+    #expect(examined == documents.count, """
+        only \(examined) of \(documents.count) documents were examined — the rest could not \
+        be read (see the recorded issue above naming which). "No prose document states the \
+        current test count" is not established over a document this gate never opened.
+        """)
 }

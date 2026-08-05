@@ -132,6 +132,19 @@ it, four seconds into a recording.
 > `startRequest`. Nor do these tests touch what the frame DEPICTS — the fixture
 > correctly carries no media, so the source frame is synthesised and the assertion is
 > geometric.
+>
+> **Phase 3A-2 item, recorded rather than fixed at the final whole-branch review for
+> Phase 3A-1.** The clock domain `1a98402` confused is still not stated at the TYPE
+> level: `pointerPlacement`'s `let time = anchor.hostTime + offset` adds a
+> composition-domain `Nanoseconds` to a host-domain `Nanoseconds`, and `HostInstant`
+> — which carries the epoch and is what the samples are actually stamped in — already
+> exists and is discarded at that exact seam. Reintroducing `1a98402` still compiles
+> today; what this phase achieved is that a test now catches it, not that the
+> compiler does. Phase 3A-2 should give the two domains distinct types, shaped either
+> as `PointerTrack.position(at: HostInstant)` (push the conversion into the track so
+> callers never hold a bare `Nanoseconds` of ambiguous domain) or a `CompositionOffset`
+> wrapper (keep `Nanoseconds` but make the composition-time argument a distinct type
+> `hostTime + offset` cannot typecheck against directly).
 
 That is not a shortage of tests; the target is structurally untestable. A library
 can be imported. With the logic in `Headless` and the executable reduced to a

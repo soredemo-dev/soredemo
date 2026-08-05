@@ -194,13 +194,31 @@ public enum MP4Exporter {
             // forever. Spike D measured a real, indefinite hang behind this same readiness
             // signal's successor (`readinessDeadlineSeconds`'s own doc comment); an uncapped
             // `while` here would spin on that exact condition with no diagnosis.
-            let pollStart = Date()
+            // `SuspendingClock`, not `Date`. Two problems with `Date` here, not one: it is
+            // wall-clock (`gettimeofday`-backed) and therefore settable/NTP-adjustable — an
+            // ambient clock going backward mid-export makes `elapsed` negative, the cap above
+            // never fires, and the poll is unbounded again, which is exactly the condition
+            // Spike D measured and this cap exists to bound. It is also ambient time full
+            // stop, which is what Sources/Headless's own rule-3 textual scan (see
+            // Tests/AppSourceTests/AppSourceAllowListTests.swift) now checks this file
+            // against; `ambientBannedNames` finding `Date()` here again is the closed loop.
+            // `SuspendingClock` over `ContinuousClock`: this deadline measures how long a
+            // WRITER has failed to make progress, not wall time elapsed. `ContinuousClock`
+            // keeps advancing while the system is asleep, so an export left running across a
+            // lid-close would see `elapsed` jump by the whole sleep duration the instant the
+            // machine wakes and misreport a stall that never happened — the writer was never
+            // given a chance to be not-ready, because nothing was running. `SuspendingClock`
+            // does not advance during sleep, so elapsed reflects only the time the writer
+            // actually had to become ready, which is the quantity this deadline is about.
+            let pollStart = SuspendingClock.now
             while !writerInput.isReadyForMoreMediaData {
                 if writer.status == .failed {
                     throw ExportError.writerFailed(writer.error.map { String(describing: $0) }
                         ?? "writer failed while waiting for readiness at frame \(framesRead)")
                 }
-                let elapsed = Date().timeIntervalSince(pollStart)
+                let elapsedDuration = SuspendingClock.now - pollStart
+                let elapsed = Double(elapsedDuration.components.seconds)
+                    + Double(elapsedDuration.components.attoseconds) / 1e18
                 if elapsed >= Self.readinessDeadlineSeconds {
                     // Names WHERE, because "it hung" is not a diagnosis: the frame index this
                     // stalled at, and how long it waited before this file gave up on it.

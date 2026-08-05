@@ -1300,7 +1300,7 @@ func decodeValidationExemptTypes() throws -> Set<String> {
 // answer is a SECOND GUARD with its own single rule, not a hole in the first.
 
 /// Runs the real built checker in headless mode over a one-file fixture.
-func runHeadlessChecker(ban: [String] = ["AppKit", "SwiftUI"],
+func runHeadlessChecker(ban: [String] = ["AppKit", "SwiftUI", "Cocoa", "Quartz"],
                         source: String) throws -> (status: Int32, stderr: String) {
     try runChecker(targetName: "Headless",
                    additionalArguments: ["--mode", "headless"] + ban.flatMap { ["--ban", $0] },
@@ -1326,6 +1326,14 @@ func runHeadlessChecker(ban: [String] = ["AppKit", "SwiftUI"],
     "import class AppKit.NSColor",
     "import Foundation; import SwiftUI",
     "public let `a\"\"\"b` = 1\nimport AppKit",
+    // `Cocoa` and `Quartz` both re-export `AppKit` (measured: `NSWindow(...)`
+    // typechecks under either import alone at this package's deployment target),
+    // so a two-name deny-list of AppKit/SwiftUI would let a file that needs a
+    // window straight into `Sources/Headless` under either alias.
+    "import Cocoa",
+    "import Quartz",
+    "@preconcurrency import Cocoa",
+    "import Foundation; import Quartz",
 ])
 func headlessModeRejectsTheBannedModules(_ source: String) throws {
     let result = try runHeadlessChecker(source: source)
@@ -1456,6 +1464,8 @@ func headlessModeDoesNotFireOnProse(_ source: String) throws {
     let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
     #expect(source.contains("\"--ban\", \"AppKit\""))
     #expect(source.contains("\"--ban\", \"SwiftUI\""))
+    #expect(source.contains("\"--ban\", \"Cocoa\""))
+    #expect(source.contains("\"--ban\", \"Quartz\""))
     #expect(source.contains("\"--mode\", \"headless\""))
     #expect(!code.contains("--allow"),
             "headless mode has no allow-list; passing --allow would misdescribe the guard")

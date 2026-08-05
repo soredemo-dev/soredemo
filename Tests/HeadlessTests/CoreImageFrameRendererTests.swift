@@ -47,3 +47,24 @@ import Render
     let written = try pixels(of: destination).filter { $0 != (0, 0, 0) }
     #expect(!written.isEmpty, "the destination is still the all-black buffer it started as")
 }
+
+/// **The entry rule, discharged for real — not through the `catch` above.**
+///
+/// `FrameRenderingError.noRenderDevice` is thrown only when
+/// `MTLCreateSystemDefaultDevice()` returns `nil`, which does not happen on any
+/// machine this suite runs on: `theProductionRendererDrawsIntoTheDestinationBuffer`
+/// above always takes the `try` branch, never the `catch`. So the ONE place in this
+/// file that named the case sat behind a branch that never executes — the scanner
+/// (`everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct`) was satisfied by
+/// a mention, not by exercise, which is the exact gap that rule exists to close and
+/// the one public type in `Headless` it was genuinely passing on the scanner alone.
+///
+/// Same fix `theExportErrorDescriptionsNameWhatTheyClaim`
+/// (`Tests/HeadlessTests/MP4ExporterTests.swift`) applied to `MP4Exporter.ExportError`'s
+/// six unexercised cases at Task 7's own review: construct the value directly,
+/// independent of whether a GPU is present, and assert something it determines.
+@Test func theNoRenderDeviceCaseDescribesItself() throws {
+    let error = FrameRenderingError.noRenderDevice
+    #expect(error.description.contains("Metal"))
+    #expect(error.description.contains("MTLCreateSystemDefaultDevice"))
+}

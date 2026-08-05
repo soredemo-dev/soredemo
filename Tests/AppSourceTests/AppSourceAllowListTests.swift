@@ -339,6 +339,49 @@ let ambientBannedNames: [String] = [
             """)
 }
 
+/// **The consequence measured, not assumed.** `Sources/Headless/MP4Exporter.swift`
+/// called `Date()` twice (Phase 3A-1 Task 7) — `git show b72bee9:Soredemo/Export/MP4Exporter.swift
+/// | grep -c "Date()"` returns 0, so the calls did not exist before that file moved
+/// out of the app-side scan `appSourceFiles()` covers. The first ambient-time call
+/// to land in the one target no rule-3 scan could see arrived within one task of
+/// this gap opening — this test closes it with the SAME instrument
+/// `ambientTimeRandomnessAndHashingEnterOnlyThroughMinting` above uses, over the
+/// tier this target's own architecture note (ARCHITECTURE.md, the target-tier
+/// table) allows to touch wall time and the GPU: real-time behaviour is not banned
+/// from `Headless`, but reaching for it UNAUDITED is, same as the app.
+///
+/// `Sources/Headless/MP4Exporter.swift` is the permitted boundary for this half —
+/// `Headless`'s analogue of `Minting.swift` — because it is the one file in the
+/// tier with a genuine need for a clock reading: bounding
+/// `AVAssetWriterInput.isReadyForMoreMediaData`'s poll against the indefinite hang
+/// Spike D measured (that file's own `readinessDeadlineSeconds` doc comment). The
+/// clock there is `SuspendingClock`, not `Date` — `Date` is wall-clock and
+/// settable/NTP-adjustable, so a backward step mid-export would make the elapsed
+/// reading negative, the cap never fire, and the poll unbounded again; a monotonic
+/// instrument closes that hole rather than merely relocating it into the one
+/// permitted file. `SuspendingClock` over `ContinuousClock` because the deadline
+/// measures how long the WRITER failed to progress, not wall time exposed to a
+/// system sleep — see that file's own comment at the poll site for the argument.
+@Test func ambientTimeRandomnessAndHashingEnterHeadlessOnlyThroughMP4Exporter() throws {
+    // `headlessSourceFiles()` is declared in `HeadlessEntryRuleTests.swift`, this
+    // same target — reused rather than redeclared, so `Sources/Headless`'s file
+    // list has exactly one definition regardless of which scan is asking for it.
+    let found = try violations(
+        banned: ambientBannedNames,
+        permittedPath: "Sources/Headless/MP4Exporter.swift",
+        in: try headlessSourceFiles())
+
+    #expect(found.isEmpty,
+            """
+            an ambient value was read in Sources/Headless outside MP4Exporter.swift:
+            \(found.joined(separator: "\n"))
+            Sources/Headless legitimately touches wall time and the GPU, but an \
+            unaudited ambient read defeats the point of naming the one file that \
+            does — bound it there, through a monotonic clock, the way \
+            MP4Exporter.swift's own readiness poll does.
+            """)
+}
+
 // MARK: - the keystroke ban: no allow-listed file, because there is no legitimate caller
 
 /// Like `violations(banned:permittedPath:in:)`, but with **no permitted
