@@ -1,5 +1,17 @@
 #!/bin/bash
-# Fails if an incremental `swift build` emits any `StrictMemorySafety` warning.
+# Fails if an incremental `swift build --build-tests` emits any `StrictMemorySafety`
+# warning.
+#
+# **`--build-tests`, and it was NOT here through Phase 3A-1 Task 6 — corrected at that
+# task's code review, item 3.** `Package.swift`'s `strict` array is applied to the
+# eleven TEST targets as well as to the library targets, but plain `swift build`
+# compiles none of them, so for this gate's whole life it verified rule 9 over roughly
+# half the sources the rule is declared over — and reported "zero warnings" without
+# ever naming the half it had not looked at. A test file could carry any number of
+# unmarked unsafe constructs and this script would have passed, every time, silently.
+# Measured at the correction: adding `--build-tests` compiles all eleven test targets
+# and still reports zero, so the number did not move — but it now means what it says.
+# The extra cost on a warm `.build` is seconds.
 #
 # `Package.swift`'s `strict` array carries `.strictMemorySafety()` on every regular
 # target, which turns each unmarked unsafe-construct call site into a compiler
@@ -16,16 +28,24 @@
 # nothing to keep in sync — it greps a build for the diagnostic's own tag and
 # fails on any hit, so there is no count to let drift.
 #
-# **Incremental, not clean** — this runs plain `swift build`, not `rm -rf .build &&
-# swift build`. A clean build is minutes; an incremental one is the cost every other
-# gate here already pays. This is sound for the property the gate exists to hold —
-# "the count cannot climb again" — because a warning can only newly APPEAR in a file
-# that was just compiled, and any edit forces its own file to recompile whether or
-# not the rest of `.build` is warm; there is nothing an incremental build can hide
-# from a change made to the file it is hiding in. It does NOT independently prove
+# **Incremental, not clean** — this runs `swift build --build-tests`, not `rm -rf
+# .build && swift build --build-tests`. A clean build is minutes; an incremental one
+# is the cost every other gate here already pays. This is sound for the property the
+# gate exists to hold — "the count cannot climb again" — because a warning can only
+# newly APPEAR in a file that was just compiled, and any edit forces its own file to
+# recompile whether or not the rest of `.build` is warm; there is nothing an
+# incremental build can hide from a change made to the file it is hiding in.
+#
+# **That argument is only as wide as the set of files the build compiles at all**, and
+# that is precisely where this paragraph was false before Task 6's review: it argued
+# incrementality while the command underneath compiled no test target at any warmth,
+# so "any edit forces its own file to recompile" simply did not apply to a test file —
+# not because the build was warm, but because the build never reached it. The
+# soundness claim and the command now cover the same set. It does NOT independently prove
 # the whole tree is clean from a cold cache — that claim was established once, by
-# hand, with `rm -rf .build && swift build`, to produce this task's own report, and
-# reaching for that command again is the right move if this script's soundness is
+# hand, with `rm -rf .build && swift build` (library targets only; the cold-cache
+# claim has never been made over the test targets), and reaching for
+# `rm -rf .build && swift build --build-tests` is the right move if this script's soundness is
 # ever in doubt. Task 3's fix round 2 corrected this file's own header, which
 # previously said "fresh" and meant "I happened to run it after `rm -rf .build`" —
 # a description that outlived the command it described the moment the loop below
@@ -53,7 +73,7 @@ unset SDKROOT
 LOG=$(mktemp)
 trap 'rm -f "$LOG"' EXIT
 
-swift build 2>&1 | tee "$LOG"
+swift build --build-tests 2>&1 | tee "$LOG"
 
 # **"Verified clean" and "measured nothing" are different outcomes, and this gate
 # must not confuse them** — the same hole `scripts/count-tests.sh` already guards
@@ -97,4 +117,4 @@ if grep -q 'StrictMemorySafety' "$LOG"; then
     exit 1
 fi
 
-echo "STRICT MEMORY SAFETY: zero warnings (verified against a build that reported success)"
+echo "STRICT MEMORY SAFETY: zero warnings across library AND test targets (verified against a --build-tests build that reported success)"
