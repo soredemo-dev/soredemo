@@ -200,25 +200,30 @@ let ambientBannedNames: [String] = [
 }
 
 /// The same scan over `Sources/Headless`, whose permitted boundary is
-/// `MP4Exporter.swift` — the one file with a genuine need for a clock, to bound the
-/// writer-readiness poll against an indefinite hang. It uses `SuspendingClock`, not
-/// `Date`: a settable clock stepping backwards mid-export unbounds the poll again.
-@Test func ambientTimeRandomnessAndHashingEnterHeadlessOnlyThroughMP4Exporter() throws {
+/// `MonotonicStopwatch.swift` — a file whose every member reads the clock, so the
+/// whole-file permit costs nothing, the same granularity argument `Minting.swift`
+/// already carries. The permit was `MP4Exporter.swift` through Phase 3A-1: a
+/// general-purpose exporter in which two expressions needed a clock, so the permit
+/// covered ~150 lines that did not — a future `UUID()` or wall-clock read anywhere
+/// in it would have passed unaudited (ROADMAP named this exemption-scope creep).
+/// `MP4Exporter` now holds a `MonotonicStopwatch` and never names a clock.
+@Test func ambientTimeRandomnessAndHashingEnterHeadlessOnlyThroughMonotonicStopwatch() throws {
     // `headlessSourceFiles()` is declared in `HeadlessEntryRuleTests.swift`, this
     // same target — reused so the file list has exactly one definition.
     let found = try violations(
         banned: ambientBannedNames,
-        permittedPath: "Sources/Headless/MP4Exporter.swift",
+        permittedPath: "Sources/Headless/MonotonicStopwatch.swift",
         in: try headlessSourceFiles())
 
     #expect(found.isEmpty,
             """
-            an ambient value was read in Sources/Headless outside MP4Exporter.swift:
+            an ambient value was read in Sources/Headless outside \
+            MonotonicStopwatch.swift:
             \(found.joined(separator: "\n"))
             Sources/Headless legitimately touches wall time and the GPU, but an \
             unaudited ambient read defeats the point of naming the one file that \
-            does — bound it there, through a monotonic clock, the way \
-            MP4Exporter.swift's own readiness poll does.
+            does — take a MonotonicStopwatch instead, and if the stopwatch cannot \
+            express the need, widen that file, not the permit.
             """)
 }
 

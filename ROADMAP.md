@@ -178,17 +178,24 @@ it, four seconds into a recording.
 > comment at the site saying why it is safe there** — the lock/unlock pair
 > bracketing the base-address reads, the loop bounds staying inside
 > height × bytes-per-row, the nullable out-pointer `PropertyListSerialization`
-> never dereferences when nil. `swift test`: 491 tests, green, after the marks.
+> never dereferences when nil. The whole suite ran green after the marks — the
+> count comes from `scripts/count-tests.sh`, not from this sentence.
 >
-> **Phase 3A-2 item — narrow `MP4Exporter.swift`'s ambient-time permit to a named
-> boundary.** The app-side rule-3 scan currently exempts the whole file. The
-> precedent it cites, `Minting.swift`, does not support that granularity: that file's
-> own header says every function in it is a pure ambient→package mapping, so the
-> whole file IS the boundary and exempting it costs nothing. `MP4Exporter.swift` is a
-> 345-line general-purpose exporter in which roughly fifteen lines need a clock, so a
-> whole-file permit means a future `UUID()`, `random()` or wall-clock read anywhere
-> in it passes unaudited. That is exemption-scope creep, the same family as the
-> `architecture-checker` exemption list. Narrow it to the specific functions.
+> **Phase 3A-2 item DONE (2026-08-12) — `Sources/Headless`'s ambient-time permit
+> narrowed from `MP4Exporter.swift` to `MonotonicStopwatch.swift`.** The brief said
+> a 345-line exporter with roughly fifteen clock lines; by the time the work
+> happened the file was 154 lines with two clock expressions — the argument held
+> either way, and the shape of the fix is the `Minting.swift` precedent the brief
+> itself cited: make the boundary a file whose EVERY member reads the clock, so
+> the whole-file permit costs nothing. `MonotonicStopwatch` (internal — its one
+> caller is `MP4Exporter`, same module, and the entry rule's cheaper fix is not
+> being public until someone outside needs it) owns the `SuspendingClock` reads
+> and the settable-`Date`/sleeping-`ContinuousClock` argument; `MP4Exporter` holds
+> a stopwatch and can no longer name a clock at all — the scan's needle list sees
+> `SuspendingClock` as a banned name, so reintroducing a direct read is a red
+> test, not a review catch. TDD order held: the scan's `permittedPath` flipped
+> first and failed loudly on the not-yet-existing file, then the extraction made
+> it green; the whole suite is green after.
 >
 > **Phase 3A-2 item, recorded rather than fixed at the final whole-branch review for
 > Phase 3A-1.** The clock domain `1a98402` confused is still not stated at the TYPE

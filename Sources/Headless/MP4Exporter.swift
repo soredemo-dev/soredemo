@@ -63,17 +63,16 @@ public enum MP4Exporter {
         var framesWritten = 0
         while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
             framesRead += 1
-            // Wait for readiness rather than skip the sample, but bounded. `SuspendingClock`:
-            // `Date` is settable, and `ContinuousClock` advances across system sleep.
-            let pollStart = SuspendingClock.now
+            // Wait for readiness rather than skip the sample, but bounded. The clock
+            // choice and its argument live in `MonotonicStopwatch.swift` — this file
+            // deliberately cannot name a clock (`Tests/AppSourceTests`'s scan).
+            let poll = MonotonicStopwatch()
             while !writerInput.isReadyForMoreMediaData {
                 if writer.status == .failed {
                     throw ExportError.writerFailed(writer.error.map { String(describing: $0) }
                         ?? "writer failed while waiting for readiness at frame \(framesRead)")
                 }
-                let elapsedDuration = SuspendingClock.now - pollStart
-                let elapsed = Double(elapsedDuration.components.seconds)
-                    + Double(elapsedDuration.components.attoseconds) / 1e18
+                let elapsed = poll.elapsedSeconds
                 if elapsed >= Self.readinessDeadlineSeconds {
                     throw ExportError.writerNotReadyInTime(frame: framesRead, elapsedSeconds: elapsed)
                 }
