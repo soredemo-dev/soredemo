@@ -19,7 +19,7 @@ import Headless
 /// The writer's own state, as this app needs to read it. Its own enum rather than
 /// `AVAssetWriter.Status`, so the migration does not have to touch every `switch` in
 /// `CaptureSession`.
-nonisolated enum MasterWriterStatus: Sendable, Equatable {
+public nonisolated enum MasterWriterStatus: Sendable, Equatable {
     case unknown
     case writing
     case completed
@@ -28,7 +28,7 @@ nonisolated enum MasterWriterStatus: Sendable, Equatable {
     /// A state this build does not know; carries the raw value so a report can say which.
     case unrecognised(Int)
 
-    var name: String {
+    public var name: String {
         switch self {
         case .unknown: "unknown"
         case .writing: "writing"
@@ -45,7 +45,7 @@ nonisolated enum MasterWriterStatus: Sendable, Equatable {
 /// `nonisolated`, as is every type in this file: the app target builds with
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and every append happens on a ScreenCaptureKit
 /// delivery queue, where reaching a MainActor-isolated member traps at runtime.
-nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
+public nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
     /// The writer's backpressure signal. An append while this is `false` is refused, and for a
     /// passthrough audio input one refusal fails the whole writer, video track included.
     var isReadyForMoreMediaData: Bool { get }
@@ -55,7 +55,7 @@ nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
 }
 
 /// The master file being written: three tracks and a lifecycle.
-nonisolated protocol MasterWriting: AnyObject, Sendable {
+public nonisolated protocol MasterWriting: AnyObject, Sendable {
     var outputURL: URL { get }
 
     var video: any MasterTrackWriting { get }
@@ -78,20 +78,20 @@ nonisolated protocol MasterWriting: AnyObject, Sendable {
 /// discipline that makes them safe here is the caller's — every append happens on a
 /// ScreenCaptureKit delivery queue, guarded by the readiness check, on references published once
 /// under `CaptureSession`'s lock before any callback can see them.
-nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
+public nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let videoTrack: LegacyMasterTrack
     private let systemAudioTrack: LegacyMasterTrack
     private let microphoneTrack: LegacyMasterTrack
 
-    var outputURL: URL { writer.outputURL }
-    var video: any MasterTrackWriting { videoTrack }
-    var systemAudio: any MasterTrackWriting { systemAudioTrack }
-    var microphone: any MasterTrackWriting { microphoneTrack }
+    public var outputURL: URL { writer.outputURL }
+    public var video: any MasterTrackWriting { videoTrack }
+    public var systemAudio: any MasterTrackWriting { systemAudioTrack }
+    public var microphone: any MasterTrackWriting { microphoneTrack }
 
-    var errorDescription: String? { writer.error.map { String(describing: $0) } }
+    public var errorDescription: String? { writer.error.map { String(describing: $0) } }
 
-    var status: MasterWriterStatus {
+    public var status: MasterWriterStatus {
         switch writer.status {
         case .unknown: .unknown
         case .writing: .writing
@@ -104,8 +104,8 @@ nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
 
     /// Builds the writer with all three tracks and starts it, or throws. The video settings and
     /// the two passthrough audio inputs are the caller's, unchanged.
-    init(outputURL: URL, videoSettings: [String: Any],
-         refusedInput: (String) -> Error, startFailed: (String?) -> Error) throws {
+    public init(outputURL: URL, videoSettings: [String: Any],
+                refusedInput: (String) -> Error, startFailed: (String?) -> Error) throws {
         let writer = try AVAssetWriter(url: outputURL, fileType: .mov)
 
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
@@ -131,11 +131,11 @@ nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
         self.microphoneTrack = LegacyMasterTrack(input: micInput)
     }
 
-    func startSession(at presentationTime: CMTime) {
+    public func startSession(at presentationTime: CMTime) {
         writer.startSession(atSourceTime: presentationTime)
     }
 
-    func finish() async {
+    public func finish() async {
         await withCheckedContinuation { continuation in
             writer.finishWriting { continuation.resume() }
         }
@@ -149,9 +149,9 @@ nonisolated final class LegacyMasterTrack: MasterTrackWriting, @unchecked Sendab
         self.input = input
     }
 
-    var isReadyForMoreMediaData: Bool { input.isReadyForMoreMediaData }
+    public var isReadyForMoreMediaData: Bool { input.isReadyForMoreMediaData }
 
-    func append(_ sampleBuffer: CMSampleBuffer) -> Bool {
+    public func append(_ sampleBuffer: CMSampleBuffer) -> Bool {
         input.append(sampleBuffer)
     }
 }

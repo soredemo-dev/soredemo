@@ -33,25 +33,25 @@ import Headless
 /// reproducibly stall, never reporting ready again, with no error and no crash; the same load
 /// through the awaiting `append(_:)` does not. This is why `CaptureSession` stays on
 /// `LegacyMasterWriter`.
-nonisolated final class SuccessorMasterWriter: MasterWriting, @unchecked Sendable {
+public nonisolated final class SuccessorMasterWriter: MasterWriting, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let videoTrack: SuccessorMasterTrack
     private let systemAudioTrack: SuccessorMasterTrack
     private let microphoneTrack: SuccessorMasterTrack
     private let errorBox: SuccessorAppendErrorBox
 
-    var outputURL: URL { writer.outputURL }
-    var video: any MasterTrackWriting { videoTrack }
-    var systemAudio: any MasterTrackWriting { systemAudioTrack }
-    var microphone: any MasterTrackWriting { microphoneTrack }
+    public var outputURL: URL { writer.outputURL }
+    public var video: any MasterTrackWriting { videoTrack }
+    public var systemAudio: any MasterTrackWriting { systemAudioTrack }
+    public var microphone: any MasterTrackWriting { microphoneTrack }
 
     /// A captured `appendImmediately(_:)` throw takes priority over the writer's own `.error`: it
     /// is the only place the throwing mismatch (see `SuccessorMasterTrack.append(_:)`) is visible.
-    var errorDescription: String? {
+    public var errorDescription: String? {
         errorBox.capturedAppendError ?? writer.error.map { String(describing: $0) }
     }
 
-    var status: MasterWriterStatus {
+    public var status: MasterWriterStatus {
         switch writer.status {
         case .unknown: .unknown
         case .writing: .writing
@@ -94,11 +94,11 @@ nonisolated final class SuccessorMasterWriter: MasterWriting, @unchecked Sendabl
         self.microphoneTrack = SuccessorMasterTrack(input: micInput, receiver: micReceiver, errorBox: errorBox)
     }
 
-    func startSession(at presentationTime: CMTime) {
+    public func startSession(at presentationTime: CMTime) {
         writer.startSession(atSourceTime: presentationTime)
     }
 
-    func finish() async {
+    public func finish() async {
         // `finish()` on each receiver, mirroring `markAsFinished()` on the legacy path, before
         // asking the writer to finish.
         videoTrack.finishReceiver()
@@ -117,7 +117,7 @@ nonisolated final class SuccessorAppendErrorBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _capturedAppendError: String?
 
-    func record(_ error: Error) {
+    public func record(_ error: Error) {
         lock.withLock {
             if _capturedAppendError == nil {
                 _capturedAppendError = String(describing: error)
@@ -125,7 +125,7 @@ nonisolated final class SuccessorAppendErrorBox: @unchecked Sendable {
         }
     }
 
-    var capturedAppendError: String? { lock.withLock { _capturedAppendError } }
+    public var capturedAppendError: String? { lock.withLock { _capturedAppendError } }
 }
 
 nonisolated final class SuccessorMasterTrack: MasterTrackWriting, @unchecked Sendable {
@@ -141,18 +141,21 @@ nonisolated final class SuccessorMasterTrack: MasterTrackWriting, @unchecked Sen
     }
 
     /// Reads the underlying input rather than the receiver, which has no such member.
-    var isReadyForMoreMediaData: Bool { input.isReadyForMoreMediaData }
+    public var isReadyForMoreMediaData: Bool { input.isReadyForMoreMediaData }
 
     /// `appendImmediately(_:)` throws where `MasterTrackWriting.append` does not. A throw is at
     /// least as final as a plain refusal, so it also returns `false`, but the error is recorded
     /// into `errorBox` — reachable through `SuccessorMasterWriter.errorDescription` — first.
-    func append(_ sampleBuffer: CMSampleBuffer) -> Bool {
+    public func append(_ sampleBuffer: CMSampleBuffer) -> Bool {
         // `CMReadySampleBuffer.init(unsafeBuffer:)` consumes its argument as `sending` while
         // `MasterTrackWriting.append`'s parameter is plain `CMSampleBuffer`, so the region checker
         // refuses to send it onward. `nonisolated(unsafe)` re-states this file's discipline: the
         // ScreenCaptureKit delivery queue owns the buffer for the duration of the call.
         nonisolated(unsafe) let ownedForSend = sampleBuffer
-        let ready = CMReadySampleBuffer<CMSampleBuffer.DynamicContent>(unsafeBuffer: ownedForSend)
+        // Safe here for the reason stated just above: the delivery queue owns the buffer
+        // for the whole call, and `ready` does not outlive it. The mark is what
+        // `.strictMemorySafety()` asks for now that this file is in a package target.
+        let ready = unsafe CMReadySampleBuffer<CMSampleBuffer.DynamicContent>(unsafeBuffer: ownedForSend)
         do {
             return try receiver.appendImmediately(ready)
         } catch {
@@ -161,7 +164,7 @@ nonisolated final class SuccessorMasterTrack: MasterTrackWriting, @unchecked Sen
         }
     }
 
-    func finishReceiver() {
+    public func finishReceiver() {
         receiver.finish()
     }
 }
