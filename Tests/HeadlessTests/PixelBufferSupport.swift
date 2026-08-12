@@ -12,7 +12,9 @@ let sourceFill: (r: UInt8, g: UInt8, b: UInt8) = (32, 96, 224)
 func makePixelBuffer(width: Int, height: Int,
                      fill: (r: UInt8, g: UInt8, b: UInt8)) throws -> CVPixelBuffer {
     var buffer: CVPixelBuffer?
-    let status = CVPixelBufferCreate(
+    // Safe here: `&buffer` outlives the call by scope, and CoreVideo writes it only
+    // before returning.
+    let status = unsafe CVPixelBufferCreate(
         kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
         [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary,
         &buffer)
@@ -20,15 +22,19 @@ func makePixelBuffer(width: Int, height: Int,
 
     CVPixelBufferLockBaseAddress(created, [])
     defer { CVPixelBufferUnlockBaseAddress(created, []) }
-    let base = try #require(CVPixelBufferGetBaseAddress(created)).assumingMemoryBound(to: UInt8.self)
+    // Safe here: the base address is valid between the lock/unlock pair above, the
+    // buffer was created 32BGRA four bytes per pixel two lines up, and every index
+    // below stays inside height × bytes-per-row by construction of the loop bounds.
+    let base = try unsafe #require(unsafe CVPixelBufferGetBaseAddress(created))
+        .assumingMemoryBound(to: UInt8.self)
     let stride = CVPixelBufferGetBytesPerRow(created)
     for row in 0..<height {
         for column in 0..<width {
             let offset = row * stride + column * 4
-            base[offset + 0] = fill.b
-            base[offset + 1] = fill.g
-            base[offset + 2] = fill.r
-            base[offset + 3] = 255
+            unsafe base[offset + 0] = fill.b
+            unsafe base[offset + 1] = fill.g
+            unsafe base[offset + 2] = fill.r
+            unsafe base[offset + 3] = 255
         }
     }
     return created
@@ -38,7 +44,11 @@ func makePixelBuffer(width: Int, height: Int,
 func pixels(of buffer: CVPixelBuffer) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
     CVPixelBufferLockBaseAddress(buffer, .readOnly)
     defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-    let base = try #require(CVPixelBufferGetBaseAddress(buffer)).assumingMemoryBound(to: UInt8.self)
+    // Safe here: same argument as `makePixelBuffer` — reads happen between the
+    // lock/unlock pair, and the loop bounds come from the buffer's own dimensions,
+    // so every offset stays inside height × bytes-per-row.
+    let base = try unsafe #require(unsafe CVPixelBufferGetBaseAddress(buffer))
+        .assumingMemoryBound(to: UInt8.self)
     let stride = CVPixelBufferGetBytesPerRow(buffer)
     let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
     var out: [(r: UInt8, g: UInt8, b: UInt8)] = []
@@ -46,7 +56,7 @@ func pixels(of buffer: CVPixelBuffer) throws -> [(r: UInt8, g: UInt8, b: UInt8)]
     for row in 0..<height {
         for column in 0..<width {
             let offset = row * stride + column * 4
-            out.append((r: base[offset + 2], g: base[offset + 1], b: base[offset + 0]))
+            unsafe out.append((r: base[offset + 2], g: base[offset + 1], b: base[offset + 0]))
         }
     }
     return out

@@ -174,7 +174,9 @@ private func roundTrip(_ value: AXChainRecord) throws -> AXChainRecord {
 /// refuses non-finite doubles itself, so JSON would pass for its reason.
 @Test func aNonFiniteClickPositionIsRefusedByThisTypeAndNotOnlyByFoundation() throws {
     let valid = try PropertyListEncoder().encode(record())
-    var object = try #require(PropertyListSerialization.propertyList(
+    // Safe here: `format: nil` is a nullable out-pointer this call never dereferences
+    // when nil — the unsafety is the parameter's type, not anything this site does.
+    var object = try #require(unsafe PropertyListSerialization.propertyList(
         from: valid, options: [], format: nil) as? [String: Any])
     object["clickPosition"] = ["x": Double.infinity, "y": 0.5]
     let damaged = try PropertyListSerialization.data(fromPropertyList: object,

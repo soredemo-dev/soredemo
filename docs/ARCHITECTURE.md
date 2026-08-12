@@ -350,7 +350,7 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
 | 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
-| 9 | **`Sources/` — the library targets — builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` warnings.** The test targets carry the same setting and are **NOT** covered by any working instrument; see the scope note | **Claim established once, by hand**: `rm -rf` a scratch path and `swift build` from nothing, 2026-08-05 — zero sites under `Sources/`. **Not** established by `scripts/check-strict-memory-safety.sh`, which is currently unsound: (a) a warm `--build-tests` does not recompile test files it considers up to date, so their warnings cannot reach its log at all; (b) its nothing-compiled guard is satisfied by a link-task progress line on a build that compiled no Swift file, and its `Compiling ` alternative never appears on this toolchain, so the guard is dead code; (c) four consecutive runs on identical state with zero source edits exited 0, 3, 3, 0 — **nondeterministic**, which is worse than a consistent false pass. The script now prints all three limits on every run. **Measured from nothing, 2026-08-05: 11 unmarked SITES under `Tests/`** — 10 in `HeadlessTests/PixelBufferSupport.swift` (introduced by Phase 3A-1 Task 3), 1 pre-existing in `ProjectTests/AXChainRecordTests.swift`. **The unit is load-bearing**: a site is a distinct `file:line:column`; the emission count is higher (a module compiled for two products re-emits all of them) and the `(file, line)` count is lower (line 31 carries two sites), so all three can be called "the warning count" and none of them agree. Four emissions on that build carry no real `file:line` at all — attributed to a synthetic `macro expansion #require` buffer, resolving via `note: expanded code originates here` to two lines already inside the 11. The repaired gate must report in sites. Repairing it is 3A-2's first task, **ordered before clearing those sites**, and the repair's target is reproducibility (N identical runs → identical exit code), not strictness | its own script only, and that script does not currently hold the rule |
+| 9 | **The whole tree — library AND test targets — builds under `.strictMemorySafety()` (`Package.swift`) with zero `StrictMemorySafety` sites.** A site is a distinct `file:line:column`; the unit is load-bearing — emission counts run higher (a module compiled for two products re-emits every warning) and `(file, line)` counts run lower (one line can carry two sites in different columns) | **Held by `scripts/check-strict-memory-safety.sh`, repaired 2026-08-12 to clean-per-run**: every run cleans a dedicated scratch path and compiles every target from nothing, so every warning is emitted on every run — the warm/cold blindness, the dead progress-line guard and the 0/3/3/0 nondeterminism of the previous design are gone by construction (design record: `docs/design/2026-08-12-strict-memory-safety-gate-repair.md`). Credentialled in both states: a seeded warning listed on two consecutive runs; five consecutive reds with identical site lists before the clearing; five consecutive greens after it. The 13 sites the repaired gate found under `Tests/` (the 2026-08-05 hand count said 11; line drift plus two macro-resolved positions the old count folded away) are all marked `unsafe` at their own expression with a why-safe comment at the site | its own script, which now holds the rule |
 
 Rules 3 and 5 do not fail an `xcodebuild` of the app, because `Soredemo.xcodeproj` has no test
 target. Rules 6 and 7 fail nothing at all; they are commitments about code Phase 2 and Phase 3 will
@@ -501,45 +501,32 @@ constraints on that one module are **held by hand**. `Package.swift` says so; so
 
 **4. A standalone script, for a diagnostic the compiler itself does not fail on.** Rule 9 —
 `.strictMemorySafety()` (`Package.swift`, every regular target **and every test target**) with zero
-warnings — is the weakest
-mechanism here on purpose: `swift build` and `xcodebuild` both exit 0 with `StrictMemorySafety`
-warnings present, because the mode reports them as warnings and neither build adds
-`-warnings-as-errors`. Turning every warning in the tree into a hard error would be a much larger
-change than this rule asks for, so the check lives in `scripts/check-strict-memory-safety.sh`
-instead: it runs an **incremental** `swift build --build-tests` (not `rm -rf .build && …` — that is
-minutes, and this pays the same incremental cost every other gate here already pays), greps the
-output for the diagnostic's own `StrictMemorySafety` tag, and fails loudly — file, line and the
-unsafe construct named — on any hit. It also refuses to pass on an unobserved build: an empty log or
-one missing `swift build`'s own `Build complete!` marker fails with a distinct exit code and message
-rather than reading as clean, closing the hole `Tests/AppSourceTests`'s entry-rule scanner and
-`scripts/count-tests.sh --split` were each separately caught with earlier in this same phase — a gate
-that passes having measured nothing is worse than one that fails. **`--build-tests` was added at
-Phase 3A-1 Task 6's code review, and the gap it closed is exactly the shape of the sentence above.**
-**A third guard was added at the final whole-branch review**: `Build complete!` is a success marker
-for the BUILD, not for the SCAN — on an already-up-to-date `.build` the log carries that marker and
-no `StrictMemorySafety` tag because nothing was compiled, not because nothing warned, so a real
-warning left unmarked in a file that was already built would pass this gate silently if it only
-checked for the marker. The script now also requires positive evidence a compile or link task
-actually ran (a per-task progress line or a `Compiling` line) before it will report clean, and exits
-with a third, distinct code and message — "this build compiled nothing; it is an unobserved pass, not
-a clean one" — when that evidence is absent.
-The manifest applies `strict` — `.swiftLanguageMode(.v6)` and `.strictMemorySafety()` — to the
-eleven test targets as well as the library targets, but the script ran plain `swift build`, which
-compiles no test target at any cache warmth. So the gate's own soundness argument ("a warning can
-only newly appear in a file that was just compiled, and any edit forces its own file to recompile")
-was false for every test file in the repository: not because the build was warm, but because the
-build never reached it. It reported "zero warnings" over about half the declared scope and named
-neither half. Re-measured with `--build-tests`: still zero, so nothing was hiding — but the claim
-and the measurement now cover the same set. Not folded into
+warnings — is the weakest mechanism here on purpose: `swift build` and `xcodebuild` both exit 0 with
+`StrictMemorySafety` warnings present, because the mode reports them as warnings and neither build
+adds `-warnings-as-errors`. Turning every warning in the tree into a hard error would be a much
+larger change than this rule asks for, so the check lives in
+`scripts/check-strict-memory-safety.sh` instead — **clean-per-run since 2026-08-12**: it cleans a
+dedicated scratch path (`.build-strict-gate`), compiles every target from nothing (~23 seconds,
+re-measured; the "minutes" that once justified incrementality no longer exists on this machine),
+and reports every `StrictMemorySafety` hit as a distinct `file:line:column` site, resolving
+macro-buffer emissions through their `expanded code originates here` note. Compile evidence is
+artifacts, not log shapes — zero `.o` files after clean, more than zero after build — because the
+log-shape guard of the previous design was refuted on this toolchain: a no-op build DOES emit a
+`[N / M]` progress line for a link task, and the incremental build underneath could not re-emit a
+warning from any file it skipped, which produced exit codes 0, 3, 3, 0 on identical state. That
+history, the alternatives considered (fixing the heuristics; scanning persisted `.dia`
+diagnostics), and both credential halves are recorded in
+`docs/design/2026-08-12-strict-memory-safety-gate-repair.md`. Not folded into
 `scripts/run-cross-boundary-probe.sh`, whose own `swift build` step exists only to produce link
 products for the `xcrun swiftc` invocation after it; conflating the two would make a probe failure
 ambiguous between an actual cross-boundary defect and an unmarked unsafe construct. Like the probe,
 nothing runs this automatically — there is no CI in this repo yet — so it is a gate a person runs,
-not one the build enforces for them. First run (Phase 3A-1 Task 3's fix round) found four sites: one
-pre-existing (`Sources/Project/ObservationLog.swift`, `String(format:)`'s C varargs initialiser) and
-three new (`Sources/Headless/CoreImageFrameRenderer.swift`'s `cursorCanvases` cache and its
-`CGContext(data: nil, ...)` construction). All four are marked `unsafe` at the expression with a
-comment at the site saying why each is safe despite the diagnostic, not merely silenced.
+not one the build enforces for them. First run (Phase 3A-1 Task 3's fix round) found four sites in
+`Sources/`: one pre-existing (`Sources/Project/ObservationLog.swift`, `String(format:)`'s C varargs
+initialiser) and three new (`Sources/Headless/CoreImageFrameRenderer.swift`'s `cursorCanvases`
+cache and its `CGContext(data: nil, ...)` construction). The repaired gate's first full-tree run
+found 13 more under `Tests/`. All are marked `unsafe` at the expression with a comment at the site
+saying why each is safe despite the diagnostic, not merely silenced.
 
 ---
 

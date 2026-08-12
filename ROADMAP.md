@@ -133,65 +133,52 @@ it, four seconds into a recording.
 > correctly carries no media, so the source frame is synthesised and the assertion is
 > geometric.
 >
-> **Phase 3A-2's FIRST task, and the ordering is binding: repair the memory-safety
-> gate before clearing what it should have caught. The repair's target is
-> REPRODUCIBILITY, not strictness** — a stricter gate that still answers differently
-> on identical input is the same instrument with a higher failure rate.
-> `scripts/check-strict-memory-safety.sh` does not hold rule 9 today, and three
-> separate things are wrong with it. (a) A warm
-> `--build-tests` does not recompile test files it considers up to date, so a warning
-> in one cannot reach the log at all. (b) The nothing-compiled guard added to catch
-> exactly that is satisfied by a link-task progress line on a build that compiled no
-> Swift file — one run emitted `[1 / 26] HeadlessTests-product`, the next a bare
-> `[1 / 1]`, and both passed — while its `Compiling ` alternative never appears on
-> this toolchain at all, so that half is dead code. (c) Four consecutive runs on
-> identical state with zero source edits exited **0, 3, 3, 0**: nondeterministic,
-> which is worse than a consistent false pass, because a false green is a stable
-> error you can find and this is not stably anything.
+> **Phase 3A-2's first two tasks are DONE (2026-08-12), in the binding order: the
+> gate repaired first, the sites cleared second.** What stood here was the repair
+> brief — the three defects, the completion condition, the sites-unit warning — and
+> it is preserved in `docs/design/2026-08-12-strict-memory-safety-gate-repair.md`
+> together with the alternatives considered. The record of what was done and what
+> was measured:
 >
-> **The repair's completion condition, and its red credential.** Done means: N
-> consecutive runs on identical state, zero source edits, produce the SAME exit code
-> — that is the property that is missing, and it is checkable. The red credential is
-> a seeded warning: put an unmarked unsafe construct in a test file and the gate must
-> go red on a COLD build and on a WARM one. The warm half is the actual difficulty and
-> is exactly where it fails today, so a repair demonstrated only against a cold build
-> has not been demonstrated.
+> **The repair is clean-per-run.** `scripts/check-strict-memory-safety.sh` now
+> cleans a dedicated scratch path (`.build-strict-gate`, gitignored) and compiles
+> every target from nothing on every run, so every warning is emitted on every run
+> and the warm/cold distinction — the exact place the old design failed — is
+> eliminated by construction rather than detected by heuristic. The premise under
+> the old incremental design was re-measured and had expired: a from-nothing
+> `swift build --build-tests` is ~23 seconds on this machine, not "minutes", and
+> the package has no external dependencies, so the scratch path needs no network.
+> Compile evidence is now artifacts, not log shapes: zero `.o` files after clean
+> (else exit 2), more than zero after build (else exit 3) — the dead progress-line
+> guard is gone. The gate reports in SITES (distinct `file:line:column`), with
+> macro-buffer emissions resolved through their `expanded code originates here`
+> note rather than dropped.
 >
-> **What happened at the 3A-1 merge is not evidence either way, and must not be
-> recorded as if it were.** Running the gate on the merge commit exited **3** — the
-> nothing-compiled branch. That is consistent with the nondeterminism registered
-> above, in which the same state has already produced 0, 3, 3, 0; it is one more
-> draw from that distribution and **does not constitute evidence that the guard
-> works.** Writing it down as "the gate correctly refused at the merge" would read
-> as a working guard and would earn this instrument trust it has not got.
+> **Both credential halves were run, and in the required order.** Baseline on the
+> broken gate, same tree, zero edits: exit 1, 0, 0 — one more draw from the
+> documented 0, 3, 3, 0 distribution. After the repair, red half: an unsafe
+> construct seeded into `Tests/GeometryTests/NormalizedTests.swift` was listed by
+> file:line:column on two consecutive runs, both exit 1; warmth no longer exists to
+> qualify. Stability half: five consecutive runs on the unmodified tree — exit 1
+> five times, and the five site lists hash identically. Green half, run only after
+> the sites were cleared: five consecutive runs, exit 0 five times — the pass-path
+> certificate the old gate never had, because on the old gate a pass was
+> indistinguishable from a blind run.
 >
-> **The count has a unit, and the unit is SITES.** Measured from nothing on
-> 2026-08-05 (`rm -rf` a scratch path, `swift build --build-tests`): **zero sites
-> under `Sources/`** — the library claim holds — and **11 sites under `Tests/`**, of
-> which 10 are in `HeadlessTests/PixelBufferSupport.swift`, introduced by this
-> phase's own Task 3, and 1 pre-existing in `ProjectTests/AXChainRecordTests.swift`.
-> No run of the gate has ever reported one of them.
+> **The count moved from 11 to 13, and the instrument is right.** Measured by the
+> repaired gate: 13 sites — 12 in `HeadlessTests/PixelBufferSupport.swift`, 1 in
+> `ProjectTests/AXChainRecordTests.swift`. The 2026-08-05 count of 11 is not
+> contradicted; the comment-compression commits shifted line numbers, and the two
+> macro-resolved positions no longer coincide column-exactly with any primary site
+> — they name the call inside the macro argument, a genuinely distinct unsafe
+> expression the old hand count folded away. This is the divergence the sites-unit
+> warning predicted, arriving one measurement later than expected.
 >
-> Three different quantities can all be called "the number of warnings", they are
-> never equal, and this phase already got confused between two of them: **sites**
-> (distinct `file:line:column` positions in real source — 11), **emissions** (lines
-> the compiler prints; higher, because a module compiled for more than one product
-> re-emits every one of its warnings), and **`(file, line)` pairs** (lower, because
-> `PixelBufferSupport.swift:31` carries two sites in different columns). A fourth
-> reading hides between them: four emissions on this build carry no real
-> `file:line` at all, being attributed to a synthetic `macro expansion #require`
-> buffer, and they resolve — via `note: expanded code originates here` — to
-> `PixelBufferSupport.swift:31:66` and `49:65`, two lines already inside the 11.
-> **The repaired gate must report in sites, the same unit**, or the two numbers will
-> diverge again and the next person will not go and chase warnings that have no
-> `file:line` to chase.
->
-> **Clearing the 11 sites comes second, and reversing the order buys nothing**: clearing
-> them while the gate is still blind lets the next batch in by the identical route.
-> The gate's verdict text and `docs/ARCHITECTURE.md` D6 row 9 have both been narrowed
-> to the measurement in the meantime — narrowing a claim to its evidence does not
-> require repairing the instrument first, which is the same move row 14 made when a
-> citation turned out not to hold.
+> **All 13 sites are now marked `unsafe` at their own expression, each with a
+> comment at the site saying why it is safe there** — the lock/unlock pair
+> bracketing the base-address reads, the loop bounds staying inside
+> height × bytes-per-row, the nullable out-pointer `PropertyListSerialization`
+> never dereferences when nil. `swift test`: 491 tests, green, after the marks.
 >
 > **Phase 3A-2 item — narrow `MP4Exporter.swift`'s ambient-time permit to a named
 > boundary.** The app-side rule-3 scan currently exempts the whole file. The
