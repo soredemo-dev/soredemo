@@ -72,3 +72,6 @@ a skill chain/
 
 # Rust (spikes)
 target/
+
+# check-strict-memory-safety.sh's private scratch path — clean-per-run gate builds
+.build-strict-gate/
