@@ -1,6 +1,8 @@
 import AppKit
 import Foundation
 import Geometry
+// `Minting` — in `Headless` since Phase 3A-3.
+import Headless
 import Project
 import SwiftUI
 import Synchronization

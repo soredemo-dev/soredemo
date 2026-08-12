@@ -48,28 +48,37 @@ func pathRelativeToRepositoryRoot(_ url: URL) -> String {
     return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
 }
 
-/// One violation, in the `file:line:` form the checker prints. `permittedPath` is
+/// One violation, in the `file:line:` form the checker prints. Each permitted path is
 /// repository-relative and matched WHOLE, not by file name: matching on
 /// `lastPathComponent` would keep the file permitted wherever it moved to.
+///
+/// A SET, not one path, since Phase 3A-3: `Sources/Headless` legitimately has two
+/// environment boundaries — `Minting.swift` (ambient→package mappings) and
+/// `MonotonicStopwatch.swift` (elapsed time) — and each is a file whose every member
+/// reads the environment, so each whole-file permit still costs nothing. Every path is
+/// `#require`d present individually, so a set cannot hide a stale entry behind a live
+/// one. `violations(banned:permittedPath:in:)` below keeps the single-path spelling.
 func violations(
     banned: [String],
-    permittedPath: String,
+    permittedPaths: Set<String>,
     in files: [URL]
 ) throws -> [String] {
-    // The permitted file must exist AT THAT PATH. A rename is the safe direction
+    // Each permitted file must exist AT THAT PATH. A rename is the safe direction
     // — the file is then scanned and fails loudly — but the claim the test stands
     // for would be about a place that no longer exists.
-    let permitted = files.filter { pathRelativeToRepositoryRoot($0) == permittedPath }
-    try #require(permitted.count == 1,
-                 """
-                 expected exactly one \(permittedPath), found \(permitted.count). \
-                 If it moved, move the allow-list entry with it — the path is part \
-                 of the claim, not an implementation detail of the scan.
-                 """)
+    for path in permittedPaths.sorted() {
+        let permitted = files.filter { pathRelativeToRepositoryRoot($0) == path }
+        try #require(permitted.count == 1,
+                     """
+                     expected exactly one \(path), found \(permitted.count). \
+                     If it moved, move the allow-list entry with it — the path is part \
+                     of the claim, not an implementation detail of the scan.
+                     """)
+    }
 
-    let scanned = files.filter { pathRelativeToRepositoryRoot($0) != permittedPath }
+    let scanned = files.filter { !permittedPaths.contains(pathRelativeToRepositoryRoot($0)) }
     try #require(!scanned.isEmpty,
-                 "only \(permittedPath) exists — nothing outside the allow-list was scanned")
+                 "only the permitted files exist — nothing outside the allow-list was scanned")
 
     var found: [String] = []
     var linesScanned = 0
@@ -84,6 +93,15 @@ func violations(
     }
     try #require(linesScanned > 0, "no lines were examined — the scan would pass vacuously")
     return found
+}
+
+/// The single-permitted-file spelling, for the scans that have exactly one boundary.
+func violations(
+    banned: [String],
+    permittedPath: String,
+    in files: [URL]
+) throws -> [String] {
+    try violations(banned: banned, permittedPaths: [permittedPath], in: files)
 }
 
 // MARK: - rule 5: the CoreGraphics bridge
@@ -177,25 +195,28 @@ let ambientBannedNames: [String] = [
 ]
 
 
-/// Rule 3's app-side half. The package's ambient-value ban is checked over LINK-TIME
-/// SYMBOLS, but `Soredemo/Support/Minting.swift` is in the **app** target, so nothing
-/// stops `ProjectDocument.swift` calling `UUID()` directly — it would produce no wrong
-/// result, only a false sentence in three documents. The needles are derived from
-/// `bannedSymbols` in `Tests/DeterminismTests/SymbolDeterminismTests.swift`; a text
-/// scan is the weaker instrument, and the only one available on this side.
-@Test func ambientTimeRandomnessAndHashingEnterOnlyThroughMinting() throws {
-    let found = try violations(
-        banned: ambientBannedNames,
-        permittedPath: "Soredemo/Support/Minting.swift",
-        in: try appSourceFiles())
+/// Rule 3's app-side half, and since Phase 3A-3 a **strictly stronger claim than it
+/// used to make**: no app source reads an ambient value AT ALL. `Minting.swift` moved
+/// into `Sources/Headless`, so the app target no longer contains the boundary — it
+/// asks `Headless` for minted values. A permitted-file scan would now name a path
+/// outside the set it scans; zero-permit is what the arrangement actually supports,
+/// and it happens to be the claim worth making.
+///
+/// The needles ban ambient NAMES (`Date(`, `UUID(`, `SHA256`, the clocks, `sysctl`),
+/// not the word `Minting` — `ContentView` and `ProjectDocument` go on calling it.
+/// Derived from `bannedSymbols` in `Tests/DeterminismTests/SymbolDeterminismTests
+/// .swift`; a text scan is the weaker instrument, and the only one available here.
+@Test func noAppSourceReadsAnAmbientValueAtAll() throws {
+    let found = try violationsEverywhere(banned: ambientBannedNames, in: try appSourceFiles())
 
     #expect(found.isEmpty,
             """
-            an ambient value was minted outside Soredemo/Support/Minting.swift:
+            an app source read an ambient value directly:
             \(found.joined(separator: "\n"))
-            Identifiers, timestamps and digests enter at that one boundary and \
-            are passed onward as plain values — that is what makes derivation a \
-            deterministic function of its input.
+            Identifiers, timestamps and digests enter through Headless's Minting \
+            and are passed onward as plain values — that is what makes derivation a \
+            deterministic function of its input. The app target holds no boundary of \
+            its own to widen.
             """)
 }
 
@@ -212,7 +233,8 @@ let ambientBannedNames: [String] = [
     // same target — reused so the file list has exactly one definition.
     let found = try violations(
         banned: ambientBannedNames,
-        permittedPath: "Sources/Headless/MonotonicStopwatch.swift",
+        permittedPaths: ["Sources/Headless/MonotonicStopwatch.swift",
+                         "Sources/Headless/Minting.swift"],
         in: try headlessSourceFiles())
 
     #expect(found.isEmpty,

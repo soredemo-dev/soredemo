@@ -8,6 +8,8 @@
 import AVFoundation
 import CoreGraphics
 import Foundation
+// `Minting` — in `Headless` since Phase 3A-3.
+import Headless
 import Observation
 import Project
 @preconcurrency import ScreenCaptureKit

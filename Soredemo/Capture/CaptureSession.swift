@@ -7,6 +7,8 @@ import Foundation
 import Geometry
 import Project
 import Timeline
+// `Minting` — in `Headless` since Phase 3A-3.
+import Headless
 
 /// Takes three ScreenCaptureKit streams (screen, system audio, microphone) and
 /// writes them to a `MasterSegment` via three `AVAssetWriterInput`s.

@@ -9,29 +9,38 @@ import Foundation
 import Graph
 import Timeline
 
-/// The ambient values `SoredemoCore` is forbidden to touch (`UUID`, `Date`, `SHA256`,
-/// the clocks, `sysctl`), read here at one boundary on the app side of the line.
-/// Every function is a pure mapping from an ambient thing to a package type; anything
-/// with branching or policy in it belongs in the package instead.
-enum Minting {
+/// The ambient values the deterministic tier is forbidden to touch (`UUID`, `Date`,
+/// `SHA256`, the clocks, `sysctl`), read here at one boundary. Every function is a pure
+/// mapping from an ambient thing to a package type; anything with branching or policy in
+/// it belongs in a package module instead.
+///
+/// **In `Headless` since Phase 3A-3, and `public` because of it.** It was an app-target
+/// file, so `internal` reached its callers; from a library target the app tier needs the
+/// symbol exported. Every member of this file reads the environment, which is what makes
+/// the whole-file permit in `Tests/AppSourceTests` cost nothing — the same argument
+/// `MonotonicStopwatch.swift` carries, and the reason those are two files and not one:
+/// this file's claim is "pure ambient→package mappings" and a stateful stopwatch is not
+/// one. The app target now holds no ambient boundary at all
+/// (`noAppSourceReadsAnAmbientValueAtAll`).
+public enum Minting {
     /// A fresh v4 UUID. The package cannot call `UUID()`; it can hold the result.
     ///
     /// `nonisolated` here and on every function in this file is required and must stay:
     /// the target sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and callers include
     /// synchronous non-MainActor contexts such as `SCStreamOutput` callbacks.
-    nonisolated static func newIdentifier() -> UUID {
+    public nonisolated static func newIdentifier() -> UUID {
         UUID()
     }
 
     /// The current wall-clock instant. Same reasoning as `newIdentifier()`.
-    nonisolated static func now() -> Date {
+    public nonisolated static func now() -> Date {
         Date()
     }
 
     /// SHA-256 of `bytes`, as the package's opaque 32-byte `ContentDigest`.
     /// Generic over `DataProtocol` so `[UInt8]` and `Data` callers share one
     /// implementation. The digest values are pinned by cross-boundary tests.
-    nonisolated static func digest(of bytes: some DataProtocol) -> ContentDigest {
+    public nonisolated static func digest(of bytes: some DataProtocol) -> ContentDigest {
         ContentDigest(Array(SHA256.hash(data: bytes)))
     }
 }
@@ -43,7 +52,11 @@ extension Minting {
     /// life of the process, so it is fetched once. `nonisolated` to be reachable from
     /// `hostNow()`/`continuousNow()`.
     private nonisolated static let timebase: mach_timebase_info_data_t = {
-        var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t
+        var t = mach_timebase_info_data_t()
+        // Safe here: `&t` is a local whose lifetime spans the call, and the kernel
+        // writes it only before returning.
+        unsafe mach_timebase_info(&t)
+        return t
     }()
 
     /// The current boot session, from `kern.bootsessionuuid`. Not `kern.boottime`: that
@@ -52,10 +65,16 @@ extension Minting {
     /// returning a fallback; a fabricated epoch makes two boots look like one silently.
     public nonisolated static func bootEpoch() -> BootEpoch {
         var size = 0
-        sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0)
+        // Safe here: the two-call sysctl idiom. The first call writes only `size` (the
+        // value pointer is nil); the second writes at most `size` bytes into a buffer
+        // allocated at exactly that length one line earlier, and cannot grow it — the
+        // key names a fixed-length UUID string. Both pointers are locals outliving the
+        // call. `precondition` between them refuses a zero length rather than passing a
+        // zero-capacity buffer to the second call.
+        unsafe sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0)
         precondition(size > 0, "kern.bootsessionuuid is unavailable; there is no honest fallback")
         var buf = [CChar](repeating: 0, count: size)
-        sysctlbyname("kern.bootsessionuuid", &buf, &size, nil, 0)
+        unsafe sysctlbyname("kern.bootsessionuuid", &buf, &size, nil, 0)
         // `String(cString: [CChar])` is deprecated on this SDK; truncate at the
         // null terminator `sysctlbyname` writes and decode explicitly instead.
         let terminatorIndex = buf.firstIndex(of: 0) ?? buf.count
@@ -74,9 +93,12 @@ extension Minting {
     /// listed and being asked about; the caller drops it and keeps the rest.
     /// Named `displayIdentity`, not `displayUUID`: `AppSourceAllowListTests` bans the
     /// substring `UUID(` at every call site outside this file.
-    nonisolated static func displayIdentity(of displayID: CGDirectDisplayID) -> UUID? {
-        guard let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue(),
-              let string = CFUUIDCreateString(nil, cfUUID) as String? else { return nil }
+    public nonisolated static func displayIdentity(of displayID: CGDirectDisplayID) -> UUID? {
+        // Safe here: `takeRetainedValue()` is the documented ownership transfer for a
+        // `Create` function, so the CFUUID is released by ARC; `CFUUIDCreateString`'s nil
+        // allocator is the documented default, and the result is bridged, not borrowed.
+        guard let cfUUID = unsafe CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue(),
+              let string = unsafe CFUUIDCreateString(nil, cfUUID) as String? else { return nil }
         return UUID(uuidString: string)
     }
 

@@ -73,7 +73,7 @@ let package = Package(
         // `composition`'s own doc comment for that history. Not added to `strict` (every package
         // target): the other six targets expose no `nonisolated async` API the app target or the
         // probe calls, so there is no caller this would change behaviour for.
-        .target(name: "Headless", dependencies: ["Geometry", "Timeline", "Project", "Render"],
+        .target(name: "Headless", dependencies: ["Geometry", "Timeline", "Graph", "Project", "Render"],
                 swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
                 plugins: headlessCheck),
 
