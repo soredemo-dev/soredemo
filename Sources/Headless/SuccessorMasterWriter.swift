@@ -1,8 +1,6 @@
 import AVFoundation
 import CoreMedia
 import Foundation
-// Capture types that moved into `Headless` in Phase 3A-3.
-import Headless
 
 /// The second conformance behind the seam (see `MasterWriter.swift`), built on
 /// `AVAssetWriter.start()`, `AVAssetWriterInput.inputReceiver(for:)` and

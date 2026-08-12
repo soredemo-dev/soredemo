@@ -1,12 +1,13 @@
 // `@preconcurrency`: `kAXTrustedCheckOptionPrompt` imports as a `var`, which Swift 6 strict
 // concurrency rejects as unchecked shared mutable state.
-@preconcurrency import ApplicationServices
+// `@unsafe` as well as `@preconcurrency`: the suppressed checking is what
+// `.strictMemorySafety()` wants named. Safe here — the only ApplicationServices value
+// this file touches is the immutable `kAXTrustedCheckOptionPrompt` constant below.
+@unsafe @preconcurrency import ApplicationServices
 import AVFoundation
 import CoreGraphics
 import Foundation
 import IOKit.hid
-// Capture types that moved into `Headless` in Phase 3A-3.
-import Headless
 
 /// The four TCC-gated permissions capture depends on.
 public enum CapturePermission: String, CaseIterable, Sendable {
@@ -124,7 +125,9 @@ public enum CapturePermissions {
     /// Called from `CaptureSession` before the AX walk's first use.
     @discardableResult
     public static func requestAccessibilityAccess() -> Bool {
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        // Safe here: `takeUnretainedValue()` is correct for a constant the framework owns
+        // and never releases — it is not a `Create`/`Copy` result to take ownership of.
+        let promptKey = unsafe kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         return AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
     }
 
@@ -178,8 +181,8 @@ public enum CapturePermissions {
     /// executable: TCC attributes reads to the responsible process, so a bare
     /// binary reports the terminal's grants instead. Output is plain text for a
     /// person comparing it against System Settings, not JSON for a program.
-    public static func dumpText() -> String {
-        var lines = subjectBlockLines()
+    public static func dumpText(build: String, commit: String) -> String {
+        var lines = subjectBlockLines(build: build, commit: commit)
         lines.append("──")
         for o in observations() {
             lines.append(
@@ -196,12 +199,22 @@ public enum CapturePermissions {
     /// came from a process with no bundle identity, whose TCC grants are not
     /// Soredemo's. `build`/`commit` come from `BuildProvenance`, baked in at
     /// build time, so a diagnosis from a stale binary is visible.
-    public static func subjectBlockLines() -> [String] {
+    ///
+    /// **`build` and `commit` are PARAMETERS since Phase 3A-3, not a read of
+    /// `BuildProvenance`.** That type is generated into the app target by
+    /// `scripts/build-app-for-verification.sh` immediately before `xcodebuild`
+    /// compiles it, and it is a fact about the app BINARY — so it stays in the app
+    /// tier, and this file, now in a package target, is handed the two strings
+    /// rather than reaching for a generated file the package does not own. The
+    /// alternative — moving the generated file into `Sources/` — would point a
+    /// build script at a package target to bake in an app fact, which is the
+    /// dependency this extraction exists to remove.
+    public static func subjectBlockLines(build: String, commit: String) -> [String] {
         let v = ProcessInfo.processInfo.operatingSystemVersion
         let bundle = Bundle.main
         return [
-            "build             : \(BuildProvenance.builtAt)",
-            "commit            : \(BuildProvenance.commit)",
+            "build             : \(build)",
+            "commit            : \(commit)",
             "macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)",
             "bundle identifier : \(bundle.bundleIdentifier ?? "nil")",
             "executable path   : \(bundle.executablePath ?? "nil")",

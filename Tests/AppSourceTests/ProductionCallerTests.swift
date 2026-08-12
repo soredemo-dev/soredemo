@@ -35,29 +35,25 @@ func projectPbxprojText() throws -> String {
         """)
 }
 
-// MARK: - Step 2: the degradation model matches what was measured
-
-/// `SCStreamConfiguration` requests microphone, video and system audio as one inseparable unit,
-/// so a denied microphone fails the WHOLE stream: `.blocksRecording`, not `.noMicrophoneTrack`.
-@Test func microphoneDegradationMatchesTheMeasuredConsequence() throws {
-    let mapping = try codeLinesNaming("case .microphone:      return", in: try appSourceFiles())
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CapturePermissions.swift:") }
-
-    try #require(mapping.count == 1, """
-        expected exactly one 'case .microphone:      return' arm in \
-        CapturePermissions.swift's degradation(for:) switch, found \(mapping.count) — this scan's \
-        anchor is the exact column alignment that switch uses, and a reformat would need a matching \
-        update here.
-        """)
-    #expect(mapping[0].text.contains(".blocksRecording"), """
-        CapturePermissions.degradation(for: .microphone) is '\(mapping[0].text)', not \
-        .blocksRecording. This is Task 5.5 Step 2's measurement: with the microphone entitlement \
-        missing (the state Step 1's build settings fix), tccd refused kTCCServiceMicrophone and the \
-        recording did not start at all — not "started, minus a microphone track", which is what \
-        .noMicrophoneTrack claimed. This file's own doc comment (line 9) requires "a stated, \
-        distinct consequence that is what actually happens".
-        """)
-}
+// MARK: - Step 2: the degradation model — retired here, superseded by a real test
+//
+// **`microphoneDegradationMatchesTheMeasuredConsequence()` was deleted in Phase 3A-3, and
+// its claim is stronger now, not weaker.** It grepped
+// `Soredemo/Capture/CapturePermissions.swift` for the literal text
+// `case .microphone:      return` — anchored on that switch's exact column alignment, so a
+// reformat broke it — and asserted the matched line contained `.blocksRecording`.
+//
+// That file is now `Sources/Headless/CapturePermissions.swift`, which `swift test` links.
+// `Tests/HeadlessTests/CapturePermissionsTests.swift` CALLS
+// `CapturePermissions.degradation(for: .microphone)` and asserts the returned value is
+// `.blocksRecording` and is not `.noMicrophoneTrack` — the measurement Task 5.5 Step 2
+// made (with the entitlement missing, tccd refused kTCCServiceMicrophone and the recording
+// did not start AT ALL, rather than starting minus a track). A text scan proves a line was
+// typed; the test proves the function answers.
+//
+// Keeping both would keep a column-alignment-anchored grep alive for no added claim. This
+// note is the record that the coverage moved rather than went away — the one thing a
+// deleted test must leave behind.
 
 // MARK: - Steps 3 and 4: the two permissions this app had never asked for
 
@@ -65,7 +61,13 @@ func projectPbxprojText() throws -> String {
 /// `CapturePermissions.requestScreenRecordingAccess()` — a second site is a second policy about
 /// when this app asks. Zero means a first-run user is told they declined without being asked.
 @Test func theScreenRecordingRequestIsCalledExactlyOnceAndWiredBeforeThePicker() throws {
-    let files = try appSourceFiles()
+    // BOTH trees since Phase 3A-3: the request itself moved into
+    // `Sources/Headless/CapturePermissions.swift` while its caller stayed in the app.
+    // Scanning the union is what keeps "exactly once" a claim about the whole product
+    // rather than about whichever half a permission's implementation currently sits in —
+    // scanning one tree would have made this pass at ZERO calls, which is the reading
+    // this test exists to refuse.
+    let files = try appSourceFiles() + headlessSourceFiles()
     let rawCalls = try codeLinesNaming("CGRequestScreenCaptureAccess()", in: files)
     #expect(rawCalls.count == 1, """
         expected exactly one call to CGRequestScreenCaptureAccess(), found \(rawCalls.count): \
@@ -75,7 +77,7 @@ func projectPbxprojText() throws -> String {
         when to ask.
         """)
     guard let rawCall = rawCalls.first else { return }
-    #expect(rawCall.location.hasPrefix("Soredemo/Capture/CapturePermissions.swift:"), """
+    #expect(rawCall.location.hasPrefix("Sources/Headless/CapturePermissions.swift:"), """
         CGRequestScreenCaptureAccess() is called at \(rawCall.location), not from \
         CapturePermissions.requestScreenRecordingAccess() — the one place this app's policy for \
         asking should live.
@@ -99,7 +101,8 @@ func projectPbxprojText() throws -> String {
 /// `AXIsProcessTrustedWithOptions` is called from `CaptureSession.swift`: it goes through
 /// `CapturePermissions.requestAccessibilityAccess()`, which `CaptureSession` calls.
 @Test func theAccessibilityRequestIsCalledExactlyOnceAndWiredIntoCaptureSession() throws {
-    let files = try appSourceFiles()
+    // Both trees, same reason as the screen-recording scan above.
+    let files = try appSourceFiles() + headlessSourceFiles()
     let rawCalls = try codeLinesNaming("AXIsProcessTrustedWithOptions(", in: files)
     #expect(rawCalls.count == 1, """
         expected exactly one call to AXIsProcessTrustedWithOptions(, found \(rawCalls.count): \
@@ -108,7 +111,7 @@ func projectPbxprojText() throws -> String {
         means two policies about when to ask.
         """)
     guard let rawCall = rawCalls.first else { return }
-    #expect(rawCall.location.hasPrefix("Soredemo/Capture/CapturePermissions.swift:"), """
+    #expect(rawCall.location.hasPrefix("Sources/Headless/CapturePermissions.swift:"), """
         AXIsProcessTrustedWithOptions( is called at \(rawCall.location), not from \
         CapturePermissions.requestAccessibilityAccess().
         """)

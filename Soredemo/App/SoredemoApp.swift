@@ -30,7 +30,8 @@ struct SoredemoApp: App {
     /// parent process, so the grants reported would not be this bundle's.
     init() {
         if CommandLine.arguments.dropFirst().contains("--dump-permissions") {
-            print(CapturePermissions.dumpText())
+            print(CapturePermissions.dumpText(
+                build: BuildProvenance.builtAt, commit: BuildProvenance.commit))
             exit(0)
         }
     }
@@ -83,7 +84,9 @@ struct SoredemoApp: App {
     /// selection, cancellation, or picker-start failure.
     @MainActor
     private static func presentPickerForVerification(restricted: Bool) {
-        print(CapturePermissions.subjectBlockLines().joined(separator: "\n"))
+        print(CapturePermissions.subjectBlockLines(
+            build: BuildProvenance.builtAt, commit: BuildProvenance.commit)
+            .joined(separator: "\n"))
         print("picker mode       : " + (restricted
             ? "restricted (.singleWindow, .singleDisplay)"
             : "unrestricted (SDK default — excludes nothing)"))

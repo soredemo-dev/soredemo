@@ -1,7 +1,11 @@
-@preconcurrency import ScreenCaptureKit
+// `@unsafe` because `@preconcurrency` suppresses the concurrency checking that would
+// otherwise catch a data race across this import — required by `.strictMemorySafety()`,
+// which the app target never applied to this file. Safe here in the sense the mark asks
+// for: the ScreenCaptureKit values this file holds (`SCDisplay`, `SCWindow`,
+// `SCContentFilter`) are only read, never mutated, and every use is on the main actor or
+// inside `CaptureSourcePicker`'s own callbacks.
+@unsafe @preconcurrency import ScreenCaptureKit
 import Geometry
-// Capture types that moved into `Headless` in Phase 3A-3.
-import Headless
 
 /// What gets recorded — a display or a window — and the geometry that choice
 /// implies.
