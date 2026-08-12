@@ -115,13 +115,15 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                                        timescale: compositionTime.timescale) else { return nil }
         let (pointer, click, anchor) = loadedTracks()
         guard let pointer, let anchor else { return nil }
-        // `compositionTime` is relative to the composition start, log records absolute. Add the
-        // offset to the anchor, never the reverse: samples may precede the anchor. Rough
-        // placement, not a frame-accurate media origin.
-        let time = anchor.hostTime + offset
-        switch pointer.position(at: time) {
+        // `compositionTime` is relative to the composition start, log records absolute. The anchor
+        // owns the conversion (`EpochAnchor.instant(atOffset:)`), and the tracks take a
+        // `HostInstant`, so holding a bare `Nanoseconds` here — `1a98402`'s shape — no longer
+        // typechecks. Rough placement, not a frame-accurate media origin.
+        let instant = anchor.instant(atOffset: offset)
+        switch pointer.position(at: instant) {
         case .drawn(let point):
-            return StagePlanner.placement(for: point, in: plan, ripplePhase: click?.ripplePhase(at: time))
+            return StagePlanner.placement(for: point, in: plan,
+                                          ripplePhase: click?.ripplePhase(at: instant))
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }

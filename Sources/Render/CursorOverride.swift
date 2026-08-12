@@ -26,12 +26,12 @@ public struct CursorOverride: Hashable, Sendable {
     /// not a migration — after the first file is written, old overrides would be permanently
     /// ambiguous about which clock they meant, with no way to decide retroactively.
     ///
-    /// **This field does not change behaviour yet, and that is deliberate.**
-    /// `PointerTrack.position(at:)` takes a bare `Nanoseconds` and so cannot compare epochs; making
-    /// it take a `HostInstant` is deferred work. What this field adds is the
-    /// FORMAT's ability to express the distinction. It is required on decode rather than defaulted
-    /// precisely so it cannot be quietly omitted: a file without it fails to decode instead of
-    /// inheriting whatever the reader assumes.
+    /// **The deferred behaviour arrived 2026-08-12**: `PointerTrack.position(at:)` now takes a
+    /// `HostInstant` and compares this epoch before the interval, so an override recorded against
+    /// another boot session no longer suppresses by host-time coincidence
+    /// (`anOverrideFromAnotherEpochDoesNotSuppress`). The field is still required on decode rather
+    /// than defaulted precisely so it cannot be quietly omitted: a file without it fails to decode
+    /// instead of inheriting whatever the reader assumes.
     public let epoch: BootEpoch
     public let start: Nanoseconds
     public let duration: Nanoseconds

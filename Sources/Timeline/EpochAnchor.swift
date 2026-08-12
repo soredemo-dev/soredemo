@@ -17,4 +17,13 @@ public struct EpochAnchor: Hashable, Codable, Sendable {
         self.hostTime = hostTime
         self.wallClockUnixNanos = wallClockUnixNanos
     }
+
+    /// The one composition-offset → host-instant conversion. `1a98402` happened at a
+    /// caller doing this addition by hand on two bare `Nanoseconds` and dropping one
+    /// term; done here, the result carries its epoch, and the track queries' taking
+    /// `HostInstant` is what makes the bare-number version of that mistake fail to
+    /// typecheck instead of matching nothing on every frame.
+    public func instant(atOffset offset: Nanoseconds) -> HostInstant {
+        HostInstant(epoch: epoch, hostTime: hostTime + offset)
+    }
 }

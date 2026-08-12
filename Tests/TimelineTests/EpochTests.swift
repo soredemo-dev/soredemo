@@ -67,3 +67,21 @@ private let epochB = BootEpoch(id: UUID(uuidString: "11111111-2222-3333-4444-555
     #expect(a.epoch == epochA)
     // Known limit: adding Comparable later would not redden this test.
 }
+
+/// The ONE composition-offset → host-instant conversion. `1a98402` happened at a
+/// caller doing this addition by hand on two bare `Nanoseconds`; the anchor doing
+/// it returns a value that carries its domain, which is what lets the track
+/// queries refuse a bare number at compile time.
+@Test func anAnchorConvertsACompositionOffsetIntoItsOwnEpoch() {
+    let a = EpochAnchor(epoch: epochA, hostTime: Nanoseconds(1_000), wallClockUnixNanos: 100)
+    let instant = a.instant(atOffset: Nanoseconds(250))
+    #expect(instant == HostInstant(epoch: epochA, hostTime: Nanoseconds(1_250)))
+}
+
+/// Offset zero is the anchor itself — the identity is stated because every other
+/// fixture here uses a non-identity value, per the fixture rule.
+@Test func anAnchorAtOffsetZeroIsTheAnchorInstant() {
+    let a = EpochAnchor(epoch: epochB, hostTime: Nanoseconds(42), wallClockUnixNanos: 7)
+    #expect(a.instant(atOffset: Nanoseconds(0))
+            == HostInstant(epoch: epochB, hostTime: Nanoseconds(42)))
+}

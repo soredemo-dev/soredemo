@@ -18,27 +18,27 @@ private func up(_ ns: Int64, x: Double = 0.5, y: Double = 0.5) -> ButtonEvent {
 
 @Test func beforeAnyClickThereIsNoRipple() {
     let track = ClickTrack(events: [down(1_000_000_000)])
-    #expect(track.ripplePhase(at: Nanoseconds(500_000_000)) == nil)
+    #expect(track.ripplePhase(at: at(500_000_000)) == nil)
 }
 
 @Test func atTheClickInstantThePhaseIsZero() {
     let track = ClickTrack(events: [down(1_000_000_000)])
-    #expect(track.ripplePhase(at: Nanoseconds(1_000_000_000)) == 0.0)
+    #expect(track.ripplePhase(at: at(1_000_000_000)) == 0.0)
 }
 
 @Test func midRippleThePhaseIsBetweenZeroAndOne() {
     let track = ClickTrack(events: [down(0)])
     // rippleDuration is 400_000_000ns; 100_000_000ns in is a quarter of the way through.
-    let phase = track.ripplePhase(at: Nanoseconds(100_000_000))
+    let phase = track.ripplePhase(at: at(100_000_000))
     #expect(phase != nil)
     #expect(abs(phase! - 0.25) < 0.0001)
 }
 
 @Test func afterTheRippleHasFinishedThereIsNoRipple() {
     let track = ClickTrack(events: [down(0)])
-    #expect(track.ripplePhase(at: ClickTrack.rippleDuration) == nil)
-    #expect(track.ripplePhase(at: Nanoseconds(ClickTrack.rippleDuration.rawValue + 1)) == nil)
-    #expect(track.ripplePhase(at: Nanoseconds(10_000_000_000)) == nil)
+    #expect(track.ripplePhase(at: at(ClickTrack.rippleDuration.rawValue)) == nil)
+    #expect(track.ripplePhase(at: at(ClickTrack.rippleDuration.rawValue + 1)) == nil)
+    #expect(track.ripplePhase(at: at(10_000_000_000)) == nil)
 }
 
 /// On overlap the LATER click wins outright, computed from its own instant — not a
@@ -49,7 +49,7 @@ private func up(_ ns: Int64, x: Double = 0.5, y: Double = 0.5) -> ButtonEvent {
     let query: Int64 = 150_000_000        // 150ms after the earlier click, 50ms after the later one
     let track = ClickTrack(events: [down(earlier), down(later)])
 
-    let phase = track.ripplePhase(at: Nanoseconds(query))
+    let phase = track.ripplePhase(at: at(query))
     #expect(phase != nil)
     // The LATER click's own elapsed time: 150ms - 100ms = 50ms of 400ms = 0.125.
     #expect(abs(phase! - 0.125) < 0.0001)
@@ -58,18 +58,30 @@ private func up(_ ns: Int64, x: Double = 0.5, y: Double = 0.5) -> ButtonEvent {
 
     // Ordering in the input array must not matter — the track sorts internally.
     let reordered = ClickTrack(events: [down(later), down(earlier)])
-    #expect(reordered.ripplePhase(at: Nanoseconds(query)) == phase)
+    #expect(reordered.ripplePhase(at: at(query)) == phase)
 }
 
 /// `.up` events are not read at all: a ripple starts on contact, not on release.
 @Test func onlyDownEventsStartARipple() {
     let track = ClickTrack(events: [up(0)])
-    #expect(track.ripplePhase(at: Nanoseconds(0)) == nil)
-    #expect(track.ripplePhase(at: Nanoseconds(100_000_000)) == nil)
+    #expect(track.ripplePhase(at: at(0)) == nil)
+    #expect(track.ripplePhase(at: at(100_000_000)) == nil)
 }
 
 @Test func aClickTrackWithNoEventsNeverProducesARipple() {
     let track = ClickTrack(events: [])
-    #expect(track.ripplePhase(at: Nanoseconds(0)) == nil)
-    #expect(track.ripplePhase(at: Nanoseconds(1_000_000_000)) == nil)
+    #expect(track.ripplePhase(at: at(0)) == nil)
+    #expect(track.ripplePhase(at: at(1_000_000_000)) == nil)
+}
+
+/// A click stamped in another boot session has no ripple in flight here — same skip
+/// rule as `PointerTrack`, same reason: host times overlap across boots.
+@Test func aClickFromAnotherEpochHasNoRipple() {
+    let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000-000000000002")!)
+    let foreignDown = ButtonEvent(
+        instant: HostInstant(epoch: otherEpoch, hostTime: Nanoseconds(0)),
+        position: NormalizedPoint(x: 0.5, y: 0.5),
+        revision: GeometryRevision(id: 1), button: .left, phase: .down)
+    let track = ClickTrack(events: [foreignDown])
+    #expect(track.ripplePhase(at: at(100_000_000)) == nil)
 }

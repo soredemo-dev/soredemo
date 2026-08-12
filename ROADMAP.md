@@ -197,22 +197,28 @@ it, four seconds into a recording.
 > first and failed loudly on the not-yet-existing file, then the extraction made
 > it green; the whole suite is green after.
 >
-> **Phase 3A-2 item, recorded rather than fixed at the final whole-branch review for
-> Phase 3A-1.** The clock domain `1a98402` confused is still not stated at the TYPE
-> level: `pointerPlacement`'s `let time = anchor.hostTime + offset` adds a
-> composition-domain `Nanoseconds` to a host-domain `Nanoseconds`, and `HostInstant`
-> — which carries the epoch and is what the samples are actually stamped in — already
-> exists and is discarded at that exact seam. Reintroducing `1a98402` still compiles
-> today; what this phase achieved is that a test now catches it, not that the
-> compiler does. **Those are two instruments of different grade, and the difference
-> is not pedantic: a test is edited by whoever finds it inconvenient, and a type is
-> not.** So the goal is stated as *make `1a98402`'s whole class a compile error*, not
-> as *add type safety* — the second is a preference and the first is a checkable
-> outcome. Phase 3A-2 should give the two domains distinct types, shaped either
-> as `PointerTrack.position(at: HostInstant)` (push the conversion into the track so
-> callers never hold a bare `Nanoseconds` of ambiguous domain) or a `CompositionOffset`
-> wrapper (keep `Nanoseconds` but make the composition-time argument a distinct type
-> `hostTime + offset` cannot typecheck against directly).
+> **Phase 3A-2 item DONE (2026-08-12) — `1a98402`'s whole class is now a compile
+> error, which was the checkable outcome the brief demanded.** The shape chosen is
+> the first of the two the brief offered: the track queries take the domain —
+> `PointerTrack.position(at: HostInstant)` and `ClickTrack.ripplePhase(at:
+> HostInstant)` — so a caller cannot hold a bare `Nanoseconds` of ambiguous domain
+> at that seam at all, and the composition-offset → host-instant conversion has
+> exactly one home, `EpochAnchor.instant(atOffset:)`. Reintroducing the defect by
+> hand (`let time = anchor.hostTime + offset; pointer.position(at: time)`) was
+> observed failing to compile — `cannot convert value of type 'Nanoseconds' to
+> expected argument type 'HostInstant'`, at the exact line the original lived on —
+> and reverted. A `CompositionOffset` wrapper (the second shape) was rejected as
+> protecting one argument position while leaving the tracks epoch-blind.
+>
+> Riding with the type change, behaviourally red-then-green: the queries now
+> compare epochs before intervals, so an override, sample or click stamped in
+> ANOTHER boot session no longer matches this one's overlapping host times by
+> coincidence — including the behaviour change `CursorOverride.epoch`'s own doc
+> comment promised when the field was added "while zero files exist". Skip, not
+> trap: a recording can legitimately span a reboot, the same line
+> `HostRange.contains` already draws. `BlindInterval` still carries no epoch —
+> giving it one is a persisted-format change deferred on its own migration
+> argument. Design record: `docs/design/2026-08-12-clock-domain-types.md`.
 
 That is not a shortage of tests; the target is structurally untestable. A library
 can be imported. With the logic in `Headless` and the executable reduced to a

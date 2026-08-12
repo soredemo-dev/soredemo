@@ -26,15 +26,28 @@ public struct PointerTrack: Sendable {
     }
 
     /// The reviewer's decision wins, then a measured gap, then the most recent sample at or before
-    /// `time`. **No interpolation and no hold-last-known across a gap**: both produce footage that
-    /// looks fine, and looking fine is what deletes the signal saying someone should look.
-    public func position(at time: Nanoseconds) -> PointerReading {
-        if overrides.contains(where: { $0.contains(time) }) { return .suppressedByReviewer }
+    /// `instant`. **No interpolation and no hold-last-known across a gap**: both produce footage
+    /// that looks fine, and looking fine is what deletes the signal saying someone should look.
+    ///
+    /// `HostInstant`, not a bare `Nanoseconds` — the argument's type is what makes `1a98402`'s
+    /// class (querying an absolute-clock track with a composition-relative number) a compile
+    /// error rather than a silent every-frame miss. `BlindInterval` carries no epoch yet, so the
+    /// blind comparison is by `hostTime` alone — a persisted-format change deferred on its own
+    /// migration argument; see `docs/design/2026-08-12-clock-domain-types.md`.
+    public func position(at instant: HostInstant) -> PointerReading {
+        let time = instant.hostTime
+        // Epoch first, then interval: two boots produce overlapping host times, so an
+        // override or sample from another session would otherwise match by coincidence.
+        if overrides.contains(where: { $0.epoch == instant.epoch && $0.contains(time) }) {
+            return .suppressedByReviewer
+        }
         if let interval = blindIntervals.first(where: { $0.contains(time) }) {
             return .blind(interval)
         }
         var latest: PointerSample?
-        for sample in samples where sample.instant.hostTime.rawValue <= time.rawValue {
+        for sample in samples
+        where sample.instant.epoch == instant.epoch
+            && sample.instant.hostTime.rawValue <= time.rawValue {
             latest = sample
         }
         guard let latest else { return .noObservationYet }

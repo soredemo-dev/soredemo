@@ -20,13 +20,13 @@ public struct ClickTrack: Sendable {
     /// are not read: `ButtonEvent.phase` also carries `.up`, but a ripple that started on release
     /// rather than on press would visibly lag a fast click-and-release, and nothing about "the
     /// ripple marks where a click happened" needs the release edge at all.
-    private let downInstants: [Nanoseconds]      // sorted
+    private let downInstants: [HostInstant]      // sorted by hostTime
 
     public init(events: [ButtonEvent]) {
         self.downInstants = events
             .filter { $0.phase == .down }
-            .map { $0.instant.hostTime }
-            .sorted { $0.rawValue < $1.rawValue }
+            .map { $0.instant }
+            .sorted { $0.hostTime.rawValue < $1.hostTime.rawValue }
     }
 
     /// **A look-and-feel value, chosen by eye, not measured.** Unlike `NormalizedPoint` or
@@ -51,13 +51,19 @@ public struct ClickTrack: Sendable {
     /// interpolates or holds two ripples in superposition. A caller that wanted to draw two
     /// concurrent ripples would need a different type; this one draws the single ripple a person
     /// watching the frame would read as "the current click."
-    public func ripplePhase(at time: Nanoseconds) -> Double? {
-        var latest: Nanoseconds?
-        for instant in downInstants where instant.rawValue <= time.rawValue {
-            latest = instant
+    /// `HostInstant` for the same reason as `PointerTrack.position(at:)`: the argument's type is
+    /// what keeps a composition-relative number out of an absolute-clock comparison.
+    public func ripplePhase(at instant: HostInstant) -> Double? {
+        let time = instant.hostTime
+        var latest: HostInstant?
+        // Epoch first: a click from another boot session's overlapping host times
+        // must not start a ripple in this one.
+        for down in downInstants
+        where down.epoch == instant.epoch && down.hostTime.rawValue <= time.rawValue {
+            latest = down
         }
         guard let latest else { return nil }
-        let elapsed = time.rawValue - latest.rawValue
+        let elapsed = time.rawValue - latest.hostTime.rawValue
         let duration = Self.rippleDuration.rawValue
         guard elapsed < duration else { return nil }
         return Double(elapsed) / Double(duration)

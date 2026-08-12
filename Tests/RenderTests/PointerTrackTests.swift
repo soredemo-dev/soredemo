@@ -16,7 +16,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 @Test func aPositionBetweenTwoSamplesComesFromTheEarlierOne() {
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1), sample(1_000, 0.9, 0.9)],
                              blindIntervals: [], overrides: [])
-    #expect(track.position(at: Nanoseconds(400)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1)))
+    #expect(track.position(at: at(400)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1)))
 }
 
 @Test func aTimeInsideABlindIntervalReadsAsBlindAndCarriesTheCause() {
@@ -24,7 +24,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
                               cause: .tapDisabled)
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1), sample(1_000, 0.9, 0.9)],
                              blindIntervals: [blind], overrides: [])
-    #expect(track.position(at: Nanoseconds(600)) == .blind(blind))
+    #expect(track.position(at: at(600)) == .blind(blind))
 }
 
 @Test func blindNeverDegradesToTheLastKnownPosition() {
@@ -33,7 +33,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
     let blind = BlindInterval(start: Nanoseconds(500), duration: Nanoseconds(300),
                               cause: .tapDisabled)
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [blind], overrides: [])
-    let reading = track.position(at: Nanoseconds(600))
+    let reading = track.position(at: at(600))
     if case .drawn = reading { Issue.record("a blind interval produced a drawn position") }
 }
 
@@ -41,12 +41,12 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [],
                              overrides: [CursorOverride(epoch: epoch, start: Nanoseconds(0),
                                                         duration: Nanoseconds(1_000))])
-    #expect(track.position(at: Nanoseconds(500)) == .suppressedByReviewer)
+    #expect(track.position(at: at(500)) == .suppressedByReviewer)
 }
 
 @Test func silenceBeforeTheFirstSampleIsNotBlindAndIsNotAPosition() {
     let track = PointerTrack(samples: [sample(1_000, 0.5, 0.5)], blindIntervals: [], overrides: [])
-    #expect(track.position(at: Nanoseconds(0)) == .noObservationYet)
+    #expect(track.position(at: at(0)) == .noObservationYet)
 }
 
 @Test func theBlindFractionIsOverTheSpanAskedAbout() {
@@ -61,7 +61,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 /// Precedence at the overlap: one instant covered by BOTH a `CursorOverride` and a
 /// `BlindInterval`. Checking the blind list first reddens only this test.
 @Test func anOverrideOutranksAnOverlappingBlindInterval() {
-    let overlapping = Nanoseconds(600)
+    let overlapping = Nanoseconds(600)  // the raw instant, shared by both interval sanity checks
     let blind = BlindInterval(start: Nanoseconds(500), duration: Nanoseconds(300), cause: .tapDisabled)
     let override = CursorOverride(epoch: epoch, start: Nanoseconds(500), duration: Nanoseconds(300))
     // Sanity: the instant really does fall inside both intervals.
@@ -70,7 +70,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [blind],
                              overrides: [override])
-    #expect(track.position(at: overlapping) == .suppressedByReviewer)
+    #expect(track.position(at: at(overlapping.rawValue)) == .suppressedByReviewer)
 }
 
 /// `blindFraction(over:)`'s clamp path, which every test above leaves unexercised.
@@ -86,6 +86,37 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
     let fraction = track.blindFraction(over: Nanoseconds(0) ..< Nanoseconds(1_000))
     #expect(abs(fraction - 0.8) < 0.0001)
     #expect(fraction <= 1.0)
+}
+
+// MARK: - epoch mismatch: another boot session's data answers nothing here
+//
+// Two boots produce overlapping host times, so without these checks a number from
+// another session matches by coincidence — `1a98402`'s failure surface, one domain
+// over. Skip, not trap: a recording can legitimately span a reboot, so "another
+// epoch" is a data condition (`HostRange.contains` draws the same line), and the
+// reading cases keep the silence loud.
+
+private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000-000000000001")!)
+
+/// The behaviour change `CursorOverride.epoch`'s own doc comment promised when it
+/// was added "while zero files exist": an override recorded against another boot
+/// session must not suppress this one's cursor.
+@Test func anOverrideFromAnotherEpochDoesNotSuppress() {
+    let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [],
+                             overrides: [CursorOverride(epoch: otherEpoch, start: Nanoseconds(0),
+                                                        duration: Nanoseconds(1_000))])
+    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1)))
+}
+
+/// A sample stamped in another boot session is not "the most recent sample" of this
+/// one, even when its raw host time is smaller — overlapping host times across boots
+/// is the whole reason `HostInstant` carries an epoch.
+@Test func aSampleFromAnotherEpochIsNotDrawn() {
+    let foreign = PointerSample(instant: HostInstant(epoch: otherEpoch, hostTime: Nanoseconds(100)),
+                                position: NormalizedPoint(x: 0.9, y: 0.9),
+                                revision: GeometryRevision(id: 1))
+    let track = PointerTrack(samples: [foreign], blindIntervals: [], overrides: [])
+    #expect(track.position(at: at(500)) == .noObservationYet)
 }
 
 // MARK: - decode validation
