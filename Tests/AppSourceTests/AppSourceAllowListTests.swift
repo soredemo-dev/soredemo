@@ -106,21 +106,22 @@ func violations(
 
 // MARK: - rule 5: the CoreGraphics bridge
 
-/// The app-side half of the CoreGraphics-geometry ban (ARCHITECTURE.md D6): the four
-/// types may appear only in the bridge that converts them to this project's own types
-/// on entry and back on exit. Mirrors `ArchitectureChecker.bannedCGTypes`, which does
-/// the same for the package; a fifth banned type means editing both, unenforced.
-@Test func coreGraphicsGeometryTypesAppearOnlyInTheBridge() throws {
-    let found = try violations(
+/// The app-side half of the CoreGraphics-geometry ban (ARCHITECTURE.md D6), and since
+/// Phase 3A-3 a **zero-permit** claim: no app source names one of the four types at all.
+/// `CGGeometryBridge.swift` moved into `Sources/Headless`, so the app target holds no
+/// conversion boundary of its own — it calls the bridge through `import Headless`, which
+/// names no CG type at the call site. Mirrors `ArchitectureChecker.bannedCGTypes`, which
+/// does the same for the package; a fifth banned type means editing both, unenforced.
+@Test func noAppSourceNamesACoreGraphicsGeometryType() throws {
+    let found = try violationsEverywhere(
         banned: ["CGRect", "CGPoint", "CGSize", "CGFloat"],
-        permittedPath: "Soredemo/Capture/CGGeometryBridge.swift",
         in: try appSourceFiles())
 
     #expect(found.isEmpty,
             """
-            a CoreGraphics geometry type reached the app outside the bridge:
+            a CoreGraphics geometry type is named in the app target:
             \(found.joined(separator: "\n"))
-            Convert at Soredemo/Capture/CGGeometryBridge.swift and pass the \
+            Convert in Sources/Headless/CGGeometryBridge.swift and pass the \
             package's own types onward; see ARCHITECTURE.md D3.
             """)
 }

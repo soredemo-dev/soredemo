@@ -1,5 +1,7 @@
 @preconcurrency import ScreenCaptureKit
 import Geometry
+// Capture types that moved into `Headless` in Phase 3A-3.
+import Headless
 
 /// What gets recorded — a display or a window — and the geometry that choice
 /// implies.

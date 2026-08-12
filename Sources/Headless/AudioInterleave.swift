@@ -8,11 +8,11 @@ import CoreMedia
 ///
 /// Both members are `nonisolated`: `CaptureSession.appendAudio` calls them synchronously on
 /// `sampleQueue` from a ScreenCaptureKit callback and cannot await a main-actor hop.
-enum AudioInterleave {
+public enum AudioInterleave {
     /// Returns `sampleBuffer` unchanged when it is already interleaved, an interleaved copy when
     /// it is not, or `nil` when the layout cannot be read or the copy cannot be made. `nil` is a
     /// drop, which `CaptureSession` counts; one malformed buffer does not fail the recording.
-    nonisolated static func interleaved(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+    public nonisolated static func interleaved(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return nil }
         let inputFormat = AVAudioFormat(cmAudioFormatDescription: formatDescription)
         if inputFormat.isInterleaved { return sampleBuffer }
@@ -29,7 +29,10 @@ enum AudioInterleave {
         else { return nil }
         inputBuffer.frameLength = frames
 
-        guard CMSampleBufferCopyPCMDataIntoAudioBufferList(
+        // Safe here: `mutableAudioBufferList` is owned by `inputBuffer`, which outlives
+        // this call, and `frameCapacity` was set to `frames` at construction — so the
+        // list it describes has room for exactly the frame count requested.
+        guard unsafe CMSampleBufferCopyPCMDataIntoAudioBufferList(
                 sampleBuffer, at: 0, frameCount: Int32(frames),
                 into: inputBuffer.mutableAudioBufferList) == noErr,
               let converter = AVAudioConverter(from: inputFormat, to: outputFormat)
@@ -41,18 +44,27 @@ enum AudioInterleave {
         // `CMSampleBufferCreate` + `CMSampleBufferSetDataBufferFromAudioBufferList` form fails
         // here with `kCMSampleBufferError_RequiredParameterMissing` (-12731) and yields a buffer
         // with no data. The explicit `sampleSizeArray` is required: LPCM needs a constant size.
-        let bytesPerFrame = Int(outputFormat.streamDescription.pointee.mBytesPerFrame)
+        // Safe here: `streamDescription` is owned by `outputFormat` and valid for its
+        // lifetime; the `pointee` read copies a scalar out and keeps no pointer.
+        let bytesPerFrame = Int(unsafe outputFormat.streamDescription.pointee.mBytesPerFrame)
         let totalBytes = bytesPerFrame * Int(outputBuffer.frameLength)
         guard totalBytes > 0 else { return nil }
         var block: CMBlockBuffer?
-        guard CMBlockBufferCreateWithMemoryBlock(
+        // Safe here: the block is allocated by CoreMedia at exactly `totalBytes` (both
+        // `blockLength` and `dataLength`), `&block` is a local outliving the call, and
+        // `kCMBlockBufferAssureMemoryNowFlag` means the memory exists before the copy
+        // below rather than being faulted in during it.
+        guard unsafe CMBlockBufferCreateWithMemoryBlock(
                 allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: totalBytes,
                 blockAllocator: kCFAllocatorDefault, customBlockSource: nil,
                 offsetToData: 0, dataLength: totalBytes,
                 flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block) == noErr,
               let block,
-              let source = outputBuffer.audioBufferList.pointee.mBuffers.mData,
-              CMBlockBufferReplaceDataBytes(with: source, blockBuffer: block,
+              // Safe here: `source` belongs to `outputBuffer`, alive for this whole
+              // scope, and `totalBytes` is `bytesPerFrame * frameLength` — the exact
+              // extent of both the source buffer and the destination block.
+              let source = unsafe outputBuffer.audioBufferList.pointee.mBuffers.mData,
+              unsafe CMBlockBufferReplaceDataBytes(with: source, blockBuffer: block,
                                              offsetIntoDestination: 0, dataLength: totalBytes) == noErr
         else { return nil }
 
@@ -63,7 +75,9 @@ enum AudioInterleave {
             decodeTimeStamp: .invalid)
         var sampleSize = bytesPerFrame
         var rebuilt: CMSampleBuffer?
-        guard CMSampleBufferCreateReady(
+        // Safe here: `&timing` and `&sampleSize` are locals outliving the call, each
+        // matching its declared entry count of 1, and `&rebuilt` is the out-parameter.
+        guard unsafe CMSampleBufferCreateReady(
                 allocator: kCFAllocatorDefault, dataBuffer: block,
                 formatDescription: outputFormat.formatDescription,
                 sampleCount: CMItemCount(outputBuffer.frameLength), sampleTimingEntryCount: 1,
@@ -79,9 +93,10 @@ enum AudioInterleave {
     ///
     /// A track can be well-formed and correctly timed and still carry nothing; this is recorded
     /// for a caller to judge, never a reason to fail a segment, because silence is legitimate.
-    nonisolated static func rms(of sampleBuffer: CMSampleBuffer) -> Double? {
+    public nonisolated static func rms(of sampleBuffer: CMSampleBuffer) -> Double? {
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee,
+              // Safe here: the ASBD belongs to `formatDescription`; `pointee` copies it.
+              let asbd = unsafe CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee,
               asbd.mFormatID == kAudioFormatLinearPCM,
               (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0,
               asbd.mBitsPerChannel == 32,
@@ -91,22 +106,27 @@ enum AudioInterleave {
 
         var length = 0
         var pointer: UnsafeMutablePointer<Int8>?
-        guard CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil,
+        // Safe here: `pointer` and `length` are locals the call fills, and the read
+        // below is bounded by `count`, derived from that same returned `length`.
+        guard unsafe CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil,
                                            totalLengthOut: &length, dataPointerOut: &pointer) == noErr,
-              let pointer, length >= 4
+              let pointer = unsafe pointer, length >= 4
         else { return nil }
         let count = length / 4
         var sum = 0.0
-        pointer.withMemoryRebound(to: Float.self, capacity: count) { floats in
-            for i in 0..<count { sum += Double(floats[i]) * Double(floats[i]) }
+        // Safe here: the guard above established `length >= 4` and LPCM float32, and
+        // `count` is `length / 4` — so `count` Floats fit inside the block exactly.
+        unsafe pointer.withMemoryRebound(to: Float.self, capacity: count) { floats in
+            for i in 0..<count { sum += Double(unsafe floats[i]) * Double(unsafe floats[i]) }
         }
         return (sum / Double(count)).squareRoot()
     }
 
     /// A one-line description of an audio buffer's actual layout, for the diagnostics.
-    nonisolated static func layoutDescription(of sampleBuffer: CMSampleBuffer) -> String {
+    public nonisolated static func layoutDescription(of sampleBuffer: CMSampleBuffer) -> String {
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee
+              // Safe here: same argument as `rms(of:)` above.
+              let asbd = unsafe CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee
         else { return "no audio format description" }
         let interleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0
         return "\(asbd.mChannelsPerFrame)ch \(asbd.mBitsPerChannel)-bit "

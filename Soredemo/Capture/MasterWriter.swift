@@ -1,6 +1,8 @@
 import AVFoundation
 import CoreMedia
 import Foundation
+// Capture types that moved into `Headless` in Phase 3A-3.
+import Headless
 
 /// The seam the writer migration will happen behind.
 ///

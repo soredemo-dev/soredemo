@@ -38,7 +38,8 @@ func swiftFiles(under relativePath: String) throws -> [URL] {
 @Test func coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge() throws {
     let found = try violations(
         banned: ["CGRect", "CGPoint", "CGSize", "CGFloat"],
-        permittedPath: "Sources/Headless/HeadlessGeometryBridge.swift",
+        permittedPaths: ["Sources/Headless/HeadlessGeometryBridge.swift",
+                         "Sources/Headless/CGGeometryBridge.swift"],
         in: try headlessSourceFiles())
 
     #expect(found.isEmpty, """
@@ -115,8 +116,16 @@ func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
 /// **Two bridges, one definition each.** A function defined in both is the split's own failure
 /// mode: one copy gets a fix, the other does not, and each passes its own tier's test. Named
 /// `…ShareNoFunctionSignature`, not `…ShareNoFunctionName` — the bridges do share `point`.
+///
+/// **Both bridges are in `Sources/Headless` since Phase 3A-3**, which makes this check MORE
+/// load-bearing rather than less: they are now two files in one target, where the pull toward
+/// "merge them, they are both CG conversion" is strongest. They stay separate because they
+/// face opposite directions — `CGGeometryBridge` is the capture tier's ENTRY (AX frames,
+/// ScreenCaptureKit rects), `HeadlessGeometryBridge` the render tier's EXIT (the rects Core
+/// Image and AVFoundation demand). The variable is still named `capture`/`render` after the
+/// tier, not after the directory, because the tier is what the disjointness is about.
 @Test func theTwoGeometryBridgesShareNoFunctionSignature() throws {
-    let app = try functionSignatures(inFileAt: "Soredemo/Capture/CGGeometryBridge.swift")
+    let app = try functionSignatures(inFileAt: "Sources/Headless/CGGeometryBridge.swift")
     let headless = try functionSignatures(inFileAt: "Sources/Headless/HeadlessGeometryBridge.swift")
     try #require(!app.isEmpty && !headless.isEmpty,
                  "a bridge scanned as empty — the scan is broken, not the bridges")

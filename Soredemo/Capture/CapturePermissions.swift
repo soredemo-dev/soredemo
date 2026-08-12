@@ -5,6 +5,8 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import IOKit.hid
+// Capture types that moved into `Headless` in Phase 3A-3.
+import Headless
 
 /// The four TCC-gated permissions capture depends on.
 public enum CapturePermission: String, CaseIterable, Sendable {

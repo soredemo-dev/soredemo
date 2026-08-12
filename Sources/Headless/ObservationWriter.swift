@@ -14,7 +14,7 @@ import Timeline
 ///
 /// An observation whose AX chain extends past a segment boundary belongs to the segment its
 /// click happened in; chains are never split.
-final class ObservationWriter: @unchecked Sendable {
+public final class ObservationWriter: @unchecked Sendable {
 
     // `nonisolated` on every member below: the target builds with
     // `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and observations arrive on
@@ -33,11 +33,14 @@ final class ObservationWriter: @unchecked Sendable {
     }
 
     /// `observations/segment-NN.jsonl`, matching the `%02d` form of `master-NN.mov`.
-    nonisolated static func logFilename(forSegment index: Int) -> String {
-        "segment-\(String(format: "%02d", index)).jsonl"
+    public nonisolated static func logFilename(forSegment index: Int) -> String {
+        // `.formatted(...)`, not `String(format:)`: that initialiser's C varargs are an
+        // unmarked unsafe construct under `.strictMemorySafety()`, which this file now
+        // carries — `MP4Exporter` made the same substitution for the same reason.
+        "segment-\(index.formatted(.number.precision(.integerLength(2...)).grouping(.never))).jsonl"
     }
 
-    nonisolated static func logURL(forSegment index: Int, in packageURL: URL) -> URL {
+    public nonisolated static func logURL(forSegment index: Int, in packageURL: URL) -> URL {
         packageURL
             .appending(path: "observations", directoryHint: .isDirectory)
             .appending(path: logFilename(forSegment: index), directoryHint: .notDirectory)
@@ -48,7 +51,7 @@ final class ObservationWriter: @unchecked Sendable {
     ///
     /// A statement about naming only — the caller must still check the filesystem, since a
     /// capture that ran without Input Monitoring produces media with no log beside it.
-    nonisolated static func expectedLogURL(forMediaURL mediaURL: URL) -> URL? {
+    public nonisolated static func expectedLogURL(forMediaURL mediaURL: URL) -> URL? {
         guard mediaURL.pathExtension == "mov",
               mediaURL.deletingLastPathComponent().lastPathComponent == "media" else { return nil }
         let name = mediaURL.deletingPathExtension().lastPathComponent
@@ -59,9 +62,15 @@ final class ObservationWriter: @unchecked Sendable {
         return logURL(forSegment: index, in: packageURL)
     }
 
-    nonisolated let url: URL
+    public nonisolated let url: URL
     private nonisolated let header: ObservationLogHeader
     private nonisolated let lock = NSLock()
+    /// **Every access to this and to `recordCounts` below is marked `unsafe` at its own
+    /// expression, and the argument is the same at all of them**: both are guarded by
+    /// `lock`, and no access happens outside a `lock.withLock` block or the private
+    /// initialiser (which runs before the instance is shared). `nonisolated(unsafe)` is
+    /// what lets a `Sendable` class hold mutable state under a lock; the compiler cannot
+    /// see the lock, so the marks say what it cannot check.
     private nonisolated(unsafe) var handle: FileHandle?
     /// One count per `kind` appended. A key present with a zero value and a key absent are
     /// different facts on disk; a producer declares a kind it saw none of with
@@ -71,12 +80,12 @@ final class ObservationWriter: @unchecked Sendable {
     private nonisolated init(url: URL, header: ObservationLogHeader, handle: FileHandle) {
         self.url = url
         self.header = header
-        self.handle = handle
+        unsafe self.handle = handle
     }
 
     /// Opens the log for one segment and writes its header line immediately, so a log truncated
     /// to its first line still names its segment, media file and boot epoch.
-    nonisolated static func open(segment header: ObservationLogHeader,
+    public nonisolated static func open(segment header: ObservationLogHeader,
                                  in packageURL: URL) throws -> ObservationWriter {
         let fm = FileManager.default
         let directory = packageURL.appending(path: "observations", directoryHint: .isDirectory)
@@ -97,12 +106,12 @@ final class ObservationWriter: @unchecked Sendable {
 
     /// Records that this writer emits `kind` even if it never sees one, so the trailer's
     /// `recordCounts` carries `kind: 0` rather than no key at all.
-    nonisolated func declareRecordKind(_ kind: String) {
-        lock.withLock { if recordCounts[kind] == nil { recordCounts[kind] = 0 } }
+    public nonisolated func declareRecordKind(_ kind: String) {
+        lock.withLock { if unsafe recordCounts[kind] == nil { unsafe recordCounts[kind] = 0 } }
     }
 
     /// Appends one record as one line, unbuffered.
-    nonisolated func append(_ record: some ObservationRecord) throws {
+    public nonisolated func append(_ record: some ObservationRecord) throws {
         try ObservationLog.checkEpoch(of: record, against: header.epoch)
         try writeLine(try ObservationLog.encode(record), kind: record.kind, counted: true)
     }
@@ -119,9 +128,9 @@ final class ObservationWriter: @unchecked Sendable {
         }
         var line = bytes
         line.append(UInt8(ascii: "\n"))
-        guard let handle else { throw WriterError.logIsClosed }
+        guard let handle = unsafe handle else { throw WriterError.logIsClosed }
         try handle.write(contentsOf: line)
-        if counted { recordCounts[kind, default: 0] += 1 }
+        if counted { unsafe recordCounts[kind, default: 0] += 1 }
     }
 
     /// Writes the trailer and closes the file.
@@ -134,20 +143,20 @@ final class ObservationWriter: @unchecked Sendable {
     /// trailer but outside its counts, or after the trailer write, and lets two concurrent
     /// `close`s write two trailers.
     @discardableResult
-    nonisolated func close(endedBy boundary: SegmentBoundary,
+    public nonisolated func close(endedBy boundary: SegmentBoundary,
                        hostRange: HostRange,
                        gapWatches: [GapWatch]) throws -> URL {
         try lock.withLock {
-            guard handle != nil else { throw WriterError.logIsClosed }
+            guard unsafe handle != nil else { throw WriterError.logIsClosed }
             let trailer = ObservationLogTrailer(segmentIndex: header.segmentIndex,
                                                 hostRange: hostRange,
                                                 endedBy: boundary,
-                                                recordCounts: recordCounts,
+                                                recordCounts: unsafe recordCounts,
                                                 gapWatches: gapWatches)
             try writeLineLocked(try ObservationLog.encode(trailer),
                                 kind: trailer.kind, counted: false)
-            try handle?.close()
-            handle = nil
+            try unsafe handle?.close()
+            unsafe handle = nil
         }
         return url
     }
@@ -160,7 +169,7 @@ extension CaptureError {
     ///
     /// `.alreadyObserving` returns `nil`: it is a programming error in this app's own state
     /// machine, not a statement about what the recording could see.
-    var blindness: ObservationBlindness? {
+    public var blindness: ObservationBlindness? {
         switch self {
         case .inputMonitoringUnavailable: .inputMonitoringUnavailable
         case .eventTapRunLoopSourceUnavailable: .eventTapRunLoopSourceUnavailable

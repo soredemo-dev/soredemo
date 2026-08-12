@@ -7,12 +7,18 @@ import CoreGraphics
 import Foundation
 import Geometry
 
-/// The only file in the app target allowed to name a CoreGraphics geometry type.
+/// One of the two files in `Sources/Headless` allowed to name a CoreGraphics geometry
+/// type. The app target now names none at all (`noAppSourceNamesACoreGraphicsGeometryType`).
 ///
 /// Architecture rule 2 keeps `CGRect`, `CGPoint`, `CGSize` and `CGFloat` out of
 /// the package (`Plugins/ArchitectureCheck`); rule 5 keeps them out of the rest
 /// of the app (a package test that allow-lists this path and no other).
-/// `Sources/Headless/HeadlessGeometryBridge.swift` is the render tier's bridge.
+/// `HeadlessGeometryBridge.swift`, beside it in this target since Phase 3A-3, is the
+/// RENDER tier's bridge and stays a separate file: this one is the capture tier's
+/// ENTRY (AX frames, ScreenCaptureKit rects, event taps — points and pixels arriving
+/// from the system), that one is the render tier's EXIT (the `CGRect`/`CGSize` Core
+/// Image and AVFoundation demand). A test forbids the two from sharing a function
+/// signature, which is what keeps "two bridges" from decaying into "one bridge, twice".
 ///
 /// Pixels and points are not interchangeable, so there is no single
 /// `convert(_:)` here: `CGDisplayBounds` and AX frames report points, a
@@ -22,13 +28,13 @@ import Geometry
 /// Non-finite rectangles trap — `PixelRect.init` and `PointRect.init`
 /// `precondition` on `isFinite`, and `CGRect.null` is `(∞, ∞, 0, 0)`. Callers
 /// test `rect.isNull` / `rect.isInfinite` where the API hands the value over.
-enum CGGeometryBridge {
+public enum CGGeometryBridge {
     // MARK: - CoreGraphics → package
 
     /// Interprets `rect` as native pixels. `standardized` first: a `CGRect` may
     /// carry a negative width or height, which `PixelRect` `precondition`s
     /// against.
-    nonisolated static func pixelRect(from rect: CGRect) -> PixelRect {
+    public nonisolated static func pixelRect(from rect: CGRect) -> PixelRect {
         let r = rect.standardized
         return PixelRect(x: Double(r.origin.x), y: Double(r.origin.y),
                          width: Double(r.size.width), height: Double(r.size.height))
@@ -41,7 +47,7 @@ enum CGGeometryBridge {
     /// `nonisolated` on every function in this file: under this target's
     /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` they would otherwise be
     /// unreachable from the synchronous, non-`async` `SCStreamOutput` callback.
-    nonisolated static func pointRect(from rect: CGRect) -> PointRect {
+    public nonisolated static func pointRect(from rect: CGRect) -> PointRect {
         let r = rect.standardized
         return PointRect(x: Double(r.origin.x), y: Double(r.origin.y),
                          width: Double(r.size.width), height: Double(r.size.height))
@@ -51,7 +57,7 @@ enum CGGeometryBridge {
     /// top-left-origin space `CGEventGetLocation` reports in, and returns bare
     /// scalars: no package type describes an un-normalised point, and
     /// `DisplayArrangement.route`, the next step, takes two `Double`s.
-    nonisolated static func location(from point: CGPoint) -> (x: Double, y: Double) {
+    public nonisolated static func location(from point: CGPoint) -> (x: Double, y: Double) {
         (Double(point.x), Double(point.y))
     }
 
@@ -59,7 +65,7 @@ enum CGGeometryBridge {
     /// encodings are handled: `SCStreamFrameInfoContentRect` arrives as a CGRect
     /// dictionary representation, `SCStreamFrameInfoDirtyRects` as an `NSValue`.
     /// Returns `nil` when neither form applies, so the caller can count it.
-    nonisolated static func pointRect(fromFrameAttachment attachment: Any?) -> PointRect? {
+    public nonisolated static func pointRect(fromFrameAttachment attachment: Any?) -> PointRect? {
         if let value = attachment as? NSValue { return pointRect(from: value.rectValue) }
         if let dictionary = attachment as? NSDictionary,
            let rect = CGRect(dictionaryRepresentation: dictionary as CFDictionary) {
@@ -78,19 +84,24 @@ enum CGGeometryBridge {
     /// attribute did not answer, what came back is not an `AXValue`, or
     /// `AXValueGetValue` refuses the type. Non-finite values pass through
     /// unfiltered; the caller checks `isFinite`.
-    nonisolated static func point(fromAXValue value: CFTypeRef?) -> (x: Double, y: Double)? {
+    public nonisolated static func point(fromAXValue value: CFTypeRef?) -> (x: Double, y: Double)? {
         guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero
-        guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
+        // Safe here: the `as!` is guarded by the `CFGetTypeID` check one line up, and
+        // `&point` is a local outliving the call. `AXValueGetValue` returns false — not a
+        // partial write — when the stored kind is not the requested one, which is what
+        // `theAXPointDecoderRefusesAnAXValueOfTheWrongKind` observes.
+        guard unsafe AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
         return (Double(point.x), Double(point.y))
     }
 
     /// Decodes an `AXValue` holding a size into bare scalars, in points — what
     /// `kAXSizeAttribute` reports. Fails as `point(fromAXValue:)` does.
-    nonisolated static func size(fromAXValue value: CFTypeRef?) -> (width: Double, height: Double)? {
+    public nonisolated static func size(fromAXValue value: CFTypeRef?) -> (width: Double, height: Double)? {
         guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         var size = CGSize.zero
-        guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
+        // Safe here: same argument as `point(fromAXValue:)` above.
+        guard unsafe AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
         return (Double(size.width), Double(size.height))
     }
 
@@ -98,11 +109,11 @@ enum CGGeometryBridge {
 
     /// The render-side exit. Overloaded on the argument type because that type
     /// already carries the unit; a second spelling of it could disagree.
-    nonisolated static func rect(from pixels: PixelRect) -> CGRect {
+    public nonisolated static func rect(from pixels: PixelRect) -> CGRect {
         CGRect(x: pixels.x, y: pixels.y, width: pixels.width, height: pixels.height)
     }
 
-    nonisolated static func rect(from points: PointRect) -> CGRect {
+    public nonisolated static func rect(from points: PointRect) -> CGRect {
         CGRect(x: points.x, y: points.y, width: points.width, height: points.height)
     }
 }

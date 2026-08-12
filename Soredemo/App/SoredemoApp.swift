@@ -9,6 +9,8 @@ import AppKit
 import Geometry
 @preconcurrency import ScreenCaptureKit
 import SwiftUI
+// Capture types that moved into `Headless` in Phase 3A-3.
+import Headless
 
 @main
 struct SoredemoApp: App {
