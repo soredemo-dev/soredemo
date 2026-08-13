@@ -346,7 +346,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     // `observationWriter` rotates per segment.
 
     private nonisolated(unsafe) var inputObserver: InputObserver?
-    private nonisolated(unsafe) var axObserver: AXObserver?
+    private nonisolated(unsafe) var axObserver: Headless.AXObserver?
     /// What `setUpObservation()` found when starting the tap and asking for
     /// Accessibility. Read once for the whole session, not per segment.
     private nonisolated(unsafe) var observationBlindness: [ObservationBlindness] = []
@@ -355,7 +355,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// open. Both are session-cumulative, so a segment's `GapWatch` rows are
     /// this snapshot subtracted from the diagnostics read at close.
     private nonisolated(unsafe) var inputDiagnosticsAtSegmentStart = InputObserver.Diagnostics()
-    private nonisolated(unsafe) var axDiagnosticsAtSegmentStart = AXObserver.Diagnostics()
+    private nonisolated(unsafe) var axDiagnosticsAtSegmentStart = Headless.AXObserver.Diagnostics()
     private nonisolated(unsafe) var frameStatusCountsAtSegmentStart: [Int: Int] = [:]
     /// Sum of every `SecureInputInterval.interval.duration` routed to the
     /// current segment's writer, reset at each `beginSegment`. Not derivable by
@@ -419,7 +419,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                                 destination: source.destinationRect(scale: scale))
     }
 
-    /// Constructs this session's `InputObserver`/`AXObserver`, asks for
+    /// Constructs this session's `InputObserver`/`Headless.AXObserver`, asks for
     /// Accessibility, starts the tap, and records what happened as
     /// `observationBlindness`.
     ///
@@ -438,7 +438,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         let arrangement = InputObserver.currentArrangement()
         let input = InputObserver(arrangement: arrangement, epoch: epoch)
-        let ax = AXObserver(arrangement: arrangement, epoch: epoch)
+        let ax = Headless.AXObserver(arrangement: arrangement, epoch: epoch)
 
         var blindness: [ObservationBlindness] = []
         if !accessibilityGranted { blindness.append(.accessibilityUnavailable) }
@@ -652,7 +652,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             self.blackFrameConsecutive = 0
             self.observationWriter = writer
             self.inputDiagnosticsAtSegmentStart = input?.diagnostics ?? InputObserver.Diagnostics()
-            self.axDiagnosticsAtSegmentStart = ax?.diagnostics ?? AXObserver.Diagnostics()
+            self.axDiagnosticsAtSegmentStart = ax?.diagnostics ?? Headless.AXObserver.Diagnostics()
             self.frameStatusCountsAtSegmentStart = _diagnostics.frameStatusCounts
             self.secureInputSuppressedNanosAtCurrentSegment = 0
             let openInstant = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
@@ -742,7 +742,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
 
         if let closingWriter {
-            // Wait for the AX queue before closing: `AXObserver.enqueue` may still
+            // Wait for the AX queue before closing: `Headless.AXObserver.enqueue` may still
             // be walking a chain for a click just before this boundary, which
             // `routeInputObservation` already routed to THIS writer. Without the
             // wait the chain hits `WriterError.logIsClosed` and is lost.
@@ -776,7 +776,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated func observationGapWatches(hostRange: HostRange) -> [GapWatch] {
         let (inputNow, inputBase, axNow, axBase, secureInputSuppressed, framesBase) = lock.withLock {
             (inputObserver?.diagnostics ?? InputObserver.Diagnostics(), inputDiagnosticsAtSegmentStart,
-             axObserver?.diagnostics ?? AXObserver.Diagnostics(), axDiagnosticsAtSegmentStart,
+             axObserver?.diagnostics ?? Headless.AXObserver.Diagnostics(), axDiagnosticsAtSegmentStart,
              secureInputSuppressedNanosAtCurrentSegment, frameStatusCountsAtSegmentStart)
         }
         let framesNow = lock.withLock { _diagnostics.frameStatusCounts }

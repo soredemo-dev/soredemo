@@ -140,7 +140,7 @@ public final class InputObserver: @unchecked Sendable {
             var line = "secure input intervals: \(secureInputIntervals)"
                 + " (\(eventsSuppressedBySecureInput) event(s) suppressed)\n"
                 + "secure input checks   : \(secureInputChecks) over "
-                + String(format: "%.1f", seconds) + " s"
+                + seconds.formatted(.number.precision(.fractionLength(1))) + " s"
             if secureInputChecks == 0 {
                 line += "  ← NOTHING WAS LOOKING; the line above is not a measurement"
             }
@@ -154,22 +154,25 @@ public final class InputObserver: @unchecked Sendable {
             let blindMs = Double(tapBlindNanos) / 1e6
             var windows = "tap disabled windows : \(tapDisabledIntervals)"
                 + " (\(tapDisabledIntervalsFoundByPolling) found by polling), "
-                + String(format: "%.1f", blindMs) + " ms of enclosing blind window"
+                + blindMs.formatted(.number.precision(.fractionLength(1))) + " ms of enclosing blind window"
             if tapDisabledIntervalsWithNoObservedLowerBound > 0 {
                 windows += "  (\(tapDisabledIntervalsWithNoObservedLowerBound) with no lower bound"
                     + " at all — those contribute no width to the total above)"
             }
             var polls = "tap enabled polls    : \(tapEnabledPolls) over "
-                + String(format: "%.1f", seconds) + " s"
+                + seconds.formatted(.number.precision(.fractionLength(1))) + " s"
             if tapPollsWithNoTap > 0 { polls += "  (+\(tapPollsWithNoTap) with no tap to read)" }
             if tapEnabledPolls == 0 {
                 polls += "  ← NOTHING WAS LOOKING; the line above is not a measurement"
             }
             return windows + "\n" + polls
         }
+
+        /// Zeroed. `public` so the app tier can construct one to diff against.
+        public init() {}
     }
 
-    public nonisolated var diagnostics: Diagnostics { lock.withLock { _diagnostics } }
+    public nonisolated var diagnostics: Diagnostics { lock.withLock { unsafe _diagnostics } }
 
     // MARK: - Stored state
     //
@@ -187,6 +190,18 @@ public final class InputObserver: @unchecked Sendable {
     private let secureInputIsEnabled: @Sendable () -> Bool
     private let tapIsEnabledOverride: (@Sendable () -> Bool)?
 
+    // MARK: - state guarded by `lock`
+    //
+    // **Every access to the `nonisolated(unsafe)` properties below is marked `unsafe` at
+    // its own expression, and one argument covers all of them**: each is read and written
+    // only inside a `lock.withLock` block, or in a context that runs before the instance
+    // is shared. `nonisolated(unsafe)` is what lets a `Sendable` type hold mutable state
+    // under a lock; the compiler cannot see the lock, so the marks state what it cannot
+    // check. Repeating that sentence at each of the 83 sites would say nothing extra —
+    // the discipline is a property of the type, not of any one line.
+    //
+    // Surfaced by Phase 3A-3: `.strictMemorySafety()` applies to package targets, and this
+    // file was in the app target until then, so none of these had ever been measured.
     private nonisolated(unsafe) var _diagnostics = Diagnostics()
     private nonisolated(unsafe) var handler: (@Sendable (Observation) -> Void)?
     private nonisolated(unsafe) var tap: CFMachPort?
@@ -244,12 +259,12 @@ public final class InputObserver: @unchecked Sendable {
         // No lock: by the time `deinit` runs there is no other reference
         // through which a concurrent access could occur. The timer must still
         // be cancelled or it keeps firing against a freed port.
-        pollTimer?.cancel()
-        if let tap {
+        unsafe pollTimer?.cancel()
+        if let tap = unsafe tap {
             CGEvent.tapEnable(tap: tap, enable: false)
             CFMachPortInvalidate(tap)
         }
-        if let runLoopSource {
+        if let runLoopSource = unsafe runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
     }
@@ -310,14 +325,14 @@ public final class InputObserver: @unchecked Sendable {
     /// `onObservation` is therefore called on the main thread and is not a
     /// place to do work: a slow tap callback is disabled by the system.
     public func start(onObservation: @escaping @Sendable (Observation) -> Void) throws {
-        guard lock.withLock({ tap == nil }) else { throw CaptureError.alreadyObserving }
+        guard lock.withLock({ unsafe tap == nil }) else { throw CaptureError.alreadyObserving }
 
         // `passUnretained`: the tap is torn down in `stop()`/`deinit`, both of
         // which run while `self` is still alive, so the callback cannot
         // outlive it.
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        let context = unsafe Unmanaged.passUnretained(self).toOpaque()
 
-        guard let created = CGEvent.tapCreate(tap: .cgSessionEventTap,
+        guard let created = unsafe CGEvent.tapCreate(tap: .cgSessionEventTap,
                                               place: .headInsertEventTap,
                                               options: .listenOnly,
                                               eventsOfInterest: Self.eventMask,
@@ -334,21 +349,21 @@ public final class InputObserver: @unchecked Sendable {
 
         setObservationSink(onObservation)
         lock.withLock {
-            self.tap = created
-            self.runLoopSource = source
+            unsafe self.tap = created
+            unsafe self.runLoopSource = source
             // Recorded before the tap is enabled, so it is a true lower bound
             // on any blind window.
-            self.observationBegan = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
+            unsafe self.observationBegan = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
             // **Every instant that bounds a blind window is cleared here, and
             // `start()` after `stop()` is legal**: without this a first poll
             // would reach back across the idle gap between the two sessions.
             // The polling span is carried across as an accumulated base rather
             // than reset, so `tapEnabledPolls` and the span it is quoted over
             // cover about the same period.
-            self.lastObservedInstant = nil
-            self.lastEnabledPollInstant = nil
-            self.firstPollInstant = nil
-            self.accumulatedPollingSpanNanos = _diagnostics.tapPollingSpanNanos
+            unsafe self.lastObservedInstant = nil
+            unsafe self.lastEnabledPollInstant = nil
+            unsafe self.firstPollInstant = nil
+            unsafe self.accumulatedPollingSpanNanos = unsafe _diagnostics.tapPollingSpanNanos
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: created, enable: true)
@@ -363,10 +378,10 @@ public final class InputObserver: @unchecked Sendable {
         stopPolling()
         let (existingTap, existingSource, pending) = lock.withLock {
             () -> (CFMachPort?, CFRunLoopSource?, HostInstant?) in
-            let values = (tap, runLoopSource, secureInputBegan)
-            tap = nil
-            runLoopSource = nil
-            secureInputBegan = nil
+            let values = unsafe (tap, runLoopSource, secureInputBegan)
+            unsafe tap = nil
+            unsafe runLoopSource = nil
+            unsafe secureInputBegan = nil
             return values
         }
         if let existingTap {
@@ -381,7 +396,7 @@ public final class InputObserver: @unchecked Sendable {
                                to: HostInstant(epoch: epoch, hostTime: Minting.hostNow()),
                                endedBy: .observationStopped)
         }
-        lock.withLock { handler = nil }
+        lock.withLock { unsafe handler = nil }
     }
 
     /// Installs the sink `emit` delivers to, **without creating a tap**.
@@ -392,7 +407,7 @@ public final class InputObserver: @unchecked Sendable {
     /// not `public`: a caller that installs a sink and never creates a tap
     /// gets silence.
     nonisolated func setObservationSink(_ sink: @escaping @Sendable (Observation) -> Void) {
-        lock.withLock { handler = sink }
+        lock.withLock { unsafe handler = sink }
     }
 
     // MARK: - The conversion, in one place
@@ -506,7 +521,7 @@ public final class InputObserver: @unchecked Sendable {
         // Before the secure-input branch, deliberately: a suppressed event is
         // still proof the tap was delivering. After it, a password field would
         // look like a blind window.
-        lock.withLock { lastObservedInstant = instant }
+        lock.withLock { unsafe lastObservedInstant = instant }
 
         // Secure input, before anything is read off the event: while a password
         // field has focus this emits NOTHING — not a redacted sample, not a
@@ -514,23 +529,23 @@ public final class InputObserver: @unchecked Sendable {
         // counted, before the answer is looked at.
         let secureInputIsOn = secureInputIsEnabled()
         lock.withLock {
-            _diagnostics.secureInputChecks += 1
-            if firstSecureInputCheckInstant == nil { firstSecureInputCheckInstant = instant }
-            if let first = firstSecureInputCheckInstant, first.epoch == instant.epoch {
-                _diagnostics.secureInputCheckSpanNanos =
+            unsafe _diagnostics.secureInputChecks += 1
+            if unsafe firstSecureInputCheckInstant == nil { unsafe firstSecureInputCheckInstant = instant }
+            if let first = unsafe firstSecureInputCheckInstant, first.epoch == instant.epoch {
+                unsafe _diagnostics.secureInputCheckSpanNanos =
                     max(0, instant.hostTime.rawValue - first.hostTime.rawValue)
             }
         }
         if secureInputIsOn {
             lock.withLock {
-                _diagnostics.eventsSuppressedBySecureInput += 1
-                if secureInputBegan == nil { secureInputBegan = instant }
+                unsafe _diagnostics.eventsSuppressedBySecureInput += 1
+                if unsafe secureInputBegan == nil { unsafe secureInputBegan = instant }
             }
             return
         }
         if let began = lock.withLock({ () -> HostInstant? in
-            defer { secureInputBegan = nil }
-            return secureInputBegan
+            defer { unsafe secureInputBegan = nil }
+            return unsafe secureInputBegan
         }) {
             emitSecureInterval(from: began, to: instant, endedBy: .secureInputDisabled)
         }
@@ -553,7 +568,7 @@ public final class InputObserver: @unchecked Sendable {
     /// check on its unit.
     private nonisolated func instant(of event: CGEvent, callbackInstant: Nanoseconds) -> HostInstant? {
         guard let stampNanos = Int64(exactly: event.timestamp) else {
-            lock.withLock { _diagnostics.unconvertibleTimestamps += 1 }
+            lock.withLock { unsafe _diagnostics.unconvertibleTimestamps += 1 }
             return nil
         }
         // Non-negative, not symmetric. The event is stamped by the window
@@ -561,7 +576,7 @@ public final class InputObserver: @unchecked Sendable {
         // slow callback — it is a different clock.
         let skew = callbackInstant.rawValue - stampNanos
         if skew < 0 || skew > Self.plausibleSkewNanos {
-            lock.withLock { _diagnostics.implausibleEventTimestampCount += 1 }
+            lock.withLock { unsafe _diagnostics.implausibleEventTimestampCount += 1 }
         }
         return HostInstant(epoch: epoch, hostTime: Nanoseconds(stampNanos))
     }
@@ -594,16 +609,16 @@ public final class InputObserver: @unchecked Sendable {
                        repeating: .nanoseconds(Int(Self.pollIntervalNanos)))
         timer.setEventHandler { [weak self] in self?.pollTapEnabled() }
         lock.withLock {
-            pollTimer?.cancel()
-            pollTimer = timer
+            unsafe pollTimer?.cancel()
+            unsafe pollTimer = timer
         }
         timer.resume()
     }
 
     nonisolated func stopPolling() {
         let existing = lock.withLock { () -> (any DispatchSourceTimer)? in
-            let value = pollTimer
-            pollTimer = nil
+            let value = unsafe pollTimer
+            unsafe pollTimer = nil
             return value
         }
         existing?.cancel()
@@ -621,10 +636,10 @@ public final class InputObserver: @unchecked Sendable {
         let now = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
 
         let window: TapDisabledInterval? = lock.withLock {
-            if firstPollInstant == nil { firstPollInstant = now }
+            if unsafe firstPollInstant == nil { unsafe firstPollInstant = now }
             defer {
-                if let first = firstPollInstant {
-                    _diagnostics.tapPollingSpanNanos = accumulatedPollingSpanNanos
+                if let first = unsafe firstPollInstant {
+                    unsafe _diagnostics.tapPollingSpanNanos = unsafe accumulatedPollingSpanNanos
                         + (now.hostTime.rawValue - first.hostTime.rawValue)
                 }
             }
@@ -632,18 +647,18 @@ public final class InputObserver: @unchecked Sendable {
             let enabled: Bool
             if let tapIsEnabledOverride {
                 enabled = tapIsEnabledOverride()
-            } else if let tap {
+            } else if let tap = unsafe tap {
                 enabled = CGEvent.tapIsEnabled(tap: tap)
             } else {
                 // Nothing to read. NOT counted as a poll: a poll that did not
                 // look is not evidence of looking.
-                _diagnostics.tapPollsWithNoTap += 1
+                unsafe _diagnostics.tapPollsWithNoTap += 1
                 return nil
             }
 
-            _diagnostics.tapEnabledPolls += 1
+            unsafe _diagnostics.tapEnabledPolls += 1
             guard !enabled else {
-                lastEnabledPollInstant = now
+                unsafe lastEnabledPollInstant = now
                 return nil
             }
 
@@ -651,7 +666,7 @@ public final class InputObserver: @unchecked Sendable {
             // shortens the loss. One call, no backoff: against a persistent
             // cause this becomes a 10 Hz re-arm loop, but backoff would
             // silently lengthen every window it touched.
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            if let tap = unsafe tap { CGEvent.tapEnable(tap: tap, enable: true) }
             let reEnabled = Minting.hostNow()
 
             let (began, source) = lowerBoundLocked()
@@ -661,20 +676,20 @@ public final class InputObserver: @unchecked Sendable {
                 // one would read as "no time was lost". Counted in all three
                 // totals instead. Unreachable through `start()`, which records
                 // `observationBegan` before the tap is enabled.
-                _diagnostics.tapDisabledIntervals += 1
-                _diagnostics.tapDisabledIntervalsFoundByPolling += 1
-                _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
+                unsafe _diagnostics.tapDisabledIntervals += 1
+                unsafe _diagnostics.tapDisabledIntervalsFoundByPolling += 1
+                unsafe _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
                 return nil
             }
             let width = max(0, reEnabled.rawValue - began.hostTime.rawValue)
-            _diagnostics.tapDisabledIntervals += 1
-            _diagnostics.tapDisabledIntervalsFoundByPolling += 1
-            _diagnostics.tapBlindNanos += width
+            unsafe _diagnostics.tapDisabledIntervals += 1
+            unsafe _diagnostics.tapDisabledIntervalsFoundByPolling += 1
+            unsafe _diagnostics.tapBlindNanos += width
             if source == .observationStart {
-                _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
+                unsafe _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
             }
-            lastEnabledPollInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
-            lastObservedInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
+            unsafe lastEnabledPollInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
+            unsafe lastObservedInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
             return TapDisabledInterval(
                 interval: HostRange(epoch: epoch, start: began.hostTime,
                                     duration: Nanoseconds(width)),
@@ -694,15 +709,15 @@ public final class InputObserver: @unchecked Sendable {
     /// two live bounds, since which is tighter depends on whether input was
     /// dense (the event wins) or the tap had been quiet (the poll wins).
     private nonisolated func lowerBoundLocked() -> (HostInstant?, TapBlindWindowLowerBound) {
-        let event = lastObservedInstant
-        let poll = lastEnabledPollInstant
+        let event = unsafe lastObservedInstant
+        let poll = unsafe lastEnabledPollInstant
         switch (event, poll) {
         case let (event?, poll?):
             return event.hostTime.rawValue >= poll.hostTime.rawValue
                 ? (event, .lastObservedEvent) : (poll, .lastEnabledPoll)
         case let (event?, nil):  return (event, .lastObservedEvent)
         case let (nil, poll?):   return (poll, .lastEnabledPoll)
-        case (nil, nil):         return (observationBegan, .observationStart)
+        case (nil, nil):         return unsafe (observationBegan, .observationStart)
         }
     }
 
@@ -715,7 +730,7 @@ public final class InputObserver: @unchecked Sendable {
         // are one call with no backoff; keep them the same, or a tap disabled
         // twice in one recording recovers differently depending on which
         // channel happened to notice.
-        if let existing = lock.withLock({ tap }) {
+        if let existing = lock.withLock({ unsafe tap }) {
             CGEvent.tapEnable(tap: existing, enable: true)
         }
         let reEnabled = Minting.hostNow()
@@ -725,7 +740,7 @@ public final class InputObserver: @unchecked Sendable {
             // No instant in this process's history bounds the window from
             // below, so there is no interval to report. Counted, never emitted
             // as a zero-width one, which would read as "no time was lost".
-            lock.withLock { _diagnostics.tapDisabledIntervals += 1 }
+            lock.withLock { unsafe _diagnostics.tapDisabledIntervals += 1 }
             return
         }
         // Clamped at zero because `HostRange` traps on a negative duration.
@@ -734,14 +749,14 @@ public final class InputObserver: @unchecked Sendable {
         let width = max(0, reEnabled.rawValue - began.hostTime.rawValue)
         let interval = HostRange(epoch: epoch, start: began.hostTime, duration: Nanoseconds(width))
         lock.withLock {
-            _diagnostics.tapDisabledIntervals += 1
-            _diagnostics.tapBlindNanos += width
+            unsafe _diagnostics.tapDisabledIntervals += 1
+            unsafe _diagnostics.tapBlindNanos += width
             if source == .observationStart {
-                _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
+                unsafe _diagnostics.tapDisabledIntervalsWithNoObservedLowerBound += 1
             }
             // The window is closed; the next one starts from here, not from
             // the stale event that preceded this one.
-            lastObservedInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
+            unsafe lastObservedInstant = HostInstant(epoch: epoch, hostTime: reEnabled)
         }
         emit(.tapDisabled(TapDisabledInterval(interval: interval, disabledBy: reason,
                                               lowerBoundFrom: source,
@@ -758,8 +773,8 @@ public final class InputObserver: @unchecked Sendable {
                                                       globalTopLeftY: location.y,
                                                       in: arrangement) else {
             lock.withLock {
-                if isButton { _diagnostics.unroutableButtonLocations += 1 }
-                else { _diagnostics.unroutablePointerLocations += 1 }
+                if isButton { unsafe _diagnostics.unroutableButtonLocations += 1 }
+                else { unsafe _diagnostics.unroutablePointerLocations += 1 }
             }
             return nil
         }
@@ -768,7 +783,7 @@ public final class InputObserver: @unchecked Sendable {
 
     private nonisolated func handlePointerMotion(_ event: CGEvent, at instant: HostInstant) {
         guard let converted = position(of: event) else { return }
-        lock.withLock { _diagnostics.pointerSamples += 1 }
+        lock.withLock { unsafe _diagnostics.pointerSamples += 1 }
         // Never thinned (D2-7): ~24 bytes a sample at 120 Hz is about 1 MB for
         // five minutes, and a thinned track cannot be re-tuned later.
         emit(.pointer(PointerSample(instant: instant,
@@ -779,7 +794,7 @@ public final class InputObserver: @unchecked Sendable {
     private nonisolated func handleButton(_ event: CGEvent, button: PointerButton,
                                           phase: ButtonPhase, at instant: HostInstant) {
         guard let converted = position(of: event, isButton: true) else { return }
-        lock.withLock { _diagnostics.buttonEvents += 1 }
+        lock.withLock { unsafe _diagnostics.buttonEvents += 1 }
         emit(.button(ButtonEvent(instant: instant, position: converted.position,
                                  revision: converted.revision, button: button, phase: phase)))
     }
@@ -789,13 +804,13 @@ public final class InputObserver: @unchecked Sendable {
     /// never asks the event for its characters; what leaves is a literal from
     /// `approvedShortcuts`, not anything a person typed.
     private nonisolated func handleKeyDown(_ event: CGEvent, at instant: HostInstant) {
-        lock.withLock { _diagnostics.keyDownsSeen += 1 }
+        lock.withLock { unsafe _diagnostics.keyDownsSeen += 1 }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         guard let shortcut = Self.approvedShortcut(forKeyCode: keyCode, flags: event.flags) else {
-            lock.withLock { _diagnostics.keyDownsRefused += 1 }
+            lock.withLock { unsafe _diagnostics.keyDownsRefused += 1 }
             return
         }
-        lock.withLock { _diagnostics.keySamples += 1 }
+        lock.withLock { unsafe _diagnostics.keySamples += 1 }
         emit(.key(KeySample(instant: instant, shortcut: shortcut)))
     }
 
@@ -806,7 +821,7 @@ public final class InputObserver: @unchecked Sendable {
         // duration.
         let duration = max(0, ended.hostTime.rawValue - began.hostTime.rawValue)
         let range = HostRange(epoch: epoch, start: began.hostTime, duration: Nanoseconds(duration))
-        lock.withLock { _diagnostics.secureInputIntervals += 1 }
+        lock.withLock { unsafe _diagnostics.secureInputIntervals += 1 }
         emit(.secureInput(SecureInputInterval(interval: range, endedBy: endedBy)))
     }
 
@@ -814,7 +829,7 @@ public final class InputObserver: @unchecked Sendable {
         // The handler is read under the lock and called outside it: calling
         // caller code while holding the lock would let it deadlock this
         // observer against its own `diagnostics` accessor.
-        let handler = lock.withLock { self.handler }
+        let handler = lock.withLock { unsafe self.handler }
         handler?(observation)
     }
 
@@ -831,11 +846,11 @@ public final class InputObserver: @unchecked Sendable {
     /// **dropped, not defaulted**, and its points then route nowhere.
     public nonisolated static func currentArrangement() -> DisplayArrangement {
         var displayCount: UInt32 = 0
-        guard CGGetActiveDisplayList(0, nil, &displayCount) == .success, displayCount > 0 else {
+        guard unsafe CGGetActiveDisplayList(0, nil, &displayCount) == .success, displayCount > 0 else {
             return DisplayArrangement(placements: [])
         }
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
-        guard CGGetActiveDisplayList(displayCount, &ids, &displayCount) == .success else {
+        guard unsafe CGGetActiveDisplayList(displayCount, &ids, &displayCount) == .success else {
             return DisplayArrangement(placements: [])
         }
 
@@ -884,9 +899,9 @@ private nonisolated func inputObserverTapCallback(proxy: CGEventTapProxy,
                                                   event: CGEvent,
                                                   userInfo: UnsafeMutableRawPointer?)
     -> Unmanaged<CGEvent>? {
-    if let userInfo {
-        Unmanaged<InputObserver>.fromOpaque(userInfo).takeUnretainedValue()
+    if let userInfo = unsafe userInfo {
+        unsafe Unmanaged<InputObserver>.fromOpaque(userInfo).takeUnretainedValue()
             .handle(type: type, event: event)
     }
-    return Unmanaged.passUnretained(event)
+    return unsafe Unmanaged.passUnretained(event)
 }

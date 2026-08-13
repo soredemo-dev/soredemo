@@ -164,9 +164,12 @@ public final class AXObserver: @unchecked Sendable {
               → \(everyRecordHasAContainmentVerdict ? "balances" : "DOES NOT BALANCE")
             """
         }
+
+        /// Zeroed. `public` so the app tier can construct one to diff against.
+        public init() {}
     }
 
-    public nonisolated var diagnostics: Diagnostics { lock.withLock { _diagnostics } }
+    public nonisolated var diagnostics: Diagnostics { lock.withLock { unsafe _diagnostics } }
 
     // MARK: - Stored state
 
@@ -176,6 +179,18 @@ public final class AXObserver: @unchecked Sendable {
     private let accessibilityIsGranted: @Sendable () -> Bool
     /// The queue every AX call runs on — never the caller's, never the main one.
     private let queue = DispatchQueue(label: "video.soredemo.ax-observation", qos: .userInitiated)
+    // MARK: - state guarded by `lock`
+    //
+    // **Every access to the `nonisolated(unsafe)` properties below is marked `unsafe` at
+    // its own expression, and one argument covers all of them**: each is read and written
+    // only inside a `lock.withLock` block, or in a context that runs before the instance
+    // is shared. `nonisolated(unsafe)` is what lets a `Sendable` type hold mutable state
+    // under a lock; the compiler cannot see the lock, so the marks state what it cannot
+    // check. Repeating that sentence at each of the 36 sites would say nothing extra —
+    // the discipline is a property of the type, not of any one line.
+    //
+    // Surfaced by Phase 3A-3: `.strictMemorySafety()` applies to package targets, and this
+    // file was in the app target until then, so none of these had ever been measured.
     private nonisolated(unsafe) var queuedClicks = 0
     private nonisolated(unsafe) var _diagnostics = Diagnostics()
 
@@ -294,21 +309,21 @@ public final class AXObserver: @unchecked Sendable {
         onRecord: @escaping @Sendable (AXChainRecord) -> Void
     ) {
         let accepted = lock.withLock { () -> Bool in
-            guard queuedClicks < Self.maximumQueuedClicks else {
+            guard unsafe queuedClicks < Self.maximumQueuedClicks else {
                 // Counted here rather than in `chain`, which this click never
                 // reaches — into `clicksObserved` too, or the conservation law
                 // would absorb the drop.
-                _diagnostics.clicksObserved += 1
-                _diagnostics.clicksDroppedByBacklog += 1
+                unsafe _diagnostics.clicksObserved += 1
+                unsafe _diagnostics.clicksDroppedByBacklog += 1
                 return false
             }
-            queuedClicks += 1
-            if queuedClicks > _diagnostics.deepestBacklog { _diagnostics.deepestBacklog = queuedClicks }
+            unsafe queuedClicks += 1
+            if unsafe queuedClicks > _diagnostics.deepestBacklog { unsafe _diagnostics.deepestBacklog = unsafe queuedClicks }
             return true
         }
         guard accepted else { return }
         queue.async { [self] in
-            lock.withLock { queuedClicks -= 1 }
+            lock.withLock { unsafe queuedClicks -= 1 }
             if let record = chain(at: click, source: source) { onRecord(record) }
         }
     }
@@ -518,32 +533,32 @@ public final class AXObserver: @unchecked Sendable {
     /// into a hung application would block every reader of `diagnostics`.
     private nonisolated func merge(_ tally: Diagnostics) {
         lock.withLock {
-            _diagnostics.clicksObserved += tally.clicksObserved
-            _diagnostics.chainsRecorded += tally.chainsRecorded
-            _diagnostics.clicksWithNoGlobalPoint += tally.clicksWithNoGlobalPoint
-            _diagnostics.clicksFromAnotherEpoch += tally.clicksFromAnotherEpoch
-            _diagnostics.clicksDroppedByBacklog += tally.clicksDroppedByBacklog
-            _diagnostics.truncatedReachedRoot += tally.truncatedReachedRoot
-            _diagnostics.truncatedDepthCapReached += tally.truncatedDepthCapReached
-            _diagnostics.truncatedBudgetExceeded += tally.truncatedBudgetExceeded
-            _diagnostics.ancestorWalksStoppedAtTheDepthCap += tally.ancestorWalksStoppedAtTheDepthCap
-            _diagnostics.hitTestsReturnedNothing += tally.hitTestsReturnedNothing
-            _diagnostics.hitTestsReturnedNothingWithoutAccessibility
+            unsafe _diagnostics.clicksObserved += tally.clicksObserved
+            unsafe _diagnostics.chainsRecorded += tally.chainsRecorded
+            unsafe _diagnostics.clicksWithNoGlobalPoint += tally.clicksWithNoGlobalPoint
+            unsafe _diagnostics.clicksFromAnotherEpoch += tally.clicksFromAnotherEpoch
+            unsafe _diagnostics.clicksDroppedByBacklog += tally.clicksDroppedByBacklog
+            unsafe _diagnostics.truncatedReachedRoot += tally.truncatedReachedRoot
+            unsafe _diagnostics.truncatedDepthCapReached += tally.truncatedDepthCapReached
+            unsafe _diagnostics.truncatedBudgetExceeded += tally.truncatedBudgetExceeded
+            unsafe _diagnostics.ancestorWalksStoppedAtTheDepthCap += tally.ancestorWalksStoppedAtTheDepthCap
+            unsafe _diagnostics.hitTestsReturnedNothing += tally.hitTestsReturnedNothing
+            unsafe _diagnostics.hitTestsReturnedNothingWithoutAccessibility
                 += tally.hitTestsReturnedNothingWithoutAccessibility
-            _diagnostics.clickInsideTheHitFrame += tally.clickInsideTheHitFrame
-            _diagnostics.clickOutsideTheHitFrame += tally.clickOutsideTheHitFrame
-            _diagnostics.clickFrameNotComparable += tally.clickFrameNotComparable
-            _diagnostics.recordsWithNoFrame += tally.recordsWithNoFrame
-            _diagnostics.recordsWithNoHitElement += tally.recordsWithNoHitElement
-            _diagnostics.elementsDescribed += tally.elementsDescribed
-            _diagnostics.elementFramesUnavailable += tally.elementFramesUnavailable
-            _diagnostics.elementFramesUnusable += tally.elementFramesUnusable
-            _diagnostics.elementFramesUnroutable += tally.elementFramesUnroutable
-            _diagnostics.childrenNotRead += tally.childrenNotRead
-            _diagnostics.childrenAttributeUnavailable += tally.childrenAttributeUnavailable
-            _diagnostics.childrenReadsCutShortByBudget += tally.childrenReadsCutShortByBudget
-            _diagnostics.axCalls += tally.axCalls
-            _diagnostics.nonMonotonicClockReadings += tally.nonMonotonicClockReadings
+            unsafe _diagnostics.clickInsideTheHitFrame += tally.clickInsideTheHitFrame
+            unsafe _diagnostics.clickOutsideTheHitFrame += tally.clickOutsideTheHitFrame
+            unsafe _diagnostics.clickFrameNotComparable += tally.clickFrameNotComparable
+            unsafe _diagnostics.recordsWithNoFrame += tally.recordsWithNoFrame
+            unsafe _diagnostics.recordsWithNoHitElement += tally.recordsWithNoHitElement
+            unsafe _diagnostics.elementsDescribed += tally.elementsDescribed
+            unsafe _diagnostics.elementFramesUnavailable += tally.elementFramesUnavailable
+            unsafe _diagnostics.elementFramesUnusable += tally.elementFramesUnusable
+            unsafe _diagnostics.elementFramesUnroutable += tally.elementFramesUnroutable
+            unsafe _diagnostics.childrenNotRead += tally.childrenNotRead
+            unsafe _diagnostics.childrenAttributeUnavailable += tally.childrenAttributeUnavailable
+            unsafe _diagnostics.childrenReadsCutShortByBudget += tally.childrenReadsCutShortByBudget
+            unsafe _diagnostics.axCalls += tally.axCalls
+            unsafe _diagnostics.nonMonotonicClockReadings += tally.nonMonotonicClockReadings
         }
     }
 }
@@ -593,7 +608,7 @@ public struct LiveAXElementSource: AXElementSource {
         // `Float`, because that is the API's parameter type. Its 24-bit
         // significand is exact to 16,777,216, so a screen coordinate loses
         // nothing in the narrowing.
-        let error = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(),
+        let error = unsafe AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(),
                                                      Float(globalTopLeftX),
                                                      Float(globalTopLeftY),
                                                      &element)
@@ -645,7 +660,7 @@ public struct LiveAXElementSource: AXElementSource {
     private nonisolated func copyAttribute(_ attribute: ReadableAXAttribute,
                                            of element: AXUIElement) -> CFTypeRef? {
         var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute.name as CFString, &value)
+        let error = unsafe AXUIElementCopyAttributeValue(element, attribute.name as CFString, &value)
         return error == .success ? value : nil
     }
 }

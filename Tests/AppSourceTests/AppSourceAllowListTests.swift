@@ -298,7 +298,7 @@ func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] 
             "UCKeyTranslate",
             "TISGetInputSourceProperty",
         ],
-        in: try appSourceFiles())
+        in: try firstPartySourceFiles())
 
     #expect(found.isEmpty,
             """
@@ -341,7 +341,7 @@ func codeLinesNaming(_ needle: String, in files: [URL]) throws -> [(location: St
 /// `{ false }` would disable the guarantee with every other check still green. So both
 /// halves are pinned: exactly one read, and it is the injection point's default.
 @Test func theSecureInputPredicateIsReadExactlyOnceAndOnlyAtTheInjectionPoint() throws {
-    let readers = try codeLinesNaming("IsSecureEventInputEnabled", in: try appSourceFiles())
+    let readers = try codeLinesNaming("IsSecureEventInputEnabled", in: try firstPartySourceFiles())
 
     #expect(readers.count == 1,
             """
@@ -373,7 +373,7 @@ func lineNumber(of location: String) -> Int {
 /// `startPolling()` is called exactly once, inside `start(onObservation:)`, after the
 /// tap is created and enabled.
 @Test func theTapPollIsStartedByStartAndNotOnlyDefined() throws {
-    let files = try appSourceFiles()
+    let files = try firstPartySourceFiles()
     let mentions = try codeLinesNaming("startPolling", in: files)
     let declarations = mentions.filter { $0.text.contains("func startPolling") }
     let calls = mentions.filter { !$0.text.contains("func startPolling") }
@@ -389,7 +389,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let call = calls.first else { return }
-    #expect(call.location.hasPrefix("Soredemo/Capture/InputObserver.swift:"),
+    #expect(call.location.hasPrefix("Sources/Headless/InputObserver.swift:"),
             "startPolling() is called from \(call.location), not from InputObserver")
 
     // The three landmarks the call must sit between, each named once so a
@@ -429,7 +429,7 @@ func lineNumber(of location: String) -> Int {
 /// queue drop, still on the callback thread. Prose alone stops nobody from taking it.
 @Test func theRejectedAXTimeoutIsNotReachedFor() throws {
     let found = try violationsEverywhere(banned: ["AXUIElementSetMessagingTimeout"],
-                                         in: try appSourceFiles())
+                                         in: try firstPartySourceFiles())
     #expect(found.isEmpty,
             """
             an app source calls AXUIElementSetMessagingTimeout:
@@ -446,7 +446,7 @@ func lineNumber(of location: String) -> Int {
 /// write the real cross-check and delete this test in the same commit — do not exempt.
 @Test func nothingInTheAppCountsStraddlingObservationsYet() throws {
     let found = try violationsEverywhere(banned: ["straddl", "Straddl"],
-                                         in: try appSourceFiles())
+                                         in: try firstPartySourceFiles())
     #expect(found.isEmpty,
             """
             an app source now names a straddle, in code rather than in prose:
@@ -462,8 +462,8 @@ func lineNumber(of location: String) -> Int {
 /// A second app file calling it from the tap callback would look green everywhere, and
 /// its own doc comment is not a mechanism. `enqueue(_:onRecord:)` is the entry point.
 @Test func theSynchronousAXWalkIsCalledOnlyFromWithinAXObserver() throws {
-    let callers = try codeLinesNaming("chain(at:", in: try appSourceFiles())
-    let outside = callers.filter { !$0.location.hasPrefix("Soredemo/Capture/AXObserver.swift:") }
+    let callers = try codeLinesNaming("chain(at:", in: try firstPartySourceFiles())
+    let outside = callers.filter { !$0.location.hasPrefix("Sources/Headless/AXObserver.swift:") }
     #expect(outside.isEmpty,
             """
             the synchronous AX walk is called outside AXObserver:
@@ -480,7 +480,7 @@ func lineNumber(of location: String) -> Int {
 /// `InputObserver` polls `CGEvent.tapIsEnabled` instead. That poll is injectable, so
 /// deleting the real read leaves every check green. Pins the count and file, not line.
 @Test func theTapsEnabledFlagIsReadExactlyOnceAndOnlyInTheObserver() throws {
-    let readers = try codeLinesNaming("CGEvent.tapIsEnabled", in: try appSourceFiles())
+    let readers = try codeLinesNaming("CGEvent.tapIsEnabled", in: try firstPartySourceFiles())
 
     #expect(readers.count == 1,
             """
@@ -493,7 +493,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let reader = readers.first else { return }
-    #expect(reader.location.hasPrefix("Soredemo/Capture/InputObserver.swift:"),
+    #expect(reader.location.hasPrefix("Sources/Headless/InputObserver.swift:"),
             "the tap's enabled flag is read at \(reader.location), not in InputObserver: \(reader.text)")
 }
 
@@ -503,7 +503,7 @@ func lineNumber(of location: String) -> Int {
 /// `Degradation.noElementIdentity`. Pins the count and the file, not the exact line.
 @Test func theAccessibilityPredicateIsReadOnceAndOnlyInTheObserverThatInjectsIt() throws {
     let readers = try codeLinesNaming("CapturePermissions.status(of: .accessibility)",
-                                      in: try appSourceFiles())
+                                      in: try firstPartySourceFiles())
 
     #expect(readers.count == 1,
             """
@@ -516,7 +516,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let reader = readers.first else { return }
-    #expect(reader.location.hasPrefix("Soredemo/Capture/AXObserver.swift:"),
+    #expect(reader.location.hasPrefix("Sources/Headless/AXObserver.swift:"),
             """
             the Accessibility grant is read at \(reader.location), not at AXObserver's injection \
             point:
@@ -548,7 +548,7 @@ func lineNumber(of location: String) -> Int {
             "CGWindowListCopyWindowInfo",
             "CGWindowListCreateDescriptionFromArray",
         ],
-        in: try appSourceFiles())
+        in: try firstPartySourceFiles())
 
     #expect(found.isEmpty,
             """
@@ -569,7 +569,7 @@ func lineNumber(of location: String) -> Int {
 /// empty `AXElementRecord`s are byte-identical to Accessibility being ungranted.
 @Test func theRawAXAttributeReadHappensAtExactlyOnePlace() throws {
     let readers = try codeLinesNaming("AXUIElementCopyAttributeValue(",
-                                      in: try appSourceFiles())
+                                      in: try firstPartySourceFiles())
 
     #expect(readers.count == 1,
             """
@@ -584,7 +584,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let reader = readers.first else { return }
-    #expect(reader.location.hasPrefix("Soredemo/Capture/AXObserver.swift:"),
+    #expect(reader.location.hasPrefix("Sources/Headless/AXObserver.swift:"),
             """
             the raw AX attribute read is at \(reader.location), not in AXObserver:
             \(reader.text)
