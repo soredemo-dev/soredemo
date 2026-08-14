@@ -984,14 +984,21 @@ rather than writing it as though it had one.
    Nothing in between speaks in pixels. And the compiler is no help: Foundation on Darwin
    re-exports these types, so `let r: CGRect? = nil` compiles clean in a Foundation-only target.
 3. **No ambient time or randomness** — *tests; fails `swift test` only.* `Tests/DeterminismTests`
-   reads link-time symbols for the package; `Tests/AppSourceTests` scans text for the app, where
-   ambient values enter at `Soredemo/Support/Minting.swift` and nowhere else.
+   reads link-time symbols for the package; `Tests/AppSourceTests` scans text for the runnable
+   tier and the app. **The app target reads none at all** — zero-permit since the boundary left
+   it (`noAppSourceReadsAnAmbientValueAtAll`); inside the runnable tier each target has exactly
+   one boundary file, `Sources/Capture/Minting.swift` and
+   `Sources/Compositing/MonotonicStopwatch.swift`, each a file whose EVERY member reads the
+   environment, which is what makes a whole-file permit cost nothing.
 4. **No manifest declares a package dependency** — *plugin; fails both builds.* Every
    `Package*.swift`, not just `Package.swift`. This is what keeps rule 1's import allow-list
    complete: with zero dependencies there is no unlisted module to smuggle one in through.
-5. **CG types in the app appear only in `Soredemo/Capture/CGGeometryBridge.swift`** — *test; fails
-   `swift test` only.* A test rather than a plugin rule because the plugin attaches to SwiftPM
-   targets and cannot see the Xcode app target at all.
+5. **The app names no CG geometry type at all**, and the runnable tier confines them to one
+   bridge per direction — `Sources/Capture/CGGeometryBridge.swift` (entry) and
+   `Sources/Compositing/HeadlessGeometryBridge.swift` (exit) — *test; fails `swift test` only.* A
+   test rather than a plugin rule because the plugin attaches to SwiftPM targets and cannot see
+   the Xcode app target at all. The two bridges are now in targets that cannot see each other,
+   and a further test forbids them from sharing a function signature.
 6. **One owner for the observation-log → graph join** — *inert.* No mechanism; the code does not
    exist. Becomes real in Phase 3.
 7. **`applyingProduced` is the sole writer of a `Derived`** — *inert.* `Derived`'s public

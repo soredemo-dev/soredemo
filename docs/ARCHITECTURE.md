@@ -40,16 +40,23 @@ frameworks is a mechanism with no principle behind it — a table that grows one
 | Tier | Invariant | Guard |
 | --- | --- | --- |
 | `Sources/Geometry…Render` | **Deterministic**: same input, same output. No GPU, no clock, no window | `ArchitectureCheck` — Foundation plus declared siblings; no CG geometry |
-| `Sources/Headless` | **Runnable under `swift test` on a developer machine**, even where not bit-deterministic — real pixel buffers, GPU and wall time are all allowed | `HeadlessCheck` — no AppKit, no SwiftUI |
+| `Sources/Capture` | **Runnable under `swift test`, and reads the world**: ScreenCaptureKit, event taps, accessibility, the microphone, the clock. Produces evidence, never consumes it | `HeadlessCheck` — no AppKit, no SwiftUI |
+| `Sources/Compositing` | **Runnable under `swift test`, and turns a plan into pixels**: GPU, Core Image, AVFoundation. Reads evidence off disk, never captures any | `HeadlessCheck` — no AppKit, no SwiftUI |
 | `Soredemo/` | **Only a running app can reach it** | the app-side scans in `Tests/AppSourceTests` |
 
 **Deciding where a new file goes: does it need a window or an app lifecycle?** If yes, it is
-`Soredemo/`. If no, and it needs the GPU, a real pixel buffer, a real file or the wall clock, it is
-`Sources/Headless`. If no to both, it is a deterministic target and the pure guard applies. The name
-states the exclusion, which is why the invariant survives Phase 3A-2: `Render` as a tier name would
-expire when `Capture` moves in; `Headless` does not.
+`Soredemo/`. If no, and it needs the GPU, a real pixel buffer, a real file or the wall clock, ask the
+second question — does it READ the world or DRAW? Reading is `Sources/Capture`, drawing is
+`Sources/Compositing`. If no to both, it is a deterministic target and the pure guard applies.
 
-**`Sources/Headless` carries `HeadlessCheck`, never `ArchitectureCheck`, and that is not a hole in
+**The runnable tier is two targets since Phase 3A-4, and neither may depend on the other.** They were
+one target (`Headless`) through 3A-3, and the measurement that justified splitting them is that they
+referenced each other ZERO times — the boundary was already a fact with no mechanism to notice its
+first violation. `theTwoRunnableTargetsDoNotDependOnEachOther` asserts both directions against the
+resolved manifest. If something is genuinely needed by both, it belongs in a pure target both can
+depend on, which is what `Geometry`, `Timeline`, `Project` and `Render` are.
+
+**Both runnable targets carry `HeadlessCheck`, never `ArchitectureCheck`, and that is not a hole in
 the pure guard.** Attaching the pure guard there is impossible rather than merely inconvenient: rule
 1's allow-list would ban AVFoundation, CoreImage, CoreVideo, Metal and CoreGraphics, and rule 2
 would ban the `CGRect` this tier exists to convert. Loosening the pure guard to fit is forbidden —
@@ -59,28 +66,29 @@ resolved manifest: every regular target carries the guard its tier requires, and
 the other tier's. Attaching `HeadlessCheck` to a pure target is the dangerous direction because it
 is **silent** — rules 1 and 2 would simply be off, and the build would stay green.
 
-**Rule 5 has one bridge per tier, and neither test has an exception.** The app tier confines
-`CGRect`/`CGPoint`/`CGSize`/`CGFloat` to `Sources/Headless/CGGeometryBridge.swift`
-(`coreGraphicsGeometryTypesAppearOnlyInTheBridge`); `Sources/Headless` confines them to
-`Sources/Headless/HeadlessGeometryBridge.swift`
-(`coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge`). The split is by tier — the AX and
-ScreenCaptureKit *entrances* need `ApplicationServices`, the render *exits* need nothing — and it is
-temporary: when `Capture` moves in 3A-2 the two bridges are reconsidered together.
-`theTwoGeometryBridgesShareNoFunctionSignature` is what stops a conversion being defined on both sides
-while both exist.
+**Rule 5 has one bridge per tier, and neither test has an exception.** The app tier names none of
+the four types at all — zero-permit since Phase 3A-3
+(`noAppSourceNamesACoreGraphicsGeometryType`). `Sources/Capture` confines them to
+`Sources/Capture/CGGeometryBridge.swift`, `Sources/Compositing` to
+`Sources/Compositing/HeadlessGeometryBridge.swift`. The split is by DIRECTION, and Phase 3A-4's
+target split is what made that permanent rather than temporary: the AX and ScreenCaptureKit
+*entrances* need `ApplicationServices`, the render *exits* need nothing, and the two now live in
+targets that cannot see each other. `theTwoGeometryBridgesShareNoFunctionSignature` is what stops a
+conversion being defined on both sides.
 
 ### The entry rule, and the two levels it is enforced at
 
-**Every `public` type in `Headless` must have a test in `swift test` that CONSTRUCTS AND EXERCISES
-it.** A target that can be linked is a target things get dumped into; the entry rule is the price of
+**Every `public` type in `Capture` and `Compositing` must have a test in `swift test` that
+CONSTRUCTS AND EXERCISES it.** A target that can be linked is a target things get dumped into; the entry rule is the price of
 entry.
 
 The two levels are not the same thing, and conflating them would plant this project's own recurring
 defect inside the gate built to prevent it:
 
-* **the scanner** (`everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct`) enforces a
-  **necessary condition only** — the type's identifier appears at a word boundary in the code view
-  of a file under `Tests/HeadlessTests`. A type annotation or an unused `import` satisfies it while
+* **the scanner** (`everyPublicTypeInCaptureIsNamedByACaptureTest` and its Compositing twin)
+  enforces a **necessary condition only** — the type's identifier appears at a word boundary in the
+  code view of a file under that target's OWN test directory, which is stricter than it was: a
+  `Capture` type named only in a Compositing test no longer counts. A type annotation or an unused `import` satisfies it while
   the type is never built and never run, and for a generic name (`Frame`, `Track`, `Renderer`) it is
   close to vacuous. Its own failure message says so.
 * **review** enforces the rule. There is no mechanical substitute, and claiming one is the failure
@@ -90,16 +98,17 @@ defect inside the gate built to prevent it:
 scanner entry, so the surface can grow without the scanner noticing. Add `public` to a member only
 when a caller outside the module already exists.
 
-**The two test populations are kept apart by the build graph, not by a rule.** `HeadlessTests` is
-the only test target that may depend on `Headless`; a deterministic target that cannot link it
-cannot have a GPU-dependent or time-sensitive test written against it.
-`noDeterministicTestTargetDependsOnHeadless` keeps the manifest honest, and
+**The two test populations are kept apart by the build graph, not by a rule.** `CaptureTests` and
+`CompositingTests` are the only test targets that may depend on the runnable tier, and each depends
+on ITS OWN target only; a deterministic target that cannot link either cannot have a GPU-dependent
+or time-sensitive test written against it.
+`noPureTargetDependsOnTheRunnableTier` keeps the manifest honest, and
 `scripts/count-tests.sh --split` reports the two counts with the partition verified rather than
 printing one number that means two different things.
 
 **The CAPABILITY is graph-separated; the COUNTS are name-separated, and those are not the same
 claim.** What the build graph enforces, in both directions, is real and load-bearing: a
-deterministic target genuinely cannot link `Headless`, so it genuinely cannot contain a
+deterministic target genuinely cannot link the runnable tier, so it genuinely cannot contain a
 GPU-dependent or time-sensitive test. But `--split`'s two numbers come from `--skip HeadlessTests` /
 `--filter HeadlessTests` — a substring match over test IDENTIFIERS, not a query over which target
 built which test — so a test whose NAME happens to contain `HeadlessTests` (a suite, or a function,
@@ -346,7 +355,7 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 2 | No `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package** — not merely in its public API | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
 | 3 | No ambient time or randomness | `Tests/DeterminismTests`, link-time symbols (package) · `Tests/AppSourceTests`, source text (app) | `swift test` only |
 | 4 | No manifest declares a package dependency — this is what keeps rule 1's allow-list complete | `Plugins/ArchitectureCheck`, scans every `Package*.swift` | `swift build` **and** `xcodebuild` |
-| 5 | **No app source names a CG geometry type at all** (zero-permit since Phase 3A-3 — `CGGeometryBridge.swift` moved to `Sources/Headless`, so the app tier holds no conversion boundary of its own); inside `Sources/Headless` the four types appear only in `CGGeometryBridge.swift` (capture's entry) and `HeadlessGeometryBridge.swift` (render's exit), which a further test forbids from sharing a function signature | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
+| 5 | **No app source names a CG geometry type at all** (zero-permit since Phase 3A-3 — `CGGeometryBridge.swift` left the app target, so the app tier holds no conversion boundary of its own); in the runnable tier the four types appear only in `Sources/Capture/CGGeometryBridge.swift` (the entry) and `Sources/Compositing/HeadlessGeometryBridge.swift` (the exit), which since Phase 3A-4 are in targets that cannot see each other, and which a further test forbids from sharing a function signature | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
 | 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
@@ -523,7 +532,7 @@ ambiguous between an actual cross-boundary defect and an unmarked unsafe constru
 nothing runs this automatically — there is no CI in this repo yet — so it is a gate a person runs,
 not one the build enforces for them. First run (Phase 3A-1 Task 3's fix round) found four sites in
 `Sources/`: one pre-existing (`Sources/Project/ObservationLog.swift`, `String(format:)`'s C varargs
-initialiser) and three new (`Sources/Headless/CoreImageFrameRenderer.swift`'s `cursorCanvases`
+initialiser) and three new (`Sources/Compositing/CoreImageFrameRenderer.swift`'s `cursorCanvases`
 cache and its `CGContext(data: nil, ...)` construction). The repaired gate's first full-tree run
 found 13 more under `Tests/`. All are marked `unsafe` at the expression with a comment at the site
 saying why each is safe despite the diagnostic, not merely silenced.
@@ -1487,18 +1496,39 @@ Sources/                         Foundation only, at the repository root
   Variants/                      16:9 · 9:16 · 1:1 re-framing, platform profiles
   Project/                       versioned document model, upgrades, atomic save
 
-Sources/Headless/                NOT Foundation-only — the tier `swift test` can link and run
-                                 (D1a). Product: SoredemoHeadless. Guard: HeadlessCheck
-  CursorArt.swift                the drawn pointer and click ripple, as vector paths
-  HeadlessGeometryBridge.swift   the render tier's CoreGraphics exit — the only file here
+Sources/Capture/                 NOT Foundation-only — reads the world, and `swift test` can
+                                 link and run it (D1a). Guard: HeadlessCheck. May NOT depend on
+                                 Compositing
+  CaptureSession.swift           SCStream, the segment ledger, the writer lifecycle
+  CaptureSource.swift            SCDisplay/SCWindow and the picker
+  CapturePermissions.swift       what each TCC API can and cannot distinguish
+  InputObserver.swift            CGEventTap; the closed keyboard allow-list
+  AXObserver.swift               the accessibility walk, over an injectable element source
+  ObservationWriter.swift        one append-only JSONL log per segment
+  MasterWriter.swift             AVAssetWriter, three tracks; SuccessorMasterWriter is macOS 27
+  AudioInterleave.swift          CoreMedia buffer re-layout
+  CGGeometryBridge.swift         the capture tier's CoreGraphics ENTRY — one of the two files
                                  allowed to name CGRect/CGPoint/CGSize/CGFloat
+  Minting.swift                  every ambient read in this target, at one boundary
 
-Soredemo/                        Xcode app target
-  Capture/                       ScreenCaptureKit, audio, permissions
-  Observation/                   CGEventTap, AXUIElement, the one clock, the log writer
-  Render/                        AVVideoCompositing, Core Image, Metal, cursor and effects
-  Editor/                        trim, cut, speed, transcript editing
-  Launch/                        title scenes, transitions, music, poster
+Sources/Compositing/             NOT Foundation-only — turns a plan into pixels. Guard:
+                                 HeadlessCheck. May NOT depend on Capture
+  StageCompositor.swift          the AVVideoCompositing conformance
+  CoreImageFrameRenderer.swift   the one FrameRendering implementation
+  CompositionBuilder.swift       the AVVideoComposition both preview and export use
+  MP4Exporter.swift              one MP4 (H.264), frame-accounted
+  CursorArt.swift                the drawn pointer and click ripple, as vector paths
+  HeadlessGeometryBridge.swift   the render tier's CoreGraphics EXIT — the other of the two
+  MonotonicStopwatch.swift       every clock read in this target, at one boundary
+
+Both are vended by the SoredemoHeadless product. `theTwoRunnableTargetsDoNotDependOnEachOther`
+asserts the sibling independence against the resolved manifest, in both directions.
+
+Soredemo/                        Xcode app target — only a running app can reach it
+  App/                           lifecycle, the --dump-permissions/--present-picker entries
+  UI/                            SwiftUI, NSDocument, the stage window
+  Editor/                        trim, cut, speed, transcript editing        (not built)
+  Launch/                        title scenes, transitions, music, poster    (not built)
   Agent/                         MCP server, tool surface
   CLI/                           Swift Argument Parser
   UI/                            SwiftUI shell, native Liquid Glass

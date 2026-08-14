@@ -25,7 +25,8 @@ cd "$(dirname "$0")/.."
 # than two numbers.
 #
 # `swift test` now holds suites with different guarantees. The deterministic targets
-# answer the same on any machine; HeadlessTests may need a GPU, may be time-sensitive,
+# answer the same on any machine; CaptureTests and CompositingTests may need a GPU or a
+# TCC grant, may be time-sensitive,
 # and may answer differently elsewhere. Reporting one "N tests pass" silently changes
 # what that number means — one symbol for two things is the shape this project has
 # caught most often.
@@ -57,16 +58,16 @@ if [ "${1:-}" = "--split" ]; then
 
             # An EMPTY HEADLESS POPULATION arrives here and not at the numeric floor
             # below, which is the whole reason this branch exists. Measured: delete
-            # the HeadlessTests target and `swift test --filter HeadlessTests` EXITS
+            # a runnable-tier target and `swift test --filter <Target>Tests` EXITS
             # 0, prints `warning: No matching test cases were run`, and prints no
             # tally line at all — so `473 + 0 == 473` would have held and the script
             # would have reported "partition verified" over a partition into one
             # population and nothing. swift-testing never prints a zero here, so the
             # zero this failure is usually described as is not the form it takes.
             case " $* " in
-                *"--filter HeadlessTests"*)
+                *"--filter CaptureTests"*|*"--filter CompositingTests"*)
                     echo "" >&2
-                    echo "This is the --filter HeadlessTests run, so the likeliest cause is that the" >&2
+                    echo "This is a runnable-tier --filter run, so the likeliest cause is that the" >&2
                     echo "second population is EMPTY: no test target named HeadlessTests, or no test" >&2
                     echo "left inside it. That is not a partition into two — it is the old single" >&2
                     echo "population with a second number printed beside it, and an empty headless" >&2
@@ -81,8 +82,14 @@ if [ "${1:-}" = "--split" ]; then
         printf '%s\n' "$counts" | awk '{s+=$1} END {print s+0}'
     }
 
-    DETERMINISTIC=$(count_run --skip HeadlessTests)
-    HEADLESS=$(count_run --filter HeadlessTests)
+    # Phase 3A-4 split `Headless` into `Capture` and `Compositing`, so the runnable
+    # population is two targets. `--skip` takes one pattern per flag; both are skipped
+    # from the deterministic run and both are summed for the runnable one, and the sum
+    # check below is what refuses a partition that has stopped being one.
+    DETERMINISTIC=$(count_run --skip CaptureTests --skip CompositingTests)
+    CAPTURE=$(count_run --filter CaptureTests)
+    COMPOSITING=$(count_run --filter CompositingTests)
+    HEADLESS=$(( CAPTURE + COMPOSITING ))
     EVERYTHING=$(count_run)
 
     # The numeric floor, kept as a second net with its reachability stated rather than
@@ -96,7 +103,7 @@ if [ "${1:-}" = "--split" ]; then
     # already prints that line per bundle — this is the only check that would catch
     # it. `473 + 0 == 473` is true, so the partition check never would.
     if [ "$HEADLESS" -le 0 ]; then
-        echo "the headless population is empty: --filter HeadlessTests counted 0 tests." >&2
+        echo "the runnable population is empty: CaptureTests + CompositingTests counted 0 tests." >&2
         echo "That is not a partition into two, it is the old single population with a second" >&2
         echo "number printed beside it. An empty headless population means the tier has no" >&2
         echo "executing instrument — which is the condition this entire phase exists to end." >&2
