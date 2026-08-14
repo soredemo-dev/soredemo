@@ -60,7 +60,7 @@ the other tier's. Attaching `HeadlessCheck` to a pure target is the dangerous di
 is **silent** — rules 1 and 2 would simply be off, and the build would stay green.
 
 **Rule 5 has one bridge per tier, and neither test has an exception.** The app tier confines
-`CGRect`/`CGPoint`/`CGSize`/`CGFloat` to `Soredemo/Capture/CGGeometryBridge.swift`
+`CGRect`/`CGPoint`/`CGSize`/`CGFloat` to `Sources/Headless/CGGeometryBridge.swift`
 (`coreGraphicsGeometryTypesAppearOnlyInTheBridge`); `Sources/Headless` confines them to
 `Sources/Headless/HeadlessGeometryBridge.swift`
 (`coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge`). The split is by tier — the AX and
@@ -346,7 +346,7 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 2 | No `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package** — not merely in its public API | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
 | 3 | No ambient time or randomness | `Tests/DeterminismTests`, link-time symbols (package) · `Tests/AppSourceTests`, source text (app) | `swift test` only |
 | 4 | No manifest declares a package dependency — this is what keeps rule 1's allow-list complete | `Plugins/ArchitectureCheck`, scans every `Package*.swift` | `swift build` **and** `xcodebuild` |
-| 5 | CG types in the app appear only in `Soredemo/Capture/CGGeometryBridge.swift` | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
+| 5 | **No app source names a CG geometry type at all** (zero-permit since Phase 3A-3 — `CGGeometryBridge.swift` moved to `Sources/Headless`, so the app tier holds no conversion boundary of its own); inside `Sources/Headless` the four types appear only in `CGGeometryBridge.swift` (capture's entry) and `HeadlessGeometryBridge.swift` (render's exit), which a further test forbids from sharing a function signature | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
 | 8 | A type with a validating initialiser (`throws` or a `precondition`) and a `Codable`/`Decodable` conformance must have an explicit `init(from decoder:)` | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
@@ -1264,7 +1264,7 @@ A version bump is only a trigger if someone can tell which files it fires on:
 
 | File | Calls on this list | Behind a seam? |
 | --- | --- | --- |
-| `Soredemo/Capture/MasterWriter.swift` (`LegacyMasterWriter`) | `addInput:`, `startWriting`, `AVAssetWriterInput.append(_:)` | **yes** — `MasterWriting`, with a second conformance already written |
+| `Sources/Headless/MasterWriter.swift` (`LegacyMasterWriter`) | `addInput:`, `startWriting`, `AVAssetWriterInput.append(_:)` | **yes** — `MasterWriting`, with a second conformance already written |
 | `Soredemo/Export/MP4Exporter.swift` | `AVAssetReader.addOutput`, `startReading`, `AVAssetWriter.addInput`, `startWriting`, `AVAssetWriterInput.append(_:)`, `readyForMoreMediaData`, `expectsMediaDataInRealTime` | **no** — nothing to swap |
 
 The second row is the one to read twice. It is **new** media-writing code, written directly against
@@ -1315,7 +1315,7 @@ therefore not usable for a real multi-track recording today**, which is a second
 reason for the ruling that the shipping capture path stays on `LegacyMasterWriter`. That ruling was
 made for verification cost; it now also holds on capability.
 
-Read `Soredemo/Capture/SuccessorMasterWriter.swift`'s known-gap paragraph before wiring the
+Read `Sources/Headless/SuccessorMasterWriter.swift`'s known-gap paragraph before wiring the
 successor anywhere.
 
 **What survives from the original measurement, unchanged:** the successor APIs exist at the 26.0

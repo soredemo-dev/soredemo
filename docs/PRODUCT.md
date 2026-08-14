@@ -8,10 +8,18 @@ Features and the frameworks behind them are in `FEATURES.md`.
 
 ## Positioning
 
-**Every team ships. Almost nobody sees what they shipped.**
+**Teams ship 20+ times a year and demo two or three times.**
 
 Soredemo turns each release into a published demo — detected from GitHub, recorded once, derived into
 video and launch copy, reviewed by a person, and posted.
+
+> **This heading used to read "Every team ships. Almost nobody sees what they shipped." It was
+> measured in August 2026 and it is false.** About half of the projects sampled do post product demos
+> on X. What they do not do is post one per release: Bun demoed `v1.0` and `v1.1` out of nineteen
+> releases, Deno `v2.9` out of twenty. The replacement claim is narrower, evidenced, and harder to
+> refute — and it points at cost rather than indifference, which is the actual thesis.
+>
+> Full measurement, method and caveats: `../soredemo-research/release-coverage`.
 
 ### The thesis, in one sentence
 
@@ -25,9 +33,28 @@ list looks different from a screen recorder's.
 
 > **Release coverage — the share of a team's releases that resulted in a published demo.**
 
-Baseline is 5–15%. The job is 60%+. This is also the test for whether a feature is worth building:
-*does this raise release coverage, or is it craft for its own sake?* Applied honestly it deletes a lot
-of work — see § Scope.
+**Baseline measured, August 2026** — this line previously said "5–15%" with no source:
+
+| channel | coverage | basis |
+| --- | ---: | --- |
+| GitHub release notes | **2.1%** | 2,241 releases, 151 dev tools with a UI |
+| Random active repos (control) | **0.7%** | 5,217 releases, 379 repos |
+| The team's own blog / changelog | **16%** of teams, major releases only | 45 projects |
+| X | ~half post, at **10–25%** of their releases | 25 accounts, hand-checked |
+
+The job is 60%+. **Which channel this metric counts is now a decision, not a detail:** measured on
+release notes alone the baseline is 2%, and a product that raised only that number would have moved
+an artefact nobody reads. Count a release as covered if a demo appeared *anywhere* — the team's blog,
+X, the release note. That is the number the customer feels.
+
+**Two things the measurement changed about how to read this metric.** Release notes are increasingly
+machine-generated, so GitHub is a *detection* surface and not a *distribution* one — the architectural
+point below already models it that way. And in both automated channels more teams attach a screenshot
+than a demo (5.0% vs 2.2% in release notes; 23 of 45 vs 7 of 45 on their own blogs), which says the
+binding constraint is production cost and argues for a fast adequate artefact over a slow polished one.
+
+This is also the test for whether a feature is worth building: *does this raise release coverage, or is
+it craft for its own sake?* Applied honestly it deletes a lot of work — see § Scope.
 
 Secondary: **time from tag to published post.** Hours today, minutes as the target.
 

@@ -220,6 +220,46 @@ it, four seconds into a recording.
 > giving it one is a persisted-format change deferred on its own migration
 > argument. Design record: `docs/design/2026-08-12-clock-domain-types.md`.
 
+> **Phase 3A-3 DONE (2026-08-14): `Soredemo/Capture/` no longer exists.** All eleven
+> files, plus `Support/Minting.swift`, are in `Sources/Headless`; the app target is six
+> files — SwiftUI, `NSDocument`, the app lifecycle and the generated `BuildProvenance`.
+> Seven tasks, each ending green on three gates (`swift test`, the strict-memory-safety
+> gate, `xcodebuild`). Design: `docs/design/2026-08-12-phase-3a3-capture-extraction.md`;
+> what later phases inherit: `docs/design/2026-08-14-phase-3a-carried-forward.md`.
+>
+> **The scans were the hard part, not the moves.** Every text scan in
+> `Tests/AppSourceTests` enforces a rule by PATH, so a move that outran its scans would
+> silently shrink a rule's scope. Six went red and were repointed. **Four went green and
+> vacuous** — the keystroke ban and `noAppSourceReadsUserContent` among them — because
+> their subject left the tree they scan while their assertion stayed satisfiable. Those
+> were found by reading, not by failing, and any future move must check the green scans as
+> well as the red ones.
+>
+> Two scans came out STRONGER rather than repointed: the app-side ambient-value scan and
+> the app-side CG-geometry scan are now **zero-permit** — the app target holds neither
+> boundary any more, so "no app source does this at all" is what the arrangement supports.
+> One scan was **deleted**: `microphoneDegradationMatchesTheMeasuredConsequence` grepped a
+> switch arm's literal text, anchored on its column alignment; the file is linkable now and
+> a real test calls the function. Its retirement note stays where it stood.
+>
+> **One gate's scope definition expired.** The redaction check's Gate 2 scanned
+> "`Sources/Headless` + `Sources/Render`" and called that the render path — true until a
+> PRODUCER moved in. `AXObserver` legitimately reads `.title`; it is the code that captures
+> one. Rescoped with an exclusion list, chosen because a new capture file going red is
+> louder than a new render file going unscanned.
+>
+> **260 strict-memory-safety sites** across the three largest files, none of which the app
+> target had ever measured — plus two findings that were not call sites: `@preconcurrency`
+> imports are themselves flagged (they suppress the checking that would catch a race), and
+> `CaptureSession` has storage involving `Unmanaged<CaptureSession>`, annotated `@safe`
+> rather than `@unsafe` because the token is encapsulated and `@unsafe` would push a mark
+> onto every caller.
+>
+> **Four times a new test went red and the code was right** (a media filename, a
+> points-vs-pixels mix-up, an initialiser's shape, a double-counted file list). Zero product
+> defects were found. That ratio is the honest summary: these tests are a floor under future
+> changes, not a discovery of past ones.
+
 That is not a shortage of tests; the target is structurally untestable. A library
 can be imported. With the logic in `Headless` and the executable reduced to a
 shell, `RecordingCoordinator`, `CapturePermissions` and `StageCompositor` — today
