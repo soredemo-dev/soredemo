@@ -63,11 +63,10 @@ func projectPbxprojText() throws -> String {
 @Test func theScreenRecordingRequestIsCalledExactlyOnceAndWiredBeforeThePicker() throws {
     // BOTH trees since Phase 3A-3: the request itself moved into
     // `Sources/Headless/CapturePermissions.swift` while its caller stayed in the app.
-    // Scanning the union is what keeps "exactly once" a claim about the whole product
-    // rather than about whichever half a permission's implementation currently sits in —
-    // scanning one tree would have made this pass at ZERO calls, which is the reading
-    // this test exists to refuse.
-    let files = try appSourceFiles() + headlessSourceFiles()
+    // `firstPartySourceFiles()` already spans `Sources/` and `Soredemo/` — appending
+    // `headlessSourceFiles()` to it counted every Headless file twice, and the symptom
+    // was this scan reporting two calls to a function called once.
+    let files = try firstPartySourceFiles()
     let rawCalls = try codeLinesNaming("CGRequestScreenCaptureAccess()", in: files)
     #expect(rawCalls.count == 1, """
         expected exactly one call to CGRequestScreenCaptureAccess(), found \(rawCalls.count): \
@@ -102,7 +101,7 @@ func projectPbxprojText() throws -> String {
 /// `CapturePermissions.requestAccessibilityAccess()`, which `CaptureSession` calls.
 @Test func theAccessibilityRequestIsCalledExactlyOnceAndWiredIntoCaptureSession() throws {
     // Both trees, same reason as the screen-recording scan above.
-    let files = try appSourceFiles() + headlessSourceFiles()
+    let files = try firstPartySourceFiles()
     let rawCalls = try codeLinesNaming("AXIsProcessTrustedWithOptions(", in: files)
     #expect(rawCalls.count == 1, """
         expected exactly one call to AXIsProcessTrustedWithOptions(, found \(rawCalls.count): \
@@ -123,7 +122,7 @@ func projectPbxprojText() throws -> String {
         \(wrapperCalls.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
         """)
     guard let wrapperCall = wrapperCalls.first else { return }
-    #expect(wrapperCall.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:"), """
+    #expect(wrapperCall.location.hasPrefix("Sources/Headless/CaptureSession.swift:"), """
         the request is called at \(wrapperCall.location), not from CaptureSession — the brief asks \
         for it "before the AX walk's first use", and CaptureSession is what starts that walk.
         """)
@@ -135,7 +134,7 @@ func projectPbxprojText() throws -> String {
 /// production call sites. Each must now have one OUTSIDE its own declaring file, which is why
 /// those files are excluded — a call from within the type's own file does not count.
 @Test func theFirstProductionCallersAreWiredIntoCaptureSession() throws {
-    let files = try appSourceFiles()
+    let files = try firstPartySourceFiles()
 
     let inputObserverConstructions = try codeLinesNaming("InputObserver(arrangement:", in: files)
         .filter { !$0.location.hasPrefix("Soredemo/Capture/InputObserver.swift:") }
@@ -178,7 +177,7 @@ func projectPbxprojText() throws -> String {
                            ("ObservationWriter.open(segment:", observationWriterOpens),
                            (".start(onObservation:", tapStartCalls),
                            (".enqueue(event", axEnqueueCalls)] {
-        #expect(sites.allSatisfy { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }, """
+        #expect(sites.allSatisfy { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }, """
             \(name) has a production call site outside CaptureSession.swift: \
             \(sites.map(\.location).joined(separator: ", ")). The brief attaches this task to \
             CaptureSession specifically, not to RecordingCoordinator/ContentView — see the brief's \
@@ -210,8 +209,8 @@ func projectPbxprojText() throws -> String {
 /// `MediaSink.packageURL` is what lets `CaptureSession` find where to open an `ObservationWriter`;
 /// nothing in the protocol required one before, and `TemporaryFileMediaSink` had no reason to.
 @Test func theMediaSinkProtocolRequiresAPackageURL() throws {
-    let sites = try codeLinesNaming("var packageURL: URL? { get }", in: try appSourceFiles())
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+    let sites = try codeLinesNaming("var packageURL: URL? { get }", in: try firstPartySourceFiles())
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     #expect(!sites.isEmpty, """
         MediaSink no longer declares a packageURL requirement — CaptureSession has no protocol-level \
         way to find where to write an observation log for a segment.
@@ -224,10 +223,10 @@ func projectPbxprojText() throws -> String {
 /// `waitForQueuedClicks()` with the tap live, so observations in that window used to vanish
 /// uncounted. Pins that the guard branch increments a counter, and that it sits INSIDE it.
 @Test func theSegmentCloseDropWindowIsCountedNotSilent() throws {
-    let files = try appSourceFiles()
+    let files = try firstPartySourceFiles()
 
     let fieldDeclarations = try codeLinesNaming("var observationsDroppedAfterSegmentClose = 0", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     #expect(fieldDeclarations.count == 1, """
         expected exactly one declaration of Diagnostics.observationsDroppedAfterSegmentClose in \
         CaptureSession.swift, found \(fieldDeclarations.count).
@@ -242,18 +241,18 @@ func projectPbxprojText() throws -> String {
         untracked place this can happen.
         """)
     guard let increment = increments.first else { return }
-    #expect(increment.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:"), """
+    #expect(increment.location.hasPrefix("Sources/Headless/CaptureSession.swift:"), """
         the increment is at \(increment.location), not in CaptureSession.swift.
         """)
 
     let guardLines = try codeLinesNaming("guard let writer else {", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(guardLines.count == 1, """
         expected exactly one 'guard let writer else {' in CaptureSession.swift (appendObservation's \
         own guard), found \(guardLines.count) — this scan's ordering check needs a unique landmark.
         """)
     let appendCalls = try codeLinesNaming("try writer.append(record)", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(appendCalls.count == 1, """
         expected exactly one 'try writer.append(record)' in CaptureSession.swift, found \
         \(appendCalls.count).
@@ -320,17 +319,20 @@ func projectPbxprojText() throws -> String {
 /// closing (a real loss), and one arriving while no segment was open (not uniformly a loss).
 /// Pins that `finalizingCurrentSegment` is read in the SAME `lock.withLock` as the writer.
 @Test func theOutsideSegmentCounterIsToldApartFromTheCloseWindowByAFlagReadWithTheWriter() throws {
-    let files = try appSourceFiles()
+    let files = try firstPartySourceFiles()
 
     let fieldDeclarations = try codeLinesNaming("var observationsOutsideAnOpenSegment = 0", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     #expect(fieldDeclarations.count == 1, """
         expected exactly one declaration of Diagnostics.observationsOutsideAnOpenSegment in \
         CaptureSession.swift, found \(fieldDeclarations.count).
         """)
 
     let pairedReads = try codeLinesNaming(
-        "let (writer, finalizing) = lock.withLock { (observationWriter, finalizingCurrentSegment) }",
+        // The `unsafe` marks arrived with Phase 3A-3's move into a strict target; the claim —
+        // ONE `withLock`, both values read together — is unchanged, and the needle follows
+        // the text rather than the text being kept still for the needle.
+        "let (writer, finalizing) = lock.withLock { unsafe (observationWriter, finalizingCurrentSegment) }",
         in: files)
     #expect(pairedReads.count == 1, """
         expected exactly one paired read of (observationWriter, finalizingCurrentSegment) in ONE \
@@ -340,7 +342,7 @@ func projectPbxprojText() throws -> String {
         finalizeCurrentSegment can change both, together, in the gap between two separate reads.
         """)
     guard let pairedRead = pairedReads.first else { return }
-    #expect(pairedRead.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:"), """
+    #expect(pairedRead.location.hasPrefix("Sources/Headless/CaptureSession.swift:"), """
         the paired read is at \(pairedRead.location), not in CaptureSession.swift.
         """)
 
@@ -356,13 +358,13 @@ func projectPbxprojText() throws -> String {
     // Both increments must sit inside appendObservation's writer==nil guard, on OPPOSITE sides
     // of an `if whileFinalizing`/`else` — proven by ordering against three landmarks.
     let guardLines = try codeLinesNaming("guard let writer else {", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(guardLines.count == 1, "expected exactly one appendObservation guard, found \(guardLines.count)")
     let elseLines = try codeLinesNaming("} else {", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(elseLines.count >= 1, "expected at least one 'else' in CaptureSession.swift")
     let appendCalls = try codeLinesNaming("try writer.append(record)", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(appendCalls.count == 1, "expected exactly one 'try writer.append(record)'")
 
     let guardLine = lineNumber(of: guardLines[0].location)
@@ -392,22 +394,22 @@ func projectPbxprojText() throws -> String {
 /// segment's `hostRange.start` are both set before `scStream.startCapture()`; this pins that
 /// order. Blind spot: a LINE-ORDER check, so deferring `startCapture()` into a `Task` evades it.
 @Test func theFirstSegmentsWriterAndHostRangeAreSetBeforeCaptureStarts() throws {
-    let files = try appSourceFiles()
+    let files = try firstPartySourceFiles()
 
     let writerAssignments = try codeLinesNaming("self.observationWriter = writer", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(writerAssignments.count == 1, """
         expected exactly one 'self.observationWriter = writer' in CaptureSession.swift, found \
         \(writerAssignments.count).
         """)
     let ledgerOpens = try codeLinesNaming("ledger.openSegment(at: openInstant", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(ledgerOpens.count == 1, """
         expected exactly one 'ledger.openSegment(at: openInstant' in CaptureSession.swift, found \
         \(ledgerOpens.count).
         """)
     let captureStarts = try codeLinesNaming("try await scStream.startCapture()", in: files)
-        .filter { $0.location.hasPrefix("Soredemo/Capture/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
     try #require(captureStarts.count == 1, """
         expected exactly one 'try await scStream.startCapture()' in CaptureSession.swift, found \
         \(captureStarts.count).

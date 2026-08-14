@@ -1,4 +1,9 @@
-@preconcurrency import ScreenCaptureKit
+// `@unsafe` because `@preconcurrency` suppresses the concurrency checking that would
+// otherwise catch a data race across this import — what `.strictMemorySafety()` asks be
+// named, and never measured while this file was in the app target. Safe in the sense the
+// mark asks for: every ScreenCaptureKit value here is confined to the stream's own
+// delivery queue or published once under `lock` before any callback can see it.
+@unsafe @preconcurrency import ScreenCaptureKit
 import AVFoundation
 import CoreGraphics
 import CoreMedia
@@ -7,8 +12,6 @@ import Foundation
 import Geometry
 import Project
 import Timeline
-// `Minting` — in `Headless` since Phase 3A-3.
-import Headless
 
 /// Takes three ScreenCaptureKit streams (screen, system audio, microphone) and
 /// writes them to a `MasterSegment` via three `AVAssetWriterInput`s.
@@ -43,6 +46,14 @@ public protocol MediaSink: Sendable {
     @MainActor var packageURL: URL? { get }
 }
 
+/// `@safe`, not `@unsafe` — the compiler offers both and they say opposite things about
+/// callers. The unsafe storage is `reconfigToken: Unmanaged<CaptureSession>?`, and it is
+/// ENCAPSULATED: the token is registered in `start()`, unregistered in `stop()`/`deinit`
+/// before the session can be freed, and never handed out. `@unsafe` would say this type is
+/// unsafe to USE, which would push a mark onto every caller — including `ContentView`,
+/// which has no way to misuse a token it cannot reach. Surfaced by Phase 3A-3: the app
+/// target never applied `.strictMemorySafety()` to this file.
+@safe
 public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sendable {
 
     // MARK: - Configuration knobs held for the life of the session
@@ -297,7 +308,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    public nonisolated var diagnostics: Diagnostics { lock.withLock { _diagnostics } }
+    public nonisolated var diagnostics: Diagnostics { lock.withLock { unsafe _diagnostics } }
 
     // MARK: - Mutable session state, all behind `lock`
     //
@@ -310,6 +321,18 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private let lock = NSLock()
     private let sampleQueue = DispatchQueue(label: "video.soredemo.CaptureSession.samples")
 
+    // MARK: - state guarded by `lock`
+    //
+    // **Every access to the `nonisolated(unsafe)` properties below is marked `unsafe` at
+    // its own expression, and one argument covers all 137 of them**: each is read and
+    // written only inside a `lock.withLock` block, or before the instance is handed to
+    // `SCStream`. `nonisolated(unsafe)` is what lets an `@unchecked Sendable` class hold
+    // mutable state under a lock; the compiler cannot see the lock, so the marks state
+    // what it cannot check. Repeating that sentence 137 times would say nothing extra —
+    // the discipline is a property of the type, not of any one line.
+    //
+    // Surfaced by Phase 3A-3: `.strictMemorySafety()` applies to package targets and this
+    // file was in the app target until then, so none of these had ever been measured.
     private nonisolated(unsafe) var _diagnostics = Diagnostics()
     private nonisolated(unsafe) var ledger = SegmentLedger()
     private nonisolated(unsafe) var isRunning = false
@@ -346,7 +369,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     // `observationWriter` rotates per segment.
 
     private nonisolated(unsafe) var inputObserver: InputObserver?
-    private nonisolated(unsafe) var axObserver: Headless.AXObserver?
+    private nonisolated(unsafe) var axObserver: AXObserver?
     /// What `setUpObservation()` found when starting the tap and asking for
     /// Accessibility. Read once for the whole session, not per segment.
     private nonisolated(unsafe) var observationBlindness: [ObservationBlindness] = []
@@ -355,7 +378,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// open. Both are session-cumulative, so a segment's `GapWatch` rows are
     /// this snapshot subtracted from the diagnostics read at close.
     private nonisolated(unsafe) var inputDiagnosticsAtSegmentStart = InputObserver.Diagnostics()
-    private nonisolated(unsafe) var axDiagnosticsAtSegmentStart = Headless.AXObserver.Diagnostics()
+    private nonisolated(unsafe) var axDiagnosticsAtSegmentStart = AXObserver.Diagnostics()
     private nonisolated(unsafe) var frameStatusCountsAtSegmentStart: [Int: Int] = [:]
     /// Sum of every `SecureInputInterval.interval.duration` routed to the
     /// current segment's writer, reset at each `beginSegment`. Not derivable by
@@ -393,8 +416,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     deinit {
         // No lock: at `deinit` no other reference can concurrently access this.
-        if let reconfigToken {
-            CGDisplayRemoveReconfigurationCallback(CaptureSession.reconfigurationCallback,
+        if let reconfigToken = unsafe reconfigToken {
+            unsafe CGDisplayRemoveReconfigurationCallback(CaptureSession.reconfigurationCallback,
                                                     reconfigToken.toOpaque())
         }
     }
@@ -406,8 +429,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// after the file is already wrong.
     public nonisolated func start() async throws {
         let wasAlreadyRunning = lock.withLock { () -> Bool in
-            if isRunning { return true }
-            isRunning = true
+            if unsafe isRunning { return true }
+            unsafe isRunning = true
             return false
         }
         guard !wasAlreadyRunning else { throw SessionError.alreadyRunning }
@@ -419,7 +442,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                                 destination: source.destinationRect(scale: scale))
     }
 
-    /// Constructs this session's `InputObserver`/`Headless.AXObserver`, asks for
+    /// Constructs this session's `InputObserver`/`AXObserver`, asks for
     /// Accessibility, starts the tap, and records what happened as
     /// `observationBlindness`.
     ///
@@ -438,7 +461,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         let arrangement = InputObserver.currentArrangement()
         let input = InputObserver(arrangement: arrangement, epoch: epoch)
-        let ax = Headless.AXObserver(arrangement: arrangement, epoch: epoch)
+        let ax = AXObserver(arrangement: arrangement, epoch: epoch)
 
         var blindness: [ObservationBlindness] = []
         if !accessibilityGranted { blindness.append(.accessibilityUnavailable) }
@@ -459,9 +482,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
 
         lock.withLock {
-            self.inputObserver = input
-            self.axObserver = ax
-            self.observationBlindness = blindness
+            unsafe self.inputObserver = input
+            unsafe self.axObserver = ax
+            unsafe self.observationBlindness = blindness
         }
     }
 
@@ -476,7 +499,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// re-derived the way `handleReconfiguration` does.
     public nonisolated func resume() async throws {
         let (running, savedGeometry, savedDestination) =
-            lock.withLock { (isRunning, currentGeometry, currentDestination) }
+            lock.withLock { unsafe (isRunning, currentGeometry, currentDestination) }
         guard running else { throw SessionError.notRunning }
         // Both saved values, or both re-derived — never one of each.
         if let savedGeometry, let savedDestination {
@@ -505,30 +528,30 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `SegmentTable`. Deliberately not `@discardableResult`: the record of what
     /// was just recorded is the only interesting output.
     public nonisolated func stop() async throws -> Outcome {
-        guard lock.withLock({ isRunning }) else { throw SessionError.notRunning }
+        guard lock.withLock({ unsafe isRunning }) else { throw SessionError.notRunning }
 
         // A stop with no segment open (e.g. after a stream failure already
         // finalised the last one) is not an error.
-        if lock.withLock({ ledger.isSegmentOpen }) {
+        if lock.withLock({ unsafe ledger.isSegmentOpen }) {
             try await finalizeCurrentSegment(endedBy: .stopped, stopping: true)
         } else {
             unregisterReconfigurationObserver()
-            lock.withLock { isRunning = false }
+            lock.withLock { unsafe isRunning = false }
         }
 
         // Matching `stop()` for the single `InputObserver.start(onObservation:)`
         // call in `setUpObservation()`; tears the tap down for the session.
         let observerToStop = lock.withLock { () -> InputObserver? in
-            let observer = inputObserver
-            inputObserver = nil
+            let observer = unsafe inputObserver
+            unsafe inputObserver = nil
             return observer
         }
         if let observerToStop {
             await MainActor.run { observerToStop.stop() }
         }
 
-        let table = try lock.withLock { try ledger.finish() }
-        let discarded = lock.withLock { _diagnostics.discardedSegments }
+        let table = try lock.withLock { unsafe try ledger.finish() }
+        let discarded = lock.withLock { unsafe _diagnostics.discardedSegments }
         return discarded.isEmpty ? .complete(table) : .incomplete(table, discarded: discarded)
     }
 
@@ -543,8 +566,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// following the new display while `destinationRect` still asks for the old
     /// one — and ScreenCaptureKit then resamples every frame of the new segment.
     private nonisolated func beginSegment(geometry: DisplayGeometry, destination: PixelRect) async throws {
-        let index = lock.withLock { ledger.closedSegments.count }
-        let mediaFilename = "master-\(String(format: "%02d", index)).mov"
+        let index = lock.withLock { unsafe ledger.closedSegments.count }
+        let mediaFilename = unsafe "master-\(String(format: "%02d", index)).mov"
 
         // AVAssetWriter fails if a file already exists at its output URL, so it
         // cannot target `media/<name>` directly. It writes to a scratch path
@@ -584,8 +607,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // not fill the surface is undocumented.
         configuration.destinationRect = CGGeometryBridge.rect(from: destination)
         lock.withLock {
-            _diagnostics.configuredDestinationRect = destination
-            _diagnostics.segmentConfigurations.append(
+            unsafe _diagnostics.configuredDestinationRect = destination
+            unsafe _diagnostics.segmentConfigurations.append(
                 Diagnostics.SegmentConfiguration(bufferWidth: geometry.pixelWidth,
                                                   bufferHeight: geometry.pixelHeight,
                                                   destination: destination, scale: geometry.scale))
@@ -593,7 +616,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         configuration.capturesAudio = true
         configuration.captureMicrophone = true
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned, placeholder gamut choice
+        unsafe configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned, placeholder gamut choice
         // A floor, not a cadence — presentation times come from each sample
         // buffer and are never assumed from this number.
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
@@ -607,7 +630,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // One `ObservationWriter` per segment, beside the media. No package means
         // no log for this segment, exactly as it already means no media.
         let packageURL = await MainActor.run { mediaSink.packageURL }
-        let (input, ax, blindness) = lock.withLock { (inputObserver, axObserver, observationBlindness) }
+        let (input, ax, blindness) = lock.withLock { unsafe (inputObserver, axObserver, observationBlindness) }
         var writer: ObservationWriter?
         if let packageURL {
             let header = ObservationLogHeader(anchor: Minting.epochAnchor(), segmentIndex: index,
@@ -639,24 +662,24 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
 
         lock.withLock {
-            self.stream = scStream
-            self.master = master
-            self.writerTempURL = tempURL
-            self.writerSessionStarted = false
-            self.currentGeometry = geometry
-            self.currentDestination = destination
-            self.suspendAppendsForReconfiguration = false
-            self.currentMediaFilename = mediaFilename
-            self.lastFrameInstant = nil
-            self.frameCounterForBlackCheck = 0
-            self.blackFrameConsecutive = 0
-            self.observationWriter = writer
-            self.inputDiagnosticsAtSegmentStart = input?.diagnostics ?? InputObserver.Diagnostics()
-            self.axDiagnosticsAtSegmentStart = ax?.diagnostics ?? Headless.AXObserver.Diagnostics()
-            self.frameStatusCountsAtSegmentStart = _diagnostics.frameStatusCounts
-            self.secureInputSuppressedNanosAtCurrentSegment = 0
+            unsafe self.stream = scStream
+            unsafe self.master = master
+            unsafe self.writerTempURL = tempURL
+            unsafe self.writerSessionStarted = false
+            unsafe self.currentGeometry = geometry
+            unsafe self.currentDestination = destination
+            unsafe self.suspendAppendsForReconfiguration = false
+            unsafe self.currentMediaFilename = mediaFilename
+            unsafe self.lastFrameInstant = nil
+            unsafe self.frameCounterForBlackCheck = 0
+            unsafe self.blackFrameConsecutive = 0
+            unsafe self.observationWriter = writer
+            unsafe self.inputDiagnosticsAtSegmentStart = input?.diagnostics ?? InputObserver.Diagnostics()
+            unsafe self.axDiagnosticsAtSegmentStart = ax?.diagnostics ?? AXObserver.Diagnostics()
+            unsafe self.frameStatusCountsAtSegmentStart = unsafe _diagnostics.frameStatusCounts
+            unsafe self.secureInputSuppressedNanosAtCurrentSegment = 0
             let openInstant = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
-            ledger.openSegment(at: openInstant, revision: geometry.revision, mediaFilename: mediaFilename)
+            unsafe ledger.openSegment(at: openInstant, revision: geometry.revision, mediaFilename: mediaFilename)
         }
 
         try await scStream.startCapture()
@@ -676,9 +699,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             let endInstant: HostInstant
         }
         guard let snapshot = lock.withLock({ () -> Snapshot? in
-            guard isRunning, ledger.isSegmentOpen else { return nil }
-            let instant = lastFrameInstant ?? HostInstant(epoch: epoch, hostTime: Minting.hostNow())
-            return Snapshot(scStream: stream, master: master, tempURL: writerTempURL,
+            guard unsafe isRunning, unsafe ledger.isSegmentOpen else { return nil }
+            let instant = unsafe lastFrameInstant ?? HostInstant(epoch: epoch, hostTime: Minting.hostNow())
+            return unsafe Snapshot(scStream: stream, master: master, tempURL: writerTempURL,
                              mediaFilename: currentMediaFilename, endInstant: instant)
         }) else {
             throw SessionError.noSegmentOpen
@@ -721,48 +744,48 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 writerStatus: statusDescription,
                 writerError: snapshot.master?.errorDescription ?? "nil",
                 retainedScratchPath: snapshot.tempURL?.path() ?? "(none)")
-            lock.withLock { _diagnostics.discardedSegments.append(discarded) }
+            lock.withLock { unsafe _diagnostics.discardedSegments.append(discarded) }
         }
 
         let (segment, closingWriter) = lock.withLock { () -> (MasterSegment, ObservationWriter?) in
-            let segment = ledger.closeSegment(at: snapshot.endInstant, endedBy: boundary)
-            self.stream = nil
-            self.master = nil
-            self.writerTempURL = nil
-            self.currentMediaFilename = nil
-            let writer = self.observationWriter
-            self.observationWriter = nil
+            let segment = unsafe ledger.closeSegment(at: snapshot.endInstant, endedBy: boundary)
+            unsafe self.stream = nil
+            unsafe self.master = nil
+            unsafe self.writerTempURL = nil
+            unsafe self.currentMediaFilename = nil
+            let writer = unsafe self.observationWriter
+            unsafe self.observationWriter = nil
             // `true` only when a real writer is about to be drained and closed
             // below. Set inside the SAME lock as `observationWriter = nil` so a
             // concurrent `appendObservation` can never see the writer gone with
             // this flag not yet caught up.
-            self.finalizingCurrentSegment = (writer != nil)
-            if stopping { isRunning = false }
+            unsafe self.finalizingCurrentSegment = (writer != nil)
+            if stopping { unsafe isRunning = false }
             return (segment, writer)
         }
 
         if let closingWriter {
-            // Wait for the AX queue before closing: `Headless.AXObserver.enqueue` may still
+            // Wait for the AX queue before closing: `AXObserver.enqueue` may still
             // be walking a chain for a click just before this boundary, which
             // `routeInputObservation` already routed to THIS writer. Without the
             // wait the chain hits `WriterError.logIsClosed` and is lost.
-            let ax = lock.withLock { axObserver }
+            let ax = lock.withLock { unsafe axObserver }
             ax?.waitForQueuedClicks()
             let gapWatches = observationGapWatches(hostRange: segment.hostRange)
             do {
                 try closingWriter.close(endedBy: boundary, hostRange: segment.hostRange, gapWatches: gapWatches)
             } catch {
                 lock.withLock {
-                    _diagnostics.observationAppendFailures += 1
-                    if _diagnostics.firstObservationAppendFailure == nil {
-                        _diagnostics.firstObservationAppendFailure = String(describing: error)
+                    unsafe _diagnostics.observationAppendFailures += 1
+                    if unsafe _diagnostics.firstObservationAppendFailure == nil {
+                        unsafe _diagnostics.firstObservationAppendFailure = String(describing: error)
                     }
                 }
             }
             // The close-drain window ends here whether `close(...)` succeeded or
             // threw; later `nil`-writer observations belong to
             // `observationsOutsideAnOpenSegment`.
-            lock.withLock { finalizingCurrentSegment = false }
+            lock.withLock { unsafe finalizingCurrentSegment = false }
         }
 
         if stopping {
@@ -775,11 +798,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// session-long while the log is per-segment.
     private nonisolated func observationGapWatches(hostRange: HostRange) -> [GapWatch] {
         let (inputNow, inputBase, axNow, axBase, secureInputSuppressed, framesBase) = lock.withLock {
-            (inputObserver?.diagnostics ?? InputObserver.Diagnostics(), inputDiagnosticsAtSegmentStart,
-             axObserver?.diagnostics ?? Headless.AXObserver.Diagnostics(), axDiagnosticsAtSegmentStart,
+            unsafe (inputObserver?.diagnostics ?? InputObserver.Diagnostics(), inputDiagnosticsAtSegmentStart,
+             axObserver?.diagnostics ?? AXObserver.Diagnostics(), axDiagnosticsAtSegmentStart,
              secureInputSuppressedNanosAtCurrentSegment, frameStatusCountsAtSegmentStart)
         }
-        let framesNow = lock.withLock { _diagnostics.frameStatusCounts }
+        let framesNow = lock.withLock { unsafe _diagnostics.frameStatusCounts }
         let frameCallbacksThisSegment = framesNow.values.reduce(0, +) - framesBase.values.reduce(0, +)
         let idleFramesThisSegment = (framesNow[SCFrameStatus.idle.rawValue] ?? 0)
             - (framesBase[SCFrameStatus.idle.rawValue] ?? 0)
@@ -816,20 +839,20 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `lock.withLock` as `observationWriter`, or a close running between two
     /// separate reads would misattribute a drop to the wrong counter.
     private nonisolated func routeInputObservation(_ observation: InputObserver.Observation) {
-        let (writer, finalizing) = lock.withLock { (observationWriter, finalizingCurrentSegment) }
+        let (writer, finalizing) = lock.withLock { unsafe (observationWriter, finalizingCurrentSegment) }
         switch observation {
         case .pointer(let sample):
             appendObservation(sample, to: writer, whileFinalizing: finalizing)
         case .button(let event):
             appendObservation(event, to: writer, whileFinalizing: finalizing)
-            guard event.phase == .down, let ax = lock.withLock({ axObserver }) else { return }
+            guard event.phase == .down, let ax = lock.withLock({ unsafe axObserver }) else { return }
             ax.enqueue(event) { [weak self] record in
                 self?.appendObservation(record, to: writer, whileFinalizing: finalizing)
             }
         case .key(let sample):
             appendObservation(sample, to: writer, whileFinalizing: finalizing)
         case .secureInput(let interval):
-            lock.withLock { secureInputSuppressedNanosAtCurrentSegment += interval.interval.duration.rawValue }
+            lock.withLock { unsafe secureInputSuppressedNanosAtCurrentSegment += interval.interval.duration.rawValue }
             appendObservation(interval, to: writer, whileFinalizing: finalizing)
         case .tapDisabled(let interval):
             appendObservation(interval, to: writer, whileFinalizing: finalizing)
@@ -847,9 +870,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         guard let writer else {
             lock.withLock {
                 if whileFinalizing {
-                    _diagnostics.observationsDroppedAfterSegmentClose += 1
+                    unsafe _diagnostics.observationsDroppedAfterSegmentClose += 1
                 } else {
-                    _diagnostics.observationsOutsideAnOpenSegment += 1
+                    unsafe _diagnostics.observationsOutsideAnOpenSegment += 1
                 }
             }
             return
@@ -858,9 +881,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             try writer.append(record)
         } catch {
             lock.withLock {
-                _diagnostics.observationAppendFailures += 1
-                if _diagnostics.firstObservationAppendFailure == nil {
-                    _diagnostics.firstObservationAppendFailure = String(describing: error)
+                unsafe _diagnostics.observationAppendFailures += 1
+                if unsafe _diagnostics.firstObservationAppendFailure == nil {
+                    unsafe _diagnostics.firstObservationAppendFailure = String(describing: error)
                 }
             }
         }
@@ -903,7 +926,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
               let attachments = attachmentsArray.first else { return }
 
         let statusRaw = (attachments[.status] as? Int) ?? -1
-        lock.withLock { _diagnostics.frameStatusCounts[statusRaw, default: 0] += 1 }
+        lock.withLock { unsafe _diagnostics.frameStatusCounts[statusRaw, default: 0] += 1 }
 
         // A callback is not a frame (F2-4: idle was 42–84% of callbacks
         // across four runs) — append only `.complete`.
@@ -916,21 +939,21 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // at all, and `everyCompleteFrameIsAccountedFor` could not be
         // stated, let alone hold. A conservation law only means something if
         // the total is fixed before the branches start.
-        lock.withLock { _diagnostics.completeFrameCount += 1 }
+        lock.withLock { unsafe _diagnostics.completeFrameCount += 1 }
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         // An invalid `CMTime` is the same loss as an unconvertible one — the
         // frame has no place on the timeline — and is counted with it rather
         // than returning uncounted, which is what this line used to do.
         guard pts.isValid else {
-            lock.withLock { _diagnostics.unconvertiblePresentationTimeCount += 1 }
+            lock.withLock { unsafe _diagnostics.unconvertiblePresentationTimeCount += 1 }
             return
         }
         // Integer nanoseconds, not `CMTimeGetSeconds(pts) * 1e9` — `Nanoseconds`
         // is never a `Double`. The conversion lives in `Nanoseconds` because the
         // naive inline form overflows `Int64` and is untestable from here.
         guard let ptsNanoseconds = Nanoseconds(rationalSeconds: pts.value, timescale: pts.timescale) else {
-            lock.withLock { _diagnostics.unconvertiblePresentationTimeCount += 1 }
+            lock.withLock { unsafe _diagnostics.unconvertiblePresentationTimeCount += 1 }
             return
         }
         let ptsNanos = ptsNanoseconds.rawValue
@@ -942,11 +965,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         let (shouldCheckBlack, masterRef, sessionAlreadyStarted) = lock.withLock {
             () -> (Bool, (any MasterWriting)?, Bool) in
-            if latencyNanos >= 0 { _diagnostics.ptsToCallbackLatencyNanos.append(latencyNanos) }
-            lastFrameInstant = frameInstant
-            frameCounterForBlackCheck += 1
-            let shouldCheck = frameCounterForBlackCheck % Self.blackFrameCheckEveryNFrames == 0
-            return (shouldCheck, master, writerSessionStarted)
+            if latencyNanos >= 0 { unsafe _diagnostics.ptsToCallbackLatencyNanos.append(latencyNanos) }
+            unsafe lastFrameInstant = frameInstant
+            unsafe frameCounterForBlackCheck += 1
+            let shouldCheck = unsafe frameCounterForBlackCheck % Self.blackFrameCheckEveryNFrames == 0
+            return unsafe (shouldCheck, master, writerSessionStarted)
         }
 
         if shouldCheckBlack, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
@@ -955,25 +978,25 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         // Each exit counted separately: an already-failed writer and a real-time
         // input under backpressure are both legitimate but distinguishable.
-        if lock.withLock({ suspendAppendsForReconfiguration }) {
-            lock.withLock { _diagnostics.skippedAwaitingReconfigurationCount += 1 }
+        if lock.withLock({ unsafe suspendAppendsForReconfiguration }) {
+            lock.withLock { unsafe _diagnostics.skippedAwaitingReconfigurationCount += 1 }
             return
         }
         guard let masterRef, masterRef.status == .writing else {
-            lock.withLock { _diagnostics.skippedWriterNotWritingCount += 1 }
+            lock.withLock { unsafe _diagnostics.skippedWriterNotWritingCount += 1 }
             return
         }
         guard masterRef.video.isReadyForMoreMediaData else {
-            lock.withLock { _diagnostics.skippedInputNotReadyCount += 1 }
+            lock.withLock { unsafe _diagnostics.skippedInputNotReadyCount += 1 }
             return
         }
         if !sessionAlreadyStarted {
             masterRef.startSession(at: pts)
-            lock.withLock { writerSessionStarted = true }
+            lock.withLock { unsafe writerSessionStarted = true }
         }
         let accepted = masterRef.video.append(sampleBuffer)
         if accepted, let observedContentScale, observedContentScale != 1 {
-            lock.withLock { _diagnostics.appendedResampledFrameCount += 1 }
+            lock.withLock { unsafe _diagnostics.appendedResampledFrameCount += 1 }
         }
         recordAppend(accepted, of: masterRef, isVideo: true)
     }
@@ -984,14 +1007,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated func recordAppend(_ accepted: Bool, of master: any MasterWriting, isVideo: Bool) {
         lock.withLock {
             if accepted {
-                if isVideo { _diagnostics.appendedVideoFrameCount += 1 }
-                else { _diagnostics.appendedAudioSampleCount += 1 }
+                if isVideo { unsafe _diagnostics.appendedVideoFrameCount += 1 }
+                else { unsafe _diagnostics.appendedAudioSampleCount += 1 }
                 return
             }
-            if isVideo { _diagnostics.failedVideoAppendCount += 1 }
-            else { _diagnostics.failedAudioAppendCount += 1 }
-            guard _diagnostics.firstAppendFailure == nil else { return }
-            _diagnostics.firstAppendFailure =
+            if isVideo { unsafe _diagnostics.failedVideoAppendCount += 1 }
+            else { unsafe _diagnostics.failedAudioAppendCount += 1 }
+            guard unsafe _diagnostics.firstAppendFailure == nil else { return }
+            unsafe _diagnostics.firstAppendFailure =
                 "\(isVideo ? "video" : "audio") append refused; writer status: \(master.status.name); "
                 + "writer error: \(master.errorDescription ?? "nil")"
         }
@@ -1006,16 +1029,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // The layout ScreenCaptureKit actually delivered, recorded before the
         // buffer is touched and only once per source.
         lock.withLock {
-            if isSystemAudio, _diagnostics.systemAudioLayout == nil {
-                _diagnostics.systemAudioLayout = AudioInterleave.layoutDescription(of: sampleBuffer)
-            } else if !isSystemAudio, _diagnostics.microphoneLayout == nil {
-                _diagnostics.microphoneLayout = AudioInterleave.layoutDescription(of: sampleBuffer)
+            if isSystemAudio, unsafe _diagnostics.systemAudioLayout == nil {
+                unsafe _diagnostics.systemAudioLayout = AudioInterleave.layoutDescription(of: sampleBuffer)
+            } else if !isSystemAudio, unsafe _diagnostics.microphoneLayout == nil {
+                unsafe _diagnostics.microphoneLayout = AudioInterleave.layoutDescription(of: sampleBuffer)
             }
         }
 
         let (masterRef, trackRef, sessionAlreadyStarted) = lock.withLock {
             () -> ((any MasterWriting)?, (any MasterTrackWriting)?, Bool) in
-            (master, master.map { isSystemAudio ? $0.systemAudio : $0.microphone }, writerSessionStarted)
+            unsafe (master, master.map { isSystemAudio ? $0.systemAudio : $0.microphone }, unsafe writerSessionStarted)
         }
         guard let masterRef, masterRef.status == .writing else {
             updateAudioAccounting(isSystemAudio) { $0.skippedWriterNotWriting += 1 }
@@ -1053,8 +1076,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated func updateAudioAccounting(_ isSystemAudio: Bool,
                                                     _ change: (inout Diagnostics.AudioTrackAccounting) -> Void) {
         lock.withLock {
-            if isSystemAudio { change(&_diagnostics.systemAudioAccounting) }
-            else { change(&_diagnostics.microphoneAccounting) }
+            if isSystemAudio { unsafe change(&_diagnostics.systemAudioAccounting) }
+            else { unsafe change(&_diagnostics.microphoneAccounting) }
         }
     }
 
@@ -1081,18 +1104,18 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         guard let scale = scaleValue else { return nil }
         lock.withLock {
-            _diagnostics.contentScaleCheckedCount += 1
-            if scale != 1 { _diagnostics.resampledFrameCount += 1 }
-            _diagnostics.minContentScaleObserved = min(_diagnostics.minContentScaleObserved ?? scale, scale)
-            _diagnostics.maxContentScaleObserved = max(_diagnostics.maxContentScaleObserved ?? scale, scale)
+            unsafe _diagnostics.contentScaleCheckedCount += 1
+            if scale != 1 { unsafe _diagnostics.resampledFrameCount += 1 }
+            unsafe _diagnostics.minContentScaleObserved = unsafe min(_diagnostics.minContentScaleObserved ?? scale, scale)
+            unsafe _diagnostics.maxContentScaleObserved = unsafe max(_diagnostics.maxContentScaleObserved ?? scale, scale)
             // Also attributed to the segment open when it arrived; a session-wide
             // count cannot say which segment was resampled.
-            if var current = _diagnostics.segmentConfigurations.last {
+            if var current = unsafe _diagnostics.segmentConfigurations.last {
                 current.framesChecked += 1
                 if scale != 1 { current.framesResampled += 1 }
                 current.contentScaleMin = min(current.contentScaleMin ?? scale, scale)
                 current.contentScaleMax = max(current.contentScaleMax ?? scale, scale)
-                _diagnostics.segmentConfigurations[_diagnostics.segmentConfigurations.count - 1] = current
+                unsafe _diagnostics.segmentConfigurations[_diagnostics.segmentConfigurations.count - 1] = current
             }
         }
         return scale
@@ -1104,14 +1127,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// feed `GeometryRevision` computation.
     private nonisolated func recordExtrinsicRects(from attachments: [SCStreamFrameInfo: Any]) {
         if let point = CGGeometryBridge.pointRect(fromFrameAttachment: attachments[.contentRect]) {
-            lock.withLock { _diagnostics.lastContentRect = point }
+            lock.withLock { unsafe _diagnostics.lastContentRect = point }
         } else {
-            lock.withLock { _diagnostics.unreadableContentRectCount += 1 }
+            lock.withLock { unsafe _diagnostics.unreadableContentRectCount += 1 }
         }
         if let point = CGGeometryBridge.pointRect(fromFrameAttachment: attachments[.screenRect]) {
-            lock.withLock { _diagnostics.lastScreenRect = point }
+            lock.withLock { unsafe _diagnostics.lastScreenRect = point }
         } else {
-            lock.withLock { _diagnostics.unreadableScreenRectCount += 1 }
+            lock.withLock { unsafe _diagnostics.unreadableScreenRectCount += 1 }
         }
     }
 
@@ -1125,7 +1148,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated func checkForBlackFrame(_ pixelBuffer: CVPixelBuffer) {
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return }
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+        guard let base = unsafe CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -1134,16 +1157,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         // 4x4 interior points, never the very edge (menu-bar/notch chrome sits at
         // a different luminance). BGRA 8-bit, matching the configured format.
-        let buffer = base.assumingMemoryBound(to: UInt8.self)
+        let buffer = unsafe base.assumingMemoryBound(to: UInt8.self)
         var allAtFloor = true
         outer: for row in 1...4 {
             for col in 1...4 {
                 let x = min(width - 1, (width * col) / 5)
                 let y = min(height - 1, (height * row) / 5)
                 let offset = y * bytesPerRow + x * 4
-                let b = Double(buffer[offset]) / 255.0
-                let g = Double(buffer[offset + 1]) / 255.0
-                let r = Double(buffer[offset + 2]) / 255.0
+                let b = unsafe Double(buffer[offset]) / 255.0
+                let g = unsafe Double(buffer[offset + 1]) / 255.0
+                let r = unsafe Double(buffer[offset + 2]) / 255.0
                 let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
                 if luminance > Self.blackFrameLuminanceFloor {
                     allAtFloor = false
@@ -1153,13 +1176,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
 
         let (consecutive, segmentIndex) = lock.withLock { () -> (Int, Int) in
-            blackFrameConsecutive = allAtFloor ? blackFrameConsecutive + 1 : 0
-            return (blackFrameConsecutive, ledger.closedSegments.count)
+            unsafe blackFrameConsecutive = unsafe allAtFloor ? blackFrameConsecutive + 1 : 0
+            return unsafe (blackFrameConsecutive, ledger.closedSegments.count)
         }
 
         if consecutive == Self.blackFrameConsecutiveThreshold {
             lock.withLock {
-                _diagnostics.blackFrameDetections.append((segmentIndex: segmentIndex, consecutiveChecks: consecutive))
+                unsafe _diagnostics.blackFrameDetections.append((segmentIndex: segmentIndex, consecutiveChecks: consecutive))
             }
             // Logged, not acted on — see this function's doc comment.
             FileHandle.standardError.write(Data((
@@ -1175,23 +1198,23 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// Must be registered before `startCapture()`; otherwise a reconfiguration is
     /// only inferred later, after the file is already wrong.
     private nonisolated func registerReconfigurationObserver() {
-        let token = Unmanaged.passUnretained(self)
-        lock.withLock { reconfigToken = token }
+        let token = unsafe Unmanaged.passUnretained(self)
+        lock.withLock { unsafe reconfigToken = unsafe token }
         // The `CGError` is recorded: a registration that failed and one that
         // succeeded but never fired otherwise leave identical evidence.
-        let error = CGDisplayRegisterReconfigurationCallback(
+        let error = unsafe CGDisplayRegisterReconfigurationCallback(
             CaptureSession.reconfigurationCallback, token.toOpaque())
-        lock.withLock { _diagnostics.reconfigurationObserverRegistration = error }
+        lock.withLock { unsafe _diagnostics.reconfigurationObserverRegistration = error }
     }
 
     private nonisolated func unregisterReconfigurationObserver() {
-        let token = lock.withLock { () -> Unmanaged<CaptureSession>? in
-            let t = reconfigToken
-            reconfigToken = nil
-            return t
+        let token = unsafe lock.withLock { () -> Unmanaged<CaptureSession>? in
+            let t = unsafe reconfigToken
+            unsafe reconfigToken = nil
+            return unsafe t
         }
-        if let token {
-            CGDisplayRemoveReconfigurationCallback(CaptureSession.reconfigurationCallback, token.toOpaque())
+        if let token = unsafe token {
+            unsafe CGDisplayRemoveReconfigurationCallback(CaptureSession.reconfigurationCallback, token.toOpaque())
         }
     }
 
@@ -1200,8 +1223,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `nonisolated` because unannotated this `static let` is `@MainActor` and
     /// neither `deinit` nor a C callback context could reference it.
     private nonisolated static let reconfigurationCallback: CGDisplayReconfigurationCallBack = { displayID, flags, userInfo in
-        guard let userInfo else { return }
-        let session = Unmanaged<CaptureSession>.fromOpaque(userInfo).takeUnretainedValue()
+        guard let userInfo = unsafe userInfo else { return }
+        let session = unsafe Unmanaged<CaptureSession>.fromOpaque(userInfo).takeUnretainedValue()
 
         // Appending stops synchronously here, on BOTH callbacks, before any
         // suspension point: splitting the segment needs `SCShareableContent
@@ -1209,7 +1232,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // already resampled. `.beginConfigurationFlag` is deliberately not
         // filtered out, since "begin" arrives before the change and is the
         // earliest this process can know. Only the completed callback splits.
-        session.lock.withLock { session.suspendAppendsForReconfiguration = true }
+        session.lock.withLock { unsafe session.suspendAppendsForReconfiguration = true }
 
         guard !flags.contains(.beginConfigurationFlag) else { return }
         Task { await session.handleReconfiguration(of: displayID) }
@@ -1236,7 +1259,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     private nonisolated func handleReconfiguration(of displayID: CGDirectDisplayID) async {
         guard case .display(let capturedDisplay) = source, capturedDisplay.displayID == displayID else { return }
-        guard lock.withLock({ ledger.isSegmentOpen }) else { return }
+        guard lock.withLock({ unsafe ledger.isSegmentOpen }) else { return }
 
         guard let content = try? await SCShareableContent.current,
               let freshDisplay = content.displays.first(where: { $0.displayID == displayID }) else {
@@ -1266,7 +1289,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let newScale = Self.backingScale(of: displayID) ?? scale
         let newGeometry = newSource.geometry(scale: newScale, displayUUID: displayUUID)
 
-        lock.withLock { _diagnostics.displayReconfigurationsHandled += 1 }
+        lock.withLock { unsafe _diagnostics.displayReconfigurationsHandled += 1 }
 
         try? await finalizeCurrentSegment(endedBy: .displayReconfigured(newRevision: newGeometry.revision))
         // `newSource`, not `self.source` — the whole point of re-deriving.
@@ -1297,7 +1320,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 /// where untrusted-shaped input (two segments that individually look fine
 /// but disagree with each other) gets a recoverable error instead — this
 /// type does not duplicate that validation, it defers to it in `finish()`.
-struct SegmentLedger {
+public struct SegmentLedger {
     private(set) var closedSegments: [MasterSegment] = []
     private var open: (start: HostInstant, revision: GeometryRevision, mediaFilename: String)?
 

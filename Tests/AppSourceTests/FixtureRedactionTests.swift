@@ -263,6 +263,7 @@ let captureTierFilesInHeadless: Set<String> = [
     "Sources/Headless/AudioInterleave.swift",
     "Sources/Headless/CGGeometryBridge.swift",
     "Sources/Headless/CaptureError.swift",
+    "Sources/Headless/CaptureSession.swift",
     "Sources/Headless/CapturePermissions.swift",
     "Sources/Headless/CaptureSource.swift",
     "Sources/Headless/InputObserver.swift",
