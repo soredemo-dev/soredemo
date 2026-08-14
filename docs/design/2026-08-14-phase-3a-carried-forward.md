@@ -15,6 +15,14 @@
 
 ## 2. Rules held by convention rather than enforcement
 
+> **DISCHARGED by Phase 3A-4 (2026-08-14), the day after this was written.** `Headless` is
+> two targets — `Capture` and `Compositing` — that neither depend on each other nor may;
+> `theTwoRunnableTargetsDoNotDependOnEachOther` asserts it against the resolved manifest in
+> both directions, with a seeded-edge credential each way. `captureTierFilesInHeadless` is
+> deleted: with two targets, Gate 2 names the one it means. Design:
+> `docs/design/2026-08-14-splitting-headless.md`. The paragraph below is left standing as
+> the reason the split happened.
+
 **The Headless tier's two halves have no enforced boundary.** `Sources/Headless` now holds
 a capture tier and a render tier in one target. Nothing stops `CoreImageFrameRenderer`
 importing `AXObserver`. The only mechanism pointing at the split is
@@ -40,13 +48,15 @@ remove it.
 
 ## 3. Defaults this phase depended on and never decided
 
-**Public visibility was granted by need, not by design.** Every type that moved became
-`public` because a caller in the app target needed it. After Task 6 several of those
-callers are gone — `CaptureError`, `ObservationWriter`, `AudioInterleave`, `MasterWriting`
-and its conformers are used only from inside `Headless` now. Nobody has re-checked which
-of them should go back to `internal`, and the entry rule (`everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct`)
-is currently satisfied by tests written to satisfy it rather than by tests someone wanted.
-**Do this narrowing before 3B**: it is cheap now and gets more expensive with every caller.
+**Public visibility was granted by need, not by design.** *(DISCHARGED by Phase 3A-4 Task
+3.)* Every type that moved became `public` because a caller in the app target needed it,
+one build error at a time. The narrowing could not use "the app names it" as its criterion
+— `ExportReport` is `MP4Exporter.export`'s result and is exported without any app file
+writing the word — so every top-level type the app does not name was narrowed and the
+compiler was allowed to refuse. **23 candidates, 6 refused**, each because it appears in a
+public member's signature: `FrameRendering`, `ExportReport`, `CapturePermission`,
+`PermissionStatus`, `Degradation`, `PermissionObservation`. The reason is recorded at each
+declaration. The remaining 17 are `internal`.
 
 **The `Diagnostics` types gained `public init()`** so the app tier could construct one to
 diff against. That is a real API decision made to fix a build error.
