@@ -14,14 +14,14 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .library(
-            name: "SoredemoCore",
+            name: "SoredemoCore", type: .static,
             targets: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render"]
         ),
 
         // NOT added to `SoredemoCore`'s targets array, and not named `SoredemoCore`:
         // that product is Foundation-only by definition in five documents, and this
         // target's whole purpose is the platform frameworks that definition excludes.
-        .library(name: "SoredemoHeadless", targets: ["Capture", "Compositing"]),
+        .library(name: "SoredemoHeadless", type: .static, targets: ["Capture", "Compositing"]),
     ],
     targets: [
         // `plugins: [archCheck]` on the six library targets — and deliberately NOT

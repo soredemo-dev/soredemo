@@ -31,7 +31,11 @@ echo "SDK: $(xcrun --sdk macosx --show-sdk-path) ($(xcrun --sdk macosx --show-sd
 # CommandLineTools path that xcodebuild then cannot locate, while `--sdk macosx` gives
 # the SDK `swift build` actually passes. Measured by scripts/scan-sdk-deprecations.py.
 
-swift build
+# `--product` explicitly: a bare `swift build` compiles every target but emits no
+# ARCHIVE, so `-lSoredemoHeadless` below would silently link whatever stale .a happened
+# to be lying around from an earlier build. That is how this probe came to be linking an
+# archive built on 2026-08-06, three phases before the targets it names existed.
+swift build --product SoredemoCore --product SoredemoHeadless
 
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
@@ -43,6 +47,21 @@ trap 'rm -rf "$OUT"' EXIT
 # declarations are nonisolated here and MainActor-isolated there, so code can
 # pass this probe and fail `xcodebuild`, which is exactly what happened in
 # Task 7. Keep them in step with the pbxproj.
+#
+# **The capture and compositing sources are IMPORTED, not recompiled here** (Phase
+# 3A-4). Every one of them used to live in the Xcode app target, where nothing but
+# this probe could compile them, so listing them file by file was the only way to
+# reach them. They are package targets now — `Capture` and `Compositing`, both
+# vended by `SoredemoCore` — so recompiling their sources would build a SECOND copy
+# under different flags and check that copy instead of the one the app links. What
+# is still listed below is what genuinely remains app-target-only.
+#
+# `-I .build/debug/Modules` is where SwiftPM writes `.swiftmodule` files; the bare
+# `.build/debug` path alone stopped resolving `import Graph` the moment a probe input
+# needed it. `-lSoredemoHeadless` is the product `Capture` and `Compositing` are vended
+# by, which had no reason to be linked while their sources were recompiled inline — and
+# both products are declared `type: .static` in the manifest for the same reason: without
+# it SwiftPM emits no archive at all and there is nothing here to link against.
 #
 # A `#` comment does NOT survive inside a backslash-continued command line —
 # bash joins the continued line first, so a comment here silently truncates
@@ -60,30 +79,13 @@ xcrun swiftc \
   -enable-upcoming-feature NonisolatedNonsendingByDefault \
   -target arm64-apple-macos26.0 \
   -I .build/debug \
+  -I .build/debug/Modules \
   -L .build/debug \
   -lSoredemoCore \
+  -lSoredemoHeadless \
   -o "$OUT/probe" \
-  Soredemo/Support/Minting.swift \
-  Soredemo/Capture/CGGeometryBridge.swift \
-  Soredemo/Capture/CaptureSource.swift \
-  Soredemo/Capture/AudioInterleave.swift \
-  Soredemo/Capture/MasterWriter.swift \
-  Soredemo/Capture/SuccessorMasterWriter.swift \
-  Soredemo/Capture/CaptureSession.swift \
-  Soredemo/Capture/CaptureError.swift \
   Soredemo/App/BuildProvenance.swift \
-  Soredemo/Capture/CapturePermissions.swift \
-  Soredemo/Capture/InputObserver.swift \
-  Soredemo/Capture/AXObserver.swift \
   Soredemo/UI/ProjectDocument.swift \
-  Soredemo/Capture/ObservationWriter.swift \
-  Sources/Headless/FrameRenderer.swift \
-  Sources/Headless/HeadlessGeometryBridge.swift \
-  Sources/Headless/CursorArt.swift \
-  Sources/Headless/CoreImageFrameRenderer.swift \
-  Sources/Headless/StageCompositor.swift \
-  Sources/Headless/CompositionBuilder.swift \
-  Sources/Headless/MP4Exporter.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \
   scripts/cross-boundary-digest-probe.swift

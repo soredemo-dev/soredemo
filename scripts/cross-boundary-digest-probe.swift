@@ -53,9 +53,9 @@
 //
 // `CapturePermissions` (`Soredemo/Capture/CapturePermissions.swift`) IS now
 // compiled in, which it was not before Task 10, and the reason is narrow: it
-// is the default argument of `AXObserver.init`'s `accessibilityIsGranted`
+// is the default argument of `Capture.AXObserver.init`'s `accessibilityIsGranted`
 // predicate, and a default argument has to compile whether or not it is ever
-// evaluated. Every `AXObserver` in § 8 passes its own predicate, so nothing
+// evaluated. Every `Capture.AXObserver` in § 8 passes its own predicate, so nothing
 // here ever calls it — which is what the paragraph below requires, and it is
 // now a property of the checks rather than of the compile list. If a check
 // ever lets that default be evaluated, the value it gets back is about the
@@ -90,6 +90,12 @@ import AVFoundation
 // `kVK_ANSI_*` for § 7's keyboard fixtures — the same layout-independent key
 // positions `InputObserver.approvedShortcuts` is written against, so the two
 // cannot drift into disagreeing about which key is which.
+// `@testable` since Phase 3A-4: the capture and compositing sources are package targets
+// now, and Task 3 narrowed to `internal` every type the app tier does not name. This probe
+// is not the app tier — it exercises the seams from outside, including ones the product
+// deliberately does not export (`InputObserver`, `AXElementSource`). Testability is enabled
+// on SwiftPM debug builds, which is what this links against.
+@testable import Capture
 import Carbon.HIToolbox
 import CoreGraphics
 // `CMSampleBuffer`, `CMReadySampleBuffer`, `CMAudioFormatDescription` for § 13 — building the
@@ -104,6 +110,7 @@ import Project
 // `RenderPlan`, `StageRect`, `StageStyle` for § 10 — `Soredemo/Render/*.swift`
 // depends on this module and no package test can drive the real
 // `CoreImageFrameRenderer` without it.
+@testable import Compositing
 import Render
 @preconcurrency import ScreenCaptureKit
 // `Nanoseconds.rawValue` (§ 4, epochAndClock) is `Timeline`'s, reached until
@@ -251,7 +258,7 @@ enum CrossBoundaryProbe {
         thePollFindsADisabledTap()
         thePollRunsWhileTheMainThreadIsStuck()
 
-        print("8. AXObserver — the bounded walk that records and does not judge (Task 10)")
+        print("8. Capture.AXObserver — the bounded walk that records and does not judge (Task 10)")
         print("8.1 the reverse conversion is the exact inverse of the forward one")
         theReverseConversion()
         print("8.2 the AXValue decoders, against real AXValues")
@@ -993,7 +1000,7 @@ enum CrossBoundaryProbe {
     /// display at a non-negative origin, where a conversion that *subtracts*
     /// the origin and one that *adds* it are hard to tell apart by sign, and
     /// where an origin of zero (the main display) makes the step vanish
-    /// entirely. `AXObserver.globalPoint` adds the origin back and
+    /// entirely. `Capture.AXObserver.globalPoint` adds the origin back and
     /// `normalizedFrame` subtracts it, so this is the placement that makes
     /// both steps observable. It needs no hardware, which is the same argument
     /// `theAXValueDecoders` makes for decoding a negative AX coordinate.
@@ -1153,7 +1160,7 @@ enum CrossBoundaryProbe {
         return event
     }
 
-    /// Collects `AXChainRecord`s from `AXObserver.enqueue`'s `@Sendable`
+    /// Collects `AXChainRecord`s from `Capture.AXObserver.enqueue`'s `@Sendable`
     /// callback, which is called on the AX queue rather than this one.
     nonisolated final class Collected: @unchecked Sendable {
         private let lock = NSLock()
@@ -1845,9 +1852,9 @@ enum CrossBoundaryProbe {
               actual: "\(diagnostics.pointerSamples)")
     }
 
-    // MARK: - § 8  AXObserver (Task 10)
+    // MARK: - § 8  Capture.AXObserver (Task 10)
     //
-    // Why here and not in a test target: `AXObserver` lives in the app, names
+    // Why here and not in a test target: `Capture.AXObserver` lives in the app, names
     // `AXUIElement`, and reaches CoreGraphics geometry through
     // `CGGeometryBridge` — three things no package test may touch.
     //
@@ -1983,9 +1990,9 @@ enum CrossBoundaryProbe {
         return nodes
     }
 
-    /// An `AXObserver` whose accessibility predicate is **always explicit**.
+    /// An `Capture.AXObserver` whose accessibility predicate is **always explicit**.
     ///
-    /// Never `AXObserver(arrangement:epoch:)` in this file. That form
+    /// Never `Capture.AXObserver(arrangement:epoch:)` in this file. That form
     /// evaluates the default argument, which reads TCC — and a TCC read from
     /// this binary reports the shell's grants, not this app's, for the reason
     /// this file's header sets out at length. Routing every construction
@@ -1993,8 +2000,8 @@ enum CrossBoundaryProbe {
     /// function instead of a habit at nine call sites.
     @MainActor
     static func axObserver(_ arrangement: DisplayArrangement, _ epoch: BootEpoch,
-                           accessibilityGranted: Bool = true) -> AXObserver {
-        AXObserver(arrangement: arrangement, epoch: epoch,
+                           accessibilityGranted: Bool = true) -> Capture.AXObserver {
+        Capture.AXObserver(arrangement: arrangement, epoch: epoch,
                    accessibilityIsGranted: { accessibilityGranted })
     }
 
@@ -2030,7 +2037,7 @@ enum CrossBoundaryProbe {
             check(false, "a point on the scale: 2 display must route somewhere")
             return
         }
-        guard let back = AXObserver.globalPoint(of: forward.position, revision: forward.revision,
+        guard let back = Capture.AXObserver.globalPoint(of: forward.position, revision: forward.revision,
                                                 in: arrangement) else {
             check(false, "the reverse conversion must find the display its own revision names")
             return
@@ -2061,7 +2068,7 @@ enum CrossBoundaryProbe {
 
         // A revision this arrangement does not contain: no point, not a
         // nearest-display guess.
-        check(AXObserver.globalPoint(of: forward.position,
+        check(Capture.AXObserver.globalPoint(of: forward.position,
                                      revision: GeometryRevision(id: 0xdead_beef_dead_beef),
                                      in: arrangement) == nil,
               "a click whose revision names no attached display yields NO point — a guessed one "
@@ -2085,7 +2092,7 @@ enum CrossBoundaryProbe {
         check((0...1).contains(onLeft.position.x) && (0...1).contains(onLeft.position.y),
               "and normalises into [0, 1] like any other display",
               actual: "(\(onLeft.position.x), \(onLeft.position.y))")
-        guard let backOnLeft = AXObserver.globalPoint(of: onLeft.position,
+        guard let backOnLeft = Capture.AXObserver.globalPoint(of: onLeft.position,
                                                       revision: onLeft.revision,
                                                       in: arrangement) else {
             check(false, "the reverse conversion must find the negative-origin display")
@@ -2180,7 +2187,7 @@ enum CrossBoundaryProbe {
               + "the bottom-edge anchor distinguishable from the top-edge one",
               actual: "\(axH)")
 
-        guard let frame = AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
+        guard let frame = Capture.AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
                                                      width: axW, height: axH,
                                                      in: arrangement) else {
             check(false, "an AX frame on the scale: 2 display must route somewhere")
@@ -2207,11 +2214,11 @@ enum CrossBoundaryProbe {
               + "zoom on the wrong control",
               actual: "correct \(frame.origin.y) vs top-anchored \(topEdgeAnchored)")
 
-        check(AXObserver.normalizedFrame(globalTopLeftX: 9000, globalTopLeftY: 270,
+        check(Capture.AXObserver.normalizedFrame(globalTopLeftX: 9000, globalTopLeftY: 270,
                                          width: axW, height: axH, in: arrangement) == nil,
               "a frame whose origin is on no attached display normalises to nothing, rather than "
               + "against whichever display happens to be first")
-        check(AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
+        check(Capture.AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
                                          width: axW, height: -1, in: arrangement) == nil,
               "a negative dimension from a misbehaving application yields nil — PointRect.init "
               + "would trap on it, and a trap in a walk that reads another process's UI is not a "
@@ -2221,7 +2228,7 @@ enum CrossBoundaryProbe {
         // frame is reported in NEGATIVE global points, which is what a window
         // on that display actually looks like to the accessibility API.
         let (_, _, _, left) = fixtureArrangement()
-        guard let onLeft = AXObserver.normalizedFrame(globalTopLeftX: -1000, globalTopLeftY: -500,
+        guard let onLeft = Capture.AXObserver.normalizedFrame(globalTopLeftX: -1000, globalTopLeftY: -500,
                                                       width: 200, height: 100,
                                                       in: arrangement) else {
             check(false, "an AX frame with a negative origin must route to the display it is on")
@@ -2276,8 +2283,8 @@ enum CrossBoundaryProbe {
         check(plainSource.calls == complete.axCalls,
               "and the source's own independent count agrees with the record's",
               actual: "source \(plainSource.calls) vs record \(complete.axCalls)")
-        check(complete.depthCap == AXObserver.depthCap
-                && complete.walkBudgetNanos == AXObserver.walkBudgetNanos,
+        check(complete.depthCap == Capture.AXObserver.depthCap
+                && complete.walkBudgetNanos == Capture.AXObserver.walkBudgetNanos,
               "the bounds in force are recorded per observation, because the budget is a D4 "
               + "placeholder and a log written under a different one is a different measurement",
               actual: "depth \(complete.depthCap), budget \(complete.walkBudgetNanos) ns")
@@ -2292,9 +2299,9 @@ enum CrossBoundaryProbe {
         check(capped.truncation == .depthCapReached,
               "a 40-level hierarchy stops at the cap and says so",
               actual: "\(capped.truncation)")
-        check(capped.ancestors.count == AXObserver.depthCap,
+        check(capped.ancestors.count == Capture.AXObserver.depthCap,
               "exactly depthCap ancestors were recorded",
-              actual: "\(capped.ancestors.count)", expected: "\(AXObserver.depthCap)")
+              actual: "\(capped.ancestors.count)", expected: "\(Capture.AXObserver.depthCap)")
         check(capped.children == [],
               "and the children were still read: the depth cap is not the budget, and a capped walk "
               + "has spent no measurable time (F2-2: capped walks completed in 4–13 ms)",
@@ -2314,9 +2321,9 @@ enum CrossBoundaryProbe {
               "a source that blocks 5 ms a call exhausts the 35 ms budget and the record says which "
               + "bound stopped it",
               actual: "\(starved.truncation)")
-        check(starved.ancestors.count > 0 && starved.ancestors.count < AXObserver.depthCap,
+        check(starved.ancestors.count > 0 && starved.ancestors.count < Capture.AXObserver.depthCap,
               "it stopped short of the depth cap, which is what makes this the OTHER bound",
-              actual: "\(starved.ancestors.count) ancestors of a possible \(AXObserver.depthCap)")
+              actual: "\(starved.ancestors.count) ancestors of a possible \(Capture.AXObserver.depthCap)")
         check(starved.ancestors.last?.role != "AXApplication",
               "and it stopped at a mid-level container, not the top of the tree — F2-3: truncation "
               + "drops the OUTERMOST ancestors, the ones least likely to be the camera's target",
@@ -2525,7 +2532,7 @@ enum CrossBoundaryProbe {
               actual: "\(d.nonMonotonicClockReadings)")
     }
 
-    /// **Every counter in `AXObserver.Diagnostics` that partitions a real
+    /// **Every counter in `Capture.AXObserver.Diagnostics` that partitions a real
     /// decision, driven to non-zero — and its neighbour held at zero in the
     /// same call.**
     ///
@@ -2660,8 +2667,8 @@ enum CrossBoundaryProbe {
         check(cappedThenStarved?.truncation == .budgetExceeded,
               "the record's truncation is the LAST thing that stopped it — the children read",
               actual: "\(cappedThenStarved?.truncation as ChainTruncation??)")
-        check(cappedThenStarved?.ancestors.count == AXObserver.depthCap,
-              "and the walk did reach the cap: \(AXObserver.depthCap) ancestors are recorded",
+        check(cappedThenStarved?.ancestors.count == Capture.AXObserver.depthCap,
+              "and the walk did reach the cap: \(Capture.AXObserver.depthCap) ancestors are recorded",
               actual: "\(cappedThenStarved?.ancestors.count as Int??)")
         check(d.truncatedDepthCapReached == 0 && d.truncatedBudgetExceeded == 1,
               "the final-verdict counters see only .budgetExceeded, which is why they are not the "
@@ -3002,7 +3009,7 @@ enum CrossBoundaryProbe {
     /// **The consequence of the tap-timeout measurement, checked.**
     ///
     /// AX runs behind a bounded queue rather than on the tap callback thread,
-    /// because of the asymmetry in `AXObserver`'s header: on the callback
+    /// because of the asymmetry in `Capture.AXObserver`'s header: on the callback
     /// thread a hung target costs the **whole pointer track**, behind the
     /// queue it costs the **AX chains of the affected clicks**, counted. Not
     /// because a slow callback disables the tap — measured, 125 ms on clicks
@@ -3083,7 +3090,7 @@ enum CrossBoundaryProbe {
         // refused rather than accumulated.
         let hung = axObserver(arrangement, epoch)
         let hungRecords = Collected()
-        let burst = AXObserver.maximumQueuedClicks + 6
+        let burst = Capture.AXObserver.maximumQueuedClicks + 6
         // **The fixture the comment above always claimed and the code did not
         // have.** Without a slow source the drop happened only because a real
         // mach round trip is slower than a lock plus a dispatch — true today,
@@ -3108,11 +3115,11 @@ enum CrossBoundaryProbe {
               "clicks = recorded + no global point + dropped by backlog — the third term is what "
               + "stops the law balancing by simply not counting the drops",
               actual: d.accounting)
-        check(d.deepestBacklog > 1 && d.deepestBacklog <= AXObserver.maximumQueuedClicks,
+        check(d.deepestBacklog > 1 && d.deepestBacklog <= Capture.AXObserver.maximumQueuedClicks,
               "the queue really did back up — deeper than one, and never deeper than the cap. The "
               + "upper half alone is satisfied by a counter that is never updated at all",
               actual: "\(d.deepestBacklog)",
-              expected: "between 2 and \(AXObserver.maximumQueuedClicks)")
+              expected: "between 2 and \(Capture.AXObserver.maximumQueuedClicks)")
     }
 
     // MARK: - § 9  observation-log (Task 11)
@@ -4072,7 +4079,7 @@ enum CrossBoundaryProbe {
     /// **The check that would have caught the `close`/`append` race.**
     ///
     /// The intended load is exactly this: `InputObserver`'s tap callback thread
-    /// and `AXObserver`'s queue both calling `append`, with `close` arriving on
+    /// and `Capture.AXObserver`'s queue both calling `append`, with `close` arriving on
     /// a third. Before review, `close` snapshotted `recordCounts` under the
     /// lock, released it, encoded the trailer, then took the lock again to
     /// write — so an `append` in that gap landed before the trailer and was
@@ -5830,7 +5837,7 @@ enum CrossBoundaryProbe {
     /// `StageCompositor.Diagnostics`'s own header already gives the complete, two-branch causal
     /// account of what increments `framesDropped`; this section drives BOTH branches directly and
     /// watches the counter move — the same "every counter that partitions a decision, driven both
-    /// ways" discipline § 8.6 already applies to `AXObserver`'s own counters — plus a clean run
+    /// ways" discipline § 8.6 already applies to `Capture.AXObserver`'s own counters — plus a clean run
     /// that proves a correctly configured render drops nothing at all.
     ///
     /// **`>= 1`, not `== 1`, on both branches.** `AVAssetImageGenerator.image(at:)` is not
