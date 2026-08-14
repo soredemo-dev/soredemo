@@ -26,7 +26,7 @@ import Timeline
 ///
 /// **Listen-only.** `options: .listenOnly` — the tap never modifies, delays
 /// or drops an event. The callback returns the event it was handed, always.
-public final class InputObserver: @unchecked Sendable {
+final class InputObserver: @unchecked Sendable {
 
     // MARK: - What the observer produces
 

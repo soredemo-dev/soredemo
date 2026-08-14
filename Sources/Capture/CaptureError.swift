@@ -3,7 +3,7 @@ import Foundation
 /// Failures the capture path raises that are not "nothing happened": each is
 /// indistinguishable from a quiet, working session unless logged. Writer- and
 /// stream-lifecycle failures are `CaptureSession.SessionError` instead.
-public enum CaptureError: Error, Equatable {
+enum CaptureError: Error, Equatable {
     /// `CGEvent.tapCreate` returned `nil`. Read as "Input Monitoring is not
     /// granted", never as "no events happened"; confirm with
     /// `CapturePermissions.status(of: .inputMonitoring)`.

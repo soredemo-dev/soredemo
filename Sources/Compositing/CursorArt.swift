@@ -10,7 +10,7 @@ import Foundation
 ///
 /// `nonisolated` is required under `-default-isolation MainActor`: otherwise these functions could
 /// not be called from `CoreImageFrameRenderer.render`, which runs nonisolated on AVFoundation's queue.
-public nonisolated enum CursorArt {
+nonisolated enum CursorArt {
     /// Arrow silhouette outline, tip at the origin, body toward positive `x` and negative `y` —
     /// the bottom-left-origin convention a self-built `CGContext` uses. Callers translate so the
     /// tip lands on the recorded position.

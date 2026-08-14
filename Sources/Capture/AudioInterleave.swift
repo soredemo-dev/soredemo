@@ -8,7 +8,7 @@ import CoreMedia
 ///
 /// Both members are `nonisolated`: `CaptureSession.appendAudio` calls them synchronously on
 /// `sampleQueue` from a ScreenCaptureKit callback and cannot await a main-actor hop.
-public enum AudioInterleave {
+enum AudioInterleave {
     /// Returns `sampleBuffer` unchanged when it is already interleaved, an interleaved copy when
     /// it is not, or `nil` when the layout cannot be read or the copy cannot be made. `nil` is a
     /// drop, which `CaptureSession` counts; one malformed buffer does not fail the recording.

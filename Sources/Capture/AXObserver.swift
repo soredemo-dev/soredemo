@@ -31,7 +31,7 @@ import Timeline
 /// MainActor` an unannotated declaration is `@MainActor`, and this type is
 /// reached from a bare C tap callback that traps at runtime on a MainActor
 /// hop.
-public final class AXObserver: @unchecked Sendable {
+final class AXObserver: @unchecked Sendable {
 
     // MARK: - The bounds
 
@@ -571,7 +571,7 @@ public final class AXObserver: @unchecked Sendable {
 /// `Element` is not constrained to `Sendable` because `AXUIElement` is not, and
 /// need not be: every element is consumed inside the single synchronous
 /// `AXObserver.chain(at:source:)` call that produced it, and none escapes.
-public nonisolated protocol AXElementSource: Sendable {
+nonisolated protocol AXElementSource: Sendable {
     associatedtype Element
 
     /// The **deepest** element at a global, top-left, points coordinate.
@@ -593,7 +593,7 @@ public nonisolated protocol AXElementSource: Sendable {
 /// The real thing: `AXUIElement`, over the real accessibility API. Every
 /// CoreGraphics value stays inside `CGGeometryBridge` (architecture rule 5), so
 /// this struct never names `CGPoint` or `CGSize`.
-public struct LiveAXElementSource: AXElementSource {
+struct LiveAXElementSource: AXElementSource {
     public typealias Element = AXUIElement
 
     public init() {}

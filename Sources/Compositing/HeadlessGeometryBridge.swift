@@ -4,7 +4,7 @@ import Foundation
 /// The render tier's CoreGraphics exit, and the only file in `Sources/Headless` allowed to name
 /// `CGRect`, `CGPoint`, `CGSize` or `CGFloat`. The app tier has its own bridge, and a test forbids
 /// the two from sharing a function signature.
-public nonisolated enum HeadlessGeometryBridge {
+nonisolated enum HeadlessGeometryBridge {
     /// The `CGRect` `CIImage.cropped(to:)` needs; scalars in, because the output canvas has an
     /// extent but no position.
     public nonisolated static func outputCanvas(width: Int, height: Int) -> CGRect {

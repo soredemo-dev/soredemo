@@ -1320,7 +1320,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 /// where untrusted-shaped input (two segments that individually look fine
 /// but disagree with each other) gets a recoverable error instead — this
 /// type does not duplicate that validation, it defers to it in `finish()`.
-public struct SegmentLedger {
+struct SegmentLedger {
     private(set) var closedSegments: [MasterSegment] = []
     private var open: (start: HostInstant, revision: GeometryRevision, mediaFilename: String)?
 

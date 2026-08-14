@@ -10,6 +10,9 @@ import Foundation
 import IOKit.hid
 
 /// The four TCC-gated permissions capture depends on.
+// `public` because the compiler refused otherwise (Phase 3A-4): this type appears in a
+// public member's signature, which is what makes it genuinely part of the exported
+// surface rather than merely reachable.
 public enum CapturePermission: String, CaseIterable, Sendable {
     case screenRecording, microphone, inputMonitoring, accessibility
 }
@@ -19,6 +22,9 @@ public enum CapturePermission: String, CaseIterable, Sendable {
 /// is the answer when an API reports only granted/not-granted. See
 /// `CapturePermissions.distinguishableStates(for:)` for which cases each
 /// permission can actually produce.
+// `public` because the compiler refused otherwise (Phase 3A-4): this type appears in a
+// public member's signature, which is what makes it genuinely part of the exported
+// surface rather than merely reachable.
 public enum PermissionStatus: String, Codable, Sendable {
     /// Never asked — the only state in which calling the request API is correct.
     /// Reported only by microphone and input monitoring.
@@ -39,6 +45,9 @@ public enum PermissionStatus: String, Codable, Sendable {
 /// inferred from an absent entry. Today it is only read by diagnostics; the
 /// intended consumers are capture start-up (refusing on `.blocksRecording`)
 /// and the observation log.
+// `public` because the compiler refused otherwise (Phase 3A-4): this type appears in a
+// public member's signature, which is what makes it genuinely part of the exported
+// surface rather than merely reachable.
 public enum Degradation: String, Codable, Sendable {
     case blocksRecording
     /// Never produced: `SCStreamConfiguration` requests microphone, video and
@@ -51,6 +60,9 @@ public enum Degradation: String, Codable, Sendable {
 }
 
 /// One permission's status and degradation — one row of `dumpText()`.
+// `public` because the compiler refused otherwise (Phase 3A-4): this type appears in a
+// public member's signature, which is what makes it genuinely part of the exported
+// surface rather than merely reachable.
 public struct PermissionObservation: Sendable {
     public let permission: CapturePermission
     public let status: PermissionStatus

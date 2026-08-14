@@ -31,7 +31,7 @@ import Foundation
 /// reproducibly stall, never reporting ready again, with no error and no crash; the same load
 /// through the awaiting `append(_:)` does not. This is why `CaptureSession` stays on
 /// `LegacyMasterWriter`.
-public nonisolated final class SuccessorMasterWriter: MasterWriting, @unchecked Sendable {
+nonisolated final class SuccessorMasterWriter: MasterWriting, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let videoTrack: SuccessorMasterTrack
     private let systemAudioTrack: SuccessorMasterTrack

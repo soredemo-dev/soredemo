@@ -17,7 +17,7 @@ import Foundation
 /// The writer's own state, as this app needs to read it. Its own enum rather than
 /// `AVAssetWriter.Status`, so the migration does not have to touch every `switch` in
 /// `CaptureSession`.
-public nonisolated enum MasterWriterStatus: Sendable, Equatable {
+nonisolated enum MasterWriterStatus: Sendable, Equatable {
     case unknown
     case writing
     case completed
@@ -43,7 +43,7 @@ public nonisolated enum MasterWriterStatus: Sendable, Equatable {
 /// `nonisolated`, as is every type in this file: the app target builds with
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and every append happens on a ScreenCaptureKit
 /// delivery queue, where reaching a MainActor-isolated member traps at runtime.
-public nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
+nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
     /// The writer's backpressure signal. An append while this is `false` is refused, and for a
     /// passthrough audio input one refusal fails the whole writer, video track included.
     var isReadyForMoreMediaData: Bool { get }
@@ -53,7 +53,7 @@ public nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
 }
 
 /// The master file being written: three tracks and a lifecycle.
-public nonisolated protocol MasterWriting: AnyObject, Sendable {
+nonisolated protocol MasterWriting: AnyObject, Sendable {
     var outputURL: URL { get }
 
     var video: any MasterTrackWriting { get }
@@ -76,7 +76,7 @@ public nonisolated protocol MasterWriting: AnyObject, Sendable {
 /// discipline that makes them safe here is the caller's — every append happens on a
 /// ScreenCaptureKit delivery queue, guarded by the readiness check, on references published once
 /// under `CaptureSession`'s lock before any callback can see them.
-public nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
+nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let videoTrack: LegacyMasterTrack
     private let systemAudioTrack: LegacyMasterTrack

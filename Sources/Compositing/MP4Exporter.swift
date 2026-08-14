@@ -146,6 +146,9 @@ public enum MP4Exporter {
 }
 
 /// The export's frame accounting, from the exporter's counters, not the finished asset.
+// `public` because the compiler refused otherwise (Phase 3A-4): this type appears in a
+// public member's signature, which is what makes it genuinely part of the exported
+// surface rather than merely reachable.
 public nonisolated struct ExportReport: Sendable {
     public let outputURL: URL
     public let framesRead: Int
