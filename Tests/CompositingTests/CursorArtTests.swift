@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import Headless
+import Compositing
 import Testing
 
 /// The arrow's bounding box scales linearly with `scale` — the real path is built and a fact the

@@ -8,8 +8,8 @@
 import AVFoundation
 import CoreGraphics
 import Foundation
-// `Minting` — in `Headless` since Phase 3A-3.
-import Headless
+// `Capture` since Phase 3A-4 — the session, the source, permissions and `Minting`.
+import Capture
 import Observation
 import Project
 @preconcurrency import ScreenCaptureKit

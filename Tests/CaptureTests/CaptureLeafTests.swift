@@ -6,7 +6,7 @@ import Geometry
 import Project
 import Testing
 import Timeline
-@testable import Headless
+@testable import Capture
 
 // The first `swift test` tests of four files that moved out of the app target in Phase
 // 3A-3. Until the move, `swift test` could not link them: `Tests/AppSourceTests` read

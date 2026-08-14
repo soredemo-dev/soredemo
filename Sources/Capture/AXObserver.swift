@@ -3,8 +3,6 @@ import Foundation
 import Geometry
 import Project
 import Timeline
-// `Minting` — in `Headless` since Phase 3A-3.
-import Headless
 
 /// `ROADMAP.md`'s `ax-observation` row: for each click, the accessibility
 /// element under the pointer — role, frame, and a bounded walk of its

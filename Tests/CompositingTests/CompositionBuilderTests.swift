@@ -3,9 +3,9 @@ import Foundation
 import AVFoundation
 import CoreMedia
 import Render
-@testable import Headless
+@testable import Compositing
 
-/// …/Tests/HeadlessTests/CompositionBuilderTests.swift → the repository root. Three components,
+/// …/Tests/CaptureTests/CompositionBuilderTests.swift → the repository root. Three components,
 /// because this file sits at `Tests/<Target>/<File>.swift`. Duplicated per target on purpose:
 /// test targets cannot share a declaration.
 let repositoryRootFromTests = URL(filePath: #filePath)

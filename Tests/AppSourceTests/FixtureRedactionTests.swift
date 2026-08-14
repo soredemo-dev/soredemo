@@ -244,57 +244,25 @@ func stringValues(named fieldNames: Set<String>, in json: Any) -> [String] {
     }
 }
 
-/// The capture-tier files inside `Sources/Headless`, which Gate 2 below excludes.
-///
-/// **This list exists because Phase 3A-3 broke the proxy Gate 2 was using.** The gate
-/// scanned "`Sources/Headless` + `Sources/Render`" and called that the render path, which
-/// was true while `Headless` held only the compositor and the exporter. Capture moved in,
-/// and `AXObserver` — a PRODUCER — legitimately reads `.title`: it is the code that
-/// captures a title in the first place, before the redaction the fixture applies. Scanning
-/// it as a consumer made the gate red for the one file whose job that is.
-///
-/// **An exclusion list rather than an inclusion list, and the direction is the argument.**
-/// Naming the render files instead would mean a NEW render file is silently unscanned —
-/// the gate narrows and nothing says so. Naming the capture files means a new capture file
-/// IS scanned, goes red, and someone looks. Every entry is `#require`d to exist, so a
-/// renamed file cannot leave a stale exemption behind.
-let captureTierFilesInHeadless: Set<String> = [
-    "Sources/Headless/AXObserver.swift",
-    "Sources/Headless/AudioInterleave.swift",
-    "Sources/Headless/CGGeometryBridge.swift",
-    "Sources/Headless/CaptureError.swift",
-    "Sources/Headless/CaptureSession.swift",
-    "Sources/Headless/CapturePermissions.swift",
-    "Sources/Headless/CaptureSource.swift",
-    "Sources/Headless/InputObserver.swift",
-    "Sources/Headless/MasterWriter.swift",
-    "Sources/Headless/Minting.swift",
-    "Sources/Headless/MonotonicStopwatch.swift",
-    "Sources/Headless/ObservationWriter.swift",
-    "Sources/Headless/SuccessorMasterWriter.swift",
-]
+// **The twelve-entry exclusion list that stood here is DELETED (Phase 3A-4).** It existed
+// only to say "the render half of `Headless`" after a producer moved into a target whose
+// name had been a proxy for a tier. `Headless` is now two targets, so Gate 2 names the one
+// it means and the list — plus the `#require`-every-entry-exists machinery that guarded it
+// against stale entries — has nothing left to do. A list that stops being needed is a
+// better outcome than a list kept correct.
 
 /// **Gate 2 — consumption.** The render path never reads a `REDACT`-marked field, scanned
-/// through the code view over `Sources/Render` and the RENDER-tier half of
-/// `Sources/Headless` (see `captureTierFilesInHeadless` for why that half has to be named).
-/// Associated-value cases need the trailing `(`: AVFoundation's own `.failed` collides on
-/// the bare name.
+/// through the code view over `Sources/Compositing` and `Sources/Render` — the two targets
+/// that CONSUME evidence. `Sources/Capture` produces it and is not scanned: `AXObserver`
+/// reads `.title` because it is the code that captures one, which is the whole reason the
+/// old directory-wide scan went red when capture moved in.
 @Test func theRenderPathNeverReadsARedactedField() throws {
     let redactedEntries = adjudicatedStringFields.filter { $0.value.hasPrefix("REDACT") }
     let caseKeys = try stringValuedCaseFieldsInObservationSchema()
-    let headless = try swiftFiles(under: "Sources/Headless")
-    let headlessPaths = Set(headless.map(pathRelativeToRepositoryRoot))
-    for excluded in captureTierFilesInHeadless.sorted() {
-        try #require(headlessPaths.contains(excluded), """
-            \(excluded) is exempted from Gate 2 but does not exist. A stale exemption is a \
-            hole in this gate: move the entry with the file, or delete it.
-            """)
-    }
-    let renderFiles = headless.filter {
-        !captureTierFilesInHeadless.contains(pathRelativeToRepositoryRoot($0))
-    } + (try swiftFiles(under: "Sources/Render"))
+    let renderFiles = try swiftFiles(under: "Sources/Compositing")
+        + (try swiftFiles(under: "Sources/Render"))
     try #require(!renderFiles.isEmpty,
-                 "the exclusion list swallowed the whole render path — this gate would pass vacuously")
+                 "no consumer sources found — this gate would pass vacuously")
 
     for (key, _) in redactedEntries {
         let field = String(key.split(separator: ".").last!)

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Headless
+@testable import Capture
 
 // The first `swift test` tests of the permissions layer. Until Phase 3A-3 it was in the
 // app target, where nothing automatic could run it — and its whole job is to be honest

@@ -438,7 +438,11 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
             "expected at least \(libraryModules) among the regular targets, got \(regularNames.sorted())")
 
     // Every regular target carries a guard; WHICH guard depends on the tier. An entry here asserts a guard, not an exemption.
-    let guardForTarget: [String: String] = ["Headless": "HeadlessCheck"]
+    // Both runnable-tier targets carry the same guard: Phase 3A-4 split `Headless` into
+    // `Capture` and `Compositing`, and the invariant the plugin enforces — needs a window
+    // or a running app, does not belong here — is what BOTH names still state.
+    let guardForTarget: [String: String] = ["Capture": "HeadlessCheck",
+                                            "Compositing": "HeadlessCheck"]
 
     for target in regular where !pluginExemptTargets.contains(target["name"] as? String ?? "") {
         let name = target["name"] as? String ?? "<unnamed>"
@@ -1061,7 +1065,7 @@ func decodeValidationExemptTypes() throws -> Set<String> {
 
 // MARK: - the second guard: --mode headless
 //
-// `Sources/Headless` legitimately imports AVFoundation, CoreImage, CoreVideo, CoreMedia, Metal and CoreGraphics
+// The runnable tier legitimately imports AVFoundation, CoreImage, CoreVideo, CoreMedia, Metal and CoreGraphics
 // and legitimately names CGRect, so `ArchitectureCheck` cannot be attached; it gets a SECOND guard of its own.
 
 /// Runs the real built checker in headless mode over a one-file fixture.

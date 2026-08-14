@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
 import Geometry
-// `Minting` — in `Headless` since Phase 3A-3.
-import Headless
+// `Capture` since Phase 3A-4 — `MediaSink` and `Minting`.
+import Capture
 import Project
 import SwiftUI
 import Synchronization

@@ -21,7 +21,7 @@ let package = Package(
         // NOT added to `SoredemoCore`'s targets array, and not named `SoredemoCore`:
         // that product is Foundation-only by definition in five documents, and this
         // target's whole purpose is the platform frameworks that definition excludes.
-        .library(name: "SoredemoHeadless", targets: ["Headless"]),
+        .library(name: "SoredemoHeadless", targets: ["Capture", "Compositing"]),
     ],
     targets: [
         // `plugins: [archCheck]` on the six library targets — and deliberately NOT
@@ -62,8 +62,8 @@ let package = Package(
         // `Sendable` argument a caller sends it is genuinely crossing an isolation domain the app
         // target's own build no longer crosses for functions it declares internally. Enabling it
         // here matches `scripts/run-cross-boundary-probe.sh`'s own `xcrun swiftc` invocation,
-        // which already compiles `Sources/Headless/StageCompositor.swift` and
-        // `Sources/Headless/CompositionBuilder.swift` with this same flag (commit `ab941a9`,
+        // which already compiles `Sources/Compositing/StageCompositor.swift` and
+        // `Sources/Compositing/CompositionBuilder.swift` with this same flag (commit `ab941a9`,
         // "Compile the probe with the app's isolation semantics") — this target, the app target
         // and the probe now agree, where before this change only two of the three did. Verified
         // from a clean `.build`: `swift test`, `swift test --parallel` and `xcodebuild` all pass;
@@ -73,7 +73,28 @@ let package = Package(
         // `composition`'s own doc comment for that history. Not added to `strict` (every package
         // target): the other six targets expose no `nonisolated async` API the app target or the
         // probe calls, so there is no caller this would change behaviour for.
-        .target(name: "Headless", dependencies: ["Geometry", "Timeline", "Graph", "Project", "Render"],
+        // **Two targets, because the boundary between them was already a fact and nothing
+        // checked it** (Phase 3A-4). After the Capture extraction, one `Headless` target held
+        // twenty files doing two unrelated jobs; several headers named a "capture tier" and a
+        // "render tier" the build system did not have, and one redaction gate had to carry a
+        // twelve-file exclusion list to say which half it meant. Measured before splitting:
+        // the two halves referenced each other ZERO times in either direction — the only
+        // cross-mentions were prose. So this is not a boundary being introduced, it is one
+        // being enforced, and by the compiler rather than by a scan. The 3A-1 design's own
+        // words: an allow-list "is a mechanism, not an invariant". A target is an invariant.
+        //
+        // Neither depends on the other and neither may — `theTwoRunnableTargetsDoNotDependOnEachOther`
+        // asserts both directions against this manifest. `Graph` is Capture's alone
+        // (`Minting.digest` returns `ContentDigest`); `Render` is Compositing's alone.
+        .target(name: "Capture", dependencies: ["Geometry", "Timeline", "Graph", "Project"],
+                swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
+                plugins: headlessCheck),
+
+        // Turns a plan into pixels: GPU, Core Image, AVFoundation. **Not named `Render`** —
+        // `Sources/Render` is the DETERMINISTIC planning tier (`PointerTrack`, `RenderPlan`,
+        // `StagePlanner`; no GPU, no clock), and reusing the word for the tier that actually
+        // touches a GPU would collapse the distinction the two exist to draw.
+        .target(name: "Compositing", dependencies: ["Geometry", "Timeline", "Project", "Render"],
                 swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
                 plugins: headlessCheck),
 
@@ -174,13 +195,20 @@ let package = Package(
         .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],
                     swiftSettings: strict),
 
-        // The ONLY test target that depends on `Headless`. The deterministic targets
-        // must not: a test that cannot link the product cannot be written against it,
-        // so the two populations are kept apart by the build graph rather than by
+        // The ONLY two test targets that depend on the runnable tier. The deterministic
+        // targets must not: a test that cannot link the product cannot be written against
+        // it, so the two populations are kept apart by the build graph rather than by
         // anyone remembering which suite a test belongs in.
-        // `noDeterministicTestTargetDependsOnHeadless` asserts this against the
-        // resolved manifest.
-        .testTarget(name: "HeadlessTests", dependencies: ["Headless", "Geometry", "Timeline", "Project", "Render"],
+        //
+        // **Each depends on ITS OWN target only** (Phase 3A-4), so a test cannot reach
+        // across the boundary the product code is now forbidden to cross. The observation
+        // log fixture is Compositing's: `RecordedPointerPositionTests` reads one to drive
+        // `StageCompositor`. Capture writes logs and never reads them.
+        .testTarget(name: "CaptureTests", dependencies: ["Capture", "Geometry", "Timeline", "Graph", "Project"],
+                    swiftSettings: strict),
+
+        .testTarget(name: "CompositingTests",
+                    dependencies: ["Compositing", "Geometry", "Timeline", "Project", "Render"],
                     resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")],
                     swiftSettings: strict),
     ]

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 import AVFoundation
 import CoreMedia
-@testable import Headless
+@testable import Compositing
 
 /// Extends the `StageCompositorTests` serialized suite rather than declaring its own: a real
 /// export drives the same process-global `StageCompositor` statics, and Swift Testing does not

@@ -4,8 +4,6 @@ import Foundation
 import Geometry
 import Project
 import Timeline
-// `Minting` — in `Headless` since Phase 3A-3.
-import Headless
 
 /// A **listen-only** `CGEvent` tap for pointer motion, clicks and an
 /// allow-listed set of keyboard shortcuts.

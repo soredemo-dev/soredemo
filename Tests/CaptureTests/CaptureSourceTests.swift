@@ -1,7 +1,7 @@
 import Foundation
 import ScreenCaptureKit
 import Testing
-@testable import Headless
+@testable import Capture
 
 // `CaptureSource` and `CaptureSourcePicker` moved into `Headless` in Phase 3A-3, and this
 // file is honest about how little that bought — which is the point of writing it down

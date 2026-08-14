@@ -43,8 +43,8 @@ func projectPbxprojText() throws -> String {
 // `case .microphone:      return` — anchored on that switch's exact column alignment, so a
 // reformat broke it — and asserted the matched line contained `.blocksRecording`.
 //
-// That file is now `Sources/Headless/CapturePermissions.swift`, which `swift test` links.
-// `Tests/HeadlessTests/CapturePermissionsTests.swift` CALLS
+// That file is now `Sources/Capture/CapturePermissions.swift`, which `swift test` links.
+// `Tests/CaptureTests/CapturePermissionsTests.swift` CALLS
 // `CapturePermissions.degradation(for: .microphone)` and asserts the returned value is
 // `.blocksRecording` and is not `.noMicrophoneTrack` — the measurement Task 5.5 Step 2
 // made (with the entitlement missing, tccd refused kTCCServiceMicrophone and the recording
@@ -62,7 +62,7 @@ func projectPbxprojText() throws -> String {
 /// when this app asks. Zero means a first-run user is told they declined without being asked.
 @Test func theScreenRecordingRequestIsCalledExactlyOnceAndWiredBeforeThePicker() throws {
     // BOTH trees since Phase 3A-3: the request itself moved into
-    // `Sources/Headless/CapturePermissions.swift` while its caller stayed in the app.
+    // `Sources/Capture/CapturePermissions.swift` while its caller stayed in the app.
     // `firstPartySourceFiles()` already spans `Sources/` and `Soredemo/` — appending
     // `headlessSourceFiles()` to it counted every Headless file twice, and the symptom
     // was this scan reporting two calls to a function called once.
@@ -76,7 +76,7 @@ func projectPbxprojText() throws -> String {
         when to ask.
         """)
     guard let rawCall = rawCalls.first else { return }
-    #expect(rawCall.location.hasPrefix("Sources/Headless/CapturePermissions.swift:"), """
+    #expect(rawCall.location.hasPrefix("Sources/Capture/CapturePermissions.swift:"), """
         CGRequestScreenCaptureAccess() is called at \(rawCall.location), not from \
         CapturePermissions.requestScreenRecordingAccess() — the one place this app's policy for \
         asking should live.
@@ -110,7 +110,7 @@ func projectPbxprojText() throws -> String {
         means two policies about when to ask.
         """)
     guard let rawCall = rawCalls.first else { return }
-    #expect(rawCall.location.hasPrefix("Sources/Headless/CapturePermissions.swift:"), """
+    #expect(rawCall.location.hasPrefix("Sources/Capture/CapturePermissions.swift:"), """
         AXIsProcessTrustedWithOptions( is called at \(rawCall.location), not from \
         CapturePermissions.requestAccessibilityAccess().
         """)
@@ -122,7 +122,7 @@ func projectPbxprojText() throws -> String {
         \(wrapperCalls.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
         """)
     guard let wrapperCall = wrapperCalls.first else { return }
-    #expect(wrapperCall.location.hasPrefix("Sources/Headless/CaptureSession.swift:"), """
+    #expect(wrapperCall.location.hasPrefix("Sources/Capture/CaptureSession.swift:"), """
         the request is called at \(wrapperCall.location), not from CaptureSession — the brief asks \
         for it "before the AX walk's first use", and CaptureSession is what starts that walk.
         """)
@@ -177,7 +177,7 @@ func projectPbxprojText() throws -> String {
                            ("ObservationWriter.open(segment:", observationWriterOpens),
                            (".start(onObservation:", tapStartCalls),
                            (".enqueue(event", axEnqueueCalls)] {
-        #expect(sites.allSatisfy { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }, """
+        #expect(sites.allSatisfy { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }, """
             \(name) has a production call site outside CaptureSession.swift: \
             \(sites.map(\.location).joined(separator: ", ")). The brief attaches this task to \
             CaptureSession specifically, not to RecordingCoordinator/ContentView — see the brief's \
@@ -210,7 +210,7 @@ func projectPbxprojText() throws -> String {
 /// nothing in the protocol required one before, and `TemporaryFileMediaSink` had no reason to.
 @Test func theMediaSinkProtocolRequiresAPackageURL() throws {
     let sites = try codeLinesNaming("var packageURL: URL? { get }", in: try firstPartySourceFiles())
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     #expect(!sites.isEmpty, """
         MediaSink no longer declares a packageURL requirement — CaptureSession has no protocol-level \
         way to find where to write an observation log for a segment.
@@ -226,7 +226,7 @@ func projectPbxprojText() throws -> String {
     let files = try firstPartySourceFiles()
 
     let fieldDeclarations = try codeLinesNaming("var observationsDroppedAfterSegmentClose = 0", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     #expect(fieldDeclarations.count == 1, """
         expected exactly one declaration of Diagnostics.observationsDroppedAfterSegmentClose in \
         CaptureSession.swift, found \(fieldDeclarations.count).
@@ -241,18 +241,18 @@ func projectPbxprojText() throws -> String {
         untracked place this can happen.
         """)
     guard let increment = increments.first else { return }
-    #expect(increment.location.hasPrefix("Sources/Headless/CaptureSession.swift:"), """
+    #expect(increment.location.hasPrefix("Sources/Capture/CaptureSession.swift:"), """
         the increment is at \(increment.location), not in CaptureSession.swift.
         """)
 
     let guardLines = try codeLinesNaming("guard let writer else {", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(guardLines.count == 1, """
         expected exactly one 'guard let writer else {' in CaptureSession.swift (appendObservation's \
         own guard), found \(guardLines.count) — this scan's ordering check needs a unique landmark.
         """)
     let appendCalls = try codeLinesNaming("try writer.append(record)", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(appendCalls.count == 1, """
         expected exactly one 'try writer.append(record)' in CaptureSession.swift, found \
         \(appendCalls.count).
@@ -322,7 +322,7 @@ func projectPbxprojText() throws -> String {
     let files = try firstPartySourceFiles()
 
     let fieldDeclarations = try codeLinesNaming("var observationsOutsideAnOpenSegment = 0", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     #expect(fieldDeclarations.count == 1, """
         expected exactly one declaration of Diagnostics.observationsOutsideAnOpenSegment in \
         CaptureSession.swift, found \(fieldDeclarations.count).
@@ -342,7 +342,7 @@ func projectPbxprojText() throws -> String {
         finalizeCurrentSegment can change both, together, in the gap between two separate reads.
         """)
     guard let pairedRead = pairedReads.first else { return }
-    #expect(pairedRead.location.hasPrefix("Sources/Headless/CaptureSession.swift:"), """
+    #expect(pairedRead.location.hasPrefix("Sources/Capture/CaptureSession.swift:"), """
         the paired read is at \(pairedRead.location), not in CaptureSession.swift.
         """)
 
@@ -358,13 +358,13 @@ func projectPbxprojText() throws -> String {
     // Both increments must sit inside appendObservation's writer==nil guard, on OPPOSITE sides
     // of an `if whileFinalizing`/`else` — proven by ordering against three landmarks.
     let guardLines = try codeLinesNaming("guard let writer else {", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(guardLines.count == 1, "expected exactly one appendObservation guard, found \(guardLines.count)")
     let elseLines = try codeLinesNaming("} else {", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(elseLines.count >= 1, "expected at least one 'else' in CaptureSession.swift")
     let appendCalls = try codeLinesNaming("try writer.append(record)", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(appendCalls.count == 1, "expected exactly one 'try writer.append(record)'")
 
     let guardLine = lineNumber(of: guardLines[0].location)
@@ -397,19 +397,19 @@ func projectPbxprojText() throws -> String {
     let files = try firstPartySourceFiles()
 
     let writerAssignments = try codeLinesNaming("self.observationWriter = writer", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(writerAssignments.count == 1, """
         expected exactly one 'self.observationWriter = writer' in CaptureSession.swift, found \
         \(writerAssignments.count).
         """)
     let ledgerOpens = try codeLinesNaming("ledger.openSegment(at: openInstant", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(ledgerOpens.count == 1, """
         expected exactly one 'ledger.openSegment(at: openInstant' in CaptureSession.swift, found \
         \(ledgerOpens.count).
         """)
     let captureStarts = try codeLinesNaming("try await scStream.startCapture()", in: files)
-        .filter { $0.location.hasPrefix("Sources/Headless/CaptureSession.swift:") }
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(captureStarts.count == 1, """
         expected exactly one 'try await scStream.startCapture()' in CaptureSession.swift, found \
         \(captureStarts.count).

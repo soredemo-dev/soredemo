@@ -1,8 +1,11 @@
 import AppKit
 import AVFoundation
 import Foundation
-// `Headless` is the module name; `SoredemoHeadless` is the product this app target links.
-import Headless
+// Both halves of the runnable tier, split in Phase 3A-4: `Compositing` for the
+// compositor and the exporter, `Capture` for `ObservationWriter`'s log paths. The product
+// this app target links is `SoredemoHeadless`, which vends both.
+import Capture
+import Compositing
 import SwiftUI
 
 /// A window hosting a preview and an Export button. Standard SwiftUI with no hand-rolled glass:

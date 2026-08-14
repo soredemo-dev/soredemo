@@ -2,7 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import Testing
-@testable import Headless
+@testable import Capture
 
 // The first `swift test` tests of the master writers. Until Phase 3A-3 they lived in the
 // app target, where `swift test` cannot link them — so a writer that refused every append

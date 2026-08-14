@@ -6,14 +6,21 @@ import Testing
 // from `AppSourceAllowListTests.swift` — file-scope declarations in this same target.
 
 /// Every `.swift` file under `Sources/Headless`.
-func headlessSourceFiles() throws -> [URL] {
-    try swiftFiles(under: "Sources/Headless")
+/// Every `.swift` file in the runnable tier — both targets. Phase 3A-4 split `Headless`
+/// into `Capture` and `Compositing`; the scans that ask "does the runnable tier do X"
+/// still mean both, and the scans that ask "which half" now say so by naming a directory
+/// rather than by carrying an exclusion list.
+func runnableTierSourceFiles() throws -> [URL] {
+    try swiftFiles(under: "Sources/Capture") + (try swiftFiles(under: "Sources/Compositing"))
 }
 
-/// Every `.swift` file under `Tests/HeadlessTests`.
-func headlessTestFiles() throws -> [URL] {
-    try swiftFiles(under: "Tests/HeadlessTests")
-}
+/// Kept under the old name so unrelated call sites read unchanged.
+func headlessSourceFiles() throws -> [URL] { try runnableTierSourceFiles() }
+
+func captureSourceFiles() throws -> [URL] { try swiftFiles(under: "Sources/Capture") }
+func compositingSourceFiles() throws -> [URL] { try swiftFiles(under: "Sources/Compositing") }
+func captureTestFiles() throws -> [URL] { try swiftFiles(under: "Tests/CaptureTests") }
+func compositingTestFiles() throws -> [URL] { try swiftFiles(under: "Tests/CompositingTests") }
 
 /// Same enumeration `firstPartySourceFiles()` uses, over one directory. Empty is a failure:
 /// a scan over nothing passes vacuously, and someone is counting on it.
@@ -33,19 +40,19 @@ func swiftFiles(under relativePath: String) throws -> [URL] {
 // MARK: - rule 5's Headless half
 
 /// **Rule 5's Headless half.** CoreGraphics geometry is confined to
-/// `Sources/Headless/HeadlessGeometryBridge.swift`, with no exception. `HeadlessCheck` cannot
+/// `Sources/Compositing/HeadlessGeometryBridge.swift`, with no exception. `HeadlessCheck` cannot
 /// do this job: rule 2 is off in headless mode, which is where CG conversion legitimately happens.
 @Test func coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge() throws {
     let found = try violations(
         banned: ["CGRect", "CGPoint", "CGSize", "CGFloat"],
-        permittedPaths: ["Sources/Headless/HeadlessGeometryBridge.swift",
-                         "Sources/Headless/CGGeometryBridge.swift"],
+        permittedPaths: ["Sources/Compositing/HeadlessGeometryBridge.swift",
+                         "Sources/Capture/CGGeometryBridge.swift"],
         in: try headlessSourceFiles())
 
     #expect(found.isEmpty, """
         a CoreGraphics geometry type reached Headless outside its bridge:
         \(found.joined(separator: "\n"))
-        Convert at Sources/Headless/HeadlessGeometryBridge.swift and pass scalars or the \
+        Convert at Sources/Compositing/HeadlessGeometryBridge.swift and pass scalars or the \
         package's own types onward; see ARCHITECTURE.md D3.
         """)
 }
@@ -125,8 +132,8 @@ func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
 /// Image and AVFoundation demand). The variable is still named `capture`/`render` after the
 /// tier, not after the directory, because the tier is what the disjointness is about.
 @Test func theTwoGeometryBridgesShareNoFunctionSignature() throws {
-    let app = try functionSignatures(inFileAt: "Sources/Headless/CGGeometryBridge.swift")
-    let headless = try functionSignatures(inFileAt: "Sources/Headless/HeadlessGeometryBridge.swift")
+    let app = try functionSignatures(inFileAt: "Sources/Capture/CGGeometryBridge.swift")
+    let headless = try functionSignatures(inFileAt: "Sources/Compositing/HeadlessGeometryBridge.swift")
     try #require(!app.isEmpty && !headless.isEmpty,
                  "a bridge scanned as empty — the scan is broken, not the bridges")
 
@@ -174,14 +181,34 @@ func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location:
 }
 
 /// **The entry rule's SCANNER — a necessary condition, and not the rule.** The rule is that a
-/// test CONSTRUCTS AND EXERCISES every `public` type in `Headless`, which no scanner can see;
-/// for a generic name (`Frame`, `Track`, `Renderer`) this check is close to vacuous.
-@Test func everyPublicTypeInHeadlessIsNamedByATestThatLinksTheProduct() throws {
-    let declarations = try publicTypeDeclarations(in: try headlessSourceFiles())
-    try #require(!declarations.isEmpty,
-                 "no public types found under Sources/Headless — this scan would pass vacuously")
+/// test CONSTRUCTS AND EXERCISES every `public` type in the runnable tier, which no scanner
+/// can see; for a generic name (`Frame`, `Track`, `Renderer`) this check is close to vacuous.
+///
+/// **Per target since Phase 3A-4, and that is stricter than it was.** Each target is checked
+/// against ITS OWN test directory, so a `Capture` type named only in a Compositing test no
+/// longer counts — which is the same boundary the build graph now enforces on the product
+/// code, applied to the tests that stand for it.
+@Test func everyPublicTypeInCaptureIsNamedByACaptureTest() throws {
+    try assertEveryPublicTypeIsNamedByItsOwnTests(
+        target: "Capture", sources: try captureSourceFiles(), tests: try captureTestFiles(),
+        testDirectory: "Tests/CaptureTests")
+}
 
-    let testFiles = try headlessTestFiles()
+@Test func everyPublicTypeInCompositingIsNamedByACompositingTest() throws {
+    try assertEveryPublicTypeIsNamedByItsOwnTests(
+        target: "Compositing", sources: try compositingSourceFiles(),
+        tests: try compositingTestFiles(), testDirectory: "Tests/CompositingTests")
+}
+
+private func assertEveryPublicTypeIsNamedByItsOwnTests(
+    target: String, sources: [URL], tests testFiles: [URL], testDirectory: String
+) throws {
+    let declarations = try publicTypeDeclarations(in: sources)
+    try #require(!declarations.isEmpty,
+                 "no public types found in \(target) — this scan would pass vacuously")
+    try #require(!testFiles.isEmpty,
+                 "no tests found under \(testDirectory) — this scan would fail vacuously")
+
     for declaration in declarations {
         let mentions = try codeLinesNaming(declaration.name, in: testFiles)
             .filter { line in
@@ -200,8 +227,8 @@ func publicTypeDeclarations(in files: [URL]) throws -> [(name: String, location:
                 return false
             }
         #expect(!mentions.isEmpty, """
-            `\(declaration.name)` (\(declaration.location)) is public in Headless and no test \
-            under Tests/HeadlessTests names it.
+            `\(declaration.name)` (\(declaration.location)) is public in \(target) and no test \
+            under \(testDirectory) names it.
 
             THIS CHECK IS A NECESSARY CONDITION, NOT THE RULE. The rule is that a test \
             CONSTRUCTS AND EXERCISES the type, and no scanner can see that — a type annotation \
@@ -255,24 +282,59 @@ func manifestDependencyNames(of target: [String: Any]) -> [String] {
 /// **The tier boundary in the other direction, and the manifest is the only place it can be
 /// checked.** `ArchitectureCheck` passes one `--allow` per DECLARED dependency, so the edge
 /// itself is what would make `import Headless` legal inside a pure target, every guard green.
-@Test func noPureTargetDependsOnHeadless() throws {
+@Test func noPureTargetDependsOnTheRunnableTier() throws {
+    let runnable = ["Capture", "Compositing"]
     let targets = try resolvedManifestTargets()
     let regular = targets.filter { $0["type"] as? String == "regular" }
     try #require(regular.count > 1, "expected several regular targets, got \(regular.count)")
-    try #require(regular.contains { $0["name"] as? String == "Headless" },
-                 "no regular target named Headless — this scan would pass vacuously")
+    for name in runnable {
+        try #require(regular.contains { $0["name"] as? String == name },
+                     "no regular target named \(name) — this scan would pass vacuously")
+    }
 
     for target in regular {
         let name = target["name"] as? String ?? "<unnamed>"
-        guard name != "Headless" else { continue }
-        #expect(!manifestDependencyNames(of: target).contains("Headless"), """
-            \(name) declares Headless as a dependency, and no guard can see that this is wrong.
-            ArchitectureCheck passes one --allow per DECLARED dependency, so rule 1's allow-list \
-            is this manifest: the edge itself is what makes `import Headless` legal inside \
-            \(name). The deterministic tier would then reach AVFoundation, the GPU and wall time \
-            through one import, with the plugin green on every file.
-            The dependency runs the other way. Headless depends on the pure targets; nothing pure \
-            depends on Headless.
+        guard !runnable.contains(name) else { continue }
+        let dependencies = manifestDependencyNames(of: target)
+        for runnableName in runnable {
+            #expect(!dependencies.contains(runnableName), """
+                \(name) declares \(runnableName) as a dependency, and no guard can see that this \
+                is wrong. ArchitectureCheck passes one --allow per DECLARED dependency, so rule \
+                1's allow-list is this manifest: the edge itself is what makes \
+                `import \(runnableName)` legal inside \(name). The deterministic tier would then \
+                reach AVFoundation, the GPU and wall time through one import, with the plugin \
+                green on every file.
+                The dependency runs the other way. The runnable tier depends on the pure targets; \
+                nothing pure depends on it.
+                """)
+        }
+    }
+}
+
+/// **`Capture` and `Compositing` do not depend on each other, and the manifest is where that
+/// is checked.** This is the invariant Phase 3A-4's split exists to create. Before it, the two
+/// halves lived in one target and referenced each other zero times — a fact nothing enforced,
+/// so nothing would have reported the first reference that appeared.
+///
+/// Asserted in BOTH directions rather than once: they are different claims. Capture reaching
+/// into Compositing would mean the thing that records has started depending on the thing that
+/// draws; Compositing reaching into Capture would mean the renderer can start a tap. Neither
+/// is more likely than the other and a single-direction check would call one of them fine.
+@Test func theTwoRunnableTargetsDoNotDependOnEachOther() throws {
+    let targets = try resolvedManifestTargets()
+    let byName = Dictionary(uniqueKeysWithValues: targets.compactMap { target -> (String, [String: Any])? in
+        guard let name = target["name"] as? String else { return nil }
+        return (name, target)
+    })
+    for (a, b) in [("Capture", "Compositing"), ("Compositing", "Capture")] {
+        let target = try #require(byName[a], "no target named \(a) — this scan would pass vacuously")
+        #expect(!manifestDependencyNames(of: target).contains(b), """
+            \(a) declares \(b) as a dependency. These two are siblings on purpose: \(a) and \(b) \
+            do two unrelated jobs and referenced each other zero times when they were split \
+            (Phase 3A-4). An edge here makes `import \(b)` legal throughout \(a), and the next \
+            reader has no way to tell an intended dependency from one that compiled.
+            If \(a) genuinely needs something from \(b), the shared thing belongs in a pure \
+            target both can depend on — which is what Geometry, Timeline, Project and Render are.
             """)
     }
 }

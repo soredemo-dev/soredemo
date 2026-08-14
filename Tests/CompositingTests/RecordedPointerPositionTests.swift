@@ -8,7 +8,7 @@ import Geometry
 import Project
 import Render
 import Timeline
-import Headless
+import Compositing
 
 /// Positive-log pointer tests: a pointer is drawn, at the position a real recording's observation
 /// log gives (the frame composed onto is synthesised — this asserts geometry, not depiction).
@@ -150,7 +150,7 @@ let assertedInstantCount = 3
 /// centred on the tip, so min-x/max-y inside one would be the ring's edge, not the arrow.
 func drawnInstants() throws -> [DrawnInstant] {
     // `StageCompositor.style` is deliberately NOT set: only `startRequest` reads it and it is
-    // `internal`, so setting it would force `@testable import Headless` here.
+    // `internal`, so setting it would force `@testable import Compositing` here.
     unsafe StageCompositor.observationLogURL = try recordedObservationLog()
     unsafe StageCompositor.overrides = []
     let compositor = StageCompositor()

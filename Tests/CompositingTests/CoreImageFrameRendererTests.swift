@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import CoreVideo
-import Headless
+import Compositing
 import Render
 
 /// The `FrameRendering` seam exercised through the PRODUCTION conformer, never a double.

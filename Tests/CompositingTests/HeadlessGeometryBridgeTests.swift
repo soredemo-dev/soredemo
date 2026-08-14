@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import Headless
+import Compositing
 import Testing
 
 /// The render tier's three CoreGraphics exits. Trivial, but `outputCanvas` and `renderSize`

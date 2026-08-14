@@ -5,7 +5,7 @@ import Geometry
 import Project
 import Testing
 import Timeline
-@testable import Headless
+@testable import Capture
 
 // The first `swift test` tests of the two observers, moved out of the app target in Phase
 // 3A-3. `InputObserver`'s keyboard filter is this product's entire keystroke-privacy
@@ -190,10 +190,10 @@ private func threeLevelTree(hit: Int?) -> FakeAXSource {
     ], hit: hit)
 }
 
-/// `Headless.AXObserver`, qualified: ApplicationServices exports a C type of the same
+/// `Capture.AXObserver`, qualified: ApplicationServices exports a C type of the same
 /// name, and an unqualified reference is ambiguous wherever both are in scope.
-private func observer() -> Headless.AXObserver {
-    Headless.AXObserver(arrangement: arrangement(), epoch: epoch,
+private func observer() -> Capture.AXObserver {
+    Capture.AXObserver(arrangement: arrangement(), epoch: epoch,
                         accessibilityIsGranted: { true })
 }
 

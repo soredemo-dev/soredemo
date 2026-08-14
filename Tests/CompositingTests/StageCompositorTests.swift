@@ -3,7 +3,7 @@ import Foundation
 import CoreMedia
 import Render
 import Timeline
-@testable import Headless
+@testable import Compositing
 
 /// `.serialized`, because `StageCompositor`'s configuration (`observationLogURL`, `overrides`,
 /// `renderer`, the `diagnostics` counters) is process-global mutable state and Swift Testing

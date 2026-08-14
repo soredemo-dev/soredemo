@@ -2,7 +2,7 @@ import Foundation
 import Graph
 import Testing
 import Timeline
-@testable import Headless
+@testable import Capture
 
 // The first tests of `Minting` that have ever run under `swift test`. It sat in the app
 // target from Phase 1 until Phase 3A-3, where `swift test` cannot link an executable

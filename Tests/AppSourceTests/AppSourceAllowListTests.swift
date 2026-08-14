@@ -121,7 +121,7 @@ func violations(
             """
             a CoreGraphics geometry type is named in the app target:
             \(found.joined(separator: "\n"))
-            Convert in Sources/Headless/CGGeometryBridge.swift and pass the \
+            Convert in Sources/Capture/CGGeometryBridge.swift and pass the \
             package's own types onward; see ARCHITECTURE.md D3.
             """)
 }
@@ -234,8 +234,8 @@ let ambientBannedNames: [String] = [
     // same target — reused so the file list has exactly one definition.
     let found = try violations(
         banned: ambientBannedNames,
-        permittedPaths: ["Sources/Headless/MonotonicStopwatch.swift",
-                         "Sources/Headless/Minting.swift"],
+        permittedPaths: ["Sources/Compositing/MonotonicStopwatch.swift",
+                         "Sources/Capture/Minting.swift"],
         in: try headlessSourceFiles())
 
     #expect(found.isEmpty,
@@ -389,7 +389,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let call = calls.first else { return }
-    #expect(call.location.hasPrefix("Sources/Headless/InputObserver.swift:"),
+    #expect(call.location.hasPrefix("Sources/Capture/InputObserver.swift:"),
             "startPolling() is called from \(call.location), not from InputObserver")
 
     // The three landmarks the call must sit between, each named once so a
@@ -463,7 +463,7 @@ func lineNumber(of location: String) -> Int {
 /// its own doc comment is not a mechanism. `enqueue(_:onRecord:)` is the entry point.
 @Test func theSynchronousAXWalkIsCalledOnlyFromWithinAXObserver() throws {
     let callers = try codeLinesNaming("chain(at:", in: try firstPartySourceFiles())
-    let outside = callers.filter { !$0.location.hasPrefix("Sources/Headless/AXObserver.swift:") }
+    let outside = callers.filter { !$0.location.hasPrefix("Sources/Capture/AXObserver.swift:") }
     #expect(outside.isEmpty,
             """
             the synchronous AX walk is called outside AXObserver:
@@ -493,7 +493,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let reader = readers.first else { return }
-    #expect(reader.location.hasPrefix("Sources/Headless/InputObserver.swift:"),
+    #expect(reader.location.hasPrefix("Sources/Capture/InputObserver.swift:"),
             "the tap's enabled flag is read at \(reader.location), not in InputObserver: \(reader.text)")
 }
 
@@ -516,7 +516,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let reader = readers.first else { return }
-    #expect(reader.location.hasPrefix("Sources/Headless/AXObserver.swift:"),
+    #expect(reader.location.hasPrefix("Sources/Capture/AXObserver.swift:"),
             """
             the Accessibility grant is read at \(reader.location), not at AXObserver's injection \
             point:
@@ -584,7 +584,7 @@ func lineNumber(of location: String) -> Int {
             """)
 
     guard let reader = readers.first else { return }
-    #expect(reader.location.hasPrefix("Sources/Headless/AXObserver.swift:"),
+    #expect(reader.location.hasPrefix("Sources/Capture/AXObserver.swift:"),
             """
             the raw AX attribute read is at \(reader.location), not in AXObserver:
             \(reader.text)
@@ -735,9 +735,9 @@ func firstPartySourceFiles() throws -> [URL] {
          "media can be added under a minted name"),
         ("shadowRadius", "Sources/Render/RenderPlan.swift", 0,
          "the stage draws a shadow — modelled, persisted, validated, never read outside its own type"),
-        ("blockingFailures()", "Sources/Headless/CapturePermissions.swift", 0,
+        ("blockingFailures()", "Sources/Capture/CapturePermissions.swift", 0,
          "callers can ask what blocks recording"),
-        ("noMicrophoneTrack", "Sources/Headless/CapturePermissions.swift", 0,
+        ("noMicrophoneTrack", "Sources/Capture/CapturePermissions.swift", 0,
          "a denied microphone degrades mildly — measured false, so nothing produces it"),
         ("TimeRange", "Sources/Timeline/TimeRange.swift", 0,
          "an epoch-less interval type is useful — its stated first caller moved to HostRange"),

@@ -3,7 +3,7 @@ import Geometry
 import Project
 import Testing
 import Timeline
-@testable import Headless
+@testable import Capture
 
 // `CaptureSession` was the last file out of the app target, and the largest. Most of it
 // is `SCStream` delegate plumbing that no test can reach: `SCStream`, `SCStreamOutput`
