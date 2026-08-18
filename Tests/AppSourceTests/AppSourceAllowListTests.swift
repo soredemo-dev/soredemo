@@ -729,12 +729,14 @@ func firstPartySourceFiles() throws -> [URL] {
     let files = try firstPartySourceFiles()
 
     let expectations: [(needle: String, declaringFile: String, expected: Int, claim: String)] = [
-        ("Minting.now()", "Soredemo/Support/Minting.swift", 0,
+        ("Minting.now()", "Sources/Capture/Minting.swift", 0,
          "a wall-clock reading callers can take"),
         ("fileExtension:", "Soredemo/UI/ProjectDocument.swift", 0,
          "media can be added under a minted name"),
-        ("shadowRadius", "Sources/Render/RenderPlan.swift", 0,
-         "the stage draws a shadow — modelled, persisted, validated, never read outside its own type"),
+        ("shadowRadius", "Sources/Render/RenderPlan.swift", 1,
+         "the stage draws a shadow — TRUE since the recorder-parity decision (2026-08-19): "
+         + "CoreImageFrameRenderer.shadowImage reads it, and the count moving 0 → 1 is that "
+         + "feature landing, not drift"),
         ("blockingFailures()", "Sources/Capture/CapturePermissions.swift", 0,
          "callers can ask what blocks recording"),
         ("noMicrophoneTrack", "Sources/Capture/CapturePermissions.swift", 0,

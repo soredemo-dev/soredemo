@@ -4448,8 +4448,14 @@ enum CrossBoundaryProbe {
         // a pixel in the inset margin is the background colour, not the source
         check(marginPixel == (r: 23, g: 23, b: 28), "outside the card is the background",
               actual: "\(marginPixel)")
-        // the extreme corner of the card is background — the radius cut it
-        check(cardCornerPixel == (r: 23, g: 23, b: 28), "the corner radius removed the card's corner",
+        // The extreme corner of the card is NOT the card — the radius cut it. Since the
+        // shadow landed (2026-08-19) the corner shows SHADOWED background, so the old
+        // exact-value pin (r: 23, g: 23, b: 28) would fail for a legitimate reason: the
+        // claim was always about the card's absence, and darker-than-or-equal-to-background
+        // is what that absence looks like under a shadow.
+        check(cardCornerPixel != (r: 255, g: 0, b: 0)
+              && cardCornerPixel.r <= 23 && cardCornerPixel.g <= 23 && cardCornerPixel.b <= 28,
+              "the corner radius removed the card's corner",
               actual: "\(cardCornerPixel)")
     }
 

@@ -7,8 +7,10 @@ import Render
 
 /// A `FrameRendering` implementation on Core Image over a Metal-backed context.
 ///
-/// `StageStyle.shadowRadius`/`.shadowOpacity` are modelled and persisted but never read here: this
-/// renderer draws no shadow.
+/// `StageStyle.shadowRadius`/`.shadowOpacity` are drawn since the recorder-parity decision
+/// (design doc 2026-08-19) — an ambient drop shadow, no offset, because the fields model
+/// radius and opacity and nothing else; inventing a direction would be a value the style
+/// cannot round-trip.
 public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private let context: CIContext
 
@@ -26,7 +28,11 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     public func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
         let background = backgroundImage(plan)
         let card = cardImage(plan, source: source)
-        var composed = card.composited(over: background)
+        var composed = background
+        if let shadow = shadowImage(plan) {
+            composed = shadow.composited(over: composed)
+        }
+        composed = card.composited(over: composed)
         // Whether to draw a pointer is `StageCompositor`'s decision, not this file's.
         if let pointer = plan.pointer {
             composed = cursorImage(for: pointer, outputHeight: plan.outputHeight).composited(over: composed)
@@ -44,6 +50,24 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         case let .solid(red, green, blue):
             return CIImage(color: CIColor(red: red, green: green, blue: blue))
         }
+    }
+
+    /// The card's own silhouette — same rect, same corner radius — filled black at
+    /// `shadowOpacity` and gaussian-blurred. `nil` when either knob is zero, so a
+    /// shadowless style costs no filter pass at all (`aZeroOpacityShadowChangesNothing`).
+    /// Sigma is `shadowRadius / 2`: the style's radius names the visual reach, and a
+    /// gaussian at sigma s is visually spent by ~2s.
+    private func shadowImage(_ plan: RenderPlan) -> CIImage? {
+        let opacity = plan.style.shadowOpacity
+        let radius = plan.style.shadowRadius
+        guard opacity > 0, radius > 0 else { return nil }
+        guard let silhouette = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+            "inputExtent": CIVector(x: plan.card.x, y: plan.card.y,
+                                    z: plan.card.width, w: plan.card.height),
+            "inputRadius": plan.cornerRadius,
+            "inputColor": CIColor(red: 0, green: 0, blue: 0, alpha: opacity),
+        ])?.outputImage else { return nil }
+        return silhouette.applyingGaussianBlur(sigma: radius / 2)
     }
 
     private func cardImage(_ plan: RenderPlan, source: CVPixelBuffer) -> CIImage {
