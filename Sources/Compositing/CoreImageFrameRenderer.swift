@@ -148,7 +148,23 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             bitmap.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
             bitmap.setLineWidth(1.5)
-            bitmap.addPath(CursorArt.pointerPath(scale: scale))
+            // Every case named, no `default`: a new `PointerShape` is a compile error here,
+            // so its art (or its explicit fallback) is a decision rather than an accident.
+            // `nil` is "unrecorded" and `.other` is "recorded, unnamed" — both draw the
+            // arrow by design (`PointerShape`'s own doc); the review UI tells them apart.
+            let art: CGPath
+            switch placement.shape {
+            case .iBeam:
+                art = CursorArt.iBeamPath(scale: scale)
+            case .arrow, .other, nil:
+                art = CursorArt.pointerPath(scale: scale)
+            case .pointingHand, .crosshair, .resizeLeftRight, .resizeUpDown:
+                // No art yet — falls back to the arrow, DISCLOSED in the parity design
+                // doc rather than silently: the shape is still recorded, so drawing can
+                // improve without touching capture.
+                art = CursorArt.pointerPath(scale: scale)
+            }
+            bitmap.addPath(art)
             bitmap.drawPath(using: .fillStroke)
 
             // `ripplePhase == nil` means "not clicking", so no ring is drawn.

@@ -586,3 +586,31 @@ private struct RecordWithNoInstant: ObservationRecord {
     _ = try ProjectPackageIO.compact(packageURL, snapshot: partial)
     #expect(fm.fileExists(atPath: observations.appending(path: "segment-01.jsonl").path))
 }
+
+// MARK: - the pointer shape, added after two hundred thousand shape-less samples
+
+/// Every schema-2 pointer line ever written — the committed row-14 fixture included —
+/// carries no `shape` key, and every one of them must go on decoding. This is the
+/// backwards-compatibility half of the design choice recorded on the field: absence is
+/// honest history ("unrecorded"), not the ambiguity `CursorOverride.epoch` refused.
+@Test func aShapelessPointerLineStillDecodesAndSaysUnrecorded() throws {
+    let schema2Line = Data("""
+    {"kind":"pointer","instant":{"epoch":{"id":"6495B81D-14D1-4E05-8851-DD30BE41D757"},\
+    "hostTime":{"rawValue":1000}},"position":{"x":0.25,"y":0.75},"revision":{"id":1}}
+    """.utf8)
+    let decoded = try JSONDecoder().decode(PointerSample.self, from: schema2Line)
+    #expect(decoded.shape == nil)
+    #expect(decoded.position == NormalizedPoint(x: 0.25, y: 0.75))
+}
+
+/// A recorded shape survives the round trip, and `.other` survives as itself rather than
+/// collapsing to `nil` — the two are different facts and the wire must keep them apart.
+@Test func aRecordedShapeRoundTripsAndOtherStaysOther() throws {
+    let rev = GeometryRevision(id: 1)
+    for shape in [PointerShape.iBeam, .pointingHand, .other] {
+        let sample = PointerSample(instant: at(1), position: NormalizedPoint(x: 0.5, y: 0.5),
+                                   revision: rev, shape: shape)
+        let back = try JSONDecoder().decode(PointerSample.self, from: JSONEncoder().encode(sample))
+        #expect(back.shape == shape)
+    }
+}

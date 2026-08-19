@@ -34,6 +34,37 @@ nonisolated enum CursorArt {
     }
 
     /// The ripple's radius at the click instant; non-zero so the first frame shows a ring.
+    /// The I-beam, three rects in one path — stem plus two serifs — built around the
+    /// HOTSPOT at the origin, which for an I-beam is its centre (the arrow's is its tip).
+    /// Drawn with the same white-fill/black-stroke treatment as the arrow so the two read
+    /// as one cursor family. Half-height 14 at scale 1: inside `pointerMaxExtent`, so the
+    /// canvas the renderer sizes for the arrow already fits it.
+    public static func iBeamPath(scale s: Double) -> CGPath {
+        let path = CGMutablePath()
+        let stemHalfWidth = 1.2 * s
+        let halfHeight = 14.0 * s
+        let serifHalfWidth = 5.0 * s
+        let serifThickness = 2.4 * s
+        // Point-by-point through the bridge, like `pointerPath` above: the rect type is
+        // confined to the two bridge files (rule 5), and its absence here is enforced,
+        // not stylistic — `coreGraphicsGeometryTypesAppearOnlyInTheHeadlessBridge` went
+        // red on this function's first draft, which reached for the rect initialiser.
+        func closedRect(x: Double, y: Double, width: Double, height: Double) {
+            path.move(to: HeadlessGeometryBridge.point(x: x, y: y))
+            path.addLine(to: HeadlessGeometryBridge.point(x: x + width, y: y))
+            path.addLine(to: HeadlessGeometryBridge.point(x: x + width, y: y + height))
+            path.addLine(to: HeadlessGeometryBridge.point(x: x, y: y + height))
+            path.closeSubpath()
+        }
+        closedRect(x: -stemHalfWidth, y: -halfHeight,
+                   width: stemHalfWidth * 2, height: halfHeight * 2)
+        closedRect(x: -serifHalfWidth, y: halfHeight - serifThickness,
+                   width: serifHalfWidth * 2, height: serifThickness)
+        closedRect(x: -serifHalfWidth, y: -halfHeight,
+                   width: serifHalfWidth * 2, height: serifThickness)
+        return path
+    }
+
     static let rippleStartRadius: Double = 6
     /// The ripple's radius at `phase == 1`, in `pointerMaxExtent`'s output-pixel unit and not
     /// scaled by `pointerPath`'s `scale`.

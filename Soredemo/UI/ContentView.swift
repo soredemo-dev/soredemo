@@ -139,7 +139,8 @@ final class RecordingCoordinator {
         sink = newSink
 
         let newSession = CaptureSession(source: source, scale: scale, displayUUID: displayUUID,
-                                        mediaSink: newSink, epoch: Minting.bootEpoch())
+                                        mediaSink: newSink, epoch: Minting.bootEpoch(),
+                                        pointerShapeReader: SystemCursorShape.reader())
         session = newSession
         do {
             try await newSession.start()

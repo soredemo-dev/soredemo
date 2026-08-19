@@ -1,5 +1,7 @@
 import Foundation
 import Geometry
+// `PointerShape` rides on the placement since the recorder-parity work.
+import Project
 
 /// Turns an output size and a source size into the rectangle the recording is drawn in.
 ///
@@ -45,9 +47,10 @@ public enum StagePlanner {
     /// `ripplePhase` defaults to `nil` — no click, no ripple — and a caller passes one only when it
     /// has computed one; this function does not derive a phase from anything of its own.
     public static func placement(for point: NormalizedPoint, in plan: RenderPlan,
-                                 ripplePhase: Double? = nil) -> NormalizedPointerPlacement {
+                                 ripplePhase: Double? = nil,
+                                 shape: PointerShape? = nil) -> NormalizedPointerPlacement {
         NormalizedPointerPlacement(x: plan.card.x + point.x * plan.card.width,
                                    y: plan.card.y + point.y * plan.card.height,
-                                   ripplePhase: ripplePhase)
+                                   ripplePhase: ripplePhase, shape: shape)
     }
 }

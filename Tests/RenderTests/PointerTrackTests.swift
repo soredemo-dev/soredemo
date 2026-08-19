@@ -16,7 +16,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 @Test func aPositionBetweenTwoSamplesComesFromTheEarlierOne() {
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1), sample(1_000, 0.9, 0.9)],
                              blindIntervals: [], overrides: [])
-    #expect(track.position(at: at(400)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1)))
+    #expect(track.position(at: at(400)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: nil))
 }
 
 @Test func aTimeInsideABlindIntervalReadsAsBlindAndCarriesTheCause() {
@@ -105,7 +105,7 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [],
                              overrides: [CursorOverride(epoch: otherEpoch, start: Nanoseconds(0),
                                                         duration: Nanoseconds(1_000))])
-    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1)))
+    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: nil))
 }
 
 /// A sample stamped in another boot session is not "the most recent sample" of this
@@ -205,4 +205,24 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
     } catch {
         Issue.record("expected DecodingError, got \(error)")
     }
+}
+
+
+// MARK: - the shape flows from the sample to the reading
+
+/// The reading's shape is the MATCHED sample's, not the newest sample's or a constant —
+/// two samples with different shapes, queried between and after, come back with each
+/// sample's own. A track that hardcoded `.arrow` or always took the last sample's shape
+/// reddens on one of the two instants.
+@Test func theReadingCarriesTheMatchedSamplesOwnShape() {
+    let iBeamThenHand = PointerTrack(samples: [
+        PointerSample(instant: at(100), position: NormalizedPoint(x: 0.1, y: 0.1),
+                      revision: GeometryRevision(id: 1), shape: PointerShape.iBeam),
+        PointerSample(instant: at(1_000), position: NormalizedPoint(x: 0.9, y: 0.9),
+                      revision: GeometryRevision(id: 1), shape: PointerShape.pointingHand),
+    ], blindIntervals: [], overrides: [])
+    #expect(iBeamThenHand.position(at: at(500))
+            == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: .iBeam))
+    #expect(iBeamThenHand.position(at: at(2_000))
+            == .drawn(NormalizedPoint(x: 0.9, y: 0.9), shape: .pointingHand))
 }

@@ -121,9 +121,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // typechecks. Rough placement, not a frame-accurate media origin.
         let instant = anchor.instant(atOffset: offset)
         switch pointer.position(at: instant) {
-        case .drawn(let point):
+        case .drawn(let point, let shape):
             return StagePlanner.placement(for: point, in: plan,
-                                          ripplePhase: click?.ripplePhase(at: instant))
+                                          ripplePhase: click?.ripplePhase(at: instant),
+                                          shape: shape)
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }

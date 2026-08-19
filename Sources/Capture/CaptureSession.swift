@@ -63,6 +63,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private let displayUUID: UUID
     private let mediaSink: any MediaSink
     private let epoch: BootEpoch
+    /// Passed through to `InputObserver` — see its doc for why this is a closure.
+    private let pointerShapeReader: @Sendable () -> PointerShape?
 
     /// Every Nth complete video frame is luminance-sampled for the black-frame
     /// detector. Uncalibrated placeholder. `nonisolated` on all three constants
@@ -405,12 +407,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `epoch` is supplied once so every `HostInstant` this session mints shares
     /// one `BootEpoch`.
     public init(source: CaptureSource, scale: Double, displayUUID: UUID,
-                mediaSink: any MediaSink, epoch: BootEpoch) {
+                mediaSink: any MediaSink, epoch: BootEpoch,
+                pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil }) {
         self.source = source
         self.scale = scale
         self.displayUUID = displayUUID
         self.mediaSink = mediaSink
         self.epoch = epoch
+        self.pointerShapeReader = pointerShapeReader
         super.init()
     }
 
@@ -460,7 +464,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let accessibilityGranted = CapturePermissions.requestAccessibilityAccess()
 
         let arrangement = InputObserver.currentArrangement()
-        let input = InputObserver(arrangement: arrangement, epoch: epoch)
+        let input = InputObserver(arrangement: arrangement, epoch: epoch,
+                                  pointerShapeReader: pointerShapeReader)
         let ax = AXObserver(arrangement: arrangement, epoch: epoch)
 
         var blindness: [ObservationBlindness] = []

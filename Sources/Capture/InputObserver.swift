@@ -186,6 +186,12 @@ final class InputObserver: @unchecked Sendable {
     private let arrangement: DisplayArrangement
     private let epoch: BootEpoch
     private let secureInputIsEnabled: @Sendable () -> Bool
+    /// Reads the CURRENT system cursor's classified shape, or `nil` when no reader was
+    /// injected. A closure because the only API that can answer is AppKit's `NSCursor`,
+    /// which `HeadlessCheck` bans from this target — the app tier injects the read, the
+    /// same seam `secureInputIsEnabled` and `AXObserver.accessibilityIsGranted` use.
+    /// Called from the tap callback, once per pointer sample.
+    private let pointerShapeReader: @Sendable () -> PointerShape?
     private let tapIsEnabledOverride: (@Sendable () -> Bool)?
 
     // MARK: - state guarded by `lock`
@@ -246,11 +252,13 @@ final class InputObserver: @unchecked Sendable {
     /// evaluated.
     public init(arrangement: DisplayArrangement, epoch: BootEpoch,
                 secureInputIsEnabled: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() },
-                tapIsEnabledOverride: (@Sendable () -> Bool)? = nil) {
+                tapIsEnabledOverride: (@Sendable () -> Bool)? = nil,
+                pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil }) {
         self.arrangement = arrangement
         self.epoch = epoch
         self.secureInputIsEnabled = secureInputIsEnabled
         self.tapIsEnabledOverride = tapIsEnabledOverride
+        self.pointerShapeReader = pointerShapeReader
     }
 
     deinit {
@@ -786,7 +794,8 @@ final class InputObserver: @unchecked Sendable {
         // five minutes, and a thinned track cannot be re-tuned later.
         emit(.pointer(PointerSample(instant: instant,
                                     position: converted.position,
-                                    revision: converted.revision)))
+                                    revision: converted.revision,
+                                    shape: pointerShapeReader())))
     }
 
     private nonisolated func handleButton(_ event: CGEvent, button: PointerButton,

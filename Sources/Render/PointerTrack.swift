@@ -7,7 +7,10 @@ import Timeline
 /// optional collapses three different silences into one and a caller cannot tell them apart:
 /// a gap that was measured, a reviewer's decision, and time before anything was ever seen.
 public enum PointerReading: Hashable, Sendable {
-    case drawn(NormalizedPoint)
+    /// `shape` rides with the position because they are one observation: the shape the
+    /// system cursor had AT the sample whose position is being drawn. `nil` is
+    /// "unrecorded" (see `PointerShape`); the renderer's fallback for it is the arrow.
+    case drawn(NormalizedPoint, shape: PointerShape?)
     case blind(BlindInterval)
     case suppressedByReviewer
     case noObservationYet
@@ -51,7 +54,7 @@ public struct PointerTrack: Sendable {
             latest = sample
         }
         guard let latest else { return .noObservationYet }
-        return .drawn(latest.position)
+        return .drawn(latest.position, shape: latest.shape)
     }
 
     /// The share of `span` covered by blind intervals. Clamped to the span, so an interval that

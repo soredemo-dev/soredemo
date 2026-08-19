@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import CoreVideo
 @testable import Compositing
+import Project
 import Render
 
 /// The `FrameRendering` seam exercised through the PRODUCTION conformer, never a double.
@@ -127,4 +128,51 @@ import Render
     for index in [0, width * height / 2, width * height - 1] {
         #expect(first[index] == second[index])
     }
+}
+
+// MARK: - the cursor's shape reaches the pixels
+
+/// Same plan, same placement, two shapes: the drawn pixels must differ near the hotspot.
+/// Until the renderer selects art by `shape`, every pointer is the arrow and the two
+/// renders are byte-identical — which is exactly the recorded-then-ignored defect the
+/// shadow had, one field over.
+@Test func anIBeamAndAnArrowDrawDifferentPixels() throws {
+    let width = 640, height = 360
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    func rendered(_ shape: PointerShape?) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: .default)
+        let placement = NormalizedPointerPlacement(
+            x: Double(width) / 2, y: Double(height) / 2, ripplePhase: nil, shape: shape)
+        let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                              card: base.card, cornerRadius: base.cornerRadius,
+                              style: base.style, pointer: placement)
+        try renderer.render(plan, source: source, into: destination)
+        return try pixels(of: destination)
+    }
+    func identical(_ a: [(r: UInt8, g: UInt8, b: UInt8)],
+                   _ b: [(r: UInt8, g: UInt8, b: UInt8)]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { $0 == $1 }
+    }
+    let arrow = try rendered(.arrow)
+    let iBeam = try rendered(.iBeam)
+    // Compared OUTSIDE the macro: #expect captures its operands for the failure message,
+    // and two 640×360 pixel arrays are a ten-megabyte way to say "identical".
+    let iBeamDiffers = !identical(arrow, iBeam)
+    #expect(iBeamDiffers,
+            "an I-beam rendered byte-identical to the arrow — the shape never reached the pixels")
+
+    // `nil` (unrecorded) and `.other` (recorded, unnamed) both fall back to the arrow —
+    // the design on `PointerShape` itself. The renderer treats them alike; only the
+    // review UI distinguishes them.
+    let nilFallsBack = identical(try rendered(nil), arrow)
+    let otherFallsBack = identical(try rendered(.other), arrow)
+    #expect(nilFallsBack, "an unrecorded shape did not fall back to the arrow")
+    #expect(otherFallsBack, "an unclassified shape did not fall back to the arrow")
 }

@@ -22,17 +22,40 @@ public protocol ObservationRecord: Codable, Sendable {
 /// A pointer position sample. The whole track is kept, never thinned: the
 /// required density depends on render tuning, and a thinned track cannot be
 /// re-tuned.
+/// The cursor's SHAPE at a sample, as the classified identity of the system cursor —
+/// never its image. Recorded since the recorder-parity decision (2026-08-19): before it,
+/// every pointer drew as an arrow, and an I-beam over a text field was a lie the render
+/// told about the recording.
+///
+/// `String`-raw and `Codable` because it is persisted per sample; a new case is additive.
+/// `.other` is a REAL classification — "the system cursor was something this enum does not
+/// name" — distinct from `nil` on the sample, which means "no reader was injected or the
+/// recording predates the field". The renderer treats both as the arrow; the review UI can
+/// tell them apart, which is the reason they are not one value.
+public enum PointerShape: String, Codable, Sendable {
+    case arrow, iBeam, pointingHand, crosshair
+    case resizeLeftRight, resizeUpDown
+    case other
+}
+
 public struct PointerSample: Hashable, Codable, Sendable {
     public let kind: String
     public let instant: HostInstant
     public let position: NormalizedPoint
     public let revision: GeometryRevision
+    /// `nil` means unrecorded — an older log, or no shape reader injected — which is a
+    /// different fact from `.other` (recorded, and not a shape this schema names).
+    /// Optional so every schema-2 line ever written decodes unchanged: absence here is
+    /// honest history, not the ambiguity `CursorOverride.epoch` refused to allow.
+    public let shape: PointerShape?
 
-    public init(instant: HostInstant, position: NormalizedPoint, revision: GeometryRevision) {
+    public init(instant: HostInstant, position: NormalizedPoint, revision: GeometryRevision,
+                shape: PointerShape? = nil) {
         self.kind = "pointer"
         self.instant = instant
         self.position = position
         self.revision = revision
+        self.shape = shape
     }
 }
 

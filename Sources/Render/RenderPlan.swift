@@ -1,4 +1,6 @@
 import Foundation
+// `PointerShape` rides on the placement since the recorder-parity work.
+import Project
 
 /// A rectangle in OUTPUT PIXELS, bottom-left origin.
 ///
@@ -154,8 +156,11 @@ public struct NormalizedPointerPlacement: Hashable, Sendable {
     public let y: Double
     /// 0 at the click instant, rising to 1 as the ripple finishes. `nil` when not clicking.
     public let ripplePhase: Double?
+    /// The classified system-cursor shape at the sample being drawn; `nil` is
+    /// "unrecorded" and renders as the arrow, same as `.other` — see `PointerShape`.
+    public let shape: PointerShape?
 
-    public init(x: Double, y: Double, ripplePhase: Double?) {
-        self.x = x; self.y = y; self.ripplePhase = ripplePhase
+    public init(x: Double, y: Double, ripplePhase: Double?, shape: PointerShape? = nil) {
+        self.x = x; self.y = y; self.ripplePhase = ripplePhase; self.shape = shape
     }
 }
