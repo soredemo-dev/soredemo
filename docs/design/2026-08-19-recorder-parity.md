@@ -57,3 +57,36 @@ untested either way and stays flagged in the README.
   capture surface"). Screen Studio and a Rust recorder both have it. Parity arguably includes it;
   the scope table says no. Items 1–4 are unaffected either way.
 - **Region capture**: same table, same conflict, lower stakes.
+
+---
+
+## Reading the comparable projects — and the licence constraint
+
+`../opensource/` holds ten comparable projects. `AGENTS.md`'s "read for ideas, not for
+code" turns out to be a legal requirement here, not a style preference:
+
+| Project | Licence | Usable |
+| --- | --- | --- |
+| **a Rust recorder** | **AGPLv3** (`cap-camera*`/`scap-*` are MIT) | its `crates/rendering/zoom_spring.rs` is in the AGPL half — **ideas only** |
+| **an Electron recorder** | **AGPLv3** | ideas only |
+| a Swift recorder | Apache 2.0 | usable with attribution |
+| an Electron recorder | MIT | usable with attribution |
+| a video framework | custom licence | read the terms before anything |
+| a native editor | **no LICENSE file** | all rights reserved by default — do not use |
+
+AGPL is copyleft: copying a fragment into Soredemo would put Soredemo under AGPL.
+
+**What was taken from a Rust recorder, and it is a fact about the problem rather than an expression of
+it:** its camera integrates on a FIXED timestep rather than per requested frame. That
+observation is worth more here than any constant, and for a reason of Soredemo's own — a
+spring stepped at whatever interval the caller asks for accumulates differently on a 60 Hz
+preview and a 24 fps export, which would make `render-parity`'s "one compositor drives
+both" quietly false in the one place nobody checks. `CameraMotion` integrates at a fixed
+8 ms step from rest on every query for that reason, and
+`theSameInstantAlwaysYieldsTheSameState` is the assertion.
+
+The spring itself is first-principles: "settles without overshoot" is the row's wording and
+for a spring-mass-damper that is exactly ζ = 1, not a value found by watching footage. ω = 10
+was chosen by computing settling time before writing the type — ~0.9 s to 2%, slower than
+`ZoomBlock.preRoll`, so the camera is still moving when the click lands and the motion reads
+as following the action rather than anticipating it.
