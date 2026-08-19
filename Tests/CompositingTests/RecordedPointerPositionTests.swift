@@ -226,18 +226,37 @@ func recordedPointerSamples() throws -> [PointerSample] {
 /// What the LOG says the pointer's position was at an absolute host time, plus the candidate
 /// count — an independent restatement of `PointerTrack.position(at:)`'s rule once blindness and
 /// overrides are excluded. `priorCount` is what the search filters on.
+/// **Re-derives the RENDERING rule from the fixture's bytes, independently of
+/// `PointerTrack`** — the same interpolate-or-hold the compositor uses since it switched to
+/// `smoothedPosition(at:)` (recorder-parity, 2026-08-19). Independence is the point: this
+/// function shares only the PUBLIC threshold constant with the implementation, so agreeing
+/// on the threshold is what lets any other disagreement mean something. The fixture's 149
+/// tap-disabled windows are already excluded by the search (a drawn placement excludes
+/// blindness), so the blind-refusal branch needs no twin here.
 func recordedReading(in samples: [PointerSample],
                      atHostTime time: Nanoseconds) -> (position: NormalizedPoint, priorCount: Int)? {
     var latest: PointerSample?
+    var next: PointerSample?
     var priorCount = 0
     for sample in samples {
-        guard sample.instant.hostTime.rawValue <= time.rawValue else { continue }
-        priorCount += 1
-        if let current = latest, current.instant.hostTime.rawValue > sample.instant.hostTime.rawValue {
-            continue
+        if sample.instant.hostTime.rawValue <= time.rawValue {
+            priorCount += 1
+            if let current = latest,
+               current.instant.hostTime.rawValue > sample.instant.hostTime.rawValue { continue }
+            latest = sample
+        } else if next == nil || sample.instant.hostTime.rawValue < next!.instant.hostTime.rawValue {
+            next = sample
         }
-        latest = sample
     }
     guard let latest else { return nil }
-    return (position: latest.position, priorCount: priorCount)
+    guard let next else { return (position: latest.position, priorCount: priorCount) }
+    let span = next.instant.hostTime.rawValue - latest.instant.hostTime.rawValue
+    guard span > 0, span <= PointerTrack.maxInterpolationGap.rawValue else {
+        return (position: latest.position, priorCount: priorCount)
+    }
+    let fraction = Double(time.rawValue - latest.instant.hostTime.rawValue) / Double(span)
+    let position = NormalizedPoint(
+        x: latest.position.x + (next.position.x - latest.position.x) * fraction,
+        y: latest.position.y + (next.position.y - latest.position.y) * fraction)
+    return (position: position, priorCount: priorCount)
 }

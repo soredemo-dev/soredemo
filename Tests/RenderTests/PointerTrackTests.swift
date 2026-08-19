@@ -226,3 +226,100 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
     #expect(iBeamThenHand.position(at: at(2_000))
             == .drawn(NormalizedPoint(x: 0.9, y: 0.9), shape: .pointingHand))
 }
+
+// MARK: - smoothedPosition: the rendering path may be gentle; the review path may not
+
+/// Halfway between two samples, the smoothed position is halfway between them — on both
+/// axes, with different deltas so a lerp of x alone cannot pass. The STEPWISE reading at
+/// the same instant is the earlier sample, and the test asserts both, because the split
+/// into two queries is the design: `position(at:)` answering differently from
+/// `smoothedPosition(at:)` between samples is the feature, not a discrepancy.
+@Test func theSmoothedPositionIsTheLerpAndTheStepwiseReadingIsNot() {
+    let track = PointerTrack(samples: [
+        PointerSample(instant: at(0), position: NormalizedPoint(x: 0.0, y: 0.0),
+                      revision: GeometryRevision(id: 1), shape: PointerShape.iBeam),
+        PointerSample(instant: at(1_000), position: NormalizedPoint(x: 0.2, y: 0.4),
+                      revision: GeometryRevision(id: 1), shape: PointerShape.arrow),
+    ], blindIntervals: [], overrides: [])
+
+    guard case .drawn(let smoothed, let shape) = track.smoothedPosition(at: at(500)) else {
+        Issue.record("the smoothed reading between two samples was not drawn at all")
+        return
+    }
+    #expect(abs(smoothed.x - 0.1) < 0.000001 && abs(smoothed.y - 0.2) < 0.000001,
+            "expected the midpoint (0.1, 0.2), got (\(smoothed.x), \(smoothed.y))")
+    // The shape is the EARLIER sample's — shapes are identities and do not blend.
+    #expect(shape == .iBeam)
+    // And the review path still steps.
+    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.0, y: 0.0), shape: .iBeam))
+}
+
+/// At a sample's own instant the lerp degenerates to that sample exactly — the endpoint
+/// identity that keeps `RecordedPointerPositionTests`' searched instants meaningful.
+@Test func theSmoothedPositionAtASampleInstantIsThatSample() {
+    let track = PointerTrack(samples: [
+        PointerSample(instant: at(0), position: NormalizedPoint(x: 0.0, y: 0.0),
+                      revision: GeometryRevision(id: 1)),
+        PointerSample(instant: at(1_000), position: NormalizedPoint(x: 0.2, y: 0.4),
+                      revision: GeometryRevision(id: 1)),
+    ], blindIntervals: [], overrides: [])
+    #expect(track.smoothedPosition(at: at(1_000))
+            == .drawn(NormalizedPoint(x: 0.2, y: 0.4), shape: nil))
+}
+
+/// A stationary pointer emits no samples, so a long gap between brackets means THE POINTER
+/// WAS STILL — lerping across it would invent a slow drift the user never made. Past the
+/// gap threshold the smoothed reading holds the earlier sample, exactly like the stepwise
+/// one. The two instants differ only in which side of the threshold their gap falls.
+@Test func aGapWiderThanTheThresholdIsHeldNotDrifted() {
+    let justInside = PointerTrack.maxInterpolationGap.rawValue - 2
+    let justOutside = PointerTrack.maxInterpolationGap.rawValue + 2
+    func track(gap: Int64) -> PointerTrack {
+        PointerTrack(samples: [
+            PointerSample(instant: at(0), position: NormalizedPoint(x: 0.0, y: 0.0),
+                          revision: GeometryRevision(id: 1)),
+            PointerSample(instant: at(gap), position: NormalizedPoint(x: 0.2, y: 0.2),
+                          revision: GeometryRevision(id: 1)),
+        ], blindIntervals: [], overrides: [])
+    }
+    guard case .drawn(let lerped, _) = track(gap: justInside).smoothedPosition(at: at(justInside / 2))
+    else { Issue.record("no reading inside the threshold"); return }
+    #expect(lerped.x > 0.05, "inside the threshold the position should interpolate")
+
+    guard case .drawn(let held, _) = track(gap: justOutside).smoothedPosition(at: at(justOutside / 2))
+    else { Issue.record("no reading outside the threshold"); return }
+    #expect(held == NormalizedPoint(x: 0.0, y: 0.0),
+            "across a wider-than-threshold gap the pointer was STILL — holding is the truth")
+}
+
+/// A blind interval between the brackets refuses the lerp even when the queried instant
+/// itself is sighted: motion invented across a span the tap could not see is exactly the
+/// "looks fine" the review path's rule exists to refuse, and smoothing does not get to
+/// reintroduce it from the other side.
+@Test func theLerpRefusesToCrossABlindInterval() {
+    let blind = BlindInterval(start: Nanoseconds(400), duration: Nanoseconds(200),
+                              cause: .tapDisabled)
+    let track = PointerTrack(samples: [
+        PointerSample(instant: at(0), position: NormalizedPoint(x: 0.0, y: 0.0),
+                      revision: GeometryRevision(id: 1)),
+        PointerSample(instant: at(1_000), position: NormalizedPoint(x: 0.2, y: 0.2),
+                      revision: GeometryRevision(id: 1)),
+    ], blindIntervals: [blind], overrides: [])
+    // 300 is sighted; the span 0…1000 crosses the blindness.
+    #expect(track.smoothedPosition(at: at(300))
+            == .drawn(NormalizedPoint(x: 0.0, y: 0.0), shape: nil))
+    // And AT a blind instant the precedence is untouched.
+    #expect(track.smoothedPosition(at: at(500)) == .blind(blind))
+}
+
+/// Past the last sample there is nothing to interpolate toward; the smoothed reading is
+/// the stepwise one, and before the first there is nothing at all.
+@Test func theSmoothedPositionDegradesToStepwiseAtTheTracksEdges() {
+    let track = PointerTrack(samples: [
+        PointerSample(instant: at(1_000), position: NormalizedPoint(x: 0.5, y: 0.5),
+                      revision: GeometryRevision(id: 1)),
+    ], blindIntervals: [], overrides: [])
+    #expect(track.smoothedPosition(at: at(2_000))
+            == .drawn(NormalizedPoint(x: 0.5, y: 0.5), shape: nil))
+    #expect(track.smoothedPosition(at: at(0)) == .noObservationYet)
+}

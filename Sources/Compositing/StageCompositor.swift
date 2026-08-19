@@ -120,7 +120,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // `HostInstant`, so holding a bare `Nanoseconds` here — `1a98402`'s shape — no longer
         // typechecks. Rough placement, not a frame-accurate media origin.
         let instant = anchor.instant(atOffset: offset)
-        switch pointer.position(at: instant) {
+        // `smoothedPosition`, not `position`: this is the RENDERING path, the one consumer
+        // allowed to be gentle. The review path keeps the stepwise truth (recorder-parity
+        // design, 2026-08-19 — presentation and diagnosis are different outputs).
+        switch pointer.smoothedPosition(at: instant) {
         case .drawn(let point, let shape):
             return StagePlanner.placement(for: point, in: plan,
                                           ripplePhase: click?.ripplePhase(at: instant),
