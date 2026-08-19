@@ -14,7 +14,7 @@ enum ArchitectureChecker {
         "Geometry": [],
         "Timeline": [],
         "Graph":    ["Geometry", "Timeline"],
-        "Framing":  ["Graph", "Geometry"],
+        "Framing":  ["Graph", "Geometry", "Project", "Timeline"],
         "Variants": ["Framing", "Timeline"],
         "Project":  ["Graph", "Geometry", "Timeline"],
         "Render":   ["Geometry", "Timeline", "Project"],

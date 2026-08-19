@@ -30,7 +30,10 @@ let package = Package(
         .target(name: "Geometry", swiftSettings: strict, plugins: archCheck),
         .target(name: "Timeline", swiftSettings: strict, plugins: archCheck),
         .target(name: "Graph", dependencies: ["Geometry", "Timeline"], swiftSettings: strict, plugins: archCheck),
-        .target(name: "Framing", dependencies: ["Graph", "Geometry"], swiftSettings: strict, plugins: archCheck),
+        // `Project` and `Timeline` since the framing gates landed: the input is an
+        // `AXChainRecord` and the staleness gate reads a `HostRange`.
+        .target(name: "Framing", dependencies: ["Graph", "Geometry", "Project", "Timeline"],
+                swiftSettings: strict, plugins: archCheck),
         .target(name: "Variants", dependencies: ["Framing", "Timeline"], swiftSettings: strict, plugins: archCheck),
         .target(name: "Project", dependencies: ["Graph", "Geometry", "Timeline"], swiftSettings: strict, plugins: archCheck),
         .target(name: "Render", dependencies: ["Geometry", "Timeline", "Project"],
@@ -189,7 +192,8 @@ let package = Package(
         .testTarget(name: "GeometryTests", dependencies: ["Geometry", "CheckerLexer"], swiftSettings: strict),
         .testTarget(name: "TimelineTests", dependencies: ["Timeline"], swiftSettings: strict),
         .testTarget(name: "GraphTests", dependencies: ["Graph", "Geometry", "Timeline"], swiftSettings: strict),
-        .testTarget(name: "FramingTests", dependencies: ["Framing"], swiftSettings: strict),
+        .testTarget(name: "FramingTests", dependencies: ["Framing", "Geometry", "Project", "Timeline"],
+                    swiftSettings: strict),
         .testTarget(name: "VariantsTests", dependencies: ["Variants"], swiftSettings: strict),
         .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
         .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],

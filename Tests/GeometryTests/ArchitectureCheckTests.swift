@@ -224,8 +224,10 @@ func rejectsBacktickGluedImport(_ source: String) throws {
 
 /// Sibling edges consult the same token, so a tokenizer bypass is a bypass for F2 as well as F1.
 @Test func rejectsBacktickGluedSiblingImport() throws {
-    let result = try runChecker(targetName: "Framing", source: "import`Timeline`")
-    #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
+    // `Variants`, not `Framing`: Framing declares Timeline since the framing gates landed
+    // (2026-08-19), and an example that stopped being undeclared tests nothing.
+    let result = try runChecker(targetName: "Variants", source: "import`Geometry`")
+    #expect(result.status == 1, "Variants does not declare Geometry\nstderr: \(result.stderr)")
 }
 
 /// Constructs where a quote is ORDINARY CONTENT — SE-0451 raw identifiers and extended regex literals —
@@ -248,9 +250,9 @@ func rejectsImportHiddenBehindRawIdentifierOrRegex(_ source: String) throws {
 
 /// The same construction defeats the sibling-edge rule; both consult the same token stream.
 @Test func rejectsSiblingImportHiddenBehindRawIdentifier() throws {
-    let result = try runChecker(targetName: "Framing",
-                                source: "public let `a\"\"\"b` = 1\nimport Timeline")
-    #expect(result.status == 1, "Framing does not declare Timeline\nstderr: \(result.stderr)")
+    let result = try runChecker(targetName: "Variants",
+                                source: "public let `a\"\"\"b` = 1\nimport Geometry")
+    #expect(result.status == 1, "Variants does not declare Geometry\nstderr: \(result.stderr)")
 }
 
 /// Swift ends a `//` comment at a lone CR and compiles what follows; FF, VT, NEL, U+2028 and U+2029 do NOT end one — see `acceptsLineCommentsThatDoNotEnd`.
@@ -350,11 +352,16 @@ func acceptsRawIdentifiersAndRegexLiterals(_ source: String) throws {
 
 /// Direct declared edges only: the transitive closure would admit undeclared edges that SwiftPM itself only warns about.
 @Test func rejectsTransitiveButUndeclaredEdge() throws {
-    let framing = try runChecker(targetName: "Framing", source: "import Timeline")
-    #expect(framing.status == 1, "Framing does not declare Timeline\nstderr: \(framing.stderr)")
+    // Both examples are `Variants`, whose manifest edge is `Framing` + `Timeline`:
+    // Geometry is reachable transitively through Framing and declared nowhere, and Render
+    // is not reachable at all. `Framing` was the first example until it declared Timeline
+    // for the framing gates (2026-08-19) — an example that stops being undeclared silently
+    // stops testing, which is the failure this comment exists to prevent recurring.
+    let transitive = try runChecker(targetName: "Variants", source: "import Geometry")
+    #expect(transitive.status == 1, "Variants does not declare Geometry\nstderr: \(transitive.stderr)")
 
-    let variants = try runChecker(targetName: "Variants", source: "import Geometry")
-    #expect(variants.status == 1, "Variants does not declare Geometry\nstderr: \(variants.stderr)")
+    let unrelated = try runChecker(targetName: "Variants", source: "import Render")
+    #expect(unrelated.status == 1, "Variants does not declare Render\nstderr: \(unrelated.stderr)")
 }
 
 /// Dependencies parsed out of `Package.swift`, so this test cannot drift away from it.
