@@ -54,9 +54,34 @@ public struct CameraMotion: Sendable {
         self.blocks = blocks.sorted { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue }
     }
 
+    /// How long after the last block the camera is treated as having settled back to rest.
+    /// At ω = 10 a move is within 2% in ~0.9 s; 3 s is comfortably past that and is what
+    /// bounds the integration on the far side.
+    private static let settleMargin: Double = 3.0
+
     /// The camera at `instant`, integrated from rest.
+    ///
+    /// **Integration starts at the first block, not at zero, and that is a correctness fix
+    /// rather than an optimisation.** Host instants are `mach_absolute_time` — on the order
+    /// of 10¹⁴ ns — so integrating from absolute zero at an 8 ms step is ~12 million steps
+    /// PER QUERY, and a 30 Hz sample of six seconds of a real recording never finished.
+    /// Found by the end-to-end test against the row-14 recording, which is what a fixture
+    /// made of real data is for. The camera is provably at rest before its first block, so
+    /// starting there changes no answer; past the last block plus `settleMargin` it is at
+    /// rest again, which bounds the far side.
     public func state(at instant: HostInstant) -> CameraState {
-        let end = Double(instant.hostTime.rawValue) / 1_000_000_000
+        let rest = CameraState(centre: NormalizedPoint(x: 0.5, y: 0.5), zoom: 1.0)
+        guard let firstBlock = blocks.first(where: { $0.start.epoch == instant.epoch }),
+              let lastEnd = blocks.filter({ $0.start.epoch == instant.epoch })
+                  .map(\.end.hostTime.rawValue).max()
+        else { return rest }
+
+        let now = Double(instant.hostTime.rawValue) / 1_000_000_000
+        let begin = Double(firstBlock.start.hostTime.rawValue) / 1_000_000_000
+        guard now > begin else { return rest }
+        guard now <= Double(lastEnd) / 1_000_000_000 + Self.settleMargin else { return rest }
+
+        let end = now - begin
         var centre = NormalizedPoint(x: 0.5, y: 0.5)
         var zoom = 1.0
         var velocityX = 0.0, velocityY = 0.0, velocityZoom = 0.0
@@ -66,7 +91,8 @@ public struct CameraMotion: Sendable {
 
         var time = 0.0
         while time < end {
-            aim = self.aim(at: time, previous: aim)
+            // `aim` is asked in ABSOLUTE seconds; the loop counts from the first block.
+            aim = self.aim(at: begin + time, previous: aim)
             let dt = Self.timestep
             let k = Self.angularFrequency * Self.angularFrequency
             let c = 2 * Self.dampingRatio * Self.angularFrequency

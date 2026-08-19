@@ -61,3 +61,26 @@ func pixels(of buffer: CVPixelBuffer) throws -> [(r: UInt8, g: UInt8, b: UInt8)]
     }
     return out
 }
+
+/// Paints the lower-left quadrant of a 32BGRA buffer, for tests that need a source with a
+/// countable feature in a known place. Bottom-left in CoreVideo's top-left row order means
+/// the LAST rows.
+func paintQuadrant(_ buffer: CVPixelBuffer, width: Int, height: Int,
+                   colour: (r: UInt8, g: UInt8, b: UInt8)) throws {
+    CVPixelBufferLockBaseAddress(buffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+    // Safe here: same argument as `makePixelBuffer` — the writes sit between the lock pair
+    // and every index stays inside height × bytes-per-row.
+    let base = try unsafe #require(unsafe CVPixelBufferGetBaseAddress(buffer))
+        .assumingMemoryBound(to: UInt8.self)
+    let stride = CVPixelBufferGetBytesPerRow(buffer)
+    for row in (height / 2)..<height {
+        for column in 0..<(width / 2) {
+            let offset = row * stride + column * 4
+            unsafe base[offset + 0] = colour.b
+            unsafe base[offset + 1] = colour.g
+            unsafe base[offset + 2] = colour.r
+            unsafe base[offset + 3] = 255
+        }
+    }
+}

@@ -2,6 +2,8 @@ import AVFoundation
 import CoreVideo
 import Foundation
 // `Project` for `buildTracks(from:)`, which reads the segment's observation log.
+// `FramingGate`/`ZoomBlock`/`CameraMotion` — the zoom pipeline this file drives.
+import Framing
 import Project
 import Render
 // `Nanoseconds`, named below, so `MemberImportVisibility` requires the direct import.
@@ -61,6 +63,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// The log header's origin for turning a composition time into the host clock the samples are
     /// stamped in. `nil` when the log had no header, which draws nothing.
     private nonisolated(unsafe) var logAnchor: EpochAnchor?
+    /// The camera, built with the tracks from the same log and queried per frame.
+    private nonisolated(unsafe) var camera: CameraMotion?
     private nonisolated(unsafe) var tracksLoaded = false
 
     public func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
@@ -83,10 +87,16 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             outputWidth: Int(context.size.width), outputHeight: Int(context.size.height),
             sourceWidth: source.size.width, sourceHeight: source.size.height,
             style: unsafe Self.style)
-        let plan = RenderPlan(outputWidth: basePlan.outputWidth, outputHeight: basePlan.outputHeight,
-                              card: basePlan.card, cornerRadius: basePlan.cornerRadius,
-                              style: basePlan.style,
-                              pointer: pointerPlacement(at: request.compositionTime, in: basePlan))
+        // The camera first: the pointer's placement is computed THROUGH the resulting plan
+        // (`StagePlanner.placement` maps by `RenderPlan.contentX/Y`), so a pointer drawn
+        // against the un-zoomed plan would sit where the user never pointed.
+        let aimed = cameraPlan(basePlan, at: request.compositionTime)
+        let plan = RenderPlan(outputWidth: aimed.outputWidth, outputHeight: aimed.outputHeight,
+                              card: aimed.card, cornerRadius: aimed.cornerRadius,
+                              style: aimed.style,
+                              pointer: pointerPlacement(at: request.compositionTime, in: aimed),
+                              contentZoom: aimed.contentZoom,
+                              contentCentre: aimed.contentCentre)
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             try source.withUnsafeBuffer { sourceBuffer in
@@ -113,7 +123,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         guard compositionTime.isValid,
               let offset = Nanoseconds(rationalSeconds: compositionTime.value,
                                        timescale: compositionTime.timescale) else { return nil }
-        let (pointer, click, anchor) = loadedTracks()
+        let (pointer, click, anchor, _) = loadedTracks()
         guard let pointer, let anchor else { return nil }
         // `compositionTime` is relative to the composition start, log records absolute. The anchor
         // owns the conversion (`EpochAnchor.instant(atOffset:)`), and the tracks take a
@@ -133,9 +143,31 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         }
     }
 
+    /// `basePlan` with the camera applied for `compositionTime`, or unchanged when the log
+    /// carried no accepted click — a recording whose every chain was refused zooms not at
+    /// all, which is the correct picture of "nothing passed the gates" rather than a
+    /// fallback that invents a target.
+    ///
+    /// `public` for the same reason `pointerPlacement` is: `startRequest(_:)` takes a type
+    /// only AVFoundation constructs, so this is the seam a test can reach.
+    public func cameraPlan(_ basePlan: RenderPlan, at compositionTime: CMTime) -> RenderPlan {
+        guard compositionTime.isValid,
+              let offset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                       timescale: compositionTime.timescale)
+        else { return basePlan }
+        let (_, _, anchor, camera) = loadedTracks()
+        guard let anchor, let camera else { return basePlan }
+        let state = camera.state(at: anchor.instant(atOffset: offset))
+        return RenderPlan(outputWidth: basePlan.outputWidth, outputHeight: basePlan.outputHeight,
+                          card: basePlan.card, cornerRadius: basePlan.cornerRadius,
+                          style: basePlan.style, pointer: basePlan.pointer,
+                          contentZoom: state.zoom, contentCentre: state.centre)
+    }
+
     /// Reads `Self.observationLogURL` at most once per instance, caching success or failure alike.
     /// Check and set are one critical section; the lock is never held across `render`.
-    private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?, anchor: EpochAnchor?) {
+    private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?,
+                                    anchor: EpochAnchor?, camera: CameraMotion?) {
         // The shared statics are read under the "published before playback starts" guarantee.
         lock.withLock {
             if !(unsafe tracksLoaded) {
@@ -144,10 +176,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                    let built = try? Self.buildTracks(from: url, overrides: unsafe Self.overrides) {
                     unsafe pointerTrack = built.pointer
                     unsafe clickTrack = built.click
+                    unsafe camera = built.camera
                     unsafe logAnchor = built.anchor
                 }
             }
-            return unsafe (pointerTrack, clickTrack, logAnchor)
+            return unsafe (pointerTrack, clickTrack, logAnchor, camera)
         }
     }
 
@@ -155,12 +188,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// `overrides` is a parameter, not read from the log: a reviewer's decision is a
     /// project-level judgement, not an observed fact.
     private static func buildTracks(from url: URL, overrides: [CursorOverride]) throws
-        -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?) {
+        -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?, camera: CameraMotion) {
         let lines = try JSONLReader.linesOfFile(at: url).lines
         var samples: [PointerSample] = []
         var blindIntervals: [BlindInterval] = []
         var buttonEvents: [ButtonEvent] = []
         var anchor: EpochAnchor?
+        var framedClicks: [FramedClick] = []
         for line in lines {
             switch try ObservationLog.kind(of: line) {
             case "logHeader":
@@ -177,12 +211,23 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 let interval = (try ObservationLog.decode(line) as TapDisabledInterval).interval
                 blindIntervals.append(BlindInterval(start: interval.start, duration: interval.duration,
                                                     cause: .tapDisabled))
+            case "axChain":
+                // **The line the log has always written and nothing has ever read.** A
+                // refused chain contributes no block, and the reason is DISCARDED here
+                // rather than reported: `review-ui` is the surface that shows which gate
+                // fired, and this file draws frames. That the reason exists and is thrown
+                // away at this one seam is the honest description until that row lands.
+                let record = try ObservationLog.decode(line) as AXChainRecord
+                if case .framed(let target) = FramingGate.decide(for: record) {
+                    framedClicks.append(FramedClick(instant: record.instant, target: target))
+                }
             default:
                 break
             }
         }
         let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals, overrides: overrides)
         let click = ClickTrack(events: buttonEvents)
-        return (pointer: pointer, click: click, anchor: anchor)
+        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: framedClicks))
+        return (pointer: pointer, click: click, anchor: anchor, camera: camera)
     }
 }

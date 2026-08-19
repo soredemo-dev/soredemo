@@ -5,6 +5,7 @@ import CoreVideo
 // `NormalizedPoint`: the expected position is re-derived from the fixture's bytes here, not taken
 // from the code under test.
 import Geometry
+import Framing
 import Project
 import Render
 import Timeline
@@ -259,4 +260,101 @@ func recordedReading(in samples: [PointerSample],
         x: latest.position.x + (next.position.x - latest.position.x) * fraction,
         y: latest.position.y + (next.position.y - latest.position.y) * fraction)
     return (position: position, priorCount: priorCount)
+}
+
+// MARK: - the zoom pipeline, against the same real recording
+
+/// **End to end on the row-14 recording**: the log's own `axChain` lines through
+/// `FramingGate`, `ZoomBlock` and `CameraMotion` to a `RenderPlan` the compositor would
+/// draw. Until this landed, `axChain` was a line the writer had always written and nothing
+/// had ever read — it fell through `buildTracks`' `default: break`.
+///
+/// The recording's three chains exercise three different outcomes, and the second one
+/// corrected this test's own premise:
+///
+/// * 36.6 ms hit-test, `truncation == .hitTestReturnedNothing` — gate 1;
+/// * 6.8 ms hit-test on an `AXGroup` covering 0.92 × 0.87 — **gate 3, `staleObservation`**.
+///   This test first asserted `tooLarge`, reasoning from the area (0.80, past the 0.5
+///   threshold). The area gate never runs: staleness is gate 3 and fires first, because the
+///   read took 6.8 ms against a 4 ms budget. **The ordering claim from
+///   `theEarliestApplicableGateIsTheReportedReason` turns out to matter on the very first
+///   real recording it met**, and it is the more useful answer of the two — "the frame may
+///   describe a window that has since moved" explains the refusal, where "it was big"
+///   describes a rectangle that might not have been where AX said it was.
+/// * 3.1 ms hit-test, `AXGroup` at area 0.27 — inside both budgets, accepted.
+///
+/// So exactly one click survives the gates, and the camera zooms once. Two uncalibrated
+/// constants are doing real work here on real data, which is the first evidence either has
+/// ever had.
+@Test func theRecordingsAXChainsProduceExactlyOneZoom() throws {
+    let decisions = try recordedAXChains().map { FramingGate.decide(for: $0) }
+    #expect(decisions.count == 3, "the fixture's chain count changed — re-read this test's premise")
+
+    let accepted = decisions.compactMap { decision -> FramingTarget? in
+        if case .framed(let target) = decision { return target }
+        return nil
+    }
+    #expect(accepted.count == 1, """
+        expected one of the recording's three chains to pass the gates, got \(accepted.count). \
+        Reasons: \(decisions.map { $0.rejection.map(\.rawValue) ?? "framed" }.joined(separator: ", "))
+        """)
+    #expect(decisions.contains { $0.rejection == .hitTestReturnedNothing })
+    #expect(decisions.contains { $0.rejection == .staleObservation })
+}
+
+/// **The recording produces NO zoom, and that is the pipeline working.** This test first
+/// asserted the camera zoomed past 1.2 somewhere; it does not, and the code is right.
+///
+/// The one chain that survives the gates frames an `AXGroup` 0.60 wide. `FramingDepth`'s
+/// curve gives it 0.89, its own fit cap gives 1.0, and quantisation lands on **1.0 — no
+/// zoom**. A 60%-wide group is not a control worth magnifying, which is the same judgement
+/// `FramingGate.tooLarge` makes one threshold up. So the honest end-to-end assertion for
+/// THIS recording is that the camera stays at rest while remaining well-defined — and that
+/// a recording of someone clicking around a window chrome yields no zoom is a result about
+/// the data, not a gap in the code.
+///
+/// **What this test therefore cannot show**, stated rather than left for a reader to
+/// assume: that a zoom renders correctly end to end. Nothing committed here contains a
+/// click on a small control. `zoomingTheContentMagnifiesWhatTheCameraIsCentredOn` covers
+/// the rendering with a synthetic plan, and the missing piece is a recording — a person
+/// clicking a button — which is a human step, not a fixture that can be written.
+@Test func theRecordingsOneAcceptedClickIsTooBroadToZoomInto() throws {
+    let chains = try recordedAXChains()
+    let clicks = chains.compactMap { record -> FramedClick? in
+        guard case .framed(let target) = FramingGate.decide(for: record) else { return nil }
+        return FramedClick(instant: record.instant, target: target)
+    }
+    let blocks = ZoomBlock.blocks(for: clicks)
+    let block = try #require(blocks.first, "the pipeline produced no block at all")
+    #expect(block.zoom == 1.0, """
+        the accepted target is \(block.target.frame.size.width) wide and got depth \
+        \(block.zoom) — this test's premise is that a group that broad is not worth \
+        magnifying, so a change here is a change to FramingDepth's curve
+        """)
+
+    // Well-defined at rest is not the same as absent: sample across the block's own span
+    // and the camera must be finite, at rest, and centred.
+    let camera = CameraMotion(blocks: blocks)
+    let anchorTime = try recordedAnchor()
+    let epoch = try #require(chains.first?.instant.epoch)
+    let from = Double(block.start.hostTime.rawValue - anchorTime.rawValue) / 1e9 - 1.0
+    let to = Double(block.end.hostTime.rawValue - anchorTime.rawValue) / 1e9 + 4.0
+    for seconds in stride(from: from, through: to, by: 1.0 / 30) {
+        let instant = HostInstant(epoch: epoch,
+                                  hostTime: Nanoseconds(anchorTime.rawValue
+                                                        + Int64(seconds * 1_000_000_000)))
+        let state = camera.state(at: instant)
+        #expect(state.zoom.isFinite && state.zoom >= 1.0 && state.zoom < 1.01)
+        #expect(state.centre.x.isFinite && state.centre.y.isFinite)
+    }
+}
+
+/// Every `axChain` line in the fixture, decoded through the production reader.
+func recordedAXChains() throws -> [AXChainRecord] {
+    let url = try #require(Bundle.module.url(forResource: "segment-00-redacted",
+                                             withExtension: "jsonl"))
+    return try JSONLReader.linesOfFile(at: url).lines.compactMap { line in
+        guard try ObservationLog.kind(of: line) == "axChain" else { return nil }
+        return try ObservationLog.decode(line) as AXChainRecord
+    }
 }

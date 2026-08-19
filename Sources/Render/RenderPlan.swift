@@ -1,4 +1,5 @@
 import Foundation
+import Geometry
 // `PointerShape` rides on the placement since the recorder-parity work.
 import Project
 
@@ -139,14 +140,30 @@ public struct RenderPlan: Hashable, Sendable {
     public let style: StageStyle
     public let pointer: NormalizedPointerPlacement?
 
+    /// **The camera, as two plain numbers rather than a type.** `CameraState` lives in
+    /// `Framing`, and `Render` does not depend on it — nor should it: `Render` is the
+    /// deterministic planning tier and `Framing` is a sibling, so a type here would be an
+    /// edge in the wrong direction. `Compositing` depends on both and does the conversion.
+    ///
+    /// The zoom applies to the CONTENT inside the card, never to the card itself: the
+    /// rounded window stays where the stage style put it and the recording inside it grows.
+    /// Scaling the card would break the inset margin that style exists to keep.
+    public let contentZoom: Double
+    /// The point in normalised SOURCE coordinates the camera is centred on.
+    public let contentCentre: NormalizedPoint
+
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
-                style: StageStyle, pointer: NormalizedPointerPlacement?) {
+                style: StageStyle, pointer: NormalizedPointerPlacement?,
+                contentZoom: Double = 1.0,
+                contentCentre: NormalizedPoint = NormalizedPoint(x: 0.5, y: 0.5)) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
         self.cornerRadius = cornerRadius
         self.style = style
         self.pointer = pointer
+        self.contentZoom = contentZoom
+        self.contentCentre = contentCentre
     }
 }
 
@@ -162,5 +179,27 @@ public struct NormalizedPointerPlacement: Hashable, Sendable {
 
     public init(x: Double, y: Double, ripplePhase: Double?, shape: PointerShape? = nil) {
         self.x = x; self.y = y; self.ripplePhase = ripplePhase; self.shape = shape
+    }
+}
+
+
+extension RenderPlan {
+    /// Where a normalised source x lands in output pixels, under the camera. **One owner
+    /// for the mapping**: the renderer transforms the image by this and `StagePlanner`
+    /// places the pointer by it, so the two cannot drift into disagreeing about where a
+    /// point is (`thePointerMovesWithTheZoomedContent`).
+    ///
+    /// At zoom `z` the content is `z`× the card and shifted so `contentCentre` sits at the
+    /// card's centre.
+    public func contentX(ofNormalised x: Double) -> Double {
+        let scaledWidth = card.width * contentZoom
+        let originX = card.x + card.width / 2 - contentCentre.x * scaledWidth
+        return originX + x * scaledWidth
+    }
+
+    public func contentY(ofNormalised y: Double) -> Double {
+        let scaledHeight = card.height * contentZoom
+        let originY = card.y + card.height / 2 - contentCentre.y * scaledHeight
+        return originY + y * scaledHeight
     }
 }

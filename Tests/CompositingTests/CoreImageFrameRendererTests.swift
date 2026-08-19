@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import CoreVideo
 @testable import Compositing
+import Geometry
 import Project
 import Render
 
@@ -175,4 +176,94 @@ import Render
     let otherFallsBack = identical(try rendered(.other), arrow)
     #expect(nilFallsBack, "an unrecorded shape did not fall back to the arrow")
     #expect(otherFallsBack, "an unclassified shape did not fall back to the arrow")
+}
+
+// MARK: - the camera: zoomed content inside a card that stays put
+
+/// **The card frame does not move; the content inside it does.** That is the whole visual
+/// idea of an auto-zoom on a staged recording — the rounded window stays where it is and
+/// the recording inside grows — and it is what distinguishes this from scaling the card,
+/// which would break the inset margin the stage style exists to keep.
+///
+/// Asserted by sampling the STAGE MARGIN, outside the card: at zoom 1 and zoom 2 those
+/// pixels are the same background. A renderer that scaled the card would spill into them.
+@Test func zoomingTheContentLeavesTheCardFrameWhereItIs() throws {
+    let width = 640, height = 360
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    func rendered(zoom: Double) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: .default)
+        let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                              card: base.card, cornerRadius: base.cornerRadius,
+                              style: base.style, pointer: nil,
+                              contentZoom: zoom,
+                              contentCentre: NormalizedPoint(x: 0.5, y: 0.5))
+        try renderer.render(plan, source: source, into: destination)
+        return try pixels(of: destination)
+    }
+    let plain = try rendered(zoom: 1.0)
+    let zoomed = try rendered(zoom: 2.0)
+
+    // A pixel in the stage margin: 2 px in from the output's left edge, vertically centred.
+    let marginIndex = (height / 2) * width + 2
+    #expect(plain[marginIndex] == zoomed[marginIndex],
+            "the stage margin changed when the content zoomed — the card frame moved")
+}
+
+/// And the content genuinely zooms: a source with a small bright patch off-centre shows
+/// more of that patch when the camera is centred on it. Asserted as "the patch covers more
+/// pixels", which a no-op zoom cannot satisfy.
+@Test func zoomingTheContentMagnifiesWhatTheCameraIsCentredOn() throws {
+    let width = 320, height = 180
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    // A source that is mostly dark with one bright quadrant, so "more of it" is countable.
+    let source = try makePixelBuffer(width: width, height: height, fill: (10, 10, 10))
+    try paintQuadrant(source, width: width, height: height, colour: (250, 250, 250))
+
+    func brightCount(zoom: Double) throws -> Int {
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: .default)
+        let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                              card: base.card, cornerRadius: base.cornerRadius,
+                              style: base.style, pointer: nil,
+                              contentZoom: zoom,
+                              // The bright quadrant's centre in normalised source space.
+                              contentCentre: NormalizedPoint(x: 0.25, y: 0.25))
+        try renderer.render(plan, source: source, into: destination)
+        return try pixels(of: destination).count { $0.r > 200 && $0.g > 200 && $0.b > 200 }
+    }
+    let plain = try brightCount(zoom: 1.0)
+    let zoomed = try brightCount(zoom: 2.5)
+    #expect(zoomed > plain, "zooming onto the bright quadrant showed \(zoomed) bright pixels against \(plain)")
+}
+
+/// The pointer travels with the content. A pointer drawn at its un-zoomed place while the
+/// recording beneath it moved would sit somewhere the user never pointed — the same class
+/// of defect as `1a98402`, arriving through the camera instead of the clock.
+@Test func thePointerMovesWithTheZoomedContent() {
+    let base = StagePlanner.plan(outputWidth: 1920, outputHeight: 1080,
+                                 sourceWidth: 1920, sourceHeight: 1080, style: .default)
+    let point = NormalizedPoint(x: 0.25, y: 0.25)
+    let unzoomed = StagePlanner.placement(for: point, in: base)
+    let zoomedPlan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                                card: base.card, cornerRadius: base.cornerRadius,
+                                style: base.style, pointer: nil,
+                                contentZoom: 2.0,
+                                contentCentre: NormalizedPoint(x: 0.25, y: 0.25))
+    let zoomed = StagePlanner.placement(for: point, in: zoomedPlan)
+    // Centred on the pointer at zoom 2: it lands at the output centre, not where it was.
+    #expect(abs(zoomed.x - Double(base.outputWidth) / 2) < 1.0)
+    #expect(abs(zoomed.y - Double(base.outputHeight) / 2) < 1.0)
+    #expect(abs(zoomed.x - unzoomed.x) > 1.0, "the pointer did not move with the content")
 }

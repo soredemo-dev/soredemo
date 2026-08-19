@@ -49,8 +49,11 @@ public enum StagePlanner {
     public static func placement(for point: NormalizedPoint, in plan: RenderPlan,
                                  ripplePhase: Double? = nil,
                                  shape: PointerShape? = nil) -> NormalizedPointerPlacement {
-        NormalizedPointerPlacement(x: plan.card.x + point.x * plan.card.width,
-                                   y: plan.card.y + point.y * plan.card.height,
+        // The SAME mapping the renderer applies to the content: a pointer drawn at its
+        // un-zoomed place while the recording beneath it moved would sit somewhere the
+        // user never pointed — `1a98402`'s class arriving through the camera.
+        NormalizedPointerPlacement(x: plan.contentX(ofNormalised: point.x),
+                                   y: plan.contentY(ofNormalised: point.y),
                                    ripplePhase: ripplePhase, shape: shape)
     }
 }

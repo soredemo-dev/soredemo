@@ -72,11 +72,16 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
 
     private func cardImage(_ plan: RenderPlan, source: CVPixelBuffer) -> CIImage {
         let image = CIImage(cvPixelBuffer: source)
-        let scaleX = plan.card.width / image.extent.width
-        let scaleY = plan.card.height / image.extent.height
+        // The camera scales and shifts the CONTENT; `rounded` then masks it to the card,
+        // which never moves. `RenderPlan.contentX/Y` owns the mapping so the pointer and
+        // the image cannot disagree about where a normalised point lands.
+        let scaleX = plan.card.width * plan.contentZoom / image.extent.width
+        let scaleY = plan.card.height * plan.contentZoom / image.extent.height
+        let originX = plan.contentX(ofNormalised: 0)
+        let originY = plan.contentY(ofNormalised: 0)
         let placed = image
             .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-            .transformed(by: CGAffineTransform(translationX: plan.card.x, y: plan.card.y))
+            .transformed(by: CGAffineTransform(translationX: originX, y: originY))
         return rounded(placed, plan: plan)
     }
 

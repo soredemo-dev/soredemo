@@ -97,7 +97,11 @@ let package = Package(
         // `Sources/Render` is the DETERMINISTIC planning tier (`PointerTrack`, `RenderPlan`,
         // `StagePlanner`; no GPU, no clock), and reusing the word for the tier that actually
         // touches a GPU would collapse the distinction the two exist to draw.
-        .target(name: "Compositing", dependencies: ["Geometry", "Timeline", "Project", "Render"],
+        // `Framing` since the camera landed: the compositor turns an observation log's AX
+        // chains into zoom blocks and asks `CameraMotion` where to point. Runnable → pure,
+        // the legal direction; `Framing` does not and may not depend back.
+        .target(name: "Compositing",
+                dependencies: ["Geometry", "Timeline", "Project", "Render", "Framing"],
                 swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
                 plugins: headlessCheck),
 
@@ -212,7 +216,7 @@ let package = Package(
                     swiftSettings: strict),
 
         .testTarget(name: "CompositingTests",
-                    dependencies: ["Compositing", "Geometry", "Timeline", "Project", "Render"],
+                    dependencies: ["Compositing", "Geometry", "Timeline", "Project", "Render", "Framing"],
                     resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")],
                     swiftSettings: strict),
     ]
