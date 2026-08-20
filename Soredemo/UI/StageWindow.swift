@@ -21,6 +21,9 @@ struct StageWindow: View {
     /// Every framing decision the gate made, and the reviewer's own. Owned here rather than
     /// by the inspector so it survives the inspector being closed.
     @State private var review = FramingReviewModel()
+    /// The stage's look. Owned here beside `review` so a change survives the inspector being
+    /// closed, and so both the preview and the export read the same chosen style.
+    @State private var stageStyle = StageStyleModel()
     @State private var isReviewShown = true
     /// Bumped whenever an override changes, to rebuild the composition. **The preview has to
     /// move**: the completion rule says a row is not done while the behaviour its name claims
@@ -57,8 +60,14 @@ struct StageWindow: View {
         // fire on a load that merely restored the same decisions.
         .task(id: reviewRevision) { if reviewRevision > 0 { await load() } }
         .inspector(isPresented: $isReviewShown) {
-            FramingReviewInspector(model: review, onChange: { reviewRevision += 1 })
-                .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
+            List {
+                Section("Look") {
+                    StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
+                }
+                FramingReviewSections(model: review, onChange: { reviewRevision += 1 })
+            }
+            .listStyle(.sidebar)
+            .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
         }
         .toolbar {
             // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`

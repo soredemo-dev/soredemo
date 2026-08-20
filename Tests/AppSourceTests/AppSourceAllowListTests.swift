@@ -790,10 +790,11 @@ func firstPartySourceFiles() throws -> [URL] {
          "a wall-clock reading callers can take"),
         ("fileExtension:", "Soredemo/UI/ProjectDocument.swift", 0,
          "media can be added under a minted name"),
-        ("shadowRadius", "Sources/Render/RenderPlan.swift", 1,
-         "the stage draws a shadow — TRUE since the recorder-parity decision (2026-08-19): "
-         + "CoreImageFrameRenderer.shadowImage reads it, and the count moving 0 → 1 is that "
-         + "feature landing, not drift"),
+        ("shadowRadius", "Sources/Render/RenderPlan.swift", 2,
+         "the stage draws a shadow AND a person can change it. 0 → 1 was the recorder-parity "
+         + "decision (2026-08-19) making CoreImageFrameRenderer.shadowImage read it; 1 → 2 is "
+         + "the style picker (2026-08-21) carrying it through StageStyleModel.apply, which "
+         + "rebuilds the whole struct so its validating initialiser runs once per change"),
         ("blockingFailures()", "Sources/Capture/CapturePermissions.swift", 0,
          "callers can ask what blocks recording"),
         ("noMicrophoneTrack", "Sources/Capture/CapturePermissions.swift", 0,

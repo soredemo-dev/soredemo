@@ -317,3 +317,119 @@ import Render
     let matchesTip = identical(unrecorded, atTip)
     #expect(matchesTip, "an unrecorded hotspot changed the drawing")
 }
+
+// MARK: - gradient backgrounds
+
+/// A helper mirroring the shadow tests above: render one style and hand back its pixels.
+private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 360)
+    throws -> [(UInt8, UInt8, UInt8)] {
+    let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+    let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+    let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: style)
+    let renderer = try CoreImageFrameRenderer()
+    try renderer.render(plan, source: source, into: destination)
+    return try pixels(of: destination)
+}
+
+/// **A gradient has to actually vary, and vary along the stated axis.** A background that
+/// resolved to a flat fill — a filter that failed and fell back, or two points collapsing to
+/// one — would still render, still differ from a solid of another colour, and still look
+/// wrong in exactly the way the case was added to fix.
+@Test func aLinearGradientVariesAlongItsAngle() throws {
+    let width = 640, height = 360
+    // 0° runs left→right, so the two ends of the TOP row must differ and the two ends of the
+    // left COLUMN must not. The card sits in the middle, so the sampled points are background.
+    let style = StageStyle(
+        insetFraction: 0.2, cornerRadius: 0, shadowRadius: 0, shadowOpacity: 0,
+        background: .linearGradient(startRed: 0, startGreen: 0, startBlue: 0,
+                                    endRed: 1, endGreen: 1, endBlue: 1, angleDegrees: 0))
+    let rendered = try renderedPixels(style: style, width: width, height: height)
+
+    let topLeft = rendered[0]
+    let topRight = rendered[width - 1]
+    #expect(Int(topRight.0) - Int(topLeft.0) > 40,
+            "the gradient did not brighten across the frame: \(topLeft) → \(topRight)")
+
+    let bottomLeft = rendered[(height - 1) * width]
+    #expect(abs(Int(bottomLeft.0) - Int(topLeft.0)) <= 2,
+            "a 0° gradient varied vertically: \(topLeft) → \(bottomLeft)")
+}
+
+/// The angle is a real parameter, not decoration. 90° is bottom→top, the axis 0° holds flat.
+@Test func theGradientAngleTurnsTheAxis() throws {
+    let width = 640, height = 360
+    let style = StageStyle(
+        insetFraction: 0.2, cornerRadius: 0, shadowRadius: 0, shadowOpacity: 0,
+        background: .linearGradient(startRed: 0, startGreen: 0, startBlue: 0,
+                                    endRed: 1, endGreen: 1, endBlue: 1, angleDegrees: 90))
+    let rendered = try renderedPixels(style: style, width: width, height: height)
+
+    let topLeft = rendered[0]
+    let topRight = rendered[width - 1]
+    let bottomLeft = rendered[(height - 1) * width]
+    #expect(abs(Int(topRight.0) - Int(topLeft.0)) <= 2,
+            "a 90° gradient varied horizontally: \(topLeft) → \(topRight)")
+    #expect(abs(Int(bottomLeft.0) - Int(topLeft.0)) > 40,
+            "a 90° gradient did not vary vertically: \(topLeft) → \(bottomLeft)")
+}
+
+/// **The gradient must cover the frame at every angle.** Placing the two points by projecting
+/// the width and height onto the axis separately leaves a flat band at every angle but 0° and
+/// 90°; the diagonal reach used instead is what this checks. 45° is the worst case.
+@Test func aDiagonalGradientReachesBothCorners() throws {
+    let width = 640, height = 360
+    let style = StageStyle(
+        insetFraction: 0.2, cornerRadius: 0, shadowRadius: 0, shadowOpacity: 0,
+        background: .linearGradient(startRed: 0, startGreen: 0, startBlue: 0,
+                                    endRed: 1, endGreen: 1, endBlue: 1, angleDegrees: 45))
+    let rendered = try renderedPixels(style: style, width: width, height: height)
+
+    // **`pixels(of:)` returns BUFFER order, and a CVPixelBuffer is top-down** — index 0 is
+    // the image's TOP-left, not its bottom-left. CoreImage's own y runs bottom-up, so a 45°
+    // gradient runs from the image's bottom-left to its top-right. The first draft of this
+    // test read index 0 as the dark end, sampled the middle of the ramp, and failed against
+    // a correct render.
+    let nearStart = rendered[(height - 1) * width]      // image bottom-left — the dark end
+    let nearEnd = rendered[width - 1]                   // image top-right  — the bright end
+    #expect(abs(Int(nearEnd.0) - Int(nearStart.0)) > 60,
+            "a 45° gradient left the opposite corners nearly equal — it did not span the frame")
+    // Neither corner is clipped to a flat extreme, which is what a too-short span produces.
+    #expect(nearStart.0 < 40 && nearEnd.0 > 215,
+            "the corners did not reach the gradient's ends: \(nearStart) → \(nearEnd)")
+}
+
+/// A solid background stays solid. The case was added so a gradient is possible, not so every
+/// frame pays for one.
+@Test func aSolidBackgroundDrawsNoGradient() throws {
+    let width = 640, height = 360
+    let style = StageStyle(insetFraction: 0.2, cornerRadius: 0, shadowRadius: 0,
+                           shadowOpacity: 0,
+                           background: .solid(red: 0.2, green: 0.4, blue: 0.6))
+    let rendered = try renderedPixels(style: style, width: width, height: height)
+    #expect(rendered[0] == rendered[width - 1])
+    #expect(rendered[0] == rendered[(height - 1) * width])
+}
+
+/// Every shipped preset renders. A preset that referenced a filter CoreImage could not resolve
+/// would fall back to a flat fill in production and nowhere else.
+@Test func everyBackgroundPresetRenders() throws {
+    for (name, background) in StageBackground.presets {
+        let style = StageStyle(insetFraction: 0.1, cornerRadius: 12, shadowRadius: 16,
+                               shadowOpacity: 0.3, background: background)
+        let rendered = try renderedPixels(style: style, width: 160, height: 90)
+        #expect(rendered.contains { $0 != (0, 0, 0) }, "preset \(name) drew nothing")
+    }
+}
+
+/// The new case has to survive a project file. An enum with associated values gets a
+/// synthesised `Codable` whose shape nobody chose, so it is worth one round trip.
+@Test func aGradientBackgroundSurvivesCoding() throws {
+    let style = StageStyle(
+        insetFraction: 0.08, cornerRadius: 20, shadowRadius: 30, shadowOpacity: 0.4,
+        background: .linearGradient(startRed: 0.1, startGreen: 0.2, startBlue: 0.3,
+                                    endRed: 0.4, endGreen: 0.5, endBlue: 0.6,
+                                    angleDegrees: 115))
+    let data = try JSONEncoder().encode(style)
+    #expect(try JSONDecoder().decode(StageStyle.self, from: data) == style)
+}

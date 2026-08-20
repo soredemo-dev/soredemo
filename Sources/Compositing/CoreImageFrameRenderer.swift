@@ -49,7 +49,46 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         switch plan.style.background {
         case let .solid(red, green, blue):
             return CIImage(color: CIColor(red: red, green: green, blue: blue))
+        case let .linearGradient(startRed, startGreen, startBlue,
+                                 endRed, endGreen, endBlue, angleDegrees):
+            return gradientImage(plan, start: CIColor(red: startRed, green: startGreen, blue: startBlue),
+                                 end: CIColor(red: endRed, green: endGreen, blue: endBlue),
+                                 angleDegrees: angleDegrees)
         }
+    }
+
+    /// **`CISmoothLinearGradient`, not `CILinearGradient`.** The linear filter ramps the
+    /// channels evenly, which on a full-frame fill shows Mach banding — the eye finds edges
+    /// in a perfectly even ramp. The smooth variant applies a smoothstep easing, which costs
+    /// nothing here and removes it.
+    ///
+    /// The two points are placed on the frame's diagonal at `angleDegrees`, measured
+    /// counter-clockwise from +x as `StageBackground.linearGradient` documents. The span is
+    /// half the frame's diagonal in each direction from the centre, so the gradient always
+    /// covers the whole frame whatever the angle: projecting the frame's width and height
+    /// onto the axis separately would leave a flat band at every angle but 0° and 90°.
+    private func gradientImage(_ plan: RenderPlan, start: CIColor, end: CIColor,
+                               angleDegrees: Double) -> CIImage {
+        let width = Double(plan.outputWidth)
+        let height = Double(plan.outputHeight)
+        let radians = angleDegrees * .pi / 180
+        let reach = (width * width + height * height).squareRoot() / 2
+        let centreX = width / 2
+        let centreY = height / 2
+        let dx = cos(radians) * reach
+        let dy = sin(radians) * reach
+
+        guard let filter = CIFilter(name: "CISmoothLinearGradient", parameters: [
+            "inputPoint0": CIVector(x: centreX - dx, y: centreY - dy),
+            "inputPoint1": CIVector(x: centreX + dx, y: centreY + dy),
+            "inputColor0": start,
+            "inputColor1": end,
+        ]), let output = filter.outputImage else {
+            // A filter this basic not resolving means CoreImage is not usable at all, but a
+            // frame with the start colour is a better failure than a crash mid-export.
+            return CIImage(color: start)
+        }
+        return output
     }
 
     /// The card's own silhouette — same rect, same corner radius — filled black at

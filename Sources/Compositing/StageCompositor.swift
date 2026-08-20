@@ -18,8 +18,14 @@ import Timeline
 public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// Set once before the composition reaches AVFoundation, so it is published before any callback.
     public nonisolated(unsafe) static var renderer: (any FrameRendering)?
-    // Not `public`: no caller outside this file sets `style`.
-    nonisolated(unsafe) static var style: StageStyle = .default
+    /// The stage's look — background, padding, corner radius, shadow.
+    ///
+    /// **`public` since the style picker.** It was internal on the stated grounds that "no
+    /// caller outside this file sets `style`", which was true and was the problem: the app
+    /// shipped one hard-coded look, and every comparable recorder lets a person choose one.
+    /// Set on the same terms as the other seams here — before the composition is built,
+    /// because AVFoundation owns every compositor instance.
+    public nonisolated(unsafe) static var style: StageStyle = .default
     /// The observation log the pointer track is read from; `nil` draws no pointer.
     public nonisolated(unsafe) static var observationLogURL: URL?
     /// A reviewer's decisions to suppress the pointer, set before playback starts and never read

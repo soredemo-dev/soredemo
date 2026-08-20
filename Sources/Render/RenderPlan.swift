@@ -63,8 +63,46 @@ extension StageRect {
     }
 }
 
+/// What sits behind the recorded card.
+///
+/// **The gradient case is why this is an enum and not three colour fields.** A solid
+/// background is what the first renderer could draw, and it is what makes a recording look
+/// like a screenshot on a coloured rectangle. Every comparable tool — Screen Studio, a Rust recorder,
+/// `../opensource/a Swift recorder` — defaults to a gradient, because the card's shadow has
+/// nothing to fall across on a flat fill and the frame reads as unfinished. Adding the case
+/// here rather than a `isGradient` flag beside the colours keeps a solid background costing
+/// no gradient filter at all, which `aSolidBackgroundDrawsNoGradient` pins.
 public enum StageBackground: Hashable, Codable, Sendable {
     case solid(red: Double, green: Double, blue: Double)
+    /// Two colours interpolated along a line at `angleDegrees`, measured counter-clockwise
+    /// from the +x axis so 0° runs left→right and 90° bottom→top — the CoreImage convention
+    /// the renderer works in, stated here so the value means one thing wherever it is read.
+    ///
+    /// **Interpolated in the working colour space, not in sRGB gamma.** A gradient between
+    /// two saturated colours mixed in gamma space passes through a desaturated band in the
+    /// middle; the renderer uses `CISmoothLinearGradient`, whose easing also removes the
+    /// Mach banding a linear ramp shows on a flat fill.
+    case linearGradient(startRed: Double, startGreen: Double, startBlue: Double,
+                        endRed: Double, endGreen: Double, endBlue: Double,
+                        angleDegrees: Double)
+
+    /// The presets the picker offers. Named rather than anonymous tuples because a project
+    /// records which one was chosen and a name survives a value being retuned.
+    public static let presets: [(name: String, background: StageBackground)] = [
+        ("Charcoal", .solid(red: 0.09, green: 0.09, blue: 0.11)),
+        ("Dusk", .linearGradient(startRed: 0.10, startGreen: 0.11, startBlue: 0.22,
+                                 endRed: 0.35, endGreen: 0.16, endBlue: 0.36,
+                                 angleDegrees: 115)),
+        ("Ember", .linearGradient(startRed: 0.38, startGreen: 0.13, startBlue: 0.20,
+                                  endRed: 0.86, endGreen: 0.44, endBlue: 0.22,
+                                  angleDegrees: 70)),
+        ("Tide", .linearGradient(startRed: 0.05, startGreen: 0.24, startBlue: 0.33,
+                                 endRed: 0.16, endGreen: 0.55, endBlue: 0.52,
+                                 angleDegrees: 60)),
+        ("Paper", .linearGradient(startRed: 0.93, startGreen: 0.92, startBlue: 0.89,
+                                  endRed: 0.82, endGreen: 0.83, endBlue: 0.85,
+                                  angleDegrees: 100)),
+    ]
 }
 
 public struct StageStyle: Hashable, Codable, Sendable {

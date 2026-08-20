@@ -800,7 +800,7 @@ instances in this tree on 2026-08-04:
 
 | Symbol | The claim | Uses outside its own file |
 | --- | --- | --- |
-| `StageStyle.shadowRadius` / `.shadowOpacity` | the stage draws a shadow | **1** — `CoreImageFrameRenderer.shadowImage` reads both since the recorder-parity decision (2026-08-19); `theShadowDarkensTheBackgroundJustOutsideTheCard` pins the pixels. This row spent a phase at 0 documenting the gap, which is the table doing its job |
+| `StageStyle.shadowRadius` / `.shadowOpacity` | the stage draws a shadow, and a person can change it | **2** — `CoreImageFrameRenderer.shadowImage` reads both since the recorder-parity decision (2026-08-19), pinned by `theShadowDarkensTheBackgroundJustOutsideTheCard`; `StageStyleModel.apply` carries them since the style picker (2026-08-21), which rebuilds the whole `StageStyle` so its validating initialiser runs once per change rather than four near-copies each remembering to. This row spent a phase at **0**, documenting a persisted value that reached no pixel — the table doing its job |
 | `CapturePermissions.blockingFailures()` | callers can ask what blocks recording | **0** |
 | `Sources/Timeline/TimeRange.swift` | an epoch-less interval type is useful | **0** — its stated first caller moved to `HostRange` |
 | `Degradation.noMicrophoneTrack` | a denied microphone degrades mildly | **0** — measured false; a denied microphone fails the whole `SCStream` |

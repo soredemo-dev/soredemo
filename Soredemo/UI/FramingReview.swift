@@ -105,29 +105,11 @@ struct FramingReviewInspector: View {
     let authoredExtent = 0.25
 
     var body: some View {
-        List {
-            Section("Summary") { summary }
-            if let failure = model.failure {
-                Section("Could not read the decisions") {
-                    Label(failure, systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                }
-            }
-            Section("Clicks") {
-                if model.resolved.isEmpty {
-                    Text("No clicks were observed with accessibility available.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(model.resolved.enumerated()), id: \.offset) { _, entry in
-                        row(for: entry)
-                    }
-                }
-            }
-        }
-        .listStyle(.sidebar)
+        List { FramingReviewSections(model: model, onChange: onChange) }
+            .listStyle(.sidebar)
     }
 
-    @ViewBuilder private var summary: some View {
+    @ViewBuilder var summary: some View {
         LabeledContent("Zooms", value: "\(model.resolved.count { $0.target != nil })")
         LabeledContent("Clicks seen", value: "\(model.plan.entries.count)")
         let overridden = model.resolved.count { $0.wasOverridden }
@@ -142,7 +124,7 @@ struct FramingReviewInspector: View {
         }
     }
 
-    @ViewBuilder private func row(for entry: ResolvedFraming) -> some View {
+    @ViewBuilder func row(for entry: ResolvedFraming) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(model.timeLabel(for: entry.instant) ?? "—")
@@ -248,6 +230,36 @@ struct FramingReviewInspector: View {
         case .tooLarge:                 return "The control filled too much of the screen to be worth zooming to"
         case .bestCandidateOnTheTruncationBoundary:
             return "The search was cut short before it found the right control"
+        }
+    }
+}
+
+
+/// The review sections without a `List` of their own, so the inspector can put the style
+/// picker above them in ONE list. A second `List` nested in the first would draw its own
+/// scroll view and its own background — visibly wrong, and it would swallow the outer
+/// list's sidebar styling.
+struct FramingReviewSections: View {
+    let model: FramingReviewModel
+    let onChange: () -> Void
+
+    var body: some View {
+        let inspector = FramingReviewInspector(model: model, onChange: onChange)
+        Section("Summary") { inspector.summary }
+        if let failure = model.failure {
+            Section("Could not read the decisions") {
+                Label(failure, systemImage: "exclamationmark.triangle").font(.callout)
+            }
+        }
+        Section("Clicks") {
+            if model.resolved.isEmpty {
+                Text("No clicks were observed with accessibility available.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(model.resolved.enumerated()), id: \.offset) { _, entry in
+                    inspector.row(for: entry)
+                }
+            }
         }
     }
 }
