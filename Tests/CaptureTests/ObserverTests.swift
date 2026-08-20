@@ -16,6 +16,16 @@ import Timeline
 private let epoch = BootEpoch(id: UUID(uuidString: "5D2A9C31-77E4-4B08-9A6F-1C0E3B5A8D42")!)
 private let displayUUID = UUID(uuidString: "A1B2C3D4-0000-4000-8000-000000000001")!
 
+/// The whole-display viewport for the fixture display — what these tests always meant by
+/// `arrangement()`, now said in the type the observer takes. The display path is unchanged
+/// by the window repair, and these tests are the assertion of that.
+private func viewport() -> CaptureViewport {
+    CaptureViewport(geometry: DisplayGeometry(displayUUID: displayUUID,
+                                              pixelWidth: 2000, pixelHeight: 1000, scale: 2.0),
+                    globalOriginX: 0, globalOriginY: 0,
+                    widthInPoints: 1000, heightInPoints: 500)
+}
+
 private func arrangement() -> DisplayArrangement {
     DisplayArrangement(placements: [
         .init(geometry: DisplayGeometry(displayUUID: displayUUID,
@@ -118,10 +128,10 @@ private func click(x: Double, y: Double) -> ButtonEvent {
 /// the assertions below use an off-centre point as well.
 @Test func aGlobalPointNormalisesWithinItsDisplay() throws {
     let result = try #require(InputObserver.normalizedPosition(
-        globalTopLeftX: 300, globalTopLeftY: 200, in: arrangement()))
+        globalTopLeftX: 300, globalTopLeftY: 200, in: viewport()))
     #expect(result.position.x > 0 && result.position.x < 1)
     #expect(result.position.y > 0 && result.position.y < 1)
-    #expect(result.revision == revision())
+    #expect(result.revision == viewport().revision)
 }
 
 /// Top-left in, bottom-left out: a point in the TOP half of the screen must land in the
@@ -134,9 +144,9 @@ private func click(x: Double, y: Double) -> ButtonEvent {
 /// the test had the units wrong.
 @Test func theVerticalFlipHappensOnTheWayIn() throws {
     let nearTop = try #require(InputObserver.normalizedPosition(
-        globalTopLeftX: 300, globalTopLeftY: 50, in: arrangement()))
+        globalTopLeftX: 300, globalTopLeftY: 50, in: viewport()))
     let nearBottom = try #require(InputObserver.normalizedPosition(
-        globalTopLeftX: 300, globalTopLeftY: 450, in: arrangement()))
+        globalTopLeftX: 300, globalTopLeftY: 450, in: viewport()))
     #expect(nearTop.position.y > 0.5)
     #expect(nearBottom.position.y < 0.5)
 }
@@ -145,7 +155,7 @@ private func click(x: Double, y: Double) -> ButtonEvent {
 /// put a real-looking coordinate in the log for an event that happened off-screen.
 @Test func aPointOnNoDisplayRoutesToNothing() {
     #expect(InputObserver.normalizedPosition(globalTopLeftX: 99_999, globalTopLeftY: 99_999,
-                                             in: arrangement()) == nil)
+                                             in: viewport()) == nil)
 }
 
 // MARK: - AXObserver's walk, over a fake element source
@@ -271,4 +281,57 @@ private func observer() -> Capture.AXObserver {
 @Test func theProductionSourceConformsToTheSeamTheTestsDrive() {
     let live: any AXElementSource = LiveAXElementSource()
     #expect(type(of: live) == LiveAXElementSource.self)
+}
+
+// MARK: - the cursor normalises against what is RECORDED, not against a display
+
+/// **The defect a real window recording showed.** A window occupying the display's right
+/// half: a click at its own centre must normalise to (0.5, 0.5). Against the DISPLAY — what
+/// the observer did before the viewport landed — the same point is 0.75, and every drawn
+/// cursor in a window recording was offset by exactly that difference.
+///
+/// The two bases are asserted to genuinely differ, so a viewport that silently fell back to
+/// the display would fail rather than pass for the wrong reason.
+@Test func aWindowCaptureNormalisesThePointerAgainstTheWindow() throws {
+    let display = DisplayGeometry(displayUUID: displayUUID,
+                                  pixelWidth: 2000, pixelHeight: 1000, scale: 2.0)
+    // The display is 1000×500 POINTS; the window is its right half.
+    let windowViewport = CaptureViewport(geometry: display, globalOriginX: 500, globalOriginY: 0,
+                                         widthInPoints: 500, heightInPoints: 500)
+    let displayViewport = CaptureViewport(geometry: display, globalOriginX: 0, globalOriginY: 0,
+                                          widthInPoints: 1000, heightInPoints: 500)
+
+    let inWindow = try #require(InputObserver.normalizedPosition(
+        globalTopLeftX: 750, globalTopLeftY: 250, in: windowViewport))
+    #expect(abs(inWindow.position.x - 0.5) < 1e-9,
+            "the window's own centre normalised to \(inWindow.position.x)")
+
+    let inDisplay = try #require(InputObserver.normalizedPosition(
+        globalTopLeftX: 750, globalTopLeftY: 250, in: displayViewport))
+    #expect(abs(inDisplay.position.x - 0.75) < 1e-9,
+            "the two bases must genuinely differ, or this test proves nothing")
+}
+
+/// A pointer on the display but outside the recorded window is not in the recording, so it
+/// has no position — `nil`, never clamped. A clamped value would put a real-looking
+/// coordinate in the log for a pointer that was never in shot.
+@Test func aPointerOutsideTheRecordedWindowHasNoPosition() {
+    let display = DisplayGeometry(displayUUID: displayUUID,
+                                  pixelWidth: 2000, pixelHeight: 1000, scale: 2.0)
+    let windowViewport = CaptureViewport(geometry: display, globalOriginX: 500, globalOriginY: 0,
+                                         widthInPoints: 500, heightInPoints: 500)
+    #expect(InputObserver.normalizedPosition(globalTopLeftX: 100, globalTopLeftY: 250,
+                                             in: windowViewport) == nil)
+}
+
+/// The revision travels from the viewport, so a sample is stamped with the coordinate
+/// system it was measured in rather than with whatever display happened to be nearby.
+@Test func theSamplesRevisionComesFromTheViewport() throws {
+    let display = DisplayGeometry(displayUUID: displayUUID,
+                                  pixelWidth: 2000, pixelHeight: 1000, scale: 2.0)
+    let viewport = CaptureViewport(geometry: display, globalOriginX: 0, globalOriginY: 0,
+                                   widthInPoints: 1000, heightInPoints: 500)
+    let result = try #require(InputObserver.normalizedPosition(
+        globalTopLeftX: 300, globalTopLeftY: 200, in: viewport))
+    #expect(result.revision == viewport.revision)
 }

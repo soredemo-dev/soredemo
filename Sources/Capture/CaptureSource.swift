@@ -109,6 +109,37 @@ public enum CaptureSource: Sendable {
         }
     }
 
+    /// **The rectangle this source actually records**, in the global point space
+    /// `CGEvent` reports pointer locations in.
+    ///
+    /// Asked of the SOURCE rather than assembled by the session: which rectangle is being
+    /// recorded is this type's own knowledge, and a caller that had to reconstruct it would
+    /// be a second place the display-versus-window distinction could be got wrong — which
+    /// is precisely how the cursor came to be normalised against the wrong rectangle.
+    ///
+    /// `geometry(scale:displayUUID:)`'s arguments are threaded through unchanged, because a
+    /// viewport's revision must be the SAME revision the segment's samples carry.
+    public nonisolated func viewport(scale: Double, displayUUID: UUID) -> CaptureViewport {
+        let geometry = self.geometry(scale: scale, displayUUID: displayUUID)
+        switch self {
+        case .display(let display):
+            let bounds = CGGeometryBridge.pointRect(from: display.frame)
+            return CaptureViewport(geometry: geometry,
+                                   globalOriginX: bounds.x, globalOriginY: bounds.y,
+                                   widthInPoints: bounds.width, heightInPoints: bounds.height)
+        case .window(let capture):
+            // The source rect is display-local; the pointer arrives in global points, so it
+            // is rebased back out. The window's own frame is deliberately NOT read here —
+            // it moves, and the recording is fixed to the rect the segment opened with.
+            let bounds = CGGeometryBridge.pointRect(from: capture.display.frame)
+            return CaptureViewport(geometry: geometry,
+                                   globalOriginX: bounds.x + capture.sourceRect.x,
+                                   globalOriginY: bounds.y + capture.sourceRect.y,
+                                   widthInPoints: capture.sourceRect.width,
+                                   heightInPoints: capture.sourceRect.height)
+        }
+    }
+
     /// The `SCContentFilter` this source captures through — what is handed to
     /// `SCStream(filter:configuration:delegate:)`, and the reverse of
     /// `init(pickerFilter:availableDisplays:)`. Rebuilding a filter from a value

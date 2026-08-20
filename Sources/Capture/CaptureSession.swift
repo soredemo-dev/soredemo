@@ -463,8 +463,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // would be a second policy about what the grant means.
         let accessibilityGranted = CapturePermissions.requestAccessibilityAccess()
 
+        // The pointer normalises against WHAT IS RECORDED; the AX walk still routes through
+        // the whole arrangement, because an accessibility hit-test is a global-space
+        // question and a window's chrome can be answered by an element outside its rect.
+        let viewport = source.viewport(scale: scale, displayUUID: displayUUID)
         let arrangement = InputObserver.currentArrangement()
-        let input = InputObserver(arrangement: arrangement, epoch: epoch,
+        let input = InputObserver(viewport: viewport, epoch: epoch,
                                   pointerShapeReader: pointerShapeReader)
         let ax = AXObserver(arrangement: arrangement, epoch: epoch)
 

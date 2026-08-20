@@ -183,7 +183,10 @@ final class InputObserver: @unchecked Sendable {
     /// The poll's queue. **Never the main queue.**
     private let pollQueue = DispatchQueue(label: "video.soredemo.input-observer.tap-poll",
                                           qos: .utility)
-    private let arrangement: DisplayArrangement
+    /// **What is being recorded** — a display, or a window's rect inside one. Was a
+    /// `DisplayArrangement` until the window-capture repair (2026-08-20); the observer no
+    /// longer knows what a display is, which is the coupling that made the bug expressible.
+    private let viewport: CaptureViewport
     private let epoch: BootEpoch
     private let secureInputIsEnabled: @Sendable () -> Bool
     /// Reads the CURRENT system cursor's classified shape, or `nil` when no reader was
@@ -250,11 +253,11 @@ final class InputObserver: @unchecked Sendable {
     /// path; it is an optional rather than a defaulted closure because the real
     /// read needs `self`'s tap, which does not exist when a default argument is
     /// evaluated.
-    public init(arrangement: DisplayArrangement, epoch: BootEpoch,
+    public init(viewport: CaptureViewport, epoch: BootEpoch,
                 secureInputIsEnabled: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() },
                 tapIsEnabledOverride: (@Sendable () -> Bool)? = nil,
                 pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil }) {
-        self.arrangement = arrangement
+        self.viewport = viewport
         self.epoch = epoch
         self.secureInputIsEnabled = secureInputIsEnabled
         self.tapIsEnabledOverride = tapIsEnabledOverride
@@ -422,25 +425,29 @@ final class InputObserver: @unchecked Sendable {
     /// (`CGGeometryBridge.location(from:)`) stays at the call site, where the
     /// CoreGraphics value exists.
     ///
-    /// Returns `nil` when the location is on no display in `arrangement` — not
-    /// a clamp and not a nearest-display guess.
+    /// **Takes a `CaptureViewport`, not a `DisplayArrangement`, and that is the
+    /// repair.** The arrangement is the right rectangle only when the capture IS
+    /// a display; a window recording normalised every sample against the display
+    /// while the video was in the window's space, so the drawn cursor was
+    /// systematically offset — two rectangles treated as one, `1a98402`'s family
+    /// in the geometry domain. The viewport is whatever is actually being
+    /// recorded, both capture kinds construct one, and neither is a branch here.
     ///
-    /// The `pixels(from:)` step is not redundant: `route` returns display-local
-    /// *points* and `normalize` requires display-local *pixels*; on a
-    /// `scale: 1` display the two are equal.
+    /// The conversion itself is `CaptureViewport.normalise`, not restated: it
+    /// owns global→local and delegates local→normalised to
+    /// `NormalizationContext`. One rule, one owner — this function is the seam,
+    /// not a second implementation of the arithmetic.
+    ///
+    /// Returns `nil` when the location is outside the recording — not a clamp
+    /// and not a nearest-display guess: a pointer that was not in shot has no
+    /// position in the recording.
     public nonisolated static func normalizedPosition(
-        globalTopLeftX: Double, globalTopLeftY: Double, in arrangement: DisplayArrangement
+        globalTopLeftX: Double, globalTopLeftY: Double, in viewport: CaptureViewport
     ) -> (position: NormalizedPoint, revision: GeometryRevision)? {
-        // Step 2 — global points → display-local points.
-        guard let hit = arrangement.route(globalTopLeftX: globalTopLeftX,
-                                          globalTopLeftY: globalTopLeftY) else { return nil }
-        // Step 3 — display-local points → display-local native pixels.
-        let pixels = hit.geometry.pixels(
-            from: PointRect(x: hit.localX, y: hit.localY, width: 0, height: 0))
-        // Step 4 — display-local pixels → normalised, bottom-left, 0…1.
-        let position = NormalizationContext(geometry: hit.geometry)
-            .normalize(topLeftX: pixels.x, topLeftY: pixels.y)
-        return (position, hit.geometry.revision)
+        guard let position = viewport.normalise(globalTopLeftX: globalTopLeftX,
+                                                globalTopLeftY: globalTopLeftY)
+        else { return nil }
+        return (position, viewport.revision)
     }
 
     // MARK: - The keyboard filter
@@ -777,7 +784,7 @@ final class InputObserver: @unchecked Sendable {
         let location = CGGeometryBridge.location(from: event.location)
         guard let converted = Self.normalizedPosition(globalTopLeftX: location.x,
                                                       globalTopLeftY: location.y,
-                                                      in: arrangement) else {
+                                                      in: viewport) else {
             lock.withLock {
                 if isButton { unsafe _diagnostics.unroutableButtonLocations += 1 }
                 else { unsafe _diagnostics.unroutablePointerLocations += 1 }

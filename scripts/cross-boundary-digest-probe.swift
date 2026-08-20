@@ -121,6 +121,50 @@ import Render
 // this flag surfaced rather than introduced.
 import Timeline
 
+/// A viewport spanning the probe's WHOLE arrangement — every display's union.
+///
+/// The checks that construct an `InputObserver` are about its sink, its tap and its
+/// suppression rules, not about which rectangle it normalises against; they synthesise
+/// events anywhere in global space, including on a second display at x = 2400. Handing them
+/// one display's viewport silently dropped those events as "outside the recording", and
+/// three checks went red — correctly: the observer's `nil`-not-clamp rule working exactly as
+/// designed, on a viewport that did not describe what those checks meant to record.
+///
+/// The union is the honest stand-in for "a recording that covers everything the probe
+/// synthesises". A real capture never uses one, which is why this lives in the probe rather
+/// than in `CaptureViewport`.
+func probeDisplayViewport(_ arrangement: DisplayArrangement) -> CaptureViewport {
+    let placement = arrangement.placements[0]
+    var minX = Double.greatestFiniteMagnitude, minY = Double.greatestFiniteMagnitude
+    var maxX = -Double.greatestFiniteMagnitude, maxY = -Double.greatestFiniteMagnitude
+    for p in arrangement.placements {
+        let w = Double(p.geometry.pixelWidth) / p.geometry.scale
+        let h = Double(p.geometry.pixelHeight) / p.geometry.scale
+        minX = min(minX, p.globalOriginX); minY = min(minY, p.globalOriginY)
+        maxX = max(maxX, p.globalOriginX + w); maxY = max(maxY, p.globalOriginY + h)
+    }
+    return CaptureViewport(geometry: placement.geometry,
+                           globalOriginX: minX, globalOriginY: minY,
+                           widthInPoints: maxX - minX, heightInPoints: maxY - minY)
+}
+
+
+/// Routes a global point to the display containing it and normalises within that display —
+/// what `InputObserver.normalizedPosition(…, in: arrangement)` did before the
+/// window-capture repair (2026-08-20) gave the observer a `CaptureViewport` instead. These
+/// checks are about MULTI-DISPLAY ROUTING, which is now
+/// `DisplayArrangement.viewport(forDisplayContaining:)`'s job, so the probe composes the
+/// two rather than asserting against a signature that no longer models the question.
+func probeNormalised(globalTopLeftX: Double, globalTopLeftY: Double,
+                     in arrangement: DisplayArrangement)
+    -> (position: NormalizedPoint, revision: GeometryRevision)? {
+    guard let viewport = arrangement.viewport(forDisplayContaining: globalTopLeftX,
+                                              globalTopLeftY: globalTopLeftY) else { return nil }
+    return InputObserver.normalizedPosition(globalTopLeftX: globalTopLeftX,
+                                            globalTopLeftY: globalTopLeftY, in: viewport)
+}
+
+
 /// Builds a `.window` source the way `CaptureSource.init(pickerFilter:availableDisplays:)`
 /// does, so these checks keep exercising the production shape after the source-rect repair
 /// (2026-08-20) replaced `bufferSize`-on-the-case with a `WindowCapture`. Takes the display
@@ -1087,9 +1131,9 @@ enum CrossBoundaryProbe {
         let expectedY = 1 - (localPixelsY / Double(retina.pixelHeight))
         print("        expected, computed from the fixture: (\(expectedX), \(expectedY))")
 
-        guard let converted = InputObserver.normalizedPosition(globalTopLeftX: globalX,
-                                                               globalTopLeftY: globalY,
-                                                               in: arrangement) else {
+        guard let converted = probeNormalised(globalTopLeftX: globalX,
+                                             globalTopLeftY: globalY,
+                                             in: arrangement) else {
             check(false, "a point on the scale: 2 display must route somewhere")
             return
         }
@@ -1123,8 +1167,7 @@ enum CrossBoundaryProbe {
 
         // ---- The same conversion on the scale: 1 display, to show the
         // fixture is not simply always returning the retina display.
-        guard let onMain = InputObserver.normalizedPosition(globalTopLeftX: 192, globalTopLeftY: 108,
-                                                            in: arrangement) else {
+        guard let onMain = probeNormalised(globalTopLeftX: 192, globalTopLeftY: 108, in: arrangement) else {
             check(false, "a point on the main display must route somewhere")
             return
         }
@@ -1136,8 +1179,7 @@ enum CrossBoundaryProbe {
         // ---- The half-open boundary. Global x = 1920 is the retina
         // display's first column, not the main display's last: a closed
         // interval on both sides would let placement order decide, silently.
-        let atSeam = InputObserver.normalizedPosition(globalTopLeftX: 1920, globalTopLeftY: 10,
-                                                      in: arrangement)
+        let atSeam = probeNormalised(globalTopLeftX: 1920, globalTopLeftY: 10, in: arrangement)
         check(atSeam?.revision == retina.revision,
               "a point exactly on the shared edge belongs to the display whose origin it is",
               actual: "\(String(describing: atSeam?.revision))", expected: "\(retina.revision)")
@@ -1148,8 +1190,7 @@ enum CrossBoundaryProbe {
         var sweep: [NormalizedPoint] = []
         for x in stride(from: 0.0, through: 3839.0, by: 137.0) {
             for y in stride(from: 0.0, through: 1079.0, by: 97.0) {
-                if let p = InputObserver.normalizedPosition(globalTopLeftX: x, globalTopLeftY: y,
-                                                            in: arrangement) {
+                if let p = probeNormalised(globalTopLeftX: x, globalTopLeftY: y, in: arrangement) {
                     sweep.append(p.position)
                 }
             }
@@ -1163,8 +1204,7 @@ enum CrossBoundaryProbe {
         // ---- A point on no display is nil, never a clamp. A clamped sample
         // is a pointer position on a display the pointer was never on, which
         // reads downstream as real motion.
-        check(InputObserver.normalizedPosition(globalTopLeftX: 9000, globalTopLeftY: 9000,
-                                               in: arrangement) == nil,
+        check(probeNormalised(globalTopLeftX: 9000, globalTopLeftY: 9000, in: arrangement) == nil,
               "a location on no known display returns nil rather than being clamped onto one")
     }
 
@@ -1236,7 +1276,7 @@ enum CrossBoundaryProbe {
         let (arrangement, _, retina, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         let collector = Collector()
-        let observer = InputObserver(arrangement: arrangement, epoch: epoch)
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch)
         // `start()` is deliberately NOT called: that creates the real tap and
         // needs Input Monitoring. The sink is installed through the seam
         // `start()` itself uses, and `handle(type:event:)` — the whole
@@ -1253,9 +1293,21 @@ enum CrossBoundaryProbe {
         }
         check(collector.observations.count == 1, "a mouseMoved event produces exactly one observation",
               actual: "\(collector.observations.count)")
-        check(sample.position == NormalizedPoint(x: 0.25, y: 0.75) && sample.revision == retina.revision,
-              "the emitted pointer sample carries the converted position and the display's revision",
-              actual: "(\(sample.position.x), \(sample.position.y)) \(sample.revision)")
+        // **The expectation is derived from the SAME viewport the observer was given**,
+        // not from a hardcoded pair. Before the window-capture repair (2026-08-20) the
+        // observer normalised against a display and (0.25, 0.75) was that display's answer;
+        // it now normalises against whatever is being recorded, and this check's subject was
+        // always "the sample carries the CONVERTED position", never one particular number.
+        // Deriving it here keeps the check discriminating — a conversion that silently
+        // stopped happening still fails, because `probeExpected` would then disagree with a
+        // sample carrying raw or zeroed coordinates.
+        let probeExpected = probeDisplayViewport(arrangement)
+            .normalise(globalTopLeftX: 2400, globalTopLeftY: 270)
+        check(probeExpected.map { sample.position == $0 } == true
+              && sample.revision == probeDisplayViewport(arrangement).revision,
+              "the emitted pointer sample carries the converted position and the viewport's revision",
+              actual: "(\(sample.position.x), \(sample.position.y)) \(sample.revision)",
+              expected: probeExpected.map { "(\($0.x), \($0.y))" } ?? "nil")
         check(sample.instant == HostInstant(epoch: epoch, hostTime: stamp),
               "the sample's instant is the EVENT's own timestamp, taken as nanoseconds and not converted",
               actual: "\(sample.instant.hostTime.rawValue)", expected: "\(stamp.rawValue)")
@@ -1294,7 +1346,7 @@ enum CrossBoundaryProbe {
         // trips it. Spike A's worst of 118 samples was 5.46 ms; 20 ms of
         // simulated latency must still be accepted, or the instrument would
         // fire on ordinary recordings and be relaxed into uselessness.
-        let latencyObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        let latencyObserver = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch)
         latencyObserver.handle(type: .mouseMoved,
                                event: mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270),
                                                  stamp: Nanoseconds(Minting.hostNow().rawValue - 20_000_000)))
@@ -1304,7 +1356,7 @@ enum CrossBoundaryProbe {
 
         // ---- A click is a down and an up. Both carry a position.
         let clicks = Collector()
-        let clickObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        let clickObserver = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch)
         clickObserver.setObservationSink(clicks.append)
         clickObserver.handle(type: .leftMouseDown,
                              event: mouseEvent(.leftMouseDown, at: CGPoint(x: 2400, y: 270), stamp: stamp))
@@ -1319,12 +1371,17 @@ enum CrossBoundaryProbe {
                 && buttons.allSatisfy { $0.button == .left },
               "a click produces a down and an up, in that order, both on the left button",
               actual: "\(buttons.map { "\($0.button.rawValue).\($0.phase.rawValue)" })")
-        check(buttons.allSatisfy { $0.position == NormalizedPoint(x: 0.25, y: 0.75) },
+        // Derived from the same viewport, same reason as the pointer check above: the
+        // subject is that BOTH halves carry the converted position, not what that
+        // position happens to be on this arrangement.
+        let clickExpected = probeDisplayViewport(arrangement)
+            .normalise(globalTopLeftX: 2400, globalTopLeftY: 270)
+        check(clickExpected.map { expected in buttons.allSatisfy { $0.position == expected } } == true,
               "both halves of the click carry the converted position")
 
         // ---- A location on no display is dropped and counted, not clamped.
         let offscreen = Collector()
-        let offscreenObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        let offscreenObserver = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch)
         offscreenObserver.setObservationSink(offscreen.append)
         offscreenObserver.handle(type: .mouseMoved,
                                  event: mouseEvent(.mouseMoved, at: CGPoint(x: 9000, y: 9000), stamp: stamp))
@@ -1355,7 +1412,7 @@ enum CrossBoundaryProbe {
         let typedKeys = [kVK_ANSI_H, kVK_ANSI_U, kVK_ANSI_N, kVK_ANSI_T,
                          kVK_ANSI_E, kVK_ANSI_R, kVK_ANSI_2, kVK_ANSI_Period]
         let collector = Collector()
-        let observer = InputObserver(arrangement: arrangement, epoch: epoch)
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch)
         observer.setObservationSink(collector.append)
         for key in typedKeys {
             observer.handle(type: .keyDown,
@@ -1381,7 +1438,7 @@ enum CrossBoundaryProbe {
         // ---- The allow-list admits what it says it admits, so the checks
         // above are not passing because nothing at all gets through.
         let approved = Collector()
-        let approvedObserver = InputObserver(arrangement: arrangement, epoch: epoch)
+        let approvedObserver = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch)
         approvedObserver.setObservationSink(approved.append)
         approvedObserver.handle(type: .keyDown,
                                 event: keyEvent(kVK_ANSI_C, flags: [.maskCommand, .maskNonCoalesced],
@@ -1459,7 +1516,7 @@ enum CrossBoundaryProbe {
         }
         let secure = Toggle()
         let collector = Collector()
-        let observer = InputObserver(arrangement: arrangement, epoch: epoch,
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch,
                                      secureInputIsEnabled: { secure.isOn })
         observer.setObservationSink(collector.append)
 
@@ -1526,7 +1583,7 @@ enum CrossBoundaryProbe {
         // marked as the lower bound it is. Dropping it would lose exactly the
         // stretch the log has no samples for.
         let atStop = Collector()
-        let stoppingObserver = InputObserver(arrangement: arrangement, epoch: epoch,
+        let stoppingObserver = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch,
                                              secureInputIsEnabled: { true })
         stoppingObserver.setObservationSink(atStop.append)
         stoppingObserver.handle(type: .mouseMoved,
@@ -1722,9 +1779,9 @@ enum CrossBoundaryProbe {
         // the pairing the app actually ships, and nothing else here runs it.
         let centreX = derivedPointWidth / 2
         let centreY = derivedPointHeight / 2
-        guard let centre = InputObserver.normalizedPosition(globalTopLeftX: centreX,
-                                                            globalTopLeftY: centreY,
-                                                            in: arrangement) else {
+        guard let centre = probeNormalised(globalTopLeftX: centreX,
+                                             globalTopLeftY: centreY,
+                                             in: arrangement) else {
             check(false, "the centre of the main display must route somewhere")
             return
         }
@@ -1851,7 +1908,7 @@ enum CrossBoundaryProbe {
         // DEFAULT-INITIALISED. No `secureInputIsEnabled:` argument — that is
         // the entire point of this check, and passing one here would make it
         // a slower copy of § 7.4.
-        let observer = InputObserver(arrangement: arrangement, epoch: epoch)
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch)
         observer.setObservationSink(collector.append)
         let event = mouseEvent(.mouseMoved, at: CGPoint(x: 2400, y: 270), stamp: Minting.hostNow())
 
@@ -2051,8 +2108,7 @@ enum CrossBoundaryProbe {
     @MainActor
     static func clickEvent(atGlobalX x: Double, y: Double,
                            in arrangement: DisplayArrangement, epoch: BootEpoch) -> ButtonEvent? {
-        guard let converted = InputObserver.normalizedPosition(globalTopLeftX: x, globalTopLeftY: y,
-                                                               in: arrangement) else { return nil }
+        guard let converted = probeNormalised(globalTopLeftX: x, globalTopLeftY: y, in: arrangement) else { return nil }
         return ButtonEvent(instant: HostInstant(epoch: epoch, hostTime: Minting.hostNow()),
                            position: converted.position, revision: converted.revision,
                            button: .left, phase: .down)
@@ -2067,9 +2123,9 @@ enum CrossBoundaryProbe {
               actual: "main \(main.scale), retina \(retina.scale)", expected: "1 and 2")
 
         let globalX = 2400.0, globalY = 270.0
-        guard let forward = InputObserver.normalizedPosition(globalTopLeftX: globalX,
-                                                             globalTopLeftY: globalY,
-                                                             in: arrangement) else {
+        guard let forward = probeNormalised(globalTopLeftX: globalX,
+                                             globalTopLeftY: globalY,
+                                             in: arrangement) else {
             check(false, "a point on the scale: 2 display must route somewhere")
             return
         }
@@ -2116,9 +2172,9 @@ enum CrossBoundaryProbe {
         // a direction that still lands on a plausible desktop coordinate; here
         // it lands on the wrong side of zero.
         let negativeX = -1000.0, negativeY = -500.0
-        guard let onLeft = InputObserver.normalizedPosition(globalTopLeftX: negativeX,
-                                                            globalTopLeftY: negativeY,
-                                                            in: arrangement) else {
+        guard let onLeft = probeNormalised(globalTopLeftX: negativeX,
+                                             globalTopLeftY: negativeY,
+                                             in: arrangement) else {
             check(false, "a point on the display at (-1440, -900) must route there")
             return
         }
@@ -2765,7 +2821,7 @@ enum CrossBoundaryProbe {
         let (arrangement, _, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
         let collector = Collector()
-        let observer = InputObserver(arrangement: arrangement, epoch: epoch,
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch,
                                      secureInputIsEnabled: { false })
         observer.setObservationSink(collector.append)
 
@@ -2844,7 +2900,7 @@ enum CrossBoundaryProbe {
         // secure-input branch instead of before it, a password field would
         // masquerade as a blind window — two different gaps in D6a, conflated.
         let suppressed = Collector()
-        let secure = InputObserver(arrangement: arrangement, epoch: epoch,
+        let secure = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch,
                                    secureInputIsEnabled: { true })
         secure.setObservationSink(suppressed.append)
         let duringPassword = Minting.hostNow()
@@ -2897,7 +2953,7 @@ enum CrossBoundaryProbe {
         // The tap reads as enabled until this flips, which is what a stall in
         // the callback does to a real one.
         let enabled = MutableFlag(true)
-        let observer = InputObserver(arrangement: arrangement, epoch: epoch,
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch,
                                      secureInputIsEnabled: { false },
                                      tapIsEnabledOverride: { enabled.value })
         observer.setObservationSink(collector.append)
@@ -2951,7 +3007,7 @@ enum CrossBoundaryProbe {
         check(!observer.diagnostics.tapAccounting.contains("NOTHING WAS LOOKING"),
               "with polls on the clock, the accounting does NOT warn that nothing was looking",
               actual: observer.diagnostics.tapAccounting)
-        let neverPolled = InputObserver(arrangement: arrangement, epoch: epoch,
+        let neverPolled = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch,
                                         secureInputIsEnabled: { false },
                                         tapIsEnabledOverride: { true })
         check(neverPolled.diagnostics.tapEnabledPolls == 0
@@ -2975,7 +3031,7 @@ enum CrossBoundaryProbe {
 
         // ---- the anti-vacuity half. A poll that never reads the flag would
         // pass every check above by producing nothing at all.
-        let blind = InputObserver(arrangement: arrangement, epoch: epoch,
+        let blind = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: epoch,
                                   secureInputIsEnabled: { false },
                                   tapIsEnabledOverride: { false })
         let blindCollector = Collector()
@@ -3008,7 +3064,7 @@ enum CrossBoundaryProbe {
     @MainActor
     static func thePollRunsWhileTheMainThreadIsStuck() {
         let (arrangement, _, _, _) = fixtureArrangement()
-        let observer = InputObserver(arrangement: arrangement, epoch: Minting.bootEpoch(),
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: Minting.bootEpoch(),
                                      secureInputIsEnabled: { false },
                                      tapIsEnabledOverride: { true })
         observer.startPolling()
@@ -3852,7 +3908,7 @@ enum CrossBoundaryProbe {
         // D6a site 4's companion, on the live observer rather than on a
         // fixture: `secureInputChecks` over `secureInputCheckSpanNanos`.
         let arrangement = fixtureArrangementForSecureInputCheck()
-        let observer = InputObserver(arrangement: arrangement, epoch: Minting.bootEpoch(),
+        let observer = InputObserver(viewport: probeDisplayViewport(arrangement), epoch: Minting.bootEpoch(),
                                      secureInputIsEnabled: { false })
         check(observer.diagnostics.secureInputChecks == 0,
               "a fresh observer has consulted the secure-input predicate zero times — and that "

@@ -136,7 +136,10 @@ func projectPbxprojText() throws -> String {
 @Test func theFirstProductionCallersAreWiredIntoCaptureSession() throws {
     let files = try firstPartySourceFiles()
 
-    let inputObserverConstructions = try codeLinesNaming("InputObserver(arrangement:", in: files)
+    let inputObserverConstructions = try codeLinesNaming(// `viewport:`, not `arrangement:`, since the window-capture repair (2026-08-20) —
+        // the observer normalises against WHAT IS RECORDED. The needle follows the
+        // constructor rather than the constructor being kept still for the needle.
+        "InputObserver(viewport:", in: files)
         .filter { !$0.location.hasPrefix("Soredemo/Capture/InputObserver.swift:") }
     #expect(!inputObserverConstructions.isEmpty, """
         InputObserver(arrangement: is never constructed outside InputObserver.swift — the brief's \
@@ -172,7 +175,10 @@ func projectPbxprojText() throws -> String {
         """)
 
     // All five in the SAME file, or "CaptureSession is where this attaches" is unproven.
-    for (name, sites) in [("InputObserver(arrangement:", inputObserverConstructions),
+    for (name, sites) in [(// `viewport:`, not `arrangement:`, since the window-capture repair (2026-08-20) —
+        // the observer normalises against WHAT IS RECORDED. The needle follows the
+        // constructor rather than the constructor being kept still for the needle.
+        "InputObserver(viewport:", inputObserverConstructions),
                            ("AXObserver(arrangement:", axObserverConstructions),
                            ("ObservationWriter.open(segment:", observationWriterOpens),
                            (".start(onObservation:", tapStartCalls),
