@@ -407,3 +407,39 @@ private func observer() -> Capture.AXObserver {
     observer.handle(type: .mouseMoved, event: event)
     #expect(sink.shapes == [.iBeam])
 }
+
+/// **The contract the cursor-flicker repair created, and then broke.** Moving the shape
+/// read onto the poll timer moved it onto `pollQueue`, which is deliberately NOT the main
+/// queue — the whole reason that timer exists is to notice the callback thread being stuck,
+/// so it must not share a thread with it. The app-tier reader kept a
+/// `MainActor.assumeIsolated`, which asserts the opposite, and a real run trapped with
+/// `EXC_BREAKPOINT` on the poll thread.
+///
+/// So: **the reader is called off the main thread, and that is a requirement rather than an
+/// accident**. Asserted here from the side that can be tested — the app tier has no test
+/// target — so an implementation that quietly needs the main actor fails a package test
+/// instead of a person's recording.
+@Test func theShapeReaderIsCalledOffTheMainThread() async {
+    final class Observed: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sawMain: Bool?
+        func note(isMain: Bool) { lock.withLock { if sawMain == nil { sawMain = isMain } } }
+        var wasMain: Bool? { lock.withLock { sawMain } }
+    }
+    let observed = Observed()
+    let observer = InputObserver(viewport: viewport(), epoch: epoch,
+                                 pointerShapeReader: {
+                                     observed.note(isMain: Thread.isMainThread)
+                                     return .arrow
+                                 })
+    // `refreshPointerShape()` is what the poll timer calls; driving it from a background
+    // queue is that call site's own condition.
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global().async {
+            observer.refreshPointerShape()
+            continuation.resume()
+        }
+    }
+    #expect(observed.wasMain == false,
+            "the reader ran on the main thread — the poll queue deliberately is not it")
+}

@@ -2,65 +2,91 @@ import AppKit
 import Geometry
 import Project
 
-/// Classifies the CURRENT system cursor into `PointerShape` — the app-tier half of the
-/// seam `InputObserver.pointerShapeReader` names. AppKit only exists in this tier
-/// (`HeadlessCheck` bans it from `Capture`), which is why capture takes a closure.
+/// Reads the live system cursor for `InputObserver`'s injected shape and hotspot seams.
+/// AppKit exists only in this tier (`HeadlessCheck` bans it from `Capture`), which is why
+/// capture takes closures rather than calling `NSCursor` itself.
 ///
-/// **Classification is by image bytes, and the honest limits are stated here.**
-/// `NSCursor.currentSystem` returns a fresh instance per call, so identity comparison is
-/// useless; what is stable is the cursor's image. The table maps the TIFF bytes of the
-/// standard cursors' images to their shapes, and anything else — an app's custom cursor,
-/// a resize variant this table does not carry — classifies as `.other`, which is a real
-/// answer ("recorded, and not a shape the schema names"), never a guess.
+/// **The readers are called from `InputObserver`'s poll queue, never the main thread, and
+/// that is a requirement.** The poll timer exists to notice the tap callback's thread being
+/// stuck, so it deliberately does not share a thread with it. An earlier version of this
+/// file wrapped the read in `MainActor.assumeIsolated` — an assertion that the caller IS on
+/// the main actor — and a real run trapped with `EXC_BREAKPOINT` on the poll thread. The
+/// doc comment there even claimed "the poll timer hops here" while nothing hopped.
+/// `theShapeReaderIsCalledOffTheMainThread` now pins the contract from the package side.
 ///
-/// Two caches keep the per-sample cost flat at 120 Hz: the last image OBJECT seen (the
-/// common case — the cursor did not change between samples, and AppKit reuses the image
-/// instance) short-circuits everything; a byte-keyed cache holds every classification
-/// ever computed, bounded by the handful of distinct cursors a session actually shows.
+/// So the readers **never block and never assert**: they return the last value sampled and
+/// schedule the next sample on the main actor. `DispatchQueue.main.sync` would be the
+/// obvious alternative and is worse — the main thread can be inside AppKit waiting on
+/// something the poll is meant to detect, and a sync hop would deadlock precisely then.
 ///
-/// `@MainActor` because `NSCursor` is; the tap callback runs on the main run loop
-/// (`InputObserver`'s own callback documentation), so `assumeIsolated` in the closure
-/// below is an assertion about where taps deliver, not a hope.
-@MainActor
-enum SystemCursorShape {
-    /// **The classifier this file first shipped with never matched anything, and the
-    /// measurement is short enough to state.** It compared the live cursor's TIFF bytes
-    /// against `NSCursor.arrow.image`, `NSCursor.iBeam.image` and so on. Measured on this
-    /// machine: those class images are **0×0 and their `tiffRepresentation` is `nil`**,
-    /// while `NSCursor.currentSystem` returns a real 32×32 image with ~20 KB of TIFF. No
-    /// comparison could ever succeed, so every cursor classified as `.other` and every one
-    /// rendered as an arrow — the I-beam art added alongside it reached tests and never
-    /// reached a recording.
+/// The cost of the design is one poll interval of staleness (100 ms). A cursor shape
+/// changes when the pointer crosses a control boundary, so a sample 100 ms behind is the
+/// same answer nearly always, and being briefly behind is a better failure than trapping.
+// `nonisolated` on the type, not just on its members: this app target builds with
+// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so an unannotated enum is MainActor-isolated
+// and its `static let cache` becomes unreachable from the `@Sendable` closures — which is
+// the same default that made `assumeIsolated` look reasonable in the version that trapped.
+nonisolated enum SystemCursorShape {
+    /// The last sample, written on the main actor and read from anywhere.
+    private final class Cache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: (shape: PointerShape, hotspot: NormalizedPoint)?
+        private var refreshInFlight = false
+
+        func read() -> (shape: PointerShape, hotspot: NormalizedPoint)? {
+            lock.withLock { value }
+        }
+
+        /// Schedules one refresh on the main actor, at most one at a time: the poll fires
+        /// every 100 ms and a backlog of hops would be work the main thread does not need.
+        func scheduleRefresh() {
+            let shouldStart = lock.withLock {
+                if refreshInFlight { return false }
+                refreshInFlight = true
+                return true
+            }
+            guard shouldStart else { return }
+            Task { @MainActor [weak self] in
+                let sampled = SystemCursorShape.sampleOnMainActor()
+                guard let self else { return }
+                self.lock.withLock {
+                    self.value = sampled
+                    self.refreshInFlight = false
+                }
+            }
+        }
+    }
+
+    private nonisolated static let cache = Cache()
+
+    /// **Classification is `.other`, deliberately, and the measurement is why.** An earlier
+    /// version compared the live cursor's TIFF bytes against `NSCursor.arrow.image`,
+    /// `.iBeam.image` and so on. Measured on this machine: those class images are 0×0 and
+    /// their `tiffRepresentation` is `nil`, while `NSCursor.currentSystem` returns a real
+    /// 32×32 image with ~20 KB of TIFF. No comparison could ever succeed, so every cursor
+    /// classified as `.other` anyway — silently. `../opensource/a Rust recorder` (AGPLv3, read for
+    /// approach not code) hashes the live image against a table of KNOWN digests; those are
+    /// OS-version-specific and cannot be derived from the class cursors here, so this
+    /// returns `.other` openly until such a table exists.
     ///
-    /// **What replaces it, and its honest limit.** `../opensource/a Rust recorder` (AGPLv3 — read for
-    /// approach, not for code) hashes the live cursor's image and looks the digest up in a
-    /// table of KNOWN hashes. That works and this does not have such a table: the digests
-    /// are OS-version-specific and cannot be derived from the class cursors here, for the
-    /// reason above. So classification stays `.other` until a table exists, and this file
-    /// no longer pretends otherwise.
+    /// **The hotspot is the part that affects position, and it is real.** It is where inside
+    /// the cursor's image the pointer actually is — measured here: `(0.406, 0.250)` for the
+    /// pointing hand, `(0.458, 0.458)` for the crosshair — and art drawn with its own origin
+    /// at the recorded position is correct only when that origin IS the hotspot. Carrying
+    /// the true value lets the renderer place art correctly for shapes it cannot name, which
+    /// is currently all of them.
     ///
-    /// **What is fixed regardless of classification** is the part that affects position:
-    /// the HOTSPOT is read from the live cursor and reported. A hotspot is where inside the
-    /// cursor image the actual pointer is — `(0.406, 0.250)` for the pointing hand,
-    /// `(0.458, 0.458)` for the crosshair, measured here — and drawing any art with its own
-    /// origin at the recorded position is only correct when that origin IS the hotspot.
-    /// Carrying the real value lets the renderer place art correctly for shapes it does not
-    /// recognise, which is currently all of them.
-    ///
-    /// `currentSystemCursor()` with a `currentCursor()` fallback, the same pair a Rust recorder uses:
-    /// the first is `nil` when no system cursor is set, and falling back to the app's own
-    /// beats reporting nothing.
-    ///
-    /// `@MainActor` because `NSCursor` is; the poll timer hops here, and since the
-    /// cursor-flicker repair this runs on that timer rather than in the tap callback.
-    static func current() -> (shape: PointerShape, hotspot: NormalizedPoint)? {
+    /// `currentSystem` with a `current` fallback, the pair a Rust recorder uses: the first is `nil` when
+    /// no system cursor is set, and the app's own beats reporting nothing.
+    @MainActor
+    private static func sampleOnMainActor() -> (shape: PointerShape, hotspot: NormalizedPoint)? {
         guard let cursor = NSCursor.currentSystem ?? NSCursor.current as NSCursor? else {
             return nil
         }
         let size = cursor.image.size
         guard size.width > 0, size.height > 0 else {
-            // No image means no hotspot to normalise against; `.other` with the centre is
-            // the honest answer rather than a fabricated origin.
+            // No image means no hotspot to normalise against; the centre is the honest
+            // stand-in rather than a fabricated origin.
             return (.other, NormalizedPoint(x: 0.5, y: 0.5))
         }
         let hotspot = cursor.hotSpot
@@ -68,14 +94,23 @@ enum SystemCursorShape {
                                         y: hotspot.y / size.height))
     }
 
-    /// The closure `CaptureSession` takes: hops onto the main actor by assertion, since the
-    /// poll timer that calls it is not the tap callback and may block briefly.
+    /// The shape reader `CaptureSession` injects. Non-blocking: returns the last sample and
+    /// asks for the next.
     nonisolated static func reader() -> @Sendable () -> PointerShape? {
-        { MainActor.assumeIsolated { current()?.shape } }
+        {
+            let value = cache.read()?.shape
+            cache.scheduleRefresh()
+            return value
+        }
     }
 
-    /// The hotspot reader, separate because a caller may want one without the other.
+    /// The hotspot reader, separate because a caller may want one without the other. Both
+    /// read the same cache, so one refresh serves both.
     nonisolated static func hotspotReader() -> @Sendable () -> NormalizedPoint? {
-        { MainActor.assumeIsolated { current()?.hotspot } }
+        {
+            let value = cache.read()?.hotspot
+            cache.scheduleRefresh()
+            return value
+        }
     }
 }
