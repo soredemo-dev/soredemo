@@ -100,7 +100,9 @@ struct SoredemoApp: App {
                                                   width: Double(display.width), height: Double(display.height))
                     print("derived CaptureSource: .display(displayID: \(display.displayID), " +
                           "size: \(sizeInPoints))")
-                case .window(let window, let bufferSize):
+                case .window(let capture):
+                    let window = capture.window
+                    let bufferSize = (width: capture.bufferWidth, height: capture.bufferHeight)
                     let sizeInPixels = PixelRect(x: 0, y: 0,
                                                   width: Double(bufferSize.width), height: Double(bufferSize.height))
                     // The window's title is deliberately not printed:

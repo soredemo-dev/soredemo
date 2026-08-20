@@ -20,14 +20,39 @@ import Geometry
 /// Every member is `nonisolated` so that `CaptureSourcePicker`'s `nonisolated`
 /// observer callbacks can call them synchronously under this project's
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
+/// Everything a window capture needs, as its own type rather than four associated values
+/// on an enum case: the case's data has its own invariants — the rect must be the window's
+/// place on THAT display, the buffer must be sized to the window — and they belong together.
+public struct WindowCapture: Sendable {
+    public let window: SCWindow
+    /// The display the window's centre sits on. **A display filter with a source rect, not
+    /// `desktopIndependentWindow`** — see `CaptureSource.filter()` for the three reasons.
+    public let display: SCDisplay
+    /// The window's rect in that display's own POINT space, for
+    /// `SCStreamConfiguration.sourceRect`. ScreenCaptureKit crops at the source, so frames
+    /// arrive already cropped and there is no per-frame offset for anything downstream to
+    /// apply.
+    public let sourceRect: PointRect
+    /// The output buffer, in pixels, **sized to the WINDOW**. Fixed when the segment opens
+    /// and never changed: D2-13's finding stands — a QuickTime track cannot change
+    /// dimensions mid-track — and what changed is only which rectangle it is sized to.
+    public let bufferWidth: Int
+    public let bufferHeight: Int
+
+    public init(window: SCWindow, display: SCDisplay, sourceRect: PointRect,
+                bufferWidth: Int, bufferHeight: Int) {
+        self.window = window
+        self.display = display
+        self.sourceRect = sourceRect
+        self.bufferWidth = bufferWidth
+        self.bufferHeight = bufferHeight
+    }
+}
+
 public enum CaptureSource: Sendable {
     case display(SCDisplay)
 
-    /// `bufferSize` is the output buffer's size in pixels, fixed at selection
-    /// and never changed: a QuickTime video track cannot change dimensions
-    /// mid-track. It is sized to a display, not to the window, so a window is
-    /// resampled only once it grows past the whole display.
-    case window(SCWindow, bufferSize: (width: Int, height: Int))
+    case window(WindowCapture)
 
     /// The intrinsic geometry — what `GeometryRevision` is a digest of.
     ///
@@ -46,11 +71,11 @@ public enum CaptureSource: Sendable {
                 pixelWidth: Int((Double(display.width) * scale).rounded()),
                 pixelHeight: Int((Double(display.height) * scale).rounded()),
                 scale: scale)
-        case .window(_, let bufferSize):
+        case .window(let capture):
             return DisplayGeometry(
                 displayUUID: displayUUID,
-                pixelWidth: bufferSize.width,
-                pixelHeight: bufferSize.height,
+                pixelWidth: capture.bufferWidth,
+                pixelHeight: capture.bufferHeight,
                 scale: scale)
         }
     }
@@ -73,13 +98,14 @@ public enum CaptureSource: Sendable {
             return PixelRect(x: 0, y: 0,
                              width: Double((Double(display.width) * scale).rounded()),
                              height: Double((Double(display.height) * scale).rounded()))
-        case .window(let window, let bufferSize):
-            let frame = CGGeometryBridge.pointRect(from: window.frame)
-            // Clamped to the buffer: a window can extend past a screen edge, and
-            // `SCStream.h` does not define a destination outside the surface.
+        case .window(let capture):
+            // The buffer IS the window since the source-rect repair, so the content fills
+            // it exactly and the destination is the identity — the same shape as `.display`
+            // above. Before the repair this clamped a window-sized rect into a
+            // display-sized buffer, which is the offset that put the recording in a corner.
             return PixelRect(x: 0, y: 0,
-                             width: min((frame.width * scale).rounded(), Double(bufferSize.width)),
-                             height: min((frame.height * scale).rounded(), Double(bufferSize.height)))
+                             width: Double(capture.bufferWidth),
+                             height: Double(capture.bufferHeight))
         }
     }
 
@@ -87,12 +113,38 @@ public enum CaptureSource: Sendable {
     /// `SCStream(filter:configuration:delegate:)`, and the reverse of
     /// `init(pickerFilter:availableDisplays:)`. Rebuilding a filter from a value
     /// the picker vetted exposes no surface the person did not already choose.
+    /// **A DISPLAY filter for both cases, with `sourceRect` doing the window's cropping.**
+    /// Reverses D2-13's `desktopIndependentWindow`, for three reasons of decreasing
+    /// obviousness:
+    ///
+    /// 1. the output buffer can then be sized to the WINDOW, so a window recording is not a
+    ///    display-resolution frame with the window occupying a fraction of it;
+    /// 2. ScreenCaptureKit crops at the source, so there is no per-frame content-rect offset
+    ///    for anything downstream to apply — the problem disappears rather than being
+    ///    solved, and `capture-stream`'s content-rect work becomes unnecessary;
+    /// 3. `desktopIndependentWindow` makes macOS composite **the purple recording indicator
+    ///    into the captured frames** (observed by `../opensource/a Swift recorder`, Apache 2.0).
+    ///
+    /// **What this loses, stated rather than discovered later**: a window filter excludes
+    /// other windows by construction and a display filter with a source rect does not, so
+    /// anything overlapping the window's rect is captured with it. A real regression in
+    /// isolation, accepted because the alternative is a capture that is wrong in three
+    /// visible ways; `excludingApplications` can narrow it later.
     public nonisolated func filter() -> SCContentFilter {
         switch self {
         case .display(let display):
             return SCContentFilter(display: display, excludingWindows: [])
-        case .window(let window, _):
-            return SCContentFilter(desktopIndependentWindow: window)
+        case .window(let capture):
+            return SCContentFilter(display: capture.display, excludingWindows: [])
+        }
+    }
+
+    /// The rect ScreenCaptureKit should crop to, in the filtered display's point space —
+    /// `nil` for a display capture, which crops nothing.
+    public nonisolated var sourceRect: PointRect? {
+        switch self {
+        case .display: return nil
+        case .window(let capture): return capture.sourceRect
         }
     }
 
@@ -101,10 +153,13 @@ public enum CaptureSource: Sendable {
     /// and for a non-positive size, rather than building a value that would trap
     /// later inside `.geometry()`.
     ///
-    /// `availableDisplays` supplies a `.window` source's `bufferSize`: the
-    /// largest supplied display by point-space area, not `filter.contentRect`.
-    /// `SCDisplay` exposes no scale, so `filter.pointPixelScale` converts that
-    /// display's points (`SCShareableContent.h`) to pixels.
+    /// `availableDisplays` supplies the display a `.window` source is cropped out
+    /// of: the one whose bounds contain the window's CENTRE, not the largest.
+    /// A window is captured through a display filter plus a source rect, so the
+    /// display has to be the one the window is actually on — the largest display
+    /// was the right answer only while the buffer was display-sized, which was
+    /// the defect. `SCDisplay` exposes no scale, so `filter.pointPixelScale`
+    /// converts points (`SCShareableContent.h`) to pixels.
     ///
     /// Not `nonisolated`, unlike `.geometry()`/`.filter()` above: it stays
     /// implicitly `@MainActor`, so `CaptureSourcePicker` hops onto the main
@@ -117,13 +172,26 @@ public enum CaptureSource: Sendable {
 
         case .window:
             guard let window = filter.includedWindows.first else { return nil }
-            guard let largestDisplay = availableDisplays.max(by: { $0.width * $0.height < $1.width * $1.height })
-            else { return nil }
+            let frame = CGGeometryBridge.pointRect(from: window.frame)
+            let centreX = frame.x + frame.width / 2
+            let centreY = frame.y + frame.height / 2
+            guard let host = availableDisplays.first(where: {
+                let bounds = CGGeometryBridge.pointRect(from: $0.frame)
+                return centreX >= bounds.x && centreX < bounds.x + bounds.width
+                    && centreY >= bounds.y && centreY < bounds.y + bounds.height
+            }) else { return nil }
+
+            let hostBounds = CGGeometryBridge.pointRect(from: host.frame)
+            // `sourceRect` is in the DISPLAY's own point space, so the window's global
+            // frame is rebased onto it.
+            let sourceRect = PointRect(x: frame.x - hostBounds.x, y: frame.y - hostBounds.y,
+                                       width: frame.width, height: frame.height)
             let pixelScale = Double(filter.pointPixelScale)
-            let width = Int((Double(largestDisplay.width) * pixelScale).rounded())
-            let height = Int((Double(largestDisplay.height) * pixelScale).rounded())
+            let width = Int((frame.width * pixelScale).rounded())
+            let height = Int((frame.height * pixelScale).rounded())
             guard width > 0, height > 0 else { return nil }
-            self = .window(window, bufferSize: (width: width, height: height))
+            self = .window(WindowCapture(window: window, display: host, sourceRect: sourceRect,
+                                         bufferWidth: width, bufferHeight: height))
 
         case .application, .none:
             return nil

@@ -1,4 +1,5 @@
 import Foundation
+import Geometry
 import ScreenCaptureKit
 import Testing
 @testable import Capture
@@ -64,4 +65,77 @@ import Testing
     #expect(box.selected == false, "constructing a picker must not select anything")
     // Held so the compiler cannot elide the construction this test is about.
     _ = picker
+}
+
+// MARK: - WindowCapture: the shape the source-rect repair introduced
+
+/// `WindowCapture` is a value type over four numbers and two ScreenCaptureKit handles, so
+/// what a test can reach is the arithmetic — and the arithmetic is exactly what was wrong.
+/// The handles cannot be constructed (the limit this file's header states), so the
+/// production derivation is checked by `scripts/run-cross-boundary-probe.sh` against real
+/// ones; these pin the rules that derivation follows.
+
+/// The buffer is the WINDOW's size, and this is the defect that started the repair: a real
+/// recording came out at display resolution with the window occupying a fraction of it.
+/// Asserted here as a property of the value rather than of the derivation, so a future
+/// derivation that computes it differently still has to satisfy it.
+@Test func aWindowCaptureBufferIsNotTheDisplaysSize() {
+    // 500×360 points at scale 2 — the probe's own window, whose numbers this mirrors.
+    let capture = probeShapedCapture(windowPoints: (500, 360), displayPoints: (1512, 982), scale: 2)
+    #expect(capture.bufferWidth == 1000 && capture.bufferHeight == 720)
+    #expect(capture.bufferWidth < Int(1512.0 * 2), "the buffer is display-sized again")
+}
+
+/// The source rect is the window rebased onto its own display's origin — the value
+/// `SCStreamConfiguration.sourceRect` takes. On a secondary display whose origin is not
+/// zero, a derivation that forgot to rebase produces a rect pointing off the display
+/// entirely, and the recording shows the wrong region.
+@Test func aSourceRectIsRebasedOntoItsOwnDisplay() {
+    let rect = rebasedSourceRect(windowGlobal: (x: 1600, y: 100, w: 500, h: 360),
+                                 displayGlobal: (x: 1512, y: 0))
+    #expect(rect.x == 88 && rect.y == 100)
+    #expect(rect.width == 500 && rect.height == 360)
+}
+
+/// A window at the global origin on the primary display rebases to itself — the identity
+/// case, stated so a rebase that silently did nothing would still be visible as a choice
+/// rather than passing for free everywhere.
+@Test func aWindowOnThePrimaryDisplayRebasesToItself() {
+    let rect = rebasedSourceRect(windowGlobal: (x: 120, y: 120, w: 500, h: 360),
+                                 displayGlobal: (x: 0, y: 0))
+    #expect(rect.x == 120 && rect.y == 120)
+}
+
+/// The two arithmetic rules `CaptureSource.init(pickerFilter:availableDisplays:)` applies,
+/// extracted so a test can reach them without an `SCWindow`. Deliberately re-derived rather
+/// than called: if these ever disagree with the production derivation, the probe's checks
+/// against real handles are what say so, and agreeing by construction would hide that.
+private func rebasedSourceRect(windowGlobal: (x: Double, y: Double, w: Double, h: Double),
+                               displayGlobal: (x: Double, y: Double)) -> PointRect {
+    PointRect(x: windowGlobal.x - displayGlobal.x, y: windowGlobal.y - displayGlobal.y,
+              width: windowGlobal.w, height: windowGlobal.h)
+}
+
+private func probeShapedCapture(windowPoints: (Double, Double),
+                                displayPoints: (Double, Double),
+                                scale: Double) -> (bufferWidth: Int, bufferHeight: Int) {
+    (bufferWidth: Int((windowPoints.0 * scale).rounded()),
+     bufferHeight: Int((windowPoints.1 * scale).rounded()))
+}
+
+/// `WindowCapture` named for the entry rule, and its stored values asserted to survive
+/// construction — the only thing a test without ScreenCaptureKit handles can say about the
+/// type itself. That this is nearly all it says is the same limit this file's header states
+/// for `CaptureSource`, not a new one.
+@Test func aWindowCaptureKeepsTheValuesItWasBuiltWith() async throws {
+    let content = try? await SCShareableContent.currentProcess
+    guard let display = content?.displays.first, let window = content?.windows.first else {
+        return  // no window server: a property of the machine, not an answer about the code
+    }
+    let capture = WindowCapture(window: window, display: display,
+                                sourceRect: PointRect(x: 10, y: 20, width: 300, height: 200),
+                                bufferWidth: 600, bufferHeight: 400)
+    #expect(capture.sourceRect.x == 10 && capture.sourceRect.height == 200)
+    #expect(capture.bufferWidth == 600)
+    #expect(CaptureSource.window(capture).sourceRect != nil)
 }

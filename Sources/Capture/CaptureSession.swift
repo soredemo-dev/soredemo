@@ -605,6 +605,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let configuration = SCStreamConfiguration()
         configuration.width = geometry.pixelWidth
         configuration.height = geometry.pixelHeight
+        // **The crop, at the SOURCE.** `nil` for a display capture. Set here rather than
+        // applied per frame downstream: ScreenCaptureKit delivers frames already cropped
+        // and already the output's size, so nothing later has to know a window moved.
+        if let rect = source.sourceRect {
+            configuration.sourceRect = CGGeometryBridge.rect(from: rect)
+        }
         configuration.showsCursor = false                 // Step 0 / D2-8
         configuration.scalesToFit = false                  // D2-13a
         configuration.preservesAspectRatio = true           // D2-13a

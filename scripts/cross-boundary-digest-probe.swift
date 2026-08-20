@@ -121,6 +121,24 @@ import Render
 // this flag surfaced rather than introduced.
 import Timeline
 
+/// Builds a `.window` source the way `CaptureSource.init(pickerFilter:availableDisplays:)`
+/// does, so these checks keep exercising the production shape after the source-rect repair
+/// (2026-08-20) replaced `bufferSize`-on-the-case with a `WindowCapture`. Takes the display
+/// the caller already obtained rather than re-deriving it, so the probe cannot disagree
+/// with itself about which display the window is on.
+func probeWindowSource(_ window: SCWindow, on display: SCDisplay,
+                       bufferSize: (width: Int, height: Int)) -> CaptureSource {
+    let frame = CGGeometryBridge.pointRect(from: window.frame)
+    let bounds = CGGeometryBridge.pointRect(from: display.frame)
+    return .window(WindowCapture(
+        window: window,
+        display: display,
+        sourceRect: PointRect(x: frame.x - bounds.x, y: frame.y - bounds.y,
+                              width: frame.width, height: frame.height),
+        bufferWidth: bufferSize.width, bufferHeight: bufferSize.height))
+}
+
+
 /// `<repo>/scripts/cross-boundary-digest-probe.swift` → `<repo>`. Two `deletingLastPathComponent()`
 /// calls: one drops the file name, one drops `scripts` — this file sits directly under the
 /// repository root, one level shallower than
@@ -690,7 +708,7 @@ enum CrossBoundaryProbe {
         // ---- 2. .window — dragged (moved to a genuinely different screen
         // location, not the (0,0)-is-translation's-identity trap AGENTS.md
         // warns about), same bufferSize: identical revision.
-        let windowSourceBeforeMove = CaptureSource.window(scWindowBeforeMove, bufferSize: bufferSize)
+        let windowSourceBeforeMove = probeWindowSource(scWindowBeforeMove, on: display, bufferSize: bufferSize)
         let geometryBeforeMove = windowSourceBeforeMove.geometry(scale: 2, displayUUID: windowSourceID)
 
         window.setFrameOrigin(NSPoint(x: 700, y: 40))
@@ -705,14 +723,14 @@ enum CrossBoundaryProbe {
               "the window's frame genuinely changed — not the (0,0)/identity fixture trap",
               actual: "\(scWindowBeforeMove.frame) -> \(scWindowAfterMove.frame)")
 
-        let windowSourceAfterMove = CaptureSource.window(scWindowAfterMove, bufferSize: bufferSize)
+        let windowSourceAfterMove = probeWindowSource(scWindowAfterMove, on: display, bufferSize: bufferSize)
         let geometryAfterMove = windowSourceAfterMove.geometry(scale: 2, displayUUID: windowSourceID)
         check(geometryBeforeMove.revision == geometryAfterMove.revision,
               ".window: dragging to a different screen frame does not change the revision (D2-13)",
               actual: "\(geometryBeforeMove.revision) vs \(geometryAfterMove.revision)")
 
         // ---- 3. .window — resized output buffer, same window, different revision.
-        let smallerBufferSource = CaptureSource.window(scWindowAfterMove, bufferSize: (width: 800, height: 600))
+        let smallerBufferSource = probeWindowSource(scWindowAfterMove, on: display, bufferSize: (width: 800, height: 600))
         let smallerBufferGeometry = smallerBufferSource.geometry(scale: 2, displayUUID: windowSourceID)
         check(geometryAfterMove.revision != smallerBufferGeometry.revision,
               ".window: a different output buffer size mints a different revision",
@@ -750,40 +768,58 @@ enum CrossBoundaryProbe {
             check(false, "CaptureSource(pickerFilter:) derives a .window from a window-style filter")
             return
         }
-        if case .window(let derivedWindow, let derivedBufferSize) = derivedWindowSource {
-            check(derivedWindow.windowID == scWindowAfterMove.windowID,
+        if case .window(let derived) = derivedWindowSource {
+            check(derived.window.windowID == scWindowAfterMove.windowID,
                   "CaptureSource(pickerFilter:) picked the same SCWindow the filter names")
-            // The expected pixel size is the DISPLAY's, at the filter's own
-            // pointPixelScale (see `init(pickerFilter:availableDisplays:)`'s
-            // doc comment for why that scale, not a separately-looked-up
-            // display scale). Pinned to a computed expectation, not merely
-            // "positive" — a regression back to contentRect-sizing would
-            // still be positive and would pass a weaker check.
-            let expectedWidth = Int((Double(display.width) * Double(windowFilter.pointPixelScale)).rounded())
-            let expectedHeight = Int((Double(display.height) * Double(windowFilter.pointPixelScale)).rounded())
-            check(derivedBufferSize.width == expectedWidth && derivedBufferSize.height == expectedHeight,
-                  "CaptureSource(pickerFilter:) derives a DISPLAY-sized buffer (D2-13a), not a window-sized one",
-                  actual: "\(derivedBufferSize.width)x\(derivedBufferSize.height)",
-                  expected: "\(expectedWidth)x\(expectedHeight)")
-            // And the display-sized buffer is strictly larger than the
-            // window's own content, on this machine — the property D2-13a's
-            // "D strictly dominates" argument rests on.
+
+            // **This check was inverted by the source-rect repair (2026-08-20), and the
+            // inversion is the point.** It used to pin a DISPLAY-sized buffer — D2-13a's
+            // decision — and that decision produced a real recording whose output was
+            // display-resolution with the window occupying a fraction of it. The buffer is
+            // now sized to the WINDOW, at the filter's own pointPixelScale.
             //
-            // **Not discriminating on its own — recorded, not fixed, per
-            // AGENTS.md's mutation-granularity rule.** A `>=` comparison is
-            // still satisfied when the two sides are equal, which is exactly
-            // what happens if this regresses to window-content-sizing (the
-            // check above catches that regression; this one does not, on
-            // its own, at this window's current size). Mutation run and
-            // reverted while building this task: reverting the window
-            // branch to `filter.contentRect`-based sizing reddened the
-            // `==`-based check above (`1000x784` vs an expected
-            // `3024x1964`) and left this `>=` check green. Kept anyway,
-            // because it states a property (the buffer strictly dominates
-            // the window) that is worth asserting on its own terms, not as
-            // a substitute for the check above.
-            check(derivedBufferSize.width >= Int(windowFilter.contentRect.width * CGFloat(windowFilter.pointPixelScale)),
-                  "the derived buffer is at least as wide as the window's own content, in pixels")
+            // Pinned to a computed expectation, not to "positive": a regression back to
+            // display-sizing would still be positive and would pass a weaker check. On a
+            // multi-display machine the two differ by construction; on a single display
+            // they differ whenever the window is not full-screen, which the probe's own
+            // 500×360 window guarantees.
+            let expectedWidth = Int((windowFilter.contentRect.width
+                                     * CGFloat(windowFilter.pointPixelScale)).rounded())
+            let expectedHeight = Int((windowFilter.contentRect.height
+                                      * CGFloat(windowFilter.pointPixelScale)).rounded())
+            check(derived.bufferWidth == expectedWidth && derived.bufferHeight == expectedHeight,
+                  "CaptureSource(pickerFilter:) derives a WINDOW-sized buffer, not a display-sized one",
+                  actual: "\(derived.bufferWidth)x\(derived.bufferHeight)",
+                  expected: "\(expectedWidth)x\(expectedHeight)")
+
+            // And it is strictly SMALLER than the display, which is the discriminating
+            // half: a regression to display-sizing makes these equal and reddens this.
+            let displayPixelWidth = Int((Double(display.width)
+                                         * Double(windowFilter.pointPixelScale)).rounded())
+            check(derived.bufferWidth < displayPixelWidth,
+                  "the derived buffer is strictly narrower than the display — a display-sized regression makes them equal",
+                  actual: "\(derived.bufferWidth) vs display \(displayPixelWidth)")
+
+            // The source rect is the window rebased onto ITS display: the value
+            // `SCStreamConfiguration.sourceRect` takes, and the reason no per-frame
+            // content-rect offset is needed anywhere downstream.
+            let hostBounds = CGGeometryBridge.pointRect(from: derived.display.frame)
+            let windowFrame = CGGeometryBridge.pointRect(from: derived.window.frame)
+            check(abs(derived.sourceRect.x - (windowFrame.x - hostBounds.x)) < 0.001
+                  && abs(derived.sourceRect.y - (windowFrame.y - hostBounds.y)) < 0.001,
+                  "the source rect is the window's frame rebased onto its own display's origin",
+                  actual: "\(derived.sourceRect.x),\(derived.sourceRect.y)")
+            check(derived.sourceRect.width == windowFrame.width
+                  && derived.sourceRect.height == windowFrame.height,
+                  "the source rect keeps the window's own extent")
+
+            // The filter is a DISPLAY filter now — the reversal itself, asserted rather
+            // than left to the type's doc comment.
+            check(derivedWindowSource.filter().style == .display,
+                  "a window source captures through a display filter plus a source rect",
+                  actual: "\(derivedWindowSource.filter().style.rawValue)")
+            check(derivedWindowSource.sourceRect != nil,
+                  "a window source carries a source rect for the stream to crop with")
         } else {
             check(false, "CaptureSource(pickerFilter:) returned .display for a window-style filter")
         }
