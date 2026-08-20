@@ -63,6 +63,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private let displayUUID: UUID
     private let mediaSink: any MediaSink
     private let epoch: BootEpoch
+    /// **One rebase per track, because each has its own clock.** Video timestamps come from
+    /// a synthetic clock near zero and audio from the system media clock counting since
+    /// boot; unrebased they disagree by the machine's uptime and playback stutters. Guarded
+    /// by `lock` like every other mutable member here.
+    private nonisolated(unsafe) var videoRebase = TrackRebase()
+    private nonisolated(unsafe) var systemAudioRebase = TrackRebase()
+    private nonisolated(unsafe) var microphoneRebase = TrackRebase()
+
     /// Passed through to `InputObserver` — see its doc for why this is a closure.
     private let pointerShapeReader: @Sendable () -> PointerShape?
 
@@ -1005,11 +1013,21 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             lock.withLock { unsafe _diagnostics.skippedInputNotReadyCount += 1 }
             return
         }
+        // **Rebased before anything is written.** The session starts at zero and every
+        // track is mapped onto that timeline, so video and audio share one even though
+        // ScreenCaptureKit reports them on two clocks. `startSession(at: .zero)` rather
+        // than at the first PTS: the rebase has already made that first PTS zero, and
+        // passing the raw value would put the offset back.
+        let rebasedVideoPTS = lock.withLock { unsafe videoRebase.rebased(pts) }
         if !sessionAlreadyStarted {
-            masterRef.startSession(at: pts)
+            masterRef.startSession(at: .zero)
             lock.withLock { unsafe writerSessionStarted = true }
         }
-        let accepted = masterRef.video.append(sampleBuffer)
+        guard let retimedVideo = Self.retimed(sampleBuffer, to: rebasedVideoPTS) else {
+            lock.withLock { unsafe _diagnostics.skippedWriterNotWritingCount += 1 }
+            return
+        }
+        let accepted = masterRef.video.append(retimedVideo)
         if accepted, let observedContentScale, observedContentScale != 1 {
             lock.withLock { unsafe _diagnostics.appendedResampledFrameCount += 1 }
         }
@@ -1033,6 +1051,25 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 "\(isVideo ? "video" : "audio") append refused; writer status: \(master.status.name); "
                 + "writer error: \(master.errorDescription ?? "nil")"
         }
+    }
+
+    /// `sampleBuffer` with its presentation timestamp replaced, duration and every other
+    /// timing field untouched. `nil` when CoreMedia refuses, which the caller counts rather
+    /// than writing a buffer whose timing it did not set.
+    private nonisolated static func retimed(_ sampleBuffer: CMSampleBuffer,
+                                            to presentationTime: CMTime) -> CMSampleBuffer? {
+        var timing = CMSampleTimingInfo(
+            duration: CMSampleBufferGetDuration(sampleBuffer),
+            presentationTimeStamp: presentationTime,
+            decodeTimeStamp: .invalid)
+        var retimed: CMSampleBuffer?
+        // Safe here: `&timing` and `&retimed` are locals outliving the call, and the entry
+        // count of 1 matches the single timing record supplied.
+        let status = unsafe CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault, sampleBuffer: sampleBuffer,
+            sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+            sampleBufferOut: &retimed)
+        return status == noErr ? retimed : nil
     }
 
     private nonisolated func appendAudio(_ sampleBuffer: CMSampleBuffer, isSystemAudio: Bool) {
@@ -1079,8 +1116,19 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             updateAudioAccounting(isSystemAudio) { $0.uninterleavable += 1 }
             return
         }
-        let level = AudioInterleave.rms(of: writable)
-        let accepted = trackRef.append(writable)
+        // Rebased onto the same zero the video track starts at — each track by its OWN
+        // base, since sharing one would reintroduce the uptime offset this removes.
+        let audioPTS = CMSampleBufferGetPresentationTimeStamp(writable)
+        let rebasedAudioPTS = lock.withLock {
+            isSystemAudio ? unsafe systemAudioRebase.rebased(audioPTS)
+                          : unsafe microphoneRebase.rebased(audioPTS)
+        }
+        guard let retimedAudio = Self.retimed(writable, to: rebasedAudioPTS) else {
+            updateAudioAccounting(isSystemAudio) { $0.uninterleavable += 1 }
+            return
+        }
+        let level = AudioInterleave.rms(of: retimedAudio)
+        let accepted = trackRef.append(retimedAudio)
         updateAudioAccounting(isSystemAudio) {
             if accepted { $0.appended += 1 } else { $0.refused += 1 }
             if let level { $0.peakRMS = max($0.peakRMS ?? 0, level) }
