@@ -335,3 +335,75 @@ private func observer() -> Capture.AXObserver {
         globalTopLeftX: 300, globalTopLeftY: 200, in: viewport))
     #expect(result.revision == viewport.revision)
 }
+
+// MARK: - the shape read must not run inside the tap callback
+
+/// **A regression this project introduced and a real recording found.** Phase "Parity 2"
+/// gave `InputObserver` a `pointerShapeReader` and called it once per pointer sample —
+/// inside the `CGEvent.tapCreate` callback. The production reader asks AppKit for
+/// `NSCursor.currentSystem` and compares TIFF bytes; at 120 Hz during fast movement that is
+/// enough work for macOS to disable the tap with `kCGEventTapDisabledByTimeout`, which
+/// becomes a `tapDisabled` blind interval, which draws no pointer at all. The reported
+/// symptom was the cursor flickering when moved quickly.
+///
+/// The fix is the one `../opensource/a Swift recorder` (Apache 2.0) uses for the same problem:
+/// the shape is SAMPLED on its own cadence and the callback reads a cached value. This test
+/// pins the property that matters — **the callback does not call the reader** — by counting
+/// reads against samples.
+@Test func theTapCallbackDoesNotReadTheCursorShapePerSample() {
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func bump() -> PointerShape? { lock.withLock { value += 1 }; return .arrow }
+        var count: Int { lock.withLock { value } }
+    }
+    let reads = Counter()
+    let observer = InputObserver(viewport: viewport(), epoch: epoch,
+                                 pointerShapeReader: { reads.bump() })
+
+    // Fifty pointer events through `handle(type:event:)` — the tap callback's own body,
+    // driven with synthetic `CGEvent`s so no Input Monitoring grant is needed.
+    observer.setObservationSink { _ in }
+    for index in 0..<50 {
+        guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                                  mouseCursorPosition: CGPoint(x: 300 + Double(index) * 2, y: 200),
+                                  mouseButton: .left) else {
+            Issue.record("could not synthesise a mouseMoved event")
+            return
+        }
+        observer.handle(type: .mouseMoved, event: event)
+    }
+
+    #expect(reads.count == 0, """
+        the shape reader ran \(reads.count) times for 50 pointer samples — it is being \
+        called from the sample path, which is what disabled the tap during fast movement
+        """)
+}
+
+/// And the shape still reaches the samples: a reader that was simply never called would
+/// pass the test above and silently undo Parity 2. The observer refreshes its cached shape
+/// on demand, so an explicit refresh followed by samples stamps them.
+@Test func aRefreshedShapeStillReachesTheSamples() {
+    let observer = InputObserver(viewport: viewport(), epoch: epoch,
+                                 pointerShapeReader: { .iBeam })
+    observer.refreshPointerShape()
+
+    final class Sink: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [PointerShape?] = []
+        func record(_ shape: PointerShape?) { lock.withLock { seen.append(shape) } }
+        var shapes: [PointerShape?] { lock.withLock { seen } }
+    }
+    let sink = Sink()
+    observer.setObservationSink { observation in
+        if case .pointer(let sample) = observation { sink.record(sample.shape) }
+    }
+    guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                              mouseCursorPosition: CGPoint(x: 300, y: 200),
+                              mouseButton: .left) else {
+        Issue.record("could not synthesise a mouseMoved event")
+        return
+    }
+    observer.handle(type: .mouseMoved, event: event)
+    #expect(sink.shapes == [.iBeam])
+}

@@ -193,8 +193,21 @@ final class InputObserver: @unchecked Sendable {
     /// injected. A closure because the only API that can answer is AppKit's `NSCursor`,
     /// which `HeadlessCheck` bans from this target — the app tier injects the read, the
     /// same seam `secureInputIsEnabled` and `AXObserver.accessibilityIsGranted` use.
-    /// Called from the tap callback, once per pointer sample.
+    ///
+    /// **Never called from the tap callback, and that is a repair.** It was, once per
+    /// pointer sample, and a real recording showed the cursor flickering during fast
+    /// movement: the production reader asks AppKit for `NSCursor.currentSystem` and compares
+    /// image bytes, which at 120 Hz is enough work for macOS to disable the tap with
+    /// `kCGEventTapDisabledByTimeout`. A disabled tap becomes a `tapDisabled` blind
+    /// interval, a blind interval draws no pointer, and that is the flicker. The callback
+    /// reads `cachedPointerShape` instead; `refreshPointerShape()` is what runs the reader,
+    /// on the poll timer that already exists for the tap's own health.
+    /// `../opensource/a Swift recorder` (Apache 2.0) samples the pointer on a timer for the same
+    /// reason.
     private let pointerShapeReader: @Sendable () -> PointerShape?
+    /// The most recent shape the reader returned. Guarded by `lock` like every other
+    /// mutable member here.
+    private nonisolated(unsafe) var cachedPointerShape: PointerShape?
     private let tapIsEnabledOverride: (@Sendable () -> Bool)?
 
     // MARK: - state guarded by `lock`
@@ -450,6 +463,18 @@ final class InputObserver: @unchecked Sendable {
         return (position, viewport.revision)
     }
 
+    /// Runs the injected shape reader and caches what it returns, so the tap callback never
+    /// has to. Called from the poll timer — the cadence is the timer's, not the pointer's,
+    /// which is the whole point: a cursor shape changes when the pointer crosses a control
+    /// boundary, not on every one of 120 samples a second.
+    ///
+    /// `nonisolated` and public to the module so the poll can reach it; the read itself hops
+    /// wherever the injected closure needs to go.
+    nonisolated func refreshPointerShape() {
+        let shape = pointerShapeReader()
+        lock.withLock { unsafe cachedPointerShape = shape }
+    }
+
     // MARK: - The keyboard filter
 
     /// One entry in the allow-list. `modifiers` is matched **exactly**, not by
@@ -620,7 +645,14 @@ final class InputObserver: @unchecked Sendable {
         let timer = DispatchSource.makeTimerSource(queue: pollQueue)
         timer.schedule(deadline: .now() + .nanoseconds(Int(Self.pollIntervalNanos)),
                        repeating: .nanoseconds(Int(Self.pollIntervalNanos)))
-        timer.setEventHandler { [weak self] in self?.pollTapEnabled() }
+        timer.setEventHandler { [weak self] in
+            self?.pollTapEnabled()
+            // The cursor shape rides this poll rather than the pointer stream. Both belong
+            // here for the same reason: this queue is deliberately NOT the callback's, so
+            // work done here cannot be what stalls the callback. 100 ms is far finer than a
+            // person crossing a control boundary and far coarser than 120 Hz.
+            self?.refreshPointerShape()
+        }
         lock.withLock {
             unsafe pollTimer?.cancel()
             unsafe pollTimer = timer
@@ -802,7 +834,7 @@ final class InputObserver: @unchecked Sendable {
         emit(.pointer(PointerSample(instant: instant,
                                     position: converted.position,
                                     revision: converted.revision,
-                                    shape: pointerShapeReader())))
+                                    shape: lock.withLock { unsafe cachedPointerShape })))
     }
 
     private nonisolated func handleButton(_ event: CGEvent, button: PointerButton,
