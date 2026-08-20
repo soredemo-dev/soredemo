@@ -25,6 +25,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// A reviewer's decisions to suppress the pointer, set before playback starts and never read
     /// from the observation log.
     public nonisolated(unsafe) static var overrides: [CursorOverride] = []
+    /// A reviewer's decisions about where the camera frames — set on the same terms and for
+    /// the same reason as `overrides`. Applied by `FramingPlan.framedClicks(with:)`, which
+    /// consults them BEFORE the gate, so a re-derivation cannot replace an authored value.
+    public nonisolated(unsafe) static var framingOverrides: [FramingOverride] = []
 
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
@@ -173,7 +177,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             if !(unsafe tracksLoaded) {
                 unsafe tracksLoaded = true
                 if let url = unsafe Self.observationLogURL,
-                   let built = try? Self.buildTracks(from: url, overrides: unsafe Self.overrides) {
+                   let built = try? unsafe Self.buildTracks(from: url, overrides: Self.overrides,
+                                                            framingOverrides: Self.framingOverrides) {
                     unsafe pointerTrack = built.pointer
                     unsafe clickTrack = built.click
                     unsafe camera = built.camera
@@ -187,14 +192,15 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// Turns one observation log into a `PointerTrack` and a `ClickTrack` in one pass.
     /// `overrides` is a parameter, not read from the log: a reviewer's decision is a
     /// project-level judgement, not an observed fact.
-    private static func buildTracks(from url: URL, overrides: [CursorOverride]) throws
+    private static func buildTracks(from url: URL, overrides: [CursorOverride],
+                                    framingOverrides: [FramingOverride] = []) throws
         -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?, camera: CameraMotion) {
         let lines = try JSONLReader.linesOfFile(at: url).lines
         var samples: [PointerSample] = []
         var blindIntervals: [BlindInterval] = []
         var buttonEvents: [ButtonEvent] = []
         var anchor: EpochAnchor?
-        var framedClicks: [FramedClick] = []
+        var planEntries: [FramingPlan.Entry] = []
         for line in lines {
             switch try ObservationLog.kind(of: line) {
             case "logHeader":
@@ -212,22 +218,22 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 blindIntervals.append(BlindInterval(start: interval.start, duration: interval.duration,
                                                     cause: .tapDisabled))
             case "axChain":
-                // **The line the log has always written and nothing has ever read.** A
-                // refused chain contributes no block, and the reason is DISCARDED here
-                // rather than reported: `review-ui` is the surface that shows which gate
-                // fired, and this file draws frames. That the reason exists and is thrown
-                // away at this one seam is the honest description until that row lands.
+                // **Every decision is kept now, accepted and refused alike.** This used to
+                // keep the targets and discard the refusals one call after the gate named
+                // them, so a recording that zoomed nowhere could not say why. `FramingPlan`
+                // holds both; `review-ui` reads it, and a reviewer's override attaches to it.
                 let record = try ObservationLog.decode(line) as AXChainRecord
-                if case .framed(let target) = FramingGate.decide(for: record) {
-                    framedClicks.append(FramedClick(instant: record.instant, target: target))
-                }
+                planEntries.append(FramingPlan.Entry(instant: record.instant,
+                                                     decision: FramingGate.decide(for: record)))
             default:
                 break
             }
         }
         let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals, overrides: overrides)
         let click = ClickTrack(events: buttonEvents)
-        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: framedClicks))
+        // Overrides first, the gate second — the resolution order IS the producer-value rule.
+        let plan = FramingPlan(entries: planEntries)
+        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: plan.framedClicks(with: framingOverrides)))
         return (pointer: pointer, click: click, anchor: anchor, camera: camera)
     }
 }

@@ -17,6 +17,16 @@ struct StageWindow: View {
     // MARK: - export-basic
     @State private var isExporting = false
     @State private var exportStatus: String?
+    // MARK: - review-ui
+    /// Every framing decision the gate made, and the reviewer's own. Owned here rather than
+    /// by the inspector so it survives the inspector being closed.
+    @State private var review = FramingReviewModel()
+    @State private var isReviewShown = true
+    /// Bumped whenever an override changes, to rebuild the composition. **The preview has to
+    /// move**: the completion rule says a row is not done while the behaviour its name claims
+    /// is not observable in the product, and an override that only changed a list would not
+    /// be a review surface — it would be a form.
+    @State private var reviewRevision = 0
     let mediaURL: URL
 
     /// The output size passed to both `CompositionBuilder.composition` calls in this file, so the
@@ -42,12 +52,27 @@ struct StageWindow: View {
             }
         }
         .task(id: mediaURL) { await load() }
+        // `reviewRevision` and not `review.overrides`: the composition is rebuilt when a
+        // decision changes, and a counter says exactly that. Observing the array would also
+        // fire on a load that merely restored the same decisions.
+        .task(id: reviewRevision) { if reviewRevision > 0 { await load() } }
+        .inspector(isPresented: $isReviewShown) {
+            FramingReviewInspector(model: review, onChange: { reviewRevision += 1 })
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
+        }
         .toolbar {
             // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`
             // can only attach to a `Scene`, never to a plain `View`.
             ToolbarItem {
                 Button("Export…") { Task { await exportRecording() } }
                     .disabled(player == nil || isExporting)
+            }
+            ToolbarItem {
+                Button {
+                    isReviewShown.toggle()
+                } label: {
+                    Label("Review", systemImage: "sidebar.right")
+                }
             }
         }
         .alert("Export", isPresented: Binding(
@@ -81,6 +106,10 @@ struct StageWindow: View {
 
     private func load() async {
         do {
+            // Before the composition: `configuredComposition` reads
+            // `StageCompositor.framingOverrides`, which `FramingReviewModel.load` publishes.
+            review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
+                .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
             let composition = try await Self.configuredComposition(for: mediaURL)
             let asset = AVURLAsset(url: mediaURL)
             let item = AVPlayerItem(asset: asset)

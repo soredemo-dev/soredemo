@@ -88,6 +88,7 @@ xcrun swiftc \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \
+  Soredemo/UI/FramingReview.swift \
   scripts/cross-boundary-digest-probe.swift
 
 "$OUT/probe" "$@"

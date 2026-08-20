@@ -838,14 +838,21 @@ func firstPartySourceFiles() throws -> [URL] {
 @Test func componentsAssertedInProseDoNotExistOnlyInProse() throws {
     let appFiles = try appSourceFiles()
 
-    // `Inspector`: `StageWindow.swift`'s header claimed one while the word appeared
-    // exactly once in `Soredemo/` — inside that claim. Fails only when real code
-    // appears, so re-asserting it in prose keeps it failing-safe.
+    // `Inspector`: **this assertion is inverted, and the inversion is the point.**
+    // `StageWindow.swift`'s header claimed an inspector while the word appeared exactly
+    // once in `Soredemo/` — inside that claim. The tripwire fired when `review-ui` built a
+    // real one, which is what it was for; D6a-N's row was retired in the same commit. It
+    // now guards the opposite direction: the sentence must not outlive the code again.
     let inspectorInCode = try codeLinesNaming("Inspector", in: appFiles)
-    #expect(inspectorInCode.isEmpty, """
-        `Inspector` now appears in app CODE at \(inspectorInCode.count) site(s). If an inspector was
-        built, retire D6a-N's row and update `app-shell` in ROADMAP.md in this same commit:
-        \(inspectorInCode.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
+    #expect(!inspectorInCode.isEmpty, """
+        `Inspector` appears in app PROSE but no longer in app CODE — the exact fault D6a-N
+        recorded, in the other direction. Either restore the inspector or delete the sentences
+        claiming one, in the same commit.
+        """)
+    #expect(inspectorInCode.contains { $0.text.contains("FramingReviewInspector") }, """
+        the inspector in code is not the review surface. `review-ui`'s row is satisfied by an
+        inspector that shows each framing decision's origin, review state and reason — not by
+        any view that happens to be called one.
         """)
 
     // `SoredemoCore` must never be a TARGET, and this nail carries its reason rather
