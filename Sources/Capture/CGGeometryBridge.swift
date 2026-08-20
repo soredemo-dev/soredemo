@@ -84,6 +84,46 @@ public enum CGGeometryBridge {
     /// attribute did not answer, what came back is not an `AXValue`, or
     /// `AXValueGetValue` refuses the type. Non-finite values pass through
     /// unfiltered; the caller checks `isFinite`.
+    /// **The current frame of ONE window, by ID** — the live value `SCWindow.frame` is not.
+    /// `SCWindow` carries the frame the content query saw and never updates it, so a window
+    /// moved or resized during a recording leaves the capture cropping the wrong rectangle
+    /// and the pointer normalised against it. `WindowFollower` is the only caller.
+    ///
+    /// **Why the scoped call is here and not there.** `CGWindowListCopyWindowInfo` is on
+    /// `noAppSourceReadsUserContent`'s ban list, because in its usual shape — `.optionAll`
+    /// with `kCGNullWindowID` — it enumerates every window on the machine, including the
+    /// unrecorded ones, and can read `kCGWindowName`. That concern is real and the ban is
+    /// right. This call is a different shape: `.optionIncludingWindow` with a specific ID
+    /// returns exactly one window, the one already being recorded, and reads only
+    /// `kCGWindowBounds` — a rectangle, which an observation log may carry. The ban is
+    /// narrowed to permit this file and no other, so the shape stays auditable in one place
+    /// rather than becoming a habit; `kCGWindowName` remains banned everywhere including here.
+    ///
+    /// Returns `nil` when the window is gone — closed, or moved to another Space. That is
+    /// not the same as "unchanged" and the caller must not treat it as such.
+    ///
+    /// `kCGWindowBounds` is a dictionary representation of a `CGRect` in global top-left
+    /// points. `CGRectMakeWithDictionaryRepresentation` is the documented way back, rather
+    /// than picking the four keys out by hand — and it belongs in this file because the
+    /// `CGRect` it produces may not escape it.
+    public nonisolated static func windowBounds(_ windowID: CGWindowID) -> PointRect? {
+        guard let infoList = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID)
+                as? [[String: Any]],
+              let info = infoList.first,
+              let boundsDictionary = info[kCGWindowBounds as String] as? [String: Any]
+        else { return nil }
+        var rect = CGRect.zero
+        // `unsafe`: a C function writing through an `inout` pointer. Safe here — `rect` is
+        // a local that outlives the call, and its value is only trusted when the function
+        // returns true, which is exactly what the `guard` requires.
+        guard unsafe CGRectMakeWithDictionaryRepresentation(boundsDictionary as CFDictionary, &rect),
+              !rect.isNull, !rect.isInfinite,
+              rect.origin.x.isFinite, rect.origin.y.isFinite,
+              rect.width > 0, rect.height > 0
+        else { return nil }
+        return pointRect(from: rect)
+    }
+
     public nonisolated static func point(fromAXValue value: CFTypeRef?) -> (x: Double, y: Double)? {
         guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero

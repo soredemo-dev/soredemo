@@ -283,6 +283,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// was *delivered*. Recomputing it at check time would compare a fresh
         /// computation against its own inputs.
         public internal(set) var configuredDestinationRect: PixelRect?
+        /// How many times the recorded window moved or was resized mid-recording, and how
+        /// many of those the stream refused to be reconfigured for. A non-zero
+        /// `windowFollowFailures` means the crop is stale from that point on — the symptom
+        /// `WindowFollower` exists to remove — so it is counted rather than swallowed.
+        public internal(set) var windowFrameChanges = 0
+        public internal(set) var windowFollowFailures = 0
 
         /// Complete frames the video path skipped without appending, by reason.
         /// Skipping is legitimate (backpressure), but a skip no counter names is
@@ -349,6 +355,17 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated(unsafe) var ledger = SegmentLedger()
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var stream: SCStream?
+    /// The live configuration the stream was built with. Held because following a window
+    /// means handing `SCStream.updateConfiguration` a configuration with a new
+    /// `sourceRect` and everything else unchanged — rebuilding one from scratch on each
+    /// move would be a second place the segment's settings are decided.
+    private nonisolated(unsafe) var streamConfiguration: SCStreamConfiguration?
+    /// Watches the recorded window's frame. `nil` for a display capture, which has no crop
+    /// that can go stale. See `WindowFollower` for what a moved window did before this.
+    private nonisolated(unsafe) var windowFollower: WindowFollower?
+    /// The source as it currently stands — re-pointed at the window's new rectangle each
+    /// time the follower reports a move. `source` stays the segment's opening value.
+    private nonisolated(unsafe) var followedSource: CaptureSource?
     /// The master file, behind `MasterWriting` rather than a bare
     /// `AVAssetWriter`: everything it holds is deprecated at macOS 27.0, so the
     /// seam is where that migration will land. See `MasterWriter.swift`.
@@ -691,6 +708,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         lock.withLock {
             unsafe self.stream = scStream
+            unsafe self.streamConfiguration = configuration
             unsafe self.master = master
             unsafe self.writerTempURL = tempURL
             unsafe self.writerSessionStarted = false
@@ -711,6 +729,76 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
 
         try await scStream.startCapture()
+        startFollowingWindowIfNeeded()
+    }
+
+    // MARK: - Following a window that moves
+
+    /// Starts watching the recorded window's frame, for a window capture only.
+    ///
+    /// **The bug this closes.** `sourceRect` was computed once, when the segment opened,
+    /// from `SCWindow.frame` — a snapshot that never updates. Move the window during a
+    /// recording and the stream kept cropping the display at the old rectangle, so the
+    /// video showed whatever had moved into that spot; `InputObserver` normalised the
+    /// pointer against the same stale rectangle, so the drawn cursor drifted further off
+    /// the longer the recording ran. Both halves are updated here, from one reading, so
+    /// they cannot disagree.
+    private nonisolated func startFollowingWindowIfNeeded() {
+        guard let window = source.window else { return }
+        let displayBounds: PointRect
+        switch source {
+        case .window(let capture):
+            displayBounds = CGGeometryBridge.pointRect(from: capture.display.frame)
+        case .display:
+            return
+        }
+        let initialFrame = CGGeometryBridge.pointRect(from: window.frame)
+        let follower = WindowFollower(windowID: window.windowID, initialFrame: initialFrame)
+        lock.withLock {
+            unsafe self.windowFollower = follower
+            unsafe self.followedSource = source
+        }
+        follower.start { [weak self] frame in
+            self?.windowMoved(to: frame, displayBounds: displayBounds)
+        }
+    }
+
+    /// One reported move, applied to both consumers of the crop.
+    ///
+    /// The order matters: the viewport is updated **before** the stream is reconfigured.
+    /// `updateConfiguration` is asynchronous, so between the two there is a window in which
+    /// the pointer is normalised against the new rectangle while frames still show the old
+    /// one. A few pointer samples slightly ahead of the video is a far smaller error than
+    /// the reverse — samples normalised against a rectangle the video has already left is
+    /// exactly the drift this whole path exists to remove — and both settle within one
+    /// follower interval.
+    ///
+    /// A reconfiguration that fails is counted, not thrown: the recording is running and
+    /// aborting it over a failed crop update would lose the take. The stale-crop symptom
+    /// returns for that window, which the count makes visible.
+    private nonisolated func windowMoved(to frame: PointRect, displayBounds: PointRect) {
+        // The crop is in the display's own point space; the follower reports global points.
+        let updatedRect = PointRect(x: frame.x - displayBounds.x, y: frame.y - displayBounds.y,
+                                    width: frame.width, height: frame.height)
+        let (configuration, scStream, observer) = lock.withLock {
+            () -> (SCStreamConfiguration?, SCStream?, InputObserver?) in
+            let updated = unsafe (self.followedSource ?? self.source).following(sourceRect: updatedRect)
+            unsafe self.followedSource = updated
+            unsafe _diagnostics.windowFrameChanges += 1
+            return unsafe (self.streamConfiguration, self.stream, self.inputObserver)
+        }
+        if let observer, let followed = lock.withLock({ unsafe self.followedSource }) {
+            observer.updateViewport(followed.viewport(scale: scale, displayUUID: displayUUID))
+        }
+        guard let configuration, let scStream else { return }
+        configuration.sourceRect = CGGeometryBridge.rect(from: updatedRect)
+        Task { [weak self] in
+            do {
+                try await scStream.updateConfiguration(configuration)
+            } catch {
+                self?.lock.withLock { unsafe self?._diagnostics.windowFollowFailures += 1 }
+            }
+        }
     }
 
     /// Stops the current `SCStream`, finishes the current `AVAssetWriter`,
@@ -777,7 +865,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         let (segment, closingWriter) = lock.withLock { () -> (MasterSegment, ObservationWriter?) in
             let segment = unsafe ledger.closeSegment(at: snapshot.endInstant, endedBy: boundary)
+            unsafe self.windowFollower?.stop()
+            unsafe self.windowFollower = nil
+            unsafe self.followedSource = nil
             unsafe self.stream = nil
+            unsafe self.streamConfiguration = nil
             unsafe self.master = nil
             unsafe self.writerTempURL = nil
             unsafe self.currentMediaFilename = nil

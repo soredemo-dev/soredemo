@@ -39,6 +39,16 @@ public struct WindowCapture: Sendable {
     public let bufferWidth: Int
     public let bufferHeight: Int
 
+    /// The same capture cropped at a different rectangle — the window having moved or been
+    /// resized while recording. **The buffer is deliberately carried over unchanged**: a
+    /// QuickTime track cannot change dimensions mid-track (D2-13), so a resize is absorbed
+    /// by ScreenCaptureKit scaling the new source rect into the existing buffer rather than
+    /// by the video changing resolution. See `WindowFollower` for what that costs.
+    public nonisolated func following(sourceRect updated: PointRect) -> WindowCapture {
+        WindowCapture(window: window, display: display, sourceRect: updated,
+                      bufferWidth: bufferWidth, bufferHeight: bufferHeight)
+    }
+
     public init(window: SCWindow, display: SCDisplay, sourceRect: PointRect,
                 bufferWidth: Int, bufferHeight: Int) {
         self.window = window
@@ -53,6 +63,24 @@ public enum CaptureSource: Sendable {
     case display(SCDisplay)
 
     case window(WindowCapture)
+
+    /// The same source cropped at a new rectangle, for a window that moved mid-recording.
+    /// A display source has no crop to move and returns itself — the caller does not branch.
+    public nonisolated func following(sourceRect updated: PointRect) -> CaptureSource {
+        switch self {
+        case .display: return self
+        case .window(let capture): return .window(capture.following(sourceRect: updated))
+        }
+    }
+
+    /// The window being recorded, if this is a window capture — what `WindowFollower` needs
+    /// to identify and re-read. `nil` for a display.
+    public nonisolated var window: SCWindow? {
+        switch self {
+        case .display: return nil
+        case .window(let capture): return capture.window
+        }
+    }
 
     /// The intrinsic geometry — what `GeometryRevision` is a digest of.
     ///
@@ -129,8 +157,11 @@ public enum CaptureSource: Sendable {
                                    widthInPoints: bounds.width, heightInPoints: bounds.height)
         case .window(let capture):
             // The source rect is display-local; the pointer arrives in global points, so it
-            // is rebased back out. The window's own frame is deliberately NOT read here —
-            // it moves, and the recording is fixed to the rect the segment opened with.
+            // is rebased back out. The window's own frame is still not read here — but no
+            // longer because the recording is fixed to the opening rect. It is because
+            // `SCWindow.frame` is a snapshot from the content query and never updates;
+            // `WindowFollower` reads the live frame and hands back a source rect through
+            // `following(sourceRect:)`, so this stays the one place the rebase is written.
             let bounds = CGGeometryBridge.pointRect(from: capture.display.frame)
             return CaptureViewport(geometry: geometry,
                                    globalOriginX: bounds.x + capture.sourceRect.x,

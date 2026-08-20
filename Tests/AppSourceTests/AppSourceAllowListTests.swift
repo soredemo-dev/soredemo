@@ -394,10 +394,23 @@ func lineNumber(of location: String) -> Int {
 
     // The three landmarks the call must sit between, each named once so a
     // rename fails this test loudly rather than silently widening it.
-    let startDeclaration = try codeLinesNaming("public func start(onObservation", in: files)
-    let stopDeclaration = try codeLinesNaming("public func stop()", in: files)
-    let tapCreate = try codeLinesNaming("CGEvent.tapCreate", in: files)
-    let tapEnabled = try codeLinesNaming("CGEvent.tapEnable(tap: created", in: files)
+    //
+    // **Scoped to `InputObserver.swift`, not to every app source.** This test makes an
+    // ORDERING claim about one file — that `startPolling()` sits between `start()` and
+    // `stop()` in that file — and a landmark from another file cannot participate in it.
+    // Searching everywhere was fine while `stop()` was unique in the app; it stopped being
+    // so when `PointerSampler` and `WindowFollower` arrived, each with the timer teardown
+    // that method name is correct for. Widening the match to something like
+    // `InputObserver.stop` would have been the wrong repair: the uniqueness that matters is
+    // within the file whose line numbers are being compared.
+    let observerFile = files.filter {
+        pathRelativeToRepositoryRoot($0) == "Sources/Capture/InputObserver.swift"
+    }
+    try #require(observerFile.count == 1, "InputObserver.swift was not among the scanned files")
+    let startDeclaration = try codeLinesNaming("public func start(onObservation", in: observerFile)
+    let stopDeclaration = try codeLinesNaming("public func stop()", in: observerFile)
+    let tapCreate = try codeLinesNaming("CGEvent.tapCreate", in: observerFile)
+    let tapEnabled = try codeLinesNaming("CGEvent.tapEnable(tap: created", in: observerFile)
     for (name, landmark) in [("start(onObservation:)", startDeclaration), ("stop()", stopDeclaration),
                              ("CGEvent.tapCreate", tapCreate),
                              ("CGEvent.tapEnable(tap: created", tapEnabled)] {
@@ -545,7 +558,6 @@ func lineNumber(of location: String) -> Int {
             "NSPasteboard",
             // Every window on the machine, including the unrecorded ones.
             "kCGWindowName",
-            "CGWindowListCopyWindowInfo",
             "CGWindowListCreateDescriptionFromArray",
         ],
         in: try firstPartySourceFiles())
@@ -596,6 +608,51 @@ func lineNumber(of location: String) -> Int {
             It takes its attribute string from somewhere else, so the permitted list is no longer \
             what decides which attributes this app can read.
             """)
+}
+
+
+// MARK: - the one narrowed exception, and its shape
+
+/// **`CGWindowListCopyWindowInfo` is banned everywhere but one file, and its SHAPE is
+/// pinned there.** It was on `noAppSourceReadsUserContent`'s list outright, for a good
+/// reason: called the usual way — `.optionAll` with `kCGNullWindowID` — it enumerates every
+/// window on the machine, including ones this recording is not capturing, and each entry
+/// carries `kCGWindowName`.
+///
+/// Following a window that moves mid-recording needs one thing that no permitted API
+/// supplies: the LIVE frame of the single window already being recorded. `SCWindow.frame`
+/// is a snapshot from the content query and never updates, which is the defect
+/// `WindowFollower` exists to fix. So the ban is narrowed rather than lifted: the call may
+/// appear only in `CGGeometryBridge`, and only in the scoped shape.
+///
+/// The two assertions below are the whole exception. The first keeps the call from
+/// spreading; the second keeps it from widening in place — an enumerating variant in the
+/// permitted file would otherwise pass silently. `kCGWindowName` stays banned everywhere,
+/// including there, so no name can be read even from the one window that may be looked up.
+@Test func theScopedWindowLookupIsConfinedAndStaysScoped() throws {
+    let bridge = "Sources/Capture/CGGeometryBridge.swift"
+    let escaped = try violations(banned: ["CGWindowListCopyWindowInfo"],
+                                 permittedPaths: [bridge],
+                                 in: try firstPartySourceFiles())
+    #expect(escaped.isEmpty, """
+        the scoped window lookup appeared outside \(bridge):
+        \(escaped.joined(separator: "\n"))
+        Route the read through CGGeometryBridge.windowBounds; see its comment for why the \
+        exception is drawn this narrowly.
+        """)
+
+    let text = try String(contentsOf: repositoryRoot.appending(path: bridge), encoding: .utf8)
+    let callLines = SwiftSourceLexer.codeViewLines(of: text)
+        .filter { $0.contains("CGWindowListCopyWindowInfo") }
+    #expect(callLines.count == 1,
+            "expected exactly one call in \(bridge), found \(callLines.count)")
+    let call = try #require(callLines.first)
+    #expect(call.contains(".optionIncludingWindow"),
+            "the permitted call must be scoped to one window: \(call)")
+    for widening in ["optionAll", "optionOnScreenOnly", "kCGNullWindowID"] {
+        #expect(!call.contains(widening),
+                "the permitted call widened to an enumeration via \(widening): \(call)")
+    }
 }
 
 // MARK: - the needles must be able to fire

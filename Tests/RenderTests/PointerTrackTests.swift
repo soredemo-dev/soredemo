@@ -323,3 +323,114 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
             == .drawn(NormalizedPoint(x: 0.5, y: 0.5), shape: nil, hotspot: nil))
     #expect(track.smoothedPosition(at: at(0)) == .noObservationYet)
 }
+
+// MARK: - Binary search equivalence
+
+/// **The search replaced a scan, so the test is that it answers identically.**
+/// `position(at:)` and `smoothedPosition(at:)` used to walk the whole sample array on
+/// every call — no `break` — and `smoothedPosition` walked it twice. That is invisible in
+/// the tests above, whose tracks hold two or three samples, and it is the stutter a real
+/// export shows: ~21,600 samples at 120 Hz over three minutes, times 10,800 frames at
+/// 60 fps, is roughly 470 million iterations.
+///
+/// The reference below is the OLD implementation, kept verbatim. Comparing against it at
+/// every instant that could distinguish them is stronger than asserting hand-computed
+/// answers, because it cannot be wrong in the same direction as the code under test.
+@Suite struct PointerTrackSearchEquivalenceTests {
+    /// Two epochs interleaved in host time — the case the walk-back exists for. Sorting is
+    /// by host time alone, so a matching-epoch sample can sit behind a foreign one, and a
+    /// search that stopped at the first candidate would return the wrong sample or none.
+    private func mixedSamples() -> [PointerSample] {
+        var samples: [PointerSample] = []
+        for step in 0..<40 {
+            let time = Nanoseconds(Int64(step) * 10_000_000)
+            let useOther = step % 3 == 0
+            samples.append(PointerSample(
+                instant: HostInstant(epoch: useOther ? otherEpoch : epoch, hostTime: time),
+                position: NormalizedPoint(x: Double(step) / 40.0, y: 1.0 - Double(step) / 40.0),
+                revision: GeometryRevision(id: 1)))
+        }
+        // Deliberately shuffled input: `init` sorts, and the search depends on that.
+        return samples.reversed()
+    }
+
+    private func referencePosition(_ samples: [PointerSample],
+                                   at instant: HostInstant) -> PointerSample? {
+        var latest: PointerSample?
+        for sample in samples.sorted(by: { $0.instant.hostTime.rawValue < $1.instant.hostTime.rawValue })
+        where sample.instant.epoch == instant.epoch
+            && sample.instant.hostTime.rawValue <= instant.hostTime.rawValue {
+            latest = sample
+        }
+        return latest
+    }
+
+    @Test func theSearchAgreesWithTheScanAtEveryInstant() {
+        let samples = mixedSamples()
+        let track = PointerTrack(samples: samples, blindIntervals: [], overrides: [])
+        // Every sample instant, one nanosecond either side of it, and the midpoints —
+        // the only places an off-by-one in the bound could hide.
+        var probes: [Int64] = [-1, 0]
+        for step in 0..<40 {
+            let time = Int64(step) * 10_000_000
+            probes.append(contentsOf: [time - 1, time, time + 1, time + 5_000_000])
+        }
+        probes.append(500_000_000)
+
+        for raw in probes {
+            for probeEpoch in [epoch, otherEpoch] {
+                let instant = HostInstant(epoch: probeEpoch, hostTime: Nanoseconds(raw))
+                let expected = referencePosition(samples, at: instant)
+                let actual = track.position(at: instant)
+                if let expected {
+                    #expect(actual == .drawn(expected.position, shape: expected.shape,
+                                             hotspot: expected.hotspot),
+                            "disagreed at \(raw) in epoch \(probeEpoch.id)")
+                } else {
+                    #expect(actual == .noObservationYet,
+                            "expected no observation at \(raw) in epoch \(probeEpoch.id)")
+                }
+            }
+        }
+    }
+
+    /// The forward half. `smoothedPosition` needs the first sample strictly AFTER the
+    /// instant in the same epoch; the old loop found it by continuing the same walk, so a
+    /// separate search has to be checked separately.
+    @Test func theBracketedLerpAgreesWithTheScan() {
+        let samples = mixedSamples()
+        let track = PointerTrack(samples: samples, blindIntervals: [], overrides: [])
+        let sorted = samples.sorted { $0.instant.hostTime.rawValue < $1.instant.hostTime.rawValue }
+
+        for step in 0..<40 {
+            let raw = Int64(step) * 10_000_000 + 3_000_000
+            let instant = HostInstant(epoch: epoch, hostTime: Nanoseconds(raw))
+
+            var before: PointerSample?
+            var after: PointerSample?
+            for sample in sorted where sample.instant.epoch == epoch {
+                if sample.instant.hostTime.rawValue <= raw {
+                    before = sample
+                } else {
+                    after = sample
+                    break
+                }
+            }
+
+            let actual = track.smoothedPosition(at: instant)
+            guard let a = before, let b = after,
+                  case let span = b.instant.hostTime.rawValue - a.instant.hostTime.rawValue,
+                  span > 0, span <= PointerTrack.maxInterpolationGap.rawValue
+            else {
+                // Falls back to the stepwise reading; that path is covered above.
+                #expect(actual == track.position(at: instant), "fallback disagreed at \(raw)")
+                continue
+            }
+            let fraction = Double(raw - a.instant.hostTime.rawValue) / Double(span)
+            #expect(actual == .drawn(NormalizedPoint(x: a.position.x + (b.position.x - a.position.x) * fraction,
+                                                     y: a.position.y + (b.position.y - a.position.y) * fraction),
+                                     shape: a.shape, hotspot: a.hotspot),
+                    "lerp disagreed at \(raw)")
+        }
+    }
+}

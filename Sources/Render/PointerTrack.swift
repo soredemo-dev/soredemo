@@ -50,23 +50,77 @@ public struct PointerTrack: Sendable {
         if let interval = blindIntervals.first(where: { $0.contains(time) }) {
             return .blind(interval)
         }
-        var latest: PointerSample?
-        for sample in samples
-        where sample.instant.epoch == instant.epoch
-            && sample.instant.hostTime.rawValue <= time.rawValue {
-            latest = sample
-        }
-        guard let latest else { return .noObservationYet }
+        guard let latest = lastSample(atOrBefore: time, epoch: instant.epoch)
+        else { return .noObservationYet }
         return .drawn(latest.position, shape: latest.shape, hotspot: latest.hotspot)
     }
 
-    /// The widest bracket the lerp will cross. A moving pointer at 120 Hz samples ~8 ms
-    /// apart; a STATIONARY one emits nothing at all, so a wide gap between brackets means
-    /// the pointer sat still and lerping across it would invent a slow drift the user
-    /// never made. 50 ms is comfortably above motion cadence and far below any pause a
-    /// person would read as stillness. Public because `RecordedPointerPositionTests`
-    /// re-derives the rule independently from the fixture's bytes and must agree on the
-    /// threshold to disagree meaningfully about anything else.
+    /// **Why this is a binary search and not the `for … where` it replaced.** `samples` is
+    /// sorted in `init`, and both queries below run once per rendered frame. The linear
+    /// version had no `break`, so it walked the WHOLE array every call, and
+    /// `smoothedPosition` walked it twice — once itself and once through `position(at:)`.
+    /// A three-minute recording sampled at 120 Hz is ~21,600 samples; exported at 60 fps
+    /// that is 10,800 frames, so ~470 million iterations for one export. That cost is
+    /// invisible in the tests, whose tracks hold a handful of samples, and is exactly the
+    /// stutter a real recording shows. The array is sorted, so the scan was never needed.
+    ///
+    /// `upperBound` is the count of samples whose host time is `<= time`; the last one is
+    /// at `upperBound - 1`. The walk back from there exists only because two boots produce
+    /// overlapping host times: sorting is by host time alone, so a matching-epoch sample
+    /// can sit behind one from another session. In a single-session recording — every real
+    /// one — the first candidate matches and the walk does not run.
+    private func lastSample(atOrBefore time: Nanoseconds, epoch: BootEpoch) -> PointerSample? {
+        var index = upperBound(time)
+        while index > 0 {
+            index -= 1
+            if samples[index].instant.epoch == epoch { return samples[index] }
+        }
+        return nil
+    }
+
+    /// The first sample strictly after `time` in `epoch`. The forward twin of the above,
+    /// and it skips foreign epochs for the same reason.
+    private func firstSample(after time: Nanoseconds, epoch: BootEpoch) -> PointerSample? {
+        var index = upperBound(time)
+        while index < samples.count {
+            if samples[index].instant.epoch == epoch { return samples[index] }
+            index += 1
+        }
+        return nil
+    }
+
+    /// Number of samples with host time `<= time`. Half-open `[low, high)`, so `low`
+    /// lands on the first sample strictly after `time` and is the count of those at or
+    /// before it. `low + (high - low) / 2` rather than `(low + high) / 2`: the operands are
+    /// `Int` and the sum of two large indices is the classic overflow in this loop.
+    private func upperBound(_ time: Nanoseconds) -> Int {
+        var low = 0
+        var high = samples.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if samples[mid].instant.hostTime.rawValue <= time.rawValue {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    /// The widest bracket the lerp will cross. 50 ms is comfortably above motion cadence
+    /// and far below any pause a person would read as stillness. Public because
+    /// `RecordedPointerPositionTests` re-derives the rule independently from the fixture's
+    /// bytes and must agree on the threshold to disagree meaningfully about anything else.
+    ///
+    /// **What a wide gap means changed when `PointerSampler` was added, and the threshold
+    /// did not.** It used to mean "the pointer sat still", because the tap emitted only on
+    /// motion; lerping across such a gap would have invented a slow drift the user never
+    /// made. The capture side now puts a 60 Hz floor under the track, so a still pointer
+    /// emits repeated identical positions and a gap wider than 50 ms no longer means
+    /// stillness — it means the recorder itself was not sampling. That is a stronger reason
+    /// to refuse, not a weaker one, so the rule stands: interpolating across a span nothing
+    /// observed is exactly the invented motion this refuses. Tracks recorded before the
+    /// sampler existed keep their old meaning and the same correct treatment.
     public static let maxInterpolationGap = Nanoseconds(50_000_000)
 
     /// The RENDERING path's position: linearly interpolated between the bracketing samples,
@@ -88,16 +142,8 @@ public struct PointerTrack: Sendable {
         else { return stepwise }
 
         let time = instant.hostTime
-        var before: PointerSample?
-        var after: PointerSample?
-        for sample in samples where sample.instant.epoch == instant.epoch {
-            if sample.instant.hostTime.rawValue <= time.rawValue {
-                before = sample
-            } else {
-                after = sample
-                break
-            }
-        }
+        let before = lastSample(atOrBefore: time, epoch: instant.epoch)
+        let after = firstSample(after: time, epoch: instant.epoch)
         guard let a = before, let b = after else {
             return .drawn(heldPosition, shape: heldShape, hotspot: heldHotspot)
         }

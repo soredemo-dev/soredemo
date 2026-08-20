@@ -53,6 +53,11 @@ final class InputObserver: @unchecked Sendable {
     /// satisfy `keyDownsSeen == keySamples + keyDownsRefused`.
     public struct Diagnostics: Sendable, Equatable {
         public internal(set) var pointerSamples = 0
+        /// The share of `pointerSamples` the cadence supplied rather than the tap — so
+        /// `pointerSamples - cadenceSamples` is what the tap contributed. A recording where
+        /// this is near the total is one where the tap was mostly not delivering, which is
+        /// worth knowing rather than silently smoothing over.
+        public internal(set) var cadenceSamples = 0
         public internal(set) var buttonEvents = 0
         public internal(set) var keySamples = 0
         public internal(set) var keyDownsSeen = 0
@@ -186,7 +191,17 @@ final class InputObserver: @unchecked Sendable {
     /// **What is being recorded** — a display, or a window's rect inside one. Was a
     /// `DisplayArrangement` until the window-capture repair (2026-08-20); the observer no
     /// longer knows what a display is, which is the coupling that made the bug expressible.
-    private let viewport: CaptureViewport
+    ///
+    /// **Mutable, and that is the second half of that repair.** It was a `let`, on the
+    /// argument that "a rearrangement mid-recording shows as `unroutablePointerLocations`,
+    /// not as wrong coordinates". That argument holds for a display being rearranged, which
+    /// is rare. It does not hold for a *window* being moved or resized mid-recording, which
+    /// is ordinary: the capture follows the window (see `CaptureSession`'s window tracker),
+    /// so a viewport frozen at `start()` would normalise every later sample against a
+    /// rectangle the video no longer shows. The pointer would drift further off the longer
+    /// the recording ran. `revision` rides along on every sample so a consumer can tell
+    /// which rectangle a position was measured in.
+    private nonisolated(unsafe) var viewport: CaptureViewport
     private let epoch: BootEpoch
     private let secureInputIsEnabled: @Sendable () -> Bool
     /// Reads the CURRENT system cursor's classified shape, or `nil` when no reader was
@@ -257,6 +272,13 @@ final class InputObserver: @unchecked Sendable {
     /// The timer that does the polling. Runs on `pollQueue` — **not** the main
     /// run loop.
     private nonisolated(unsafe) var pollTimer: (any DispatchSourceTimer)?
+    /// The fixed-cadence position source. See `PointerSampler` for why the tap alone is
+    /// not enough; in short, a tap reports motion and a still pointer produces no motion.
+    private let sampler: PointerSampler
+    /// The instant of the last pointer sample emitted from ANY source. The cadence uses it
+    /// to stay out of the tap's way: while the pointer is moving the tap already supplies
+    /// samples finer than the cadence, and emitting both would double the track for nothing.
+    private nonisolated(unsafe) var lastPointerEmission: HostInstant?
 
     // MARK: - Init
 
@@ -276,9 +298,15 @@ final class InputObserver: @unchecked Sendable {
                 secureInputIsEnabled: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() },
                 tapIsEnabledOverride: (@Sendable () -> Bool)? = nil,
                 pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil },
-                pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil }) {
-        self.viewport = viewport
+                pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil },
+                sampler: PointerSampler? = nil) {
+        // `unsafe`: `viewport` became a `nonisolated(unsafe)` var so a followed window can
+        // re-point it. Safe here for the reason the whole block at the top of this type
+        // gives — this runs before the instance is shared, so no other access can race it;
+        // every later write goes through `updateViewport` under `lock`.
+        unsafe self.viewport = viewport
         self.epoch = epoch
+        self.sampler = sampler ?? PointerSampler()
         self.secureInputIsEnabled = secureInputIsEnabled
         self.tapIsEnabledOverride = tapIsEnabledOverride
         self.pointerShapeReader = pointerShapeReader
@@ -290,6 +318,7 @@ final class InputObserver: @unchecked Sendable {
         // through which a concurrent access could occur. The timer must still
         // be cancelled or it keeps firing against a freed port.
         unsafe pollTimer?.cancel()
+        sampler.stop()
         if let tap = unsafe tap {
             CGEvent.tapEnable(tap: tap, enable: false)
             CFMachPortInvalidate(tap)
@@ -391,6 +420,9 @@ final class InputObserver: @unchecked Sendable {
             // than reset, so `tapEnabledPolls` and the span it is quoted over
             // cover about the same period.
             unsafe self.lastObservedInstant = nil
+            // Same reason as the instants below: a first cadence tick after a restart must
+            // not read the previous session's emission as "recent" and skip itself.
+            unsafe self.lastPointerEmission = nil
             unsafe self.lastEnabledPollInstant = nil
             unsafe self.firstPollInstant = nil
             unsafe self.accumulatedPollingSpanNanos = unsafe _diagnostics.tapPollingSpanNanos
@@ -399,6 +431,10 @@ final class InputObserver: @unchecked Sendable {
         CGEvent.tapEnable(tap: created, enable: true)
         // After the tap exists, so the first poll has something to read.
         startPolling()
+        // Last: the cadence defers to the tap, so the tap should be live before it ticks.
+        sampler.start(epoch: epoch) { [weak self] instant, location in
+            self?.sampleCadence(at: instant, location: location)
+        }
     }
 
     public func stop() {
@@ -406,6 +442,7 @@ final class InputObserver: @unchecked Sendable {
         // invalidated: the poll handler holds `lock` for the whole of its
         // CoreGraphics work and the clearing below takes the same lock.
         stopPolling()
+        sampler.stop()
         let (existingTap, existingSource, pending) = lock.withLock {
             () -> (CFMachPort?, CFRunLoopSource?, HostInstant?) in
             let values = unsafe (tap, runLoopSource, secureInputBegan)
@@ -469,6 +506,70 @@ final class InputObserver: @unchecked Sendable {
                                                 globalTopLeftY: globalTopLeftY)
         else { return nil }
         return (position, viewport.revision)
+    }
+
+    // MARK: - The cadence
+
+    /// **The floor under the pointer track.** One tick of `PointerSampler`, converted and
+    /// emitted through exactly the path a tap sample takes.
+    ///
+    /// The tap is a stream of events: while the pointer moves it emits faster than this
+    /// cadence, and while the pointer is still it emits nothing at all. So this skips a
+    /// tick the tap already covered — the check is `< interval`, meaning "a sample this
+    /// fresh already exists" — and emits otherwise. The result is a track with no gap
+    /// longer than one interval, whatever the pointer is doing and whether or not the
+    /// system has disabled the tap.
+    ///
+    /// **A blind window is still recorded as blind.** This does not paper over a disabled
+    /// tap: the tap's own poll still opens and closes `tapDisabled` intervals, and
+    /// `PointerTrack` still refuses to interpolate across one. What changes is that the
+    /// pointer keeps being drawn in the right place while the tap is out, instead of
+    /// vanishing — which is what a recording showed.
+    nonisolated func sampleCadence(at instant: HostInstant, location: (x: Double, y: Double)) {
+        let (recentEnough, currentViewport) = lock.withLock {
+            () -> (Bool, CaptureViewport) in
+            let last = unsafe lastPointerEmission
+            let fresh = last.map {
+                $0.epoch == instant.epoch
+                    && instant.hostTime.rawValue - $0.hostTime.rawValue < Self.cadenceInterval.rawValue
+            } ?? false
+            return unsafe (fresh, viewport)
+        }
+        guard !recentEnough else { return }
+        guard let converted = Self.normalizedPosition(globalTopLeftX: location.x,
+                                                      globalTopLeftY: location.y,
+                                                      in: currentViewport) else {
+            lock.withLock { unsafe _diagnostics.unroutablePointerLocations += 1 }
+            return
+        }
+        let (shape, hotspot) = lock.withLock {
+            () -> (PointerShape?, NormalizedPoint?) in
+            unsafe _diagnostics.pointerSamples += 1
+            unsafe _diagnostics.cadenceSamples += 1
+            unsafe lastPointerEmission = instant
+            return unsafe (cachedPointerShape, cachedPointerHotspot)
+        }
+        emit(.pointer(PointerSample(instant: instant, position: converted.position,
+                                    revision: converted.revision,
+                                    shape: shape, hotspot: hotspot)))
+    }
+
+    /// Kept next to the sampler's own default so the freshness test above and the tick rate
+    /// cannot drift apart.
+    nonisolated static var cadenceInterval: Nanoseconds { PointerSampler.defaultInterval }
+
+    /// Points the observer at a new recorded rectangle — a window that moved or was
+    /// resized mid-recording. Every sample after this normalises against the new rectangle
+    /// and carries its `revision`; samples already emitted keep the old one, which is what
+    /// makes the change legible downstream rather than silent.
+    public nonisolated func updateViewport(_ updated: CaptureViewport) {
+        lock.withLock { unsafe viewport = updated }
+    }
+
+    /// The rectangle currently being normalised against. For tests and for the window
+    /// tracker's own check that its update landed.
+    public nonisolated var currentViewport: CaptureViewport {
+        lock.withLock { unsafe viewport }
     }
 
     /// Runs the injected shape reader and caches what it returns, so the tap callback never
@@ -828,7 +929,7 @@ final class InputObserver: @unchecked Sendable {
         let location = CGGeometryBridge.location(from: event.location)
         guard let converted = Self.normalizedPosition(globalTopLeftX: location.x,
                                                       globalTopLeftY: location.y,
-                                                      in: viewport) else {
+                                                      in: lock.withLock { unsafe viewport }) else {
             lock.withLock {
                 if isButton { unsafe _diagnostics.unroutableButtonLocations += 1 }
                 else { unsafe _diagnostics.unroutablePointerLocations += 1 }
@@ -840,7 +941,10 @@ final class InputObserver: @unchecked Sendable {
 
     private nonisolated func handlePointerMotion(_ event: CGEvent, at instant: HostInstant) {
         guard let converted = position(of: event) else { return }
-        lock.withLock { unsafe _diagnostics.pointerSamples += 1 }
+        lock.withLock {
+            unsafe _diagnostics.pointerSamples += 1
+            unsafe lastPointerEmission = instant
+        }
         // Never thinned (D2-7): ~24 bytes a sample at 120 Hz is about 1 MB for
         // five minutes, and a thinned track cannot be re-tuned later.
         emit(.pointer(PointerSample(instant: instant,
