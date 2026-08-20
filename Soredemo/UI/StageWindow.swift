@@ -28,6 +28,15 @@ struct StageWindow: View {
     /// The output shape. Drives the preview as well as the export: a person choosing Portrait
     /// and then seeing a landscape preview has been shown the wrong thing.
     @State private var variant = AspectVariant.landscape
+    // MARK: - trim
+    /// The recording's full length, read once the asset loads. `nil` until then, which is why
+    /// the trim controls are absent rather than showing a range of 0…0.
+    @State private var duration: Double?
+    /// The span to keep, in seconds from the start of the recording. `trimEnd == nil` means
+    /// "to the end" — distinct from "to the current duration", which would silently stop
+    /// following the recording if it were ever re-read.
+    @State private var trimStart: Double = 0
+    @State private var trimEnd: Double?
     @State private var isReviewShown = true
     /// Bumped whenever an override changes, to rebuild the composition. **The preview has to
     /// move**: the completion rule says a row is not done while the behaviour its name claims
@@ -75,6 +84,11 @@ struct StageWindow: View {
         // The preview follows the chosen shape: showing landscape while Portrait is selected
         // would be showing the wrong thing, which is the fault this surface exists against.
         .task(id: variant) { await load() }
+        // Rebuilding on a committed trim change, not on every intermediate slider value:
+        // `load()` builds an `AVVideoComposition`, and doing that per pixel of slider travel
+        // would make the control unusable.
+        .task(id: trimStart) { if duration != nil { await load() } }
+        .task(id: trimEnd) { if duration != nil { await load() } }
         // `reviewRevision` and not `review.overrides`: the composition is rebuilt when a
         // decision changes, and a counter says exactly that. Observing the array would also
         // fire on a load that merely restored the same decisions.
@@ -90,6 +104,9 @@ struct StageWindow: View {
                     let size = Self.size(for: variant)
                     LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
                         .font(.caption).foregroundStyle(.secondary)
+                }
+                if let duration, duration > 0 {
+                    Section("Trim") { trimControls(duration: duration) }
                 }
                 Section("Look") {
                     StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
@@ -146,6 +163,47 @@ struct StageWindow: View {
             frameDuration: CMTime(value: 1, timescale: 60))
     }
 
+    /// The span to export, or `nil` for all of it. Built here rather than stored so the two
+    /// sliders cannot drift out of order: a start past the end is clamped into a valid range
+    /// at the one place a range is made.
+    private func trimRange() -> CMTimeRange? {
+        guard let duration, duration > 0 else { return nil }
+        let start = min(max(trimStart, 0), duration)
+        let end = min(trimEnd ?? duration, duration)
+        guard end > start, start > 0 || end < duration else { return nil }
+        return CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
+                           duration: CMTime(seconds: end - start, preferredTimescale: 600))
+    }
+
+    @ViewBuilder private func trimControls(duration: Double) -> some View {
+        LabeledContent("Keep", value: Self.timeSpan(from: trimStart,
+                                                    to: trimEnd ?? duration))
+            .font(.caption).monospacedDigit()
+        TrimSlider(title: "Start", value: trimStart, range: 0...duration) { settled in
+            trimStart = min(settled, (trimEnd ?? duration) - 0.1)
+        }
+        TrimSlider(title: "End", value: trimEnd ?? duration, range: 0...duration) { settled in
+            // Snapping the far end back to `nil` keeps "to the end" expressible: a stored
+            // number equal to the current duration would silently become a real cut if the
+            // recording were ever re-read at a different length.
+            trimEnd = settled >= duration - 0.05 ? nil : max(settled, trimStart + 0.1)
+        }
+        if trimStart > 0 || trimEnd != nil {
+            Button("Use the whole recording") {
+                trimStart = 0
+                trimEnd = nil
+            }
+            .buttonStyle(.link).font(.caption)
+        }
+    }
+
+    static func timeSpan(from start: Double, to end: Double) -> String {
+        func stamp(_ seconds: Double) -> String {
+            String(format: "%d:%05.2f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
+        }
+        return "\(stamp(start)) – \(stamp(end))  (\(stamp(max(0, end - start))))"
+    }
+
     private func load() async {
         do {
             // Before the composition: `configuredComposition` reads
@@ -154,9 +212,20 @@ struct StageWindow: View {
                 .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
             let composition = try await Self.configuredComposition(for: mediaURL, variant: variant)
             let asset = AVURLAsset(url: mediaURL)
+            let loaded = try await asset.load(.duration)
+            if duration == nil { duration = loaded.seconds }
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
-            player = AVPlayer(playerItem: item)
+            // **The preview obeys the trim.** A trim a person can set but not see is a
+            // setting, not an edit: they would only find out what they chose after exporting.
+            if let end = trimEnd {
+                item.forwardPlaybackEndTime = CMTime(seconds: end, preferredTimescale: 600)
+            }
+            let created = AVPlayer(playerItem: item)
+            if trimStart > 0 {
+                await created.seek(to: CMTime(seconds: trimStart, preferredTimescale: 600))
+            }
+            player = created
         } catch {
             failure = "\(error)"
         }
@@ -179,12 +248,43 @@ struct StageWindow: View {
             let size = Self.size(for: variant)
             let report = try await MP4Exporter.export(
                 asset: asset, to: destination,
-                outputWidth: size.width, outputHeight: size.height)
+                outputWidth: size.width, outputHeight: size.height,
+                trim: trimRange())
             exportStatus = "Exported \(report.framesWritten) frame(s) at "
                 + "\(size.width)\u{00D7}\(size.height) to "
                 + "\(report.outputURL.lastPathComponent)."
         } catch {
             exportStatus = "Export failed: \(error)"
+        }
+    }
+}
+
+
+/// A labelled slider that reports on release. Same reason as `StageStylePicker`'s: the host
+/// rebuilds an `AVVideoComposition` on each committed value, and doing that per intermediate
+/// value of a drag would make the control unusable.
+private struct TrimSlider: View {
+    let title: String
+    let value: Double
+    let range: ClosedRange<Double>
+    let commit: (Double) -> Void
+    @State private var live: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(String(format: "%.2fs", live ?? value))
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            Slider(value: Binding(get: { live ?? value }, set: { live = $0 }), in: range) { editing in
+                if !editing, let settled = live {
+                    commit(settled)
+                    live = nil
+                }
+            }
         }
     }
 }

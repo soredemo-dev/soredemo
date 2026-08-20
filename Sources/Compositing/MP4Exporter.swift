@@ -16,8 +16,18 @@ public enum MP4Exporter {
     /// cannot disagree. Never drops a frame: the poll loop waits on `isReadyForMoreMediaData`
     /// rather than skipping, and a `framesRead`/`framesWritten` mismatch throws. `nonisolated`
     /// because `finishWriting(_:)` calls back on an AVFoundation-owned queue.
+    /// `trim` selects the span of the SOURCE to export; `nil` exports all of it.
+    ///
+    /// **The reader is given the range, and the writer's session starts at the range's
+    /// start.** Two things follow from that pairing and both matter. The reader decodes only
+    /// what is wanted, so trimming the first minute off a recording costs nothing to skip
+    /// rather than a minute of decoding thrown away. And `startSession(atSourceTime:)` at the
+    /// range's start makes the output's first frame time zero: the composition's frames keep
+    /// carrying their original presentation times, so a session started at `.zero` for a trim
+    /// beginning at 30 s would produce a file with 30 seconds of nothing at the front.
     public nonisolated static func export(asset: AVAsset, to outputURL: URL,
-                                    outputWidth: Int, outputHeight: Int) async throws -> ExportReport {
+                                          outputWidth: Int, outputHeight: Int,
+                                          trim: CMTimeRange? = nil) async throws -> ExportReport {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
@@ -31,6 +41,12 @@ public enum MP4Exporter {
             frameDuration: CMTime(value: 1, timescale: 60))
 
         let reader = try AVAssetReader(asset: asset)
+        if let trim {
+            guard trim.duration.isValid, trim.duration.seconds > 0 else {
+                throw ExportError.emptyTrim
+            }
+            reader.timeRange = trim
+        }
         let readerOutput = AVAssetReaderVideoCompositionOutput(videoTracks: videoTracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
         ])
@@ -57,7 +73,7 @@ public enum MP4Exporter {
             throw ExportError.writerFailed(writer.error.map { String(describing: $0) }
                 ?? "startWriting() returned false")
         }
-        writer.startSession(atSourceTime: .zero)
+        writer.startSession(atSourceTime: trim?.start ?? .zero)
 
         var framesRead = 0
         var framesWritten = 0
@@ -115,6 +131,9 @@ public enum MP4Exporter {
 
     public nonisolated enum ExportError: Error, CustomStringConvertible, Sendable {
         case noVideoTrack
+        /// A trim whose duration is zero or invalid. Refused rather than clamped: a caller
+        /// that asked for nothing has a bug, and a zero-length MP4 would hide it.
+        case emptyTrim
         case readerRefusedOutput
         case writerRefusedInput
         case readerFailed(String)
@@ -127,6 +146,8 @@ public enum MP4Exporter {
         public var description: String {
             switch self {
             case .noVideoTrack: "the asset has no video track to export"
+            case .emptyTrim:
+                "the requested trim has no duration — an export of nothing is not a file"
             case .readerRefusedOutput: "AVAssetReader refused the video composition output"
             case .writerRefusedInput: "AVAssetWriter refused the video input"
             case .readerFailed(let why): "AVAssetReader failed: \(why)"

@@ -72,6 +72,75 @@ extension StageCompositorTests {
         #expect(size > 0, "the exported file is non-empty")
     }
 
+    // MARK: - trim
+
+    /// **A trim exports fewer frames, and the file still starts at zero.**
+    ///
+    /// The second half is the part that is easy to get wrong and invisible in a frame count:
+    /// the composition's buffers keep their ORIGINAL presentation times, so a writer session
+    /// started at `.zero` for a trim beginning part-way in produces a file whose first frames
+    /// are empty for exactly the trimmed-away duration. Starting the session at the trim's
+    /// start is what makes the output begin where the trim does.
+    @Test func aTrimmedExportWritesFewerFramesAndStartsAtZero() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let duration = try await asset.load(.duration)
+
+        let whole = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trim-whole-\(UUID().uuidString).mp4")
+        let half = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trim-half-\(UUID().uuidString).mp4")
+        defer {
+            try? FileManager.default.removeItem(at: whole)
+            try? FileManager.default.removeItem(at: half)
+        }
+
+        let full = try await MP4Exporter.export(asset: asset, to: whole,
+                                                outputWidth: 160, outputHeight: 90)
+        // The back half of the fixture, so the trim's start is NOT zero — a trim starting at
+        // zero would pass even with the session bug this test is here for.
+        let start = CMTimeMultiplyByRatio(duration, multiplier: 1, divisor: 2)
+        let trimmed = try await MP4Exporter.export(
+            asset: asset, to: half, outputWidth: 160, outputHeight: 90,
+            trim: CMTimeRange(start: start, duration: duration - start))
+
+        #expect(trimmed.framesWritten < full.framesWritten,
+                "a half-length trim wrote \(trimmed.framesWritten) of \(full.framesWritten) frames")
+        #expect(trimmed.framesWritten > 0, "the trim wrote nothing at all")
+
+        let exported = AVURLAsset(url: half)
+        let exportedDuration = try await exported.load(.duration)
+        #expect(exportedDuration.seconds < duration.seconds * 0.75, """
+                the trimmed file is \(exportedDuration.seconds)s against a source of \
+                \(duration.seconds)s — the writer session did not start at the trim's start, \
+                so the file carries the trimmed-away span as empty time at the front
+                """)
+    }
+
+    /// A trim of no duration is refused rather than clamped: the caller has a bug, and a
+    /// zero-length MP4 would hide it.
+    @Test func aTrimWithNoDurationIsRefused() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.observationLogURL = nil
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trim-empty-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        await #expect(throws: MP4Exporter.ExportError.self) {
+            try await MP4Exporter.export(
+                asset: asset, to: outputURL, outputWidth: 160, outputHeight: 90,
+                trim: CMTimeRange(start: .zero, duration: .zero))
+        }
+    }
+
     /// The readiness-timeout case exists, carries its frame/elapsed payload, and does not match
     /// another case's pattern. Constructed directly: forcing a real stall would mean either
     /// shrinking the shipped deadline or hanging 5 real seconds on every run.
