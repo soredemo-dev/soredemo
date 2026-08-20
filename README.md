@@ -10,13 +10,21 @@ one project in 530 did it every time — see [`soredemo-research/release-coverag
 
 macOS 26 · Swift 6.4 · Apple Silicon · local by default
 
-> **Status: recording and export work; the derivation pipeline does not.** A person can pick a source,
-> record, watch a live preview with the pointer drawn from real observations, and export one MP4.
-> There is no graph, no framing, no storyboard, no launch pack and no publishing.
+> **Status: the free recorder is feature-complete; the derivation pipeline is not.** A person can
+> pick a display or a window, record it with system and microphone audio, and watch a live preview
+> with the pointer drawn from real observations and the camera zooming to the control under each
+> click. They can see why every click was or was not zoomed to and disagree with any of it, choose
+> the stage's look, trim the recording, pick 16:9 / 9:16 / 1:1, and export an MP4.
+> `scripts/build-release.sh` signs and notarises a Developer ID copy.
+>
+> **What is not built:** the derivation graph, the storyboard, the launch pack, the CLI, and
+> publishing. Framing decisions are made per click but are not yet graph-provenanced, and a portrait
+> export still inherits landscape's zoom decisions — both named in `ROADMAP.md` on rows that stay `◐`
+> rather than being rounded up.
 >
 > **Phase 0 has never been run, and it is still the riskiest open question** — whether teams record a
 > demo per release once the friction is gone. `ROADMAP.md`'s Phase 0 rows are all `☐`. Nothing built
-> since tests that assumption.
+> since tests that assumption, and a feature-complete recorder does not change that.
 
 ---
 
