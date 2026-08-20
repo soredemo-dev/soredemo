@@ -328,7 +328,7 @@ Four operations. Deliberately not an NLE.
 
 | State | Row | Outcome | Depends on |
 | --- | --- | --- | --- |
-| ☐ | `variants` | 16:9, 9:16, 1:1 — **re-framed against each variant's coverage, not cropped**. Even dimensions inside encoder limits | `framing-depth`, `timeline-core` |
+| ◐ | `variants` | 16:9, 9:16, 1:1 — **re-framed against each variant's coverage, not cropped**. Even dimensions inside encoder limits **Half done 2026-08-21.** `AspectVariant` vends the three shapes with even dimensions floored inside a 3840 cap — even because H.264 in 4:2:0 subsamples chroma by two in each direction, so an odd edge has no defined chroma plane and VideoToolbox silently rounds it. The picker drives the PREVIEW as well as the export, and `StagePlanner` fits rather than fills, so a portrait export letterboxes instead of cutting the sides off. **The re-framing clause is not done:** `coverage(ofSourceAspect:)` computes the number the row's argument rests on — a 16:9 recording covers about 0.32 of a 9:16 frame, so a control legible in landscape is a third the size in portrait — but `FramingGate` is not yet re-run per variant, so a portrait export inherits landscape's zoom decisions. | `framing-depth`, `timeline-core` |
 | ☐ | `platform-profiles` | Duration and aspect as compile-time constraints. Reels needs 9:16 **and** 5–90 s, and the compiler says so rather than exporting something that will not appear | `variants` |
 | ☐ | `title-scenes` | Core Animation text and shape scenes composited via `AVVideoCompositionCoreAnimationTool` | `render-core` |
 | ☐ | `scene-transitions` | Whole-scene transitions between title and product-proof scenes | `title-scenes` |
