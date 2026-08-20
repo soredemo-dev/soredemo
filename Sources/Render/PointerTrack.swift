@@ -10,7 +10,7 @@ public enum PointerReading: Hashable, Sendable {
     /// `shape` rides with the position because they are one observation: the shape the
     /// system cursor had AT the sample whose position is being drawn. `nil` is
     /// "unrecorded" (see `PointerShape`); the renderer's fallback for it is the arrow.
-    case drawn(NormalizedPoint, shape: PointerShape?)
+    case drawn(NormalizedPoint, shape: PointerShape?, hotspot: NormalizedPoint?)
     case blind(BlindInterval)
     case suppressedByReviewer
     case noObservationYet
@@ -57,7 +57,7 @@ public struct PointerTrack: Sendable {
             latest = sample
         }
         guard let latest else { return .noObservationYet }
-        return .drawn(latest.position, shape: latest.shape)
+        return .drawn(latest.position, shape: latest.shape, hotspot: latest.hotspot)
     }
 
     /// The widest bracket the lerp will cross. A moving pointer at 120 Hz samples ~8 ms
@@ -84,7 +84,8 @@ public struct PointerTrack: Sendable {
     /// The shape is the earlier bracket's: shapes are identities and do not blend.
     public func smoothedPosition(at instant: HostInstant) -> PointerReading {
         let stepwise = position(at: instant)
-        guard case .drawn(let heldPosition, let heldShape) = stepwise else { return stepwise }
+        guard case .drawn(let heldPosition, let heldShape, let heldHotspot) = stepwise
+        else { return stepwise }
 
         let time = instant.hostTime
         var before: PointerSample?
@@ -98,22 +99,24 @@ public struct PointerTrack: Sendable {
             }
         }
         guard let a = before, let b = after else {
-            return .drawn(heldPosition, shape: heldShape)
+            return .drawn(heldPosition, shape: heldShape, hotspot: heldHotspot)
         }
         let span = b.instant.hostTime.rawValue - a.instant.hostTime.rawValue
         guard span > 0, span <= Self.maxInterpolationGap.rawValue else {
-            return .drawn(heldPosition, shape: heldShape)
+            return .drawn(heldPosition, shape: heldShape, hotspot: heldHotspot)
         }
         let crossesBlindness = blindIntervals.contains {
             $0.start.rawValue < b.instant.hostTime.rawValue
                 && $0.end.rawValue > a.instant.hostTime.rawValue
         }
-        guard !crossesBlindness else { return .drawn(heldPosition, shape: heldShape) }
+        guard !crossesBlindness else {
+            return .drawn(heldPosition, shape: heldShape, hotspot: heldHotspot)
+        }
 
         let fraction = Double(time.rawValue - a.instant.hostTime.rawValue) / Double(span)
         return .drawn(NormalizedPoint(x: a.position.x + (b.position.x - a.position.x) * fraction,
                                       y: a.position.y + (b.position.y - a.position.y) * fraction),
-                      shape: a.shape)
+                      shape: a.shape, hotspot: a.hotspot)
     }
 
     /// The share of `span` covered by blind intervals. Clamped to the span, so an interval that

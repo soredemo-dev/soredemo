@@ -205,9 +205,15 @@ final class InputObserver: @unchecked Sendable {
     /// `../opensource/a Swift recorder` (Apache 2.0) samples the pointer on a timer for the same
     /// reason.
     private let pointerShapeReader: @Sendable () -> PointerShape?
-    /// The most recent shape the reader returned. Guarded by `lock` like every other
+    /// Reads where inside the cursor's image the pointer actually is — see
+    /// `PointerSample.hotspot` for why a drawn cursor is misplaced without it. Same seam,
+    /// same cadence, same reason as the shape: AppKit is not reachable from this target and
+    /// the read is too expensive for the tap callback.
+    private let pointerHotspotReader: @Sendable () -> NormalizedPoint?
+    /// The most recent values the readers returned. Guarded by `lock` like every other
     /// mutable member here.
     private nonisolated(unsafe) var cachedPointerShape: PointerShape?
+    private nonisolated(unsafe) var cachedPointerHotspot: NormalizedPoint?
     private let tapIsEnabledOverride: (@Sendable () -> Bool)?
 
     // MARK: - state guarded by `lock`
@@ -269,12 +275,14 @@ final class InputObserver: @unchecked Sendable {
     public init(viewport: CaptureViewport, epoch: BootEpoch,
                 secureInputIsEnabled: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() },
                 tapIsEnabledOverride: (@Sendable () -> Bool)? = nil,
-                pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil }) {
+                pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil },
+                pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil }) {
         self.viewport = viewport
         self.epoch = epoch
         self.secureInputIsEnabled = secureInputIsEnabled
         self.tapIsEnabledOverride = tapIsEnabledOverride
         self.pointerShapeReader = pointerShapeReader
+        self.pointerHotspotReader = pointerHotspotReader
     }
 
     deinit {
@@ -472,7 +480,11 @@ final class InputObserver: @unchecked Sendable {
     /// wherever the injected closure needs to go.
     nonisolated func refreshPointerShape() {
         let shape = pointerShapeReader()
-        lock.withLock { unsafe cachedPointerShape = shape }
+        let hotspot = pointerHotspotReader()
+        lock.withLock {
+            unsafe cachedPointerShape = shape
+            unsafe cachedPointerHotspot = hotspot
+        }
     }
 
     // MARK: - The keyboard filter
@@ -834,7 +846,8 @@ final class InputObserver: @unchecked Sendable {
         emit(.pointer(PointerSample(instant: instant,
                                     position: converted.position,
                                     revision: converted.revision,
-                                    shape: lock.withLock { unsafe cachedPointerShape })))
+                                    shape: lock.withLock { unsafe cachedPointerShape },
+                                    hotspot: lock.withLock { unsafe cachedPointerHotspot })))
     }
 
     private nonisolated func handleButton(_ event: CGEvent, button: PointerButton,

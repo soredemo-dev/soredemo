@@ -16,7 +16,7 @@ private func sample(_ ns: Int64, _ x: Double, _ y: Double) -> PointerSample {
 @Test func aPositionBetweenTwoSamplesComesFromTheEarlierOne() {
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1), sample(1_000, 0.9, 0.9)],
                              blindIntervals: [], overrides: [])
-    #expect(track.position(at: at(400)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: nil))
+    #expect(track.position(at: at(400)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: nil, hotspot: nil))
 }
 
 @Test func aTimeInsideABlindIntervalReadsAsBlindAndCarriesTheCause() {
@@ -105,7 +105,7 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
     let track = PointerTrack(samples: [sample(0, 0.1, 0.1)], blindIntervals: [],
                              overrides: [CursorOverride(epoch: otherEpoch, start: Nanoseconds(0),
                                                         duration: Nanoseconds(1_000))])
-    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: nil))
+    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: nil, hotspot: nil))
 }
 
 /// A sample stamped in another boot session is not "the most recent sample" of this
@@ -222,9 +222,9 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
                       revision: GeometryRevision(id: 1), shape: PointerShape.pointingHand),
     ], blindIntervals: [], overrides: [])
     #expect(iBeamThenHand.position(at: at(500))
-            == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: .iBeam))
+            == .drawn(NormalizedPoint(x: 0.1, y: 0.1), shape: .iBeam, hotspot: nil))
     #expect(iBeamThenHand.position(at: at(2_000))
-            == .drawn(NormalizedPoint(x: 0.9, y: 0.9), shape: .pointingHand))
+            == .drawn(NormalizedPoint(x: 0.9, y: 0.9), shape: .pointingHand, hotspot: nil))
 }
 
 // MARK: - smoothedPosition: the rendering path may be gentle; the review path may not
@@ -242,7 +242,7 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
                       revision: GeometryRevision(id: 1), shape: PointerShape.arrow),
     ], blindIntervals: [], overrides: [])
 
-    guard case .drawn(let smoothed, let shape) = track.smoothedPosition(at: at(500)) else {
+    guard case .drawn(let smoothed, let shape, _) = track.smoothedPosition(at: at(500)) else {
         Issue.record("the smoothed reading between two samples was not drawn at all")
         return
     }
@@ -251,7 +251,7 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
     // The shape is the EARLIER sample's — shapes are identities and do not blend.
     #expect(shape == .iBeam)
     // And the review path still steps.
-    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.0, y: 0.0), shape: .iBeam))
+    #expect(track.position(at: at(500)) == .drawn(NormalizedPoint(x: 0.0, y: 0.0), shape: .iBeam, hotspot: nil))
 }
 
 /// At a sample's own instant the lerp degenerates to that sample exactly — the endpoint
@@ -264,7 +264,7 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
                       revision: GeometryRevision(id: 1)),
     ], blindIntervals: [], overrides: [])
     #expect(track.smoothedPosition(at: at(1_000))
-            == .drawn(NormalizedPoint(x: 0.2, y: 0.4), shape: nil))
+            == .drawn(NormalizedPoint(x: 0.2, y: 0.4), shape: nil, hotspot: nil))
 }
 
 /// A stationary pointer emits no samples, so a long gap between brackets means THE POINTER
@@ -282,11 +282,11 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
                           revision: GeometryRevision(id: 1)),
         ], blindIntervals: [], overrides: [])
     }
-    guard case .drawn(let lerped, _) = track(gap: justInside).smoothedPosition(at: at(justInside / 2))
+    guard case .drawn(let lerped, _, _) = track(gap: justInside).smoothedPosition(at: at(justInside / 2))
     else { Issue.record("no reading inside the threshold"); return }
     #expect(lerped.x > 0.05, "inside the threshold the position should interpolate")
 
-    guard case .drawn(let held, _) = track(gap: justOutside).smoothedPosition(at: at(justOutside / 2))
+    guard case .drawn(let held, _, _) = track(gap: justOutside).smoothedPosition(at: at(justOutside / 2))
     else { Issue.record("no reading outside the threshold"); return }
     #expect(held == NormalizedPoint(x: 0.0, y: 0.0),
             "across a wider-than-threshold gap the pointer was STILL — holding is the truth")
@@ -307,7 +307,7 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
     ], blindIntervals: [blind], overrides: [])
     // 300 is sighted; the span 0…1000 crosses the blindness.
     #expect(track.smoothedPosition(at: at(300))
-            == .drawn(NormalizedPoint(x: 0.0, y: 0.0), shape: nil))
+            == .drawn(NormalizedPoint(x: 0.0, y: 0.0), shape: nil, hotspot: nil))
     // And AT a blind instant the precedence is untouched.
     #expect(track.smoothedPosition(at: at(500)) == .blind(blind))
 }
@@ -320,6 +320,6 @@ private let otherEpoch = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000
                       revision: GeometryRevision(id: 1)),
     ], blindIntervals: [], overrides: [])
     #expect(track.smoothedPosition(at: at(2_000))
-            == .drawn(NormalizedPoint(x: 0.5, y: 0.5), shape: nil))
+            == .drawn(NormalizedPoint(x: 0.5, y: 0.5), shape: nil, hotspot: nil))
     #expect(track.smoothedPosition(at: at(0)) == .noObservationYet)
 }

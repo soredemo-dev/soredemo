@@ -134,10 +134,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // allowed to be gentle. The review path keeps the stepwise truth (recorder-parity
         // design, 2026-08-19 — presentation and diagnosis are different outputs).
         switch pointer.smoothedPosition(at: instant) {
-        case .drawn(let point, let shape):
+        case .drawn(let point, let shape, let hotspot):
             return StagePlanner.placement(for: point, in: plan,
                                           ripplePhase: click?.ripplePhase(at: instant),
-                                          shape: shape)
+                                          shape: shape, hotspot: hotspot)
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }

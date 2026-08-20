@@ -267,3 +267,53 @@ import Render
     #expect(abs(zoomed.y - Double(base.outputHeight) / 2) < 1.0)
     #expect(abs(zoomed.x - unzoomed.x) > 1.0, "the pointer did not move with the content")
 }
+
+/// **The position error a second real recording reported.** Art is drawn with its own path
+/// origin at the recorded position, which is correct only when that origin IS the cursor's
+/// hotspot. Measured on this machine while diagnosing: the live system cursor had its
+/// hotspot at (0.52, 0.50) of a 23×22 image — its CENTRE — while `CursorArt.pointerPath`
+/// puts its origin at the arrow's tip. Drawing a centre-hotspot cursor as a tip-hotspot one
+/// offsets it by about half the cursor.
+///
+/// Two renders at the same recorded position, differing only in the hotspot, must differ in
+/// pixels: a renderer ignoring the field produces identical frames.
+@Test func theHotspotMovesTheDrawnCursor() throws {
+    let width = 640, height = 360
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    func rendered(hotspot: NormalizedPoint?) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: .default)
+        let placement = NormalizedPointerPlacement(
+            x: Double(width) / 2, y: Double(height) / 2, ripplePhase: nil,
+            shape: .arrow, hotspot: hotspot)
+        let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                              card: base.card, cornerRadius: base.cornerRadius,
+                              style: base.style, pointer: placement)
+        try renderer.render(plan, source: source, into: destination)
+        return try pixels(of: destination)
+    }
+    func identical(_ a: [(r: UInt8, g: UInt8, b: UInt8)],
+                   _ b: [(r: UInt8, g: UInt8, b: UInt8)]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { $0 == $1 }
+    }
+    // The tip is (0, 0): `hotspot` uses AppKit's TOP-LEFT origin, the same convention
+    // `NSCursor.hotSpot` reports in, and the arrow's tip is its box's top-left corner. The
+    // first draft of this test wrote (0, 1) — bottom-left thinking — and the mismatch with
+    // the `nil` case below is what caught it.
+    let atTip = try rendered(hotspot: NormalizedPoint(x: 0, y: 0))
+    let atCentre = try rendered(hotspot: NormalizedPoint(x: 0.5, y: 0.5))
+    let differs = !identical(atTip, atCentre)
+    #expect(differs, "the hotspot did not move the drawn cursor — the field is being ignored")
+
+    // `nil` means unrecorded and must render exactly as the art's own origin does, so a
+    // recording made before the field existed is unchanged by its arrival.
+    let unrecorded = try rendered(hotspot: nil)
+    let matchesTip = identical(unrecorded, atTip)
+    #expect(matchesTip, "an unrecorded hotspot changed the drawing")
+}

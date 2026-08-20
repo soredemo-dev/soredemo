@@ -43,6 +43,15 @@ public struct PointerSample: Hashable, Codable, Sendable {
     public let instant: HostInstant
     public let position: NormalizedPoint
     public let revision: GeometryRevision
+    /// Where inside the cursor's own image the pointer actually is, 0…1 of the image, or
+    /// `nil` when unrecorded. **This is what makes a drawn cursor land where the user
+    /// pointed.** Measured on this machine: the arrow's hotspot is its tip, but the
+    /// crosshair's is (0.458, 0.458) and the live cursor sampled while writing this was
+    /// (0.522, 0.500) — its centre. Art drawn with its own path origin at the recorded
+    /// position is correct only when that origin IS the hotspot, and for anything but the
+    /// arrow it is not. Optional for the same reason `shape` is: every line already written
+    /// decodes unchanged.
+    public let hotspot: NormalizedPoint?
     /// `nil` means unrecorded — an older log, or no shape reader injected — which is a
     /// different fact from `.other` (recorded, and not a shape this schema names).
     /// Optional so every schema-2 line ever written decodes unchanged: absence here is
@@ -50,12 +59,13 @@ public struct PointerSample: Hashable, Codable, Sendable {
     public let shape: PointerShape?
 
     public init(instant: HostInstant, position: NormalizedPoint, revision: GeometryRevision,
-                shape: PointerShape? = nil) {
+                shape: PointerShape? = nil, hotspot: NormalizedPoint? = nil) {
         self.kind = "pointer"
         self.instant = instant
         self.position = position
         self.revision = revision
         self.shape = shape
+        self.hotspot = hotspot
     }
 }
 

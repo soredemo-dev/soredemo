@@ -176,9 +176,15 @@ public struct NormalizedPointerPlacement: Hashable, Sendable {
     /// The classified system-cursor shape at the sample being drawn; `nil` is
     /// "unrecorded" and renders as the arrow, same as `.other` — see `PointerShape`.
     public let shape: PointerShape?
+    /// Where inside the drawn art its own hotspot sits, 0…1 of the art's bounding box.
+    /// `nil` falls back to the art's path origin, which is right for the arrow and wrong
+    /// for everything else — see `PointerSample.hotspot`.
+    public let hotspot: NormalizedPoint?
 
-    public init(x: Double, y: Double, ripplePhase: Double?, shape: PointerShape? = nil) {
-        self.x = x; self.y = y; self.ripplePhase = ripplePhase; self.shape = shape
+    public init(x: Double, y: Double, ripplePhase: Double?, shape: PointerShape? = nil,
+                hotspot: NormalizedPoint? = nil) {
+        self.x = x; self.y = y; self.ripplePhase = ripplePhase
+        self.shape = shape; self.hotspot = hotspot
     }
 }
 

@@ -107,6 +107,12 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private nonisolated let cursorCanvasLock = NSLock()
     private nonisolated(unsafe) var cursorCanvases: [Int: CGContext] = [:]
 
+    /// Where the drawn art's own path origin sits inside its bounding box, as a fraction
+    /// with a TOP-LEFT origin so it is directly comparable with `NSCursor.hotSpot`.
+    /// `CursorArt.pointerPath` builds the arrow around its TIP, which is the box's top-left
+    /// corner — so a recorded hotspot of (0, 0) means "already correct" and needs no offset.
+    private static let artOriginFraction = (x: 0.0, y: 0.0)
+
     /// Headroom in output pixels beyond the pointer/ripple extent, so an antialiased stroke is
     /// never clipped at the bitmap edge.
     private static let cursorCanvasPadding: Double = 6
@@ -183,7 +189,23 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             return bitmap.makeImage()
         }
         guard let image else { return CIImage.empty() }
+        // **The hotspot offset.** The art is drawn with its path origin at the canvas
+        // centre, so translating by `placement - tip` puts that ORIGIN at the recorded
+        // position — correct only when the origin is the cursor's hotspot, which is true
+        // for the arrow and false for everything else. Measured while diagnosing a real
+        // recording: the live system cursor's hotspot was (0.52, 0.50) of its image, its
+        // centre, and drawing it tip-first offset it by about half a cursor.
+        //
+        // `hotspot` is 0…1 of the CURSOR IMAGE with a top-left origin (AppKit's
+        // `NSCursor.hotSpot` convention); the canvas is bottom-left, hence the y flip. The
+        // art's own extent is `pointerMaxExtent * scale`, not the padded canvas: the padding
+        // exists so an antialiased stroke is not clipped and is not part of the cursor.
+        let artExtent = scale * CursorArt.pointerMaxExtent
+        let artOriginFraction = Self.artOriginFraction
+        let offsetX = placement.hotspot.map { ($0.x - artOriginFraction.x) * artExtent } ?? 0
+        let offsetY = placement.hotspot.map { (artOriginFraction.y - $0.y) * artExtent } ?? 0
         return CIImage(cgImage: image)
-            .transformed(by: CGAffineTransform(translationX: placement.x - tip, y: placement.y - tip))
+            .transformed(by: CGAffineTransform(translationX: placement.x - tip - offsetX,
+                                               y: placement.y - tip - offsetY))
     }
 }

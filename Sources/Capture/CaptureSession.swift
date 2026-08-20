@@ -73,6 +73,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     /// Passed through to `InputObserver` — see its doc for why this is a closure.
     private let pointerShapeReader: @Sendable () -> PointerShape?
+    /// Passed through with the shape — see `InputObserver`'s own doc for the cadence.
+    private let pointerHotspotReader: @Sendable () -> NormalizedPoint?
 
     /// Every Nth complete video frame is luminance-sampled for the black-frame
     /// detector. Uncalibrated placeholder. `nonisolated` on all three constants
@@ -416,13 +418,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// one `BootEpoch`.
     public init(source: CaptureSource, scale: Double, displayUUID: UUID,
                 mediaSink: any MediaSink, epoch: BootEpoch,
-                pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil }) {
+                pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil },
+                pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil }) {
         self.source = source
         self.scale = scale
         self.displayUUID = displayUUID
         self.mediaSink = mediaSink
         self.epoch = epoch
         self.pointerShapeReader = pointerShapeReader
+        self.pointerHotspotReader = pointerHotspotReader
         super.init()
     }
 
@@ -477,7 +481,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let viewport = source.viewport(scale: scale, displayUUID: displayUUID)
         let arrangement = InputObserver.currentArrangement()
         let input = InputObserver(viewport: viewport, epoch: epoch,
-                                  pointerShapeReader: pointerShapeReader)
+                                  pointerShapeReader: pointerShapeReader,
+                                  pointerHotspotReader: pointerHotspotReader)
         let ax = AXObserver(arrangement: arrangement, epoch: epoch)
 
         var blindness: [ObservationBlindness] = []
