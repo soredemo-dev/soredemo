@@ -177,6 +177,47 @@ extension StageCompositorTests {
         #expect(duration.seconds > 1.5, "the exported file is \(duration.seconds)s")
     }
 
+    /// **The deadlock a two-second fixture cannot find.**
+    ///
+    /// `AVAssetWriter` stops signalling `isReadyForMoreMediaData` on an input that has run far
+    /// ahead of its siblings — it cannot lay out the file until they catch up. An export that
+    /// wrote all the video and then all the audio therefore stalled at frame 134, which is
+    /// 2.23 seconds at 60 fps: the writer's interleaving window, not a coincidence.
+    /// `aRecordingWithAudioExportsWithOneMixedAudioTrack` uses a 2 s fixture, fits entirely
+    /// inside that window, and passed the whole time the bug existed.
+    ///
+    /// So this fixture is TEN seconds. It is the only reason a 150 KB binary is in the repo:
+    /// the bug is a function of duration, and no shorter asset can express it.
+    @Test func aLongRecordingWithAudioDoesNotStallTheWriter() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
+
+        let source = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/long-two-track-audio.mov"))
+        let duration = try await source.load(.duration)
+        #expect(duration.seconds > 5, """
+                this fixture must be longer than the writer's ~2.2 s interleaving window or it \
+                proves nothing — it ran \(duration.seconds)s
+                """)
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("long-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let report = try await MP4Exporter.export(asset: source, to: outputURL,
+                                                  outputWidth: 160, outputHeight: 90)
+        // 10 s at 60 fps, give or take the final slot.
+        #expect(report.framesWritten > 550,
+                "wrote \(report.framesWritten) frames for a \(duration.seconds)s source")
+        #expect(report.audioSamplesWritten > 0)
+        let exported = try await AVURLAsset(url: outputURL).load(.duration)
+        #expect(abs(exported.seconds - duration.seconds) < 0.3,
+                "the exported file runs \(exported.seconds)s against \(duration.seconds)s")
+    }
+
     /// A master with no audio still exports, and says so rather than failing.
     @Test func aSilentRecordingExportsWithNoAudioTrack() async throws {
         unsafe StageCompositor.renderer = try CoreImageFrameRenderer()

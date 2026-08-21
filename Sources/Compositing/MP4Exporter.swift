@@ -100,22 +100,12 @@ public enum MP4Exporter {
         let sessionStart = CMTime.zero
         writer.startSession(atSourceTime: sessionStart)
 
-        let video = try await writeVideo(asset: asset, tracks: videoTracks,
-                                         composition: composition,
-                                         frameDuration: frameDuration,
-                                         sessionStart: sessionStart,
-                                         writer: writer, input: videoInput)
-
-        // **A second pass, not an interleaved one.** Two `AVAssetReader`s over the same asset
-        // are independent, and `AVAssetWriter` accepts its inputs' data in any interleaving as
-        // long as each input's own samples are ordered. Pulling both from ONE reader in one
-        // loop would mean advancing whichever output the loop happened to ask for, and the
-        // other's queue stalling the reader behind it.
-        var audioSamples = 0
-        if let audioInput {
-            audioSamples = try await writeAudio(asset: asset, tracks: audioTracks,
-                                                writer: writer, input: audioInput)
-        }
+        let counts = try await writeInterleaved(
+            asset: asset, videoTracks: videoTracks, audioTracks: audioTracks,
+            composition: composition, frameDuration: frameDuration, sessionStart: sessionStart,
+            writer: writer, videoInput: videoInput, audioInput: audioInput)
+        let video = (read: counts.framesRead, written: counts.framesWritten)
+        let audioSamples = counts.audioWritten
 
         await withCheckedContinuation { continuation in
             writer.finishWriting { continuation.resume() }
@@ -130,153 +120,259 @@ public enum MP4Exporter {
                             audioSamplesWritten: audioSamples)
     }
 
-    /// **The video pass, resampled to a CONSTANT frame rate — and this is a repair.**
+    /// **One loop feeding both inputs, and the alternative is a deadlock.**
     ///
-    /// `AVVideoComposition.frameDuration` does not make
-    /// `AVAssetReaderVideoCompositionOutput` emit at that cadence: measured on the
-    /// 10 fps fixture with `frameDuration` set to 1/60, the export came out as 20 frames at
-    /// exactly the source's 100 ms spacing. One composed frame per SOURCE frame, at the
-    /// source's own times.
+    /// The first version wrote all the video and then all the audio, with a comment asserting
+    /// that `AVAssetWriter` accepts its inputs' data in any interleaving. That assertion is
+    /// false, and a real export found it: the writer stops signalling
+    /// `isReadyForMoreMediaData` on an input that has run far ahead of its siblings, because
+    /// it cannot lay out the file until the others catch up. A 15-second recording with audio
+    /// stalled at frame 134 — 2.23 seconds at 60 fps, which is the writer's interleaving
+    /// window, not a coincidence. The two-second fixture the tests used fit inside that window
+    /// and passed.
     ///
-    /// That is fatal for a screen recording specifically. ScreenCaptureKit delivers a frame
-    /// when the screen changes and not otherwise, so a master is inherently variable-rate: a
-    /// real 11.4 s recording measured here had 501 frames with gaps from 6.7 ms to 35 ms.
-    /// Passed straight through, the MP4 is variable-frame-rate, which browsers, social
-    /// platforms and several editors handle badly or re-encode badly.
+    /// So both inputs are fed from one loop, whichever is behind in presentation time and
+    /// ready. Preferring the one that is behind is what keeps them within the window; falling
+    /// through to the other when the preferred one is momentarily not ready is what stops a
+    /// wait on one input from starving the other, which would reproduce the same deadlock with
+    /// extra steps.
     ///
-    /// So the output timeline is generated here rather than inherited: one frame per
-    /// `frameDuration` step, each carrying the most recent composed frame at or before that
-    /// step — a hold, which is what a still screen genuinely looked like. `framesRead` counts
-    /// what the composition produced and `framesWritten` what the timeline needed, and they
-    /// are no longer expected to match.
-    private nonisolated static func writeVideo(
-        asset: AVAsset, tracks: [AVAssetTrack], composition: AVVideoComposition,
-        frameDuration: CMTime, sessionStart: CMTime,
-        writer: AVAssetWriter, input: AVAssetWriterInput
-    ) async throws -> (read: Int, written: Int) {
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
+    /// **The video is resampled to a CONSTANT frame rate — a separate repair, kept here.**
+    /// `AVVideoComposition.frameDuration` does not resample: measured on the 10 fps fixture
+    /// with `frameDuration` set to 1/60, the export came out as 20 frames at exactly the
+    /// source's 100 ms spacing. That is fatal for screen recording, because ScreenCaptureKit
+    /// emits a frame when the screen changes and not otherwise — a real 11.4 s recording
+    /// measured 501 frames with gaps from 6.7 ms to 35 ms.
+    private nonisolated static func writeInterleaved(
+        asset: AVAsset, videoTracks: [AVAssetTrack], audioTracks: [AVAssetTrack],
+        composition: AVVideoComposition, frameDuration: CMTime, sessionStart: CMTime,
+        writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?
+    ) async throws -> (framesRead: Int, framesWritten: Int, audioWritten: Int) {
+        let videoReader = try AVAssetReader(asset: asset)
+        let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: videoTracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
         ])
-        output.videoComposition = composition
-        guard reader.canAdd(output) else { throw ExportError.readerRefusedOutput }
-        reader.add(output)
-        guard reader.startReading() else {
-            throw ExportError.readerFailed(reader.error.map { String(describing: $0) }
+        videoOutput.videoComposition = composition
+        guard videoReader.canAdd(videoOutput) else { throw ExportError.readerRefusedOutput }
+        videoReader.add(videoOutput)
+        guard videoReader.startReading() else {
+            throw ExportError.readerFailed(videoReader.error.map { String(describing: $0) }
                 ?? "startReading() returned false")
         }
 
-        var framesRead = 0
-        var framesWritten = 0
-        var held: CMSampleBuffer?
-        var pending: CMSampleBuffer? = nextFrame(output, count: &framesRead)
-        var slot = sessionStart
-        var lastSourcePTS: CMTime? = pending.map { CMSampleBufferGetPresentationTimeStamp($0) }
-
-        while true {
-            // Advance through every composed frame at or before this slot; the last one wins.
-            while let candidate = pending,
-                  CMSampleBufferGetPresentationTimeStamp(candidate) <= slot {
-                held = candidate
-                pending = nextFrame(output, count: &framesRead)
-                if let next = pending { lastSourcePTS = CMSampleBufferGetPresentationTimeStamp(next) }
+        // **A second reader, not a second output on the first.** Two outputs on one reader are
+        // pulled by the same loop, so whichever the loop asks for advances and the other's
+        // queue backs up behind it — the reader itself then stalls. Separate readers advance
+        // independently, which is what lets the loop below choose freely between them.
+        var audioReader: AVAssetReader?
+        var audioOutput: AVAssetReaderAudioMixOutput?
+        if audioInput != nil, !audioTracks.isEmpty {
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsNonInterleaved: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVSampleRateKey: 48_000,
+                AVNumberOfChannelsKey: 2,
+            ])
+            guard reader.canAdd(output) else { throw ExportError.readerRefusedOutput }
+            reader.add(output)
+            guard reader.startReading() else {
+                throw ExportError.readerFailed(reader.error.map { String(describing: $0) }
+                    ?? "startReading() returned false for audio")
             }
-            guard let frame = held else {
-                // Nothing has been composed yet at or before the first slot. Take the next
-                // frame as the first — a recording does not start with a gap.
-                guard let first = pending else { break }
-                held = first
-                pending = nextFrame(output, count: &framesRead)
-                if let next = pending { lastSourcePTS = CMSampleBufferGetPresentationTimeStamp(next) }
-                continue
-            }
-            if pending == nil && framesWritten > 0
-                && CMSampleBufferGetPresentationTimeStamp(frame) < slot {
-                // The source is exhausted and the slot has moved past its last frame: the
-                // held frame has already been written once at its own slot, and repeating it
-                // would extend the file past the recording.
-                break
-            }
-
-            try await waitForReadiness(writer: writer, input: input, frame: framesWritten)
-            guard let stamped = restamped(frame, at: slot) else {
-                throw ExportError.appendRefused("could not re-time frame \(framesWritten)")
-            }
-            guard input.append(stamped) else {
-                throw ExportError.appendRefused(
-                    "frame \(framesWritten): "
-                    + (writer.error.map { String(describing: $0) } ?? "no error recorded"))
-            }
-            framesWritten += 1
-            slot = slot + frameDuration
+            audioReader = reader
+            audioOutput = output
         }
 
-        if reader.status == .failed {
-            throw ExportError.readerFailed(reader.error.map { String(describing: $0) }
-                ?? "reader failed after \(framesRead) frame(s)")
+        var resampler = ConstantRateResampler(output: videoOutput, frameDuration: frameDuration,
+                                              slot: sessionStart)
+        var pendingVideo: CMSampleBuffer? = resampler.next()
+        var pendingAudio: CMSampleBuffer? = audioOutput.flatMap(nextAudio)
+        var audioWritten = 0
+        var stallPoll: MonotonicStopwatch?
+
+        // **Each input is finished the moment ITS source runs out, not when the loop ends.**
+        // The two rarely end together — AAC packet granularity leaves the audio short of the
+        // video's last frame — and a writer still expecting data from a finished input keeps
+        // holding the other back. The first interleaved version marked both finished after the
+        // loop and stalled at frame 578 of 600: the audio had been spent for half a second and
+        // the writer had no way to know.
+        var videoFinished = false
+        var audioFinished = audioInput == nil
+        func finishExhaustedInputs() {
+            if pendingVideo == nil && !videoFinished {
+                videoInput.markAsFinished()
+                videoFinished = true
+            }
+            if pendingAudio == nil && !audioFinished {
+                audioInput?.markAsFinished()
+                audioFinished = true
+            }
         }
-        input.markAsFinished()
-        guard framesRead > 0 else { throw ExportError.noVideoTrack }
+        finishExhaustedInputs()
+
+        while pendingVideo != nil || pendingAudio != nil {
+            // Whichever is further behind goes first; that is what keeps the two inputs inside
+            // the writer's interleaving window.
+            let videoFirst: Bool
+            switch (pendingVideo, pendingAudio) {
+            case (.some(let v), .some(let a)):
+                videoFirst = CMSampleBufferGetPresentationTimeStamp(v)
+                    <= CMSampleBufferGetPresentationTimeStamp(a)
+            case (.some, nil): videoFirst = true
+            default: videoFirst = false
+            }
+
+            if videoFirst, let frame = pendingVideo, videoInput.isReadyForMoreMediaData {
+                guard videoInput.append(frame) else {
+                    throw ExportError.appendRefused(
+                        "frame \(resampler.framesWritten): "
+                        + (writer.error.map { String(describing: $0) } ?? "no error recorded"))
+                }
+                resampler.framesWritten += 1
+                pendingVideo = resampler.next()
+                finishExhaustedInputs()
+                stallPoll = nil
+            } else if let buffer = pendingAudio, let audioInput,
+                      audioInput.isReadyForMoreMediaData {
+                guard audioInput.append(buffer) else {
+                    throw ExportError.appendRefused(
+                        "audio buffer \(audioWritten): "
+                        + (writer.error.map { String(describing: $0) } ?? "no error recorded"))
+                }
+                audioWritten += 1
+                pendingAudio = audioOutput.flatMap(nextAudio)
+                finishExhaustedInputs()
+                stallPoll = nil
+            } else if let frame = pendingVideo, videoInput.isReadyForMoreMediaData {
+                // The preferred input was audio and it is not ready. Feeding video rather than
+                // waiting is the difference between an interleaved writer and the deadlock
+                // this loop replaced.
+                guard videoInput.append(frame) else {
+                    throw ExportError.appendRefused(
+                        "frame \(resampler.framesWritten): "
+                        + (writer.error.map { String(describing: $0) } ?? "no error recorded"))
+                }
+                resampler.framesWritten += 1
+                pendingVideo = resampler.next()
+                finishExhaustedInputs()
+                stallPoll = nil
+            } else {
+                // Neither input can take anything. Bounded, because a writer that never
+                // becomes ready has failed and should say so rather than hang.
+                if writer.status == .failed {
+                    throw ExportError.writerFailed(writer.error.map { String(describing: $0) }
+                        ?? "writer failed while waiting for readiness")
+                }
+                let poll = stallPoll ?? MonotonicStopwatch()
+                stallPoll = poll
+                let elapsed = poll.elapsedSeconds
+                if elapsed >= Self.readinessDeadlineSeconds {
+                    throw ExportError.writerNotReadyInTime(frame: resampler.framesWritten,
+                                                           elapsedSeconds: elapsed)
+                }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        }
+
+        if videoReader.status == .failed {
+            throw ExportError.readerFailed(videoReader.error.map { String(describing: $0) }
+                ?? "reader failed after \(resampler.framesRead) frame(s)")
+        }
+        if let audioReader, audioReader.status == .failed {
+            throw ExportError.readerFailed(audioReader.error.map { String(describing: $0) }
+                ?? "audio reader failed after \(audioWritten) buffer(s)")
+        }
+        // Both were finished inside the loop as their sources ran out; these are the
+        // no-op safety net for a loop that exited without either ever being pending.
+        finishExhaustedInputs()
+
+        guard resampler.framesRead > 0 else { throw ExportError.noVideoTrack }
         // **The invariant that survived resampling.** One output frame per source frame is no
         // longer true and should not be; what must still hold is that the timeline reached the
-        // end. `slot` is one step past the last frame written, so the comparison is against it
-        // directly.
-        if let last = lastSourcePTS, slot < last {
-            throw ExportError.outputShorterThanSource(lastWritten: slot.seconds,
+        // end. `slot` is one step past the last frame written.
+        if let last = resampler.lastSourcePTS, resampler.slot < last {
+            throw ExportError.outputShorterThanSource(lastWritten: resampler.slot.seconds,
                                                       lastSource: last.seconds)
         }
-        return (read: framesRead, written: framesWritten)
+        return (resampler.framesRead, resampler.framesWritten, audioWritten)
     }
 
-    /// **The audio pass, mixed to one track.** A master carries system audio and the
-    /// microphone as separate tracks, and an MP4 for a demo wants one. `AVAssetReaderAudioMixOutput`
-    /// mixes every source track into a single LPCM stream, which the writer's input encodes to
-    /// AAC — the pairing is what lets this stay a reader/writer pass rather than an
-    /// `AVMutableComposition` with an audio mix attached.
-    ///
-    /// Exports had NO audio at all until this existed: the writer was given a video input and
-    /// nothing else, so a recording with both microphone and system sound produced a silent
-    /// file. Measured on a real export: `nb_streams = 1`.
-    private nonisolated static func writeAudio(
-        asset: AVAsset, tracks: [AVAssetTrack],
-        writer: AVAssetWriter, input: AVAssetWriterInput
-    ) async throws -> Int {
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsNonInterleaved: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 2,
-        ])
-        guard reader.canAdd(output) else { throw ExportError.readerRefusedOutput }
-        reader.add(output)
-        guard reader.startReading() else {
-            throw ExportError.readerFailed(reader.error.map { String(describing: $0) }
-                ?? "startReading() returned false for audio")
-        }
-
-        var written = 0
+    /// The next audio buffer with actual samples. Marker-only buffers carry no audio and would
+    /// be appended as silence of no duration.
+    private nonisolated static func nextAudio(_ output: AVAssetReaderOutput) -> CMSampleBuffer? {
         while let buffer = output.copyNextSampleBuffer() {
-            guard CMSampleBufferGetNumSamples(buffer) > 0 else { continue }
-            try await waitForReadiness(writer: writer, input: input, frame: written)
-            guard input.append(buffer) else {
-                throw ExportError.appendRefused(
-                    "audio buffer \(written): "
-                    + (writer.error.map { String(describing: $0) } ?? "no error recorded"))
-            }
-            written += 1
+            if CMSampleBufferGetNumSamples(buffer) > 0 { return buffer }
         }
-        if reader.status == .failed {
-            throw ExportError.readerFailed(reader.error.map { String(describing: $0) }
-                ?? "audio reader failed after \(written) buffer(s)")
-        }
-        input.markAsFinished()
-        return written
+        return nil
     }
 
+    /// Generates the output's frame timeline instead of inheriting the source's.
+    ///
+    /// One frame per `frameDuration` step, each carrying the most recent composed frame at or
+    /// before that step — a hold, which is what a still screen genuinely looked like. A hold
+    /// repeats an image; it does not blend toward the next, which would invent motion the
+    /// recording never had.
+    private struct ConstantRateResampler {
+        let output: AVAssetReaderOutput
+        let frameDuration: CMTime
+        var slot: CMTime
+        var framesRead = 0
+        var framesWritten = 0
+        var lastSourcePTS: CMTime?
+        private var held: CMSampleBuffer?
+        private var pending: CMSampleBuffer?
+        private var started = false
+
+        init(output: AVAssetReaderOutput, frameDuration: CMTime, slot: CMTime) {
+            self.output = output
+            self.frameDuration = frameDuration
+            self.slot = slot
+        }
+
+        /// The frame for the current slot, re-timed to it, or `nil` when the source is spent.
+        mutating func next() -> CMSampleBuffer? {
+            if !started {
+                started = true
+                pending = MP4Exporter.nextFrame(output, count: &framesRead)
+                lastSourcePTS = pending.map { CMSampleBufferGetPresentationTimeStamp($0) }
+            } else {
+                slot = slot + frameDuration
+            }
+
+            while true {
+                while let candidate = pending,
+                      CMSampleBufferGetPresentationTimeStamp(candidate) <= slot {
+                    held = candidate
+                    pending = MP4Exporter.nextFrame(output, count: &framesRead)
+                    if let next = pending {
+                        lastSourcePTS = CMSampleBufferGetPresentationTimeStamp(next)
+                    }
+                }
+                guard let frame = held else {
+                    // Nothing composed yet at or before the first slot. Take the next frame as
+                    // the first — a recording does not begin with a gap.
+                    guard let first = pending else { return nil }
+                    held = first
+                    pending = MP4Exporter.nextFrame(output, count: &framesRead)
+                    if let next = pending {
+                        lastSourcePTS = CMSampleBufferGetPresentationTimeStamp(next)
+                    }
+                    continue
+                }
+                if pending == nil && framesWritten > 0
+                    && CMSampleBufferGetPresentationTimeStamp(frame) < slot {
+                    // The source is spent and the slot has passed its last frame: repeating it
+                    // would extend the file past the recording.
+                    return nil
+                }
+                return MP4Exporter.restamped(frame, at: slot)
+            }
+        }
+    }
 
     /// The next composed frame with actual samples. `copyNextSampleBuffer()` may return
     /// marker-only buffers with zero samples; those are not frames and must not be counted or
