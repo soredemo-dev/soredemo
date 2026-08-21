@@ -30,8 +30,18 @@ final class FramingReviewModel {
     private(set) var anchor: EpochAnchor?
     private(set) var failure: String?
 
-    /// The plan and the overrides, resolved — what the camera will actually do.
-    var resolved: [ResolvedFraming] { plan.resolved(with: overrides) }
+    /// The revision a pointer fallback's rectangle belongs to, taken from the first entry
+    /// that recorded one. `nil` disables the fallback, which is also what a plan with no
+    /// clicks at all means.
+    private(set) var fallbackRevision: GeometryRevision?
+
+    /// **What the camera will actually do**, fallback included. Not `plan.resolved(with:)`:
+    /// a review surface showing "no zoom" beside a video that zooms would be worse than no
+    /// surface at all.
+    var resolved: [ResolvedFraming] {
+        guard let fallbackRevision else { return plan.resolved(with: overrides) }
+        return plan.resolvedWithPointerFallback(overrides: overrides, revision: fallbackRevision)
+    }
 
     /// Loads the decisions for one recording. A log that cannot be read is reported, not
     /// shown as an empty plan: "no clicks were observed" and "the file could not be opened"
@@ -46,10 +56,12 @@ final class FramingReviewModel {
         do {
             plan = try FramingPlanReader.plan(fromObservationLogAt: url)
             anchor = try FramingPlanReader.anchor(fromObservationLogAt: url)
+            fallbackRevision = plan.fallbackRevision
             failure = nil
         } catch {
             plan = FramingPlan(entries: [])
             anchor = nil
+            fallbackRevision = nil
             failure = "\(error)"
         }
         publish()
@@ -147,6 +159,8 @@ struct FramingReviewInspector: View {
             Label(entry.target == nil ? "You: no zoom" : "You: zoom",
                   systemImage: "person.fill.checkmark")
                 .font(.caption)
+        } else if case .pointerFallback = entry.origin {
+            Label("Zoom to pointer", systemImage: "cursorarrow.rays").font(.caption)
         } else if entry.target != nil {
             Label("Zoom", systemImage: "plus.magnifyingglass").font(.caption)
         } else {
@@ -207,6 +221,10 @@ struct FramingReviewInspector: View {
             }
             if entry.target != nil { return "Framed automatically." }
             return "Refused automatically."
+        case .pointerFallback(let reason):
+            // Both halves, deliberately: the camera DID zoom, and the reason accessibility
+            // could not name a target is still the useful thing to read.
+            return "Zoomed to the pointer, because: \(label(for: reason))"
         case .authored(let overridden):
             guard let overridden else { return "Your decision. The recorder saw no click here." }
             if let reason = overridden.rejection {

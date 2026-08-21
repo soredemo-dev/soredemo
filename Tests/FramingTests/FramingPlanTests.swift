@@ -166,3 +166,103 @@ private func rejected(_ ns: Int64, _ reason: FramingRejection) -> FramingPlan.En
         #expect(plan.framedClicks(with: []).count == 1)
     }
 }
+
+/// **The clause `framing-targets` had left unbuilt, and a real recording found it.** Eleven
+/// frames of a user's export measured with the card identical in every one — the camera never
+/// moved, because every accessibility chain came back `hitTestReturnedNothing` on a machine
+/// that had not granted Accessibility. Nine gates working correctly and a video that zooms
+/// nowhere is still a video that zooms nowhere.
+@Suite struct PointerFallbackTests {
+    private let click = NormalizedPoint(x: 0.5, y: 0.5)
+
+    private func rejectedWithClick(_ ns: Int64, _ reason: FramingRejection,
+                                   at position: NormalizedPoint) -> FramingPlan.Entry {
+        FramingPlan.Entry(instant: at(ns), decision: .rejected(reason), clickPosition: position)
+    }
+
+    @Test func aRefusedClickWithAPositionFramesThePointer() {
+        let plan = FramingPlan(entries: [rejectedWithClick(1_000, .hitTestReturnedNothing, at: click)])
+        let resolved = plan.resolvedWithPointerFallback(overrides: [], revision: revision)
+
+        let target = resolved[0].target
+        #expect(target != nil, "the fallback did not produce a target")
+        #expect(target?.frame.size.width == FramingPlan.pointerFallbackExtent)
+        // Centred on the click.
+        #expect(abs((target!.frame.origin.x + target!.frame.size.width / 2) - 0.5) < 1e-12)
+    }
+
+    /// **The reason survives.** `FramingGate` refuses to fall back internally precisely so the
+    /// refusal it just computed is not erased; a fallback one layer out that dropped it would
+    /// have made that refusal pointless. `review-ui` shows both.
+    @Test func theFallbackCarriesTheRefusalItReplaced() {
+        let plan = FramingPlan(entries: [rejectedWithClick(1_000, .tooLarge, at: click)])
+        let resolved = plan.resolvedWithPointerFallback(overrides: [], revision: revision)
+        #expect(resolved[0].origin == .pointerFallback(over: .tooLarge))
+        #expect(resolved[0].rejection == .tooLarge)
+    }
+
+    /// A fallback names no role. Nothing identified the element — that is why it is a fallback
+    /// — and a fabricated role would read as an identification the recorder never made.
+    @Test func aFallbackTargetNamesNoRole() {
+        let plan = FramingPlan(entries: [rejectedWithClick(1_000, .noFrameRecorded, at: click)])
+        #expect(plan.resolvedWithPointerFallback(overrides: [], revision: revision)[0]
+                    .target?.role == nil)
+    }
+
+    /// A click near an edge must not frame space outside the recording.
+    /// `FramingGate.partlyOffscreen` refuses exactly that for a real target, and the fallback
+    /// does not get to sneak it back in.
+    @Test func aFallbackNearAnEdgeStaysInsideTheFrame() {
+        for position in [NormalizedPoint(x: 0.01, y: 0.99), NormalizedPoint(x: 0.99, y: 0.01)] {
+            let plan = FramingPlan(entries: [
+                rejectedWithClick(1_000, .hitTestReturnedNothing, at: position),
+            ])
+            let frame = plan.resolvedWithPointerFallback(overrides: [], revision: revision)[0]
+                .target!.frame
+            #expect(frame.origin.x >= 0 && frame.origin.x + frame.size.width <= 1.0 + 1e-12)
+            #expect(frame.origin.y >= 0 && frame.origin.y + frame.size.height <= 1.0 + 1e-12)
+        }
+    }
+
+    /// An accepted click keeps the gate's rectangle. The fallback is for refusals only, and
+    /// one that also replaced accepted targets would throw away the accessibility work.
+    @Test func anAcceptedClickIsNotReplacedByTheFallback() {
+        let plan = FramingPlan(entries: [framed(1_000, role: "AXButton")])
+        let resolved = plan.resolvedWithPointerFallback(overrides: [], revision: revision)
+        #expect(resolved[0].origin == .derived)
+        #expect(resolved[0].target?.role == "AXButton")
+    }
+
+    /// **Precedence: authored, then the gate, then the pointer.** A fallback that overrode a
+    /// reviewer's suppression would be the producer-value rule backwards — the reviewer said
+    /// "no zoom here" and would get one anyway.
+    @Test func anAuthoredSuppressionSurvivesTheFallback() {
+        let plan = FramingPlan(entries: [rejectedWithClick(1_000, .tooLarge, at: click)])
+        let resolved = plan.resolvedWithPointerFallback(
+            overrides: [FramingOverride(epoch: epoch, instant: Nanoseconds(1_000),
+                                        action: .suppress)],
+            revision: revision)
+        #expect(resolved[0].target == nil, "the reviewer said no zoom and got one")
+        #expect(resolved[0].wasOverridden)
+    }
+
+    /// A refusal with no recorded click position has nothing to fall back to, and says so by
+    /// staying refused rather than framing the centre of the screen.
+    @Test func aRefusalWithNoClickPositionStaysRefused() {
+        let plan = FramingPlan(entries: [rejected(1_000, .hitTestReturnedNothing)])
+        #expect(plan.resolvedWithPointerFallback(overrides: [], revision: revision)[0]
+                    .target == nil)
+    }
+
+    /// The camera's own call: with the fallback on, a plan of nothing but refusals still
+    /// produces zooms — which is the whole point.
+    @Test func aPlanOfOnlyRefusalsStillFramesSomethingWithTheFallbackOn() {
+        let plan = FramingPlan(entries: [
+            rejectedWithClick(1_000, .hitTestReturnedNothing, at: click),
+            rejectedWithClick(2_000, .hitTestReturnedNothing, at: click),
+        ])
+        #expect(plan.framedClicks(with: [], pointerFallbackRevision: nil).isEmpty,
+                "with the fallback off this plan frames nothing — the behaviour that shipped")
+        #expect(plan.framedClicks(with: [], pointerFallbackRevision: revision).count == 2)
+    }
+}

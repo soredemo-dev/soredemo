@@ -25,7 +25,9 @@ public enum FramingPlanReader {
         for line in lines where try ObservationLog.kind(of: line) == "axChain" {
             let record = try ObservationLog.decode(line) as AXChainRecord
             entries.append(FramingPlan.Entry(instant: record.instant,
-                                             decision: FramingGate.decide(for: record)))
+                                             decision: FramingGate.decide(for: record),
+                                             clickPosition: record.clickPosition,
+                                             clickRevision: record.clickRevision))
         }
         return FramingPlan(entries: entries)
     }

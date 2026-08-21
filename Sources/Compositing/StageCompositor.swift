@@ -4,6 +4,7 @@ import Foundation
 // `Project` for `buildTracks(from:)`, which reads the segment's observation log.
 // `FramingGate`/`ZoomBlock`/`CameraMotion` — the zoom pipeline this file drives.
 import Framing
+import Geometry
 import Project
 import Render
 // `Nanoseconds`, named below, so `MemberImportVisibility` requires the direct import.
@@ -258,7 +259,9 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 // holds both; `review-ui` reads it, and a reviewer's override attaches to it.
                 let record = try ObservationLog.decode(line) as AXChainRecord
                 planEntries.append(FramingPlan.Entry(instant: record.instant,
-                                                     decision: FramingGate.decide(for: record)))
+                                                     decision: FramingGate.decide(for: record),
+                                                     clickPosition: record.clickPosition,
+                                                     clickRevision: record.clickRevision))
             default:
                 break
             }
@@ -267,7 +270,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         let click = ClickTrack(events: buttonEvents)
         // Overrides first, the gate second — the resolution order IS the producer-value rule.
         let plan = FramingPlan(entries: planEntries)
-        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: plan.framedClicks(with: framingOverrides)))
+        // **The pointer fallback is on**, which is what makes a recording zoom at all when
+        // accessibility is unavailable — a real recording measured eleven frames with the card
+        // identical in every one, because every chain came back `hitTestReturnedNothing`.
+        let camera = CameraMotion(blocks: ZoomBlock.blocks(
+            for: plan.framedClicks(with: framingOverrides,
+                                   pointerFallbackRevision: plan.fallbackRevision)))
         return (pointer: pointer, click: click, anchor: anchor, camera: camera)
     }
 }

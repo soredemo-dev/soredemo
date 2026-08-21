@@ -19,10 +19,24 @@ public struct FramingPlan: Hashable, Sendable {
     public struct Entry: Hashable, Sendable {
         public let instant: HostInstant
         public let decision: FramingDecision
+        /// Where the click actually was. **Carried even when the gate refused**, because that
+        /// is exactly when it is needed: a refusal means accessibility could not say what was
+        /// clicked, not that nothing was. `nil` only for an entry built without one.
+        public let clickPosition: NormalizedPoint?
+        /// The coordinate system `clickPosition` was measured in. **Carried rather than
+        /// derived from an accepted target's frame**: the case the fallback exists for is one
+        /// where NOTHING was accepted, so there is no accepted frame to take a revision from.
+        /// A first draft did derive it that way and disabled the fallback in exactly the
+        /// situation it was built for.
+        public let clickRevision: GeometryRevision?
 
-        public init(instant: HostInstant, decision: FramingDecision) {
+        public init(instant: HostInstant, decision: FramingDecision,
+                    clickPosition: NormalizedPoint? = nil,
+                    clickRevision: GeometryRevision? = nil) {
             self.instant = instant
             self.decision = decision
+            self.clickPosition = clickPosition
+            self.clickRevision = clickRevision
         }
     }
 
@@ -45,6 +59,12 @@ public struct FramingPlan: Hashable, Sendable {
 
     public var framedCount: Int {
         entries.count { $0.decision.rejection == nil }
+    }
+
+    /// The revision a pointer fallback's rectangle belongs to — the first click's own.
+    /// `nil` when no click recorded one, which is also when there is nothing to fall back to.
+    public var fallbackRevision: GeometryRevision? {
+        entries.lazy.compactMap(\.clickRevision).first
     }
 }
 
@@ -90,6 +110,20 @@ public struct FramingOverride: Codable, Hashable, Sendable {
 public enum FramingOrigin: Hashable, Sendable {
     /// The gate decided and no reviewer disagreed.
     case derived
+    /// **The gate refused and the camera framed the pointer instead.**
+    ///
+    /// `framing-targets`' row asks for this and it was the row's outstanding clause: without
+    /// it, a recording whose every accessibility chain was refused zooms nowhere at all. A
+    /// real recording did exactly that — eleven frames measured, the card identical in every
+    /// one — because the machine had not granted Accessibility, so every chain came back
+    /// `hitTestReturnedNothing`.
+    ///
+    /// **It carries the refusal it replaced, and that is the whole design.** `FramingGate`'s
+    /// own header refuses to fall back internally, because a function that silently
+    /// substituted the pointer would erase the reason it had just computed. The fallback
+    /// belongs one layer out, where the reason survives beside it and `review-ui` shows both:
+    /// "zoomed to the pointer, because nothing was under the click".
+    case pointerFallback(over: FramingRejection)
     /// A reviewer decided. `over` is what the gate had concluded, kept rather than
     /// discarded: a reviewer who forced a zoom past `tooLarge` should still be able to see
     /// that `tooLarge` is what they overrode, and a reviewer looking at someone else's
@@ -111,10 +145,12 @@ public struct ResolvedFraming: Hashable, Sendable {
         self.origin = origin
     }
 
-    /// The gate's reason, whether or not it was overridden — never erased by an override.
+    /// The gate's reason, whether or not it was overridden or fallen back from — never
+    /// erased by either.
     public var rejection: FramingRejection? {
         switch origin {
         case .derived: return nil
+        case .pointerFallback(let reason): return reason
         case .authored(let overridden): return overridden?.rejection
         }
     }
@@ -136,6 +172,73 @@ extension FramingPlan {
     /// Two overrides at the same instant would be a project that contradicts itself; the
     /// first in the given order wins, deterministically, rather than the last write to a
     /// dictionary.
+    /// **How wide a pointer fallback frames.** A fraction of the recording's shorter side,
+    /// centred on the click.
+    ///
+    /// **Uncalibrated**, and named so rather than buried: 0.22 was chosen because it is close
+    /// to what a mid-sized control occupies once `FramingDepth`'s curve is applied to a real
+    /// accepted target, so a fallback zoom looks like the zooms around it rather than
+    /// announcing itself. A measurement against real recordings should move it.
+    public static let pointerFallbackExtent = 0.22
+
+    /// The rectangle a pointer fallback frames, or `nil` when the click position was not
+    /// recorded. Clamped into the frame, because a click near an edge would otherwise frame
+    /// space that is not in the recording — `FramingGate.partlyOffscreen` refuses exactly that
+    /// for a real target and the fallback must not sneak it back in.
+    static func pointerTarget(at click: NormalizedPoint,
+                              revision: GeometryRevision) -> FramingTarget {
+        let extent = pointerFallbackExtent
+        let half = extent / 2
+        return FramingTarget(
+            frame: NormalizedFrame(
+                origin: NormalizedPoint(x: min(max(click.x - half, 0), 1 - extent),
+                                        y: min(max(click.y - half, 0), 1 - extent)),
+                size: NormalizedSize(width: extent, height: extent),
+                revision: revision),
+            // No role: nothing identified the element, which is why this is a fallback. A
+            // fabricated role would read as an identification the recorder never made.
+            role: nil)
+    }
+
+    /// `resolved`, plus a pointer-centred target wherever the gate refused and a click
+    /// position was recorded.
+    ///
+    /// Separate from `resolved(with:)` rather than a flag on it: a reviewer reading what the
+    /// GATE concluded and a camera deciding where to point are different questions, and the
+    /// review surface asks the first.
+    public func resolvedWithPointerFallback(overrides: [FramingOverride],
+                                            revision: GeometryRevision) -> [ResolvedFraming] {
+        let byInstant = Dictionary(entries.map { ($0.instant, $0.clickPosition) },
+                                   uniquingKeysWith: { first, _ in first })
+        return resolved(with: overrides).map { entry in
+            // Precedence: an authored decision, then the gate, then the pointer. A fallback
+            // that overrode a reviewer's suppression would be the producer-value rule
+            // backwards.
+            guard entry.target == nil, !entry.wasOverridden,
+                  let reason = entry.rejection ?? gateRejection(at: entry.instant),
+                  let click = byInstant[entry.instant] ?? nil
+            else { return entry }
+            return ResolvedFraming(instant: entry.instant,
+                                   target: Self.pointerTarget(at: click, revision: revision),
+                                   origin: .pointerFallback(over: reason))
+        }
+    }
+
+    private func gateRejection(at instant: HostInstant) -> FramingRejection? {
+        entries.first { $0.instant == instant }?.decision.rejection
+    }
+
+    /// What the camera zooms to after review AND fallback — the one call the compositor makes.
+    public func framedClicks(with overrides: [FramingOverride],
+                             pointerFallbackRevision: GeometryRevision?) -> [FramedClick] {
+        let resolved = pointerFallbackRevision.map {
+            resolvedWithPointerFallback(overrides: overrides, revision: $0)
+        } ?? resolved(with: overrides)
+        return resolved.compactMap { entry in
+            entry.target.map { FramedClick(instant: entry.instant, target: $0) }
+        }
+    }
+
     public func resolved(with overrides: [FramingOverride]) -> [ResolvedFraming] {
         var resolved: [ResolvedFraming] = []
         var consumed = Set<Int>()

@@ -91,4 +91,22 @@ private let revision = GeometryRevision(id: 1)
             try FramingPlanReader.plan(fromObservationLogAt: missing)
         }
     }
+    /// **The reader must carry the click's position AND its revision**, or the pointer
+    /// fallback is disabled in exactly the case it exists for. A refused chain is one where
+    /// accessibility could not say what was clicked — not one where nothing was clicked — and
+    /// a plan that dropped the click would leave the camera nothing to aim at.
+    @Test func aRefusedChainStillCarriesWhereTheClickWas() throws {
+        let url = try writeLog([try emptyChainLine(atNanos: 1_000)])
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let plan = try FramingPlanReader.plan(fromObservationLogAt: url)
+        let entry = try #require(plan.entries.first)
+        #expect(entry.decision.rejection == .hitTestReturnedNothing)
+        #expect(entry.clickPosition == NormalizedPoint(x: 0.5, y: 0.5))
+        #expect(entry.clickRevision == revision)
+        // And the plan can therefore answer the question the camera asks it.
+        #expect(plan.fallbackRevision == revision)
+        #expect(plan.framedClicks(with: [], pointerFallbackRevision: plan.fallbackRevision).count == 1,
+                "a log of nothing but refusals must still frame something")
+    }
 }
