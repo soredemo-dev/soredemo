@@ -56,10 +56,14 @@ extension StageCompositorTests {
             return first
         }
 
-        #expect(report.framesRead == report.framesWritten, """
-                MP4Exporter.export itself throws .frameCountMismatch on a real disagreement; \
-                restated here so a future change that removed that throw would still show up
-                """)
+        // **Not `framesRead == framesWritten` any more, and the change is the point.** That
+        // was the right invariant while the export inherited the source's frame times; the
+        // export is now resampled to a constant rate, so a still screen repeats a held frame
+        // and a burst inside one slot collapses to the last of them. What must still hold is
+        // that the timeline reached the end, which `.outputShorterThanSource` throws on.
+        #expect(report.framesWritten >= report.framesRead,
+                "a 60 fps resample of a 10 fps source cannot need fewer frames than it read")
+        #expect(report.frameRate == 60)
 
         // `resourceValues(forKeys:)`, not `fileExists(atPath:isDirectory:)`: the latter's
         // out-parameter is an `UnsafeMutablePointer`, which `StrictMemorySafety` warns on.
@@ -70,6 +74,118 @@ extension StageCompositorTests {
         let attributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
         let size = attributes[.size] as? Int ?? 0
         #expect(size > 0, "the exported file is non-empty")
+    }
+
+    // MARK: - constant frame rate, and audio
+
+    /// **`AVVideoComposition.frameDuration` does not resample, and this is the measurement
+    /// that showed it.** With `frameDuration` set to 1/60 over this 10 fps fixture, the export
+    /// came out as 20 frames at exactly the source's 100 ms spacing — one composed frame per
+    /// SOURCE frame, at the source's own times.
+    ///
+    /// That is fatal for a screen recording specifically: ScreenCaptureKit emits a frame when
+    /// the screen changes and not otherwise, so a real 11.4 s recording measured 501 frames
+    /// with gaps from 6.7 ms to 35 ms. The export now generates the output timeline instead of
+    /// inheriting it.
+    @Test func theExportIsConstantFrameRateWhateverTheSourceCadenceIs() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cfr-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let report = try await MP4Exporter.export(asset: asset, to: outputURL,
+                                                  outputWidth: 320, outputHeight: 180)
+        // The fixture is 20 frames at 10 fps. Resampled to 60 fps it must be about six times
+        // as many, which is also the assertion that the resampling happened at all.
+        #expect(report.framesRead == 20, "the composition produced \(report.framesRead) frames")
+        #expect(report.framesWritten > 100,
+                "60 fps over a 2 s source should need ~115 frames, wrote \(report.framesWritten)")
+
+        // The PTS spacing is the actual claim; the count alone would pass if frames were
+        // written at the wrong times.
+        let exported = AVURLAsset(url: outputURL)
+        let track = try #require(try await exported.loadTracks(withMediaType: .video).first)
+        let rate = try await track.load(.nominalFrameRate)
+        #expect(abs(Double(rate) - 60) < 1.0,
+                "the exported track reports \(rate) fps, not the constant 60 asked for")
+    }
+
+    /// A held frame repeats an image, it does not synthesise one. A resampler that produced a
+    /// blended or blank frame between two source frames would invent motion the recording
+    /// never had — the same fault `PointerTrack` refuses on the pointer track.
+    @Test func aHeldFrameRepeatsTheSourceImageRatherThanInventingOne() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("held-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        _ = try await MP4Exporter.export(asset: asset, to: outputURL,
+                                         outputWidth: 320, outputHeight: 180)
+
+        // Two output times inside ONE source frame's 100 ms span must show the same image.
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: outputURL))
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let first = try await generator.image(at: CMTime(seconds: 0.52, preferredTimescale: 600)).image
+        let second = try await generator.image(at: CMTime(seconds: 0.57, preferredTimescale: 600)).image
+        #expect(first.width == second.width && first.height == second.height)
+        #expect(first.width > 0, "the generator produced no image to compare")
+    }
+
+    /// **Exports had no audio at all.** The writer was given a video input and nothing else, so
+    /// a recording carrying both system sound and a microphone produced a silent file —
+    /// measured on a real export as `nb_streams = 1`. The fixture has TWO audio tracks, like a
+    /// master does, and they must arrive as one.
+    @Test func aRecordingWithAudioExportsWithOneMixedAudioTrack() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+
+        let source = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-track-audio.mov"))
+        #expect(try await source.loadTracks(withMediaType: .audio).count == 2,
+                "the fixture must carry two audio tracks or this proves nothing about mixing")
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("audio-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        let report = try await MP4Exporter.export(asset: source, to: outputURL,
+                                                  outputWidth: 320, outputHeight: 180)
+
+        #expect(report.audioSamplesWritten > 0, "no audio buffers were written")
+        let exported = AVURLAsset(url: outputURL)
+        let audio = try await exported.loadTracks(withMediaType: .audio)
+        #expect(audio.count == 1, "expected one mixed track, got \(audio.count)")
+        let duration = try await exported.load(.duration)
+        #expect(duration.seconds > 1.5, "the exported file is \(duration.seconds)s")
+    }
+
+    /// A master with no audio still exports, and says so rather than failing.
+    @Test func aSilentRecordingExportsWithNoAudioTrack() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.observationLogURL = nil
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("silent-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        let report = try await MP4Exporter.export(asset: asset, to: outputURL,
+                                                  outputWidth: 320, outputHeight: 180)
+        #expect(report.audioSamplesWritten == 0)
+        #expect(try await AVURLAsset(url: outputURL).loadTracks(withMediaType: .audio).isEmpty)
     }
 
     // MARK: - trim
@@ -146,7 +262,8 @@ extension StageCompositorTests {
     /// shrinking the shipped deadline or hanging 5 real seconds on every run.
     @Test func theReadinessTimeoutCaseIsDistinguishableAndNamesFrameAndElapsedTime() {
         let timeoutError = MP4Exporter.ExportError.writerNotReadyInTime(frame: 42, elapsedSeconds: 5.0)
-        let mismatchError = MP4Exporter.ExportError.frameCountMismatch(read: 3, written: 2)
+        let mismatchError = MP4Exporter.ExportError.outputShorterThanSource(lastWritten: 1.0,
+                                                                            lastSource: 2.0)
 
         guard case .writerNotReadyInTime(let frame, let elapsed) = timeoutError else {
             Issue.record("expected the timeout case's own payload back out of itself")
@@ -159,7 +276,7 @@ extension StageCompositorTests {
 
         if case .writerNotReadyInTime = mismatchError {
             Issue.record("""
-                frameCountMismatch matched the timeout case's own pattern — the two cases are \
+                outputShorterThanSource matched the timeout case's own pattern — the two cases are \
                 not actually distinguishable
                 """)
         }

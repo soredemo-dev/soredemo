@@ -5499,11 +5499,13 @@ enum CrossBoundaryProbe {
 
     /// Counts video sample buffers in `url` with a BARE `AVAssetReader` — no `videoComposition`,
     /// no `MP4Exporter` involved — as an INDEPENDENT count against `ExportReport.framesWritten`.
-    /// Not redundant with `MP4Exporter`'s own `framesRead == framesWritten` throw: that throw
-    /// proves the exporter's two counters agree with EACH OTHER; a bug that incremented both
-    /// counters identically but wrong (or that wrote fewer samples than it counted) would still
-    /// pass it. This recounts the samples that actually landed in the FILE, the same "the shared
-    /// value is the RIGHT one, not just agreeing" check every other section in this probe applies.
+    /// Not redundant with the exporter's own counters: those are its account of itself, and a
+    /// bug that incremented them wrongly — or that wrote fewer samples than it counted — would
+    /// still pass a check of one against the other. This recounts the samples that actually
+    /// landed in the FILE, the same "the shared value is the RIGHT one, not just agreeing"
+    /// check every other section in this probe applies. It matters more since the resampling:
+    /// `framesWritten` is now a count of generated timeline slots rather than of frames read,
+    /// so nothing else ties it to the file.
     @MainActor
     static func countVideoSampleBuffers(in url: URL) async throws -> Int {
         let asset = AVURLAsset(url: url)
@@ -5571,9 +5573,15 @@ enum CrossBoundaryProbe {
         check(report.framesWritten > 0,
               "the export actually wrote frames — not a vacuous 0 == 0 pass",
               actual: "\(report.framesWritten)")
-        check(report.framesRead == report.framesWritten,
-              "framesRead == framesWritten — MP4Exporter.export would have thrown otherwise; "
-              + "restated here so a future change that removed the throw would still show up",
+        // **Was `framesRead == framesWritten`.** That invariant died with the resampling: the
+        // export now generates a constant-rate timeline rather than inheriting the source's
+        // frame times, so a still screen repeats a held frame and a burst inside one slot
+        // collapses to the last of them. The fixture is 10 fps and the export is 60, so the
+        // written count must EXCEED the read count — a resample that silently did nothing
+        // would show up here as equality.
+        check(report.framesWritten > report.framesRead,
+              "a 60 fps resample of a 10 fps source writes more frames than it reads — "
+              + "equality would mean the resampling did not happen",
               actual: "read \(report.framesRead), written \(report.framesWritten)")
 
         // The RIGHT number, not just two counters agreeing with each other: recount the samples
@@ -5589,11 +5597,19 @@ enum CrossBoundaryProbe {
         let audioTracks = try await exportedAsset.loadTracks(withMediaType: .audio)
         check(videoTracks.count == 1, "the exported file has exactly one video track",
               actual: "\(videoTracks.count)")
+        // **The reason changed even though the number did not.** This used to assert no audio
+        // because the exporter had no audio path at all — measured on a real export as
+        // `nb_streams = 1`, a silent file from a recording that carried both system sound and a
+        // microphone. The exporter now mixes every source audio track into one. This fixture
+        // has none, so the right assertion is that an export adds no audio it was not given.
         check(audioTracks.count == 0,
-              "and NO audio tracks — MP4Exporter.swift's header explains why: this export's own "
-              + "signature carries no audio parameter, and shipping empty, never-fed audio tracks "
-              + "would be exactly the unmeasured shape this task exists to not ship",
+              "no audio track, because the fixture has none — an export must not invent one; "
+              + "the mixed-audio path is covered by aRecordingWithAudioExportsWithOneMixedAudioTrack "
+              + "against a two-audio-track fixture",
               actual: "\(audioTracks.count)")
+        check(report.audioSamplesWritten == 0,
+              "and the exporter's own account agrees it wrote no audio",
+              actual: "\(report.audioSamplesWritten)")
 
         let brand = try ftypMajorBrand(of: exportedURL)
         check(brand != "qt  ",
