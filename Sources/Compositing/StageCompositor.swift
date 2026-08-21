@@ -31,6 +31,15 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// A reviewer's decisions to suppress the pointer, set before playback starts and never read
     /// from the observation log.
     public nonisolated(unsafe) static var overrides: [CursorOverride] = []
+    /// **What survived editing, and where each surviving nanosecond came from.**
+    ///
+    /// `nil` means no edits — output time IS source time, which is the case every recording
+    /// starts in and the reason a bug here hides until the first cut. Once a cut exists,
+    /// `startRequest` is handed OUTPUT times while every observation record is stamped in
+    /// SOURCE time, so the pointer and the camera must be looked up through this or they land
+    /// by however much was removed before them. Set on the same terms as the seams below.
+    public nonisolated(unsafe) static var editTimeline: EditTimeline?
+
     /// A reviewer's decisions about where the camera frames — set on the same terms and for
     /// the same reason as `overrides`. Applied by `FramingPlan.framedClicks(with:)`, which
     /// consults them BEFORE the gate, so a re-derivation cannot replace an authored value.
@@ -128,11 +137,26 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// phase at that instant; every other `PointerReading` draws nothing. Cases are named, not
     /// defaulted, so a new one is a compile error. `public` as the test seam, since
     /// `startRequest(_:)` takes a type only AVFoundation can construct.
+    /// **Output time → source time, through the edit.** The one conversion that stands between
+    /// a composition frame and the recording it was made from.
+    ///
+    /// `nil` when the requested output time is past the end of the edited video — a frame that
+    /// does not exist. Not clamped: the caller draws no pointer and applies no camera rather
+    /// than reusing the last frame's answer for every frame past the end.
+    ///
+    /// With no edit this is the identity, which is exactly why it is written once here and
+    /// called from both time-reading sites rather than inlined at each.
+    nonisolated static func sourceOffset(forOutput offset: Nanoseconds) -> Nanoseconds? {
+        guard let timeline = unsafe editTimeline else { return offset }
+        return timeline.sourceTime(atOutput: offset)
+    }
+
     public func pointerPlacement(at compositionTime: CMTime,
                                  in plan: RenderPlan) -> NormalizedPointerPlacement? {
         guard compositionTime.isValid,
-              let offset = Nanoseconds(rationalSeconds: compositionTime.value,
-                                       timescale: compositionTime.timescale) else { return nil }
+              let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                             timescale: compositionTime.timescale),
+              let offset = Self.sourceOffset(forOutput: outputOffset) else { return nil }
         let (pointer, click, anchor, _) = loadedTracks()
         guard let pointer, let anchor else { return nil }
         // `compositionTime` is relative to the composition start, log records absolute. The anchor
@@ -162,8 +186,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// only AVFoundation constructs, so this is the seam a test can reach.
     public func cameraPlan(_ basePlan: RenderPlan, at compositionTime: CMTime) -> RenderPlan {
         guard compositionTime.isValid,
-              let offset = Nanoseconds(rationalSeconds: compositionTime.value,
-                                       timescale: compositionTime.timescale)
+              let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                             timescale: compositionTime.timescale),
+              // Same conversion as `pointerPlacement`, and it must be: a camera aimed in
+              // source time while the pointer was placed in output time would draw the cursor
+              // outside the region the camera framed, on every frame after the first cut.
+              let offset = Self.sourceOffset(forOutput: outputOffset)
         else { return basePlan }
         let (_, _, anchor, camera) = loadedTracks()
         guard let anchor, let camera else { return basePlan }

@@ -6,6 +6,7 @@ import Foundation
 // this app target links is `SoredemoHeadless`, which vends both.
 import Capture
 import Compositing
+import Timeline
 import Variants
 import SwiftUI
 
@@ -28,15 +29,13 @@ struct StageWindow: View {
     /// The output shape. Drives the preview as well as the export: a person choosing Portrait
     /// and then seeing a landscape preview has been shown the wrong thing.
     @State private var variant = AspectVariant.landscape
-    // MARK: - trim
-    /// The recording's full length, read once the asset loads. `nil` until then, which is why
-    /// the trim controls are absent rather than showing a range of 0…0.
-    @State private var duration: Double?
-    /// The span to keep, in seconds from the start of the recording. `trimEnd == nil` means
-    /// "to the end" — distinct from "to the current duration", which would silently stop
-    /// following the recording if it were ever re-read.
-    @State private var trimStart: Double = 0
-    @State private var trimEnd: Double?
+    // MARK: - basic-edit
+    /// What survives editing. **Replaced a pair of trim sliders**, which could express one
+    /// kept span and nothing else: no cut in the middle, no seeing where a cut was made, no
+    /// undo. Owned here so it survives the inspector being closed.
+    @State private var timeline = TimelineEditorModel()
+    /// Bumped when an edit is committed, to rebuild the composition against the cut asset.
+    @State private var editRevision = 0
     @State private var isReviewShown = true
     /// Bumped whenever an override changes, to rebuild the composition. **The preview has to
     /// move**: the completion rule says a row is not done while the behaviour its name claims
@@ -84,11 +83,21 @@ struct StageWindow: View {
         // The preview follows the chosen shape: showing landscape while Portrait is selected
         // would be showing the wrong thing, which is the fault this surface exists against.
         .task(id: variant) { await load() }
-        // Rebuilding on a committed trim change, not on every intermediate slider value:
-        // `load()` builds an `AVVideoComposition`, and doing that per pixel of slider travel
-        // would make the control unusable.
-        .task(id: trimStart) { if duration != nil { await load() } }
-        .task(id: trimEnd) { if duration != nil { await load() } }
+        // Rebuilding on a COMMITTED edit, not on every drag event: `load()` builds an
+        // `AVVideoComposition` over a freshly cut asset, and doing that per pixel of a
+        // selection drag would make the strip unusable.
+        .task(id: editRevision) { if editRevision > 0 { await load() } }
+        // **The playhead has to move the player, or it is decoration.** It is dragged in
+        // SOURCE time and the player counts in OUTPUT time, so the seek goes through the
+        // edit; a position inside a cut has no output time and the player stays where it is
+        // rather than jumping to zero.
+        .task(id: timeline.playhead) {
+            guard let player,
+                  let output = timeline.edit.outputTime(atSource: timeline.playhead)
+            else { return }
+            await player.seek(to: CMTime(value: output.rawValue, timescale: 1_000_000_000),
+                              toleranceBefore: .zero, toleranceAfter: .zero)
+        }
         // `reviewRevision` and not `review.overrides`: the composition is rebuilt when a
         // decision changes, and a counter says exactly that. Observing the array would also
         // fire on a load that merely restored the same decisions.
@@ -105,8 +114,8 @@ struct StageWindow: View {
                     LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                if let duration, duration > 0 {
-                    Section("Trim") { trimControls(duration: duration) }
+                Section("Edit") {
+                    TimelineEditor(model: timeline, onChange: { editRevision += 1 })
                 }
                 Section("Look") {
                     StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
@@ -143,7 +152,18 @@ struct StageWindow: View {
     /// Everything the preview needs configured before a composed frame can be read: the shared
     /// compositor statics and the `AVVideoComposition` itself. Kept as its own function so the
     /// render-parity check exercises the same code the real preview runs, rather than a copy.
+    /// **Takes an asset, not a URL** — the preview and the export both compose an already-cut
+    /// `EditedAsset`, which has no URL of its own. `observationLogFor` still names the media
+    /// file, because the log belongs to the recording rather than to any edit of it.
     static func configuredComposition(for mediaURL: URL,
+                                      variant: AspectVariant = .landscape) async throws
+        -> AVVideoComposition {
+        try await configuredComposition(for: AVURLAsset(url: mediaURL),
+                                        logForMediaURL: mediaURL, variant: variant)
+    }
+
+    static func configuredComposition(for asset: AVAsset,
+                                      logForMediaURL mediaURL: URL? = nil,
                                       variant: AspectVariant = .landscape) async throws
         -> AVVideoComposition {
         StageCompositor.renderer = try CoreImageFrameRenderer()
@@ -152,56 +172,14 @@ struct StageWindow: View {
         // `expectedLogURL(forMediaURL:)` names where a log for this media would be; it does not
         // claim one exists. The filesystem check decides between "no log" and "a log", which
         // `PointerReading`'s cases keep distinguishable — `nil` means draw no pointer.
-        let candidateLogURL = ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
+        let candidateLogURL = mediaURL.flatMap { ObservationWriter.expectedLogURL(forMediaURL: $0) }
         StageCompositor.observationLogURL = candidateLogURL.flatMap {
             FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
         }
-        let asset = AVURLAsset(url: mediaURL)
         let size = Self.size(for: variant)
         return try await CompositionBuilder.composition(
             for: asset, outputWidth: size.width, outputHeight: size.height,
             frameDuration: CMTime(value: 1, timescale: 60))
-    }
-
-    /// The span to export, or `nil` for all of it. Built here rather than stored so the two
-    /// sliders cannot drift out of order: a start past the end is clamped into a valid range
-    /// at the one place a range is made.
-    private func trimRange() -> CMTimeRange? {
-        guard let duration, duration > 0 else { return nil }
-        let start = min(max(trimStart, 0), duration)
-        let end = min(trimEnd ?? duration, duration)
-        guard end > start, start > 0 || end < duration else { return nil }
-        return CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
-                           duration: CMTime(seconds: end - start, preferredTimescale: 600))
-    }
-
-    @ViewBuilder private func trimControls(duration: Double) -> some View {
-        LabeledContent("Keep", value: Self.timeSpan(from: trimStart,
-                                                    to: trimEnd ?? duration))
-            .font(.caption).monospacedDigit()
-        TrimSlider(title: "Start", value: trimStart, range: 0...duration) { settled in
-            trimStart = min(settled, (trimEnd ?? duration) - 0.1)
-        }
-        TrimSlider(title: "End", value: trimEnd ?? duration, range: 0...duration) { settled in
-            // Snapping the far end back to `nil` keeps "to the end" expressible: a stored
-            // number equal to the current duration would silently become a real cut if the
-            // recording were ever re-read at a different length.
-            trimEnd = settled >= duration - 0.05 ? nil : max(settled, trimStart + 0.1)
-        }
-        if trimStart > 0 || trimEnd != nil {
-            Button("Use the whole recording") {
-                trimStart = 0
-                trimEnd = nil
-            }
-            .buttonStyle(.link).font(.caption)
-        }
-    }
-
-    static func timeSpan(from start: Double, to end: Double) -> String {
-        func stamp(_ seconds: Double) -> String {
-            String(format: "%d:%05.2f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
-        }
-        return "\(stamp(start)) – \(stamp(end))  (\(stamp(max(0, end - start))))"
     }
 
     private func load() async {
@@ -210,22 +188,19 @@ struct StageWindow: View {
             // `StageCompositor.framingOverrides`, which `FramingReviewModel.load` publishes.
             review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
                 .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
-            let composition = try await Self.configuredComposition(for: mediaURL, variant: variant)
-            let asset = AVURLAsset(url: mediaURL)
-            let loaded = try await asset.load(.duration)
-            if duration == nil { duration = loaded.seconds }
+            let recording = AVURLAsset(url: mediaURL)
+            if timeline.duration == nil {
+                timeline.load(duration: try await recording.load(.duration).seconds)
+            }
+            // **The preview plays the EDITED asset, not the recording with an end time set.**
+            // `EditedAsset` is what the export cuts with too, so the two cannot show different
+            // videos — an edit a person can make but not see is a setting, not an edit.
+            let asset = try await EditedAsset.make(from: recording, by: timeline.edit)
+            let composition = try await Self.configuredComposition(
+                for: asset, logForMediaURL: mediaURL, variant: variant)
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
-            // **The preview obeys the trim.** A trim a person can set but not see is a
-            // setting, not an edit: they would only find out what they chose after exporting.
-            if let end = trimEnd {
-                item.forwardPlaybackEndTime = CMTime(seconds: end, preferredTimescale: 600)
-            }
-            let created = AVPlayer(playerItem: item)
-            if trimStart > 0 {
-                await created.seek(to: CMTime(seconds: trimStart, preferredTimescale: 600))
-            }
-            player = created
+            player = AVPlayer(playerItem: item)
         } catch {
             failure = "\(error)"
         }
@@ -249,7 +224,7 @@ struct StageWindow: View {
             let report = try await MP4Exporter.export(
                 asset: asset, to: destination,
                 outputWidth: size.width, outputHeight: size.height,
-                trim: trimRange())
+                edit: timeline.edit)
             exportStatus = "Exported \(report.framesWritten) frame(s) at "
                 + "\(size.width)\u{00D7}\(size.height) to "
                 + "\(report.outputURL.lastPathComponent)."
@@ -260,31 +235,3 @@ struct StageWindow: View {
 }
 
 
-/// A labelled slider that reports on release. Same reason as `StageStylePicker`'s: the host
-/// rebuilds an `AVVideoComposition` on each committed value, and doing that per intermediate
-/// value of a drag would make the control unusable.
-private struct TrimSlider: View {
-    let title: String
-    let value: Double
-    let range: ClosedRange<Double>
-    let commit: (Double) -> Void
-    @State private var live: Double?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(String(format: "%.2fs", live ?? value))
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }
-            .font(.caption)
-            Slider(value: Binding(get: { live ?? value }, set: { live = $0 }), in: range) { editing in
-                if !editing, let settled = live {
-                    commit(settled)
-                    live = nil
-                }
-            }
-        }
-    }
-}

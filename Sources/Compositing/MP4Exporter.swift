@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Timeline
 
 /// One MP4 (H.264) export of a recorded master, written directly against `AVAssetReader` /
 /// `AVAssetWriter`. Neither master writer is usable here: one hardcodes `fileType: .mov`, and
@@ -27,18 +28,35 @@ public enum MP4Exporter {
     /// beginning at 30 s would produce a file with 30 seconds of nothing at the front.
     public nonisolated static func export(asset: AVAsset, to outputURL: URL,
                                           outputWidth: Int, outputHeight: Int,
-                                          trim: CMTimeRange? = nil,
+                                          edit: EditTimeline? = nil,
                                           frameRate: Int = 60) async throws -> ExportReport {
         precondition(frameRate > 0, "frameRate must be positive, got \(frameRate)")
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
 
+        if let edit, edit.isEmpty { throw ExportError.emptyTrim }
+        // **The compositor must be looking at the SAME edit.** It reads the observation log in
+        // source time and is handed output times, so it converts through
+        // `StageCompositor.editTimeline`; an export whose asset was cut one way while that
+        // static said another would place every cursor and every zoom by the difference. The
+        // static is process-global because AVFoundation owns compositor instances, so the
+        // pairing cannot be passed as an argument — it can be checked, which is this.
+        if unsafe StageCompositor.editTimeline != edit {
+            throw ExportError.editTimelineMismatch
+        }
+
+        // Cutting happens here, not in the reader. `AVAssetReader.timeRange` selects ONE span,
+        // which is a trim; a timeline with a cut in the middle has two or more, and an
+        // `AVMutableComposition` is what turns them into a single asset whose own timeline is
+        // already the edited one.
+        // `if let` rather than `Optional.map`: the transform is `async throws`, which `map`
+        // cannot carry.
+        var asset = asset
+        if let edit { asset = try await EditedAsset.make(from: asset, by: edit) }
+
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         guard !videoTracks.isEmpty else { throw ExportError.noVideoTrack }
-        if let trim, !trim.duration.isValid || trim.duration.seconds <= 0 {
-            throw ExportError.emptyTrim
-        }
 
         let frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate))
         // The same composition the preview uses.
@@ -76,11 +94,14 @@ public enum MP4Exporter {
             throw ExportError.writerFailed(writer.error.map { String(describing: $0) }
                 ?? "startWriting() returned false")
         }
-        let sessionStart = trim?.start ?? .zero
+        // Always zero now: the composition above already begins at the edit's first clip, so
+        // there is no leading span to skip. It stays a named value because `writeVideo` slots
+        // its output timeline from it.
+        let sessionStart = CMTime.zero
         writer.startSession(atSourceTime: sessionStart)
 
         let video = try await writeVideo(asset: asset, tracks: videoTracks,
-                                         composition: composition, trim: trim,
+                                         composition: composition,
                                          frameDuration: frameDuration,
                                          sessionStart: sessionStart,
                                          writer: writer, input: videoInput)
@@ -92,7 +113,7 @@ public enum MP4Exporter {
         // other's queue stalling the reader behind it.
         var audioSamples = 0
         if let audioInput {
-            audioSamples = try await writeAudio(asset: asset, tracks: audioTracks, trim: trim,
+            audioSamples = try await writeAudio(asset: asset, tracks: audioTracks,
                                                 writer: writer, input: audioInput)
         }
 
@@ -130,11 +151,10 @@ public enum MP4Exporter {
     /// are no longer expected to match.
     private nonisolated static func writeVideo(
         asset: AVAsset, tracks: [AVAssetTrack], composition: AVVideoComposition,
-        trim: CMTimeRange?, frameDuration: CMTime, sessionStart: CMTime,
+        frameDuration: CMTime, sessionStart: CMTime,
         writer: AVAssetWriter, input: AVAssetWriterInput
     ) async throws -> (read: Int, written: Int) {
         let reader = try AVAssetReader(asset: asset)
-        if let trim { reader.timeRange = trim }
         let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
         ])
@@ -218,11 +238,10 @@ public enum MP4Exporter {
     /// nothing else, so a recording with both microphone and system sound produced a silent
     /// file. Measured on a real export: `nb_streams = 1`.
     private nonisolated static func writeAudio(
-        asset: AVAsset, tracks: [AVAssetTrack], trim: CMTimeRange?,
+        asset: AVAsset, tracks: [AVAssetTrack],
         writer: AVAssetWriter, input: AVAssetWriterInput
     ) async throws -> Int {
         let reader = try AVAssetReader(asset: asset)
-        if let trim { reader.timeRange = trim }
         let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVLinearPCMBitDepthKey: 32,
@@ -257,6 +276,7 @@ public enum MP4Exporter {
         input.markAsFinished()
         return written
     }
+
 
     /// The next composed frame with actual samples. `copyNextSampleBuffer()` may return
     /// marker-only buffers with zero samples; those are not frames and must not be counted or
@@ -314,9 +334,12 @@ public enum MP4Exporter {
 
     public nonisolated enum ExportError: Error, CustomStringConvertible, Sendable {
         case noVideoTrack
-        /// A trim whose duration is zero or invalid. Refused rather than clamped: a caller
-        /// that asked for nothing has a bug, and a zero-length MP4 would hide it.
+        /// An edit that keeps nothing. Refused rather than clamped: a caller that asked for
+        /// nothing has a bug, and a zero-length MP4 would hide it.
         case emptyTrim
+        /// The compositor's `editTimeline` is not the edit being exported. See the check's own
+        /// comment: the two cannot be passed together, so they are compared instead.
+        case editTimelineMismatch
         case readerRefusedOutput
         case writerRefusedInput
         case readerFailed(String)
@@ -338,7 +361,10 @@ public enum MP4Exporter {
             switch self {
             case .noVideoTrack: "the asset has no video track to export"
             case .emptyTrim:
-                "the requested trim has no duration — an export of nothing is not a file"
+                "the requested edit keeps nothing — an export of nothing is not a file"
+            case .editTimelineMismatch:
+                "StageCompositor.editTimeline does not match the edit being exported; every "
+                + "cursor and zoom would be placed by the difference between them"
             case .readerRefusedOutput: "AVAssetReader refused the video composition output"
             case .writerRefusedInput: "AVAssetWriter refused the video input"
             case .readerFailed(let why): "AVAssetReader failed: \(why)"

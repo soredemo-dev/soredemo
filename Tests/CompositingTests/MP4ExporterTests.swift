@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import AVFoundation
 import CoreMedia
+import Timeline
 @testable import Compositing
 
 /// Extends the `StageCompositorTests` serialized suite rather than declaring its own: a real
@@ -33,6 +34,7 @@ extension StageCompositorTests {
         unsafe StageCompositor.style = .default
         unsafe StageCompositor.observationLogURL = nil
         unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -92,6 +94,7 @@ extension StageCompositorTests {
         unsafe StageCompositor.style = .default
         unsafe StageCompositor.observationLogURL = nil
         unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -124,6 +127,7 @@ extension StageCompositorTests {
         unsafe StageCompositor.style = .default
         unsafe StageCompositor.observationLogURL = nil
         unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -152,6 +156,7 @@ extension StageCompositorTests {
         unsafe StageCompositor.style = .default
         unsafe StageCompositor.observationLogURL = nil
         unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
 
         let source = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-track-audio.mov"))
@@ -176,6 +181,7 @@ extension StageCompositorTests {
     @Test func aSilentRecordingExportsWithNoAudioTrack() async throws {
         unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
         unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -202,6 +208,7 @@ extension StageCompositorTests {
         unsafe StageCompositor.style = .default
         unsafe StageCompositor.observationLogURL = nil
         unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -218,12 +225,15 @@ extension StageCompositorTests {
 
         let full = try await MP4Exporter.export(asset: asset, to: whole,
                                                 outputWidth: 160, outputHeight: 90)
-        // The back half of the fixture, so the trim's start is NOT zero — a trim starting at
-        // zero would pass even with the session bug this test is here for.
-        let start = CMTimeMultiplyByRatio(duration, multiplier: 1, divisor: 2)
+        // The BACK half of the fixture, so the kept span does not start at zero — an edit
+        // starting at zero would pass even with the timeline bug this test is here for.
+        let totalNanos = Int64(duration.seconds * 1_000_000_000)
+        let edit = EditTimeline.whole(duration: Nanoseconds(totalNanos))
+            .trimmed(toSource: (totalNanos / 2)..<totalNanos)
+        unsafe StageCompositor.editTimeline = edit
+        defer { unsafe StageCompositor.editTimeline = nil }
         let trimmed = try await MP4Exporter.export(
-            asset: asset, to: half, outputWidth: 160, outputHeight: 90,
-            trim: CMTimeRange(start: start, duration: duration - start))
+            asset: asset, to: half, outputWidth: 160, outputHeight: 90, edit: edit)
 
         #expect(trimmed.framesWritten < full.framesWritten,
                 "a half-length trim wrote \(trimmed.framesWritten) of \(full.framesWritten) frames")
@@ -243,6 +253,7 @@ extension StageCompositorTests {
     @Test func aTrimWithNoDurationIsRefused() async throws {
         unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
         unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -250,10 +261,73 @@ extension StageCompositorTests {
             .appendingPathComponent("trim-empty-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
+        let empty = EditTimeline(clips: [])
+        unsafe StageCompositor.editTimeline = empty
+        defer { unsafe StageCompositor.editTimeline = nil }
+        await #expect(throws: MP4Exporter.ExportError.self) {
+            try await MP4Exporter.export(
+                asset: asset, to: outputURL, outputWidth: 160, outputHeight: 90, edit: empty)
+        }
+    }
+
+    /// **A cut, which a trim cannot stand in for.** `AVAssetReader.timeRange` selects ONE
+    /// span; a timeline with a hole in the middle has two, and the `AVMutableComposition` built
+    /// from it is what makes them one asset. This exports a 2 s fixture with its middle second
+    /// removed and checks the file is a second shorter — a cut that silently exported the whole
+    /// recording would still produce a valid, plausible MP4.
+    @Test func aCutInTheMiddleExportsBothSurvivingClips() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let duration = try await asset.load(.duration)
+        let totalNanos = Int64(duration.seconds * 1_000_000_000)
+        // Remove the middle half: 0.5s–1.5s of a 2s fixture.
+        let edit = EditTimeline.whole(duration: Nanoseconds(totalNanos))
+            .removing(sourceRange: (totalNanos / 4)..<(totalNanos * 3 / 4))
+        #expect(edit.clips.count == 2, "the fixture for a cut must have two surviving clips")
+        unsafe StageCompositor.editTimeline = edit
+        defer { unsafe StageCompositor.editTimeline = nil }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cut-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        _ = try await MP4Exporter.export(asset: asset, to: outputURL,
+                                         outputWidth: 160, outputHeight: 90, edit: edit)
+
+        let exported = try await AVURLAsset(url: outputURL).load(.duration)
+        let expected = Double(edit.outputDuration.rawValue) / 1_000_000_000
+        #expect(abs(exported.seconds - expected) < 0.1, """
+                the cut file runs \(exported.seconds)s against the timeline's \(expected)s — \
+                an export that ignored the cut would run the full \(duration.seconds)s
+                """)
+    }
+
+    /// **The pairing the export cannot be handed as an argument, checked instead.** The
+    /// compositor reads the observation log in source time and is given output times, so it
+    /// converts through a process-global `StageCompositor.editTimeline` — AVFoundation owns
+    /// compositor instances, so there is nowhere else to put it. An export whose asset was cut
+    /// one way while that static said another would place every cursor and every zoom by the
+    /// difference, silently.
+    @Test func exportingAgainstADifferentEditThanTheCompositorSeesIsRefused() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.editTimeline = EditTimeline.whole(duration: Nanoseconds(1_000))
+        defer { unsafe StageCompositor.editTimeline = nil }
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mismatch-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
         await #expect(throws: MP4Exporter.ExportError.self) {
             try await MP4Exporter.export(
                 asset: asset, to: outputURL, outputWidth: 160, outputHeight: 90,
-                trim: CMTimeRange(start: .zero, duration: .zero))
+                edit: EditTimeline.whole(duration: Nanoseconds(2_000)))
         }
     }
 
