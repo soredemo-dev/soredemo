@@ -808,7 +808,11 @@ func firstPartySourceFiles() throws -> [URL] {
     let expectations: [(needle: String, declaringFile: String, expected: Int, claim: String)] = [
         ("Minting.now()", "Sources/Capture/Minting.swift", 0,
          "a wall-clock reading callers can take"),
-        ("fileExtension:", "Soredemo/UI/ProjectDocument.swift", 0,
+        // The needle is the ARGUMENT label at a call site, comma and all. Bare `fileExtension:`
+        // also matched `SubtitleFile.Format.fileExtension`'s own declaration in another module —
+        // a different API with the same word, which this table has no opinion about. The comma
+        // is what distinguishes `addMedia(data, fileExtension: x)` from `var fileExtension:`.
+        (", fileExtension:", "Soredemo/UI/ProjectDocument.swift", 0,
          "media can be added under a minted name"),
         ("shadowRadius", "Sources/Render/RenderPlan.swift", 2,
          "the stage draws a shadow AND a person can change it. 0 → 1 was the recorder-parity "

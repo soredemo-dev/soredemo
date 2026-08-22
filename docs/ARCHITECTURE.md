@@ -805,7 +805,7 @@ instances in this tree on 2026-08-04:
 | `Sources/Timeline/TimeRange.swift` | an epoch-less interval type is useful | **0** — its stated first caller moved to `HostRange` |
 | `Degradation.noMicrophoneTrack` | a denied microphone degrades mildly | **0** — measured false; a denied microphone fails the whole `SCStream` |
 | `Minting.now()` | callers can take a wall-clock reading | **0** — the recording path needs no wall clock, and inventing a caller is what this row refuses to do |
-| `ProjectDocument.addMedia(_:fileExtension:)` | media can be added under a minted name | **0** — capture names its file at `beginSegment` |
+| `ProjectDocument.addMedia(_:fileExtension:)` | media can be added under a minted name | **0** — capture names its file at `beginSegment`. Counted on the needle `, fileExtension:`: bare `fileExtension:` also matches `SubtitleFile.Format`'s unrelated property |
 
 **These numbers are pinned by `theUnexercisedPublicAPITableMatchesTheTree`**
 (`Tests/AppSourceTests/AppSourceAllowListTests.swift`), not maintained by hand. A
