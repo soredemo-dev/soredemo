@@ -162,13 +162,17 @@ public struct WaveformEnvelope: Hashable, Sendable {
     /// around it, and those are exactly what a person scans a waveform to find.
     ///
     /// A silent column is `0`, and the caller draws nothing for it rather than a hairline.
-    public nonisolated func columnHeights(columns: Int, spanningSeconds seconds: Double) -> [Double] {
+    public nonisolated func columnHeights(columns: Int, from origin: Double = 0,
+                                          spanningSeconds seconds: Double) -> [Double] {
         guard columns > 0, seconds > 0, sliceDuration > 0, !peaks.isEmpty else { return [] }
         var heights: [Double] = []
         heights.reserveCapacity(columns)
         for column in 0..<columns {
-            let from = Double(column) / Double(columns) * seconds
-            let to = Double(column + 1) / Double(columns) * seconds
+            // `origin` is where the strip's left edge sits in the recording. A zoomed strip
+            // shows a window, and a waveform drawn from zero would slide out of step with the
+            // clips above it.
+            let from = origin + Double(column) / Double(columns) * seconds
+            let to = origin + Double(column + 1) / Double(columns) * seconds
             var loudest: Float = 0
             var at = from
             // Stepped by the envelope's own slice so a wide column reads every slice it covers

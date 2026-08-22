@@ -47,6 +47,10 @@ final class TimelineEditorModel {
     /// The recording's audio, for drawing. `nil` until it has been read, and empty when the
     /// recording has no audio — two different things, and the strip shows nothing for both.
     private(set) var waveform: WaveformEnvelope?
+    /// What part of the recording the strip is showing. **Every position on the strip goes
+    /// through this**, so a zoomed view cannot have one conversion for clips and another for
+    /// the playhead — see `TimelineWindow` for why that is worth a type.
+    private(set) var window = TimelineWindow.whole(Nanoseconds(0))
 
     /// Reads the audio envelope off the main thread. Called once per recording; a failure
     /// leaves `waveform` nil, because a strip without a waveform is a smaller loss than an
@@ -61,6 +65,7 @@ final class TimelineEditorModel {
         // `reset`, not `record`: opening a recording is not an edit to the one before it, and
         // a person must not be able to ⌘Z their way back into a different video.
         history.reset(to: EditTimeline.whole(duration: total))
+        window = .whole(total)
         original = edit
         playhead = Nanoseconds(0)
         selection = nil
@@ -127,6 +132,26 @@ final class TimelineEditorModel {
         apply("Revert All Edits", original)
         selection = nil
         selectedClip = nil
+    }
+
+    // MARK: - zooming the strip
+
+    func zoomStrip(by factor: Double, anchoredAtFraction anchor: Double) {
+        window = window.zoomed(by: factor, anchoredAtFraction: anchor)
+    }
+
+    func scrollStrip(byFraction fraction: Double) {
+        window = window.scrolled(byFraction: fraction)
+    }
+
+    func showWholeRecording() {
+        window = .whole(window.total)
+    }
+
+    /// Brings the playhead back on screen after a keyboard nudge walked it off the edge.
+    /// Nothing happens while it is already visible, so playback does not drag the view.
+    func revealPlayhead() {
+        window = window.revealing(playhead)
     }
 
     // MARK: - trim handles
@@ -255,8 +280,12 @@ struct TimelineEditor: View {
                 // identity, and an index key would animate a deleted clip into its
                 // neighbour's place rather than removing it.
                 ForEach(model.edit.clips) { clip in
-                    let x = fraction(clip.sourceStart, of: duration) * width
-                    let w = fraction(clip.duration, of: duration) * width
+                    let x = model.window.fraction(of: clip.sourceStart) * width
+                    // The DURATION's width, which is a span rather than a position — the
+                    // window's `fraction` measures from its start, so a length has to be
+                    // measured as the difference between two positions.
+                    let w = (model.window.fraction(of: clip.sourceEnd)
+                             - model.window.fraction(of: clip.sourceStart)) * width
                     let isSelected = clip.id == model.selectedClip
                     RoundedRectangle(cornerRadius: 4)
                         .fill(.tint)
@@ -272,8 +301,9 @@ struct TimelineEditor: View {
                 }
 
                 if let selection = model.selection {
-                    let x = Double(selection.lowerBound) / Double(duration.rawValue) * width
-                    let w = Double(selection.count) / Double(duration.rawValue) * width
+                    let x = model.window.fraction(of: Nanoseconds(selection.lowerBound)) * width
+                    let w = (model.window.fraction(of: Nanoseconds(selection.upperBound))
+                             - model.window.fraction(of: Nanoseconds(selection.lowerBound))) * width
                     Rectangle()
                         .fill(.primary.opacity(0.25))
                         .frame(width: max(w, 1))
@@ -296,6 +326,19 @@ struct TimelineEditor: View {
                     .allowsHitTesting(false)
             }
             .contentShape(Rectangle())
+            // Pinch to zoom, anchored where the fingers are. `MagnifyGesture` reports a
+            // cumulative magnification, so the delta against the last one is what advances the
+            // window — feeding the cumulative value would zoom exponentially during a pinch.
+            .gesture(
+                MagnifyGesture()
+                    .onChanged { value in
+                        let anchor = min(max(value.startAnchor.x, 0), 1)
+                        model.zoomStrip(by: value.magnification / lastMagnification,
+                                        anchoredAtFraction: anchor)
+                        lastMagnification = value.magnification
+                    }
+                    .onEnded { _ in lastMagnification = 1 }
+            )
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
@@ -338,10 +381,13 @@ struct TimelineEditor: View {
     @ViewBuilder private func waveformLayer(duration: Nanoseconds, width: Double,
                                             height: Double) -> some View {
         if let waveform = model.waveform, !waveform.isEmpty, width > 0 {
+            // The window's span, not the recording's — a zoomed strip must show the audio it
+            // is showing, and the offset comes from where the window starts.
             WaveformBars(
                 heights: waveform.columnHeights(
                     columns: Int(width.rounded(.down)),
-                    spanningSeconds: Double(duration.rawValue) / 1_000_000_000),
+                    from: Double(model.window.start.rawValue) / 1_000_000_000,
+                    spanningSeconds: Double(model.window.visible.rawValue) / 1_000_000_000),
                 height: height)
                 .equatable()
             .frame(height: height)
@@ -386,6 +432,11 @@ struct TimelineEditor: View {
     /// a Swift recorder's `handleWidth`. Carried over rather than re-guessed.
     private let handleHitWidth: Double = 12
 
+    /// The last cumulative magnification a pinch reported, so each change advances the window
+    /// by the DELTA. `MagnifyGesture` reports the total since the pinch began; feeding that in
+    /// directly compounds it and the strip zooms exponentially under the fingers.
+    @State private var lastMagnification: Double = 1
+
     /// Keys with no visible control of their own.
     ///
     /// **Zero-opacity buttons rather than a key handler**, because a `Button`'s shortcut is
@@ -415,11 +466,19 @@ struct TimelineEditor: View {
     static let frameStep: Int64 = 16_666_667
     static let secondStep: Int64 = 1_000_000_000
 
+    /// Where the playhead sits across the strip, clamped — a keyboard zoom anchors here, and
+    /// a playhead scrolled off the edge would otherwise anchor outside the view.
+    private var playheadAnchor: Double {
+        min(max(model.window.fraction(of: model.playhead), 0), 1)
+    }
+
     private func nudge(by delta: Int64, duration: Nanoseconds) {
         let moved = min(max(model.playhead.rawValue + delta, 0), duration.rawValue)
         model.playhead = Nanoseconds(moved)
         // The clip under the playhead follows it, so ← / → walk the clips as well as the time.
         model.selectClip(atSource: model.playhead)
+        // …and the view follows the playhead off the edge, but only when it has gone off.
+        model.revealPlayhead()
     }
 
     @ViewBuilder private func readout(duration: Nanoseconds) -> some View {
@@ -495,6 +554,20 @@ struct TimelineEditor: View {
             }
             .disabled(!model.canRedo)
             .keyboardShortcut("z", modifiers: [.command, .shift])
+
+            Spacer()
+
+            // Zoom anchored on the PLAYHEAD for a keyboard zoom, on the fingers for a pinch:
+            // both keep what a person is looking at where they are looking.
+            Button("Zoom in") { model.zoomStrip(by: 2, anchoredAtFraction: playheadAnchor) }
+                .disabled(!model.window.canZoomIn)
+                .keyboardShortcut("=", modifiers: .command)
+            Button("Zoom out") { model.zoomStrip(by: 0.5, anchoredAtFraction: playheadAnchor) }
+                .disabled(!model.window.canZoomOut)
+                .keyboardShortcut("-", modifiers: .command)
+            Button("Fit") { model.showWholeRecording() }
+                .disabled(!model.window.canZoomOut)
+                .keyboardShortcut("0", modifiers: .command)
         }
         .buttonStyle(.link)
         .font(.caption)
@@ -502,9 +575,10 @@ struct TimelineEditor: View {
 
     // MARK: - strip geometry
 
+    /// **Through the window, never by dividing here.** A second copy of this conversion is
+    /// how a zoomed strip ends up drawing clips in one space and the playhead in another.
     private func fraction(_ time: Nanoseconds, of duration: Nanoseconds) -> Double {
-        guard duration.rawValue > 0 else { return 0 }
-        return min(max(Double(time.rawValue) / Double(duration.rawValue), 0), 1)
+        model.window.fraction(of: time)
     }
 
     /// **Named `sourcePosition`, not `time`.** `noAppSourceReadsAnAmbientValueAtAll` bans the
@@ -514,8 +588,7 @@ struct TimelineEditor: View {
     /// is a ban that stops being read.
     private func sourcePosition(at x: Double, width: Double, duration: Nanoseconds) -> Nanoseconds {
         guard width > 0 else { return Nanoseconds(0) }
-        let clamped = min(max(x / width, 0), 1)
-        return Nanoseconds(Int64(clamped * Double(duration.rawValue)))
+        return model.window.position(atFraction: x / width)
     }
 
     /// A screen distance as a span of the recording. The snap tolerance is defined in points
@@ -523,7 +596,9 @@ struct TimelineEditor: View {
     private func nanoseconds(forPoints points: Double, width: Double,
                              duration: Nanoseconds) -> Nanoseconds {
         guard width > 0 else { return Nanoseconds(0) }
-        return Nanoseconds(Int64(points / width * Double(duration.rawValue)))
+        // **Scaled by the WINDOW, not the recording**, so a snap tolerance of eight points is
+        // eight points of screen at every zoom rather than eight points of the whole file.
+        return model.window.duration(forFraction: points / width)
     }
 
     static func stamp(_ time: Nanoseconds) -> String {
