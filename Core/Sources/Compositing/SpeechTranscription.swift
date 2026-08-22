@@ -1,5 +1,5 @@
 import AVFoundation
-import Captions
+import Overlays
 import Foundation
 import Speech
 import Timeline

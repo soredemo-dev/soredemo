@@ -197,13 +197,17 @@ public struct RenderPlan: Hashable, Sendable {
     /// Text overlays on this frame, back to front. Several at once, unlike the caption: two
     /// captions on screen is a bug and a title over a lower third is a layout.
     public let texts: [TextOverlay]
+    /// Parts of the SOURCE to hide, in the source's own normalised coordinates. Applied before
+    /// the camera moves the picture — see `RedactionArt`.
+    public let redactions: [RedactionRegion]
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
                 contentZoom: Double = 1.0,
                 contentCentre: NormalizedPoint = NormalizedPoint(x: 0.5, y: 0.5),
                 caption: CaptionOverlay? = nil,
-                texts: [TextOverlay] = []) {
+                texts: [TextOverlay] = [],
+                redactions: [RedactionRegion] = []) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -214,6 +218,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.contentCentre = contentCentre
         self.caption = caption
         self.texts = texts
+        self.redactions = redactions
     }
 }
 

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 // compositor and the exporter, `Capture` for `ObservationWriter`'s log paths. The product
 // this app target links is `SoredemoHeadless`, which vends both.
 import Capture
-import Captions
+import Overlays
 import Compositing
 import Framing
 import Project
@@ -68,17 +68,20 @@ struct StageWindow: View {
     @State private var captions = CaptionsModel()
     /// Titles and notes drawn over the picture. Owned here beside `captions` for the same reason.
     @State private var texts = TextOverlaysModel()
+    /// Parts of the recording a person has hidden.
+    @State private var redactions = RedactionsModel()
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
-        case project, selection, captions, text
+        case project, selection, captions, text, hide
 
         var title: String {
             switch self {
             case .project: "Project"
             case .selection: "Zooms"
-            case .captions: "Captions"
+            case .captions: "Overlays"
             case .text: "Text"
+            case .hide: "Hide"
             }
         }
     }
@@ -305,6 +308,9 @@ struct StageWindow: View {
             case .text:
                 TextPanel(model: texts, playhead: timeline.playhead,
                           onChange: { reviewRevision += 1 })
+            case .hide:
+                RedactionPanel(model: redactions, playhead: timeline.playhead,
+                               onChange: { reviewRevision += 1 })
             }
         }
     }
@@ -409,7 +415,9 @@ struct StageWindow: View {
             captionStyleData: captions.track.isEmpty
                 ? nil : try? EditState.encoding(captions.style),
             burnsInCaptions: captions.burnsIn ? true : nil,
-            textTrackData: texts.track.isEmpty ? nil : try? EditState.encoding(texts.track))
+            textTrackData: texts.track.isEmpty ? nil : try? EditState.encoding(texts.track),
+            redactionTrackData: redactions.track.isEmpty
+                ? nil : try? EditState.encoding(redactions.track))
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -480,6 +488,16 @@ struct StageWindow: View {
                 texts.restore(track)
             }
         } catch { failures.append("the text") }
+        do {
+            if let track = try EditState.decoding(edit.redactionTrackData,
+                                                  as: RedactionTrack.self) {
+                redactions.restore(track)
+            }
+            // **A redaction that failed to decode is reported louder than the rest**, because
+            // opening a project and not being told the covers are gone is how a key gets
+            // published. The shared failure list is the mechanism; this is the case it was
+            // most worth having.
+        } catch { failures.append("the hidden regions") }
         savedEdit = edit
         if !failures.isEmpty {
             projectStatus = "Opened, but could not read \(failures.joined(separator: ", "))."

@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import Timeline
-@testable import Captions
+@testable import Overlays
 
 private func ns(_ seconds: Double) -> Nanoseconds {
     Nanoseconds(Int64((seconds * 1000).rounded()) * 1_000_000)

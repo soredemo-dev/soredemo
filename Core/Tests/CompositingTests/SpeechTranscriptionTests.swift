@@ -2,7 +2,7 @@ import Testing
 import Foundation
 import AVFoundation
 import CoreMedia
-import Captions
+import Overlays
 import Timeline
 @testable import Compositing
 

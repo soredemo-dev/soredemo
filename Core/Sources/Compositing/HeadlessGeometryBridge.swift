@@ -37,6 +37,12 @@ nonisolated enum HeadlessGeometryBridge {
         CGRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1)
     }
 
+    /// The positioned `CGRect` `CIImage.cropped(to:)` needs — `outputCanvas` deliberately has no
+    /// position, and a redaction is nothing but a position.
+    public nonisolated static func rect(x: Double, y: Double, width: Double, height: Double) -> CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
+
     /// The zero `CGSize` `CGContext.setShadow` needs for an offsetless shadow.
     public nonisolated static func noOffset() -> CGSize { CGSize(width: 0, height: 0) }
 

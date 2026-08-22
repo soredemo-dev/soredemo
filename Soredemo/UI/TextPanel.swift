@@ -1,4 +1,4 @@
-import Captions
+import Overlays
 import Compositing
 import Foundation
 import Observation

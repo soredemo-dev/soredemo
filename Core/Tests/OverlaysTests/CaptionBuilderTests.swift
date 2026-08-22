@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import Timeline
-@testable import Captions
+@testable import Overlays
 
 /// Nanoseconds from a readable number of seconds. Written as an integer multiply rather than
 /// `Int64(seconds * 1e9)`: the multiply through `Double` is where `4.1` becomes 4099999999.

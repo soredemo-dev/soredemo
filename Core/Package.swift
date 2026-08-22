@@ -16,7 +16,7 @@ let package = Package(
         .library(
             name: "SoredemoCore", type: .static,
             targets: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render",
-                      "Captions"]
+                      "Overlays"]
         ),
 
         // NOT added to `SoredemoCore`'s targets array, and not named `SoredemoCore`:
@@ -40,15 +40,19 @@ let package = Package(
         .target(name: "Render", dependencies: ["Geometry", "Timeline", "Project"],
                 swiftSettings: strict, plugins: archCheck),
 
-        // Speech into caption lines, and caption lines into a sidecar file. Deterministic and
-        // deliberately so: WHERE to break a line and WHEN to show it are pure functions of a
-        // transcript, and only PRODUCING the transcript needs a speech model. That half lives
-        // in `Compositing`, which already reads a recording's audio. Depends on `Timeline`
-        // alone — a caption track is retimed through an edit, and knows nothing else.
+        // **Timed things drawn over or into the picture**: captions, titles, redactions. Named
+        // `Captions` when it held only the first of those, which stopped being true within two
+        // commits — a module named for one of the three things in it is a name that has to be
+        // explained every time it is read.
+        //
+        // Deterministic and deliberately so: WHERE to break a caption line, WHEN to show a
+        // title, and WHICH part of the frame a redaction covers are pure functions of their
+        // inputs. Only PRODUCING a transcript needs a speech model, and that half lives in
+        // `Compositing`, which already reads a recording's audio.
         // `Render` since text overlays landed: a `TextItem` carries the style it is drawn
         // with, and that style is a render-tier value. Deterministic → deterministic, and
         // `Render` does not and may not depend back.
-        .target(name: "Captions", dependencies: ["Timeline", "Render"], swiftSettings: strict,
+        .target(name: "Overlays", dependencies: ["Timeline", "Render"], swiftSettings: strict,
                 plugins: archCheck),
 
         // **The tier `swift test` can run but a person still has to believe.**
@@ -113,7 +117,7 @@ let package = Package(
         // chains into zoom blocks and asks `CameraMotion` where to point. Runnable → pure,
         // the legal direction; `Framing` does not and may not depend back.
         .target(name: "Compositing",
-                dependencies: ["Geometry", "Timeline", "Project", "Render", "Framing", "Captions"],
+                dependencies: ["Geometry", "Timeline", "Project", "Render", "Framing", "Overlays"],
                 swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
                 plugins: headlessCheck),
 
@@ -194,7 +198,7 @@ let package = Package(
         // asserts the list stays complete.
         .testTarget(name: "DeterminismTests",
                     dependencies: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render",
-                                   "Captions"],
+                                   "Overlays"],
                     swiftSettings: strict),
 
         // The first direct test of the code view. Until now the lexer's four
@@ -212,7 +216,7 @@ let package = Package(
         .testTarget(name: "FramingTests", dependencies: ["Framing", "Geometry", "Project", "Timeline"],
                     swiftSettings: strict),
         .testTarget(name: "VariantsTests", dependencies: ["Variants"], swiftSettings: strict),
-        .testTarget(name: "CaptionsTests", dependencies: ["Captions", "Timeline", "Render"], swiftSettings: strict),
+        .testTarget(name: "OverlaysTests", dependencies: ["Overlays", "Timeline", "Render"], swiftSettings: strict),
         .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
         .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],
                     swiftSettings: strict),
@@ -231,7 +235,7 @@ let package = Package(
 
         .testTarget(name: "CompositingTests",
                     dependencies: ["Compositing", "Geometry", "Timeline", "Project", "Render", "Framing",
-                                   "Captions"],
+                                   "Overlays"],
                     resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")],
                     swiftSettings: strict),
     ]

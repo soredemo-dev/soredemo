@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import CoreImage
-import Captions
+import Overlays
 import Render
 import Timeline
 @testable import Compositing

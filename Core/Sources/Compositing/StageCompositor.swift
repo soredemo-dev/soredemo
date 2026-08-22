@@ -1,5 +1,5 @@
 import AVFoundation
-import Captions
+import Overlays
 import CoreVideo
 import Foundation
 // `Project` for `buildTracks(from:)`, which reads the segment's observation log.
@@ -74,6 +74,9 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// title that could be silently switched off would be a title nobody trusts is in the export.
     public nonisolated(unsafe) static var texts = TextTrack()
 
+    /// Parts of the recording to hide. Set on the same terms as the seams above.
+    public nonisolated(unsafe) static var redactions = RedactionTrack()
+
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
     nonisolated(unsafe) private static var _diagnostics = Diagnostics()
@@ -146,7 +149,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               contentZoom: aimed.contentZoom,
                               contentCentre: aimed.contentCentre,
                               caption: captionOverlay(at: request.compositionTime),
-                              texts: textOverlays(at: request.compositionTime))
+                              texts: textOverlays(at: request.compositionTime),
+                              redactions: redactedRegions(at: request.compositionTime))
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             try source.withUnsafeBuffer { sourceBuffer in
@@ -256,6 +260,23 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         guard let source = Self.sourceOffset(forOutput: outputOffset) else { return [] }
         return unsafe Self.texts.items(at: source)
             .map { TextOverlay(text: $0.text, style: $0.style) }
+    }
+
+    /// The regions to hide on this frame.
+    ///
+    /// **Falls back to hiding EVERYTHING covered when the output time cannot be mapped**, rather
+    /// than to hiding nothing. Every other lookup here returns "draw none" on a failure, which is
+    /// the safe answer for a cursor and the unsafe one for a redaction: the failure mode of the
+    /// safe-looking choice is a frame that shows what a person hid.
+    private func redactedRegions(at compositionTime: CMTime) -> [RedactionRegion] {
+        guard !(unsafe Self.redactions.isEmpty) else { return [] }
+        let outputOffset = Nanoseconds(CMTimeConvertScale(
+            compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
+        guard let source = Self.sourceOffset(forOutput: outputOffset) else {
+            return unsafe Self.redactions.items
+                .filter { $0.coversEverything && !$0.region.isEmpty }.map(\.region)
+        }
+        return unsafe Self.redactions.regions(at: source)
     }
 
     /// Reads `Self.observationLogURL` at most once per instance, caching success or failure alike.

@@ -124,7 +124,10 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     }
 
     private func cardImage(_ plan: RenderPlan, source: CVPixelBuffer) -> CIImage {
-        let image = CIImage(cvPixelBuffer: source)
+        // **Redactions first, in the source's own pixels.** Applied before the camera's scale
+        // and shift, so a region covers the same window however the camera moved — see
+        // `RedactionArt`. Applying them after would let a pan slide the cover off its target.
+        let image = RedactionArt.applied(plan.redactions, to: CIImage(cvPixelBuffer: source))
         // The camera scales and shifts the CONTENT; `rounded` then masks it to the card,
         // which never moves. `RenderPlan.contentX/Y` owns the mapping so the pointer and
         // the image cannot disagree about where a normalised point lands.
