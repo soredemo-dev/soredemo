@@ -396,16 +396,38 @@ func projectPbxprojText() throws -> String {
 
 // MARK: - the ordering that makes "outside any hostRange" a proof, not a guess
 
-/// The startup window cannot hide a fixable loss PROVIDED `self.observationWriter` and the
-/// segment's `hostRange.start` are both set before `scStream.startCapture()`; this pins that
-/// order. Blind spot: a LINE-ORDER check, so deferring `startCapture()` into a `Task` evades it.
-@Test func theFirstSegmentsWriterAndHostRangeAreSetBeforeCaptureStarts() throws {
+/// The startup window cannot hide a fixable loss. That USED to be guaranteed by opening the
+/// writer before `scStream.startCapture()`, and this test pinned that order.
+///
+/// **The writer now opens at the first complete video frame instead**, because only that frame
+/// can supply the log's anchor: everything downstream converts a composition time to a host
+/// instant through it, composition time zero IS the first frame, and taking the anchor at
+/// segment setup shifted every pointer position and camera aim by the capture's start latency —
+/// small for a display, seconds for a window that must first be composited.
+///
+/// So the claim moves rather than weakens: observations arriving before the log opens are HELD,
+/// not dropped, and the loss stays zero. `bufferObservationUntilFirstFrame` is what makes that
+/// true, and its absence is what this now checks. `hostRange.start` is still fixed before
+/// `startCapture()`, unchanged.
+///
+/// Blind spot, unchanged: a LINE-ORDER check, so deferring `startCapture()` into a `Task`
+/// evades it.
+@Test func nothingIsLostBetweenCaptureStartingAndTheLogOpening() throws {
     let files = try firstPartySourceFiles()
 
-    let writerAssignments = try codeLinesNaming("self.observationWriter = writer", in: files)
+    let buffering = try codeLinesNaming("bufferObservationUntilFirstFrame", in: files)
+        .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
+    #expect(buffering.count >= 2, """
+        appendObservation must consult bufferObservationUntilFirstFrame, and that function must \
+        exist — found \(buffering.count) mention(s). Without it, every observation between \
+        startCapture() and the first frame is dropped and counted as \
+        observationsOutsideAnOpenSegment, whose "not a loss" argument would then be false.
+        """)
+
+    let writerAssignments = try codeLinesNaming("unsafe observationWriter = writer", in: files)
         .filter { $0.location.hasPrefix("Sources/Capture/CaptureSession.swift:") }
     try #require(writerAssignments.count == 1, """
-        expected exactly one 'self.observationWriter = writer' in CaptureSession.swift, found \
+        expected exactly one 'unsafe observationWriter = writer' in CaptureSession.swift, found \
         \(writerAssignments.count).
         """)
     let ledgerOpens = try codeLinesNaming("ledger.openSegment(at: openInstant", in: files)
@@ -421,16 +443,9 @@ func projectPbxprojText() throws -> String {
         \(captureStarts.count).
         """)
 
-    let writerLine = lineNumber(of: writerAssignments[0].location)
     let ledgerLine = lineNumber(of: ledgerOpens[0].location)
     let captureLine = lineNumber(of: captureStarts[0].location)
-
-    #expect(writerLine < captureLine, """
-        self.observationWriter = writer (line \(writerLine)) is not before \
-        scStream.startCapture() (line \(captureLine)) — if a video frame can be produced before the \
-        writer exists, observationsOutsideAnOpenSegment's whole "not a loss" argument is false for \
-        this case, and a real bug is hiding under a classification that says it is harmless.
-        """)
+    _ = writerAssignments
     #expect(ledgerLine < captureLine, """
         ledger.openSegment(at: openInstant… (line \(ledgerLine)), which fixes hostRange.start, is not \
         before scStream.startCapture() (line \(captureLine)) — the "instant outside every hostRange" \

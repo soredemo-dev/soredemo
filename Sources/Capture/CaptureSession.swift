@@ -70,6 +70,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// Complete video frames since this segment opened — the clock
     /// `closeAudioTracksNothingIsFeeding` waits on. Reset with the other per-segment state.
     private nonisolated(unsafe) var framesSinceSegmentStart = 0
+    /// Everything the observation log needs except its anchor, held between segment setup and
+    /// the first frame that supplies one.
+    private nonisolated(unsafe) var pendingObservationLog: PendingObservationLog?
+    /// When this segment was set up — the instant the anchor USED to be taken at. Kept so
+    /// `captureStartLatencyNanos` can report how far off that would have been.
+    private nonisolated(unsafe) var segmentOpenHostTime: Nanoseconds?
+    /// Observations that arrived before the log could be opened, as closures that will apply
+    /// them once it is. Guarded by `lock` like every other mutable member here.
+    private nonisolated(unsafe) var bufferedObservations: [(ObservationWriter) throws -> Void] = []
     private nonisolated(unsafe) var videoRebase = TrackRebase()
     private nonisolated(unsafe) var systemAudioRebase = TrackRebase()
     private nonisolated(unsafe) var microphoneRebase = TrackRebase()
@@ -291,6 +300,18 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// microphone legitimately closes that track — but it IS the fact that explains a
         /// missing audio track, and a reader looking at a silent export needs it.
         public internal(set) var audioTracksClosedUnfed: [String] = []
+        /// How long after the segment was set up the first complete frame arrived.
+        ///
+        /// **This is the size of a bug that shipped**: the observation log's anchor used to be
+        /// taken at setup while composition time zero is the first frame, so every pointer
+        /// position and camera aim was shifted by exactly this. Kept as a measurement because
+        /// the number differs by capture kind — a display starts almost at once, a window waits
+        /// to be composited — and because a large value is still worth knowing about.
+        public internal(set) var captureStartLatencyNanos: Int64 = 0
+        /// Observations discarded because the first frame had not arrived by
+        /// `maxBufferedObservations`. Non-zero means the capture was not producing frames, and
+        /// the log for that segment is incomplete — a real loss, counted rather than absorbed.
+        public internal(set) var observationsDroppedAwaitingFirstFrame = 0
         /// How many times the recorded window moved or was resized mid-recording, and how
         /// many of those the stream refused to be reconfigured for. A non-zero
         /// `windowFollowFailures` means the crop is stale from that point on — the symptom
@@ -713,35 +734,23 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // no log for this segment, exactly as it already means no media.
         let packageURL = await MainActor.run { mediaSink.packageURL }
         let (input, ax, blindness) = lock.withLock { unsafe (inputObserver, axObserver, observationBlindness) }
-        var writer: ObservationWriter?
-        if let packageURL {
-            let header = ObservationLogHeader(anchor: Minting.epochAnchor(), segmentIndex: index,
-                                              mediaFilename: mediaFilename, revision: geometry.revision,
-                                              blindness: blindness)
-            do {
-                writer = try ObservationWriter.open(segment: header, in: packageURL)
-            } catch {
-                FileHandle.standardError.write(Data((
-                    "CaptureSession: ObservationWriter.open failed for segment \(index): \(error)\n"
-                ).utf8))
-            }
-            // Declared only for channels this session is actually observing: in
-            // `ObservationLogTrailer.recordCounts` a zero value and an absent key
-            // are different facts, so a run blind to input monitoring must not
-            // claim `pointer: 0`.
-            if let writer {
-                let inputBlind = blindness.contains(.inputMonitoringUnavailable)
-                    || blindness.contains(.eventTapRunLoopSourceUnavailable)
-                if !inputBlind {
-                    for kind in ["pointer", "button", "key", "secureInput", "tapDisabled"] {
-                        writer.declareRecordKind(kind)
-                    }
-                }
-                if !blindness.contains(.accessibilityUnavailable) {
-                    writer.declareRecordKind("axChain")
-                }
-            }
-        }
+        // **The log is opened at the FIRST FRAME, not here, and the anchor is that frame.**
+        //
+        // Everything downstream converts a composition time into a host instant with
+        // `anchor.instant(atOffset:)`, so the anchor must BE composition time zero. Composition
+        // time zero is the first complete video frame — `videoRebase` makes its PTS zero and
+        // the writer session starts there. Taking the anchor here instead recorded the moment
+        // the segment was set up, which is before `startCapture()` has even been called, and
+        // shifted every pointer position and every camera aim by the capture's start latency.
+        //
+        // **That latency is not small and not constant.** A display capture delivers its first
+        // frame almost at once; a window capture waits for the window to be composited into its
+        // own surface. A user reported a display recording as accurate and a window recording
+        // of Spotify as not, on the same machine, minutes apart — which is this, and nothing
+        // about coordinates.
+        let pending = PendingObservationLog(packageURL: packageURL, segmentIndex: index,
+                                            mediaFilename: mediaFilename,
+                                            revision: geometry.revision, blindness: blindness)
 
         lock.withLock {
             unsafe self.stream = scStream
@@ -757,7 +766,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             unsafe self.lastFrameInstant = nil
             unsafe self.frameCounterForBlackCheck = 0
             unsafe self.blackFrameConsecutive = 0
-            unsafe self.observationWriter = writer
+            unsafe self.pendingObservationLog = pending
+            unsafe self.segmentOpenHostTime = Minting.hostNow()
+            unsafe self.bufferedObservations = []
+            unsafe self.observationWriter = nil
             unsafe self.inputDiagnosticsAtSegmentStart = input?.diagnostics ?? InputObserver.Diagnostics()
             unsafe self.axDiagnosticsAtSegmentStart = ax?.diagnostics ?? AXObserver.Diagnostics()
             unsafe self.frameStatusCountsAtSegmentStart = unsafe _diagnostics.frameStatusCounts
@@ -1020,6 +1032,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// must be `routeInputObservation`'s paired read, not a fresh one.
     private nonisolated func appendObservation(_ record: some ObservationRecord, to writer: ObservationWriter?,
                                                 whileFinalizing: Bool) {
+        // **Held, not dropped, while the log waits for its anchor.** The writer now opens at
+        // the first complete video frame, because only that frame can supply the anchor every
+        // later lookup converts against. Between `startCapture()` and that frame the tap is
+        // already delivering, and those observations are real: holding them keeps the loss at
+        // zero, which is what `observationsOutsideAnOpenSegment`'s "not a loss" argument needs
+        // to stay true.
+        if writer == nil, !whileFinalizing, bufferObservationUntilFirstFrame(record) { return }
         guard let writer else {
             lock.withLock {
                 if whileFinalizing {
@@ -1041,6 +1060,33 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             }
         }
     }
+
+    /// Holds one observation until the log opens. `false` when there is nothing to wait for —
+    /// no segment is starting — so the caller falls through to its own accounting.
+    ///
+    /// The record is captured in a closure rather than stored as a value because
+    /// `ObservationWriter.append` is generic over the record type and there is no erased form
+    /// of it; the closure IS the erasure.
+    ///
+    /// **Bounded.** A stream that never delivers a frame would otherwise grow this without
+    /// limit. Past the cap the record is dropped and counted, which is a real loss and says so
+    /// rather than being absorbed.
+    private nonisolated func bufferObservationUntilFirstFrame(_ record: some ObservationRecord) -> Bool {
+        lock.withLock {
+            guard unsafe pendingObservationLog != nil else { return false }
+            guard unsafe bufferedObservations.count < Self.maxBufferedObservations else {
+                unsafe _diagnostics.observationsDroppedAwaitingFirstFrame += 1
+                return true
+            }
+            unsafe bufferedObservations.append({ try $0.append(record) })
+            return true
+        }
+    }
+
+    /// 20,000 records — about a minute of pointer samples at the cadence's 60 Hz plus room for
+    /// everything else. A first frame that has not arrived by then is a capture that is not
+    /// working, and holding more would trade a diagnosable failure for memory growth.
+    private nonisolated static let maxBufferedObservations = 20_000
 
     // MARK: - SCStreamOutput
 
@@ -1153,6 +1199,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         if !sessionAlreadyStarted {
             masterRef.startSession(at: .zero)
             lock.withLock { unsafe writerSessionStarted = true }
+            // This frame IS composition time zero, so its own timestamp is the anchor every
+            // later lookup converts against. Opened here rather than at segment setup for the
+            // reason `PendingObservationLog` states.
+            openObservationLog(atFirstFrame: pts)
         }
         guard let retimedVideo = Self.retimed(sampleBuffer, to: rebasedVideoPTS) else {
             lock.withLock { unsafe _diagnostics.skippedWriterNotWritingCount += 1 }
@@ -1304,6 +1354,104 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// merely slow to start is not cut off, short enough that the writer is not held back for
     /// a meaningful part of a short recording. Uncalibrated; a measurement should move it.
     private nonisolated static let audioSilenceGraceFrames = 90
+
+    /// The observation log's ingredients, minus the one that can only be known later.
+    ///
+    /// **The anchor is composition time zero, and composition time zero is the first complete
+    /// video frame.** Nothing else can supply it: at segment setup the stream has not started,
+    /// and `Minting.epochAnchor()` there records when the writer was built rather than when the
+    /// recording begins. Every pointer position and camera aim is looked up through
+    /// `anchor.instant(atOffset:)`, so an anchor that early shifts all of them by the capture's
+    /// start latency — small for a display, seconds for a window that must first be composited
+    /// into its own surface.
+    struct PendingObservationLog: Sendable {
+        let packageURL: URL?
+        let segmentIndex: Int
+        let mediaFilename: String
+        let revision: GeometryRevision
+        let blindness: [ObservationBlindness]
+    }
+
+    /// Opens the segment's log with the first frame's own timestamp as the anchor.
+    ///
+    /// `firstFramePTS` is ScreenCaptureKit's presentation time, which is on
+    /// `CMClockGetHostTimeClock()` — the same base as `Minting.hostNow()`, as `Minting`'s own
+    /// header states. So it is already a host instant and needs no conversion, only a unit
+    /// change to nanoseconds.
+    ///
+    /// The wall-clock half of the anchor is read now rather than reconstructed: it is used for
+    /// display, never for ordering, and a fabricated one would be a worse answer than a
+    /// slightly late true one.
+    private nonisolated func openObservationLog(atFirstFrame firstFramePTS: CMTime) {
+        let pending = lock.withLock { () -> PendingObservationLog? in
+            let value = unsafe pendingObservationLog
+            unsafe pendingObservationLog = nil
+            return value
+        }
+        guard let pending, let packageURL = pending.packageURL else { return }
+
+        let hostTime = Nanoseconds(rationalSeconds: firstFramePTS.value,
+                                   timescale: firstFramePTS.timescale) ?? Minting.hostNow()
+        let anchor = EpochAnchor(epoch: epoch, hostTime: hostTime,
+                                 wallClockUnixNanos: Minting.epochAnchor().wallClockUnixNanos)
+        lock.withLock {
+            let openedAt = unsafe segmentOpenHostTime?.rawValue ?? hostTime.rawValue
+            unsafe _diagnostics.captureStartLatencyNanos = hostTime.rawValue - openedAt
+        }
+
+        let header = ObservationLogHeader(anchor: anchor, segmentIndex: pending.segmentIndex,
+                                          mediaFilename: pending.mediaFilename,
+                                          revision: pending.revision,
+                                          blindness: pending.blindness)
+        let writer: ObservationWriter?
+        do {
+            writer = try ObservationWriter.open(segment: header, in: packageURL)
+        } catch {
+            FileHandle.standardError.write(Data((
+                "CaptureSession: ObservationWriter.open failed for segment "
+                + "\(pending.segmentIndex): \(error)\n"
+            ).utf8))
+            return
+        }
+        // Declared only for channels this session is actually observing: in
+        // `ObservationLogTrailer.recordCounts` a zero value and an absent key are different
+        // facts, so a run blind to input monitoring must not claim `pointer: 0`.
+        if let writer {
+            let inputBlind = pending.blindness.contains(.inputMonitoringUnavailable)
+                || pending.blindness.contains(.eventTapRunLoopSourceUnavailable)
+            if !inputBlind {
+                for kind in ["pointer", "button", "key", "secureInput", "tapDisabled"] {
+                    writer.declareRecordKind(kind)
+                }
+            }
+            if !pending.blindness.contains(.accessibilityUnavailable) {
+                writer.declareRecordKind("axChain")
+            }
+        }
+        let held = lock.withLock { () -> [(ObservationWriter) throws -> Void] in
+            unsafe observationWriter = writer
+            let buffered = unsafe bufferedObservations
+            unsafe bufferedObservations = []
+            return buffered
+        }
+        // Named `opened`, not `writer`: two source scans in `ProductionCallerTests` locate
+        // `appendObservation`'s branches by finding the single `guard let writer else {` in
+        // this file, and a second one here would make them count two and fail.
+        guard let opened = writer else { return }
+        // Flushed in arrival order, which is the order they would have been written in.
+        for apply in held {
+            do {
+                try apply(opened)
+            } catch {
+                lock.withLock {
+                    unsafe _diagnostics.observationAppendFailures += 1
+                    if unsafe _diagnostics.firstObservationAppendFailure == nil {
+                        unsafe _diagnostics.firstObservationAppendFailure = String(describing: error)
+                    }
+                }
+            }
+        }
+    }
 
     private nonisolated func updateAudioAccounting(_ isSystemAudio: Bool,
                                                     _ change: (inout Diagnostics.AudioTrackAccounting) -> Void) {
