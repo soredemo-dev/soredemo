@@ -24,6 +24,9 @@ struct SoredemoApp: App {
     /// Held here because a SwiftUI command can only attach to a `Scene`, never a
     /// `View`, so the "Open Recording…" command cannot live in `ContentView`.
     @State private var recordingCoordinator = RecordingCoordinator()
+    /// The one thing an app delegate is needed for: asking before the app quits over an edit
+    /// nobody saved. See `UnsavedWorkGuard`.
+    @NSApplicationDelegateAdaptor(SoredemoAppDelegate.self) private var appDelegate
     /// `--dump-permissions` prints the permission dump and exits here, before
     /// `body` is evaluated and therefore before any window appears. Launch it
     /// with `open -a Soredemo.app --args --dump-permissions`, not the raw

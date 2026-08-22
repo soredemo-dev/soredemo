@@ -141,6 +141,14 @@ struct StageWindow: View {
             }
         }
         .task(id: mediaURL) { await load() }
+        // **Registered on every change, not once.** The closure captures this view's current
+        // state, so a stale one would save an older edit than the one being asked about.
+        .onChange(of: hasUnsavedChanges, initial: true) {
+            UnsavedWorkGuard.shared.update(hasUnsavedChanges: hasUnsavedChanges) {
+                saveProject()
+                return savedPackage != nil && currentEditState() == savedEdit
+            }
+        }
         // The preview follows the chosen shape: showing landscape while Portrait is selected
         // would be showing the wrong thing, which is the fault this surface exists against.
         .task(id: variant) { await load() }
