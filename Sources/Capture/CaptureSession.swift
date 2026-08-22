@@ -67,6 +67,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// a synthetic clock near zero and audio from the system media clock counting since
     /// boot; unrebased they disagree by the machine's uptime and playback stutters. Guarded
     /// by `lock` like every other mutable member here.
+    /// Complete video frames since this segment opened — the clock
+    /// `closeAudioTracksNothingIsFeeding` waits on. Reset with the other per-segment state.
+    private nonisolated(unsafe) var framesSinceSegmentStart = 0
     private nonisolated(unsafe) var videoRebase = TrackRebase()
     private nonisolated(unsafe) var systemAudioRebase = TrackRebase()
     private nonisolated(unsafe) var microphoneRebase = TrackRebase()
@@ -283,6 +286,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// was *delivered*. Recomputing it at check time would compare a fresh
         /// computation against its own inputs.
         public internal(set) var configuredDestinationRect: PixelRect?
+        /// Audio tracks closed because nothing had fed them by
+        /// `audioSilenceGraceFrames`. Non-empty is not a fault — a recording with no
+        /// microphone legitimately closes that track — but it IS the fact that explains a
+        /// missing audio track, and a reader looking at a silent export needs it.
+        public internal(set) var audioTracksClosedUnfed: [String] = []
         /// How many times the recorded window moved or was resized mid-recording, and how
         /// many of those the stream refused to be reconfigured for. A non-zero
         /// `windowFollowFailures` means the crop is stale from that point on — the symptom
@@ -744,6 +752,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             unsafe self.currentGeometry = geometry
             unsafe self.currentDestination = destination
             unsafe self.suspendAppendsForReconfiguration = false
+            unsafe self.framesSinceSegmentStart = 0
             unsafe self.currentMediaFilename = mediaFilename
             unsafe self.lastFrameInstant = nil
             unsafe self.frameCounterForBlackCheck = 0
@@ -1075,6 +1084,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // A callback is not a frame (F2-4: idle was 42–84% of callbacks
         // across four runs) — append only `.complete`.
         guard statusRaw == SCFrameStatus.complete.rawValue else { return }
+        closeAudioTracksNothingIsFeeding()
 
         // Counted HERE, at the moment the frame is known to be complete —
         // not further down, after the timestamp checks. It used to be
@@ -1256,6 +1266,44 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         recordAppend(accepted, of: masterRef, isVideo: false)
     }
+
+    /// **Closes an audio input the recording is never going to feed.**
+    ///
+    /// `AVAssetWriter` interleaves its inputs and cannot lay out the file until each has
+    /// advanced past the point being written, so an input that never receives a sample makes
+    /// the OTHERS report `isReadyForMoreMediaData == false` and stay that way. `appendAudio`
+    /// drops what it cannot append and counts it, so the failure is silent in the file and
+    /// visible only in the diagnostics: a recording measured on 2026-08-22 had 9.3 seconds of
+    /// video and 0.046 seconds of audio — three AAC packets — because the microphone input was
+    /// added, never fed and never finished.
+    ///
+    /// **Measured rather than predicted.** The obvious version checks the microphone
+    /// permission at segment start, which is one of several reasons a source delivers nothing:
+    /// no device, a device muted in the OS, an app holding it exclusively, or system audio
+    /// simply having nothing to play. Waiting a fixed number of frames and asking what has
+    /// actually arrived covers all of them, and needs no list of them.
+    ///
+    /// The grace period is generous on purpose: closing a track that was merely slow to start
+    /// loses the rest of its audio, which is worse than the delay it saves.
+    private nonisolated func closeAudioTracksNothingIsFeeding() {
+        let toClose = lock.withLock { () -> [MasterTrack] in
+            unsafe framesSinceSegmentStart += 1
+            guard unsafe framesSinceSegmentStart == Self.audioSilenceGraceFrames else { return [] }
+            var closing: [MasterTrack] = []
+            if unsafe _diagnostics.systemAudioAccounting.delivered == 0 { closing.append(.systemAudio) }
+            if unsafe _diagnostics.microphoneAccounting.delivered == 0 { closing.append(.microphone) }
+            unsafe _diagnostics.audioTracksClosedUnfed = closing.map(\.rawValue)
+            return closing
+        }
+        guard !toClose.isEmpty else { return }
+        let masterRef = lock.withLock { unsafe master }
+        for track in toClose { masterRef?.markFinished(track) }
+    }
+
+    /// 90 complete frames — a second and a half at 60 fps. Long enough that a source which is
+    /// merely slow to start is not cut off, short enough that the writer is not held back for
+    /// a meaningful part of a short recording. Uncalibrated; a measurement should move it.
+    private nonisolated static let audioSilenceGraceFrames = 90
 
     private nonisolated func updateAudioAccounting(_ isSystemAudio: Bool,
                                                     _ change: (inout Diagnostics.AudioTrackAccounting) -> Void) {

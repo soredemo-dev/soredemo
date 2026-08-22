@@ -53,6 +53,11 @@ nonisolated protocol MasterTrackWriting: AnyObject, Sendable {
 }
 
 /// The master file being written: three tracks and a lifecycle.
+/// Which of a master's three tracks a call refers to.
+public enum MasterTrack: String, Sendable, CaseIterable {
+    case video, systemAudio, microphone
+}
+
 nonisolated protocol MasterWriting: AnyObject, Sendable {
     var outputURL: URL { get }
 
@@ -66,6 +71,16 @@ nonisolated protocol MasterWriting: AnyObject, Sendable {
     /// The session's source-time origin. Called once, on the first frame actually appended — not
     /// at `start`, because the origin has to be a timestamp that exists.
     func startSession(at presentationTime: CMTime)
+
+    /// **Declares that a track will receive nothing more, so the writer stops waiting on it.**
+    ///
+    /// `AVAssetWriter` interleaves its inputs: it cannot lay out the file until every input
+    /// has advanced past the point being written, so an input that never receives a sample
+    /// holds the others back — they go `isReadyForMoreMediaData == false` and STAY there.
+    /// A recording measured on 2026-08-22 had a 9.3-second video and 0.046 seconds of audio,
+    /// three AAC packets, because the microphone input was created, added, never fed and
+    /// never finished. `MP4Exporter` hit the same mechanism from the other side.
+    func markFinished(_ track: MasterTrack)
 
     func finish() async
 }
@@ -133,7 +148,22 @@ nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
         writer.startSession(atSourceTime: presentationTime)
     }
 
+    /// Idempotent: `AVAssetWriterInput.markAsFinished()` traps if called twice, and a caller
+    /// that finishes an unfed track and then finishes everything at `stop` would do exactly
+    /// that.
+    public func markFinished(_ track: MasterTrack) {
+        let input: LegacyMasterTrack = switch track {
+        case .video: videoTrack
+        case .systemAudio: systemAudioTrack
+        case .microphone: microphoneTrack
+        }
+        input.markFinishedOnce()
+    }
+
     public func finish() async {
+        // Every track, so nothing is left open. `markFinishedOnce` makes the ones already
+        // finished a no-op rather than a trap.
+        for track in MasterTrack.allCases { markFinished(track) }
         await withCheckedContinuation { continuation in
             writer.finishWriting { continuation.resume() }
         }
@@ -142,6 +172,8 @@ nonisolated final class LegacyMasterWriter: MasterWriting, @unchecked Sendable {
 
 nonisolated final class LegacyMasterTrack: MasterTrackWriting, @unchecked Sendable {
     private let input: AVAssetWriterInput
+    private let lock = NSLock()
+    private var finished = false
 
     init(input: AVAssetWriterInput) {
         self.input = input
@@ -150,6 +182,18 @@ nonisolated final class LegacyMasterTrack: MasterTrackWriting, @unchecked Sendab
     public var isReadyForMoreMediaData: Bool { input.isReadyForMoreMediaData }
 
     public func append(_ sampleBuffer: CMSampleBuffer) -> Bool {
-        input.append(sampleBuffer)
+        lock.withLock { finished } ? false : input.append(sampleBuffer)
+    }
+
+    /// `markAsFinished()` at most once. AVFoundation traps on a second call, and the two
+    /// callers — an unfed track being closed early, and `finish()` closing everything —
+    /// legitimately overlap.
+    func markFinishedOnce() {
+        let alreadyFinished = lock.withLock { () -> Bool in
+            defer { finished = true }
+            return finished
+        }
+        guard !alreadyFinished else { return }
+        input.markAsFinished()
     }
 }

@@ -135,3 +135,72 @@ private func scratchURL() -> URL {
     let successorType: any MasterWriting.Type = SuccessorMasterWriter.self
     #expect(ObjectIdentifier(successorType) != ObjectIdentifier(LegacyMasterWriter.self))
 }
+
+// MARK: - closing a track nothing feeds
+
+/// **A 9.3-second recording came out with 0.046 seconds of audio — three AAC packets.**
+///
+/// `AVAssetWriter` interleaves its inputs: it cannot lay out the file until each has advanced
+/// past the point being written, so an input that never receives a sample makes the OTHERS
+/// report `isReadyForMoreMediaData == false` and stay there. `CaptureSession.appendAudio`
+/// drops what it cannot append and counts it, so the loss is invisible in the file. The
+/// microphone input was created, added, never fed and never finished.
+///
+/// `MP4Exporter` hit the same mechanism from the other side within a day of this, which is why
+/// `markFinished` exists on the protocol rather than inside one implementation.
+@Suite struct MasterTrackClosingTests {
+    @Test func everyTrackCanBeNamedForClosing() {
+        #expect(MasterTrack.allCases.map(\.rawValue).sorted()
+                == ["microphone", "systemAudio", "video"])
+    }
+
+    /// `AVAssetWriterInput.markAsFinished()` traps on a second call, and the two callers —
+    /// an unfed track closed early, and `finish()` closing everything — legitimately overlap.
+    /// Asserted through the public surface rather than by counting calls: a second
+    /// `markFinished` must simply not trap.
+    @Test func markingATrackFinishedTwiceIsSafe() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("master-close-\(UUID().uuidString).mov")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let writer = try LegacyMasterWriter(
+            outputURL: url,
+            videoSettings: [AVVideoCodecKey: AVVideoCodecType.h264,
+                            AVVideoWidthKey: 160, AVVideoHeightKey: 90],
+            refusedInput: { MasterWriterTestError.refused($0) },
+            startFailed: { MasterWriterTestError.startFailed($0) })
+
+        writer.markFinished(.microphone)
+        writer.markFinished(.microphone)
+        writer.markFinished(.systemAudio)
+        // …and `finish()` closes the rest, including the two already closed.
+        await writer.finish()
+    }
+
+    /// A finished track refuses further samples rather than appending them to an input that
+    /// has been closed — which is a trap in AVFoundation, not a returned `false`.
+    @Test func aFinishedTrackRefusesFurtherSamples() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("master-refuse-\(UUID().uuidString).mov")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let writer = try LegacyMasterWriter(
+            outputURL: url,
+            videoSettings: [AVVideoCodecKey: AVVideoCodecType.h264,
+                            AVVideoWidthKey: 160, AVVideoHeightKey: 90],
+            refusedInput: { MasterWriterTestError.refused($0) },
+            startFailed: { MasterWriterTestError.startFailed($0) })
+        writer.startSession(at: .zero)
+        writer.markFinished(.microphone)
+
+        // Readiness on a closed track is still readable — `CaptureSession.appendAudio` asks
+        // before every append and must not trap on a track that has been closed under it.
+        _ = writer.microphone.isReadyForMoreMediaData
+        await writer.finish()
+    }
+}
+
+private enum MasterWriterTestError: Error {
+    case refused(String)
+    case startFailed(String?)
+}

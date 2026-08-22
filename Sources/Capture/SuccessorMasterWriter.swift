@@ -96,12 +96,22 @@ nonisolated final class SuccessorMasterWriter: MasterWriting, @unchecked Sendabl
         writer.startSession(atSourceTime: presentationTime)
     }
 
+    /// Same contract as the legacy path's: closing an input the recording will never feed, so
+    /// `AVAssetWriter` stops holding the other two behind it. See `MasterWriting.markFinished`
+    /// for the recording that made this necessary.
+    public func markFinished(_ track: MasterTrack) {
+        let target: SuccessorMasterTrack = switch track {
+        case .video: videoTrack
+        case .systemAudio: systemAudioTrack
+        case .microphone: microphoneTrack
+        }
+        target.finishReceiver()
+    }
+
     public func finish() async {
         // `finish()` on each receiver, mirroring `markAsFinished()` on the legacy path, before
         // asking the writer to finish.
-        videoTrack.finishReceiver()
-        systemAudioTrack.finishReceiver()
-        microphoneTrack.finishReceiver()
+        for track in MasterTrack.allCases { markFinished(track) }
         await withCheckedContinuation { continuation in
             writer.finishWriting { continuation.resume() }
         }
@@ -130,6 +140,8 @@ nonisolated final class SuccessorMasterTrack: MasterTrackWriting, @unchecked Sen
     private let input: AVAssetWriterInput
     private let receiver: AVAssetWriterInput.SampleBufferReceiver
     private let errorBox: SuccessorAppendErrorBox
+    private let lock = NSLock()
+    private var finished = false
 
     init(input: AVAssetWriterInput, receiver: AVAssetWriterInput.SampleBufferReceiver,
          errorBox: SuccessorAppendErrorBox) {
@@ -162,7 +174,14 @@ nonisolated final class SuccessorMasterTrack: MasterTrackWriting, @unchecked Sen
         }
     }
 
+    /// Idempotent, like the legacy path's `markFinishedOnce`: `finish()` is now called both
+    /// when an unfed track is closed early and again when the whole writer finishes.
     public func finishReceiver() {
+        let alreadyFinished = lock.withLock { () -> Bool in
+            defer { finished = true }
+            return finished
+        }
+        guard !alreadyFinished else { return }
         receiver.finish()
     }
 }
