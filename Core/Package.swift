@@ -110,7 +110,7 @@ let package = Package(
         // chains into zoom blocks and asks `CameraMotion` where to point. Runnable → pure,
         // the legal direction; `Framing` does not and may not depend back.
         .target(name: "Compositing",
-                dependencies: ["Geometry", "Timeline", "Project", "Render", "Framing"],
+                dependencies: ["Geometry", "Timeline", "Project", "Render", "Framing", "Captions"],
                 swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
                 plugins: headlessCheck),
 
@@ -227,7 +227,8 @@ let package = Package(
                     swiftSettings: strict),
 
         .testTarget(name: "CompositingTests",
-                    dependencies: ["Compositing", "Geometry", "Timeline", "Project", "Render", "Framing"],
+                    dependencies: ["Compositing", "Geometry", "Timeline", "Project", "Render", "Framing",
+                                   "Captions"],
                     resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")],
                     swiftSettings: strict),
     ]
