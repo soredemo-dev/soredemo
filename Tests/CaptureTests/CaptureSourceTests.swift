@@ -139,3 +139,83 @@ private func probeShapedCapture(windowPoints: (Double, Double),
     #expect(capture.bufferWidth == 600)
     #expect(CaptureSource.window(capture).sourceRect != nil)
 }
+
+// MARK: - the conditions the comparable recorders handle
+
+/// **The Dock got into a window recording, and the code had predicted it.** The
+/// window-capture repair replaced `desktopIndependentWindow` with a display filter plus
+/// `sourceRect`, writing "anything overlapping the window's rect is captured with it. A real
+/// regression in isolation, accepted because…". A user then recorded a window and got the
+/// Dock. Reading the four comparable recorders dissolved all three reasons for accepting it:
+/// a Rust recorder, an Electron recorder and an Electron recorder all ship `desktopIndependentWindow`, and both of the two that
+/// are Swift size the buffer to the window at the same time — the pair was never in tension.
+///
+/// Asserted through `sourceRect`, which is the observable consequence: a window filter's
+/// frames ARE the window, so a crop would cut the window's own content by its offset on the
+/// display. No test here can construct an `SCWindow` to check the filter's type directly;
+/// `scripts/run-cross-boundary-probe.sh` does that against real handles.
+@Test func aWindowCaptureNoLongerCropsItsDisplay() {
+    #expect(CaptureSource.sourceRectIsAlwaysNil,
+            "a non-nil source rect means a window filter is cropping the window's own content")
+}
+
+/// The window's place on its display is still needed — the pointer is normalised against the
+/// rectangle actually recorded — it is just no longer the stream's crop. Kept under its own
+/// name so the two uses cannot be confused again.
+@Test func theWindowsRectOnItsDisplayIsStillAvailableUnderItsOwnName() {
+    let rect = rebasedSourceRect(windowGlobal: (x: 1600, y: 100, w: 500, h: 360),
+                                 displayGlobal: (x: 1512, y: 0))
+    #expect(rect.x == 88 && rect.y == 100)
+}
+
+/// **The host display is found by centre, then by any overlap.** The centre test alone finds
+/// nothing for a window dragged so its middle is past a display's edge, and a window with no
+/// host is a capture that cannot start. Centre stays first: a window straddling two displays
+/// belongs to the one showing most of it.
+@Test func aWindowWhoseCentreIsOffscreenStillFindsItsDisplay() {
+    let display = (x: 0.0, y: 0.0, w: 1512.0, h: 982.0)
+    // Dragged left until its middle is past the display's left edge.
+    let window = (x: -400.0, y: 100.0, w: 500.0, h: 360.0)
+    #expect(!centreIsInside(window: window, display: display),
+            "this fixture must have its centre outside, or it proves nothing")
+    #expect(overlaps(window: window, display: display))
+}
+
+/// A window that neither contains its centre in a display nor overlaps one has no host, and
+/// must not be given an arbitrary one — a capture pointed at the wrong screen is worse than a
+/// capture that refuses to start.
+@Test func aWindowOnNoDisplayHasNoHost() {
+    let display = (x: 0.0, y: 0.0, w: 1512.0, h: 982.0)
+    let window = (x: 3000.0, y: 100.0, w: 500.0, h: 360.0)
+    #expect(!centreIsInside(window: window, display: display))
+    #expect(!overlaps(window: window, display: display))
+}
+
+/// **Buffer edges are even.** H.264 in 4:2:0 subsamples chroma by two in each direction, so
+/// an odd edge has no defined chroma plane and VideoToolbox either refuses or silently rounds
+/// it. Both comparable recorders clamp with `max(2, …)` and neither says why.
+@Test func aWindowBufferIsAlwaysEvenAndAtLeastTwo() {
+    // A window at a fractional point size on a 2× display — the case that produces an odd
+    // pixel count and the reason a plain `rounded()` was not enough.
+    #expect(CaptureSource.evenFloor(500.5 * 2) == 1000)
+    #expect(CaptureSource.evenFloor(499.5 * 2) == 998)
+    #expect(CaptureSource.evenFloor(1.5) == 0, "below the floor there is no buffer to make")
+    #expect(CaptureSource.evenFloor(.nan) == 0)
+    for points in stride(from: 1.0, through: 60.0, by: 0.25) {
+        let edge = CaptureSource.evenFloor(points * 2)
+        #expect(edge % 2 == 0, "\(points) points produced an odd edge of \(edge)")
+    }
+}
+
+private func centreIsInside(window: (x: Double, y: Double, w: Double, h: Double),
+                            display: (x: Double, y: Double, w: Double, h: Double)) -> Bool {
+    let cx = window.x + window.w / 2, cy = window.y + window.h / 2
+    return cx >= display.x && cx < display.x + display.w
+        && cy >= display.y && cy < display.y + display.h
+}
+
+private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
+                      display: (x: Double, y: Double, w: Double, h: Double)) -> Bool {
+    window.x < display.x + display.w && window.x + window.w > display.x
+        && window.y < display.y + display.h && window.y + window.h > display.y
+}

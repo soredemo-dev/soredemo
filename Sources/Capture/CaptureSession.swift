@@ -646,8 +646,21 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             configuration.sourceRect = CGGeometryBridge.rect(from: rect)
         }
         configuration.showsCursor = false                 // Step 0 / D2-8
-        configuration.scalesToFit = false                  // D2-13a
+        // **`scalesToFit` follows the capture kind, and a window needs it true.** The buffer
+        // is fixed for the life of a track (D2-13), so a window RESIZED mid-recording delivers
+        // content of a different size into it: `false` crops that content to the buffer, which
+        // silently loses whatever the window grew by. `true` fits it, which costs sharpness and
+        // shows the whole window. `../opensource/a Swift recorder` sets it unconditionally true;
+        // a display capture cannot resize, so leaving it false there keeps that path exactly
+        // as measured.
+        configuration.scalesToFit = source.window != nil
         configuration.preservesAspectRatio = true           // D2-13a
+        if source.window != nil {
+            // The window's own drop shadow is not the window. A window filter includes it by
+            // default, which puts a soft dark border on every frame and a transparent one
+            // around it — `../opensource/an Electron recorder-main` turns it off for the same reason.
+            configuration.ignoreShadowsSingleWindow = true
+        }
         // Set explicitly: unset, where ScreenCaptureKit places content that does
         // not fill the surface is undocumented.
         configuration.destinationRect = CGGeometryBridge.rect(from: destination)
@@ -660,6 +673,22 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         configuration.capturesAudio = true
         configuration.captureMicrophone = true
+        // **Do not record ourselves.** Without this, any sound this app makes — an alert, a
+        // preview playing back — is captured into the system-audio track, and a preview
+        // playing while recording is a feedback loop. Both `../opensource/an Electron recorder-main` and
+        // `../opensource/an Electron recorder-main` set it; neither explains why, and the reason is
+        // worth writing down once.
+        configuration.excludesCurrentProcessAudio = true
+        // Stated rather than inherited: the default sample rate and channel count are not
+        // documented, and the master's two audio tracks must agree with each other and with
+        // what `MP4Exporter` mixes them into. 48 kHz stereo is what both comparable recorders
+        // pin.
+        configuration.sampleRate = 48_000
+        configuration.channelCount = 2
+        // The default is 3. `../opensource/an Electron recorder-main` uses 6, and the deeper queue is
+        // what absorbs a slow frame without ScreenCaptureKit dropping the next one — the
+        // `SCFrameStatus` counters this session already keeps are how a change here is judged.
+        configuration.queueDepth = 6
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         unsafe configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned, placeholder gamut choice
         // A floor, not a cadence — presentation times come from each sample
@@ -780,25 +809,20 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // The crop is in the display's own point space; the follower reports global points.
         let updatedRect = PointRect(x: frame.x - displayBounds.x, y: frame.y - displayBounds.y,
                                     width: frame.width, height: frame.height)
-        let (configuration, scStream, observer) = lock.withLock {
-            () -> (SCStreamConfiguration?, SCStream?, InputObserver?) in
+        let observer = lock.withLock { () -> InputObserver? in
             let updated = unsafe (self.followedSource ?? self.source).following(sourceRect: updatedRect)
             unsafe self.followedSource = updated
             unsafe _diagnostics.windowFrameChanges += 1
-            return unsafe (self.streamConfiguration, self.stream, self.inputObserver)
+            return unsafe self.inputObserver
         }
         if let observer, let followed = lock.withLock({ unsafe self.followedSource }) {
             observer.updateViewport(followed.viewport(scale: scale, displayUUID: displayUUID))
         }
-        guard let configuration, let scStream else { return }
-        configuration.sourceRect = CGGeometryBridge.rect(from: updatedRect)
-        Task { [weak self] in
-            do {
-                try await scStream.updateConfiguration(configuration)
-            } catch {
-                self?.lock.withLock { unsafe self?._diagnostics.windowFollowFailures += 1 }
-            }
-        }
+        // **The stream is NOT reconfigured, and that is the point of the window filter.**
+        // ScreenCaptureKit follows the window itself: a move changes nothing about what it
+        // delivers, and a resize delivers differently-sized content that `scalesToFit` fits
+        // into the fixed buffer. What it cannot do is tell `InputObserver` which rectangle to
+        // normalise the pointer against, which is the whole job left for this follower.
     }
 
     /// Stops the current `SCStream`, finishes the current `AVAssetWriter`,

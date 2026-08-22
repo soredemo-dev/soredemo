@@ -844,26 +844,32 @@ enum CrossBoundaryProbe {
                   "the derived buffer is strictly narrower than the display — a display-sized regression makes them equal",
                   actual: "\(derived.bufferWidth) vs display \(displayPixelWidth)")
 
-            // The source rect is the window rebased onto ITS display: the value
-            // `SCStreamConfiguration.sourceRect` takes, and the reason no per-frame
-            // content-rect offset is needed anywhere downstream.
+            // The window's place on its display is still derived — the POINTER is normalised
+            // against the rectangle actually recorded — it is just no longer the stream's
+            // crop. Same arithmetic, different consumer, so it is still checked here.
             let hostBounds = CGGeometryBridge.pointRect(from: derived.display.frame)
             let windowFrame = CGGeometryBridge.pointRect(from: derived.window.frame)
             check(abs(derived.sourceRect.x - (windowFrame.x - hostBounds.x)) < 0.001
                   && abs(derived.sourceRect.y - (windowFrame.y - hostBounds.y)) < 0.001,
-                  "the source rect is the window's frame rebased onto its own display's origin",
+                  "the window's rect is its frame rebased onto its own display's origin",
                   actual: "\(derived.sourceRect.x),\(derived.sourceRect.y)")
             check(derived.sourceRect.width == windowFrame.width
                   && derived.sourceRect.height == windowFrame.height,
-                  "the source rect keeps the window's own extent")
+                  "and it keeps the window's own extent")
 
-            // The filter is a DISPLAY filter now — the reversal itself, asserted rather
-            // than left to the type's doc comment.
-            check(derivedWindowSource.filter().style == .display,
-                  "a window source captures through a display filter plus a source rect",
+            // **A WINDOW filter, against a real `SCWindow` handle.** This probe is the only
+            // place that can check the filter's type at all — a package test cannot construct
+            // an `SCWindow`. It asserted `.display` for one phase, which is exactly how long
+            // a window recording captured whatever overlapped the window: the Dock, in a
+            // user's recording. a Rust recorder, an Electron recorder and an Electron recorder all use this filter; the
+            // arguments for the display one are answered in `CaptureSource.filter()`.
+            check(derivedWindowSource.filter().style == .window,
+                  "a window source captures through a WINDOW filter, so nothing overlapping "
+                  + "the window is captured with it",
                   actual: "\(derivedWindowSource.filter().style.rawValue)")
-            check(derivedWindowSource.sourceRect != nil,
-                  "a window source carries a source rect for the stream to crop with")
+            check(derivedWindowSource.sourceRect == nil,
+                  "and carries no source rect — a crop would cut the window's own content by "
+                  + "its offset on the display")
         } else {
             check(false, "CaptureSource(pickerFilter:) returned .display for a window-style filter")
         }

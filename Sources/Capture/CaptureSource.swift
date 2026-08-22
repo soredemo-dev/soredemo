@@ -171,39 +171,76 @@ public enum CaptureSource: Sendable {
         }
     }
 
+    /// Largest even integer at or below `value`. See the buffer-size comment for why even.
+    static func evenFloor(_ value: Double) -> Int {
+        guard value.isFinite, value >= 2 else { return 0 }
+        let rounded = Int(value.rounded(.down))
+        return rounded - (rounded % 2)
+    }
+
     /// The `SCContentFilter` this source captures through — what is handed to
     /// `SCStream(filter:configuration:delegate:)`, and the reverse of
     /// `init(pickerFilter:availableDisplays:)`. Rebuilding a filter from a value
     /// the picker vetted exposes no surface the person did not already choose.
-    /// **A DISPLAY filter for both cases, with `sourceRect` doing the window's cropping.**
-    /// Reverses D2-13's `desktopIndependentWindow`, for three reasons of decreasing
-    /// obviousness:
+    /// **A WINDOW filter for a window, and this reverses a reversal.**
     ///
-    /// 1. the output buffer can then be sized to the WINDOW, so a window recording is not a
-    ///    display-resolution frame with the window occupying a fraction of it;
-    /// 2. ScreenCaptureKit crops at the source, so there is no per-frame content-rect offset
-    ///    for anything downstream to apply — the problem disappears rather than being
-    ///    solved, and `capture-stream`'s content-rect work becomes unnecessary;
-    /// 3. `desktopIndependentWindow` makes macOS composite **the purple recording indicator
-    ///    into the captured frames** (observed by `../opensource/a Swift recorder`, Apache 2.0).
+    /// D2-13 chose `desktopIndependentWindow`; the window-capture repair replaced it with a
+    /// display filter plus `sourceRect`, on three arguments. A real recording then captured
+    /// the Dock, which that repair's own comment had predicted in as many words — "anything
+    /// overlapping the window's rect is captured with it. A real regression in isolation,
+    /// accepted because…". Reading the four comparable recorders line by line dissolved all
+    /// three arguments:
     ///
-    /// **What this loses, stated rather than discovered later**: a window filter excludes
-    /// other windows by construction and a display filter with a source rect does not, so
-    /// anything overlapping the window's rect is captured with it. A real regression in
-    /// isolation, accepted because the alternative is a capture that is wrong in three
-    /// visible ways; `excludingApplications` can narrow it later.
+    /// 1. *"the buffer can then be sized to the WINDOW"* — `../opensource/an Electron recorder-main` and
+    ///    `../opensource/an Electron recorder-main` both use `desktopIndependentWindow` AND size the
+    ///    buffer to `window.frame × backing scale`. The two were never in tension.
+    /// 2. *"ScreenCaptureKit crops at the source, so nothing downstream applies an offset"* —
+    ///    a window filter's frame IS the window, so there is no offset to apply either.
+    /// 3. *"macOS composites the purple recording indicator into the frames"* — that is
+    ///    `../opensource/a Swift recorder`'s comment, and a Swift recorder is the only one of the four
+    ///    that avoids the API. a Rust recorder (`with_desktop_independent_window`), an Electron recorder and
+    ///    an Electron recorder all ship it.
+    ///
+    /// What a window filter gives that no amount of cropping can: **other windows, the Dock,
+    /// the menu bar and notifications are excluded by construction**, because the capture is
+    /// of the window rather than of the screen where the window happens to be.
+    ///
+    /// `sourceRect` is therefore NOT set for a window — it would crop the window's own
+    /// content — and `WindowFollower` no longer reconfigures the stream on a move, since
+    /// ScreenCaptureKit follows the window itself. The follower still updates the pointer's
+    /// viewport, which nothing else can do.
     public nonisolated func filter() -> SCContentFilter {
         switch self {
         case .display(let display):
             return SCContentFilter(display: display, excludingWindows: [])
         case .window(let capture):
-            return SCContentFilter(display: capture.display, excludingWindows: [])
+            return SCContentFilter(desktopIndependentWindow: capture.window)
         }
     }
 
     /// The rect ScreenCaptureKit should crop to, in the filtered display's point space —
     /// `nil` for a display capture, which crops nothing.
-    public nonisolated var sourceRect: PointRect? {
+    /// The crop to apply at the source. **`nil` for BOTH cases now.**
+    ///
+    /// A display capture never had one, and a window capture no longer needs one: the filter
+    /// is the window, so the frames already contain exactly it. Setting a rect here for a
+    /// window would crop the window's own content by the window's offset on its display —
+    /// the very thing the rect used to compensate for.
+    ///
+    /// Kept as a property rather than deleted because a REGION capture is a real future case
+    /// (`ROADMAP`'s `capture-source` names one), and that is what `sourceRect` is for.
+    public nonisolated var sourceRect: PointRect? { nil }
+
+    /// **A claim a test can reach without an `SCWindow`.** `sourceRect` is `nil` for every
+    /// case, and a test asserting that on a constructed value would only be asserting that
+    /// `nil == nil`. This states the property of the TYPE, so a future case that started
+    /// cropping again has to change this line and face the comment above it.
+    public nonisolated static var sourceRectIsAlwaysNil: Bool { true }
+
+    /// Where the window sits, in its display's point space. Not the stream's crop any more —
+    /// `viewport(scale:displayUUID:)` rebases it back to global points so the pointer is
+    /// normalised against the rectangle actually being recorded.
+    public nonisolated var windowRectOnDisplay: PointRect? {
         switch self {
         case .display: return nil
         case .window(let capture): return capture.sourceRect
@@ -237,11 +274,26 @@ public enum CaptureSource: Sendable {
             let frame = CGGeometryBridge.pointRect(from: window.frame)
             let centreX = frame.x + frame.width / 2
             let centreY = frame.y + frame.height / 2
-            guard let host = availableDisplays.first(where: {
-                let bounds = CGGeometryBridge.pointRect(from: $0.frame)
+            // **Centre first, then any overlap.** The centre test alone finds nothing for a
+            // window dragged so its middle is past a display's edge — between two screens, or
+            // pushed off the side — and a window with no host is a capture that cannot start.
+            // `../opensource/an Electron recorder-main` and `../opensource/an Electron recorder-main` both fall back
+            // to intersection for exactly this. Centre stays FIRST because it is the better
+            // answer when both apply: a window straddling two displays belongs to the one
+            // showing most of it.
+            func contains(_ display: SCDisplay) -> Bool {
+                let bounds = CGGeometryBridge.pointRect(from: display.frame)
                 return centreX >= bounds.x && centreX < bounds.x + bounds.width
                     && centreY >= bounds.y && centreY < bounds.y + bounds.height
-            }) else { return nil }
+            }
+            func overlaps(_ display: SCDisplay) -> Bool {
+                let bounds = CGGeometryBridge.pointRect(from: display.frame)
+                return frame.x < bounds.x + bounds.width && frame.x + frame.width > bounds.x
+                    && frame.y < bounds.y + bounds.height && frame.y + frame.height > bounds.y
+            }
+            guard let host = availableDisplays.first(where: contains)
+                    ?? availableDisplays.first(where: overlaps)
+            else { return nil }
 
             let hostBounds = CGGeometryBridge.pointRect(from: host.frame)
             // `sourceRect` is in the DISPLAY's own point space, so the window's global
@@ -249,9 +301,16 @@ public enum CaptureSource: Sendable {
             let sourceRect = PointRect(x: frame.x - hostBounds.x, y: frame.y - hostBounds.y,
                                        width: frame.width, height: frame.height)
             let pixelScale = Double(filter.pointPixelScale)
-            let width = Int((frame.width * pixelScale).rounded())
-            let height = Int((frame.height * pixelScale).rounded())
-            guard width > 0, height > 0 else { return nil }
+            // **Floored to even, with a floor of 2.** H.264 in 4:2:0 subsamples chroma by two
+            // in each direction, so an odd buffer edge has no defined chroma plane and
+            // VideoToolbox either refuses or silently rounds it — the same constraint
+            // `AspectVariant.dimensions` states for the export side, and it applies here too
+            // because this buffer is what the encoder eventually sees. Both comparable
+            // recorders clamp with `max(2, …)`; neither says why, and the reason belongs
+            // written down once.
+            let width = Self.evenFloor(frame.width * pixelScale)
+            let height = Self.evenFloor(frame.height * pixelScale)
+            guard width >= 2, height >= 2 else { return nil }
             self = .window(WindowCapture(window: window, display: host, sourceRect: sourceRect,
                                          bufferWidth: width, bufferHeight: height))
 
