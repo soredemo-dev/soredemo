@@ -33,19 +33,39 @@ public struct EditState: Codable, Sendable, Equatable {
     /// The output shape's name — `AspectVariant`'s, resolved on open rather than stored as
     /// dimensions, so a project made before a shape was retuned gets the current one.
     public var outputShapeName: String?
+    /// The caption track, as encoded bytes for the reason `zoomAdjustmentData` gives.
+    ///
+    /// **The one derived value this format stores, deliberately.** Everything else here is
+    /// authored, because deriving is cheap and a stored derived value goes stale when the
+    /// derivation improves. Transcription is neither cheap nor stable: it costs a minute of
+    /// compute and a several-hundred-megabyte model download, and two model versions do not
+    /// agree word for word. Re-deriving on open would apply a person's text corrections to text
+    /// that had changed underneath them — so the corrected text is what is saved, corrections
+    /// included, and there is nothing left to reconcile.
+    public var captionTrackData: Data?
+    /// How a burnt-in caption looks, as encoded bytes. Authored.
+    public var captionStyleData: Data?
+    /// Whether captions are drawn into the picture. Absent means not.
+    public var burnsInCaptions: Bool?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
                 zoomAdjustmentData: Data? = nil,
                 framingOverrideData: Data? = nil,
                 styleData: Data? = nil,
-                outputShapeName: String? = nil) {
+                outputShapeName: String? = nil,
+                captionTrackData: Data? = nil,
+                captionStyleData: Data? = nil,
+                burnsInCaptions: Bool? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
         self.framingOverrideData = framingOverrideData
         self.styleData = styleData
         self.outputShapeName = outputShapeName
+        self.captionTrackData = captionTrackData
+        self.captionStyleData = captionStyleData
+        self.burnsInCaptions = burnsInCaptions
     }
 
     /// A recording nobody has edited.
@@ -57,6 +77,10 @@ public struct EditState: Codable, Sendable, Equatable {
         timeline != nil || audioMix.changesAnything
             || zoomAdjustmentData != nil || framingOverrideData != nil
             || styleData != nil || outputShapeName != nil
+            || captionTrackData != nil || captionStyleData != nil
+            // `false` is not a change: it is the default, and a project that only ever had
+            // captions turned off has nothing to save.
+            || burnsInCaptions == true
     }
 
     // MARK: - the tiers that own these values

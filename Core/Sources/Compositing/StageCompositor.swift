@@ -1,4 +1,5 @@
 import AVFoundation
+import Captions
 import CoreVideo
 import Foundation
 // `Project` for `buildTracks(from:)`, which reads the segment's observation log.
@@ -49,6 +50,22 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// it happens. Set on the same terms as the seams above. See `ZoomAdjustment` for why they
     /// are keyed on the click rather than on the block.
     public nonisolated(unsafe) static var zoomAdjustments: [ZoomAdjustment] = []
+
+    /// The captions to burn in, in the recording's SOURCE time, or empty for none. Set on the
+    /// same terms as the seams above.
+    ///
+    /// **Source time, and looked up through `sourceOffset(forOutput:)` like everything else
+    /// here.** A track already retimed through the edit would be right until the next cut and
+    /// wrong afterwards, in exactly the way `editTimeline`'s own comment describes. Retiming for
+    /// a SIDECAR file is a different job with a different answer — see
+    /// `CaptionTrack.retimed(through:)`, which the export uses and this does not.
+    public nonisolated(unsafe) static var captions = CaptionTrack()
+    /// How a burnt-in caption looks. Separate from `style`, which is the card's look: a person
+    /// turning captions off should not have to give up their background.
+    public nonisolated(unsafe) static var captionStyle: CaptionStyle = .default
+    /// Whether to draw them at all. False leaves `captions` in place, so turning burn-in off and
+    /// on again does not discard a transcript that took a minute to produce.
+    public nonisolated(unsafe) static var burnsInCaptions = false
 
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
@@ -120,7 +137,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               style: aimed.style,
                               pointer: pointerPlacement(at: request.compositionTime, in: aimed),
                               contentZoom: aimed.contentZoom,
-                              contentCentre: aimed.contentCentre)
+                              contentCentre: aimed.contentCentre,
+                              caption: captionOverlay(at: request.compositionTime))
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             try source.withUnsafeBuffer { sourceBuffer in
@@ -205,6 +223,20 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                           card: basePlan.card, cornerRadius: basePlan.cornerRadius,
                           style: basePlan.style, pointer: basePlan.pointer,
                           contentZoom: state.zoom, contentCentre: state.centre)
+    }
+
+    /// The caption on screen at an OUTPUT time, or `nil`.
+    ///
+    /// Converted to source time first, for the reason `editTimeline` gives: the cues are stamped
+    /// in source time and `compositionTime` is an output time, so after the first cut a lookup
+    /// that skipped this would show the caption from wherever the cut had moved.
+    private func captionOverlay(at compositionTime: CMTime) -> CaptionOverlay? {
+        guard unsafe Self.burnsInCaptions, !(unsafe Self.captions.isEmpty) else { return nil }
+        let outputOffset = Nanoseconds(CMTimeConvertScale(
+            compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
+        guard let source = Self.sourceOffset(forOutput: outputOffset),
+              let cue = unsafe Self.captions.cue(at: source) else { return nil }
+        return CaptionOverlay(text: cue.text, style: unsafe Self.captionStyle)
     }
 
     /// Reads `Self.observationLogURL` at most once per instance, caching success or failure alike.

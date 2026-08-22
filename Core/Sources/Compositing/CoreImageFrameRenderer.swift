@@ -37,6 +37,13 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let pointer = plan.pointer {
             composed = cursorImage(for: pointer, outputHeight: plan.outputHeight).composited(over: composed)
         }
+        // **Above the cursor, and last.** A caption sits over the picture by definition; drawing
+        // it under the pointer would let the pointer cross the text it is meant to be read with.
+        if let caption = plan.caption,
+           let image = CaptionArt.image(caption, outputWidth: plan.outputWidth,
+                                        outputHeight: plan.outputHeight) {
+            composed = image.composited(over: composed)
+        }
         // Rule 5 confines `CGRect`/`CGFloat` to the bridge file, so no literal `CGRect` here.
         let cropped = composed
             .cropped(to: HeadlessGeometryBridge.outputCanvas(width: plan.outputWidth, height: plan.outputHeight))

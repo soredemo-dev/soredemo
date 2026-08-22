@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 
 /// The render tier's CoreGraphics exit, and the only file in `Sources/Headless` allowed to name
@@ -15,6 +16,34 @@ nonisolated enum HeadlessGeometryBridge {
     /// `CompositionBuilder` holds.
     public nonisolated static func renderSize(width: Int, height: Int) -> CGSize {
         CGSize(width: CGFloat(width), height: CGFloat(height))
+    }
+
+    /// The rounded plate a caption is drawn on. A path rather than a rect, because a rect
+    /// crossing this boundary would be a `CGRect` at the call site, which is the thing the
+    /// boundary exists to prevent.
+    ///
+    /// **One line per declaration, deliberately.** `theTwoGeometryBridgesShareNoFunctionSignature`
+    /// parses declarations with a line scan and requires every one of them to be visible to it;
+    /// a parameter list wrapped onto a second line is a hole in the disjointness check rather
+    /// than a failure of it, and the check says so itself.
+    public nonisolated static func roundedPlate(x: Double, y: Double, width: Double, height: Double, cornerRadius: Double) -> CGPath {
+        // `unsafe` for `transform:`, which is an `UnsafePointer<CGAffineTransform>?`. `nil` is
+        // the only value passed and no pointer is formed or read.
+        unsafe CGPath(roundedRect: CGRect(x: x, y: y, width: width, height: height), cornerWidth: min(cornerRadius, width / 2), cornerHeight: min(cornerRadius, height / 2), transform: nil)
+    }
+
+    /// One pixel's worth of rect, for a test sampling a rendered image.
+    public nonisolated static func pixel(x: Int, y: Int) -> CGRect {
+        CGRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1)
+    }
+
+    /// `CTLineGetTypographicBounds`' three out-parameters as plain `Double`s: the call needs
+    /// `inout CGFloat`, which nothing outside this file may name.
+    public nonisolated static func typographicBounds(of line: CTLine) -> (width: Double, ascent: Double, descent: Double) {
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        let width = unsafe CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+        return (Double(width), Double(ascent), Double(descent))
     }
 
     /// The `CGPoint` every `CGMutablePath` call in `CursorArt` takes, from plain `Double`s.

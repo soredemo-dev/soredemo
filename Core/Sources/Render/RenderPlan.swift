@@ -190,10 +190,16 @@ public struct RenderPlan: Hashable, Sendable {
     /// The point in normalised SOURCE coordinates the camera is centred on.
     public let contentCentre: NormalizedPoint
 
+    /// The caption to burn into this frame, or `nil` for none. Resolved per frame rather than
+    /// per clip because a caption changes several times a second and the plan is what a frame
+    /// is drawn from.
+    public let caption: CaptionOverlay?
+
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
                 contentZoom: Double = 1.0,
-                contentCentre: NormalizedPoint = NormalizedPoint(x: 0.5, y: 0.5)) {
+                contentCentre: NormalizedPoint = NormalizedPoint(x: 0.5, y: 0.5),
+                caption: CaptionOverlay? = nil) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -202,6 +208,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.pointer = pointer
         self.contentZoom = contentZoom
         self.contentCentre = contentCentre
+        self.caption = caption
     }
 }
 

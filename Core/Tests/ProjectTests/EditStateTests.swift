@@ -22,6 +22,38 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(EditState(framingOverrideData: Data("x".utf8)).changesAnything)
         #expect(EditState(styleData: Data("x".utf8)).changesAnything)
         #expect(EditState(outputShapeName: "Portrait").changesAnything)
+        #expect(EditState(captionTrackData: Data("x".utf8)).changesAnything)
+        #expect(EditState(captionStyleData: Data("x".utf8)).changesAnything)
+        #expect(EditState(burnsInCaptions: true).changesAnything)
+    }
+
+    /// **Burn-in being OFF is not a change.** It is the default, so a project that only ever had
+    /// captions turned off has nothing to save — and a dirty indicator that lit up for it would
+    /// ask a person to save a file identical to the one on disk.
+    @Test func captionsTurnedOffAreNotAnEdit() {
+        #expect(!EditState(burnsInCaptions: false).changesAnything)
+    }
+
+    /// A transcript is the one derived value this format stores, so it has to survive the trip
+    /// — including a person's corrections to it, which is the reason it is stored at all.
+    @Test func aCaptionTrackAndItsLookRoundTrip() throws {
+        let state = EditState(captionTrackData: Data("cues".utf8),
+                              captionStyleData: Data("look".utf8),
+                              burnsInCaptions: true)
+        let data = try JSONEncoder().encode(state)
+        let back = try JSONDecoder().decode(EditState.self, from: data)
+        #expect(back == state)
+        #expect(back.burnsInCaptions == true)
+    }
+
+    /// A project written before captions existed opens with them absent, not with an error —
+    /// which is the absence-tolerance the type's header promises.
+    @Test func aProjectWrittenBeforeCaptionsExistedStillOpens() throws {
+        let older = Data(#"{"audioMix":{"gains":{},"muted":[]},"outputShapeName":"Landscape"}"#.utf8)
+        let state = try JSONDecoder().decode(EditState.self, from: older)
+        #expect(state.captionTrackData == nil)
+        #expect(state.burnsInCaptions == nil)
+        #expect(state.outputShapeName == "Landscape")
     }
 
     /// A cut survives a save and reopen, which is the point of the whole exercise.

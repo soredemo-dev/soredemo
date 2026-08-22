@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 // compositor and the exporter, `Capture` for `ObservationWriter`'s log paths. The product
 // this app target links is `SoredemoHeadless`, which vends both.
 import Capture
+import Captions
 import Compositing
 import Framing
 import Project
@@ -62,15 +63,19 @@ struct StageWindow: View {
     /// What a GIF export would be. Held even while exporting MP4, so a person who switches the
     /// save panel's format popup does not find the options reset to defaults.
     @State private var gifSettings = GIFSettings.balanced
+    /// The captions. Owned here beside `stageStyle` so a change survives the inspector being
+    /// closed, and so the preview and the export read the same track.
+    @State private var captions = CaptionsModel()
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
-        case project, selection
+        case project, selection, captions
 
         var title: String {
             switch self {
             case .project: "Project"
             case .selection: "Zooms"
+            case .captions: "Captions"
             }
         }
     }
@@ -281,6 +286,11 @@ struct StageWindow: View {
             case .selection:
                 List { FramingReviewSections(model: review, onChange: { reviewRevision += 1 }) }
                     .listStyle(.sidebar)
+            case .captions:
+                let size = Self.size(for: variant)
+                CaptionsPanel(model: captions, mediaURL: mediaURL, edit: timeline.edit,
+                              outputWidth: size.width, outputHeight: size.height,
+                              onChange: { reviewRevision += 1 })
             }
         }
     }
@@ -379,7 +389,12 @@ struct StageWindow: View {
             framingOverrideData: review.overrides.isEmpty
                 ? nil : try? EditState.encoding(review.overrides),
             styleData: try? EditState.encoding(stageStyle.style),
-            outputShapeName: variant.name)
+            outputShapeName: variant.name,
+            captionTrackData: captions.track.isEmpty
+                ? nil : try? EditState.encoding(captions.track),
+            captionStyleData: captions.track.isEmpty
+                ? nil : try? EditState.encoding(captions.style),
+            burnsInCaptions: captions.burnsIn ? true : nil)
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -434,6 +449,17 @@ struct StageWindow: View {
            let shape = AspectVariant.all.first(where: { $0.name == name }) {
             variant = shape
         }
+        do {
+            // The style is restored even when the track failed to decode, so a person who
+            // transcribes again does not also have to redo how it looks.
+            let style = try EditState.decoding(edit.captionStyleData, as: CaptionStyle.self)
+            if let track = try EditState.decoding(edit.captionTrackData, as: CaptionTrack.self) {
+                captions.restore(track: track, style: style ?? captions.style,
+                                 burnsIn: edit.burnsInCaptions ?? false)
+            } else if let style {
+                captions.setStyle(style)
+            }
+        } catch { failures.append("the captions") }
         savedEdit = edit
         if !failures.isEmpty {
             projectStatus = "Opened, but could not read \(failures.joined(separator: ", "))."

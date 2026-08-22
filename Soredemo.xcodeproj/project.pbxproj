@@ -276,6 +276,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Soredemo. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Soredemo records microphone audio as one track of a screen recording.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Soredemo transcribes a recording's own audio on this Mac to make captions. Nothing is sent anywhere.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -312,6 +313,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Soredemo. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Soredemo records microphone audio as one track of a screen recording.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Soredemo transcribes a recording's own audio on this Mac to make captions. Nothing is sent anywhere.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
