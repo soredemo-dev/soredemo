@@ -145,7 +145,7 @@ struct FramingReviewInspector: View {
     }
 
     @ViewBuilder func row(for entry: ResolvedFraming) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.tight) {
             HStack {
                 Text(model.timeLabel(for: entry.instant) ?? "—")
                     .monospacedDigit()
@@ -155,30 +155,30 @@ struct FramingReviewInspector: View {
             // The origin, in words: a reviewer looking at someone else's project must be
             // able to tell an override from an agreement without opening a file.
             Text(Self.originDescription(for: entry))
-                .font(.caption)
+                .font(Type.detail)
                 .foregroundStyle(.secondary)
             controls(for: entry)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Space.hairline)
     }
 
     @ViewBuilder private func stateBadge(for entry: ResolvedFraming) -> some View {
         if entry.wasOverridden {
             Label(entry.target == nil ? "You: no zoom" : "You: zoom",
                   systemImage: "person.fill.checkmark")
-                .font(.caption)
+                .font(Type.detail)
         } else if case .pointerFallback = entry.origin {
-            Label("Zoom to pointer", systemImage: "cursorarrow.rays").font(.caption)
+            Label("Zoom to pointer", systemImage: "cursorarrow.rays").font(Type.detail)
         } else if entry.target != nil {
-            Label("Zoom", systemImage: "plus.magnifyingglass").font(.caption)
+            Label("Zoom", systemImage: "plus.magnifyingglass").font(Type.detail)
         } else {
             Label("No zoom", systemImage: "minus.magnifyingglass")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Type.detail).foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder private func controls(for entry: ResolvedFraming) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.snug) {
             if entry.target == nil {
                 Button("Zoom here") {
                     model.author(.frame(authoredFrame(for: entry)), at: entry.instant)
@@ -198,7 +198,7 @@ struct FramingReviewInspector: View {
             }
         }
         .buttonStyle(.link)
-        .font(.caption)
+        .font(Type.detail)
     }
 
     /// A rectangle centred on the gate's own target if it had one, and on the middle of the
@@ -274,7 +274,7 @@ struct FramingReviewSections: View {
         Section("Summary") { inspector.summary }
         if let failure = model.failure {
             Section("Could not read the decisions") {
-                Label(failure, systemImage: "exclamationmark.triangle").font(.callout)
+                Label(failure, systemImage: "exclamationmark.triangle").font(Type.label)
             }
         }
         Section("Clicks") {

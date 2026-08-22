@@ -85,6 +85,7 @@ xcrun swiftc \
   -lSoredemoHeadless \
   -o "$OUT/probe" \
   Soredemo/App/BuildProvenance.swift \
+  Soredemo/UI/DesignTokens.swift \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \

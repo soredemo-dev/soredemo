@@ -338,7 +338,7 @@ struct TimelineEditor: View {
 
     var body: some View {
         if let duration = model.duration, duration.rawValue > 0 {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.snug) {
                 strip(duration: duration)
                     .frame(height: 44)
                 // **Zooms get their own lane.** Screen Studio shows each click as a keyframe
@@ -352,7 +352,7 @@ struct TimelineEditor: View {
                 playheadKeys(duration: duration)
             }
         } else {
-            Text("Loading the recording…").foregroundStyle(.secondary).font(.caption)
+            Text("Loading the recording…").foregroundStyle(.secondary).font(Type.detail)
         }
     }
 
@@ -361,7 +361,7 @@ struct TimelineEditor: View {
             let width = geometry.size.width
             ZStack(alignment: .topLeading) {
                 // The recording as a whole — the ground the cuts show as gaps in.
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: Radius.strip)
                     .fill(.quaternary)
 
                 waveformLayer(duration: duration, width: width, height: geometry.size.height)
@@ -377,13 +377,13 @@ struct TimelineEditor: View {
                     let w = (model.window.fraction(of: clip.sourceEnd)
                              - model.window.fraction(of: clip.sourceStart)) * width
                     let isSelected = clip.id == model.selectedClip
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: Radius.strip)
                         .fill(.tint)
                         .overlay {
                             // The selected clip is outlined rather than recoloured: the fill
                             // already carries "this is kept footage", and a second colour
                             // there would make selection and keptness the same channel.
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: Radius.strip)
                                 .strokeBorder(.primary, lineWidth: isSelected ? 2 : 0)
                         }
                         .frame(width: max(w, 1))
@@ -495,7 +495,7 @@ struct TimelineEditor: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 3).fill(.quaternary.opacity(0.5))
+                RoundedRectangle(cornerRadius: Radius.block).fill(.quaternary.opacity(0.5))
 
                 ForEach(model.derivedZooms, id: \.origin) { derived in
                     // Drawn from the ADJUSTED block where one survives, so a drag is visible
@@ -519,10 +519,10 @@ struct TimelineEditor: View {
                                             width: Double, height: Double,
                                             laneWidth: Double, duration: Nanoseconds) -> some View {
         let held = model.draggingZoom == origin
-        RoundedRectangle(cornerRadius: 3)
+        RoundedRectangle(cornerRadius: Radius.block)
             .fill(suppressed ? AnyShapeStyle(.clear) : AnyShapeStyle(.tint.opacity(held ? 0.9 : 0.6)))
             .overlay {
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: Radius.block)
                     .strokeBorder(.tint, style: StrokeStyle(lineWidth: 1,
                                                             dash: suppressed ? [3, 2] : []))
             }
@@ -654,11 +654,11 @@ struct TimelineEditor: View {
                 Text("\(Self.stamp(model.edit.outputDuration)) of \(Self.stamp(duration))")
             }
         }
-        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+        .font(Type.readout).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private var controls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.snug) {
             Button("Split at playhead") {
                 model.splitAtPlayhead()
                 onChange()
@@ -701,9 +701,9 @@ struct TimelineEditor: View {
             }
         }
         .buttonStyle(.link)
-        .font(.caption)
+        .font(Type.detail)
 
-        HStack(spacing: 8) {
+        HStack(spacing: Space.snug) {
             // Titled with the action — "Undo Split at Playhead" — because a bare "Undo" makes
             // a person press it to find out what it does. Every editor in the reference set
             // names the action; `EditHistory` carries the name for exactly this.
@@ -736,7 +736,7 @@ struct TimelineEditor: View {
                 .keyboardShortcut("0", modifiers: .command)
         }
         .buttonStyle(.link)
-        .font(.caption)
+        .font(Type.detail)
     }
 
     // MARK: - strip geometry

@@ -57,6 +57,19 @@ struct StageWindow: View {
     /// Bumped when an edit is committed, to rebuild the composition against the cut asset.
     @State private var editRevision = 0
     @State private var isReviewShown = true
+    @State private var inspectorTab = InspectorTab.project
+
+    /// What the inspector is showing. See `inspector` for why there are two.
+    enum InspectorTab: String, CaseIterable, Hashable {
+        case project, selection
+
+        var title: String {
+            switch self {
+            case .project: "Project"
+            case .selection: "Zooms"
+            }
+        }
+    }
     /// Bumped whenever an override changes, to rebuild the composition. **The preview has to
     /// move**: the completion rule says a row is not done while the behaviour its name claims
     /// is not observable in the product, and an override that only changed a list would not
@@ -91,15 +104,28 @@ struct StageWindow: View {
             List { Text(mediaURL.lastPathComponent) }
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } detail: {
-            Group {
-                if let player {
-                    PreviewView(player: player)
-                } else if let failure {
-                    ContentUnavailableView("Could not build the preview", systemImage: "exclamationmark.triangle",
-                                           description: Text(failure))
-                } else {
-                    ProgressView()
+            // **The timeline sits under the preview, not in the inspector.** Every editor in
+            // `../opensource/Screen Record Opensource/` puts it there, and the reason is what
+            // the two surfaces are for: a timeline is read along its length while watching the
+            // picture above it, and an inspector is read down a column. It was in the
+            // inspector because that is where it was easiest to add.
+            VSplitView {
+                Group {
+                    if let player {
+                        PreviewView(player: player)
+                    } else if let failure {
+                        ContentUnavailableView("Could not build the preview",
+                                               systemImage: "exclamationmark.triangle",
+                                               description: Text(failure))
+                    } else {
+                        ProgressView()
+                    }
                 }
+                .frame(minHeight: 240)
+
+                TimelineEditor(model: timeline, onChange: { editRevision += 1 })
+                    .padding(Space.regular)
+                    .frame(minHeight: 140, idealHeight: 170)
             }
         }
         .task(id: mediaURL) { await load() }
@@ -126,28 +152,10 @@ struct StageWindow: View {
         // fire on a load that merely restored the same decisions.
         .task(id: reviewRevision) { if reviewRevision > 0 { await load() } }
         .inspector(isPresented: $isReviewShown) {
-            List {
-                Section("Output") {
-                    Picker("Shape", selection: $variant) {
-                        ForEach(AspectVariant.all, id: \.self) { shape in
-                            Text(shape.name).tag(shape)
-                        }
-                    }
-                    let size = Self.size(for: variant)
-                    LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("Edit") {
-                    TimelineEditor(model: timeline, onChange: { editRevision += 1 })
-                }
-                Section("Audio") { audioControls }
-                Section("Look") {
-                    StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
-                }
-                FramingReviewSections(model: review, onChange: { reviewRevision += 1 })
-            }
-            .listStyle(.sidebar)
-            .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
+            inspector
+                .inspectorColumnWidth(min: InspectorWidth.minimum,
+                                      ideal: InspectorWidth.ideal,
+                                      max: InspectorWidth.maximum)
         }
         .toolbar {
             // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`
@@ -233,6 +241,54 @@ struct StageWindow: View {
         return try await CompositionBuilder.composition(
             for: asset, outputWidth: size.width, outputHeight: size.height,
             frameDuration: CMTime(value: 1, timescale: 60))
+    }
+
+    /// **Two tabs: what the whole export is, and what is selected.**
+    ///
+    /// Both Swift editors in the reference set organise an inspector this way — a Swift recorder has
+    /// exactly Settings and Segment, a native editor switches its tab set on what kind of thing is
+    /// selected. The reason is that the two answer different questions: "how should this video
+    /// look" is asked once, and "what is this thing I just clicked" is asked constantly. A flat
+    /// list mixes them, so the answer to the second is always somewhere below the answer to the
+    /// first.
+    @ViewBuilder private var inspector: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $inspectorTab) {
+                ForEach(InspectorTab.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, Space.regular)
+            .padding(.vertical, Space.snug)
+
+            Divider()
+
+            switch inspectorTab {
+            case .project:
+                List {
+                    Section("Output") { outputControls }
+                    Section("Look") {
+                        StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
+                    }
+                    Section("Audio") { audioControls }
+                }
+                .listStyle(.sidebar)
+            case .selection:
+                List { FramingReviewSections(model: review, onChange: { reviewRevision += 1 }) }
+                    .listStyle(.sidebar)
+            }
+        }
+    }
+
+    @ViewBuilder private var outputControls: some View {
+        Picker("Shape", selection: $variant) {
+            ForEach(AspectVariant.all, id: \.self) { shape in
+                Text(shape.name).tag(shape)
+            }
+        }
+        let size = Self.size(for: variant)
+        LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
+            .font(Type.detail).foregroundStyle(.secondary)
     }
 
     /// One row per recorded source: a level and a mute.

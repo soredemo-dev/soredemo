@@ -100,7 +100,7 @@ struct StageStylePicker: View {
     @ViewBuilder private func slider(_ title: String, value: Double,
                                      range: ClosedRange<Double>,
                                      commit: @escaping (Double) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.hairline) {
             HStack {
                 Text(title)
                 Spacer()
@@ -108,7 +108,7 @@ struct StageStylePicker: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            .font(.caption)
+            .font(Type.detail)
             SliderCommitOnRelease(value: value, range: range, commit: commit)
         }
     }
