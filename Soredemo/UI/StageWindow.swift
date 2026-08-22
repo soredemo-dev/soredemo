@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Foundation
+import UniformTypeIdentifiers
 // Both halves of the runnable tier, split in Phase 3A-4: `Compositing` for the
 // compositor and the exporter, `Capture` for `ObservationWriter`'s log paths. The product
 // this app target links is `SoredemoHeadless`, which vends both.
@@ -58,6 +59,9 @@ struct StageWindow: View {
     @State private var editRevision = 0
     @State private var isReviewShown = true
     @State private var inspectorTab = InspectorTab.project
+    /// What a GIF export would be. Held even while exporting MP4, so a person who switches the
+    /// save panel's format popup does not find the options reset to defaults.
+    @State private var gifSettings = GIFSettings.balanced
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
@@ -271,6 +275,7 @@ struct StageWindow: View {
                         StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
                     }
                     Section("Audio") { audioControls }
+                    Section("Animated GIF") { gifControls }
                 }
                 .listStyle(.sidebar)
             case .selection:
@@ -288,6 +293,32 @@ struct StageWindow: View {
         }
         let size = Self.size(for: variant)
         LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
+            .font(Type.detail).foregroundStyle(.secondary)
+    }
+
+    /// What a GIF export would be. In the project tab because it is a property of the OUTPUT,
+    /// like the shape and the look beside it — the format is chosen in the save panel's popup,
+    /// which is where macOS puts it.
+    @ViewBuilder private var gifControls: some View {
+        Picker("Frames", selection: $gifSettings.frameRate) {
+            ForEach(GIFSettings.exactRates, id: \.self) { rate in
+                Text("\(rate) fps").tag(rate)
+            }
+        }
+        Picker("Longest edge", selection: $gifSettings.maximumLongestEdge) {
+            Text("480 px").tag(480)
+            Text("640 px").tag(640)
+            Text("960 px").tag(960)
+            Text("1280 px").tag(1280)
+        }
+        Toggle("Loop forever", isOn: $gifSettings.loops)
+
+        let size = Self.size(for: variant)
+        let gif = gifSettings.size(fitting: size.width, height: size.height)
+        // The size is worth stating because it is not the export size beside it, and the
+        // "no sound" is worth stating because a person who recorded themselves talking would
+        // otherwise find that out from the file.
+        LabeledContent("GIF", value: "\(gif.width)\u{00D7}\(gif.height), no sound")
             .font(Type.detail).foregroundStyle(.secondary)
     }
 
@@ -464,7 +495,11 @@ struct StageWindow: View {
     /// destination for would be a button for nothing.
     private func startExport() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.mpeg4Movie]
+        // **Two types, so the panel's own format popup is the format chooser.** an Electron recorder and
+        // an Electron recorder both build a FormatSelector into the editor; on macOS that control already
+        // exists and lives in the save panel, and a second one in the window would be a second
+        // place to look for the same answer.
+        panel.allowedContentTypes = [.mpeg4Movie, .gif]
         panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".mp4"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
@@ -472,7 +507,11 @@ struct StageWindow: View {
         isExporting = true
         exportProgress = .preparing
         exportTask = Task {
-            await exportRecording(to: destination)
+            if destination.pathExtension.lowercased() == "gif" {
+                await exportGIF(to: destination)
+            } else {
+                await exportRecording(to: destination)
+            }
             isExporting = false
             exportProgress = nil
             exportTask = nil
@@ -504,6 +543,36 @@ struct StageWindow: View {
         } catch {
             exportStatus = "Export failed: \(error)"
         }
+    }
+
+    /// The same composition, written as a GIF. Sized from `gifSettings` rather than from the
+    /// variant, because a GIF that is 1920 wide is a file nobody can attach to anything.
+    private func exportGIF(to destination: URL) async {
+        do {
+            let asset = AVURLAsset(url: mediaURL)
+            let size = Self.size(for: variant)
+            let report = try await GIFExporter.export(
+                asset: asset, to: destination,
+                outputWidth: size.width, outputHeight: size.height,
+                edit: timeline.edit, settings: gifSettings,
+                onProgress: { progress in
+                    Task { @MainActor in exportProgress = progress }
+                })
+            // The RATE is reported, not the setting, and they can differ — see `GIFSettings`.
+            // A person who picked an off-list rate should learn it here rather than by timing
+            // the file against the recording.
+            exportStatus = "Exported \(report.framesWritten) frame(s) at "
+                + "\(report.width)\u{00D7}\(report.height), "
+                + "\(formatted(report.playbackRate)) fps, to \(report.outputURL.lastPathComponent)."
+        } catch is CancellationError {
+        } catch {
+            exportStatus = "GIF export failed: \(error)"
+        }
+    }
+
+    /// Whole numbers without a trailing `.0`, which is what every rate on `exactRates` is.
+    private func formatted(_ rate: Double) -> String {
+        rate == rate.rounded() ? String(Int(rate)) : String(format: "%.1f", rate)
     }
 }
 

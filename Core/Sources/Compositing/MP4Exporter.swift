@@ -421,13 +421,24 @@ public enum MP4Exporter {
     /// before that step — a hold, which is what a still screen genuinely looked like. A hold
     /// repeats an image; it does not blend toward the next, which would invent motion the
     /// recording never had.
-    private struct ConstantRateResampler {
+    /// Shared with `GIFExporter`, which needs the same output timeline over the same reader —
+    /// internal rather than private for that one caller.
+    struct ConstantRateResampler {
         let output: AVAssetReaderOutput
         let frameDuration: CMTime
         var slot: CMTime
         var framesRead = 0
         var framesWritten = 0
         var lastSourcePTS: CMTime?
+        /// **How many frames `next()` has handed out**, which is what decides when the source is
+        /// spent — see the guard below.
+        ///
+        /// Separate from `framesWritten`, which the MP4 path increments itself after a
+        /// successful append and reports. Termination used to read THAT, so a caller that
+        /// consumed frames without maintaining it looped forever repeating the last frame. The
+        /// GIF exporter is that caller, and it found this the moment the type gained a second
+        /// user: a counter a caller has to remember to bump is not a counter, it is a trap.
+        private var emitted = 0
         private var held: CMSampleBuffer?
         private var pending: CMSampleBuffer?
         private var started = false
@@ -468,12 +479,13 @@ public enum MP4Exporter {
                     }
                     continue
                 }
-                if pending == nil && framesWritten > 0
+                if pending == nil && emitted > 0
                     && CMSampleBufferGetPresentationTimeStamp(frame) < slot {
                     // The source is spent and the slot has passed its last frame: repeating it
                     // would extend the file past the recording.
                     return nil
                 }
+                emitted += 1
                 return MP4Exporter.restamped(frame, at: slot)
             }
         }
@@ -482,7 +494,7 @@ public enum MP4Exporter {
     /// The next composed frame with actual samples. `copyNextSampleBuffer()` may return
     /// marker-only buffers with zero samples; those are not frames and must not be counted or
     /// held, or a hold would present an empty buffer for a whole slot.
-    private nonisolated static func nextFrame(_ output: AVAssetReaderOutput,
+    nonisolated static func nextFrame(_ output: AVAssetReaderOutput,
                                               count: inout Int) -> CMSampleBuffer? {
         while let buffer = output.copyNextSampleBuffer() {
             if CMSampleBufferGetNumSamples(buffer) > 0 {
@@ -495,7 +507,7 @@ public enum MP4Exporter {
 
     /// The same buffer presented at a different time. The image is unchanged — a hold repeats
     /// a frame, it does not synthesise one — so only the timing is rewritten.
-    private nonisolated static func restamped(_ buffer: CMSampleBuffer,
+    nonisolated static func restamped(_ buffer: CMSampleBuffer,
                                               at time: CMTime) -> CMSampleBuffer? {
         var timing = CMSampleTimingInfo(duration: .invalid,
                                         presentationTimeStamp: time,
