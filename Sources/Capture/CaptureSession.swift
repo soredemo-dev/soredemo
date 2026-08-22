@@ -79,6 +79,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// Observations that arrived before the log could be opened, as closures that will apply
     /// them once it is. Guarded by `lock` like every other mutable member here.
     private nonisolated(unsafe) var bufferedObservations: [(ObservationWriter) throws -> Void] = []
+    /// Audio waiting for its writer input to accept it. See `HeldAudioQueue` for why holding
+    /// rather than dropping is the difference between a recording with sound and one without.
+    /// The queues take their own lock, so they are not guarded by this type's.
+    private let heldSystemAudio = HeldAudioQueue()
+    private let heldMicrophone = HeldAudioQueue()
     private nonisolated(unsafe) var videoRebase = TrackRebase()
     private nonisolated(unsafe) var systemAudioRebase = TrackRebase()
     private nonisolated(unsafe) var microphoneRebase = TrackRebase()
@@ -228,7 +233,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             public internal(set) var appended = 0
             public internal(set) var refused = 0
             public internal(set) var skippedWriterNotWriting = 0
+            /// **Retired.** Held audio is no longer dropped for a busy input, so this can
+            /// only be zero. Kept as a field rather than deleted because a non-zero value in
+            /// an older recording's diagnostics is exactly the fault that emptied it, and a
+            /// reader comparing two runs needs the name to still mean something.
             public internal(set) var skippedInputNotReady = 0
+            /// Buffers discarded because the hold queue was full — the writer stuck rather
+            /// than momentarily behind. A real loss, counted rather than absorbed.
+            public internal(set) var droppedWhileHeld = 0
             /// Buffers that arrived before the first complete video frame
             /// opened the writer's session. Normal at the head of a
             /// recording; a large value means video never started.
@@ -768,7 +780,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             unsafe self.blackFrameConsecutive = 0
             unsafe self.pendingObservationLog = pending
             unsafe self.segmentOpenHostTime = Minting.hostNow()
+            self.heldSystemAudio.removeAll()
+            self.heldMicrophone.removeAll()
             unsafe self.bufferedObservations = []
+
             unsafe self.observationWriter = nil
             unsafe self.inputDiagnosticsAtSegmentStart = input?.diagnostics ?? InputObserver.Diagnostics()
             unsafe self.axDiagnosticsAtSegmentStart = ax?.diagnostics ?? AXObserver.Diagnostics()
@@ -1204,6 +1219,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             // reason `PendingObservationLog` states.
             openObservationLog(atFirstFrame: pts)
         }
+        // Audio holds its samples until the writer will take them, and the writer often only
+        // will once video has advanced — which is here. Draining from this side is what stops
+        // a track whose own callbacks are sparse from waiting a whole extra buffer interval.
+        drainHeldAudio(master: masterRef)
         guard let retimedVideo = Self.retimed(sampleBuffer, to: rebasedVideoPTS) else {
             lock.withLock { unsafe _diagnostics.skippedWriterNotWritingCount += 1 }
             return
@@ -1277,8 +1296,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             updateAudioAccounting(isSystemAudio) { $0.skippedWriterNotWriting += 1 }
             return
         }
-        guard let trackRef, trackRef.isReadyForMoreMediaData else {
-            updateAudioAccounting(isSystemAudio) { $0.skippedInputNotReady += 1 }
+        guard let trackRef else {
+            updateAudioAccounting(isSystemAudio) { $0.skippedWriterNotWriting += 1 }
             return
         }
         // Audio arriving before the first complete video frame is dropped rather
@@ -1309,13 +1328,44 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             return
         }
         let level = AudioInterleave.rms(of: retimedAudio)
-        let accepted = trackRef.append(retimedAudio)
         updateAudioAccounting(isSystemAudio) {
-            if accepted { $0.appended += 1 } else { $0.refused += 1 }
             if let level { $0.peakRMS = max($0.peakRMS ?? 0, level) }
         }
-        recordAppend(accepted, of: masterRef, isVideo: false)
+        holdAndDrainAudio(retimedAudio, isSystemAudio: isSystemAudio,
+                          track: trackRef, master: masterRef)
     }
+
+    /// Holds one buffer and writes as much as the input will take. The rule itself lives in
+    /// `HeldAudioQueue`; this is the seam that picks which track's queue.
+    private nonisolated func holdAndDrainAudio(_ buffer: CMSampleBuffer, isSystemAudio: Bool,
+                                               track: any MasterTrackWriting,
+                                               master: any MasterWriting) {
+        let queue = isSystemAudio ? heldSystemAudio : heldMicrophone
+        let droppedBefore = queue.dropped
+        queue.enqueue(buffer)
+        if queue.dropped > droppedBefore {
+            updateAudioAccounting(isSystemAudio) { $0.droppedWhileHeld += 1 }
+        }
+        let written = queue.drain(into: track)
+        if written > 0 {
+            updateAudioAccounting(isSystemAudio) { $0.appended += written }
+            recordAppend(true, of: master, isVideo: false)
+        }
+    }
+
+    /// Both tracks, from the video path. Separate from `drainAudio` so the video callback
+    /// does not need to know which track is which.
+    private nonisolated func drainHeldAudio(master: any MasterWriting) {
+        for (queue, track, isSystem) in [(heldSystemAudio, master.systemAudio, true),
+                                         (heldMicrophone, master.microphone, false)] {
+            let written = queue.drain(into: track)
+            if written > 0 {
+                updateAudioAccounting(isSystem) { $0.appended += written }
+                recordAppend(true, of: master, isVideo: false)
+            }
+        }
+    }
+
 
     /// **Closes an audio input the recording is never going to feed.**
     ///
