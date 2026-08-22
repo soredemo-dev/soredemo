@@ -19,7 +19,11 @@ final class TimelineEditorModel {
     /// The recording's full length. `nil` until the asset loads, which is why the strip is
     /// absent rather than drawn against a length of zero.
     private(set) var duration: Nanoseconds?
-    private(set) var edit = EditTimeline(clips: [])
+    /// Every edit goes through here, so ⌘Z is not a separate code path that has to be kept in
+    /// step with the one that makes changes. `EditHistory` stores VALUES rather than inverse
+    /// operations — see its header for why that is the right trade for an immutable model.
+    private var history = EditHistory<EditTimeline>(EditTimeline(clips: []))
+    var edit: EditTimeline { history.current }
     /// Where the playhead sits, in SOURCE time.
     var playhead = Nanoseconds(0)
     /// The span a person has dragged out, in SOURCE time, or `nil` for no selection.
@@ -28,7 +32,9 @@ final class TimelineEditorModel {
     /// an earlier clip would silently move an index onto a different clip, which is the fault
     /// `ClipID` exists to prevent.
     private(set) var selectedClip: ClipID?
-    /// Kept so "Undo all edits" restores the recording rather than guessing at it.
+    /// Kept so "Undo all edits" restores the recording rather than guessing at it. Still a
+    /// separate value from the history's floor: reverting is one step a person can undo, not
+    /// an unwinding of every step they made.
     private var original = EditTimeline(clips: [])
     /// Carried across the events of one drag so a snap holds instead of flickering.
     private var snapState = SnapEngine.State()
@@ -36,7 +42,9 @@ final class TimelineEditorModel {
     func load(duration seconds: Double) {
         let total = Nanoseconds(Int64(seconds * 1_000_000_000))
         duration = total
-        edit = EditTimeline.whole(duration: total)
+        // `reset`, not `record`: opening a recording is not an edit to the one before it, and
+        // a person must not be able to ⌘Z their way back into a different video.
+        history.reset(to: EditTimeline.whole(duration: total))
         original = edit
         playhead = Nanoseconds(0)
         selection = nil
@@ -72,8 +80,7 @@ final class TimelineEditorModel {
     func splitAtPlayhead() {
         guard let output = edit.outputTime(atSource: playhead),
               let split = edit.split(atOutput: output) else { return }
-        edit = split
-        publish()
+        apply("Split at Playhead", split)
     }
 
     var canSplitAtPlayhead: Bool {
@@ -84,30 +91,65 @@ final class TimelineEditorModel {
     /// output position is the sum of the durations before it, so there is no gap to close.
     func deleteSelectedClip() {
         guard let selectedClip else { return }
-        edit = edit.removing(id: selectedClip)
+        apply("Delete Clip", edit.removing(id: selectedClip))
         self.selectedClip = nil
-        publish()
     }
 
     func removeSelection() {
         guard let selection else { return }
-        edit = edit.removing(sourceRange: selection)
+        apply("Remove Selection", edit.removing(sourceRange: selection))
         self.selection = nil
-        publish()
     }
 
     func keepOnlySelection() {
         guard let selection else { return }
-        edit = edit.trimmed(toSource: selection)
+        apply("Keep Only Selection", edit.trimmed(toSource: selection))
         self.selection = nil
-        publish()
     }
 
     func restore() {
-        edit = original
+        apply("Revert All Edits", original)
         selection = nil
         selectedClip = nil
+    }
+
+    // MARK: - undo
+
+    var canUndo: Bool { history.canUndo }
+    var canRedo: Bool { history.canRedo }
+    /// What a menu item should say. `nil` when there is nothing to undo, so the caller can
+    /// disable rather than offer a verb with no object.
+    var undoTitle: String? { history.undoName.map { "Undo \($0)" } }
+    var redoTitle: String? { history.redoName.map { "Redo \($0)" } }
+
+    func undo() {
+        guard history.undo() != nil else { return }
+        clearSelectionsThatNoLongerExist()
         publish()
+    }
+
+    func redo() {
+        guard history.redo() != nil else { return }
+        clearSelectionsThatNoLongerExist()
+        publish()
+    }
+
+    /// One place every edit passes through, so the history cannot be bypassed by a new
+    /// operation that forgets to record.
+    private func apply(_ name: String, _ updated: EditTimeline) {
+        history.record(name, updated)
+        clearSelectionsThatNoLongerExist()
+        publish()
+    }
+
+    /// **A selection can outlive the clip it pointed at.** Undo past a split and the right
+    /// half is gone; leaving the id selected would leave "Delete Clip" enabled with nothing to
+    /// delete. The span selection is left alone — it is a range of the recording, which still
+    /// exists whatever the edit did.
+    private func clearSelectionsThatNoLongerExist() {
+        if let selectedClip, !edit.clips.contains(where: { $0.id == selectedClip }) {
+            self.selectedClip = nil
+        }
     }
 
     /// Hands the edit to the compositor. It reads the observation log in SOURCE time and is
@@ -263,11 +305,32 @@ struct TimelineEditor: View {
             .disabled(model.selection == nil)
 
             if model.hasEdits {
-                Button("Undo all edits") {
+                Button("Revert all") {
                     model.restore()
                     onChange()
                 }
             }
+        }
+        .buttonStyle(.link)
+        .font(.caption)
+
+        HStack(spacing: 8) {
+            // Titled with the action — "Undo Split at Playhead" — because a bare "Undo" makes
+            // a person press it to find out what it does. Every editor in the reference set
+            // names the action; `EditHistory` carries the name for exactly this.
+            Button(model.undoTitle ?? "Undo") {
+                model.undo()
+                onChange()
+            }
+            .disabled(!model.canUndo)
+            .keyboardShortcut("z", modifiers: .command)
+
+            Button(model.redoTitle ?? "Redo") {
+                model.redo()
+                onChange()
+            }
+            .disabled(!model.canRedo)
+            .keyboardShortcut("z", modifiers: [.command, .shift])
         }
         .buttonStyle(.link)
         .font(.caption)
