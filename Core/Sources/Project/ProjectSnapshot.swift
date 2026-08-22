@@ -30,18 +30,26 @@ public struct ProjectSnapshot: Codable, Sendable, Equatable {
     /// and the v0→v1 migration, can construct a snapshot without a table.
     public var segments: SegmentTable
 
+    /// What a person decided about this recording. Defaults to untouched, so every existing
+    /// caller and every document written before the field existed opens unedited.
+    ///
+    /// **Only authored values** — see `EditState`. A snapshot storing derived ones would keep
+    /// a stale answer when the derivation improved.
+    public var edit: EditState
+
     public init(schemaVersion: Int, geometries: GeometryRegistry, mediaFilenames: [String],
-                segments: SegmentTable = .empty) {
+                segments: SegmentTable = .empty, edit: EditState = .untouched) {
         self.schemaVersion = schemaVersion
         self.geometries = geometries
         self.mediaFilenames = mediaFilenames
         self.segments = segments
+        self.edit = edit
     }
 }
 
 extension ProjectSnapshot {
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, geometries, mediaFilenames, segments
+        case schemaVersion, geometries, mediaFilenames, segments, edit
     }
 
     /// Hand-written so `segments` may be absent: a v1 document written before the
@@ -53,6 +61,15 @@ extension ProjectSnapshot {
         geometries = try container.decode(GeometryRegistry.self, forKey: .geometries)
         mediaFilenames = try container.decode([String].self, forKey: .mediaFilenames)
         segments = try container.decodeIfPresent(SegmentTable.self, forKey: .segments) ?? .empty
+        // **Absent means unedited, and the version does NOT move for it.** `segments` above
+        // took that trade once and its comment says a future additive field must re-make the
+        // decision rather than inherit it. Re-made, and it holds for the same reason plus one
+        // more: an older build opening a newer document would drop this key on the next save,
+        // and what it would drop is a person's edits rather than a table nothing yet writes.
+        // That is worse — so the mitigation is not the schema version, which cannot stop it,
+        // but that `EditState` holds only AUTHORED values. A build that cannot read them
+        // re-derives everything and loses corrections, not footage.
+        edit = try container.decodeIfPresent(EditState.self, forKey: .edit) ?? .untouched
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -61,6 +78,7 @@ extension ProjectSnapshot {
         try container.encode(geometries, forKey: .geometries)
         try container.encode(mediaFilenames, forKey: .mediaFilenames)
         try container.encode(segments, forKey: .segments)
+        try container.encode(edit, forKey: .edit)
     }
 }
 
