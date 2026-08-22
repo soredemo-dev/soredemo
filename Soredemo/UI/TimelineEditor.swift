@@ -1,6 +1,7 @@
 import Compositing
 import Foundation
 import Observation
+import AppKit
 import SwiftUI
 import Timeline
 
@@ -23,7 +24,11 @@ final class TimelineEditorModel {
     /// step with the one that makes changes. `EditHistory` stores VALUES rather than inverse
     /// operations — see its header for why that is the right trade for an immutable model.
     private var history = EditHistory<EditTimeline>(EditTimeline(clips: []))
-    var edit: EditTimeline { history.current }
+    /// What a drag in progress is showing. **Held outside the history on purpose**: a trim is
+    /// one edit a person makes, not one per pixel their cursor travelled, and recording every
+    /// intermediate value would make ⌘Z undo a pixel. Committed once on release.
+    private var liveEdit: EditTimeline?
+    var edit: EditTimeline { liveEdit ?? history.current }
     /// Where the playhead sits, in SOURCE time.
     var playhead = Nanoseconds(0)
     /// The span a person has dragged out, in SOURCE time, or `nil` for no selection.
@@ -113,6 +118,42 @@ final class TimelineEditorModel {
         selectedClip = nil
     }
 
+    // MARK: - trim handles
+
+    /// Which edge of the selected clip a drag is holding.
+    enum TrimEdge: Hashable, Sendable { case start, end }
+
+    /// Shows what the trim would do, without committing it. Called continuously while the
+    /// handle is held.
+    ///
+    /// **A trim the model refuses leaves the last legal state on screen** rather than
+    /// snapping back or passing through: `EditTimeline.trimming` returns `nil` when a gesture
+    /// has gone past the clip's own length, and the handle stopping is what that looks like.
+    func previewTrim(of id: ClipID, edge: TrimEdge, byNanoseconds delta: Int64) {
+        let base = trimBaseline ?? history.current
+        trimBaseline = base
+        let updated = switch edge {
+        case .start: base.trimming(id: id, startDelta: delta, endDelta: 0)
+        case .end:   base.trimming(id: id, startDelta: 0, endDelta: delta)
+        }
+        if let updated { liveEdit = updated }
+    }
+
+    /// Commits the drag as ONE history step, or discards it if nothing moved.
+    func commitTrim(edge: TrimEdge) {
+        defer {
+            liveEdit = nil
+            trimBaseline = nil
+        }
+        guard let live = liveEdit else { return }
+        apply(edge == .start ? "Trim Clip Start" : "Trim Clip End", live)
+    }
+
+    /// The timeline a drag started from. Every intermediate value is computed from THIS rather
+    /// than from the previous frame, so a drag cannot accumulate rounding — the handle ends up
+    /// where the cursor is, not where a hundred small additions put it.
+    private var trimBaseline: EditTimeline?
+
     // MARK: - undo
 
     var canUndo: Bool { history.canUndo }
@@ -182,6 +223,7 @@ struct TimelineEditor: View {
                     .frame(height: 44)
                 readout(duration: duration)
                 controls
+                playheadKeys(duration: duration)
             }
         } else {
             Text("Loading the recording…").foregroundStyle(.secondary).font(.caption)
@@ -226,6 +268,14 @@ struct TimelineEditor: View {
                         .allowsHitTesting(false)
                 }
 
+                // Handles before the playhead so the playhead draws over them, and after the
+                // clips so they are not covered by the next clip's fill.
+                if let selected = model.selectedClip,
+                   let clip = model.edit.clips.first(where: { $0.id == selected }) {
+                    trimHandle(for: clip, edge: .start, duration: duration, width: width)
+                    trimHandle(for: clip, edge: .end, duration: duration, width: width)
+                }
+
                 Rectangle()
                     .fill(.primary)
                     .frame(width: 2)
@@ -262,6 +312,79 @@ struct TimelineEditor: View {
         }
     }
 
+    /// One edge of the selected clip, draggable.
+    ///
+    /// **Wider than it looks.** The visible line is 2 points; the hit area is 12, which is
+    /// a Swift recorder's `handleWidth` and roughly the smallest target a person hits reliably with a
+    /// trackpad. A handle you can see but not grab is worse than no handle.
+    @ViewBuilder private func trimHandle(for clip: EditClip, edge: TimelineEditorModel.TrimEdge,
+                                         duration: Nanoseconds, width: Double) -> some View {
+        let at = edge == .start ? clip.sourceStart : clip.sourceEnd
+        let x = fraction(at, of: duration) * width
+        Rectangle()
+            .fill(.primary)
+            .frame(width: 2)
+            .frame(width: handleHitWidth)          // the grab area, not the drawn line
+            .contentShape(Rectangle())
+            .offset(x: x - handleHitWidth / 2)
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let delta = nanoseconds(forPoints: value.translation.width,
+                                                width: width, duration: duration)
+                        model.previewTrim(of: clip.id, edge: edge, byNanoseconds: delta.rawValue)
+                    }
+                    .onEnded { _ in
+                        model.commitTrim(edge: edge)
+                        onChange()
+                    }
+            )
+            .onHover { inside in
+                // The cursor is the only thing that says a 2-point line is draggable before a
+                // person tries it. a Swift recorder pushes the same one.
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+    }
+
+    /// a Swift recorder's `handleWidth`. Carried over rather than re-guessed.
+    private let handleHitWidth: Double = 12
+
+    /// Keys with no visible control of their own.
+    ///
+    /// **Zero-opacity buttons rather than a key handler**, because a `Button`'s shortcut is
+    /// the only thing that respects the responder chain: a raw key monitor fires while a
+    /// person is typing in a text field somewhere else in the window, which is how an arrow
+    /// key ends up nudging a playhead the person is not looking at.
+    @ViewBuilder private func playheadKeys(duration: Nanoseconds) -> some View {
+        Group {
+            Button("") { nudge(by: -Self.frameStep, duration: duration) }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+            Button("") { nudge(by: Self.frameStep, duration: duration) }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+            // Shift is the coarse step, matching how a person expects a modifier to scale a
+            // nudge everywhere else on the system.
+            Button("") { nudge(by: -Self.secondStep, duration: duration) }
+                .keyboardShortcut(.leftArrow, modifiers: .shift)
+            Button("") { nudge(by: Self.secondStep, duration: duration) }
+                .keyboardShortcut(.rightArrow, modifiers: .shift)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// One frame at 60 fps — the rate the export is resampled to, so a nudge moves the
+    /// playhead by exactly one frame of the video a person will get.
+    static let frameStep: Int64 = 16_666_667
+    static let secondStep: Int64 = 1_000_000_000
+
+    private func nudge(by delta: Int64, duration: Nanoseconds) {
+        let moved = min(max(model.playhead.rawValue + delta, 0), duration.rawValue)
+        model.playhead = Nanoseconds(moved)
+        // The clip under the playhead follows it, so ← / → walk the clips as well as the time.
+        model.selectClip(atSource: model.playhead)
+    }
+
     @ViewBuilder private func readout(duration: Nanoseconds) -> some View {
         HStack {
             Text(Self.stamp(model.playhead))
@@ -285,12 +408,16 @@ struct TimelineEditor: View {
                 onChange()
             }
             .disabled(!model.canSplitAtPlayhead)
+            // `S` unmodified, the spelling every editor in the reference set uses for a cut
+            // at the playhead. No modifier: it is the most-used key in an editing session.
+            .keyboardShortcut("s", modifiers: [])
 
             Button("Delete clip") {
                 model.deleteSelectedClip()
                 onChange()
             }
             .disabled(model.selectedClip == nil)
+            .keyboardShortcut(.delete, modifiers: [])
 
             Button("Remove selection") {
                 model.removeSelection()
