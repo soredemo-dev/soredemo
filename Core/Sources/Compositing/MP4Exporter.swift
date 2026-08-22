@@ -13,6 +13,33 @@ import Timeline
 ///
 /// `copyNextSampleBuffer()` may return marker-only buffers with zero samples; a caller counting
 /// frames must check `CMSampleBufferGetNumSamples`.
+/// Where an export has got to.
+///
+/// **Phases, not one percentage**, and `../opensource/Screen Record Opensource/an Electron recorder-main`'s
+/// export status model is why: the last step is `AVAssetWriter.finishWriting`, which takes
+/// seconds on a long recording and reports nothing. A bar that reached 100% and then sat there
+/// looks stopped, and a person cancels a job that was about to finish. Naming the phase is
+/// what lets the UI say "finishing" instead of lying at 100%.
+public enum ExportProgress: Sendable, Equatable {
+    /// Reading the recording and building the composition. No useful fraction — it is one
+    /// asset load, and a bar that jumped 0→30 would be describing nothing.
+    case preparing
+    /// Writing frames. `fraction` is 0…1 of the output timeline, which is the only part long
+    /// enough for a person to watch.
+    case writing(fraction: Double, framesWritten: Int)
+    /// `finishWriting`. Indeterminate by nature: AVFoundation gives no progress, and inventing
+    /// one would be a bar that moves without meaning.
+    case finishing
+
+    /// What a control should show, or `nil` when the phase has no honest number.
+    public var fraction: Double? {
+        if case .writing(let fraction, _) = self { return fraction }
+        return nil
+    }
+
+    public var isFinishing: Bool { self == .finishing }
+}
+
 public enum MP4Exporter {
     /// Exports `asset`'s video through the same `AVVideoComposition` the preview uses, so the two
     /// cannot disagree. Never drops a frame: the poll loop waits on `isReadyForMoreMediaData`
@@ -27,16 +54,26 @@ public enum MP4Exporter {
     /// range's start makes the output's first frame time zero: the composition's frames keep
     /// carrying their original presentation times, so a session started at `.zero` for a trim
     /// beginning at 30 s would produce a file with 30 seconds of nothing at the front.
+    /// Deletes a partial output. Called when an export throws or is cancelled: a half-written
+    /// MP4 sitting where a person asked for their video is worse than no file, because it looks
+    /// like the export worked.
+    private nonisolated static func discardPartialOutput(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
+
     public nonisolated static func export(asset: AVAsset, to outputURL: URL,
                                           outputWidth: Int, outputHeight: Int,
                                           edit: EditTimeline? = nil,
                                           audioMix: AudioMix = .unchanged,
-                                          frameRate: Int = 60) async throws -> ExportReport {
+                                          frameRate: Int = 60,
+                                          onProgress: (@Sendable (ExportProgress) -> Void)? = nil
+    ) async throws -> ExportReport {
         precondition(frameRate > 0, "frameRate must be positive, got \(frameRate)")
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
 
+        onProgress?(.preparing)
         if let edit, edit.isEmpty { throw ExportError.emptyTrim }
         // **The compositor must be looking at the SAME edit.** It reads the observation log in
         // source time and is handed output times, so it converts through
@@ -102,14 +139,21 @@ public enum MP4Exporter {
         let sessionStart = CMTime.zero
         writer.startSession(atSourceTime: sessionStart)
 
-        let counts = try await writeInterleaved(
+        let counts: (framesRead: Int, framesWritten: Int, audioWritten: Int)
+        do {
+            counts = try await writeInterleaved(
             asset: asset, videoTracks: videoTracks, audioTracks: audioTracks,
             composition: composition, frameDuration: frameDuration, sessionStart: sessionStart,
             writer: writer, videoInput: videoInput, audioInput: audioInput,
-            audioMix: audioMix)
+                audioMix: audioMix, onProgress: onProgress)
+        } catch {
+            discardPartialOutput(at: outputURL)
+            throw error
+        }
         let video = (read: counts.framesRead, written: counts.framesWritten)
         let audioSamples = counts.audioWritten
 
+        onProgress?(.finishing)
         await withCheckedContinuation { continuation in
             writer.finishWriting { continuation.resume() }
         }
@@ -150,8 +194,11 @@ public enum MP4Exporter {
         asset: AVAsset, videoTracks: [AVAssetTrack], audioTracks: [AVAssetTrack],
         composition: AVVideoComposition, frameDuration: CMTime, sessionStart: CMTime,
         writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?,
-        audioMix: AudioMix
+        audioMix: AudioMix, onProgress: (@Sendable (ExportProgress) -> Void)?
     ) async throws -> (framesRead: Int, framesWritten: Int, audioWritten: Int) {
+        // The output's own length, for the fraction. Read once: it cannot change while the
+        // export runs, and asking per frame would be an asset load per frame.
+        let totalNanos = (try? await asset.load(.duration).seconds).map { $0 * 1_000_000_000 } ?? 0
         let videoReader = try AVAssetReader(asset: asset)
         let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: videoTracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -205,6 +252,20 @@ public enum MP4Exporter {
         var pendingAudio: CMSampleBuffer? = audioOutput.flatMap(nextAudio)
         var audioWritten = 0
         var stallPoll: MonotonicStopwatch?
+        var lastReportedPercent = -1
+
+        /// **Reported on each whole percent, not on each frame.** A 60 fps export of a
+        /// three-minute recording is 10,800 frames; a callback per frame is 10,800 hops to the
+        /// main actor to move a bar by a tenth of a pixel, and the reporting would cost more
+        /// than the work it reports on.
+        func report(_ slot: CMTime, _ framesWritten: Int) {
+            guard let onProgress, totalNanos > 0 else { return }
+            let fraction = min(max(slot.seconds * 1_000_000_000 / totalNanos, 0), 1)
+            let percent = Int(fraction * 100)
+            guard percent != lastReportedPercent else { return }
+            lastReportedPercent = percent
+            onProgress(.writing(fraction: fraction, framesWritten: framesWritten))
+        }
 
         // **Each input is finished the moment ITS source runs out, not when the loop ends.**
         // The two rarely end together — AAC packet granularity leaves the audio short of the
@@ -227,6 +288,12 @@ public enum MP4Exporter {
         finishExhaustedInputs()
 
         while pendingVideo != nil || pendingAudio != nil {
+            // **Cancellation is checked here, at the top of the loop.** Swift's cooperative
+            // cancellation is the whole mechanism: a caller cancels its Task and the next
+            // iteration throws. No flag, no second path — and the writer's partial file is
+            // deleted below, because a half-written MP4 that a person can double-click is
+            // worse than none.
+            try Task.checkCancellation()
             // Whichever is further behind goes first; that is what keeps the two inputs inside
             // the writer's interleaving window.
             let videoFirst: Bool
@@ -248,6 +315,7 @@ public enum MP4Exporter {
                 pendingVideo = resampler.next()
                 finishExhaustedInputs()
                 stallPoll = nil
+                report(resampler.slot, resampler.framesWritten)
             } else if let buffer = pendingAudio, let audioInput,
                       audioInput.isReadyForMoreMediaData {
                 guard audioInput.append(buffer) else {
@@ -272,6 +340,7 @@ public enum MP4Exporter {
                 pendingVideo = resampler.next()
                 finishExhaustedInputs()
                 stallPoll = nil
+                report(resampler.slot, resampler.framesWritten)
             } else {
                 // Neither input can take anything. Bounded, because a writer that never
                 // becomes ready has failed and should say so rather than hang.

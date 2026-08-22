@@ -235,6 +235,89 @@ extension StageCompositorTests {
         #expect(try await AVURLAsset(url: outputURL).loadTracks(withMediaType: .audio).isEmpty)
     }
 
+    // MARK: - progress and cancellation
+
+    /// **Phases, not one percentage.** The last step is `AVAssetWriter.finishWriting`, which
+    /// takes seconds on a long recording and reports nothing; a bar that reached 100% and sat
+    /// there looks stopped, and a person cancels a job that was about to finish.
+    @Test func anExportReportsItsPhasesInOrder() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("progress-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let seen = PhaseLog()
+        _ = try await MP4Exporter.export(asset: asset, to: outputURL,
+                                         outputWidth: 160, outputHeight: 90,
+                                         onProgress: { seen.note($0) })
+
+        let phases = seen.all
+        #expect(phases.first == .preparing, "the first report was \(String(describing: phases.first))")
+        #expect(phases.last == .finishing, "the last report was \(String(describing: phases.last))")
+        let fractions = phases.compactMap(\.fraction)
+        #expect(!fractions.isEmpty, "no writing progress was reported at all")
+        // Monotonic and inside 0…1: a bar that goes backwards is worse than no bar.
+        #expect(fractions == fractions.sorted(), "progress went backwards: \(fractions)")
+        #expect(fractions.allSatisfy { $0 >= 0 && $0 <= 1 })
+    }
+
+    /// **Reported per whole percent, not per frame.** A 60 fps export of a three-minute
+    /// recording is 10,800 frames; a callback each would cost more than the work it reports on.
+    @Test func progressIsReportedPerPercentNotPerFrame() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.editTimeline = nil
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("percent-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let seen = PhaseLog()
+        let report = try await MP4Exporter.export(asset: asset, to: outputURL,
+                                                  outputWidth: 160, outputHeight: 90,
+                                                  onProgress: { seen.note($0) })
+        let writingReports = seen.all.filter { $0.fraction != nil }.count
+        #expect(writingReports <= 101, "\(writingReports) writing reports — one per percent at most")
+        #expect(writingReports < report.framesWritten,
+                "as many reports as frames: \(writingReports) of \(report.framesWritten)")
+    }
+
+    /// **Cancelling deletes the partial file.** A half-written MP4 sitting where a person asked
+    /// for their video is worse than none, because it looks like the export worked.
+    @Test func cancellingAnExportLeavesNoFileBehind() async throws {
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.editTimeline = nil
+
+        let asset = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/long-two-track-audio.mov"))
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cancelled-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let task = Task {
+            try await MP4Exporter.export(asset: asset, to: outputURL,
+                                         outputWidth: 160, outputHeight: 90)
+        }
+        // Long enough for the writer to have created the file and put frames in it, short
+        // enough that a 10-second fixture is nowhere near done.
+        try await Task.sleep(for: .milliseconds(120))
+        task.cancel()
+
+        await #expect(throws: (any Error).self) { try await task.value }
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path),
+                "a cancelled export left a partial file at \(outputURL.lastPathComponent)")
+    }
+
     // MARK: - trim
 
     /// **A trim exports fewer frames, and the file still starts at zero.**
@@ -424,4 +507,13 @@ extension StageCompositorTests {
         #expect(appendFailure.description.contains("synthetic append refusal, test-only"),
                 "the underlying reason passes through, not just a fixed label")
     }
+}
+
+
+/// Collects progress reports from the export's callback, which runs off the test's actor.
+private final class PhaseLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var phases: [ExportProgress] = []
+    func note(_ phase: ExportProgress) { lock.withLock { phases.append(phase) } }
+    var all: [ExportProgress] { lock.withLock { phases } }
 }

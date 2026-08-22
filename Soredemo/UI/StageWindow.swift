@@ -22,6 +22,12 @@ struct StageWindow: View {
     // MARK: - export-basic
     @State private var isExporting = false
     @State private var exportStatus: String?
+    /// Where the running export has got to, or `nil` when none is. Its PHASE matters as much
+    /// as its fraction — see `ExportProgress`.
+    @State private var exportProgress: ExportProgress?
+    /// The running export, so Cancel has something to cancel. Swift's cooperative cancellation
+    /// is the whole mechanism; the exporter checks it and deletes its partial file.
+    @State private var exportTask: Task<Void, Never>?
     // MARK: - review-ui
     /// Every framing decision the gate made, and the reviewer's own. Owned here rather than
     /// by the inspector so it survives the inspector being closed.
@@ -154,8 +160,23 @@ struct StageWindow: View {
                     .keyboardShortcut("s", modifiers: .command)
             }
             ToolbarItem {
-                Button("Export…") { Task { await exportRecording() } }
-                    .disabled(player == nil || isExporting)
+                if isExporting {
+                    HStack(spacing: 8) {
+                        // A determinate bar while writing, an indeterminate one while
+                        // finishing: `finishWriting` reports nothing, and a bar pinned at 100%
+                        // reads as stopped.
+                        if let fraction = exportProgress?.fraction {
+                            ProgressView(value: fraction).frame(width: 90)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(exportPhaseLabel).font(.caption).foregroundStyle(.secondary)
+                        Button("Cancel") { exportTask?.cancel() }
+                    }
+                } else {
+                    Button("Export…") { startExport() }
+                        .disabled(player == nil)
+                }
             }
             ToolbarItem {
                 Button {
@@ -371,10 +392,21 @@ struct StageWindow: View {
         }
     }
 
-    /// Presents a save panel, then runs `MP4Exporter.export`. `StageCompositor`'s statics are
-    /// already set by `load()` (the toolbar button is disabled while `player == nil`), so the
-    /// export composes the identical framing and pointer the preview showed.
-    private func exportRecording() async {
+    /// What the toolbar says the export is doing. Named phases rather than a percentage alone,
+    /// because "Finishing" is the honest answer for a step that takes seconds and reports
+    /// nothing.
+    private var exportPhaseLabel: String {
+        switch exportProgress {
+        case .writing(let fraction, _): "\(Int(fraction * 100))%"
+        case .finishing: "Finishing…"
+        case .preparing, nil: "Preparing…"
+        }
+    }
+
+    /// Starts an export and keeps the task, so Cancel can reach it. The panel is presented
+    /// before the task begins — a cancel button for a job a person has not chosen a
+    /// destination for would be a button for nothing.
+    private func startExport() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]
         panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".mp4"
@@ -382,17 +414,37 @@ struct StageWindow: View {
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
         isExporting = true
-        defer { isExporting = false }
+        exportProgress = .preparing
+        exportTask = Task {
+            await exportRecording(to: destination)
+            isExporting = false
+            exportProgress = nil
+            exportTask = nil
+        }
+    }
+
+    /// Presents a save panel, then runs `MP4Exporter.export`. `StageCompositor`'s statics are
+    /// already set by `load()` (the toolbar button is disabled while `player == nil`), so the
+    /// export composes the identical framing and pointer the preview showed.
+    private func exportRecording(to destination: URL) async {
         do {
             let asset = AVURLAsset(url: mediaURL)
             let size = Self.size(for: variant)
             let report = try await MP4Exporter.export(
                 asset: asset, to: destination,
                 outputWidth: size.width, outputHeight: size.height,
-                edit: timeline.edit, audioMix: audioMix)
+                edit: timeline.edit, audioMix: audioMix,
+                // Hops to the main actor because the export reports from its own context, and
+                // `exportProgress` is view state.
+                onProgress: { progress in
+                    Task { @MainActor in exportProgress = progress }
+                })
             exportStatus = "Exported \(report.framesWritten) frame(s) at "
                 + "\(size.width)\u{00D7}\(size.height) to "
                 + "\(report.outputURL.lastPathComponent)."
+        } catch is CancellationError {
+            // Nothing to report: a person who cancelled knows they cancelled, and an alert
+            // telling them so is a second thing to dismiss. The partial file is already gone.
         } catch {
             exportStatus = "Export failed: \(error)"
         }
