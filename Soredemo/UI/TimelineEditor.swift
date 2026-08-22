@@ -110,6 +110,22 @@ final class TimelineEditorModel {
 
     var hasZoomEdits: Bool { !zoomAdjustments.isEmpty }
 
+    /// Applies a saved edit. **`reset`, not `record`** — opening a project is not an edit to
+    /// whatever was open before it, and a person must not be able to ⌘Z their way from one
+    /// project into another.
+    func restoreSavedEdit(_ saved: EditTimeline) {
+        history.reset(to: saved)
+        original = saved
+        selection = nil
+        selectedClip = nil
+        publish()
+    }
+
+    func restoreZoomAdjustments(_ adjustments: [ZoomAdjustment]) {
+        zoomAdjustments = adjustments
+        publish()
+    }
+
     func resetZooms() {
         zoomAdjustments = []
         publish()

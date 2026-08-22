@@ -8,6 +8,7 @@ import Capture
 import Compositing
 import Framing
 import Project
+import Render
 import Timeline
 import Variants
 import SwiftUI
@@ -34,6 +35,14 @@ struct StageWindow: View {
     /// How loud each recorded source is in the export. Two sources, because the master keeps
     /// system audio and the microphone apart — see `AudioMix`.
     @State private var audioMix = AudioMix.unchanged
+    // MARK: - project
+    /// Where this recording has been saved, if it has. `nil` is a scratch recording, which is
+    /// what "Save" turns into a project and what makes closing worth asking about.
+    @State private var savedPackage: URL?
+    /// The edit as it was when last saved, so "has anything changed" compares against what is
+    /// on disk rather than against nothing.
+    @State private var savedEdit = EditState.untouched
+    @State private var projectStatus: String?
     // MARK: - basic-edit
     /// What survives editing. **Replaced a pair of trim sliders**, which could express one
     /// kept span and nothing else: no cut in the middle, no seeing where a cut was made, no
@@ -48,6 +57,9 @@ struct StageWindow: View {
     /// be a review surface — it would be a form.
     @State private var reviewRevision = 0
     let mediaURL: URL
+    /// What a saved project decided, applied once when this window loads. `nil` for a fresh
+    /// recording, which is the common case.
+    let pendingEdit: EditState?
 
     /// **The DEFAULT output size** — `AspectVariant.landscape` at a 1920 longest edge — kept
     /// as constants because the render-parity check in
@@ -135,6 +147,13 @@ struct StageWindow: View {
             // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`
             // can only attach to a `Scene`, never to a plain `View`.
             ToolbarItem {
+                // The title says whether there is anything to save, which is the whole
+                // content of a dirty indicator and cheaper than a dot nobody explains.
+                Button(hasUnsavedChanges ? "Save…" : "Saved") { saveProject() }
+                    .disabled(player == nil || !hasUnsavedChanges)
+                    .keyboardShortcut("s", modifiers: .command)
+            }
+            ToolbarItem {
                 Button("Export…") { Task { await exportRecording() } }
                     .disabled(player == nil || isExporting)
             }
@@ -145,6 +164,13 @@ struct StageWindow: View {
                     Label("Review", systemImage: "sidebar.right")
                 }
             }
+        }
+        .alert("Project", isPresented: Binding(
+            get: { projectStatus != nil }, set: { if !$0 { projectStatus = nil } })
+        ) {
+            Button("OK") { projectStatus = nil }
+        } message: {
+            Text(projectStatus ?? "")
         }
         .alert("Export", isPresented: Binding(
             get: { exportStatus != nil }, set: { if !$0 { exportStatus = nil } })
@@ -229,6 +255,83 @@ struct StageWindow: View {
         }
     }
 
+    // MARK: - saving and opening
+
+    /// Everything a person decided, gathered from the models that hold it.
+    ///
+    /// **Assembled here rather than held here**, because each model owns its own part and a
+    /// second copy would be a second answer. This is the one place that knows the whole shape,
+    /// which is what a file format needs and what nothing else does.
+    private func currentEditState() -> EditState {
+        EditState(
+            timeline: timeline.hasEdits ? timeline.edit : nil,
+            audioMix: audioMix,
+            zoomAdjustmentData: timeline.zoomAdjustments.isEmpty
+                ? nil : try? EditState.encoding(timeline.zoomAdjustments),
+            framingOverrideData: review.overrides.isEmpty
+                ? nil : try? EditState.encoding(review.overrides),
+            styleData: try? EditState.encoding(stageStyle.style),
+            outputShapeName: variant.name)
+    }
+
+    /// True when what is on screen differs from what is on disk. A scratch recording is always
+    /// unsaved, because nothing has been written yet — not because it has been edited.
+    private var hasUnsavedChanges: Bool {
+        savedPackage == nil || currentEditState() != savedEdit
+    }
+
+    private func saveProject() {
+        let edit = currentEditState()
+        let destination = savedPackage ?? ProjectStore.chooseSaveDestination(
+            defaultName: mediaURL.deletingPathExtension().lastPathComponent)
+        guard let destination else { return }
+        do {
+            try ProjectStore.save(recordingAt: mediaURL, edit: edit, to: destination)
+            savedPackage = destination
+            savedEdit = edit
+            projectStatus = "Saved to \(destination.lastPathComponent)."
+        } catch {
+            projectStatus = "Could not save: \(error)"
+        }
+    }
+
+    /// Applies a saved edit to the models.
+    ///
+    /// **Every part is optional and an absent one is left alone**, so a project written before
+    /// a field existed opens with that part at its default rather than cleared. A decode that
+    /// FAILS is reported: a person whose zoom corrections were silently dropped would redo them
+    /// and save over the file that still had them.
+    private func restore(_ edit: EditState) {
+        var failures: [String] = []
+        if let saved = edit.timeline { timeline.restoreSavedEdit(saved) }
+        audioMix = edit.audioMix
+        do {
+            if let adjustments = try EditState.decoding(edit.zoomAdjustmentData,
+                                                        as: [ZoomAdjustment].self) {
+                timeline.restoreZoomAdjustments(adjustments)
+            }
+        } catch { failures.append("zoom adjustments") }
+        do {
+            if let overrides = try EditState.decoding(edit.framingOverrideData,
+                                                      as: [FramingOverride].self) {
+                review.restoreOverrides(overrides)
+            }
+        } catch { failures.append("framing decisions") }
+        do {
+            if let style = try EditState.decoding(edit.styleData, as: StageStyle.self) {
+                stageStyle.restore(style)
+            }
+        } catch { failures.append("the look") }
+        if let name = edit.outputShapeName,
+           let shape = AspectVariant.all.first(where: { $0.name == name }) {
+            variant = shape
+        }
+        savedEdit = edit
+        if !failures.isEmpty {
+            projectStatus = "Opened, but could not read \(failures.joined(separator: ", "))."
+        }
+    }
+
     private func load() async {
         do {
             // Before the composition: `configuredComposition` reads
@@ -243,6 +346,12 @@ struct StageWindow: View {
             let recording = AVURLAsset(url: mediaURL)
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)
+                // **After `load`, which resets the models.** Restoring first would be wiped by
+                // the reset, silently, and a person would see their saved edit vanish on open.
+                if let pendingEdit {
+                    restore(pendingEdit)
+                    savedPackage = ProjectStore.packageURL(forMediaAt: mediaURL)
+                }
                 // After `load`, which resets the model: reading the envelope is slow enough
                 // that a person sees the strip before it arrives, and it must not be wiped by
                 // the reset it raced.

@@ -91,6 +91,7 @@ xcrun swiftc \
   Soredemo/UI/FramingReview.swift \
   Soredemo/UI/StageStylePicker.swift \
   Soredemo/UI/TimelineEditor.swift \
+  Soredemo/UI/ProjectStore.swift \
   scripts/cross-boundary-digest-probe.swift
 
 "$OUT/probe" "$@"

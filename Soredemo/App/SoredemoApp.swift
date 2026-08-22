@@ -61,8 +61,14 @@ struct SoredemoApp: App {
             // `DocumentGroup` cannot host it. `NSDocumentController` is stood up
             // on first use from `CFBundleDocumentTypes` in `Soredemo-Info.plist`.
             CommandGroup(after: .newItem) {
+                // **`ProjectStore`, not `NSDocumentController`.** The document controller was
+                // stood up for `ProjectDocument`, an `NSDocument` that nothing writes: a saved
+                // project is a package the recorder's own directory becomes, and opening one
+                // means putting its recording and its edits into the window that is already
+                // here. Routing that through a document architecture would create a second
+                // window with a second set of models and no recording in it.
                 Button("Open Project…") {
-                    NSDocumentController.shared.openDocument(nil)
+                    recordingCoordinator.openProject()
                 }
                 .keyboardShortcut("o")
                 Divider()

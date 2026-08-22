@@ -26,7 +26,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let mediaURL = coordinator.mediaURL {
-                StageWindow(mediaURL: mediaURL)
+                StageWindow(mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit())
                     // `StageWindow` carries no `.id(mediaURL)`, so `.onDisappear` fires only
                     // because `beginOpenRecording()` sets `mediaURL = nil` first, swapping this
                     // `Group`'s branch out and giving old and new `StageWindow` distinct view
@@ -55,6 +55,9 @@ struct ContentView: View {
 @Observable
 final class RecordingCoordinator {
     private(set) var mediaURL: URL?
+    /// An edit read from a saved project, waiting for the window that will apply it. Cleared
+    /// once taken, so re-opening the same recording does not re-apply a stale one.
+    private(set) var pendingEdit: EditState?
     private(set) var isRecording = false
     private(set) var statusText =
         "Choose \u{201C}Open Recording\u{2026}\u{201D} from the File menu (\u{2318}R), record a few " +
@@ -87,6 +90,32 @@ final class RecordingCoordinator {
     /// runs, before any recording exists to protect.
     init() {
         TemporaryFileMediaSink.sweepLeftoverDirectories()
+    }
+
+    /// Opens a saved project: the recording it holds, and what a person had decided about it.
+    ///
+    /// **The scratch directory is not swept here.** A person who opens a project without saving
+    /// the recording they just made has not thrown it away on purpose, and the launch sweep
+    /// will collect it on the next run — losing it now would be a decision this code is not
+    /// entitled to make.
+    func openProject() {
+        guard let packageURL = ProjectStore.chooseProjectToOpen() else { return }
+        do {
+            let opened = try ProjectStore.open(packageURL)
+            mediaURL = nil                   // swaps the window's branch, as recording does
+            pendingEdit = opened.edit
+            mediaURL = opened.mediaURL
+            statusText = "Opened \(packageURL.lastPathComponent)."
+        } catch {
+            statusText = "Could not open that project: \(error)"
+        }
+    }
+
+    /// Taken once. A window that re-read it would re-apply a person's saved edit over changes
+    /// they had made since.
+    func takePendingEdit() -> EditState? {
+        defer { pendingEdit = nil }
+        return pendingEdit
     }
 
     func toggleRecording() {

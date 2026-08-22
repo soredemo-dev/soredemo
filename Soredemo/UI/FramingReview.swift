@@ -76,6 +76,14 @@ final class FramingReviewModel {
         publish()
     }
 
+    /// Applies decisions from a saved project. Replaces rather than merges: the file is the
+    /// record of what a person decided, and merging would leave decisions from a recording
+    /// they are no longer looking at.
+    func restoreOverrides(_ saved: [FramingOverride]) {
+        overrides = saved
+        publish()
+    }
+
     /// Withdraws a reviewer's decision, returning the click to whatever the gate says. Not
     /// the same as suppressing it: this restores the derived answer rather than authoring a
     /// new one, and the row's origin goes back to `.derived`.

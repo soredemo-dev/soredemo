@@ -51,6 +51,15 @@ final class StageStyleModel {
         publish()
     }
 
+    /// Applies a saved look. The preset name is recovered by matching the background against
+    /// the shipped presets, so a project saved with one still shows it selected — and one saved
+    /// with a hand-adjusted background shows none, which is true.
+    func restore(_ saved: StageStyle) {
+        style = saved
+        presetName = StageBackground.presets.first { $0.background == saved.background }?.name
+        publish()
+    }
+
     private func publish() {
         StageCompositor.style = style
     }
