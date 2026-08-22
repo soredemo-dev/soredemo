@@ -1256,18 +1256,65 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `sampleBuffer` with its presentation timestamp replaced, duration and every other
     /// timing field untouched. `nil` when CoreMedia refuses, which the caller counts rather
     /// than writing a buffer whose timing it did not set.
+    /// The same buffer presented at `presentationTime`, with every sample's own duration
+    /// preserved.
+    ///
+    /// **The previous version inflated every audio track it touched, and this is why.**
+    /// It built ONE `CMSampleTimingInfo` with `duration: CMSampleBufferGetDuration(buffer)`
+    /// and passed `sampleTimingEntryCount: 1`. CoreMedia applies a single entry to EVERY
+    /// sample in the buffer, and in that form `duration` is the duration of ONE sample —
+    /// while `CMSampleBufferGetDuration` returns the duration of the whole buffer. A video
+    /// buffer holds one sample, so the two are equal and the video path was never affected.
+    /// An audio buffer holds hundreds, so each of them claimed the whole buffer's length.
+    ///
+    /// A `.mov` audio track's duration is the SUM of its samples' declared durations, so the
+    /// track grew far past the recording; `AVAsset.duration` is the longest track, so the
+    /// editor showed a 16-second recording as 38 — and, in a case a user reported, 57.
+    ///
+    /// Shifting the original timing array instead keeps every per-sample duration exactly as
+    /// the source declared it, which is the only thing a rebase should be changing: WHEN the
+    /// buffer is presented, not how long its samples are.
+    /// The rebase, reachable from a test. `retimed` is private because nothing outside this
+    /// file should be re-timing capture buffers; the defect it carried was invisible for a
+    /// phase precisely because nothing could ask it a question.
+    nonisolated static func retimedForTesting(_ sampleBuffer: CMSampleBuffer,
+                                              to presentationTime: CMTime) -> CMSampleBuffer? {
+        retimed(sampleBuffer, to: presentationTime)
+    }
+
     private nonisolated static func retimed(_ sampleBuffer: CMSampleBuffer,
                                             to presentationTime: CMTime) -> CMSampleBuffer? {
-        var timing = CMSampleTimingInfo(
-            duration: CMSampleBufferGetDuration(sampleBuffer),
-            presentationTimeStamp: presentationTime,
-            decodeTimeStamp: .invalid)
+        let originalPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let shift = presentationTime - originalPTS
+
+        var entryCount = CMItemCount(0)
+        guard unsafe CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer, entryCount: 0, arrayToFill: nil,
+            entriesNeededOut: &entryCount) == noErr, entryCount > 0
+        else { return nil }
+
+        var timings = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: Int(entryCount))
+        guard unsafe CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer, entryCount: entryCount, arrayToFill: &timings,
+            entriesNeededOut: nil) == noErr
+        else { return nil }
+
+        for index in timings.indices {
+            // Durations are untouched. Only the presentation — and the decode stamp when the
+            // source carried one, since a shifted PTS with an unshifted DTS is not a
+            // consistent pair.
+            unsafe timings[index].presentationTimeStamp = timings[index].presentationTimeStamp + shift
+            if unsafe timings[index].decodeTimeStamp.isValid {
+                unsafe timings[index].decodeTimeStamp = timings[index].decodeTimeStamp + shift
+            }
+        }
+
         var retimed: CMSampleBuffer?
-        // Safe here: `&timing` and `&retimed` are locals outliving the call, and the entry
-        // count of 1 matches the single timing record supplied.
+        // Safe here: `timings` and `&retimed` are locals outliving the call, and the entry
+        // count matches the array the source itself reported.
         let status = unsafe CMSampleBufferCreateCopyWithNewTiming(
             allocator: kCFAllocatorDefault, sampleBuffer: sampleBuffer,
-            sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+            sampleTimingEntryCount: entryCount, sampleTimingArray: &timings,
             sampleBufferOut: &retimed)
         return status == noErr ? retimed : nil
     }
