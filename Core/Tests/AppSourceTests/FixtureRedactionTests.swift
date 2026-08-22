@@ -159,7 +159,7 @@ func stringCaseField(in text: String, enclosing: String) -> String? {
 /// Every committed `.jsonl` fixture anywhere under `Tests/` — the whole tree, not only
 /// `Tests/HeadlessFixtures`, so no fixture location falls outside Gate 1's reach.
 func committedJSONLFixtures() throws -> [URL] {
-    let root = repositoryRoot.appending(path: "Tests")
+    let root = packageRoot.appending(path: "Tests")
     let enumerator = try #require(
         FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil),
         "cannot enumerate Tests/ — it must exist for this scan to mean anything")

@@ -78,25 +78,37 @@ someone has to remember. `docs/ARCHITECTURE.md` has the full module map.
 soredemo-main/            ← this repo
 ├── AGENTS.md             the rules
 ├── ROADMAP.md            the work list
+├── LICENSE NOTICE.md     AGPLv3, and what in this tree came from where
 ├── docs/                 PRODUCT · FEATURES · ARCHITECTURE · TOOLCHAIN · design/
 │
-├── Sources/              the package — eleven targets, three tiers
-│   ├── Geometry Timeline Graph Project Render Framing Variants
-│   │                     DETERMINISTIC: same input, same output. No GPU, no clock,
-│   │                     no window. Guard: ArchitectureCheck
-│   ├── Capture/          READS THE WORLD: ScreenCaptureKit, event taps, accessibility,
-│   │                     the microphone, the clock. Guard: HeadlessCheck
-│   └── Compositing/      TURNS A PLAN INTO PIXELS: GPU, Core Image, AVFoundation.
-│                         Guard: HeadlessCheck
+├── Core/                 THE SWIFTPM PACKAGE. Its own directory since 2026-08-23:
+│   │                     the package root and the repository root used to be the
+│   │                     same folder, so Xcode showed `dist/`, `docs/`, `scripts/`
+│   │                     and the app target itself inside the package node.
+│   ├── Package.swift
+│   ├── Sources/          eleven targets, three tiers
+│   │   ├── Geometry Timeline Graph Project Render Framing Variants
+│   │   │                 DETERMINISTIC: same input, same output. No GPU, no clock,
+│   │   │                 no window. Guard: ArchitectureCheck
+│   │   ├── Capture/      READS THE WORLD: ScreenCaptureKit, event taps, accessibility,
+│   │   │                 the microphone, the clock. Guard: HeadlessCheck
+│   │   └── Compositing/  TURNS A PLAN INTO PIXELS: GPU, Core Image, AVFoundation.
+│   │                     Guard: HeadlessCheck
+│   ├── Tests/            CaptureTests and CompositingTests depend on their own target
+│   │                     only; the deterministic suites cannot link either
+│   └── Plugins/          ArchitectureCheck (pure tier) · HeadlessCheck (runnable tier)
 │
 ├── Soredemo/             the Xcode app target — ONLY a running app can reach it.
-│                         SwiftUI, NSDocument, the app lifecycle. Six files
-│
-├── Tests/                CaptureTests and CompositingTests depend on their own target
-│                         only; the deterministic suites cannot link either
-├── Plugins/              ArchitectureCheck (pure tier) · HeadlessCheck (runnable tier)
+│                         SwiftUI, NSDocument, the app lifecycle
+├── Soredemo.xcodeproj/   references Core/ as a local package
 └── scripts/              the gates a person runs — no CI in this repo yet
 ```
+
+**Two roots, and the tests know the difference.** `Core/` is the package root; the repository
+root is its parent. A scan of the package's own sources reports paths like
+`Sources/Capture/CaptureSession.swift` — the file's name *within its package* — while a scan
+of the app reports `Soredemo/UI/…`. `pathRelativeToRepositoryRoot` strips whichever root owns
+the file, which is why the sixty-odd path literals in those scans did not have to move.
 
 **`Capture` and `Compositing` do not depend on each other and may not.** They were one target through
 Phase 3A-3 and referenced each other zero times; splitting them turned a fact nothing checked into one
@@ -117,7 +129,7 @@ Nothing runs automatically — there is no CI here yet, so these are gates a per
 
 | Command | What it holds |
 | --- | --- |
-| `swift test` | the whole suite; `--split` reports the deterministic and runnable populations separately, with the partition verified |
+| `swift test --package-path Core` | the whole suite; `--split` reports the deterministic and runnable populations separately, with the partition verified. **`--package-path Core`** since the package moved there — a bare `swift test` at the repository root now finds no manifest and says so |
 | `scripts/check-strict-memory-safety.sh` | zero unmarked unsafe sites, over a full clean compile of every target |
 | `xcodebuild -project Soredemo.xcodeproj -scheme Soredemo` | the app target, which `swift build` never compiles |
 | `scripts/run-cross-boundary-probe.sh` | the checks that need a real display, a real file and a person |

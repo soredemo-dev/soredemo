@@ -9,17 +9,26 @@ import Testing
 // comment or a string literal does not fire; and they match by substring, not token
 // equality, so the backtick-escaped spelling of a name matches too.
 
-/// `<root>/Tests/AppSourceTests/<this file>` → `<root>`. Move this file and the
-/// three `deletingLastPathComponent()` calls are wrong; `appSourceFiles()`'s own
-/// `#require` then fails loudly rather than scanning an empty set.
+/// `<repo>/Core/Tests/AppSourceTests/<this file>` → `<repo>`. **Four levels, not three, since
+/// the package moved into `Core/`**: the package root and the repository root stopped being
+/// the same directory, and this scan is about the repository — it reaches `Soredemo/` and
+/// `scripts/`, which are outside the package entirely. Move this file and the count is wrong;
+/// `appSourceFiles()`'s own `#require` then fails loudly rather than scanning an empty set.
 let repositoryRoot = URL(filePath: #filePath)
-    .deletingLastPathComponent()
-    .deletingLastPathComponent()
-    .deletingLastPathComponent()
+    .deletingLastPathComponent()   // AppSourceTests/
+    .deletingLastPathComponent()   // Tests/
+    .deletingLastPathComponent()   // Core/ — the PACKAGE root, not the repository's
+    .deletingLastPathComponent()   // the repository root
+
+/// The SwiftPM package's root. **Since the package moved into `Core/` these are two different
+/// directories**, and nearly every scan in this file is about one or the other rather than
+/// about "the root": `Sources/…` and `Tests/…` belong to the package, `Soredemo/` and
+/// `scripts/` do not.
+let packageRoot = repositoryRoot.appending(path: "Core")
 
 /// The app's sources, and ONLY the app's sources. Scoped to `Soredemo/` because
 /// `scripts/cross-boundary-digest-probe.swift` legitimately names `CGRect` and
-/// calls `UUID()`, and `Sources/` has its own enforcement in the plugin.
+/// calls `UUID()`, and `Core/Sources/` has its own enforcement in the plugin.
 let appSourceDirectory = repositoryRoot.appending(path: "Soredemo")
 
 /// Every `.swift` file under `Soredemo/`. A missing or empty tree is a FAILURE,
@@ -42,10 +51,19 @@ func appSourceFiles() throws -> [URL] {
 /// greppable from the root. `repositoryRoot.path` already ends in `/`; appending
 /// a second one matched nothing and left every reported path absolute.
 func pathRelativeToRepositoryRoot(_ url: URL) -> String {
-    let root = repositoryRoot.path(percentEncoded: false)
-    let prefix = root.hasSuffix("/") ? root : root + "/"
     let path = url.path(percentEncoded: false)
-    return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+    // **Package files report PACKAGE-relative paths, app files repository-relative ones.**
+    // Both were the same string until the package moved into `Core/`. Reporting
+    // `Core/Sources/Capture/…` afterwards would have meant editing every one of the sixty-odd
+    // path literals in these scans, and would have made a package-internal rule read as if it
+    // knew where the package happened to be checked out inside a repository. It does not, and
+    // should not: `Sources/Capture/CaptureSession.swift` is the file's name within its package.
+    for root in [packageRoot, repositoryRoot] {
+        let base = root.path(percentEncoded: false)
+        let prefix = base.hasSuffix("/") ? base : base + "/"
+        if path.hasPrefix(prefix) { return String(path.dropFirst(prefix.count)) }
+    }
+    return path
 }
 
 /// One violation, in the `file:line:` form the checker prints. Each permitted path is
@@ -641,7 +659,8 @@ func lineNumber(of location: String) -> Int {
         exception is drawn this narrowly.
         """)
 
-    let text = try String(contentsOf: repositoryRoot.appending(path: bridge), encoding: .utf8)
+    // `bridge` is a package-relative path, like every other literal in these scans.
+    let text = try String(contentsOf: packageRoot.appending(path: bridge), encoding: .utf8)
     let callLines = SwiftSourceLexer.codeViewLines(of: text)
         .filter { $0.contains("CGWindowListCopyWindowInfo") }
     #expect(callLines.count == 1,
@@ -765,8 +784,9 @@ func typecheck(_ source: String, named name: String) throws {
 /// `Sources/Timeline` and its would-be callers live in `Sources/Graph`.
 func firstPartySourceFiles() throws -> [URL] {
     var files: [URL] = []
-    for directory in ["Sources", "Soredemo"] {
-        let root = repositoryRoot.appending(path: directory)
+    // One from each root, which is what "first party" now spans.
+    for root in [packageRoot.appending(path: "Sources"),
+                 repositoryRoot.appending(path: "Soredemo")] {
         let enumerator = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil),
                                       "cannot enumerate \(root.path(percentEncoded: false))")
         while let url = enumerator.nextObject() as? URL {
@@ -860,7 +880,7 @@ func firstPartySourceFiles() throws -> [URL] {
     // than its state: the name belongs to the Foundation-only PRODUCT, so a directory
     // of it would put app logic inside an identity defined by excluding it.
     let coreTargetExists = FileManager.default.fileExists(
-        atPath: repositoryRoot.appending(path: "Sources/SoredemoCore").path(percentEncoded: false))
+        atPath: packageRoot.appending(path: "Sources/SoredemoCore").path(percentEncoded: false))
     #expect(!coreTargetExists, """
         `Sources/SoredemoCore` exists as a directory. `SoredemoCore` is the Foundation-only product
         name; a target under it would break ARCHITECTURE.md rule 1. Platform-touching code belongs in

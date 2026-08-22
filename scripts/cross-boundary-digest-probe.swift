@@ -183,14 +183,15 @@ func probeWindowSource(_ window: SCWindow, on display: SCDisplay,
 }
 
 
-/// `<repo>/scripts/cross-boundary-digest-probe.swift` → `<repo>`. Two `deletingLastPathComponent()`
-/// calls: one drops the file name, one drops `scripts` — this file sits directly under the
-/// repository root, one level shallower than
-/// `Tests/AppSourceTests/AppSourceAllowListTests.swift`'s own three-call `repositoryRoot`. Used by
-/// § 15/§ 16 (Phase 2B Task 8) to find the committed fixture at `Tests/RenderParityFixtures/`.
-let probeRepositoryRoot = URL(filePath: #filePath)
+/// `<repo>/scripts/cross-boundary-digest-probe.swift` → `<repo>/Core`, the PACKAGE root.
+/// Two `deletingLastPathComponent()` calls reach the repository root — this file sits directly
+/// under `scripts/` — and `Core` is appended because the fixtures it wants live in the package,
+/// which stopped being the repository root when the package moved there. Used by § 15/§ 16
+/// (Phase 2B Task 8) to find the committed fixture at `Tests/RenderParityFixtures/`.
+let probePackageRoot = URL(filePath: #filePath)
     .deletingLastPathComponent()
     .deletingLastPathComponent()
+    .appending(path: "Core")
 
 // Kept byte-identical to `Tests/GraphTests/CrossBoundaryDigestVectorTests.swift`.
 // The two literals ARE the vector; that file checks the left-hand one against
@@ -5828,7 +5829,7 @@ enum CrossBoundaryProbe {
         // above that, not equal to it.
         let tolerance = 6
 
-        let fixtureURL = probeRepositoryRoot
+        let fixtureURL = probePackageRoot
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov")
         guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
             throw RenderParityProbeError.fixtureMissing(fixtureURL.path)
@@ -5968,7 +5969,7 @@ enum CrossBoundaryProbe {
     static func theDropCounterIsDrivenByBothOfItsTwoCauses() async throws {
         let outputWidth = 320
         let outputHeight = 180
-        let fixtureURL = probeRepositoryRoot
+        let fixtureURL = probePackageRoot
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov")
         guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
             throw RenderParityProbeError.fixtureMissing(fixtureURL.path)

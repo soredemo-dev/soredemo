@@ -35,7 +35,7 @@ echo "SDK: $(xcrun --sdk macosx --show-sdk-path) ($(xcrun --sdk macosx --show-sd
 # ARCHIVE, so `-lSoredemoHeadless` below would silently link whatever stale .a happened
 # to be lying around from an earlier build. That is how this probe came to be linking an
 # archive built on 2026-08-06, three phases before the targets it names existed.
-swift build --product SoredemoCore --product SoredemoHeadless
+swift build --package-path Core --product SoredemoCore --product SoredemoHeadless
 
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
@@ -78,9 +78,9 @@ xcrun swiftc \
   -enable-upcoming-feature InferIsolatedConformances \
   -enable-upcoming-feature NonisolatedNonsendingByDefault \
   -target arm64-apple-macos26.0 \
-  -I .build/debug \
-  -I .build/debug/Modules \
-  -L .build/debug \
+  -I Core/.build/debug \
+  -I Core/.build/debug/Modules \
+  -L Core/.build/debug \
   -lSoredemoCore \
   -lSoredemoHeadless \
   -o "$OUT/probe" \

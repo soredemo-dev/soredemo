@@ -51,7 +51,7 @@ recordings/
 # is written rather than after.
 #
 # `render-parity` (Phase 2) proves preview and export produce identical frames, and
-# `export-basic` needs media to export. Both mean committed fixtures under `Tests/`.
+# `export-basic` needs media to export. Both mean committed fixtures under `Core/Tests/`.
 # Without these negations that fails in the quiet direction: `git add` reports
 # nothing, the file is present on the machine that made it, and the suite is green
 # locally and vacuous everywhere else. The vacuous-pass guards this project already
@@ -59,10 +59,11 @@ recordings/
 # exactly the failure mode `AGENTS.md` records under "a measurement that counts
 # something must first assert it counted anything".
 #
-# Scoped to `Tests/` on purpose: a stray recording anywhere else stays ignored.
-!Tests/**/*.mov
-!Tests/**/*.mp4
-!Tests/**/*.gif
+# Scoped to the package's `Tests/` on purpose: a stray recording anywhere else stays ignored.
+# `Core/` since the package moved out of the repository root.
+!Core/Tests/**/*.mov
+!Core/Tests/**/*.mp4
+!Core/Tests/**/*.gif
 
 # Agent working files
 .claude/settings.local.json

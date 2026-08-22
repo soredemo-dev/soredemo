@@ -19,6 +19,7 @@
 #         scripts/count-tests.sh --total  the total alone, for scripting
 #         scripts/count-tests.sh --split  the two populations, partition verified
 set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$(dirname "$0")/.."
 
 # --split: the two populations, and the invariant that makes them two counts rather
@@ -38,7 +39,9 @@ cd "$(dirname "$0")/.."
 if [ "${1:-}" = "--split" ]; then
     count_run() {
         local output counts
-        output=$(swift test "$@" 2>&1) || {
+        # `--package-path Core`: the package moved out of the repository root, and this
+        # script runs from wherever a person invoked it.
+        output=$(swift test --package-path "$ROOT/Core" "$@" 2>&1) || {
             echo "swift test $* FAILED — no count. Its output:" >&2
             echo "$output" | tail -40 >&2
             exit 1
@@ -130,7 +133,7 @@ if [ "${1:-}" = "--split" ]; then
     exit 0
 fi
 
-OUTPUT=$(swift test 2>&1) || {
+OUTPUT=$(swift test --package-path "$ROOT/Core" 2>&1) || {
     echo "swift test FAILED — no count. Its output:" >&2
     echo "$OUTPUT" | tail -40 >&2
     # A failed run must not print a number. A count of 0, or a stale count, is

@@ -104,7 +104,7 @@
 			mainGroup = 8824C347301E13DE00E18130;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				8824C371301E441900E18130 /* XCLocalSwiftPackageReference "../soredemo-main" */,
+				8824C371301E441900E18130 /* XCLocalSwiftPackageReference "Core" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8824C351301E13DE00E18130 /* Products */;
@@ -353,9 +353,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		8824C371301E441900E18130 /* XCLocalSwiftPackageReference "../soredemo-main" */ = {
+		8824C371301E441900E18130 /* XCLocalSwiftPackageReference "Core" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../soredemo-main";
+			relativePath = Core;
 		};
 /* End XCLocalSwiftPackageReference section */
 

@@ -6,7 +6,7 @@ import Testing
 /// has already chosen Core Image, and the deferred 4K frame-time measurement could no longer
 /// change the answer.
 @Test func theFrameRendererProtocolNamesNeitherCoreImageNorMetal() throws {
-    let url = repositoryRoot.appending(path: "Sources/Compositing/FrameRenderer.swift")
+    let url = packageRoot.appending(path: "Sources/Compositing/FrameRenderer.swift")
     let source = try String(contentsOf: url, encoding: .utf8)
     let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
     // CVPixelBuffer is deliberately NOT banned: it is CoreVideo, which both paths already speak,

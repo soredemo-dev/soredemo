@@ -25,7 +25,9 @@ func compositingTestFiles() throws -> [URL] { try swiftFiles(under: "Tests/Compo
 /// Same enumeration `firstPartySourceFiles()` uses, over one directory. Empty is a failure:
 /// a scan over nothing passes vacuously, and someone is counting on it.
 func swiftFiles(under relativePath: String) throws -> [URL] {
-    let root = repositoryRoot.appending(path: relativePath)
+    // PACKAGE-relative: every caller names `Sources/…` or `Tests/…`, which are the package's
+    // own directories and not the repository's since the package moved into `Core/`.
+    let root = packageRoot.appending(path: relativePath)
     let enumerator = try #require(
         FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil),
         "cannot enumerate \(relativePath) — it must exist for this scan to mean anything")
@@ -61,7 +63,8 @@ func swiftFiles(under relativePath: String) throws -> [URL] {
 /// both bridges legitimately declare the base name `point`, so a base-name check could never
 /// go green. A line scan; a wrapped parameter list is caught loudly by the count check below.
 func functionSignatures(inFileAt relativePath: String) throws -> Set<String> {
-    let text = try String(contentsOf: repositoryRoot.appending(path: relativePath),
+    // Package-relative, like `swiftFiles(under:)` above: both callers name `Sources/…`.
+    let text = try String(contentsOf: packageRoot.appending(path: relativePath),
                           encoding: .utf8)
     let lines = SwiftSourceLexer.codeViewLines(of: text)
     var signatures: [String] = []
@@ -258,7 +261,9 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
     process.executableURL = URL(filePath: "/usr/bin/env")
     process.arguments = ["swift", "package", "dump-package",
                          "--scratch-path", scratch.path(percentEncoded: false)]
-    process.currentDirectoryURL = repositoryRoot
+    // The PACKAGE root: `swift package dump-package` reads `Package.swift`, which lives in
+    // `Core/` and not at the repository root since the two stopped being the same directory.
+    process.currentDirectoryURL = packageRoot
     let out = Pipe()
     process.standardOutput = out
     // Drained, not buffered: a Pipe nobody reads blocks the child once it fills.

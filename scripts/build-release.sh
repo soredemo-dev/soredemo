@@ -36,7 +36,7 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 say "1/6  The four gates"
 # Each is the whole gate, not a subset: a release built from a tree where one was skipped is
 # a release nobody can say anything about.
-swift test
+swift test --package-path Core
 scripts/check-strict-memory-safety.sh
 scripts/run-cross-boundary-probe.sh
 # No `-quiet` on this one: it emitted "the following command failed with exit code 0 but

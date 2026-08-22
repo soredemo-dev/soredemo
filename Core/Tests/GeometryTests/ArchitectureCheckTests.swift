@@ -3,7 +3,11 @@ import Foundation
 import CheckerLexer
 
 /// …/Tests/GeometryTests/ArchitectureCheckTests.swift → the repository root.
-let repositoryRoot = URL(filePath: #filePath)
+/// **The PACKAGE root, which is what three levels up from a test file now reaches.**
+/// It was the repository root too until the package moved into `Core/`; every use here —
+/// `.build/debug/architecture-checker`, `Package.swift`, `Sources/…` — belongs to the
+/// package, so the value did not change and only its name was wrong.
+let packageRoot = URL(filePath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
 /// The seven library targets the plugin must be attached to.
@@ -14,7 +18,7 @@ func launchChecker(targetName: String,
                    sourcesPath: String,
                    allow: [String] = [],
                    additionalArguments: [String] = []) throws -> (status: Int32, stderr: String) {
-    let checker = repositoryRoot.appending(path: ".build/debug/architecture-checker")
+    let checker = packageRoot.appending(path: ".build/debug/architecture-checker")
     try #require(FileManager.default.fileExists(atPath: checker.path(percentEncoded: false)),
                  "architecture-checker not built at \(checker.path(percentEncoded: false))")
 
@@ -65,7 +69,7 @@ func runManifestChecker(files: [String: String]) throws -> (status: Int32, stder
         try contents.write(to: dir.appending(path: name), atomically: true, encoding: .utf8)
     }
 
-    let checker = repositoryRoot.appending(path: ".build/debug/architecture-checker")
+    let checker = packageRoot.appending(path: ".build/debug/architecture-checker")
     try #require(FileManager.default.fileExists(atPath: checker.path(percentEncoded: false)),
                  "architecture-checker not built at \(checker.path(percentEncoded: false))")
 
@@ -379,7 +383,7 @@ func declaredDependencies(of module: String, inManifest manifest: String) throws
 
 /// Every sibling pair, checked against what the manifest declares, so the fallback table cannot mirror the wrong graph.
 @Test func fallbackAllowListMatchesManifestEdges() throws {
-    let manifest = try String(contentsOf: repositoryRoot.appending(path: "Package.swift"),
+    let manifest = try String(contentsOf: packageRoot.appending(path: "Package.swift"),
                               encoding: .utf8)
     for module in libraryModules {
         let declared = try declaredDependencies(of: module, inManifest: manifest)
@@ -419,7 +423,7 @@ func resolvedManifestTargets() throws -> [[String: Any]] {
     process.executableURL = URL(filePath: "/usr/bin/env")
     process.arguments = ["swift", "package", "dump-package",
                          "--scratch-path", scratch.path(percentEncoded: false)]
-    process.currentDirectoryURL = repositoryRoot
+    process.currentDirectoryURL = packageRoot
     let out = Pipe()
     process.standardOutput = out
     // Drained, not buffered: a Pipe nobody reads blocks the child once it fills.
@@ -923,7 +927,7 @@ func acceptsAnExplicitDecoderInitialiserOrNothingToBypass(_ source: String) thro
 /// The names in `ArchitectureChecker.decodeValidationExemptTypes`, parsed out of the checker's own source
 /// rather than mirrored: a second copy is a copy that drifts, and this list is meant to SHRINK.
 func decodeValidationExemptTypes() throws -> Set<String> {
-    let source = try String(contentsOf: repositoryRoot
+    let source = try String(contentsOf: packageRoot
         .appending(path: "Sources/architecture-checker/main.swift"), encoding: .utf8)
     let marker = "static let decodeValidationExemptTypes: Set<String> = ["
     let start = try #require(source.range(of: marker),
@@ -952,7 +956,7 @@ func decodeValidationExemptTypes() throws -> Set<String> {
 
     var violating: Set<String> = []
     for module in libraryModules {
-        let sources = repositoryRoot.appending(path: "Sources/\(module)")
+        let sources = packageRoot.appending(path: "Sources/\(module)")
         let result = try launchChecker(
             targetName: module,
             sourcesPath: sources.path(percentEncoded: false),
@@ -979,7 +983,7 @@ func decodeValidationExemptTypes() throws -> Set<String> {
 /// A rule with no fixture on the real sources could be scanning nothing: with the exemptions off the real
 /// package must FAIL while the list is non-empty.
 @Test func theRuleStillFiresOnTheRealSourcesWithTheExemptionsOff() throws {
-    let sources = repositoryRoot.appending(path: "Sources/Geometry")
+    let sources = packageRoot.appending(path: "Sources/Geometry")
     let withExemptions = try launchChecker(targetName: "Geometry",
                                            sourcesPath: sources.path(percentEncoded: false))
     #expect(withExemptions.status == 0,
@@ -1175,7 +1179,7 @@ func headlessModeDoesNotFireOnProse(_ source: String) throws {
 /// **The loosening flags must never reach the pure guard**: `--mode headless` turns off rule 1's allow-list
 /// and rule 2, so a pure target passing them could import AppKit with the build still green.
 @Test func theArchitectureCheckPluginNeverPassesTheHeadlessFlags() throws {
-    let source = try String(contentsOf: repositoryRoot
+    let source = try String(contentsOf: packageRoot
         .appending(path: "Plugins/ArchitectureCheck/ArchitectureCheck.swift"), encoding: .utf8)
     let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
     #expect(!code.contains("--mode"),
@@ -1188,7 +1192,7 @@ func headlessModeDoesNotFireOnProse(_ source: String) throws {
 /// `source`, not the code view, because `codeViewLines` blanks string literals — and each is anchored to the
 /// argument-list shape (a flag paired with its value), not the bare module name a doc comment could also contain.
 @Test func theHeadlessCheckPluginPassesBothBansAndNoAllowList() throws {
-    let source = try String(contentsOf: repositoryRoot
+    let source = try String(contentsOf: packageRoot
         .appending(path: "Plugins/HeadlessCheck/HeadlessCheck.swift"), encoding: .utf8)
     let code = SwiftSourceLexer.codeViewLines(of: source).joined(separator: "\n")
     #expect(source.contains("\"--ban\", \"AppKit\""))

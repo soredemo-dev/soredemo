@@ -66,7 +66,7 @@ SCRATCH=".build-strict-gate"
 LOG=$(mktemp)
 trap 'rm -f "$LOG"' EXIT
 
-swift package clean --scratch-path "$SCRATCH"
+swift package --package-path Core clean --scratch-path "$SCRATCH"
 
 # Precondition: the clean actually cleaned. A clean that leaves objects behind
 # would quietly reintroduce the incremental blindness this design exists to remove.
@@ -78,7 +78,9 @@ if [ "$LEFTOVER" != "0" ]; then
     exit 2
 fi
 
-swift build --build-tests --scratch-path "$SCRATCH" 2>&1 | tee "$LOG"
+# `--package-path Core`: the package moved out of the repository root so the Xcode
+# navigator would stop showing `dist/`, `docs/` and the app target inside the package node.
+swift build --package-path Core --build-tests --scratch-path "$SCRATCH" 2>&1 | tee "$LOG"
 
 # Verified round-trip on the old design (kept because the failure it guards is
 # unchanged): `true | tee "$LOG"` in place of the real build left the log empty and
