@@ -154,3 +154,82 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
                 "the viewport left the recording at zoom \(state.zoom), centre \(state.centre.x)")
     }
 }
+
+// MARK: - borrowed from the other recorders
+
+/// **Two clicks close together must not make the camera zoom out and back in.**
+///
+/// Blocks merge only when they overlap — `ZoomBlock.blocks` gives the measurement behind that
+/// — so two clicks 2.5 s apart leave a 1.1 s gap between 1.4 s blocks. At ω = 10 the camera
+/// makes most of its way back to zoom 1 in that time and then goes out again. Every block is
+/// individually correct and the result still reads as a mistake.
+///
+/// `../opensource/Screen Record Opensource/an Electron recorder-main` calls this a chained zoom and pans
+/// between the two instead, at a 1350 ms threshold. This checks the behaviour, not the
+/// constant: the camera must stay meaningfully zoomed THROUGHOUT the gap.
+@Suite struct ChainedZoomTests {
+    private let epoch = BootEpoch(id: UUID(uuidString: "9B1DE104-6C3E-4E2A-8B3C-2B6A6F1F9C07")!)
+
+    private func instant(_ seconds: Double) -> HostInstant {
+        HostInstant(epoch: epoch, hostTime: Nanoseconds(Int64(seconds * 1_000_000_000)))
+    }
+
+    private func click(_ seconds: Double, x: Double, y: Double) -> FramedClick {
+        FramedClick(instant: instant(seconds),
+                    target: FramingTarget(
+                        frame: NormalizedFrame(origin: NormalizedPoint(x: x, y: y),
+                                               size: NormalizedSize(width: 0.06, height: 0.06),
+                                               revision: GeometryRevision(id: 1)),
+                        role: "AXButton"))
+    }
+
+    /// A gap inside the threshold: the camera holds its zoom across it.
+    @Test func aShortGapPansInsteadOfReturningToRest() {
+        // 1.4 s blocks, clicks 2.5 s apart → a 1.1 s gap, inside the 1.35 s threshold.
+        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [
+            click(10.0, x: 0.2, y: 0.2),
+            click(12.5, x: 0.7, y: 0.7),
+        ]))
+        #expect(camera.blocksForTesting.count == 2, "the blocks merged; this tests the gap")
+
+        // Sampled across the gap rather than at one instant: a single sample could catch the
+        // camera mid-swing either way.
+        let inGap = stride(from: 11.5, through: 12.3, by: 0.1).map { camera.state(at: instant($0)) }
+        #expect(inGap.allSatisfy { $0.zoom > 1.2 }, """
+                the camera fell to \(inGap.map { $0.zoom }.min() ?? 0) during the gap — it \
+                returned toward rest instead of panning
+                """)
+        // …and it is on its way to the second target rather than sitting on the first.
+        let last = try? #require(inGap.last)
+        #expect((last?.centre.x ?? 0) > 0.2, "the camera never started toward the second click")
+    }
+
+    /// A gap past the threshold is not a chain: the camera does return to rest, which is the
+    /// correct picture of two unrelated moments.
+    @Test func aLongGapStillReturnsToRest() {
+        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [
+            click(10.0, x: 0.2, y: 0.2),
+            click(16.0, x: 0.7, y: 0.7),
+        ]))
+        // 1.4 s blocks 6 s apart → a 4.6 s gap. Sampled in the middle, well past settling.
+        let middle = camera.state(at: instant(13.5))
+        #expect(middle.zoom < 1.05, "the camera stayed zoomed across an unrelated \(4.6)s gap")
+    }
+
+    /// **While the viewport still covers the whole frame the centre snaps rather than
+    /// springing.** At zoom 1 the centre changes nothing visible, so springing it wastes the
+    /// only moment it is free — and the camera then scales STRAIGHT toward the focus instead
+    /// of drifting sideways on the way in. From a Rust recorder's `zoom_spring.rs`.
+    @Test func theCentreIsAlreadyAimedWhenTheZoomBegins() {
+        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [click(10.0, x: 0.85, y: 0.15)]))
+        // Just after the block opens, while the spring has barely moved the zoom.
+        let early = camera.state(at: instant(9.62))
+        #expect(early.zoom < CameraMotion.identityZoomBound + 0.05,
+                "this sample is meant to catch the camera before it has zoomed")
+        // The centre is at the target's, not at 0.5 — confined, because at zoom ~1 the only
+        // legal centre IS the middle, so the check is that it is not springing from rest.
+        let later = camera.state(at: instant(10.3))
+        #expect(abs(later.centre.x - 0.88) < 0.25,
+                "the camera was still drifting sideways at \(later.centre.x), not pre-aimed")
+    }
+}

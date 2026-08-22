@@ -48,7 +48,18 @@ public struct CameraMotion: Sendable {
     /// the footage shimmers. **Uncalibrated**, like every constant in this module.
     public static let safeZone: Double = 0.01
 
+    /// The zoom at or below which the centre is free to move instantly. At 1.002 the viewport
+    /// is 99.8% of the frame, so any centre jump displaces the card by at most 0.2% of it —
+    /// sub-pixel on any real output. a Rust recorder's `zoom_spring.rs` uses the same bound for the same
+    /// reason.
+    public static let identityZoomBound: Double = 1.002
+
     private let blocks: [ZoomBlock]
+
+    /// The blocks as sorted and grouped. Exposed so a test can assert its own fixture did NOT
+    /// merge before asserting anything about the gap between two of them — a fixture that
+    /// merged would pass a gap test vacuously.
+    public var blocksForTesting: [ZoomBlock] { blocks }
 
     public init(blocks: [ZoomBlock]) {
         self.blocks = blocks.sorted { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue }
@@ -106,9 +117,23 @@ public struct CameraMotion: Sendable {
             // Zoom cannot go below 1: a spring undershooting past rest would show more than
             // the recording contains.
             zoom = max(1.0, zoom)
-            centre = Self.confine(
-                NormalizedPoint(x: centre.x + velocityX * dt, y: centre.y + velocityY * dt),
-                zoom: zoom)
+            if zoom <= Self.identityZoomBound {
+                // **While the viewport still covers the whole frame, the centre snaps.**
+                // At zoom 1 the centre changes nothing that is visible, so springing it
+                // wastes the only moment it is free: the camera arrives at the next zoom's
+                // focus already aimed, and scales STRAIGHT toward it instead of drifting
+                // sideways as it goes in. Taken from `../opensource/.../a Rust recorder`'s
+                // `zoom_spring.rs`, whose bound is chosen on the same argument — a centre
+                // jump at this zoom moves the card by at most `(bound - 1)` of it, which is
+                // sub-pixel.
+                centre = Self.confine(aim.centre, zoom: zoom)
+                velocityX = 0
+                velocityY = 0
+            } else {
+                centre = Self.confine(
+                    NormalizedPoint(x: centre.x + velocityX * dt, y: centre.y + velocityY * dt),
+                    zoom: zoom)
+            }
             time += dt
         }
         return CameraState(centre: centre, zoom: zoom)
@@ -124,11 +149,15 @@ public struct CameraMotion: Sendable {
         }
         let proposed: CameraState
         if let active {
-            let frame = active.target.frame
-            proposed = CameraState(
-                centre: NormalizedPoint(x: frame.minX + frame.size.width / 2,
-                                        y: frame.minY + frame.size.height / 2),
-                zoom: active.zoom)
+            proposed = Self.aim(of: active)
+        } else if let chained = chainedNeighbour(at: nanos) {
+            // **In a short gap the camera pans to the next block instead of returning to
+            // rest.** Blocks merge only on overlap — for the reason `ZoomBlock.blocks`
+            // gives — so two clicks 2.5 s apart leave a 1.1 s gap, which at ω = 10 is long
+            // enough to make most of the way back to zoom 1 and then go out again. Every
+            // block is individually correct and the result still reads as a mistake.
+            // `../opensource/.../an Electron recorder-main` calls this a chained zoom.
+            proposed = Self.aim(of: chained)
         } else {
             proposed = CameraState(centre: NormalizedPoint(x: 0.5, y: 0.5), zoom: 1.0)
         }
@@ -138,6 +167,29 @@ public struct CameraMotion: Sendable {
             return previous
         }
         return proposed
+    }
+
+    /// A block as an aim: its target's centre, at its own depth.
+    private static func aim(of block: ZoomBlock) -> CameraState {
+        let frame = block.target.frame
+        return CameraState(centre: NormalizedPoint(x: frame.minX + frame.size.width / 2,
+                                                   y: frame.minY + frame.size.height / 2),
+                           zoom: block.zoom)
+    }
+
+    /// The block to pan toward while `nanos` sits in a gap short enough to chain, or `nil`
+    /// when the gap is long enough that returning to rest is the right answer.
+    ///
+    /// Both sides are required: a gap before the FIRST block is not a chain — there is
+    /// nothing to hold a zoom from — and neither is one after the last.
+    private func chainedNeighbour(at nanos: Int64) -> ZoomBlock? {
+        guard let previous = blocks.last(where: { $0.end.hostTime.rawValue <= nanos }),
+              let next = blocks.first(where: { $0.start.hostTime.rawValue > nanos }),
+              previous.start.epoch == next.start.epoch
+        else { return nil }
+        let gap = next.start.hostTime.rawValue - previous.end.hostTime.rawValue
+        guard gap > 0, gap < ZoomBlock.chainedPanGap.rawValue else { return nil }
+        return next
     }
 
     /// Keeps the viewport inside the recording: at zoom `z` it is `1/z` wide, so the centre

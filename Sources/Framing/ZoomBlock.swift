@@ -40,6 +40,22 @@ extension ZoomBlock {
     /// **Uncalibrated.**
     public static let hold = Nanoseconds(1_000_000_000)
 
+    /// **How close two blocks must be for the camera to PAN between them instead of zooming
+    /// out and back in.**
+    ///
+    /// Merging is overlap-only, for the reason below, so two clicks 2.5 s apart leave a 1.1 s
+    /// gap — long enough at ω = 10 for the camera to make most of its way back to zoom 1 and
+    /// then go out again. That reads as a mistake even though every block is individually
+    /// correct: the viewer sees the frame lurch out and back for no reason.
+    ///
+    /// `../opensource/Screen Record Opensource/an Electron recorder-main` calls the same thing a chained
+    /// zoom and uses 1350 ms (`CHAINED_ZOOM_PAN_GAP_MS`); the value is theirs and is carried
+    /// over rather than re-guessed. **It is not a merge**: the blocks stay separate, keep
+    /// their own targets and their own depths, and only the camera's behaviour in the gap
+    /// changes — which is why raising it does not chain the whole recording into one block
+    /// the way a merge tolerance above 0.1 s does.
+    public static let chainedPanGap = Nanoseconds(1_350_000_000)
+
     /// **Blocks merge only when they genuinely OVERLAP — no tolerance, and that is the
     /// decision this type exists to get right.**
     ///
