@@ -5,15 +5,63 @@ import Foundation
 /// `sourceStart` is a position in the RECORDING, `duration` is how much of it plays. Where the
 /// clip sits in the OUTPUT is not stored: it is the sum of the durations before it, so a cut
 /// cannot leave a clip claiming an output position that disagrees with its neighbours.
-public struct EditClip: Hashable, Sendable, Codable {
+/// A clip's identity, stable across every edit that does not destroy the clip.
+///
+/// **Why identity and not the array index.** A person selects a clip, then deletes an earlier
+/// one; by index the selection silently becomes a different clip. Every editor in
+/// `../opensource/Screen Record Opensource/` keys selection on an identity for this reason —
+/// a native editor's `clip.id`, an Electron recorder's clip ids, a Rust recorder's.
+///
+/// **A counter, not a UUID.** `Timeline` is a deterministic target: the architecture plugin
+/// forbids it from reaching ambient randomness, and `Minting` — the one place allowed to —
+/// is a tier away. The timeline mints from a monotonic counter it carries, so the same
+/// sequence of edits on the same recording produces the same ids, which is also what makes a
+/// project file comparable to itself.
+public struct ClipID: Hashable, Sendable, Codable, Comparable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        precondition(rawValue >= 0, "a clip id is a counter and never negative")
+        self.rawValue = rawValue
+    }
+
+    /// Validated on decode for the same reason `EditClip` is (D6 rule 8): the synthesised
+    /// decoder never calls the initialiser above.
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(Int.self)
+        guard raw >= 0 else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath, debugDescription: "negative clip id \(raw)"))
+        }
+        self.rawValue = raw
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public static func < (lhs: ClipID, rhs: ClipID) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+public struct EditClip: Hashable, Sendable, Codable, Identifiable {
+    public let id: ClipID
     public let sourceStart: Nanoseconds
     public let duration: Nanoseconds
 
-    public init(sourceStart: Nanoseconds, duration: Nanoseconds) {
+    public init(id: ClipID, sourceStart: Nanoseconds, duration: Nanoseconds) {
         precondition(sourceStart.rawValue >= 0, "a clip cannot start before the recording")
         precondition(duration.rawValue > 0, "a clip with no duration is not a clip")
+        self.id = id
         self.sourceStart = sourceStart
         self.duration = duration
+    }
+
+    /// The same clip covering a different span of the recording. **Keeps the id**, which is
+    /// what makes a trim an edit to a clip rather than a replacement of it: a selection
+    /// survives, and so does anything else keyed on the clip.
+    public func spanning(sourceStart: Nanoseconds, duration: Nanoseconds) -> EditClip {
+        EditClip(id: id, sourceStart: sourceStart, duration: duration)
     }
 
     /// **Validated on decode, not by the `precondition` above** (D6 rule 8). The synthesised
@@ -22,6 +70,7 @@ public struct EditClip: Hashable, Sendable, Codable {
     /// `precondition` there turns a corrupt file into a crash rather than an error.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(ClipID.self, forKey: .id)
         let sourceStart = try container.decode(Nanoseconds.self, forKey: .sourceStart)
         let duration = try container.decode(Nanoseconds.self, forKey: .duration)
         guard sourceStart.rawValue >= 0, duration.rawValue > 0 else {
@@ -29,11 +78,12 @@ public struct EditClip: Hashable, Sendable, Codable {
                 codingPath: decoder.codingPath,
                 debugDescription: "clip at \(sourceStart.rawValue) has duration \(duration.rawValue)"))
         }
+        self.id = id
         self.sourceStart = sourceStart
         self.duration = duration
     }
 
-    private enum CodingKeys: String, CodingKey { case sourceStart, duration }
+    private enum CodingKeys: String, CodingKey { case id, sourceStart, duration }
 
     /// One past the last nanosecond this clip reads from the recording.
     public var sourceEnd: Nanoseconds { Nanoseconds(sourceStart.rawValue + duration.rawValue) }
@@ -59,14 +109,142 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// is the legal representation of "everything was cut".
     public let clips: [EditClip]
 
-    public init(clips: [EditClip]) {
+    /// The next id to mint. Carried by the timeline rather than a global counter so the same
+    /// sequence of edits on the same recording produces the same ids — a project file that is
+    /// comparable to itself, and an undo that restores the clip a selection pointed at rather
+    /// than a new one wearing its number.
+    ///
+    /// Never reused. An id that came back after a delete would make a stale selection or a
+    /// stale override silently attach to a different clip, which is the same class of fault
+    /// as an array index and the reason ids exist.
+    public let nextID: ClipID
+
+    public init(clips: [EditClip], nextID: ClipID? = nil) {
         self.clips = clips
+        // Derived when not given, so a caller constructing a timeline by hand — every test,
+        // and any decode of an older file — cannot mint a duplicate.
+        let highest = clips.map(\.id.rawValue).max().map { $0 + 1 } ?? 0
+        self.nextID = nextID.map { ClipID(rawValue: max($0.rawValue, highest)) }
+            ?? ClipID(rawValue: highest)
     }
 
     /// The whole recording, unedited.
     public static func whole(duration: Nanoseconds) -> EditTimeline {
         guard duration.rawValue > 0 else { return EditTimeline(clips: []) }
-        return EditTimeline(clips: [EditClip(sourceStart: Nanoseconds(0), duration: duration)])
+        return EditTimeline(clips: [EditClip(id: ClipID(rawValue: 0),
+                                             sourceStart: Nanoseconds(0), duration: duration)])
+    }
+
+    // MARK: - clips as objects
+
+    /// The clip playing at `outputTime`, or `nil` past the end — what a click on the timeline
+    /// resolves to.
+    public func clip(atOutput outputTime: Nanoseconds) -> EditClip? {
+        guard outputTime.rawValue >= 0 else { return nil }
+        var running: Int64 = 0
+        for clip in clips {
+            let next = running + clip.duration.rawValue
+            if outputTime.rawValue < next { return clip }
+            running = next
+        }
+        return nil
+    }
+
+    /// The clip covering a SOURCE position — what a click on a strip drawn from the recording
+    /// resolves to, as `TimelineEditor` draws it.
+    ///
+    /// **Assumes clips do not overlap in the source**, which every edit here preserves: cutting
+    /// and trimming only shrink spans, splitting divides one, and moving reorders without
+    /// changing any span. A model that later allows the same footage twice would need this to
+    /// return more than one, and the assumption is stated here so that change is visible.
+    public func clip(atSource sourceTime: Nanoseconds) -> EditClip? {
+        clips.first {
+            sourceTime.rawValue >= $0.sourceStart.rawValue
+                && sourceTime.rawValue < $0.sourceEnd.rawValue
+        }
+    }
+
+    /// Where `id` begins in the OUTPUT, or `nil` if it is not in this timeline.
+    public func outputStart(of id: ClipID) -> Nanoseconds? {
+        var running: Int64 = 0
+        for clip in clips {
+            if clip.id == id { return Nanoseconds(running) }
+            running += clip.duration.rawValue
+        }
+        return nil
+    }
+
+    /// One clip removed, and the clips after it pulled earlier — a ripple delete.
+    ///
+    /// **The ripple is free, and that is a property of the model rather than a feature.**
+    /// A clip's output position is the sum of the durations before it, never a stored value,
+    /// so removing one cannot leave a gap and cannot leave two clips claiming the same
+    /// moment. a native editor needs a `RippleEngine` because its clips carry `startFrame`.
+    public func removing(id: ClipID) -> EditTimeline {
+        EditTimeline(clips: clips.filter { $0.id != id }, nextID: nextID)
+    }
+
+    /// The clip at `outputTime` cut in two there. Both halves keep playing back to back, so
+    /// the output is unchanged — a split is preparation for an edit, not an edit.
+    ///
+    /// **The left half keeps the id.** A split is not a replacement of the clip a person had
+    /// selected; it is that clip becoming shorter with a new one after it.
+    ///
+    /// `nil` when the cut would land on a boundary and produce a zero-length piece: two cuts
+    /// at the same instant is a no-op a caller should be able to detect, not a clip with no
+    /// duration.
+    public func split(atOutput outputTime: Nanoseconds) -> EditTimeline? {
+        var running: Int64 = 0
+        for (index, clip) in clips.enumerated() {
+            let next = running + clip.duration.rawValue
+            if outputTime.rawValue > running && outputTime.rawValue < next {
+                let leftLength = outputTime.rawValue - running
+                let left = clip.spanning(sourceStart: clip.sourceStart,
+                                         duration: Nanoseconds(leftLength))
+                let right = EditClip(
+                    id: nextID,
+                    sourceStart: Nanoseconds(clip.sourceStart.rawValue + leftLength),
+                    duration: Nanoseconds(clip.duration.rawValue - leftLength))
+                var updated = clips
+                updated.replaceSubrange(index...index, with: [left, right])
+                return EditTimeline(clips: updated,
+                                    nextID: ClipID(rawValue: nextID.rawValue + 1))
+            }
+            running = next
+        }
+        return nil
+    }
+
+    /// One clip's edges moved, in SOURCE time. Positive `startDelta` trims from the front,
+    /// negative extends it; `endDelta` is the same at the other end.
+    ///
+    /// `nil` when the result would have no duration or would start before the recording — a
+    /// trim past a clip's own length is a gesture that has gone too far, and the caller stops
+    /// the handle rather than the model inventing a floor.
+    public func trimming(id: ClipID, startDelta: Int64, endDelta: Int64) -> EditTimeline? {
+        guard let index = clips.firstIndex(where: { $0.id == id }) else { return nil }
+        let clip = clips[index]
+        let start = clip.sourceStart.rawValue + startDelta
+        let length = clip.duration.rawValue - startDelta + endDelta
+        guard start >= 0, length > 0 else { return nil }
+        var updated = clips
+        updated[index] = clip.spanning(sourceStart: Nanoseconds(start),
+                                       duration: Nanoseconds(length))
+        return EditTimeline(clips: updated, nextID: nextID)
+    }
+
+    /// One clip moved to a new position in the output order.
+    ///
+    /// `destination` is an index into the timeline WITHOUT the moved clip, which is the only
+    /// interpretation that makes "move it to the end" expressible — with the clip still in
+    /// place, the last valid index is one short.
+    public func moving(id: ClipID, to destination: Int) -> EditTimeline? {
+        guard let index = clips.firstIndex(where: { $0.id == id }) else { return nil }
+        var updated = clips
+        let clip = updated.remove(at: index)
+        guard destination >= 0, destination <= updated.count else { return nil }
+        updated.insert(clip, at: destination)
+        return EditTimeline(clips: updated, nextID: nextID)
     }
 
     public var isEmpty: Bool { clips.isEmpty }
@@ -131,13 +309,17 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// Expressed against SOURCE time, because that is the space a person points at on a
     /// timeline drawn from the recording. Clips are intersected rather than dropped, so a trim
     /// landing inside a clip splits nothing: it shortens.
+    ///
+    /// **Survivors keep their ids.** A trim shortens the clips it touches; it does not replace
+    /// them, so a selection made before the trim still points at the clip a person can see.
     public func trimmed(toSource range: Range<Int64>) -> EditTimeline {
-        EditTimeline(clips: clips.compactMap { clip in
+        EditTimeline(clips: clips.compactMap { clip -> EditClip? in
             let start = max(clip.sourceStart.rawValue, range.lowerBound)
             let end = min(clip.sourceEnd.rawValue, range.upperBound)
             guard end > start else { return nil }
-            return EditClip(sourceStart: Nanoseconds(start), duration: Nanoseconds(end - start))
-        })
+            return clip.spanning(sourceStart: Nanoseconds(start),
+                                 duration: Nanoseconds(end - start))
+        }, nextID: nextID)
     }
 
     /// `range` removed — a cut. A cut through the middle of a clip leaves two.
@@ -146,26 +328,40 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// still two clips, and joining them would erase the record of a cut having been made
     /// there — which a reviewer looking at the timeline needs, and which `removing` cannot know
     /// is unwanted. `merged()` is available for a caller that does want it.
+    ///
+    /// **The head of a cut clip keeps the id; the tail is a new clip.** Same rule as `split`,
+    /// and for the same reason: the piece a person was looking at is the one that starts where
+    /// the clip started.
     public func removing(sourceRange range: Range<Int64>) -> EditTimeline {
         guard range.upperBound > range.lowerBound else { return self }
         var kept: [EditClip] = []
+        var minting = nextID.rawValue
         for clip in clips {
             let start = clip.sourceStart.rawValue
             let end = clip.sourceEnd.rawValue
             // The part before the cut.
             let headEnd = min(end, range.lowerBound)
-            if headEnd > start {
-                kept.append(EditClip(sourceStart: Nanoseconds(start),
-                                     duration: Nanoseconds(headEnd - start)))
+            let hasHead = headEnd > start
+            if hasHead {
+                kept.append(clip.spanning(sourceStart: Nanoseconds(start),
+                                          duration: Nanoseconds(headEnd - start)))
             }
-            // The part after it.
+            // The part after it. It keeps the clip's own id only when there is no head to
+            // have taken it — a cut off the FRONT shortens the clip rather than splitting it.
             let tailStart = max(start, range.upperBound)
             if end > tailStart {
-                kept.append(EditClip(sourceStart: Nanoseconds(tailStart),
+                let id: ClipID
+                if hasHead {
+                    id = ClipID(rawValue: minting)
+                    minting += 1
+                } else {
+                    id = clip.id
+                }
+                kept.append(EditClip(id: id, sourceStart: Nanoseconds(tailStart),
                                      duration: Nanoseconds(end - tailStart)))
             }
         }
-        return EditTimeline(clips: kept)
+        return EditTimeline(clips: kept, nextID: ClipID(rawValue: minting))
     }
 
     /// Clips that abut in the source joined into one. Only for a caller that wants the record
@@ -174,13 +370,14 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         var merged: [EditClip] = []
         for clip in clips {
             if let last = merged.last, last.sourceEnd.rawValue == clip.sourceStart.rawValue {
-                merged[merged.count - 1] = EditClip(
+                // The survivor keeps the FIRST clip's id: the merged clip starts where it did.
+                merged[merged.count - 1] = last.spanning(
                     sourceStart: last.sourceStart,
                     duration: Nanoseconds(last.duration.rawValue + clip.duration.rawValue))
             } else {
                 merged.append(clip)
             }
         }
-        return EditTimeline(clips: merged)
+        return EditTimeline(clips: merged, nextID: nextID)
     }
 }

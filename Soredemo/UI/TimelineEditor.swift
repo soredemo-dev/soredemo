@@ -24,6 +24,10 @@ final class TimelineEditorModel {
     var playhead = Nanoseconds(0)
     /// The span a person has dragged out, in SOURCE time, or `nil` for no selection.
     var selection: Range<Int64>?
+    /// The clip a person clicked, or `nil`. **Kept as an identity, never an index**: deleting
+    /// an earlier clip would silently move an index onto a different clip, which is the fault
+    /// `ClipID` exists to prevent.
+    private(set) var selectedClip: ClipID?
     /// Kept so "Undo all edits" restores the recording rather than guessing at it.
     private var original = EditTimeline(clips: [])
     /// Carried across the events of one drag so a snap holds instead of flickering.
@@ -36,6 +40,7 @@ final class TimelineEditorModel {
         original = edit
         playhead = Nanoseconds(0)
         selection = nil
+        selectedClip = nil
         publish()
     }
 
@@ -52,6 +57,37 @@ final class TimelineEditorModel {
 
     /// Ends a drag, so the next one starts unsnapped rather than inheriting a stale hold.
     func endDrag() { snapState = SnapEngine.State() }
+
+    /// Selects the clip at a SOURCE position, or clears the selection when the tap missed
+    /// every clip — a tap on a cut span selects nothing rather than the nearest thing.
+    func selectClip(atSource sourceTime: Nanoseconds) {
+        selectedClip = edit.clip(atSource: sourceTime)?.id
+    }
+
+    /// Cuts the selected clip in two at the playhead.
+    ///
+    /// **The playhead is in SOURCE time and `split` takes OUTPUT time**, so it converts —
+    /// the two are equal only until the first cut, and a split that skipped the conversion
+    /// would land somewhere else on every timeline that had already been edited.
+    func splitAtPlayhead() {
+        guard let output = edit.outputTime(atSource: playhead),
+              let split = edit.split(atOutput: output) else { return }
+        edit = split
+        publish()
+    }
+
+    var canSplitAtPlayhead: Bool {
+        edit.outputTime(atSource: playhead).map { edit.split(atOutput: $0) != nil } ?? false
+    }
+
+    /// Deletes the selected clip. The clips after it move earlier on their own — a clip's
+    /// output position is the sum of the durations before it, so there is no gap to close.
+    func deleteSelectedClip() {
+        guard let selectedClip else { return }
+        edit = edit.removing(id: selectedClip)
+        self.selectedClip = nil
+        publish()
+    }
 
     func removeSelection() {
         guard let selection else { return }
@@ -70,6 +106,7 @@ final class TimelineEditorModel {
     func restore() {
         edit = original
         selection = nil
+        selectedClip = nil
         publish()
     }
 
@@ -117,11 +154,22 @@ struct TimelineEditor: View {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(.quaternary)
 
-                ForEach(Array(model.edit.clips.enumerated()), id: \.offset) { _, clip in
+                // Keyed on the clip's own id, not its index: SwiftUI reuses views by
+                // identity, and an index key would animate a deleted clip into its
+                // neighbour's place rather than removing it.
+                ForEach(model.edit.clips) { clip in
                     let x = fraction(clip.sourceStart, of: duration) * width
                     let w = fraction(clip.duration, of: duration) * width
+                    let isSelected = clip.id == model.selectedClip
                     RoundedRectangle(cornerRadius: 4)
                         .fill(.tint)
+                        .overlay {
+                            // The selected clip is outlined rather than recoloured: the fill
+                            // already carries "this is kept footage", and a second colour
+                            // there would make selection and keptness the same channel.
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(.primary, lineWidth: isSelected ? 2 : 0)
+                        }
                         .frame(width: max(w, 1))
                         .offset(x: x)
                 }
@@ -155,11 +203,12 @@ struct TimelineEditor: View {
                                                                    width: width, duration: duration),
                                                 threshold: threshold)
                         if abs(now.rawValue - start.rawValue) < threshold.rawValue {
-                            // A tap, not a drag: move the playhead and select nothing. Without
-                            // this every click would leave a zero-width selection that the
-                            // buttons would happily act on.
+                            // A tap, not a drag: move the playhead, clear the span selection,
+                            // and select the CLIP under it. Without the first part every click
+                            // would leave a zero-width span that the buttons would act on.
                             model.selection = nil
                             model.playhead = now
+                            model.selectClip(atSource: now)
                         } else {
                             model.selection = min(start.rawValue, now.rawValue)
                                 ..< max(start.rawValue, now.rawValue)
@@ -177,6 +226,9 @@ struct TimelineEditor: View {
             Spacer()
             if let selection = model.selection {
                 Text("selected \(Self.stamp(Nanoseconds(Int64(selection.count))))")
+            } else if let selected = model.selectedClip,
+                      let clip = model.edit.clips.first(where: { $0.id == selected }) {
+                Text("clip \(Self.stamp(clip.duration)) of \(model.edit.clips.count)")
             } else {
                 Text("\(Self.stamp(model.edit.outputDuration)) of \(Self.stamp(duration))")
             }
@@ -186,6 +238,18 @@ struct TimelineEditor: View {
 
     @ViewBuilder private var controls: some View {
         HStack(spacing: 8) {
+            Button("Split at playhead") {
+                model.splitAtPlayhead()
+                onChange()
+            }
+            .disabled(!model.canSplitAtPlayhead)
+
+            Button("Delete clip") {
+                model.deleteSelectedClip()
+                onChange()
+            }
+            .disabled(model.selectedClip == nil)
+
             Button("Remove selection") {
                 model.removeSelection()
                 onChange()

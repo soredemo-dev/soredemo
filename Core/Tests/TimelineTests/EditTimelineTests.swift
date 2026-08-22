@@ -134,8 +134,8 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         // Two cuts that leave abutting source ranges: 0–300 and 300–1000 after removing nothing
         // between them.
         let split = EditTimeline(clips: [
-            EditClip(sourceStart: ns(0), duration: ns(300)),
-            EditClip(sourceStart: ns(300), duration: ns(700)),
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(300)),
+            EditClip(id: ClipID(rawValue: 1), sourceStart: ns(300), duration: ns(700)),
         ])
         #expect(split.clips.count == 2)
         #expect(split.merged().clips.count == 1)
@@ -166,5 +166,213 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
             .removing(sourceRange: 2_000_000_000..<5_000_000_000)
         let data = try JSONEncoder().encode(timeline)
         #expect(try JSONDecoder().decode(EditTimeline.self, from: data) == timeline)
+    }
+}
+
+// MARK: - clips as objects
+
+/// **A clip a person can point at has to survive edits to other clips.** Selection keyed on an
+/// array index silently becomes a different clip the moment an earlier one is deleted; every
+/// editor in `../opensource/Screen Record Opensource/` keys it on an identity instead.
+@Suite struct ClipIdentityTests {
+    private func whole(_ length: Int64) -> EditTimeline {
+        EditTimeline.whole(duration: ns(length))
+    }
+
+    @Test func aClipCanBeFoundByTheOutputTimeAPersonClicked() {
+        let timeline = whole(1_000).removing(sourceRange: 200..<500)
+        // Output 0…200 is the first clip, 200…700 the second.
+        #expect(timeline.clip(atOutput: ns(0))?.id == timeline.clips[0].id)
+        #expect(timeline.clip(atOutput: ns(199))?.id == timeline.clips[0].id)
+        #expect(timeline.clip(atOutput: ns(200))?.id == timeline.clips[1].id)
+        #expect(timeline.clip(atOutput: ns(699))?.id == timeline.clips[1].id)
+        #expect(timeline.clip(atOutput: ns(700)) == nil, "past the end there is no clip")
+    }
+
+    @Test func aClipsOutputStartIsTheSumOfWhatComesBefore() {
+        let timeline = whole(1_000).removing(sourceRange: 200..<500)
+        #expect(timeline.outputStart(of: timeline.clips[0].id) == ns(0))
+        #expect(timeline.outputStart(of: timeline.clips[1].id) == ns(200))
+        #expect(timeline.outputStart(of: ClipID(rawValue: 9_999)) == nil)
+    }
+
+    /// **The ripple is free, and that is a property of the model.** A clip's output position is
+    /// the sum of the durations before it and never a stored value, so removing one cannot
+    /// leave a gap. a native editor needs a `RippleEngine` because its clips carry `startFrame`.
+    @Test func removingAClipPullsTheRestEarlierWithNoGap() {
+        let timeline = whole(1_000).removing(sourceRange: 200..<500)
+        let second = timeline.clips[1].id
+        let after = timeline.removing(id: second)
+
+        #expect(after.clips.count == 1)
+        #expect(after.outputDuration == ns(200))
+        #expect(after.sourceTime(atOutput: ns(0)) == ns(0))
+        #expect(after.sourceTime(atOutput: ns(200)) == nil)
+    }
+
+    /// **Deleting an earlier clip must not move what a selection points at.** The whole reason
+    /// for identity, stated as the case that would break with indices.
+    @Test func deletingAnEarlierClipLeavesALaterOnesIdentityAlone() {
+        let timeline = whole(1_000).removing(sourceRange: 200..<500)
+        let selected = timeline.clips[1].id
+        let after = timeline.removing(id: timeline.clips[0].id)
+
+        #expect(after.clips.first?.id == selected,
+                "the surviving clip changed identity — a selection would now point elsewhere")
+        // …and by index it WOULD have: what was index 1 is index 0.
+        #expect(after.clips.count == 1)
+    }
+
+    // MARK: - split
+
+    /// A split changes nothing about the output: both halves play back to back. It is
+    /// preparation for an edit, not an edit.
+    @Test func aSplitLeavesTheOutputIdentical() {
+        let timeline = whole(1_000)
+        let split = try? #require(timeline.split(atOutput: ns(400)))
+        #expect(split?.clips.count == 2)
+        #expect(split?.outputDuration == timeline.outputDuration)
+        for probe: Int64 in [0, 399, 400, 999] {
+            #expect(split?.sourceTime(atOutput: ns(probe)) == timeline.sourceTime(atOutput: ns(probe)),
+                    "the split moved output \(probe)")
+        }
+    }
+
+    /// The LEFT half keeps the id: a split is the selected clip becoming shorter with a new
+    /// one after it, not a replacement of it.
+    @Test func theLeftHalfOfASplitKeepsTheIdentity() throws {
+        let timeline = whole(1_000)
+        let original = timeline.clips[0].id
+        let split = try #require(timeline.split(atOutput: ns(400)))
+        #expect(split.clips[0].id == original)
+        #expect(split.clips[1].id != original, "both halves took the same identity")
+    }
+
+    /// A cut on a boundary would make a zero-length piece. `nil` so the caller can tell a
+    /// no-op from a split, rather than the model producing a clip with no duration.
+    @Test func aSplitOnABoundaryIsRefused() {
+        let timeline = whole(1_000)
+        #expect(timeline.split(atOutput: ns(0)) == nil)
+        #expect(timeline.split(atOutput: ns(1_000)) == nil)
+        #expect(timeline.split(atOutput: ns(2_000)) == nil)
+    }
+
+    /// Splitting twice must not mint the same id twice — an id that came back would make a
+    /// stale selection attach to a different clip, the fault identity exists to prevent.
+    @Test func repeatedSplitsNeverReuseAnIdentity() throws {
+        var timeline = whole(1_000)
+        for cut: Int64 in [200, 400, 600, 800] {
+            timeline = try #require(timeline.split(atOutput: ns(cut)))
+        }
+        let ids = timeline.clips.map(\.id)
+        #expect(ids.count == 5)
+        #expect(Set(ids).count == ids.count, "a split reused an identity: \(ids)")
+    }
+
+    // MARK: - trim and move
+
+    @Test func trimmingAClipsFrontShortensItAndKeepsItsIdentity() throws {
+        let timeline = whole(1_000)
+        let id = timeline.clips[0].id
+        let trimmed = try #require(timeline.trimming(id: id, startDelta: 100, endDelta: 0))
+        #expect(trimmed.clips[0].id == id)
+        #expect(trimmed.clips[0].sourceStart == ns(100))
+        #expect(trimmed.outputDuration == ns(900))
+    }
+
+    /// A trim past the clip's own length is a gesture that has gone too far. `nil`, so the
+    /// caller stops the handle rather than the model inventing a floor.
+    @Test func aTrimThatWouldEmptyAClipIsRefused() {
+        let timeline = whole(1_000)
+        let id = timeline.clips[0].id
+        #expect(timeline.trimming(id: id, startDelta: 1_000, endDelta: 0) == nil)
+        #expect(timeline.trimming(id: id, startDelta: 0, endDelta: -1_000) == nil)
+        // …and one that would start before the recording.
+        #expect(timeline.trimming(id: id, startDelta: -1, endDelta: 0) == nil)
+    }
+
+    @Test func movingAClipChangesTheOrderAndNothingElse() throws {
+        let timeline = whole(1_000).removing(sourceRange: 400..<600)
+        let first = timeline.clips[0]
+        let moved = try #require(timeline.moving(id: first.id, to: 1))
+
+        #expect(moved.clips.map(\.id) == [timeline.clips[1].id, first.id])
+        #expect(moved.outputDuration == timeline.outputDuration,
+                "moving a clip changed how long the video is")
+        // The moved clip now plays second, so the output reads the other span first.
+        #expect(moved.sourceTime(atOutput: ns(0)) == ns(600))
+    }
+
+    /// `destination` indexes the timeline WITHOUT the moved clip, which is the only reading
+    /// that makes "move it to the end" expressible.
+    @Test func aClipCanBeMovedToTheEnd() throws {
+        let timeline = whole(900).removing(sourceRange: 300..<400).removing(sourceRange: 600..<700)
+        #expect(timeline.clips.count == 3)
+        let first = timeline.clips[0].id
+        let moved = try #require(timeline.moving(id: first, to: 2))
+        #expect(moved.clips.last?.id == first)
+        #expect(moved.moving(id: first, to: 3) == nil, "past the end is not a position")
+    }
+
+    @Test func movingAClipThatIsNotThereIsRefused() {
+        #expect(whole(1_000).moving(id: ClipID(rawValue: 9_999), to: 0) == nil)
+        #expect(whole(1_000).trimming(id: ClipID(rawValue: 9_999), startDelta: 1, endDelta: 0) == nil)
+    }
+
+    // MARK: - identity through the range edits
+
+    /// A cut off the FRONT of a clip shortens it — there is no head to have taken the id — so
+    /// the survivor keeps it.
+    @Test func aCutOffTheFrontKeepsTheClipsIdentity() {
+        let timeline = whole(1_000)
+        let id = timeline.clips[0].id
+        #expect(timeline.removing(sourceRange: 0..<200).clips[0].id == id)
+    }
+
+    /// A cut through the MIDDLE leaves the head with the id and the tail as a new clip.
+    @Test func aCutThroughTheMiddleGivesTheHeadTheIdentity() {
+        let timeline = whole(1_000)
+        let id = timeline.clips[0].id
+        let cut = timeline.removing(sourceRange: 400..<600)
+        #expect(cut.clips.count == 2)
+        #expect(cut.clips[0].id == id)
+        #expect(cut.clips[1].id != id)
+        #expect(Set(cut.clips.map(\.id)).count == 2)
+    }
+
+    /// Two cuts must not collide. `nextID` is carried through every edit precisely so the
+    /// second cut mints past whatever the first one used.
+    @Test func twoSuccessiveCutsMintDistinctIdentities() {
+        let cut = whole(1_000).removing(sourceRange: 200..<300).removing(sourceRange: 600..<700)
+        let ids = cut.clips.map(\.id)
+        #expect(ids.count == 3)
+        #expect(Set(ids).count == 3, "a second cut reused an identity: \(ids)")
+    }
+
+    /// A hand-built timeline cannot mint a duplicate: `nextID` is derived from the clips when
+    /// it is not given. Every test fixture in this file relies on that.
+    @Test func aHandBuiltTimelineDerivesItsNextIdentity() {
+        let timeline = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 7), sourceStart: ns(0), duration: ns(100)),
+            EditClip(id: ClipID(rawValue: 3), sourceStart: ns(100), duration: ns(100)),
+        ])
+        #expect(timeline.nextID == ClipID(rawValue: 8))
+        let split = timeline.split(atOutput: ns(50))
+        #expect(split?.clips.map(\.id).contains(ClipID(rawValue: 8)) == true)
+    }
+
+    @Test func identitiesSurviveCoding() throws {
+        let timeline = whole(1_000).removing(sourceRange: 200..<500)
+        let data = try JSONEncoder().encode(timeline)
+        let decoded = try JSONDecoder().decode(EditTimeline.self, from: data)
+        #expect(decoded.clips.map(\.id) == timeline.clips.map(\.id))
+        #expect(decoded.nextID == timeline.nextID)
+    }
+
+    @Test func aNegativeClipIdentityIsADecodingErrorAndNotACrash() {
+        let json = Data(#"{"id":-1,"sourceStart":{"rawValue":0},"duration":{"rawValue":1}}"#.utf8)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(EditClip.self, from: json)
+        }
     }
 }

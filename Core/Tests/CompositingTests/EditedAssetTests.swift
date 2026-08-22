@@ -45,8 +45,8 @@ extension StageCompositorTests {
         let source = Self.fixture()
         let nanos = Int64(try await source.load(.duration).seconds * 1_000_000_000)
         let split = EditTimeline(clips: [
-            EditClip(sourceStart: Nanoseconds(0), duration: Nanoseconds(nanos / 2)),
-            EditClip(sourceStart: Nanoseconds(nanos / 2), duration: Nanoseconds(nanos - nanos / 2)),
+            EditClip(id: ClipID(rawValue: 0), sourceStart: Nanoseconds(0), duration: Nanoseconds(nanos / 2)),
+            EditClip(id: ClipID(rawValue: 1), sourceStart: Nanoseconds(nanos / 2), duration: Nanoseconds(nanos - nanos / 2)),
         ])
         let cut = try await EditedAsset.make(from: source, by: split)
         let actual = try await cut.load(.duration).seconds
