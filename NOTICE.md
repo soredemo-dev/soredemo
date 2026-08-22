@@ -46,7 +46,9 @@ code was.
 
 ### Read and deliberately not used
 
-- **an Electron recorder** (AGPL-3.0) — an Electron application; nothing in it is Swift.
+- **an Electron recorder** and **an Electron recorder** are Electron applications, but each ships a small native
+  Swift helper for ScreenCaptureKit, and those helpers are where the conditions above came
+  from. Nothing else in either is reachable from Swift.
 
 ---
 

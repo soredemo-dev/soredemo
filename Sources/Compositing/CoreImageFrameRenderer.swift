@@ -228,23 +228,26 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             return bitmap.makeImage()
         }
         guard let image else { return CIImage.empty() }
-        // **The hotspot offset.** The art is drawn with its path origin at the canvas
-        // centre, so translating by `placement - tip` puts that ORIGIN at the recorded
-        // position — correct only when the origin is the cursor's hotspot, which is true
-        // for the arrow and false for everything else. Measured while diagnosing a real
-        // recording: the live system cursor's hotspot was (0.52, 0.50) of its image, its
-        // centre, and drawing it tip-first offset it by about half a cursor.
+        // **No hotspot offset, and removing one was the repair.**
         //
-        // `hotspot` is 0…1 of the CURSOR IMAGE with a top-left origin (AppKit's
-        // `NSCursor.hotSpot` convention); the canvas is bottom-left, hence the y flip. The
-        // art's own extent is `pointerMaxExtent * scale`, not the padded canvas: the padding
-        // exists so an antialiased stroke is not clipped and is not part of the cursor.
-        let artExtent = scale * CursorArt.pointerMaxExtent
-        let artOriginFraction = Self.artOriginFraction
-        let offsetX = placement.hotspot.map { ($0.x - artOriginFraction.x) * artExtent } ?? 0
-        let offsetY = placement.hotspot.map { (artOriginFraction.y - $0.y) * artExtent } ?? 0
+        // `CursorArt`'s paths are built around their HOTSPOT at the origin — the arrow's tip,
+        // the I-beam's centre; its own header says so. Drawing that origin at the recorded
+        // position is therefore already correct, and nothing needs to move it.
+        //
+        // An earlier version shifted the art by `placement.hotspot`, which is the hotspot of
+        // the SYSTEM cursor's IMAGE — a different picture with different padding. That
+        // measurement was taken from one live cursor reading of (0.52, 0.50), its image's
+        // centre, and generalised. Applied to art whose origin is already the hotspot it
+        // moved a correct placement by half a cursor, every frame. `../opensource/a Swift recorder`
+        // (Apache 2.0) draws its own cursor art too and derives each hotspot from its own
+        // design coordinates — the arrow's tip at (1.5, 1.0) in a 17×25 space — never from
+        // the system image, for exactly this reason.
+        //
+        // `hotspot` is still RECORDED. It is the right value for a renderer that draws the
+        // system image, which is what a real cursor-shape table would enable; it is simply
+        // not the right value for this one.
         return CIImage(cgImage: image)
-            .transformed(by: CGAffineTransform(translationX: placement.x - tip - offsetX,
-                                               y: placement.y - tip - offsetY))
+            .transformed(by: CGAffineTransform(translationX: placement.x - tip,
+                                               y: placement.y - tip))
     }
 }
