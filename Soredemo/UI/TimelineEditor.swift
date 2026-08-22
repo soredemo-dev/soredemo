@@ -3,7 +3,9 @@ import Foundation
 import Observation
 import AppKit
 import AVFoundation
+import Framing
 import SwiftUI
+import Framing
 import Timeline
 
 /// The editing surface: what survives, what was cut, and where the playhead is.
@@ -51,6 +53,71 @@ final class TimelineEditorModel {
     /// through this**, so a zoomed view cannot have one conversion for clips and another for
     /// the playhead — see `TimelineWindow` for why that is worth a type.
     private(set) var window = TimelineWindow.whole(Nanoseconds(0))
+    /// The zooms the gate derived, before anyone touched them.
+    private(set) var derivedZooms: [ZoomBlock] = []
+    /// What a person changed about them. Published to the compositor, like every other
+    /// authored value here.
+    private(set) var zoomAdjustments: [ZoomAdjustment] = []
+    /// The zoom a person is holding, so the lane can show it differently while it moves.
+    private(set) var draggingZoom: HostInstant?
+    /// Derived, then adjusted — the order IS the producer-value rule.
+    var zooms: [ZoomBlock] { zoomAdjustments.applied(to: derivedZooms) }
+
+    /// Hands the lane the zooms the gate derived. Called when the plan is read; the
+    /// adjustments survive, because they are keyed on the click rather than on the block.
+    func setDerivedZooms(_ blocks: [ZoomBlock]) {
+        derivedZooms = blocks
+        publish()
+    }
+
+    // MARK: - zoom lane
+
+    /// Shows a zoom being moved, without committing it.
+    func previewZoomMove(_ origin: HostInstant, byNanoseconds delta: Int64) {
+        let base = zoomDragBaseline ?? zoomAdjustments
+        zoomDragBaseline = base
+        draggingZoom = origin
+        zoomAdjustments = base.replacing(base.adjustment(for: origin).movedBy(delta))
+    }
+
+    /// Shows a zoom's end being dragged.
+    func previewZoomResize(_ origin: HostInstant, byNanoseconds delta: Int64) {
+        let base = zoomDragBaseline ?? zoomAdjustments
+        zoomDragBaseline = base
+        draggingZoom = origin
+        zoomAdjustments = base.replacing(base.adjustment(for: origin).resizedBy(delta))
+    }
+
+    /// Commits the drag as ONE step, for the same reason a trim does.
+    func commitZoomDrag(_ name: String) {
+        defer {
+            zoomDragBaseline = nil
+            draggingZoom = nil
+        }
+        publish()
+    }
+
+    func toggleZoomSuppressed(_ origin: HostInstant) {
+        let current = zoomAdjustments.adjustment(for: origin)
+        zoomAdjustments = zoomAdjustments
+            .replacing(current.settingSuppressed(!current.suppressed))
+        publish()
+    }
+
+    func isZoomSuppressed(_ origin: HostInstant) -> Bool {
+        zoomAdjustments.adjustment(for: origin).suppressed
+    }
+
+    var hasZoomEdits: Bool { !zoomAdjustments.isEmpty }
+
+    func resetZooms() {
+        zoomAdjustments = []
+        publish()
+    }
+
+    /// The adjustments a drag started from, so every intermediate value is computed from there
+    /// rather than from the previous frame — the same reason a trim keeps a baseline.
+    private var zoomDragBaseline: [ZoomAdjustment]?
 
     /// Reads the audio envelope off the main thread. Called once per recording; a failure
     /// leaves `waveform` nil, because a strip without a waveform is a smaller loss than an
@@ -235,6 +302,7 @@ final class TimelineEditorModel {
     /// this static disagrees with, which is what keeps the two from drifting.
     private func publish() {
         StageCompositor.editTimeline = edit
+        StageCompositor.zoomAdjustments = zoomAdjustments
     }
 }
 
@@ -257,6 +325,12 @@ struct TimelineEditor: View {
             VStack(alignment: .leading, spacing: 6) {
                 strip(duration: duration)
                     .frame(height: 44)
+                // **Zooms get their own lane.** Screen Studio shows each click as a keyframe
+                // with an adjustable duration; ScreenKite gives zooms a lane beside speed and
+                // annotations. A review panel can reject a zoom but cannot fix one that is a
+                // quarter of a second late, which is the thing a person actually wants to do.
+                zoomLane(duration: duration)
+                    .frame(height: 18)
                 readout(duration: duration)
                 controls
                 playheadKeys(duration: duration)
@@ -395,6 +469,76 @@ struct TimelineEditor: View {
         }
     }
 
+    /// The derived zooms as draggable blocks.
+    ///
+    /// Drag the body to move a zoom, the right edge to change how long it lasts, and click to
+    /// turn it off. A suppressed zoom is drawn hollow rather than removed: a person needs to
+    /// see that there WAS a zoom here in order to bring it back, and a lane that erased it
+    /// would make "no zoom" and "never had one" look the same.
+    @ViewBuilder private func zoomLane(duration: Nanoseconds) -> some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 3).fill(.quaternary.opacity(0.5))
+
+                ForEach(model.derivedZooms, id: \.origin) { derived in
+                    // Drawn from the ADJUSTED block where one survives, so a drag is visible
+                    // while it happens; a suppressed zoom has no adjusted block, so it falls
+                    // back to where it was derived and is drawn hollow.
+                    let shown = model.zooms.first { $0.origin == derived.origin } ?? derived
+                    let suppressed = model.isZoomSuppressed(derived.origin)
+                    let x = model.window.fraction(of: shown.start.hostTime) * width
+                    let w = (model.window.fraction(of: shown.end.hostTime)
+                             - model.window.fraction(of: shown.start.hostTime)) * width
+                    zoomBlockView(origin: derived.origin, suppressed: suppressed,
+                                  width: max(w, 3), height: geometry.size.height,
+                                  laneWidth: width, duration: duration)
+                        .offset(x: x)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func zoomBlockView(origin: HostInstant, suppressed: Bool,
+                                            width: Double, height: Double,
+                                            laneWidth: Double, duration: Nanoseconds) -> some View {
+        let held = model.draggingZoom == origin
+        RoundedRectangle(cornerRadius: 3)
+            .fill(suppressed ? AnyShapeStyle(.clear) : AnyShapeStyle(.tint.opacity(held ? 0.9 : 0.6)))
+            .overlay {
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(.tint, style: StrokeStyle(lineWidth: 1,
+                                                            dash: suppressed ? [3, 2] : []))
+            }
+            .frame(width: width, height: height)
+            .contentShape(Rectangle())
+            .onTapGesture { model.toggleZoomSuppressed(origin); onChange() }
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { value in
+                        let delta = nanoseconds(forPoints: value.translation.width,
+                                                width: laneWidth, duration: duration)
+                        // A drag that started in the right eighth resizes; anywhere else moves.
+                        // One gesture, two meanings, decided by where it began — the same
+                        // convention every timeline uses, and cheaper than a separate handle on
+                        // a block that can be three points wide.
+                        let signed = value.translation.width < 0 ? -delta.rawValue : delta.rawValue
+                        if value.startLocation.x > width * 0.75 {
+                            model.previewZoomResize(origin, byNanoseconds: signed)
+                        } else {
+                            model.previewZoomMove(origin, byNanoseconds: signed)
+                        }
+                    }
+                    .onEnded { value in
+                        model.commitZoomDrag(value.startLocation.x > width * 0.75
+                                             ? "Resize Zoom" : "Move Zoom")
+                        onChange()
+                    }
+            )
+            .help(suppressed ? "This zoom is off. Click to turn it back on."
+                  : "Drag to move, drag the right edge to change how long it lasts, click to turn it off.")
+    }
+
     /// One edge of the selected clip, draggable.
     ///
     /// **Wider than it looks.** The visible line is 2 points; the hit area is 12, which is
@@ -527,6 +671,12 @@ struct TimelineEditor: View {
             }
             .disabled(model.selection == nil)
 
+            if model.hasZoomEdits {
+                Button("Reset zooms") {
+                    model.resetZooms()
+                    onChange()
+                }
+            }
             if model.hasEdits {
                 Button("Revert all") {
                     model.restore()

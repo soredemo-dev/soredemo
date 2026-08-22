@@ -6,6 +6,7 @@ import Foundation
 // this app target links is `SoredemoHeadless`, which vends both.
 import Capture
 import Compositing
+import Framing
 import Project
 import Timeline
 import Variants
@@ -234,6 +235,11 @@ struct StageWindow: View {
             // `StageCompositor.framingOverrides`, which `FramingReviewModel.load` publishes.
             review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
                 .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
+            // The lane draws the same blocks the camera integrates, derived from the same
+            // plan — a second derivation would be a second answer.
+            timeline.setDerivedZooms(ZoomBlock.blocks(
+                for: review.plan.framedClicks(with: review.overrides,
+                                              pointerFallbackRevision: review.fallbackRevision)))
             let recording = AVURLAsset(url: mediaURL)
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)

@@ -22,7 +22,9 @@ private func block(from: Double, to: Double, x: Double, y: Double,
         frame: NormalizedFrame(origin: NormalizedPoint(x: x, y: y),
                                size: NormalizedSize(width: extent, height: extent),
                                revision: revision), role: "AXButton")
-    return ZoomBlock(start: at(seconds: from), end: at(seconds: to),
+    // The origin is the click these fixtures stand in for; `from` is the block's start, which
+    // pre-roll has already moved, so the click itself is a little later.
+    return ZoomBlock(origin: at(seconds: from), start: at(seconds: from), end: at(seconds: to),
                      target: target, zoom: FramingDepth.zoom(for: target))
 }
 

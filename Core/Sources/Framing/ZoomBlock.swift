@@ -15,6 +15,16 @@ public struct FramedClick: Hashable, Sendable {
 
 /// A span the camera is zoomed in for, and what it frames while it is.
 public struct ZoomBlock: Hashable, Sendable {
+    /// **The block's identity: the instant of the first click that produced it.**
+    ///
+    /// A block is derived, so it has no id of its own to store — re-deriving the plan builds
+    /// new values. What survives is the click, which is an observation and does not move. A
+    /// person who drags a zoom on the timeline is adjusting THAT click's zoom, and the
+    /// adjustment has to still mean the same thing after the plan is rebuilt.
+    ///
+    /// Not the block's `start`: pre-roll moves it, so two derivations with different pre-roll
+    /// would produce different identities for the same zoom.
+    public let origin: HostInstant
     public let start: HostInstant
     public let end: HostInstant
     /// The union of every merged click's target — see `blocks(for:)`.
@@ -23,7 +33,9 @@ public struct ZoomBlock: Hashable, Sendable {
     /// and risk disagreeing.
     public let zoom: Double
 
-    public init(start: HostInstant, end: HostInstant, target: FramingTarget, zoom: Double) {
+    public init(origin: HostInstant, start: HostInstant, end: HostInstant,
+                target: FramingTarget, zoom: Double) {
+        self.origin = origin
         self.start = start
         self.end = end
         self.target = target
@@ -113,6 +125,7 @@ extension ZoomBlock {
             let last = group.last!.instant.hostTime.rawValue
             let union = unionTarget(of: group)
             return ZoomBlock(
+                origin: group.first!.instant,
                 start: HostInstant(epoch: epoch,
                                    hostTime: Nanoseconds(max(0, first - preRoll.rawValue))),
                 end: HostInstant(epoch: epoch, hostTime: Nanoseconds(last + hold.rawValue)),

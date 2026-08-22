@@ -45,6 +45,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// the same reason as `overrides`. Applied by `FramingPlan.framedClicks(with:)`, which
     /// consults them BEFORE the gate, so a re-derivation cannot replace an authored value.
     public nonisolated(unsafe) static var framingOverrides: [FramingOverride] = []
+    /// A person's changes to the derived zooms — where each starts, how long it lasts, whether
+    /// it happens. Set on the same terms as the seams above. See `ZoomAdjustment` for why they
+    /// are keyed on the click rather than on the block.
+    public nonisolated(unsafe) static var zoomAdjustments: [ZoomAdjustment] = []
 
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
@@ -273,9 +277,15 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // **The pointer fallback is on**, which is what makes a recording zoom at all when
         // accessibility is unavailable — a real recording measured eleven frames with the card
         // identical in every one, because every chain came back `hitTestReturnedNothing`.
-        let camera = CameraMotion(blocks: ZoomBlock.blocks(
+        // Derive, then adjust. The order is the producer-value rule: a person's correction is
+        // applied to whatever the gate concluded this time, so re-deriving cannot discard it
+        // and cannot silently ignore it either.
+        let derived = ZoomBlock.blocks(
             for: plan.framedClicks(with: framingOverrides,
-                                   pointerFallbackRevision: plan.fallbackRevision)))
+                                   pointerFallbackRevision: plan.fallbackRevision))
+        // `unsafe`: `zoomAdjustments` is a `nonisolated(unsafe)` static, read here under the
+        // same "published before playback starts" guarantee as every other seam on this type.
+        let camera = CameraMotion(blocks: unsafe zoomAdjustments.applied(to: derived))
         return (pointer: pointer, click: click, anchor: anchor, camera: camera)
     }
 }
