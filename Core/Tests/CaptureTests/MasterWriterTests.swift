@@ -204,3 +204,56 @@ private enum MasterWriterTestError: Error {
     case refused(String)
     case startFailed(String?)
 }
+
+// MARK: - the order everything downstream reads by position
+
+/// **`AudioMix` maps a name to a track by POSITION, and this is the assumption it rests on.**
+///
+/// A `.mov` audio track carries no role, so "which one is the microphone" can only be answered
+/// by the order the writer added its inputs. `MP4Exporter.mix` uses that order to set each
+/// source's level. Without this test, reordering the three lines in `LegacyMasterWriter.init`
+/// would silently mute the wrong source in a file nobody re-checks — the export would still
+/// succeed and still contain audio.
+@Suite struct MasterTrackOrderTests {
+    /// **Asserted against the SOURCE, and the limit is worth stating.** The order that matters
+    /// is the one in the finished file, but a master with no samples written is not an openable
+    /// asset — AVFoundation reports it damaged — and writing real video and two real audio
+    /// streams here would be building a recorder to test a line. So this pins the line itself.
+    ///
+    /// A file-level check does exist and covers the same ground from the other side:
+    /// `aRecordingWithAudioExportsWithOneMixedAudioTrack` exports a two-audio-track fixture and
+    /// asserts the result. What it cannot say is WHICH source ended up where, which is exactly
+    /// what the positional mapping needs and what this pins.
+    @Test func theMasterAddsItsTracksInAKnownOrder() throws {
+        let source = try String(contentsOf: repositoryRootFromCaptureTests
+            .appending(path: "Sources/Capture/MasterWriter.swift"), encoding: .utf8)
+        let line = try #require(source.split(separator: "\n")
+            .first { $0.contains("for input in [") },
+            "the writer no longer adds its inputs in one place — the order cannot be read")
+        #expect(line.contains("videoInput, systemAudioInput, micInput"), """
+            the writer adds its inputs in a different order now: \(line)
+            `MP4Exporter.mix` maps [.systemAudio, .microphone] onto the audio tracks BY \
+            POSITION, because a .mov audio track carries no role. Changing this line silently \
+            mutes or boosts the wrong source, in an export that still succeeds and still \
+            contains audio — which is why it is pinned rather than left to be noticed.
+            """)
+
+        // …and the two audio inputs are declared in that same order above it, so the names in
+        // the line above are not a coincidence of spelling.
+        let systemIndex = try #require(source.range(of: "let systemAudioInput"))
+        let micIndex = try #require(source.range(of: "let micInput"))
+        #expect(systemIndex.lowerBound < micIndex.lowerBound, """
+            systemAudioInput is declared after micInput, so the names in the add-order line no \
+            longer mean what the positional mapping assumes.
+            """)
+    }
+}
+
+/// `<package>/Tests/CaptureTests/<this file>` → the package root.
+let repositoryRootFromCaptureTests = URL(filePath: #filePath)
+    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+private enum MasterOrderTestError: Error {
+    case refused(String)
+    case startFailed(String?)
+}

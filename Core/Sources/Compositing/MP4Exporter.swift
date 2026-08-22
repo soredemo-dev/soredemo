@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Project
 import Timeline
 
 /// One MP4 (H.264) export of a recorded master, written directly against `AVAssetReader` /
@@ -29,6 +30,7 @@ public enum MP4Exporter {
     public nonisolated static func export(asset: AVAsset, to outputURL: URL,
                                           outputWidth: Int, outputHeight: Int,
                                           edit: EditTimeline? = nil,
+                                          audioMix: AudioMix = .unchanged,
                                           frameRate: Int = 60) async throws -> ExportReport {
         precondition(frameRate > 0, "frameRate must be positive, got \(frameRate)")
         if FileManager.default.fileExists(atPath: outputURL.path) {
@@ -103,7 +105,8 @@ public enum MP4Exporter {
         let counts = try await writeInterleaved(
             asset: asset, videoTracks: videoTracks, audioTracks: audioTracks,
             composition: composition, frameDuration: frameDuration, sessionStart: sessionStart,
-            writer: writer, videoInput: videoInput, audioInput: audioInput)
+            writer: writer, videoInput: videoInput, audioInput: audioInput,
+            audioMix: audioMix)
         let video = (read: counts.framesRead, written: counts.framesWritten)
         let audioSamples = counts.audioWritten
 
@@ -146,7 +149,8 @@ public enum MP4Exporter {
     private nonisolated static func writeInterleaved(
         asset: AVAsset, videoTracks: [AVAssetTrack], audioTracks: [AVAssetTrack],
         composition: AVVideoComposition, frameDuration: CMTime, sessionStart: CMTime,
-        writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?
+        writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?,
+        audioMix: AudioMix
     ) async throws -> (framesRead: Int, framesWritten: Int, audioWritten: Int) {
         let videoReader = try AVAssetReader(asset: asset)
         let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: videoTracks, videoSettings: [
@@ -177,6 +181,14 @@ public enum MP4Exporter {
                 AVSampleRateKey: 48_000,
                 AVNumberOfChannelsKey: 2,
             ])
+            // **The mix is applied at the READ.** `AVAssetReaderAudioMixOutput` already sums
+            // the source tracks; an `AVAudioMix` sets each one's level going in, so a muted
+            // microphone contributes nothing rather than being summed and then multiplied by
+            // zero — and a boosted one is boosted before the sum rather than after, which is
+            // the difference between raising a voice and raising the mix it is buried in.
+            if audioMix.changesAnything {
+                output.audioMix = Self.mix(audioMix, over: audioTracks)
+            }
             guard reader.canAdd(output) else { throw ExportError.readerRefusedOutput }
             reader.add(output)
             guard reader.startReading() else {
@@ -299,6 +311,30 @@ public enum MP4Exporter {
                                                       lastSource: last.seconds)
         }
         return (resampler.framesRead, resampler.framesWritten, audioWritten)
+    }
+
+    /// An `AVAudioMix` setting each source's level.
+    ///
+    /// **The mapping from a name to a track is positional**, and it is the master's own order:
+    /// `LegacyMasterWriter` adds video, then system audio, then the microphone, so the audio
+    /// tracks arrive in that order. `theMasterAddsItsTracksInAKnownOrder` is what stops that
+    /// from changing silently — without it this would be a silent mis-assignment, muting the
+    /// wrong source in a file nobody re-checks.
+    ///
+    /// A track beyond the two we write is left at unity rather than guessed at: an asset with
+    /// three audio tracks did not come from this recorder, and silencing something because it
+    /// was not expected is worse than passing it through.
+    private nonisolated static func mix(_ settings: AudioMix,
+                                        over tracks: [AVAssetTrack]) -> AVAudioMix {
+        let order: [AudioMix.Source] = [.systemAudio, .microphone]
+        let mix = AVMutableAudioMix()
+        mix.inputParameters = tracks.enumerated().map { index, track in
+            let parameters = AVMutableAudioMixInputParameters(track: track)
+            let gain = index < order.count ? settings.effectiveGain(for: order[index]) : 1
+            parameters.setVolume(Float(gain), at: .zero)
+            return parameters
+        }
+        return mix
     }
 
     /// The next audio buffer with actual samples. Marker-only buffers carry no audio and would

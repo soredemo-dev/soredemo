@@ -6,6 +6,7 @@ import Foundation
 // this app target links is `SoredemoHeadless`, which vends both.
 import Capture
 import Compositing
+import Project
 import Timeline
 import Variants
 import SwiftUI
@@ -29,6 +30,9 @@ struct StageWindow: View {
     /// The output shape. Drives the preview as well as the export: a person choosing Portrait
     /// and then seeing a landscape preview has been shown the wrong thing.
     @State private var variant = AspectVariant.landscape
+    /// How loud each recorded source is in the export. Two sources, because the master keeps
+    /// system audio and the microphone apart — see `AudioMix`.
+    @State private var audioMix = AudioMix.unchanged
     // MARK: - basic-edit
     /// What survives editing. **Replaced a pair of trim sliders**, which could express one
     /// kept span and nothing else: no cut in the middle, no seeing where a cut was made, no
@@ -117,6 +121,7 @@ struct StageWindow: View {
                 Section("Edit") {
                     TimelineEditor(model: timeline, onChange: { editRevision += 1 })
                 }
+                Section("Audio") { audioControls }
                 Section("Look") {
                     StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
                 }
@@ -182,6 +187,47 @@ struct StageWindow: View {
             frameDuration: CMTime(value: 1, timescale: 60))
     }
 
+    /// One row per recorded source: a level and a mute.
+    ///
+    /// **Mute is a separate control from a zero level**, which is what lets a person unmute
+    /// back to where they had it — `AudioMix` keeps the two apart for that reason, and a UI
+    /// that collapsed them would throw the level away.
+    ///
+    /// The level is shown as a percentage because that is what a person reads a volume in;
+    /// `AudioMix` stores a linear gain, which is what `AVAudioMix` takes. The conversion is
+    /// here, at the edge, rather than in the model.
+    @ViewBuilder private var audioControls: some View {
+        ForEach(AudioMix.Source.allCases, id: \.self) { source in
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Toggle(isOn: Binding(
+                        get: { !audioMix.isMuted(source) },
+                        set: { audioMix = audioMix.setting(source, muted: !$0) })
+                    ) {
+                        Text(source.displayName)
+                    }
+                    .toggleStyle(.checkbox)
+                    Spacer()
+                    Text("\(Int((audioMix.gain(for: source) * 100).rounded()))%")
+                        .monospacedDigit()
+                        .foregroundStyle(audioMix.isMuted(source) ? .tertiary : .secondary)
+                }
+                .font(.caption)
+                Slider(value: Binding(
+                    get: { audioMix.gain(for: source) },
+                    set: { audioMix = audioMix.setting(source, gain: $0) }),
+                       in: 0...AudioMix.maximumGain)
+                    // A muted source's slider is disabled rather than hidden: the level is
+                    // still there, and hiding it would suggest it had been lost.
+                    .disabled(audioMix.isMuted(source))
+            }
+        }
+        if audioMix.changesAnything {
+            Button("Reset audio") { audioMix = .unchanged }
+                .buttonStyle(.link).font(.caption)
+        }
+    }
+
     private func load() async {
         do {
             // Before the composition: `configuredComposition` reads
@@ -228,7 +274,7 @@ struct StageWindow: View {
             let report = try await MP4Exporter.export(
                 asset: asset, to: destination,
                 outputWidth: size.width, outputHeight: size.height,
-                edit: timeline.edit)
+                edit: timeline.edit, audioMix: audioMix)
             exportStatus = "Exported \(report.framesWritten) frame(s) at "
                 + "\(size.width)\u{00D7}\(size.height) to "
                 + "\(report.outputURL.lastPathComponent)."
