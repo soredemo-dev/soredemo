@@ -236,6 +236,12 @@ public enum ObservationBlindness: String, Codable, Sendable, CaseIterable {
     case eventTapRunLoopSourceUnavailable
     /// Accessibility not granted: clicks are recorded, their object half is not.
     case accessibilityUnavailable
+    /// ScreenCaptureKit on this system cannot capture a microphone into the stream — probed
+    /// by `MicrophoneInventory.captureIsSupported`, not inferred from an OS version. System
+    /// audio still records; only the narration track is absent. Stated for the same reason
+    /// the others are: a recording made without a microphone is byte-identical to one made in
+    /// silence, and a person looking at a silent export needs to know which.
+    case microphoneUnavailable
 }
 
 /// The first line of every log, and the join to the segment table: `segmentIndex`

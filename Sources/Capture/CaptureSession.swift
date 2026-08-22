@@ -92,6 +92,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private let pointerShapeReader: @Sendable () -> PointerShape?
     /// Passed through with the shape — see `InputObserver`'s own doc for the cadence.
     private let pointerHotspotReader: @Sendable () -> NormalizedPoint?
+    /// Which microphone this recording asks for. Defaulted to the system's so an existing
+    /// caller records exactly what it did before; see `MicrophoneSource` for why naming one
+    /// is worth the parameter.
+    private let microphone: MicrophoneSource
 
     /// Every Nth complete video frame is luminance-sampled for the black-frame
     /// detector. Uncalibrated placeholder. `nonisolated` on all three constants
@@ -312,6 +316,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// microphone legitimately closes that track — but it IS the fact that explains a
         /// missing audio track, and a reader looking at a silent export needs it.
         public internal(set) var audioTracksClosedUnfed: [String] = []
+        /// Which microphone the recording asked for, or why it asked for none. A project that
+        /// came out silent needs to be able to say which of the two it was.
+        public internal(set) var microphoneSource: String?
         /// How long after the segment was set up the first complete frame arrived.
         ///
         /// **This is the size of a bug that shipped**: the observation log's anchor used to be
@@ -477,7 +484,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     public init(source: CaptureSource, scale: Double, displayUUID: UUID,
                 mediaSink: any MediaSink, epoch: BootEpoch,
                 pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil },
-                pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil }) {
+                pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil },
+                microphone: MicrophoneSource = .systemDefault) {
+        self.microphone = microphone
         self.source = source
         self.scale = scale
         self.displayUUID = displayUUID
@@ -713,7 +722,28 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                                                   destination: destination, scale: geometry.scale))
         }
         configuration.capturesAudio = true
-        configuration.captureMicrophone = true
+        // **The microphone is requested only when this system can serve one, and it is named.**
+        // Setting `captureMicrophone` unconditionally and naming no device meant a machine
+        // without the capability got a silent no, and a person with two microphones got
+        // whichever one the system preferred. an Electron recorder probes the same three things and
+        // degrades with a warning; an Electron recorder names the device the same way.
+        if MicrophoneInventory.captureIsSupported(by: configuration) {
+            configuration.captureMicrophone = true
+            let resolved = MicrophoneInventory.resolve(microphone)
+            if let deviceID = resolved.deviceID {
+                configuration.microphoneCaptureDeviceID = deviceID
+            }
+            lock.withLock { unsafe _diagnostics.microphoneSource = resolved.displayName }
+        } else {
+            configuration.captureMicrophone = false
+            // Not a failure: system audio still records. Recorded as blindness for the same
+            // reason every other degraded permission is — a silent absence is the one thing
+            // this module does not do.
+            lock.withLock {
+                unsafe _diagnostics.microphoneSource = "unsupported on this system"
+                unsafe self.observationBlindness.append(.microphoneUnavailable)
+            }
+        }
         // **Do not record ourselves.** Without this, any sound this app makes — an alert, a
         // preview playing back — is captured into the system-audio track, and a preview
         // playing while recording is a feedback loop. Both `../opensource/an Electron recorder-main` and
