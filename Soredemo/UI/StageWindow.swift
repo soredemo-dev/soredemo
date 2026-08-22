@@ -191,6 +191,10 @@ struct StageWindow: View {
             let recording = AVURLAsset(url: mediaURL)
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)
+                // After `load`, which resets the model: reading the envelope is slow enough
+                // that a person sees the strip before it arrives, and it must not be wiped by
+                // the reset it raced.
+                await timeline.loadWaveform(from: recording)
             }
             // **The preview plays the EDITED asset, not the recording with an end time set.**
             // `EditedAsset` is what the export cuts with too, so the two cannot show different

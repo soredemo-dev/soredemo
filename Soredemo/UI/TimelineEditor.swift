@@ -2,6 +2,7 @@ import Compositing
 import Foundation
 import Observation
 import AppKit
+import AVFoundation
 import SwiftUI
 import Timeline
 
@@ -43,6 +44,16 @@ final class TimelineEditorModel {
     private var original = EditTimeline(clips: [])
     /// Carried across the events of one drag so a snap holds instead of flickering.
     private var snapState = SnapEngine.State()
+    /// The recording's audio, for drawing. `nil` until it has been read, and empty when the
+    /// recording has no audio — two different things, and the strip shows nothing for both.
+    private(set) var waveform: WaveformEnvelope?
+
+    /// Reads the audio envelope off the main thread. Called once per recording; a failure
+    /// leaves `waveform` nil, because a strip without a waveform is a smaller loss than an
+    /// editor that refuses to open a recording whose audio it could not read.
+    func loadWaveform(from asset: AVAsset) async {
+        waveform = try? await WaveformEnvelope.read(from: asset)
+    }
 
     func load(duration seconds: Double) {
         let total = Nanoseconds(Int64(seconds * 1_000_000_000))
@@ -238,6 +249,8 @@ struct TimelineEditor: View {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(.quaternary)
 
+                waveformLayer(duration: duration, width: width, height: geometry.size.height)
+
                 // Keyed on the clip's own id, not its index: SwiftUI reuses views by
                 // identity, and an index key would animate a deleted clip into its
                 // neighbour's place rather than removing it.
@@ -309,6 +322,30 @@ struct TimelineEditor: View {
                     }
                     .onEnded { _ in model.endDrag() }
             )
+        }
+    }
+
+    /// The audio envelope, drawn behind the clips.
+    ///
+    /// **One bar per pixel, taking the MAXIMUM of the slices that fall in it.** The envelope is
+    /// 200 slices a second and the strip is a few hundred points wide, so most pixels cover
+    /// several slices. Averaging them would flatten a transient — a click, the start of a word
+    /// — into the quiet around it, and those are exactly what a person is looking for when they
+    /// scan a waveform for where to cut.
+    ///
+    /// A `Canvas`, not a stack of `Rectangle`s: several hundred views that redraw on every
+    /// playhead move is the difference between a strip that scrubs and one that stutters.
+    @ViewBuilder private func waveformLayer(duration: Nanoseconds, width: Double,
+                                            height: Double) -> some View {
+        if let waveform = model.waveform, !waveform.isEmpty, width > 0 {
+            WaveformBars(
+                heights: waveform.columnHeights(
+                    columns: Int(width.rounded(.down)),
+                    spanningSeconds: Double(duration.rawValue) / 1_000_000_000),
+                height: height)
+                .equatable()
+            .frame(height: height)
+            .allowsHitTesting(false)
         }
     }
 
@@ -493,5 +530,41 @@ struct TimelineEditor: View {
         let seconds = Double(time.rawValue) / 1_000_000_000
         return String(format: "%d:%05.2f", Int(seconds) / 60,
                       seconds.truncatingRemainder(dividingBy: 60))
+    }
+}
+
+
+/// The audio envelope as bars, mirrored about the middle — which is how a waveform is read.
+///
+/// **`Equatable`, and that is the performance decision.** A strip is a few hundred columns, so
+/// this is a few hundred `Rectangle`s; SwiftUI would re-evaluate every one of them on each
+/// playhead move without a way to know nothing changed. Conforming lets it skip the subtree
+/// when the heights and the height are the same, which they are for every frame of a scrub.
+///
+/// `.drawingGroup()` rasterises the result once through Metal rather than compositing hundreds
+/// of layers per frame.
+///
+/// **No CoreGraphics geometry is named here**, which rule 5 requires of this tier: the heights
+/// arrive as plain numbers from `WaveformEnvelope` and become bars through `frame`/`offset`.
+private struct WaveformBars: View, Equatable {
+    let heights: [Double]
+    let height: Double
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(heights.indices, id: \.self) { column in
+                let bar = heights[column] * height
+                // A silent column draws nothing rather than a hairline across the silence.
+                if bar > 0 {
+                    Rectangle()
+                        .fill(.primary.opacity(0.28))
+                        .frame(width: 1, height: bar)
+                        .offset(x: Double(column), y: (height - bar) / 2)
+                }
+            }
+        }
+        .frame(height: height)
+        .drawingGroup()
+        .allowsHitTesting(false)
     }
 }
