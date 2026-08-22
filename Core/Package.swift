@@ -45,7 +45,10 @@ let package = Package(
         // transcript, and only PRODUCING the transcript needs a speech model. That half lives
         // in `Compositing`, which already reads a recording's audio. Depends on `Timeline`
         // alone — a caption track is retimed through an edit, and knows nothing else.
-        .target(name: "Captions", dependencies: ["Timeline"], swiftSettings: strict,
+        // `Render` since text overlays landed: a `TextItem` carries the style it is drawn
+        // with, and that style is a render-tier value. Deterministic → deterministic, and
+        // `Render` does not and may not depend back.
+        .target(name: "Captions", dependencies: ["Timeline", "Render"], swiftSettings: strict,
                 plugins: archCheck),
 
         // **The tier `swift test` can run but a person still has to believe.**
@@ -209,7 +212,7 @@ let package = Package(
         .testTarget(name: "FramingTests", dependencies: ["Framing", "Geometry", "Project", "Timeline"],
                     swiftSettings: strict),
         .testTarget(name: "VariantsTests", dependencies: ["Variants"], swiftSettings: strict),
-        .testTarget(name: "CaptionsTests", dependencies: ["Captions", "Timeline"], swiftSettings: strict),
+        .testTarget(name: "CaptionsTests", dependencies: ["Captions", "Timeline", "Render"], swiftSettings: strict),
         .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
         .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],
                     swiftSettings: strict),

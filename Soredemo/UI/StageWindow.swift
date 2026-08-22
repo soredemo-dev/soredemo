@@ -66,16 +66,19 @@ struct StageWindow: View {
     /// The captions. Owned here beside `stageStyle` so a change survives the inspector being
     /// closed, and so the preview and the export read the same track.
     @State private var captions = CaptionsModel()
+    /// Titles and notes drawn over the picture. Owned here beside `captions` for the same reason.
+    @State private var texts = TextOverlaysModel()
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
-        case project, selection, captions
+        case project, selection, captions, text
 
         var title: String {
             switch self {
             case .project: "Project"
             case .selection: "Zooms"
             case .captions: "Captions"
+            case .text: "Text"
             }
         }
     }
@@ -291,6 +294,9 @@ struct StageWindow: View {
                 CaptionsPanel(model: captions, mediaURL: mediaURL, edit: timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 })
+            case .text:
+                TextPanel(model: texts, playhead: timeline.playhead,
+                          onChange: { reviewRevision += 1 })
             }
         }
     }
@@ -394,7 +400,8 @@ struct StageWindow: View {
                 ? nil : try? EditState.encoding(captions.track),
             captionStyleData: captions.track.isEmpty
                 ? nil : try? EditState.encoding(captions.style),
-            burnsInCaptions: captions.burnsIn ? true : nil)
+            burnsInCaptions: captions.burnsIn ? true : nil,
+            textTrackData: texts.track.isEmpty ? nil : try? EditState.encoding(texts.track))
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -460,6 +467,11 @@ struct StageWindow: View {
                 captions.setStyle(style)
             }
         } catch { failures.append("the captions") }
+        do {
+            if let track = try EditState.decoding(edit.textTrackData, as: TextTrack.self) {
+                texts.restore(track)
+            }
+        } catch { failures.append("the text") }
         savedEdit = edit
         if !failures.isEmpty {
             projectStatus = "Opened, but could not read \(failures.joined(separator: ", "))."

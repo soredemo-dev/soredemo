@@ -123,3 +123,117 @@ import Timeline
         #expect(style.maximumWidth(forOutputWidth: 1000) == 900)
     }
 }
+
+@Suite struct TextArtTests {
+    /// Titles break where a person typed a break, and a blank line is a gap they typed.
+    @Test func linesSplitOnNewlinesAndBlankOnesAreKept() {
+        #expect(TextArt.lines(of: "one\ntwo") == ["one", "two"])
+        #expect(TextArt.lines(of: "one\n\nthree") == ["one", "", "three"])
+        #expect(TextArt.lines(of: "one") == ["one"])
+    }
+
+    /// The plate has to hold every line, so the width is the widest one.
+    @Test func widthIsTheWidestLineNotTheFirstOrTheSum() {
+        let narrow = TextArt.width(of: "i", pointSize: 40, bold: false)
+        let wide = TextArt.width(of: "wwwwwwwwww", pointSize: 40, bold: false)
+        let both = TextArt.width(of: "i\nwwwwwwwwww", pointSize: 40, bold: false)
+        #expect(both == wide)
+        #expect(both > narrow)
+    }
+
+    @Test func emptyTextMeasuresZeroAndDrawsNothing() {
+        #expect(TextArt.width(of: "", pointSize: 40, bold: false) == 0)
+        #expect(TextArt.width(of: "\n\n", pointSize: 40, bold: false) == 0)
+        #expect(TextArt.image(TextOverlay(text: "  \n ", style: .default),
+                              outputWidth: 640, outputHeight: 360) == nil)
+    }
+
+    @Test func aZeroSizedFrameProducesNoImageRatherThanTrapping() {
+        let overlay = TextOverlay(text: "hello", style: .default)
+        #expect(TextArt.image(overlay, outputWidth: 0, outputHeight: 360) == nil)
+        #expect(TextArt.image(overlay, outputWidth: 640, outputHeight: 0) == nil)
+    }
+
+    /// **The anchor is why a title pinned left stays pinned left when its text gets longer.**
+    /// Measured by where the ink is, not by reading the arithmetic back.
+    @Test func theAnchorDecidesWhichEdgeXPointsAt() throws {
+        let context = CIContext()
+        let base = TextOverlayStyle.default.changing(heightFraction: 0.12, y: 0.4)
+
+        let leading = try #require(TextArt.image(
+            TextOverlay(text: "AA", style: base.changing(x: 0.05, anchor: .leading)),
+            outputWidth: 800, outputHeight: 400))
+        let trailing = try #require(TextArt.image(
+            TextOverlay(text: "AA", style: base.changing(x: 0.95, anchor: .trailing)),
+            outputWidth: 800, outputHeight: 400))
+
+        #expect(inkColumns(of: leading, context: context).first ?? 800 < 200)
+        #expect(inkColumns(of: trailing, context: context).last ?? 0 > 600)
+    }
+
+    /// Two lines are taller than one, which is the check that the stacking runs at all.
+    @Test func asecondLineMakesTheDrawnBlockTaller() throws {
+        let context = CIContext()
+        let style = TextOverlayStyle.default.changing(heightFraction: 0.1, y: 0.3)
+        let one = try #require(TextArt.image(TextOverlay(text: "A", style: style),
+                                             outputWidth: 400, outputHeight: 400))
+        let two = try #require(TextArt.image(TextOverlay(text: "A\nA", style: style),
+                                             outputWidth: 400, outputHeight: 400))
+        #expect(inkRows(of: two, context: context).count > inkRows(of: one, context: context).count)
+    }
+
+    /// `y` is measured from the BOTTOM. Getting that wrong puts a title on the wrong half of the
+    /// frame, which survives review because it looks deliberate.
+    @Test func yIsMeasuredUpFromTheBottom() throws {
+        let context = CIContext()
+        let style = TextOverlayStyle.default.changing(heightFraction: 0.1)
+        let low = try #require(TextArt.image(TextOverlay(text: "A", style: style.changing(y: 0.05)),
+                                             outputWidth: 400, outputHeight: 400))
+        let high = try #require(TextArt.image(TextOverlay(text: "A", style: style.changing(y: 0.8)),
+                                              outputWidth: 400, outputHeight: 400))
+        let lowRows = inkRows(of: low, context: context)
+        let highRows = inkRows(of: high, context: context)
+        #expect((lowRows.first ?? 0) < (highRows.first ?? 0))
+    }
+
+    /// **The whole image once, then scanned in memory.** One `CIContext.render` per PIXEL is
+    /// what the first version of these helpers did, and it made this suite take fourteen
+    /// seconds — each call sets up and tears down a GPU pass to read four bytes.
+    private func alphaMap(of image: CIImage, context: CIContext) -> (width: Int, height: Int, alpha: [UInt8]) {
+        let width = Int(image.extent.width)
+        let height = Int(image.extent.height)
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        // The buffer is exactly `width * height` RGBA pixels and `render` is told exactly that,
+        // so the pointer cannot outlive the call and the size cannot be wrong.
+        unsafe bytes.withUnsafeMutableBytes { raw in
+            unsafe context.render(image, toBitmap: raw.baseAddress!, rowBytes: width * 4,
+                                  bounds: image.extent, format: .RGBA8,
+                                  colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+        }
+        // `render(toBitmap:)` writes top-down while the image's own y runs bottom-up, so the
+        // rows are flipped back here — a position assertion read off unflipped rows would be
+        // exactly upside down, which is the bug these tests exist to catch.
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                alpha[y * width + x] = bytes[((height - 1 - y) * width + x) * 4 + 3]
+            }
+        }
+        return (width, height, alpha)
+    }
+
+    /// Which columns of a frame-sized image have any ink in them.
+    private func inkColumns(of image: CIImage, context: CIContext) -> [Int] {
+        let map = alphaMap(of: image, context: context)
+        return (0..<map.width).filter { x in
+            (0..<map.height).contains { map.alpha[$0 * map.width + x] > 76 }
+        }
+    }
+
+    private func inkRows(of image: CIImage, context: CIContext) -> [Int] {
+        let map = alphaMap(of: image, context: context)
+        return (0..<map.height).filter { y in
+            (0..<map.width).contains { map.alpha[y * map.width + $0] > 76 }
+        }
+    }
+}

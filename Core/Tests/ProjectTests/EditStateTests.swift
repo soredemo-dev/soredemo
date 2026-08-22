@@ -25,6 +25,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(EditState(captionTrackData: Data("x".utf8)).changesAnything)
         #expect(EditState(captionStyleData: Data("x".utf8)).changesAnything)
         #expect(EditState(burnsInCaptions: true).changesAnything)
+        #expect(EditState(textTrackData: Data("x".utf8)).changesAnything)
     }
 
     /// **Burn-in being OFF is not a change.** It is the default, so a project that only ever had

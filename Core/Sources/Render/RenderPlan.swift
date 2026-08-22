@@ -194,12 +194,16 @@ public struct RenderPlan: Hashable, Sendable {
     /// per clip because a caption changes several times a second and the plan is what a frame
     /// is drawn from.
     public let caption: CaptionOverlay?
+    /// Text overlays on this frame, back to front. Several at once, unlike the caption: two
+    /// captions on screen is a bug and a title over a lower third is a layout.
+    public let texts: [TextOverlay]
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
                 contentZoom: Double = 1.0,
                 contentCentre: NormalizedPoint = NormalizedPoint(x: 0.5, y: 0.5),
-                caption: CaptionOverlay? = nil) {
+                caption: CaptionOverlay? = nil,
+                texts: [TextOverlay] = []) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -209,6 +213,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.contentZoom = contentZoom
         self.contentCentre = contentCentre
         self.caption = caption
+        self.texts = texts
     }
 }
 

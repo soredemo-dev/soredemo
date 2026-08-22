@@ -44,6 +44,13 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                                         outputHeight: plan.outputHeight) {
             composed = image.composited(over: composed)
         }
+        // Titles above the caption: a caption is a transcript of what is being said and belongs
+        // under anything a person deliberately placed.
+        for text in plan.texts {
+            guard let image = TextArt.image(text, outputWidth: plan.outputWidth,
+                                            outputHeight: plan.outputHeight) else { continue }
+            composed = image.composited(over: composed)
+        }
         // Rule 5 confines `CGRect`/`CGFloat` to the bridge file, so no literal `CGRect` here.
         let cropped = composed
             .cropped(to: HeadlessGeometryBridge.outputCanvas(width: plan.outputWidth, height: plan.outputHeight))

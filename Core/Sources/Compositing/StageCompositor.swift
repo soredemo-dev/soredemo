@@ -67,6 +67,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// on again does not discard a transcript that took a minute to produce.
     public nonisolated(unsafe) static var burnsInCaptions = false
 
+    /// Text overlays, in the recording's SOURCE time. Set on the same terms as the seams above,
+    /// and looked up the same way — see `captionOverlay(at:)`.
+    ///
+    /// No `burnsIn` twin: a person who put a word on the screen put it there on purpose, and a
+    /// title that could be silently switched off would be a title nobody trusts is in the export.
+    public nonisolated(unsafe) static var texts = TextTrack()
+
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
     nonisolated(unsafe) private static var _diagnostics = Diagnostics()
@@ -138,7 +145,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               pointer: pointerPlacement(at: request.compositionTime, in: aimed),
                               contentZoom: aimed.contentZoom,
                               contentCentre: aimed.contentCentre,
-                              caption: captionOverlay(at: request.compositionTime))
+                              caption: captionOverlay(at: request.compositionTime),
+                              texts: textOverlays(at: request.compositionTime))
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             try source.withUnsafeBuffer { sourceBuffer in
@@ -237,6 +245,17 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         guard let source = Self.sourceOffset(forOutput: outputOffset),
               let cue = unsafe Self.captions.cue(at: source) else { return nil }
         return CaptionOverlay(text: cue.text, style: unsafe Self.captionStyle)
+    }
+
+    /// The text overlays on screen at an OUTPUT time. Converted to source time first, for the
+    /// reason `captionOverlay(at:)` gives.
+    private func textOverlays(at compositionTime: CMTime) -> [TextOverlay] {
+        guard !(unsafe Self.texts.isEmpty) else { return [] }
+        let outputOffset = Nanoseconds(CMTimeConvertScale(
+            compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
+        guard let source = Self.sourceOffset(forOutput: outputOffset) else { return [] }
+        return unsafe Self.texts.items(at: source)
+            .map { TextOverlay(text: $0.text, style: $0.style) }
     }
 
     /// Reads `Self.observationLogURL` at most once per instance, caching success or failure alike.

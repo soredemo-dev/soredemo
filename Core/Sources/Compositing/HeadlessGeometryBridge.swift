@@ -37,6 +37,9 @@ nonisolated enum HeadlessGeometryBridge {
         CGRect(x: CGFloat(x), y: CGFloat(y), width: 1, height: 1)
     }
 
+    /// The zero `CGSize` `CGContext.setShadow` needs for an offsetless shadow.
+    public nonisolated static func noOffset() -> CGSize { CGSize(width: 0, height: 0) }
+
     /// `CTLineGetTypographicBounds`' three out-parameters as plain `Double`s: the call needs
     /// `inout CGFloat`, which nothing outside this file may name.
     public nonisolated static func typographicBounds(of line: CTLine) -> (width: Double, ascent: Double, descent: Double) {
