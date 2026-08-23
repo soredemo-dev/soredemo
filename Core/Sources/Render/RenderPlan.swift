@@ -86,6 +86,19 @@ public enum StageBackground: Hashable, Codable, Sendable {
                         endRed: Double, endGreen: Double, endBlue: Double,
                         angleDegrees: Double)
 
+    /// A picture behind the card, by its filename inside the project package.
+    ///
+    /// **A filename, not a path.** An absolute path is a background that works until the file
+    /// is moved, renamed, or the project is opened on another machine — and a wallpaper that
+    /// silently becomes black is worse than one that was never offered. The chosen image is
+    /// copied into `<package>/backgrounds/` when it is picked, so the background travels with
+    /// the recording exactly as the media and the observation log already do.
+    ///
+    /// **No path separators.** This name is joined to a directory by a renderer; a value
+    /// carrying `../` would reach outside the package. `Codable` cannot be trusted to hand back
+    /// what was written, so the decoder rejects it — rule 8's case.
+    case image(filename: String)
+
     /// The presets the picker offers. Named rather than anonymous tuples because a project
     /// records which one was chosen and a name survives a value being retuned.
     public static let presets: [(name: String, background: StageBackground)] = [
@@ -103,6 +116,53 @@ public enum StageBackground: Hashable, Codable, Sendable {
                                   endRed: 0.82, endGreen: 0.83, endBlue: 0.85,
                                   angleDegrees: 100)),
     ]
+
+    /// The directory an image background's file lives in, inside the package.
+    public static let imageDirectory = "backgrounds"
+
+    /// True when `filename` is a plain name this type will accept.
+    ///
+    /// Rejects anything with a separator or a leading dot: the name is joined to a directory by
+    /// whoever draws it, and `../../etc/passwd` is a filename as far as a string is concerned.
+    public static func isSafeImageFilename(_ filename: String) -> Bool {
+        !filename.isEmpty
+            && !filename.hasPrefix(".")
+            && !filename.contains("/")
+            && !filename.contains("\\")
+    }
+
+    public init(from decoder: any Decoder) throws {
+        // Hand-written so the image case can be validated. The other two are value-only and
+        // decode exactly as the synthesised conformance would.
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let solid = try container.decodeIfPresent(Solid.self, forKey: .solid) {
+            self = .solid(red: solid.red, green: solid.green, blue: solid.blue)
+        } else if let gradient = try container.decodeIfPresent(Gradient.self,
+                                                               forKey: .linearGradient) {
+            self = .linearGradient(startRed: gradient.startRed, startGreen: gradient.startGreen,
+                                   startBlue: gradient.startBlue, endRed: gradient.endRed,
+                                   endGreen: gradient.endGreen, endBlue: gradient.endBlue,
+                                   angleDegrees: gradient.angleDegrees)
+        } else if let image = try container.decodeIfPresent(ImageName.self, forKey: .image) {
+            guard Self.isSafeImageFilename(image.filename) else {
+                throw DecodingError.dataCorrupted(DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "a background image filename may not contain a path: "
+                        + image.filename))
+            }
+            self = .image(filename: image.filename)
+        } else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath, debugDescription: "no known background case"))
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case solid, linearGradient, image }
+    private struct Solid: Codable { let red, green, blue: Double }
+    private struct Gradient: Codable {
+        let startRed, startGreen, startBlue, endRed, endGreen, endBlue, angleDegrees: Double
+    }
+    private struct ImageName: Codable { let filename: String }
 }
 
 public struct StageStyle: Hashable, Codable, Sendable {

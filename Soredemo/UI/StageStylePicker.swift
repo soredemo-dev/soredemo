@@ -1,3 +1,5 @@
+import UniformTypeIdentifiers
+import AppKit
 import Compositing
 import Foundation
 import Observation
@@ -22,7 +24,48 @@ final class StageStyleModel {
     /// reverse-engineering one from colour values. `nil` after a knob is changed by hand.
     private(set) var presetName: String? = StageBackground.presets.first?.name
 
+    /// The chosen picture's filename, or `nil` when the background is not an image.
+    var imageBackgroundName: String? {
+        if case .image(let filename) = style.background { return filename }
+        return nil
+    }
+
     init() { publish() }
+
+    /// Copies `source` into the recording's package and makes it the background.
+    ///
+    /// **Copied, not referenced.** A background pointing at a file on the Desktop works until
+    /// that file moves, is renamed, or the project is opened on another machine — and a
+    /// wallpaper that silently becomes grey is worse than one never offered. The package already
+    /// carries the media and the observation log; the picture travels the same way.
+    ///
+    /// Returns what went wrong, or `nil`. Reported rather than swallowed: a person who chose a
+    /// picture and got no picture is owed the reason.
+    @discardableResult
+    func useImageBackground(_ source: URL, inPackageAt packageURL: URL) -> String? {
+        let directory = packageURL.appending(path: StageBackground.imageDirectory,
+                                             directoryHint: .isDirectory)
+        // The chosen file's own name, made safe. Two pictures with the same name replace each
+        // other, which is the behaviour a person expects of "choose an image" and costs nothing.
+        let name = source.lastPathComponent
+        guard StageBackground.isSafeImageFilename(name) else {
+            return "\(name) is not a name this can use."
+        }
+        do {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+            let destination = directory.appending(path: name)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: source, to: destination)
+        } catch {
+            return "Could not copy \(name) into the project: \(error)"
+        }
+        presetName = nil
+        apply(background: .image(filename: name))
+        return nil
+    }
 
     func selectBackground(named name: String) {
         guard let preset = StageBackground.presets.first(where: { $0.name == name })
@@ -70,6 +113,11 @@ struct StageStylePicker: View {
     let model: StageStyleModel
     /// Called after any change, so the host rebuilds the composition and the preview moves.
     let onChange: () -> Void
+    /// The package the chosen picture is copied into. `nil` hides the image option rather than
+    /// offering one that cannot work — a recording with nowhere to put the file.
+    var packageURL: URL?
+
+    @State private var imageFailure: String?
 
     var body: some View {
         Group {
@@ -79,6 +127,33 @@ struct StageStylePicker: View {
             ) {
                 ForEach(StageBackground.presets, id: \.name) { preset in
                     Text(preset.name).tag(preset.name)
+                }
+                // The empty tag is what a hand-picked image selects, so the picker shows no
+                // preset rather than showing the last one as if it were still in force.
+                if model.presetName == nil {
+                    Text(model.imageBackgroundName ?? "Custom").tag("")
+                }
+            }
+
+            if let packageURL {
+                HStack(spacing: Space.snug) {
+                    Button(model.imageBackgroundName == nil ? "Choose image\u{2026}"
+                           : "Change image\u{2026}") {
+                        guard let picked = Self.chooseImage() else { return }
+                        imageFailure = model.useImageBackground(picked, inPackageAt: packageURL)
+                        onChange()
+                    }
+                    if model.imageBackgroundName != nil {
+                        Button("Remove") {
+                            model.selectBackground(
+                                named: StageBackground.presets.first?.name ?? "")
+                            onChange()
+                        }
+                    }
+                }
+                .font(Type.detail)
+                if let imageFailure {
+                    Text(imageFailure).font(Type.detail).foregroundStyle(Signal.paused)
                 }
             }
 
@@ -92,6 +167,16 @@ struct StageStylePicker: View {
                 model.setShadowOpacity($0); onChange()
             }
         }
+    }
+
+    /// The open panel. Images only, and one at a time.
+    @MainActor
+    private static func chooseImage() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     /// `onEditingChanged` rather than the binding's setter: recomposing on every intermediate

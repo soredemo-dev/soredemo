@@ -59,8 +59,27 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                        colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
     }
 
+    /// Image backgrounds, decoded once and kept. A wallpaper is the same file on every frame,
+    /// and decoding a 4K PNG sixty times a second to draw it unchanged is the kind of cost that
+    /// only shows up in a long export. Guarded by its own lock, never held across a GPU render —
+    /// the arrangement `cursorCanvases` already uses.
+    private nonisolated(unsafe) var backgroundImages: [String: CIImage] = [:]
+    private let backgroundImageLock = NSLock()
+
+    /// Where image backgrounds are read from — the package the recording lives in. Set on the
+    /// same terms as `StageCompositor`'s other statics: written before the composition reaches
+    /// AVFoundation, so it is published before any callback can see it.
+    ///
+    /// `nil` draws the fallback rather than nothing: a background that silently disappears is
+    /// worse than one that is obviously not the picture you chose.
+    public nonisolated(unsafe) static var imageBaseURL: URL?
+
     private func backgroundImage(_ plan: RenderPlan) -> CIImage {
         switch plan.style.background {
+        case .image(let filename):
+            guard let image = imageBackground(filename) else { return Self.missingImageFallback }
+            return covering(image, width: Double(plan.outputWidth),
+                            height: Double(plan.outputHeight))
         case let .solid(red, green, blue):
             return CIImage(color: CIColor(red: red, green: green, blue: blue))
         case let .linearGradient(startRed, startGreen, startBlue,
@@ -81,6 +100,40 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// half the frame's diagonal in each direction from the centre, so the gradient always
     /// covers the whole frame whatever the angle: projecting the frame's width and height
     /// onto the axis separately would leave a flat band at every angle but 0° and 90°.
+    /// **The fallback when an image will not load.** A mid grey rather than black or clear:
+    /// black reads as a deliberate background and clear shows whatever was underneath, and both
+    /// hide the fact that a chosen picture is missing.
+    static let missingImageFallback = CIImage(color: CIColor(red: 0.22, green: 0.22, blue: 0.24))
+
+    /// The image for `filename`, scaled to cover the frame, cached.
+    ///
+    /// **Scaled to COVER, not to fit.** A wallpaper letterboxed inside the frame leaves bars,
+    /// which is not what a background is; the excess is cropped, which is what every desktop
+    /// does with the same picture.
+    private func imageBackground(_ filename: String) -> CIImage? {
+        guard StageBackground.isSafeImageFilename(filename),
+              let base = unsafe Self.imageBaseURL else { return nil }
+        if let cached = backgroundImageLock.withLock({ unsafe backgroundImages[filename] }) {
+            return cached
+        }
+        let url = base.appending(path: StageBackground.imageDirectory, directoryHint: .isDirectory)
+            .appending(path: filename)
+        guard let image = CIImage(contentsOf: url) else { return nil }
+        backgroundImageLock.withLock { unsafe backgroundImages[filename] = image }
+        return image
+    }
+
+    /// `image` scaled so it covers `width` × `height`, centred.
+    private func covering(_ image: CIImage, width: Double, height: Double) -> CIImage {
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return image }
+        let scale = max(width / Double(extent.width), height / Double(extent.height))
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let offsetX = (width - Double(scaled.extent.width)) / 2 - Double(scaled.extent.minX)
+        let offsetY = (height - Double(scaled.extent.height)) / 2 - Double(scaled.extent.minY)
+        return scaled.transformed(by: CGAffineTransform(translationX: offsetX, y: offsetY))
+    }
+
     private func gradientImage(_ plan: RenderPlan, start: CIColor, end: CIColor,
                                angleDegrees: Double) -> CIImage {
         let width = Double(plan.outputWidth)

@@ -343,6 +343,9 @@ struct StageWindow: View {
                                       variant: AspectVariant = .landscape) async throws
         -> AVVideoComposition {
         StageCompositor.renderer = try CoreImageFrameRenderer()
+        // Where an image background is read from. Set before the composition reaches
+        // AVFoundation, on the same terms as every other static here.
+        CoreImageFrameRenderer.imageBaseURL = mediaURL.map(ProjectStore.packageURL(forMediaAt:))
         // A fresh recording gets a fresh drop count; a stale one must not read as this file's.
         StageCompositor.resetDiagnostics()
         // `expectedLogURL(forMediaURL:)` names where a log for this media would be; it does not
@@ -383,7 +386,8 @@ struct StageWindow: View {
                 List {
                     Section("Output") { outputControls }
                     Section("Look") {
-                        StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 })
+                        StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 },
+                                         packageURL: ProjectStore.packageURL(forMediaAt: mediaURL))
                     }
                     Section("Audio") { audioControls }
                     Section("Animated GIF") { gifControls }
