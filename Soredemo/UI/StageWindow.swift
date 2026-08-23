@@ -20,6 +20,9 @@ import SwiftUI
 /// Glass slider, which a custom surface does not.
 struct StageWindow: View {
     @State private var player: AVPlayer?
+    /// The asset the current item was built from. Held because `AVAudioMix` addresses that
+    /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
+    @State private var playingAsset: AVAsset?
     @State private var failure: String?
     // MARK: - export-basic
     @State private var isExporting = false
@@ -91,6 +94,28 @@ struct StageWindow: View {
             case .captions: "Overlays"
             case .text: "Text"
             case .hide: "Hide"
+            }
+        }
+
+        /// The tab's icon, and its lane's colour when selected — so the Text tab and the Text
+        /// track on the timeline are visibly the same thing.
+        var icon: String {
+            switch self {
+            case .project: "slider.horizontal.3"
+            case .selection: "plus.magnifyingglass"
+            case .captions: "captions.bubble"
+            case .text: "textformat"
+            case .hide: "eye.slash"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .project: Theme.accent
+            case .selection: Theme.Lane.zoom
+            case .captions: Theme.Lane.caption
+            case .text: Theme.Lane.text
+            case .hide: Theme.Lane.hide
             }
         }
     }
@@ -192,6 +217,15 @@ struct StageWindow: View {
         .navigationTitle(mediaURL.deletingPathExtension().lastPathComponent)
         .navigationDocument(savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }
+        // **The mix changes what you hear WITHOUT reloading anything.** A mute applied by
+        // rebuilding the player item would reload the asset, lose the position and go silent
+        // for as long as that took — so a person testing whether to keep their narration would
+        // be judging it across a gap. `AVPlayerItem.audioMix` is honoured mid-playback, which
+        // is the whole reason this is a separate path from the export's.
+        .task(id: audioMix) {
+            guard let item = player?.currentItem, let asset = playingAsset else { return }
+            await AudioMixBuilder.apply(audioMix, to: item, of: asset)
+        }
         // **Registered on every change, not once.** The closure captures this view's current
         // state, so a stale one would save an older edit than the one being asked about.
         .onChange(of: hasUnsavedChanges, initial: true) {
@@ -585,6 +619,10 @@ struct StageWindow: View {
                 for: asset, logForMediaURL: mediaURL, variant: variant)
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
+            // The mix is applied at load too, not only on change: reopening a saved project
+            // with the microphone muted must sound muted before anyone touches a control.
+            await AudioMixBuilder.apply(audioMix, to: item, of: asset)
+            playingAsset = asset
             player = AVPlayer(playerItem: item)
         } catch {
             failure = "\(error)"

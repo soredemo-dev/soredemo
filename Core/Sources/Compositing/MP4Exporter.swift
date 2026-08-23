@@ -393,17 +393,9 @@ public enum MP4Exporter {
     /// A track beyond the two we write is left at unity rather than guessed at: an asset with
     /// three audio tracks did not come from this recorder, and silencing something because it
     /// was not expected is worse than passing it through.
-    private nonisolated static func mix(_ settings: AudioMix,
-                                        over tracks: [AVAssetTrack]) -> AVAudioMix {
-        let order: [AudioMix.Source] = [.systemAudio, .microphone]
-        let mix = AVMutableAudioMix()
-        mix.inputParameters = tracks.enumerated().map { index, track in
-            let parameters = AVMutableAudioMixInputParameters(track: track)
-            let gain = index < order.count ? settings.effectiveGain(for: order[index]) : 1
-            parameters.setVolume(Float(gain), at: .zero)
-            return parameters
-        }
-        return mix
+    nonisolated static func mix(_ settings: AudioMix,
+                                over tracks: [AVAssetTrack]) -> AVAudioMix {
+        AudioMixBuilder.mix(settings, over: tracks)
     }
 
     /// The next audio buffer with actual samples. Marker-only buffers carry no audio and would

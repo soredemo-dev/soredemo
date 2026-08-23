@@ -359,6 +359,12 @@ struct TimelineEditor: View {
                 // with an adjustable duration; ScreenKite gives zooms a lane beside speed and
                 // annotations. A review panel can reject a zoom but cannot fix one that is a
                 // quarter of a second late, which is the thing a person actually wants to do.
+                // **Audio has its own lane now, and until it did the waveform was invisible.**
+                // It was drawn inside the video strip, underneath the clip rectangles — which
+                // are opaque, so it was covered on every frame it existed. a native editor and
+                // a Swift recorder both give audio a track of its own; a waveform behind the picture
+                // track is a waveform nobody sees.
+                lane("Audio", "waveform", height: 30) { audioLane(duration: duration) }
                 lane("Zooms", "plus.magnifyingglass", height: 18) { zoomLane(duration: duration) }
                 if !texts.isEmpty {
                     lane("Text", "textformat", height: 14) {
@@ -476,6 +482,25 @@ struct TimelineEditor: View {
         return String(format: "%d:%02d", whole / 60, whole % 60)
     }
 
+    /// The audio track: the waveform across the recording, on its own ground.
+    @ViewBuilder private func audioLane(duration: Nanoseconds) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .center) {
+                RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
+                if model.waveform == nil {
+                    // Said rather than left blank: an empty lane and a lane still reading the
+                    // audio look the same, and one of them is worth waiting for.
+                    Text("Reading the audio\u{2026}")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.Ink.tertiary)
+                } else {
+                    waveformLayer(duration: duration, width: geometry.size.width,
+                                  height: geometry.size.height)
+                }
+            }
+        }
+    }
+
     /// A lane of plain blocks. Read-only: the panel that owns each kind is where it is edited,
     /// and a block here that could be dragged would be a second place to change the same value.
     @ViewBuilder private func blocks(_ spans: [(Nanoseconds, Nanoseconds)],
@@ -504,8 +529,6 @@ struct TimelineEditor: View {
                 // The recording as a whole — the ground the cuts show as gaps in.
                 RoundedRectangle(cornerRadius: Radius.strip)
                     .fill(Theme.Fill.track)
-
-                waveformLayer(duration: duration, width: width, height: geometry.size.height)
 
                 // Keyed on the clip's own id, not its index: SwiftUI reuses views by
                 // identity, and an index key would animate a deleted clip into its
@@ -940,7 +963,9 @@ private struct WaveformBars: View, Equatable {
                 // A silent column draws nothing rather than a hairline across the silence.
                 if bar > 0 {
                     Rectangle()
-                        .fill(.primary.opacity(0.28))
+                        // Its own lane colour rather than ink at a low opacity: a waveform is a
+                        // track, and the four tracks around it all carry a hue.
+                        .fill(Theme.Lane.audio)
                         .frame(width: 1, height: bar)
                         .offset(x: Double(column), y: (height - bar) / 2)
                 }

@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import AVFoundation
 import CoreMedia
+import Project
 import Timeline
 @testable import Compositing
 
@@ -516,4 +517,37 @@ private final class PhaseLog: @unchecked Sendable {
     private var phases: [ExportProgress] = []
     func note(_ phase: ExportProgress) { lock.withLock { phases.append(phase) } }
     var all: [ExportProgress] { lock.withLock { phases } }
+}
+
+/// The mix both the export and the preview build from.
+@Suite struct AudioMixBuilderTests {
+    /// **The track order is the only thing identifying a source.** An `AVAssetTrack` carries no
+    /// name a caller can match on, so the mix relies on the master writer laying system audio
+    /// down first and the microphone second. If that order ever changed, every recording would
+    /// have its two sources swapped silently — so the order is a named constant and this is the
+    /// test that fails when someone reorders it.
+    @Test func theTrackOrderIsSystemAudioThenMicrophone() {
+        #expect(AudioMixBuilder.trackOrder == [.systemAudio, .microphone])
+    }
+
+    /// A mix over no tracks is empty rather than a crash — which is what a recording with the
+    /// microphone turned off produces.
+    @Test func aMixOverNoTracksHasNoParameters() {
+        let mix = AudioMixBuilder.mix(.unchanged, over: [])
+        #expect(mix.inputParameters.isEmpty)
+    }
+
+    /// A muted source is silent and an untouched one is not, which is the whole contract.
+    @Test func mutingASourceTakesItsGainToZero() {
+        let microphone = AudioMix.Source.microphone
+        let system = AudioMix.Source.systemAudio
+        let muted = AudioMix().setting(microphone, muted: true)
+        #expect(muted.effectiveGain(for: microphone) == 0)
+        #expect(muted.effectiveGain(for: system) == 1)
+        // And a gain survives being muted and unmuted, so a level a person set is not lost by
+        // toggling the checkbox beside it.
+        let quiet = AudioMix().setting(microphone, gain: 0.4).setting(microphone, muted: true)
+        #expect(quiet.effectiveGain(for: microphone) == 0)
+        #expect(quiet.setting(microphone, muted: false).effectiveGain(for: microphone) == 0.4)
+    }
 }

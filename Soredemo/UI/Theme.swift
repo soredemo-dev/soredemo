@@ -70,9 +70,10 @@ enum Theme {
         static let brightness: Double = 1.0
 
         static let videoHue: Double = 230
+        static let audioHue: Double = 150
         static let zoomHue: Double = 268
         static let textHue: Double = 38
-        static let captionHue: Double = 172
+        static let captionHue: Double = 190
         static let hideHue: Double = 320
 
         static func colour(_ hue: Double) -> Color {
@@ -80,6 +81,7 @@ enum Theme {
         }
 
         static var video: Color { colour(videoHue) }
+        static var audio: Color { colour(audioHue) }
         static var zoom: Color { colour(zoomHue) }
         static var text: Color { colour(textHue) }
         static var caption: Color { colour(captionHue) }
@@ -92,5 +94,50 @@ extension View {
     func editorPanel() -> some View {
         background(Theme.Surface.panel)
             .environment(\.colorScheme, .dark)
+    }
+}
+
+extension View {
+    /// The inspector's list, with the system's own chrome taken off.
+    ///
+    /// **`.plain` rather than `.sidebar`.** The sidebar style paints a translucent vibrancy
+    /// backdrop and its own selection colour — both of them the system's, both of them the
+    /// reason the inspector still looked like System Settings after everything around it had
+    /// been themed. Plain draws rows and nothing else, which leaves the panel's background
+    /// showing through and the section headers to this file.
+    func inspectorList() -> some View {
+        listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.Surface.panel)
+            .environment(\.defaultMinListRowHeight, 26)
+    }
+}
+
+/// One tab in the inspector's icon row.
+struct InspectorTabButton: View {
+    let tab: StageWindow.InspectorTab
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: tab.icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isSelected ? tab.tint : Theme.Ink.secondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 26)
+                .background {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isSelected ? Theme.Fill.pressed
+                              : (isHovering ? Theme.Fill.hover : .clear))
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(tab.title)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
