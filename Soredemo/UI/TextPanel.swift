@@ -144,6 +144,9 @@ struct TextPanel: View {
     }
 
     @ViewBuilder private func look(_ item: TextItem) -> some View {
+        Picker("Animation", selection: binding(item, \.animation)) {
+            ForEach(TextAnimation.allCases, id: \.self) { Text($0.displayName).tag($0) }
+        }
         Slider(value: styleBinding(item, \.heightFraction, { $0.changing(heightFraction: $1) }),
                in: 0.02...0.25) { Text("Size") }
         Toggle("Bold", isOn: styleBinding(item, \.isBold, { $0.changing(isBold: $1) }))

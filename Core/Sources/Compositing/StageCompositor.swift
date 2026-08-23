@@ -252,7 +252,30 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
         guard let source = Self.sourceOffset(forOutput: outputOffset),
               let cue = unsafe Self.captions.cue(at: source) else { return nil }
-        return CaptionOverlay(text: cue.text, style: unsafe Self.captionStyle)
+        let style = unsafe Self.captionStyle
+        // The words are only assembled when they will be drawn: splitting and marking on every
+        // frame of a caption nobody asked to highlight is work for nothing.
+        let words = style.highlightsSpokenWord ? Self.words(of: cue, at: source) : []
+        return CaptionOverlay(text: cue.text, style: style, words: words)
+    }
+
+    /// A cue's words with the one being said marked.
+    ///
+    /// **Matched by walking the cue's own word spans, not by splitting its text.** The two do not
+    /// line up: a recogniser's runs do not split on spaces — the reason `CaptionBuilder` times
+    /// phrases by alphanumeric character count — so `text.split(" ")[n]` is not `words[n]`. The
+    /// spans carry the text they were recognised from, and that is what is drawn.
+    ///
+    /// With no word timings the array is empty and the renderer draws the line whole, which is
+    /// the honest fallback: a highlight computed by dividing the line's duration evenly would be
+    /// wrong on every line where somebody paused.
+    static func words(of cue: CaptionCue, at time: Nanoseconds) -> [CaptionWord] {
+        guard !cue.words.isEmpty else { return [] }
+        return cue.words.map { word in
+            CaptionWord(text: word.text,
+                        isSpoken: time.rawValue >= word.start.rawValue
+                            && time.rawValue < word.end.rawValue)
+        }
     }
 
     /// The text overlays on screen at an OUTPUT time. Converted to source time first, for the
@@ -263,7 +286,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
         guard let source = Self.sourceOffset(forOutput: outputOffset) else { return [] }
         return unsafe Self.texts.items(at: source)
-            .map { TextOverlay(text: $0.text, style: $0.style) }
+            .map { TextOverlay(text: $0.text, style: $0.style,
+                               animation: $0.animationState(at: source)) }
     }
 
     /// The regions to hide on this frame.

@@ -237,3 +237,64 @@ import Timeline
         }
     }
 }
+
+/// The word being said, found inside the line's own text.
+@Suite struct CaptionHighlightTests {
+    private func word(_ text: String, spoken: Bool = false) -> CaptionWord {
+        CaptionWord(text: text, isSpoken: spoken)
+    }
+
+    @Test func theRangeCoversTheSpokenWordAndNothingElse() throws {
+        let words = [word("hello"), word("there", spoken: true), word("friend")]
+        let range = try #require(CaptionArt.highlightRange(in: "hello there friend", words: words))
+        let text = Array("hello there friend")
+        #expect(String(text[range.lowerBound..<range.upperBound]) == "there")
+    }
+
+    /// **The reason it counts letters rather than splitting on spaces.** A recogniser hands back
+    /// "don't" as three runs, so `text.split(" ")[n]` is not `words[n]` — the same mismatch
+    /// `CaptionBuilder` times phrases around.
+    @Test func itFindsTheWordWhenTheRunsDoNotSplitOnSpaces() throws {
+        let words = [word("I"), word("don"), word("'"), word("t"),
+                     word("know", spoken: true)]
+        let range = try #require(CaptionArt.highlightRange(in: "I don't know.", words: words))
+        let text = Array("I don't know.")
+        #expect(String(text[range.lowerBound..<range.upperBound]) == "know")
+    }
+
+    /// Punctuation in the line that the runs never carried does not shift the match, because
+    /// only letters and digits are counted on both sides.
+    @Test func punctuationInTheLineDoesNotShiftTheMatch() throws {
+        let words = [word("first"), word("second", spoken: true)]
+        let range = try #require(CaptionArt.highlightRange(in: "First, second!", words: words))
+        let text = Array("First, second!")
+        #expect(String(text[range.lowerBound..<range.upperBound]) == "second")
+    }
+
+    @Test func nothingSpokenMeansNoHighlight() {
+        #expect(CaptionArt.highlightRange(in: "a b", words: [word("a"), word("b")]) == nil)
+        #expect(CaptionArt.highlightRange(in: "a b", words: []) == nil)
+    }
+
+    /// **When the two disagree, the whole line draws undimmed.** A range computed past the end
+    /// of the text would dim everything and highlight nothing, which looks like a bug in the
+    /// caption rather than in the match.
+    @Test func aWordThatRunsPastTheLineGivesNoHighlight() {
+        let words = [word("beyond", spoken: true), word("more")]
+        #expect(CaptionArt.highlightRange(in: "hi", words: words) == nil)
+    }
+
+    /// The dimmed spans are everything outside the highlight, and an empty leading span is not
+    /// a span at all.
+    @Test func theDimmedSpansAreTheTwoSidesAndNeitherIsEmpty() {
+        let leading = TextArt.DimmedRun(range: 0..<3, alpha: 0.5).rangesOutside(length: 10)
+        #expect(leading.count == 1)
+        #expect(leading[0].location == 3)
+
+        let middle = TextArt.DimmedRun(range: 3..<6, alpha: 0.5).rangesOutside(length: 10)
+        #expect(middle.count == 2)
+
+        let whole = TextArt.DimmedRun(range: 0..<10, alpha: 0.5).rangesOutside(length: 10)
+        #expect(whole.isEmpty)
+    }
+}

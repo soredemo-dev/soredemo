@@ -124,15 +124,84 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
     }
 }
 
+/// How a piece of text arrives and leaves.
+///
+/// **A title that is simply there is a title nobody notices arriving.** Every reference recorder
+/// animates them — an Electron recorder offers fade, rise, pop, slide and typewriter; a native editor has a
+/// whole `TextAnimator`. What is here is the four that read at a glance; a typewriter is the one
+/// people ask for and the one that makes a two-second title take two seconds to become readable.
+///
+/// **The animation is a function of PROGRESS, not of time.** A caller hands in how far through
+/// the lead-in or lead-out the frame is, so the same animation works at any duration and at any
+/// frame rate — and an export at 60 fps and a preview at 30 produce the same picture.
+public enum TextAnimation: String, Hashable, Codable, Sendable, CaseIterable {
+    case none, fade, rise, pop
+
+    public var displayName: String {
+        switch self {
+        case .none: "None"
+        case .fade: "Fade"
+        case .rise: "Rise"
+        case .pop: "Pop"
+        }
+    }
+
+    /// How long the entrance and the exit each take, as a fraction of the item's own duration —
+    /// capped in seconds so a ten-second title does not spend two seconds arriving.
+    public static let durationFraction: Double = 0.2
+    public static let maximumSeconds: Double = 0.35
+
+    /// The opacity, vertical offset (in multiples of the type size) and scale at `progress`,
+    /// where 0 is "not yet on" and 1 is "fully on".
+    ///
+    /// `pop` overshoots deliberately: a scale that eases to 1 without passing it reads as a
+    /// zoom, and the overshoot is what makes it read as a pop. It is small — 6% — because the
+    /// same curve at 20% reads as a bounce, which is a different and more annoying thing.
+    public func state(at progress: Double) -> (opacity: Double, rise: Double, scale: Double) {
+        let p = min(max(progress, 0), 1)
+        // Ease-out cubic: fast at the start, settling at the end. Motion that arrives slowly and
+        // stops abruptly reads as a stutter.
+        let eased = 1 - pow(1 - p, 3)
+        switch self {
+        case .none: return (1, 0, 1)
+        case .fade: return (eased, 0, 1)
+        case .rise: return (eased, (1 - eased) * 0.35, 1)
+        case .pop:
+            let overshoot = p >= 1 ? 1 : 1 + 0.06 * sin(p * .pi)
+            return (eased, 0, 0.88 + 0.12 * eased * overshoot)
+        }
+    }
+}
+
 /// One piece of text to draw on this frame. Lines are split on `\n` and nothing else — a title
 /// is short and its breaks are a decision, unlike a caption's, which `CaptionBuilder` computes.
 public struct TextOverlay: Hashable, Sendable {
     public let text: String
     public let style: TextOverlayStyle
+    /// The entrance or exit state for this frame — `(1, 0, 1)` when the text is simply on.
+    public let animation: (opacity: Double, rise: Double, scale: Double)
 
-    public init(text: String, style: TextOverlayStyle) {
+    public init(text: String, style: TextOverlayStyle,
+                animation: (opacity: Double, rise: Double, scale: Double) = (1, 0, 1)) {
         self.text = text
         self.style = style
+        self.animation = animation
+    }
+
+    // Tuples are not `Hashable`, so the conformance is written out. Kept rather than boxing the
+    // three into a struct: they are read once per frame by the renderer and a type here would be
+    // a name for something with no behaviour.
+    public static func == (lhs: TextOverlay, rhs: TextOverlay) -> Bool {
+        lhs.text == rhs.text && lhs.style == rhs.style
+            && lhs.animation == rhs.animation
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(text)
+        hasher.combine(style)
+        hasher.combine(animation.opacity)
+        hasher.combine(animation.rise)
+        hasher.combine(animation.scale)
     }
 }
 

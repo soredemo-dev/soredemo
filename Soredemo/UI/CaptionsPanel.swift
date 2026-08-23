@@ -224,6 +224,26 @@ struct CaptionsPanel: View {
                               set: { model.setStyle(styleChanging(plate: $0)); onChange() }),
                in: 0...1) { Text("Plate") }
 
+        // **The recogniser has been giving word times all along and nothing read them.**
+        // `TranscribedWord.start`/`.end` were stored, retimed through cuts and clipped at cut
+        // boundaries, and never drawn.
+        Toggle("Highlight the word being said", isOn: Binding(
+            get: { model.style.highlightsSpokenWord },
+            set: { model.setStyle(model.style.changing(highlightsSpokenWord: $0)); onChange() }))
+        if model.style.highlightsSpokenWord {
+            Slider(value: Binding(
+                get: { model.style.unspokenOpacity },
+                set: { model.setStyle(model.style.changing(unspokenOpacity: $0)); onChange() }),
+                   in: 0.15...1) { Text("Other words") }
+            if let transcript = model.transcript, transcript.words.isEmpty {
+                // Said rather than left to fail silently: a language whose model reports no word
+                // times produces a toggle that does nothing, and a person would blame the app.
+                Label("This language's model gave no word times, so the whole line stays lit.",
+                      systemImage: "info.circle")
+                    .font(Type.detail).foregroundStyle(.secondary)
+            }
+        }
+
         HStack(spacing: Space.snug) {
             ForEach(SubtitleFile.Format.allCases, id: \.self) { format in
                 Button("Export .\(format.fileExtension)") {
@@ -276,12 +296,8 @@ struct CaptionsPanel: View {
 
     private func styleChanging(height: Double? = nil, inset: Double? = nil,
                                plate: Double? = nil) -> CaptionStyle {
-        CaptionStyle(heightFraction: height ?? model.style.heightFraction,
-                     bottomInsetFraction: inset ?? model.style.bottomInsetFraction,
-                     maximumWidthFraction: model.style.maximumWidthFraction,
-                     backgroundOpacity: plate ?? model.style.backgroundOpacity,
-                     backgroundCornerFraction: model.style.backgroundCornerFraction,
-                     red: model.style.red, green: model.style.green, blue: model.style.blue)
+        model.style.changing(heightFraction: height, bottomInsetFraction: inset,
+                             backgroundOpacity: plate)
     }
 
     private var phaseLabel: String {

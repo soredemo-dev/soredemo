@@ -25,16 +25,28 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     public let red: Double
     public let green: Double
     public let blue: Double
+    /// **Highlight the word being said.** The recogniser gives a time for every word and until
+    /// now nothing read them — `TranscribedWord.start`/`.end` were stored, retimed through cuts,
+    /// clipped at cut boundaries, and never drawn. an Electron recorder, an Electron recorder and a native editor all
+    /// animate captions word by word; it is the single thing that makes a burnt-in caption look
+    /// authored rather than pasted on.
+    public let highlightsSpokenWord: Bool
+    /// What the words not being said look like, as a fraction of full opacity. Dimmed rather
+    /// than hidden: a caption whose other words vanish is one a person cannot read ahead in, and
+    /// reading ahead is how anyone follows one.
+    public let unspokenOpacity: Double
 
     public static let `default` = CaptionStyle(
         heightFraction: 0.045, bottomInsetFraction: 0.07, maximumWidthFraction: 0.9,
         backgroundOpacity: 0.55, backgroundCornerFraction: 0.012,
-        red: 1, green: 1, blue: 1)
+        red: 1, green: 1, blue: 1,
+        highlightsSpokenWord: false, unspokenOpacity: 0.55)
 
     public init(heightFraction: Double, bottomInsetFraction: Double,
                 maximumWidthFraction: Double, backgroundOpacity: Double,
                 backgroundCornerFraction: Double,
-                red: Double, green: Double, blue: Double) {
+                red: Double, green: Double, blue: Double,
+                highlightsSpokenWord: Bool = false, unspokenOpacity: Double = 0.55) {
         // Clamped rather than trapped: every one of these reaches here from a slider, and a
         // style is also decoded from a saved project — rule 8 says never `precondition` on an
         // untrusted input. Clamping is the same answer on both paths, so there is one path.
@@ -46,9 +58,29 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
         self.red = min(max(red, 0), 1)
         self.green = min(max(green, 0), 1)
         self.blue = min(max(blue, 0), 1)
+        self.highlightsSpokenWord = highlightsSpokenWord
+        // Floored well above zero: at 0 the unspoken words disappear and the caption becomes one
+        // word at a time, which is a different feature and a worse one to arrive at by accident.
+        self.unspokenOpacity = min(max(unspokenOpacity, 0.15), 1)
     }
 
     /// The type size in output pixels.
+    /// The same style with one field changed — `TextOverlayStyle.changing`'s shape, for its
+    /// reason: a nine-argument initialiser repeated per control is nine chances to misplace one.
+    public func changing(heightFraction: Double? = nil, bottomInsetFraction: Double? = nil,
+                         backgroundOpacity: Double? = nil,
+                         highlightsSpokenWord: Bool? = nil,
+                         unspokenOpacity: Double? = nil) -> CaptionStyle {
+        CaptionStyle(heightFraction: heightFraction ?? self.heightFraction,
+                     bottomInsetFraction: bottomInsetFraction ?? self.bottomInsetFraction,
+                     maximumWidthFraction: maximumWidthFraction,
+                     backgroundOpacity: backgroundOpacity ?? self.backgroundOpacity,
+                     backgroundCornerFraction: backgroundCornerFraction,
+                     red: red, green: green, blue: blue,
+                     highlightsSpokenWord: highlightsSpokenWord ?? self.highlightsSpokenWord,
+                     unspokenOpacity: unspokenOpacity ?? self.unspokenOpacity)
+    }
+
     public func pointSize(forOutputHeight height: Int) -> Double {
         Double(height) * heightFraction
     }
@@ -56,6 +88,17 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     /// The widest a line may be drawn, in output pixels.
     public func maximumWidth(forOutputWidth width: Int) -> Double {
         Double(width) * maximumWidthFraction
+    }
+}
+
+/// One word of a caption, and whether it is the one being said.
+public struct CaptionWord: Hashable, Sendable {
+    public let text: String
+    public let isSpoken: Bool
+
+    public init(text: String, isSpoken: Bool) {
+        self.text = text
+        self.isSpoken = isSpoken
     }
 }
 
@@ -68,9 +111,14 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
 public struct CaptionOverlay: Hashable, Sendable {
     public let text: String
     public let style: CaptionStyle
+    /// The line split into words with the spoken one marked, or empty when the recogniser gave
+    /// no word timings — a real case for some languages, and the reason this is a field rather
+    /// than something the renderer derives by splitting `text`.
+    public let words: [CaptionWord]
 
-    public init(text: String, style: CaptionStyle) {
+    public init(text: String, style: CaptionStyle, words: [CaptionWord] = []) {
         self.text = text
         self.style = style
+        self.words = words
     }
 }

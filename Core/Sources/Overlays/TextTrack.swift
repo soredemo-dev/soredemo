@@ -21,14 +21,40 @@ public struct TextItem: Sendable, Equatable, Codable, Identifiable {
     public var start: Nanoseconds
     public var end: Nanoseconds
     public var style: TextOverlayStyle
+    /// How it arrives and leaves.
+    public var animation: TextAnimation
 
     public init(id: Int, text: String, start: Nanoseconds, end: Nanoseconds,
-                style: TextOverlayStyle = .default) {
+                style: TextOverlayStyle = .default,
+                animation: TextAnimation = .fade) {
         self.id = id
         self.text = text
         self.start = start
         self.end = end
         self.style = style
+        self.animation = animation
+    }
+
+    /// **How far through its entrance or exit this item is at `time`.**
+    ///
+    /// Returns the state the renderer draws with: the lead-in runs forward and the lead-out runs
+    /// the same curve backwards, so a title leaves the way it arrived rather than needing a
+    /// second animation nobody chose.
+    ///
+    /// The lead is a fraction of the item's own duration, capped in seconds — a ten-second title
+    /// must not spend two seconds arriving — and never more than half of it, or the entrance and
+    /// the exit would overlap and the text would never be fully on.
+    public func animationState(at time: Nanoseconds)
+    -> (opacity: Double, rise: Double, scale: Double) {
+        let span = Double(duration.rawValue) / 1_000_000_000
+        guard span > 0 else { return (1, 0, 1) }
+        let lead = min(span * TextAnimation.durationFraction,
+                       TextAnimation.maximumSeconds, span / 2)
+        guard lead > 0 else { return (1, 0, 1) }
+        let position = Double(time.rawValue - start.rawValue) / 1_000_000_000
+        if position < lead { return animation.state(at: position / lead) }
+        if position > span - lead { return animation.state(at: (span - position) / lead) }
+        return (1, 0, 1)
     }
 
     public var duration: Nanoseconds { Nanoseconds(max(0, end.rawValue - start.rawValue)) }
@@ -78,8 +104,10 @@ public struct TextTrack: Sendable, Equatable, Codable {
     /// A new item with a freshly minted id — the only way to make one, so nothing else has to
     /// know how ids are allocated.
     public func adding(text: String, start: Nanoseconds, end: Nanoseconds,
-                       style: TextOverlayStyle = .default) -> TextTrack {
-        let item = TextItem(id: nextID, text: text, start: start, end: end, style: style)
+                       style: TextOverlayStyle = .default,
+                       animation: TextAnimation = .fade) -> TextTrack {
+        let item = TextItem(id: nextID, text: text, start: start, end: end, style: style,
+                            animation: animation)
         return TextTrack(items: items + [item], nextID: nextID + 1)
     }
 
@@ -109,7 +137,7 @@ public struct TextTrack: Sendable, Equatable, Codable {
                 else { return nil }
                 return TextItem(id: item.id, text: item.text, start: outputStart,
                                 end: Nanoseconds(outputStart.rawValue + (end - start)),
-                                style: item.style)
+                                style: item.style, animation: item.animation)
             }
         }, nextID: nextID)
     }

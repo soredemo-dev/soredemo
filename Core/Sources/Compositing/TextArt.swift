@@ -33,14 +33,56 @@ public enum TextArt {
         return ui ?? CTFontCreateWithName("Helvetica" as CFString, pointSize, nil)
     }
 
-    private static func line(_ text: String, pointSize: Double, bold: Bool) -> CTLine {
+    private static func line(_ text: String, pointSize: Double, bold: Bool,
+                             dim: DimmedRun? = nil, colour: CGColor? = nil) -> CTLine {
         // `kCTFontAttributeName`, not `.font`: that key is AppKit's, and `HeadlessCheck` bans
         // AppKit in this target. Core Text reads its own key regardless of who set it.
-        let attributed = NSAttributedString(string: text, attributes: [
+        let attributed = NSMutableAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): font(pointSize: pointSize,
                                                                         bold: bold),
         ])
+        if let colour {
+            attributed.addAttribute(
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String),
+                value: colour, range: NSRange(location: 0, length: attributed.length))
+        }
+        if let dim, let colour {
+            // **Everything OUTSIDE the highlight is dimmed, inside ONE laid-out line.** The
+            // alternatives — drawing the line twice, or padding the unspoken words with spaces —
+            // have to reproduce Core Text's own spacing to line the two up, and drift from it at
+            // every font size. Colouring a range inside one line cannot drift, because there is
+            // only one layout.
+            let faded = colour.copy(alpha: colour.alpha * dim.alpha) ?? colour
+            for range in dim.rangesOutside(length: attributed.length) {
+                attributed.addAttribute(
+                    NSAttributedString.Key(kCTForegroundColorAttributeName as String),
+                    value: faded, range: range)
+            }
+        }
         return CTLineCreateWithAttributedString(attributed as CFAttributedString)
+    }
+
+    /// The characters drawn at full strength, and how faint everything else is.
+    public struct DimmedRun: Hashable, Sendable {
+        public let range: Range<Int>
+        public let alpha: Double
+
+        public init(range: Range<Int>, alpha: Double) {
+            self.range = range
+            self.alpha = alpha
+        }
+
+        /// The spans either side of the highlight, clamped into `length`. Written out rather than
+        /// done at the call site because an empty leading span is legal and an
+        /// `NSRange(location: 0, length: 0)` is not the same as no range at all.
+        func rangesOutside(length: Int) -> [NSRange] {
+            let lower = Swift.min(Swift.max(range.lowerBound, 0), length)
+            let upper = Swift.min(Swift.max(range.upperBound, lower), length)
+            var spans: [NSRange] = []
+            if lower > 0 { spans.append(NSRange(location: 0, length: lower)) }
+            if upper < length { spans.append(NSRange(location: upper, length: length - upper)) }
+            return spans
+        }
     }
 
     /// The lines of `text`, with the blank ones kept — a blank line in a title is a gap a person
@@ -66,7 +108,8 @@ public enum TextArt {
     /// Frame-sized rather than text-sized-and-translated: a `CIImage` composited at an offset
     /// needs its own transform, and the position is a property of the frame anyway.
     public static func image(_ overlay: TextOverlay,
-                             outputWidth: Int, outputHeight: Int) -> CIImage? {
+                             outputWidth: Int, outputHeight: Int,
+                             dim: DimmedRun? = nil) -> CIImage? {
         let style = overlay.style
         let drawnLines = lines(of: overlay.text)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -78,8 +121,15 @@ public enum TextArt {
         let verticalPadding = size * verticalPaddingRatio
         let gap = size * style.lineGapRatio
 
+        // The glyph colour is set on the line rather than on the context when a run is dimmed:
+        // `setFillColor` applies to the whole line, and a per-range alpha needs the attribute.
+        let glyphColour = dim == nil ? nil
+            : CGColor(red: style.red, green: style.green, blue: style.blue, alpha: style.alpha)
         let typeset = drawnLines.map { text -> (line: CTLine, width: Double, ascent: Double, descent: Double) in
-            let made = line(text, pointSize: size, bold: style.isBold)
+            // A dimmed run is only meaningful on a single-line caption; a title broken over two
+            // lines has no spoken word, so nothing is dimmed there.
+            let made = line(text, pointSize: size, bold: style.isBold,
+                            dim: drawnLines.count == 1 ? dim : nil, colour: glyphColour)
             let bounds = HeadlessGeometryBridge.typographicBounds(of: made)
             return (made, bounds.width, bounds.ascent, bounds.descent)
         }
@@ -146,6 +196,24 @@ public enum TextArt {
         }
 
         guard let image = bitmap.makeImage() else { return nil }
-        return CIImage(cgImage: image)
+        let drawn = CIImage(cgImage: image)
+        guard overlay.animation.opacity < 1 || overlay.animation.rise != 0
+                || overlay.animation.scale != 1 else { return drawn }
+
+        // **Scaled and lifted about the text's OWN centre**, not the frame's: scaling a
+        // frame-sized image about the origin would fly the words off the corner. The plate's
+        // centre is where the words are, so that is the anchor.
+        let centreX = plateX + plateWidth / 2
+        let centreY = plateY + plateHeight / 2
+        let scale = overlay.animation.scale
+        let lift = overlay.animation.rise * size
+        let transform = CGAffineTransform(translationX: -centreX, y: -centreY)
+            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+            .concatenating(CGAffineTransform(translationX: centreX, y: centreY - lift))
+        let moved = drawn.transformed(by: transform)
+        guard overlay.animation.opacity < 1 else { return moved }
+        return moved.applyingFilter("CIColorMatrix", parameters: [
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: overlay.animation.opacity),
+        ])
     }
 }
