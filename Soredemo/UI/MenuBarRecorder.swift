@@ -9,10 +9,16 @@ import SwiftUI
 /// So there is no window at launch and no Dock icon — the editor is opened by a recording
 /// finishing, which is the only moment there is anything to edit.
 ///
-/// **The icon carries the state.** Idle it is an outline record symbol. Recording it is a filled
-/// dot beside the elapsed time, which is how a person who switched Spaces ten minutes ago finds
-/// out they are still recording. a Rust recorder, CleanShot and Screen Studio all put the clock up there;
-/// a recorder whose only indicator is a floating bar is one people leave running.
+/// **The icon carries the state, and nothing else does — it used to carry the clock too.**
+/// A menu bar with the notch and a dozen extras in it has no room to spare, and an item that
+/// grows when recording starts is an item macOS hides at the moment it matters most: measured on
+/// a full menu bar, adding the timer text made this disappear entirely the instant a recording
+/// began. So the width is constant. The elapsed time lives on the floating bar, which is on the
+/// recorded screen the whole time anyway, and in the panel.
+///
+/// Idle it is the logomark as a template image, so the system tints it for a light or dark menu
+/// bar. Recording it is a filled record symbol, and paused a filled pause — different SHAPES
+/// rather than different colours, because a template image has no colour of its own.
 struct MenuBarRecorderLabel: View {
     let coordinator: RecordingCoordinator
     @Environment(\.openWindow) private var openWindow
@@ -20,14 +26,18 @@ struct MenuBarRecorderLabel: View {
     var body: some View {
         Group {
             if coordinator.isRecording {
-                HStack(spacing: 4) {
-                    Image(systemName: coordinator.isPaused
-                          ? "pause.circle.fill" : "record.circle.fill")
-                    Text(RecordingBarView.elapsedText(coordinator.elapsed))
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                }
+                Image(systemName: coordinator.isPaused
+                      ? "pause.circle.fill" : "record.circle.fill")
             } else {
-                Image(systemName: "record.circle")
+                // **13, not the 17 an SF Symbol wants.** A symbol carries its own margin inside
+                // its box; the logomark's art runs edge to edge, so matching the box made it
+                // stand a third taller than every neighbour in the menu bar. The number that
+                // matches is the one that makes the INK the same height, not the frame.
+                Image("LogomarkTemplate")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 13, height: 13)
             }
         }
         // **The label is where this lives because the label is always in the scene graph.** The
@@ -67,6 +77,7 @@ struct MenuBarRecorderPanel: View {
                 microphoneRow
                 startButton
             }
+            hotkeyWarning
             Divider()
             footer
         }
@@ -76,9 +87,10 @@ struct MenuBarRecorderPanel: View {
 
     @ViewBuilder private var header: some View {
         HStack(spacing: Space.snug) {
-            Image(systemName: "record.circle.fill")
-                .font(.system(size: 15))
-                .foregroundStyle(Signal.record)
+            Image("Logomark")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
             Text("Soredemo")
                 .font(.system(size: 14, weight: .semibold))
             Spacer()
@@ -155,6 +167,9 @@ struct MenuBarRecorderPanel: View {
                 Image(systemName: "record.circle.fill").font(.system(size: 13))
                 Text("Start Recording").font(.system(size: 13, weight: .semibold))
                 Spacer()
+                Text(Self.toggleShortcut)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
             }
             .foregroundStyle(.white)
             .padding(.horizontal, Space.regular)
@@ -170,15 +185,38 @@ struct MenuBarRecorderPanel: View {
     /// While recording the panel stops offering choices: the floating bar is on the recorded
     /// screen, and a person who came up here came up here to stop.
     @ViewBuilder private var recordingControls: some View {
-        HStack(spacing: Space.snug) {
-            PanelLevel(level: coordinator.microphoneLevel)
-            Spacer()
-            Button(coordinator.isPaused ? "Resume" : "Pause") { coordinator.togglePause() }
-                .controlSize(.small)
-            Button("Stop") { coordinator.stop() }
-                .controlSize(.small)
-                .buttonStyle(.borderedProminent)
-                .tint(Signal.record)
+        VStack(alignment: .leading, spacing: Space.snug) {
+            HStack(spacing: Space.snug) {
+                PanelLevel(level: coordinator.microphoneLevel)
+                Spacer()
+                Button(coordinator.isPaused ? "Resume" : "Pause") { coordinator.togglePause() }
+                    .controlSize(.small)
+                Button("Stop \(Self.toggleShortcut)") { coordinator.stop() }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Signal.record)
+            }
+            // **Said here because this is where a person looks for it.** The stop key works
+            // while another app is in front — that is the whole point of it — so the place to
+            // learn it is the panel they opened wondering how to stop.
+            Text("\(Self.toggleShortcut) stops the recording from any application.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The global shortcut, spelled the way a menu would.
+    static let toggleShortcut = "\u{2318}\u{21E7}R"
+
+    /// Shown only when the registration failed — usually another application holding the same
+    /// combination. Silence there would leave a person pressing a key that does nothing.
+    @ViewBuilder private var hotkeyWarning: some View {
+        if GlobalHotkeyStatus.shared.failed {
+            Label("\(Self.toggleShortcut) is taken by another app, so it will not stop a "
+                  + "recording from outside Soredemo.",
+                  systemImage: "exclamationmark.triangle")
+                .font(.system(size: 10))
+                .foregroundStyle(Signal.paused)
         }
     }
 

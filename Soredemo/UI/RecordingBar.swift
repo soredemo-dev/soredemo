@@ -165,8 +165,11 @@ struct RecordingBarView: View {
             .background(Capsule().fill(Signal.record))
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(.escape, modifiers: [])
-        .help("Stop recording (\u{238B})")
+        // **No `.keyboardShortcut` here.** This panel is `.nonactivatingPanel` so it never
+        // becomes key, and a shortcut on a button in a window that cannot take focus is a
+        // shortcut that never fires — which is what ⎋ was doing. The key that stops a recording
+        // is registered system-wide; see `GlobalHotkey`.
+        .help("Stop recording (\(MenuBarRecorderPanel.toggleShortcut))")
     }
 
     /// `m:ss` under an hour, `h:mm:ss` over it. A leading `00:` on every recording is two

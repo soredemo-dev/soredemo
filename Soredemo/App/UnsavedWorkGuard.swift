@@ -73,8 +73,27 @@ final class UnsavedWorkGuard {
 
 /// The one thing an `NSApplicationDelegate` is needed for here.
 final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
-    /// Takes the Dock icon away again once the last editor closes — see `EditorWindowPresence`.
+    /// Set by `SoredemoApp` so the global shortcut has something to toggle. A weak-ish seam
+    /// rather than a lookup: the delegate is created by SwiftUI and cannot reach the app's state.
+    @MainActor static var toggleRecording: (@MainActor () -> Void)?
+
+    /// Registers the global shortcut and takes the Dock icon away again once the last editor
+    /// closes — see `GlobalHotkey` and `EditorWindowPresence`.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // No `MainActor.assumeIsolated` here. This target builds with
+        // `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so this delegate method already IS
+        // main-actor isolated and the assertion would be ceremony — and asserting isolation a
+        // caller does not have is the exact shape that produced an EXC_BREAKPOINT in
+        // `SystemCursorShape` earlier in this project.
+        let registered = GlobalHotkey.shared.register(
+            keyCode: GlobalHotkey.toggleRecordingKeyCode,
+            modifiers: GlobalHotkey.toggleRecordingModifiers) {
+                Self.toggleRecording?()
+            }
+        // **Reported rather than swallowed.** A combination another application already holds is
+        // a thing a person can fix, and a stop key that silently does nothing is the worst
+        // version of this feature.
+        if !registered { GlobalHotkeyStatus.shared.failed = true }
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
                 // After the close, not during it: the window being closed is still in
@@ -99,4 +118,18 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
     /// recorder away from a person who closed an editor, which is the opposite of what closing
     /// an editor means. ⌘Q still quits, and still asks first.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+
+/// Whether the global shortcut is actually registered, so the panel can say when it is not.
+///
+/// A separate observable object rather than a field on the coordinator: the delegate runs before
+/// any of the app's state exists, and a flag it can set without reaching for that state is the
+/// smaller seam.
+@MainActor
+@Observable
+final class GlobalHotkeyStatus {
+    static let shared = GlobalHotkeyStatus()
+    var failed = false
+    private init() {}
 }

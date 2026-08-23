@@ -45,16 +45,6 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 460)
-        // **The bar is shown from here rather than owned by a view.** A SwiftUI view that held
-        // an `NSPanel` would build and tear one down on every body evaluation; this observes the
-        // one state change that should create it.
-        .onChange(of: coordinator.isRecording, initial: true) {
-            if coordinator.isRecording {
-                RecordingBarPresenter.shared.show(coordinator: coordinator)
-            } else {
-                RecordingBarPresenter.shared.hide()
-            }
-        }
     }
 }
 
@@ -283,6 +273,12 @@ final class RecordingCoordinator {
             isPaused = false
             elapsed = 0
             pendingMode = nil
+            // **Shown from here, not from a view.** It used to be presented by `ContentView`'s
+            // `.onChange`, which worked only while an editor window happened to be open — and
+            // once the window stopped opening at launch, `ContentView` was never built, so a
+            // recording started from the menu bar had no controls at all. The bar belongs to the
+            // recording, and the recording is here.
+            RecordingBarPresenter.shared.show(coordinator: self)
             statusText = "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."
         } catch {
             statusText = "Could not start recording: \(error)"
@@ -296,6 +292,7 @@ final class RecordingCoordinator {
         isPaused = false
         microphoneLevel = nil
         pendingMode = nil
+        RecordingBarPresenter.shared.hide()
         statusText = "Finishing\u{2026}"
         do {
             let outcome = try await session.stop()

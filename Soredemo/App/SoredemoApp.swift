@@ -29,6 +29,14 @@ struct SoredemoApp: App {
     /// The one thing an app delegate is needed for: asking before the app quits over an edit
     /// nobody saved. See `UnsavedWorkGuard`.
     @NSApplicationDelegateAdaptor(SoredemoAppDelegate.self) private var appDelegate
+
+    /// Hands the global shortcut something to toggle. `init` rather than a `.task`: the delegate
+    /// registers the hot key in `applicationDidFinishLaunching`, and a `.task` on a scene that
+    /// opens no window at launch would not have run by then.
+    private func connectGlobalHotkey() {
+        let coordinator = recordingCoordinator
+        SoredemoAppDelegate.toggleRecording = { coordinator.toggleRecording() }
+    }
     /// `--dump-permissions` prints the permission dump and exits here, before
     /// `body` is evaluated and therefore before any window appears. Launch it
     /// with `open -a Soredemo.app --args --dump-permissions`, not the raw
@@ -48,8 +56,10 @@ struct SoredemoApp: App {
         // Record, the thing they wanted to record is behind it. See `MenuBarRecorderPanel`.
         MenuBarExtra {
             MenuBarRecorderPanel(coordinator: recordingCoordinator)
+                .task { connectGlobalHotkey() }
         } label: {
             MenuBarRecorderLabel(coordinator: recordingCoordinator)
+                .task { connectGlobalHotkey() }
         }
         // `.window`, not the default menu: the contents are controls, not commands.
         .menuBarExtraStyle(.window)
