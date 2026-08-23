@@ -39,9 +39,9 @@ struct SoredemoApp: App {
         SoredemoAppDelegate.toggleRecording = { coordinator.toggleRecording() }
     }
 
-    /// **Run in `init`, before the delegate's `applicationDidFinishLaunching`.** The status item
-    /// is installed there and needs the coordinator; a `.task` on a scene would not have run yet,
-    /// and with every window suppressed there may be no scene body evaluated at all.
+    /// **Run in `init`, before the delegate's `applicationDidFinishLaunching`.** The hot key is
+    /// registered there and needs something to toggle; a `.task` on a scene would not have run
+    /// yet, and with every window suppressed there may be no window scene body evaluated at all.
     init() {
         if CommandLine.arguments.dropFirst().contains("--dump-permissions") {
             print(CapturePermissions.dumpText(
@@ -51,9 +51,6 @@ struct SoredemoApp: App {
         let coordinator = RecordingCoordinator()
         _recordingCoordinator = State(initialValue: coordinator)
         MainActor.assumeIsolated {
-            SoredemoAppDelegate.installStatusItem = {
-                StatusItemController.shared.install(coordinator: coordinator)
-            }
             SoredemoAppDelegate.toggleRecording = { coordinator.toggleRecording() }
         }
     }
@@ -63,6 +60,25 @@ struct SoredemoApp: App {
     /// executable: TCC attributes a direct `fork`/`exec` to the responsible
     /// parent process, so the grants reported would not be this bundle's.
     var body: some Scene {
+        // **The menu bar item, and it is the whole app.** A recorder is used from inside what
+        // is being demonstrated, and the moment a person opens this app's window to press
+        // Record, the thing they wanted to record is behind it. See `MenuBarRecorderPanel`.
+        //
+        // **`MenuBarExtra`, after an `NSStatusItem` was tried and taken back out.** Owning the
+        // item bought `autosaveName` and a seeded position — real answers to an item macOS hides
+        // on a full menu bar — and cost the two things that make this feel like a menu bar app:
+        // the system's own window chrome behind the panel, and a label that is in the scene
+        // graph for as long as the app is. Both were rebuilt by hand and neither came back
+        // right. The scene is the design; the position problem goes somewhere it does not cost
+        // the design to solve.
+        MenuBarExtra {
+            MenuBarRecorderPanel(coordinator: recordingCoordinator)
+        } label: {
+            MenuBarRecorderLabel(coordinator: recordingCoordinator)
+        }
+        // `.window`, not the default menu: the contents are controls, not commands.
+        .menuBarExtraStyle(.window)
+
         // **Preferences**, in the place macOS puts them. `Settings` rather than a `Window`, so
         // it gets ⌘, and the standard title without either being written out here.
         Settings {

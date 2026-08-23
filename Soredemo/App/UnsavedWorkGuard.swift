@@ -76,19 +76,9 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
     /// Set by `SoredemoApp` so the global shortcut has something to toggle. A weak-ish seam
     /// rather than a lookup: the delegate is created by SwiftUI and cannot reach the app's state.
     @MainActor static var toggleRecording: (@MainActor () -> Void)?
-    /// Installs the menu bar item. **A closure rather than the coordinator itself**, because
-    /// this file is compiled by `scripts/run-cross-boundary-probe.sh` and `ContentView.swift`,
-    /// where `RecordingCoordinator` lives, deliberately is not — naming the type here would drag
-    /// the whole app lifecycle into a probe that exists to compile the boundary, not the app.
-    @MainActor static var installStatusItem: (@MainActor () -> Void)?
-
     /// Registers the global shortcut and takes the Dock icon away again once the last editor
     /// closes — see `GlobalHotkey` and `EditorWindowPresence`.
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // **The menu bar item is installed here, not declared as a scene.** `MenuBarExtra` gives
-        // no control over the item's position, and on a Mac with a notch that decides whether it
-        // is visible at all — see `StatusItemController`.
-        MainActor.assumeIsolated { Self.installStatusItem?() }
         // No `MainActor.assumeIsolated` here. This target builds with
         // `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so this delegate method already IS
         // main-actor isolated and the assertion would be ceremony — and asserting isolation a
