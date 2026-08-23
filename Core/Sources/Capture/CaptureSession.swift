@@ -342,6 +342,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// the number differs by capture kind — a display starts almost at once, a window waits
         /// to be composited — and because a large value is still worth knowing about.
         public internal(set) var captureStartLatencyNanos: Int64 = 0
+        /// When the first frame of this recording was presented, on the host clock.
+        ///
+        /// **What a second capture has to be lined up against.** It is already computed here —
+        /// the observation log's anchor IS this instant — and was not reachable from outside, so
+        /// `CameraComposition` had to assume the camera and the screen began together. a Rust recorder gives
+        /// every track in a recording a `start_time` for this reason.
+        public internal(set) var firstFrameHostTimeNanos: Int64 = 0
         /// Observations discarded because the first frame had not arrived by
         /// `maxBufferedObservations`. Non-zero means the capture was not producing frames, and
         /// the log for that segment is incomplete — a real loss, counted rather than absorbed.
@@ -1553,6 +1560,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         lock.withLock {
             let openedAt = unsafe segmentOpenHostTime?.rawValue ?? hostTime.rawValue
             unsafe _diagnostics.captureStartLatencyNanos = hostTime.rawValue - openedAt
+            unsafe _diagnostics.firstFrameHostTimeNanos = hostTime.rawValue
         }
 
         let header = ObservationLogHeader(anchor: anchor, segmentIndex: pending.segmentIndex,

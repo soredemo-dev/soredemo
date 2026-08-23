@@ -22,6 +22,10 @@ struct StageWindow: View {
     /// Where the self-view was left during the recording, so the stage opens with the camera
     /// there rather than back at the default — see `CameraSelfView`.
     var initialCameraStyle: CameraOverlayStyle = .default
+    /// How much later than the screen the camera began. Measured by the recorder; zero for a
+    /// project opened from disk, which is a gap this does not close — see the doc comment on
+    /// `CameraComposition.combine`.
+    var cameraStartOffsetNanos: Int64 = 0
     @State private var player: AVPlayer?
     /// The asset the current item was built from. Held because `AVAudioMix` addresses that
     /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
@@ -825,8 +829,9 @@ struct StageWindow: View {
             let cut = try await EditedAsset.make(from: recording, by: timeline.edit)
             // The camera laid alongside the cut recording, so one composition sees both. Returns
             // the cut asset untouched when there is no camera, so the common path costs nothing.
-            let combined = try await CameraComposition.combine(screen: cut,
-                                                               cameraURL: cameraURL)
+            let combined = try await CameraComposition.combine(
+                screen: cut, cameraURL: cameraURL,
+                cameraStartOffset: CMTime(value: cameraStartOffsetNanos, timescale: 1_000_000_000))
             StageCompositor.cameraTrackID = combined.cameraTrackID
             StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : cameraStyle
             let asset = combined.asset

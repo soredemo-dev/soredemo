@@ -28,6 +28,7 @@ struct ContentView: View {
         Group {
             if let mediaURL = coordinator.mediaURL {
                 StageWindow(initialCameraStyle: coordinator.cameraStyle,
+                            cameraStartOffsetNanos: coordinator.cameraStartOffsetNanos,
                             mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit(),
                             cameraURL: coordinator.cameraURL)
                     // `StageWindow` carries no `.id(mediaURL)`, so `.onDisappear` fires only
@@ -92,6 +93,9 @@ final class RecordingCoordinator {
     private var cameraRecorder: CameraRecorder?
     /// Where the camera's file landed for the recording being previewed, or `nil`.
     private(set) var cameraURL: URL?
+    /// How much later than the screen the camera began, in nanoseconds. Negative when the camera
+    /// started first. See `CameraComposition.combine(screen:cameraURL:cameraStartOffset:)`.
+    private(set) var cameraStartOffsetNanos: Int64 = 0
 
     func refreshCameras() {
         availableCameras = CameraRecorder.available()
@@ -451,8 +455,19 @@ final class RecordingCoordinator {
             // Hidden first: the panel holds a layer on the session this is about to stop, and
             // a preview of a stopped session is a frozen frame of somebody's face.
             CameraSelfView.shared.hide()
+            // **Read before `stop()` clears the session.** The two first-frame instants are what
+            // line the camera up with the screen; taken afterwards, one of them is gone.
+            let cameraStart = cameraRecorder.firstFrameHostTimeNanos
+            let screenStart = session?.diagnostics.firstFrameHostTimeNanos ?? 0
             cameraURL = await cameraRecorder.stop()
             self.cameraRecorder = nil
+            // Both instants have to be real. A zero is "never recorded", not "at the epoch", and
+            // subtracting one would place the camera by however long this Mac had been awake.
+            if let cameraStart, cameraStart > 0, screenStart > 0 {
+                cameraStartOffsetNanos = cameraStart - screenStart
+            } else {
+                cameraStartOffsetNanos = 0
+            }
             // **A camera that was asked for and did not arrive is said out loud.** It used to
             // be a `nil` that travelled all the way to an export with no face in it and no
             // explanation — the shape this project keeps finding, where the only symptom of a

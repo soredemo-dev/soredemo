@@ -141,6 +141,77 @@ extension StageCompositorTests {
                 "the two renders are identical, so the camera track reached no pixel")
     }
 
+    /// **A camera that started late is placed late, and one that started early is trimmed.**
+    /// Both files used to be inserted at zero, and this file's own doc comment called that an
+    /// approximation. A camera takes hundreds of milliseconds to wake, so the error is usually
+    /// the camera being late by more than a frame — visible in a hand wave on an overlay.
+    ///
+    /// a Rust recorder records a `start_time` per track and aligns everything to whichever began last;
+    /// an Electron recorder carries the same number as `timeOffsetMs`. This is that number applied at the
+    /// one place a composition is built.
+    @MainActor
+    @Test func aCameraThatStartedLateIsPlacedLateRatherThanAtZero() async throws {
+        let source = Self.cameraFixture()
+        let screenDuration = try await source.load(.duration)
+        let late = CMTime(value: 500_000_000, timescale: 1_000_000_000)
+
+        let aligned = try await CameraComposition.combine(
+            screen: source, cameraURL: source.url, cameraStartOffset: late)
+        guard let id = aligned.cameraTrackID,
+              let track = try await aligned.asset.loadTracks(withMediaType: .video)
+                  .first(where: { $0.trackID == id })
+        else { throw CameraParityError.noPixels }
+        // **Asserted on the track's SEGMENTS, not its `timeRange`.** Inserting material at 0.5s
+        // into an empty composition track leaves an EMPTY edit in front of it, and `timeRange`
+        // covers the empty part too — so it reports a start of zero for a camera that correctly
+        // begins half a second in. The segment list is where the gap is visible.
+        let segments = try await track.load(.segments)
+        let firstFilled = segments.first { !$0.isEmpty }
+        #expect(segments.first?.isEmpty == true, "no empty leader, so the camera was not delayed")
+        let start = firstFilled?.timeMapping.target.start.seconds ?? -1
+        #expect(abs(start - 0.5) < 0.01, "camera starts at \(start)s, not 0.5s")
+        // And it still ends with the recording rather than running past it.
+        let end = firstFilled?.timeMapping.target.end.seconds ?? .infinity
+        #expect(end <= screenDuration.seconds + 0.01)
+    }
+
+    /// The other direction: a camera that beat the screen has that much of its head cut off,
+    /// because those frames are of a recording that had not begun.
+    @MainActor
+    @Test func aCameraThatStartedFirstHasItsHeadTrimmed() async throws {
+        let source = Self.cameraFixture()
+        let early = CMTime(value: -400_000_000, timescale: 1_000_000_000)
+        let aligned = try await CameraComposition.combine(
+            screen: source, cameraURL: source.url, cameraStartOffset: early)
+        guard let id = aligned.cameraTrackID,
+              let track = try await aligned.asset.loadTracks(withMediaType: .video)
+                  .first(where: { $0.trackID == id })
+        else { throw CameraParityError.noPixels }
+        let segments = try await track.load(.segments)
+        guard let filled = segments.first(where: { !$0.isEmpty }) else {
+            throw CameraParityError.noPixels
+        }
+        #expect(abs(filled.timeMapping.target.start.seconds) < 0.01,
+                "a trimmed camera still begins at zero")
+        #expect(abs(filled.timeMapping.source.start.seconds - 0.4) < 0.01,
+                "the trim should read from 0.4s into the camera file")
+        let cameraDuration = try await source.load(.duration).seconds
+        let kept = filled.timeMapping.target.duration.seconds
+        #expect(abs(kept - (cameraDuration - 0.4)) < 0.05,
+                "kept \(kept)s of a \(cameraDuration)s camera, expected \(cameraDuration - 0.4)s")
+    }
+
+    /// A camera whose whole life is outside the recording is no camera. Reported as `nil` rather
+    /// than as a zero-length track the compositor would still be told to draw.
+    @MainActor
+    @Test func aCameraEntirelyPastTheRecordingIsNoCameraAtAll() async throws {
+        let source = Self.cameraFixture()
+        let past = try await source.load(.duration) + CMTime(value: 1, timescale: 1)
+        let aligned = try await CameraComposition.combine(
+            screen: source, cameraURL: source.url, cameraStartOffset: past)
+        #expect(aligned.cameraTrackID == nil)
+    }
+
     private static func cameraFixture() -> AVURLAsset {
         AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))

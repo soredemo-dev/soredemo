@@ -94,6 +94,25 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     private let output = AVCaptureMovieFileOutput()
     /// Built during `start`'s configuration block — see `previewLayer()`.
     private var preview: AVCaptureVideoPreviewLayer?
+    private var started: Int64?
+
+    /// When this recorder's file begins, on the host clock — the thing that makes the camera
+    /// line up with the screen.
+    ///
+    /// **Two captures started one after the other do not start at the same instant**, and until
+    /// this existed the composition assumed they did. `CameraComposition` said so in its own
+    /// doc comment and called it an approximation; a Rust recorder does not approximate it — every track in
+    /// its recording carries a `start_time`, and `calculate_audio_offsets` aligns them all to
+    /// whichever began LAST. an Electron recorder carries the same thing as `timeOffsetMs`.
+    ///
+    /// **`didStartRecordingTo`, which is when the OUTPUT began writing** — a frame or two before
+    /// the first sample it actually wrote. That residual is stated rather than hidden: closing
+    /// it needs the first sample's presentation time, which `AVCaptureMovieFileOutput` does not
+    /// expose and which would cost a second `AVCaptureVideoDataOutput` on the session to
+    /// observe. A frame or two beats the several hundred milliseconds a camera takes to wake.
+    ///
+    /// `nil` until the file starts.
+    public nonisolated var firstFrameHostTimeNanos: Int64? { started }
     private var destination: URL?
     private var finished: CheckedContinuation<URL?, Never>?
 
@@ -147,6 +166,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
         session.commitConfiguration()
 
         destination = url
+        started = nil
         try? FileManager.default.removeItem(at: url)
         session.startRunning()
         output.startRecording(to: url, recordingDelegate: self)
@@ -190,6 +210,13 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
 }
 
 extension CameraRecorder: AVCaptureFileOutputRecordingDelegate {
+    /// Stamps the moment the file began. See `firstFrameHostTimeNanos`.
+    public func fileOutput(_ output: AVCaptureFileOutput,
+                           didStartRecordingTo fileURL: URL,
+                           from connections: [AVCaptureConnection]) {
+        started = Minting.hostNow().rawValue
+    }
+
     public func fileOutput(_ output: AVCaptureFileOutput,
                            didFinishRecordingTo outputFileURL: URL,
                            from connections: [AVCaptureConnection],

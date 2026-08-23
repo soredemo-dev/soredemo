@@ -23,20 +23,32 @@ public enum CameraComposition {
 
     /// The screen recording with the camera's video laid alongside it.
     ///
-    /// **Both start at zero.** `CameraRecorder` and `CaptureSession` are started one after the
-    /// other, so the two files begin within a few frames of each other and are inserted at the
-    /// same instant. That is an approximation and it is stated here rather than implied: a
-    /// correction needs the camera's first-frame host time recorded next to the screen's, which
-    /// is the same anchor problem `openObservationLog(atFirstFrame:)` solved for the pointer and
-    /// is not yet solved for this. A few frames of lip-sync error on an overlay is visible; a
-    /// few frames on a talking head filling the screen would not be tolerable, and this overlay
-    /// is small.
+    /// **They do not both start at zero, and `cameraStartOffset` is the difference.** This used
+    /// to insert both at the same instant and say in this comment that it was an approximation
+    /// pending the camera's first-frame host time. That time is now recorded —
+    /// `CameraRecorder.firstFrameHostTimeNanos` beside
+    /// `CaptureSession.Diagnostics.firstFrameHostTimeNanos` — which is the same anchor
+    /// `openObservationLog(atFirstFrame:)` takes for the pointer.
+    ///
+    /// a Rust recorder does not approximate this either: every track in one of its recordings carries a
+    /// `start_time`, and `calculate_audio_offsets` aligns them all to whichever began LAST.
+    /// an Electron recorder carries the same number as `timeOffsetMs` and seeks its webcam element by it.
+    ///
+    /// **Positive means the camera started LATER**, so its picture belongs that far into the
+    /// recording and the overlay is simply absent before then — which is true, and is what the
+    /// person saw. Negative means the camera started FIRST, so that much of its head is footage
+    /// of a screen recording that had not begun, and it is trimmed off.
+    ///
+    /// A camera is a slow device: it takes hundreds of milliseconds to wake and expose, so this
+    /// offset is usually the camera being late by more than a frame. On a small overlay a few
+    /// frames of error is visible in a hand wave; that is the error this closes.
     ///
     /// Returns the screen asset untouched when there is no camera, so the common path builds no
     /// composition at all.
     @MainActor
     public static func combine(screen: sending AVAsset,
-                               cameraURL: URL?) async throws -> Combined {
+                               cameraURL: URL?,
+                               cameraStartOffset: CMTime = .zero) async throws -> Combined {
         guard let cameraURL, FileManager.default.fileExists(atPath: cameraURL.path) else {
             return Combined(asset: screen, cameraTrackID: nil)
         }
@@ -71,9 +83,19 @@ public enum CameraComposition {
         // extend the composition past the recording, and the export would end on a frame of
         // somebody reaching for the keyboard.
         let cameraDuration = try await camera.load(.duration)
-        let cameraRange = CMTimeRange(start: .zero,
-                                      duration: min(cameraDuration, screenDuration))
-        try cameraSlot.insertTimeRange(cameraRange, of: cameraTrack, at: .zero)
+        // A late camera is placed late and a head-start is trimmed; either way the material read
+        // is clamped so the composition never grows past the screen recording.
+        let late = max(cameraStartOffset, .zero)
+        let early = max(CMTimeMultiply(cameraStartOffset, multiplier: -1), .zero)
+        let room = CMTimeSubtract(screenDuration, late)
+        let available = CMTimeSubtract(cameraDuration, early)
+        guard room > .zero, available > .zero else {
+            // The whole camera falls outside the recording. Better an overlay-free composition
+            // than a zero-length track the compositor would still be told to draw.
+            return Combined(asset: composition, cameraTrackID: nil)
+        }
+        let cameraRange = CMTimeRange(start: early, duration: min(available, room))
+        try cameraSlot.insertTimeRange(cameraRange, of: cameraTrack, at: late)
 
         return Combined(asset: composition, cameraTrackID: cameraSlot.trackID)
     }
