@@ -32,6 +32,20 @@ final class CaptionsModel {
     /// can re-break the lines without transcribing again. Breaking is instant; recognising is
     /// not.
     private(set) var transcript: Transcript?
+    /// The language to recognise, or `nil` for the system's preferred. Held across recordings.
+    var locale: Locale?
+    private(set) var availableLocales: [Locale] = []
+    private(set) var installedLocales: Set<String> = []
+    /// True when the text that came back does not look like the language that was asked for —
+    /// see `OnDeviceTranscription.languageLooksWrong`.
+    private(set) var languageLooksWrong = false
+
+    func refreshLocales() async {
+        availableLocales = await OnDeviceTranscription.supportedLocales
+            .sorted { $0.identifier(.bcp47) < $1.identifier(.bcp47) }
+        installedLocales = Set(await OnDeviceTranscription.installedLocales
+            .map { $0.identifier(.bcp47) })
+    }
 
     var isTranscribing: Bool { phase != nil }
     var canTranscribe: Bool { OnDeviceTranscription.isAvailable && !isTranscribing }
@@ -49,12 +63,13 @@ final class CaptionsModel {
         status = nil
         defer { phase = nil }
         do {
-            let source = OnDeviceTranscription()
+            let source = OnDeviceTranscription(locale: locale)
             let recognised = try await source.transcript(of: mediaURL, range: nil,
                                                          onProgress: { [weak self] progress in
                 Task { @MainActor in self?.phase = progress }
             })
             transcript = recognised
+            languageLooksWrong = OnDeviceTranscription.languageLooksWrong(recognised)
             rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
                     maximumWords: maximumWords)
             status = track.isEmpty
@@ -195,6 +210,36 @@ struct CaptionsPanel: View {
             }
         }
 
+        Picker("Language", selection: Binding(
+            get: { model.locale?.identifier(.bcp47) ?? "" },
+            set: { model.locale = $0.isEmpty ? nil : Locale(identifier: $0) })) {
+            Text("This Mac's language").tag("")
+            ForEach(model.availableLocales, id: \.identifier) { locale in
+                // Installed languages are marked, because choosing one that is not starts a
+                // several-hundred-megabyte download and a person should see which is which
+                // BEFORE they press the button rather than after.
+                Text(Self.name(of: locale)
+                     + (model.installedLocales.contains(locale.identifier(.bcp47))
+                        ? "" : " \u{2014} downloads"))
+                    .tag(locale.identifier(.bcp47))
+            }
+        }
+        .task { await model.refreshLocales() }
+
+        if model.languageLooksWrong {
+            Label("What came back does not look like that language. Try another one.",
+                  systemImage: "exclamationmark.triangle")
+                .font(Type.detail).foregroundStyle(Signal.paused)
+        }
+
+        // **Said once, where the choice is made.** A sentence that switches between Chinese and
+        // English part-way is transcribed by whichever model was chosen, and the other
+        // language's words come back wrong — a property of the on-device model, not of how it is
+        // driven. Leaving a person to discover that from a page of nonsense is the worse option.
+        Text("One language per recording. A sentence that switches part-way is recognised as "
+             + "the chosen language throughout.")
+            .font(Type.detail).foregroundStyle(.secondary)
+
         Picker("Words per line", selection: $maximumWords) {
             Text("As many as fit").tag(Int?.none)
             ForEach([1, 2, 3, 4, 5, 6], id: \.self) { Text("\($0)").tag(Int?.some($0)) }
@@ -298,6 +343,14 @@ struct CaptionsPanel: View {
                                plate: Double? = nil) -> CaptionStyle {
         model.style.changing(heightFraction: height, bottomInsetFraction: inset,
                              backgroundOpacity: plate)
+    }
+
+    /// A language's own name where the system knows one, so a person reading a list of
+    /// languages reads it in the languages themselves.
+    static func name(of locale: Locale) -> String {
+        locale.localizedString(forIdentifier: locale.identifier)
+            ?? Locale.current.localizedString(forIdentifier: locale.identifier)
+            ?? locale.identifier(.bcp47)
     }
 
     private var phaseLabel: String {

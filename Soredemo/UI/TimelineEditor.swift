@@ -76,6 +76,30 @@ final class TimelineEditorModel {
 
     /// Hands the lane the zooms the gate derived. Called when the plan is read; the
     /// adjustments survive, because they are keyed on the click rather than on the block.
+    /// The recording's epoch anchor — what turns a zoom block's ABSOLUTE host instant into an
+    /// offset from the start of the video.
+    ///
+    /// **Without it the zoom lane drew every block off the right-hand edge.** A `ZoomBlock`'s
+    /// `start` is a `HostInstant`: nanoseconds since the machine booted, which for a Mac that
+    /// has been awake a week is a number around 6×10¹⁴. The strip's window runs 0…duration. The
+    /// lane fed one to the other and got a fraction in the hundreds of thousands, so the blocks
+    /// existed, were correct, and were drawn several kilometres to the right of the screen.
+    ///
+    /// The blocks themselves stay absolute: `ZoomAdjustment` is keyed on `ZoomBlock.origin` so
+    /// that a person's correction survives the plan being re-derived, and rewriting the instants
+    /// to offsets here would break that key. The conversion belongs at the point of drawing.
+    private(set) var zoomAnchor: EpochAnchor?
+
+    /// How far into the recording `instant` falls, or `nil` when it belongs to another boot
+    /// session — the epoch check every consumer of an absolute instant makes.
+    func offset(of instant: HostInstant) -> Nanoseconds? {
+        zoomAnchor.flatMap { FramingPlanReader.offset(of: instant, from: $0) }
+    }
+
+    func setZoomAnchor(_ anchor: EpochAnchor?) {
+        zoomAnchor = anchor
+    }
+
     func setDerivedZooms(_ blocks: [ZoomBlock]) {
         derivedZooms = blocks
         publish()
@@ -814,13 +838,17 @@ struct TimelineEditor: View {
                     // back to where it was derived and is drawn hollow.
                     let shown = model.zooms.first { $0.origin == derived.origin } ?? derived
                     let suppressed = model.isZoomSuppressed(derived.origin)
-                    let x = model.window.fraction(of: shown.start.hostTime) * width
-                    let w = (model.window.fraction(of: shown.end.hostTime)
-                             - model.window.fraction(of: shown.start.hostTime)) * width
-                    zoomBlockView(origin: derived.origin, suppressed: suppressed,
-                                  width: max(w, 3), height: geometry.size.height,
-                                  laneWidth: width, duration: duration)
-                        .offset(x: x)
+                    // Converted through the anchor, never used raw — see `zoomAnchor`.
+                    if let start = model.offset(of: shown.start),
+                       let end = model.offset(of: shown.end) {
+                        let x = model.window.fraction(of: start) * width
+                        let w = (model.window.fraction(of: end)
+                                 - model.window.fraction(of: start)) * width
+                        zoomBlockView(origin: derived.origin, suppressed: suppressed,
+                                      width: max(w, 3), height: geometry.size.height,
+                                      laneWidth: width, duration: duration)
+                            .offset(x: x)
+                    }
                 }
             }
         }

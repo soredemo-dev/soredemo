@@ -1,6 +1,7 @@
 import AVFoundation
 import Overlays
 import Foundation
+import NaturalLanguage
 import Speech
 import Timeline
 
@@ -57,6 +58,54 @@ public struct OnDeviceTranscription: TranscriptionSource {
 
     public static var supportedLocales: [Locale] {
         get async { await SpeechTranscriber.supportedLocales }
+    }
+
+    /// The locales this machine has already downloaded a model for.
+    ///
+    /// **Worth distinguishing from `supportedLocales`.** Choosing a supported-but-not-installed
+    /// language is legitimate and triggers a several-hundred-megabyte download; a person picking
+    /// from a list should be able to see which choice is instant and which is not.
+    public static var installedLocales: [Locale] {
+        get async { await SpeechTranscriber.installedLocales }
+    }
+
+    /// **On the mixed-language question, plainly: this cannot do it.**
+    ///
+    /// `SpeechTranscriber` is given one locale and recognises that language. A sentence that
+    /// switches between Traditional Chinese and English mid-way is transcribed by whichever
+    /// model was chosen, and the other language's words come back wrong or missing. That is a
+    /// property of the on-device model, not of how it is driven here — there is no code-switching
+    /// option to turn on.
+    ///
+    /// What IS possible, and what this reports: transcribe, then look at what came back. If the
+    /// text is not the language that was asked for, say so, so a person can choose again rather
+    /// than reading a page of nonsense and blaming the app. `NLLanguageRecognizer` is what
+    /// answers that — it reads text, so it can only run after the fact.
+    ///
+    /// The real fix is a cloud recogniser that does code-switching, which is what
+    /// `TranscriptionSource` exists to let someone plug in.
+    public static func dominantLanguage(of transcript: Transcript) -> String? {
+        guard !transcript.text.isEmpty else { return nil }
+        let recogniser = NLLanguageRecognizer()
+        recogniser.processString(transcript.text)
+        return recogniser.dominantLanguage?.rawValue
+    }
+
+    /// True when the text that came back does not look like the language that was asked for.
+    ///
+    /// Compared on the LANGUAGE, not the full tag: asking for `zh-TW` and getting text
+    /// `NLLanguageRecognizer` calls `zh-Hant` is a match, and treating it as a mismatch would
+    /// warn on every correct Chinese transcription.
+    public static func languageLooksWrong(_ transcript: Transcript) -> Bool {
+        guard let asked = transcript.languageCode,
+              let found = dominantLanguage(of: transcript),
+              // Under a handful of words the recogniser guesses, and a warning on a two-word
+              // caption would be noise on exactly the recordings that need it least.
+              transcript.text.count > 24 else { return false }
+        let askedLanguage = Locale(identifier: asked).language.languageCode?.identifier
+        let foundLanguage = Locale(identifier: found).language.languageCode?.identifier
+        guard let askedLanguage, let foundLanguage else { return false }
+        return askedLanguage != foundLanguage
     }
 
     public func transcript(of url: URL, range: Range<Int64>? = nil,

@@ -223,6 +223,11 @@ struct StageWindow: View {
             .animation(.easeOut(duration: 0.18), value: isTimelineCollapsed)
         }
         .background(Theme.Surface.base)
+        // **Full screen, which the green button was not offering.** An `NSWindow` only shows
+        // "Enter Full Screen" when its collection behaviour says it can be a full-screen
+        // primary; without it the button offers tiling and nothing else, which is the menu you
+        // saw. Applied from a view because the scene has no hook for it.
+        .background(WindowConfigurator())
         // **Pinned to dark.** Chrome around a picture shifts how its colours read: a light
         // surround makes a recording look darker and less saturated than it is, so a person
         // grading a background gradient in a light window is judging it wrong. Every editor in
@@ -271,7 +276,17 @@ struct StageWindow: View {
         // `reviewRevision` and not `review.overrides`: the composition is rebuilt when a
         // decision changes, and a counter says exactly that. Observing the array would also
         // fire on a load that merely restored the same decisions.
-        .task(id: reviewRevision) { if reviewRevision > 0 { await load() } }
+        // **A style change does not rebuild anything.** `StageCompositor` reads its style,
+        // cursor, captions, text and redactions from statics at render time, so a change is
+        // already in force for the next frame — while playing, it simply appears. What a PAUSED
+        // player needs is a reason to draw the frame it is already showing, which a zero-distance
+        // seek is. Rebuilding instead reloaded the asset, lost the position and stopped the
+        // sound, which is why every slider used to interrupt playback.
+        .task(id: reviewRevision) {
+            guard reviewRevision > 0, let player else { return }
+            await player.seek(to: player.currentTime(),
+                              toleranceBefore: .zero, toleranceAfter: .zero)
+        }
         .inspector(isPresented: $isReviewShown) {
             inspector
                 .inspectorColumnWidth(min: InspectorWidth.minimum,
@@ -282,11 +297,23 @@ struct StageWindow: View {
             // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`
             // can only attach to a `Scene`, never to a plain `View`.
             ToolbarItem {
-                // The title says whether there is anything to save, which is the whole
-                // content of a dirty indicator and cheaper than a dot nobody explains.
-                Button(hasUnsavedChanges ? "Save…" : "Saved") { saveProject() }
-                    .disabled(player == nil || !hasUnsavedChanges)
-                    .keyboardShortcut("s", modifiers: .command)
+                // **Always enabled once there is something to save.** It used to disable itself
+                // when nothing had changed and say "Saved", which is a correct statement and a
+                // dead end: a person who wants a second copy somewhere else has no way to ask
+                // for one, and a button that cannot be pressed cannot explain that either.
+                // The dirty state is still shown — in the title — rather than in whether the
+                // control works.
+                Menu {
+                    Button(savedPackage == nil ? "Save…" : "Save") { saveProject() }
+                        .keyboardShortcut("s", modifiers: .command)
+                    Button("Save As…") { saveProject(askingForDestination: true) }
+                        .keyboardShortcut("s", modifiers: [.command, .shift])
+                } label: {
+                    Text(hasUnsavedChanges ? "Save\u{2026}" : "Saved")
+                } primaryAction: {
+                    saveProject()
+                }
+                .disabled(player == nil)
             }
             ToolbarItem {
                 if isExporting {
@@ -565,10 +592,14 @@ struct StageWindow: View {
         savedPackage == nil || currentEditState() != savedEdit
     }
 
-    private func saveProject() {
+    /// `askingForDestination` is Save As: it asks even when this project already has a home,
+    /// and moves the project to the new one — which is what "save as" means everywhere else.
+    private func saveProject(askingForDestination: Bool = false) {
         let edit = currentEditState()
-        let destination = savedPackage ?? ProjectStore.chooseSaveDestination(
-            defaultName: mediaURL.deletingPathExtension().lastPathComponent)
+        let existing = askingForDestination ? nil : savedPackage
+        let destination = existing ?? ProjectStore.chooseSaveDestination(
+            defaultName: savedPackage?.deletingPathExtension().lastPathComponent
+                ?? mediaURL.deletingPathExtension().lastPathComponent)
         guard let destination else { return }
         do {
             try ProjectStore.save(recordingAt: mediaURL, edit: edit, to: destination)
@@ -662,6 +693,9 @@ struct StageWindow: View {
                 .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
             // The lane draws the same blocks the camera integrates, derived from the same
             // plan — a second derivation would be a second answer.
+            // The anchor first: the lane converts every block's absolute instant through it, and
+            // blocks set before it would be drawn off the edge for one frame.
+            timeline.setZoomAnchor(review.anchor)
             timeline.setDerivedZooms(ZoomBlock.blocks(
                 for: review.plan.framedClicks(with: review.overrides,
                                               pointerFallbackRevision: review.fallbackRevision)))
