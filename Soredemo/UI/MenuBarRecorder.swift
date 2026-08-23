@@ -117,9 +117,9 @@ struct MenuBarRecorderPanel: View {
                        isBusy: coordinator.pendingMode == .displaysOnly) {
                 coordinator.beginRecording(.displaysOnly)
             }
-            TargetCard(icon: "macwindow", title: "Window", detail: "One app",
+            TargetCard(icon: "macwindow", title: "Window", detail: "Point at it",
                        isBusy: coordinator.pendingMode == .windowsOnly) {
-                coordinator.beginRecording(.windowsOnly)
+                coordinator.beginWindowRecordingByPointing()
             }
         }
     }

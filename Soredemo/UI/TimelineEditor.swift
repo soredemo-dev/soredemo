@@ -397,6 +397,10 @@ struct TimelineEditor: View {
     /// recording length rather than the same number of nanoseconds.
     private let snapPoints: Double = 8
 
+    /// Below this, a clip's label would be truncated to nothing. a native editor's
+    /// `timelineClipLabelMinWidth` is 56 for the same purpose; a duration stamp is narrower.
+    static let clipLabelMinimumWidth: Double = 44
+
     /// The header column's width. One number, because every lane's header and every lane's
     /// content have to start at the same x or the tracks do not line up — which is the single
     /// thing that makes a stack of strips read as a timeline.
@@ -721,6 +725,24 @@ struct TimelineEditor: View {
                             RoundedRectangle(cornerRadius: Radius.strip)
                                 .strokeBorder(Theme.Ink.primary, lineWidth: isSelected ? 2 : 0)
                         }
+                        // **A label inside the clip, when it fits.** ScreenKite writes a name
+                        // and a duration into every clip and a native editor has a
+                        // `timelineClipLabelMinWidth` for the same reason: a strip of unlabelled
+                        // rectangles says how many clips there are and nothing else. Hidden
+                        // below the width where it would be truncated to nothing, rather than
+                        // squeezed — a clipped label is worse than none.
+                        .overlay(alignment: .topLeading) {
+                            if w > Self.clipLabelMinimumWidth {
+                                Text(Self.stamp(clip.duration))
+                                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                                    .foregroundStyle(Theme.Ink.primary.opacity(0.85))
+                                    .padding(.horizontal, Space.tight)
+                                    .padding(.vertical, 1)
+                                    .background(Capsule().fill(.black.opacity(0.35)))
+                                    .padding(Space.tight)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                         .frame(width: max(w, 1))
                         .offset(x: x)
                 }
@@ -846,7 +868,7 @@ struct TimelineEditor: View {
                                  - model.window.fraction(of: start)) * width
                         zoomBlockView(origin: derived.origin, suppressed: suppressed,
                                       width: max(w, 3), height: geometry.size.height,
-                                      laneWidth: width, duration: duration)
+                                      laneWidth: width, duration: duration, zoom: shown.zoom)
                             .offset(x: x)
                     }
                 }
@@ -856,7 +878,8 @@ struct TimelineEditor: View {
 
     @ViewBuilder private func zoomBlockView(origin: HostInstant, suppressed: Bool,
                                             width: Double, height: Double,
-                                            laneWidth: Double, duration: Nanoseconds) -> some View {
+                                            laneWidth: Double, duration: Nanoseconds,
+                                            zoom: Double = 1) -> some View {
         let held = model.draggingZoom == origin
         RoundedRectangle(cornerRadius: Radius.block)
             .fill(suppressed ? AnyShapeStyle(.clear)
@@ -865,6 +888,17 @@ struct TimelineEditor: View {
                 RoundedRectangle(cornerRadius: Radius.block)
                     .strokeBorder(Theme.Lane.zoom, style: StrokeStyle(lineWidth: 1,
                                                             dash: suppressed ? [3, 2] : []))
+            }
+            // **How far it zooms, written on it.** ScreenKite labels its zoom blocks "1.5×",
+            // and without a number a lane of identical rectangles cannot say which zoom is
+            // gentle and which is close. Hidden when the block is too narrow to hold it.
+            .overlay {
+                if width > 30, !suppressed {
+                    Text(String(format: "%.1f\u{00D7}", zoom))
+                        .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.black.opacity(0.75))
+                        .allowsHitTesting(false)
+                }
             }
             .frame(width: width, height: height)
             .contentShape(Rectangle())

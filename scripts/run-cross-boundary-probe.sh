@@ -103,6 +103,7 @@ xcrun swiftc \
   Soredemo/UI/EditorToolbar.swift \
   Soredemo/UI/Theme.swift \
   Soredemo/UI/WindowConfigurator.swift \
+  Soredemo/UI/TargetPickerOverlay.swift \
   Soredemo/UI/Filmstrip.swift \
   Soredemo/UI/PreviewOverlay.swift \
   Soredemo/UI/TransportBar.swift \

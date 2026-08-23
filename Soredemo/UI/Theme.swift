@@ -125,12 +125,19 @@ struct InspectorTabButton: View {
             Image(systemName: tab.icon)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(isSelected ? tab.tint : Theme.Ink.secondary)
-                .frame(maxWidth: .infinity)
-                .frame(height: 26)
+                .frame(width: 30, height: 28)
                 .background {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(isSelected ? Theme.Fill.pressed
                               : (isHovering ? Theme.Fill.hover : .clear))
+                }
+                .overlay(alignment: .leading) {
+                    // A bar on the selected section's edge, in its own lane's colour — the
+                    // marker a sidebar row uses, which is what a rail is.
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(isSelected ? tab.tint : .clear)
+                        .frame(width: 2, height: 16)
+                        .offset(x: -5)
                 }
                 .contentShape(Rectangle())
         }

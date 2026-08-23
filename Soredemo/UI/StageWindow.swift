@@ -288,10 +288,20 @@ struct StageWindow: View {
                               toleranceBefore: .zero, toleranceAfter: .zero)
         }
         .inspector(isPresented: $isReviewShown) {
-            inspector
-                .inspectorColumnWidth(min: InspectorWidth.minimum,
-                                      ideal: InspectorWidth.ideal,
-                                      max: InspectorWidth.maximum)
+            // **A vertical rail, not a row of tabs across the top.** ScreenKite and a native editor
+            // both put the section switcher on the panel's edge as a column of icons, and the
+            // reason shows as soon as there are more than three: a horizontal strip competes
+            // with the panel's own width, which is the dimension a 300-point inspector has none
+            // of to spare. A rail costs 40 points of width once and nothing per section.
+            HStack(spacing: 0) {
+                inspectorRail
+                Divider().overlay(Theme.Line.hairline)
+                inspector
+            }
+            .background(Theme.Surface.panel)
+            .inspectorColumnWidth(min: InspectorWidth.minimum + 40,
+                                  ideal: InspectorWidth.ideal + 40,
+                                  max: InspectorWidth.maximum + 40)
         }
         .toolbar {
             // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`
@@ -402,17 +412,38 @@ struct StageWindow: View {
     /// look" is asked once, and "what is this thing I just clicked" is asked constantly. A flat
     /// list mixes them, so the answer to the second is always somewhere below the answer to the
     /// first.
+    /// The inspector's section rail — a column of icons on the panel's edge.
+    ///
+    /// **A rail, not a row of tabs across the top.** ScreenKite and a native editor both put the
+    /// section switcher on the edge, and the reason shows as soon as there are more than three:
+    /// a horizontal strip competes with the panel's own width, which is the dimension a
+    /// 300-point inspector has none of to spare. A rail costs 40 points once and nothing per
+    /// section added after.
+    @ViewBuilder var inspectorRail: some View {
+        VStack(spacing: Space.tight) {
+            ForEach(InspectorTab.allCases, id: \.self) { tab in
+                InspectorTabButton(tab: tab, isSelected: inspectorTab == tab) {
+                    inspectorTab = tab
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, Space.snug)
+        .frame(width: 40)
+        .background(Theme.Surface.base)
+    }
+
     @ViewBuilder private var inspector: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $inspectorTab) {
-                ForEach(InspectorTab.allCases, id: \.self) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, Space.regular)
-            .padding(.vertical, Space.snug)
+            // The section's name, since the rail shows only icons.
+            Text(inspectorTab.title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.Ink.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Space.roomy)
+                .padding(.vertical, Space.snug + 2)
 
-            Divider()
+            Divider().overlay(Theme.Line.hairline)
 
             switch inspectorTab {
             case .project:

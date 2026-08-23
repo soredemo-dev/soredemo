@@ -330,3 +330,56 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         for camera in CameraRecorder.available() { #expect(camera.uniqueID != nil) }
     }
 }
+
+/// The windows a person can point at, described without reading anything private.
+@Suite struct WindowTargetTests {
+    private func target(_ id: UInt32, _ name: String,
+                        x: Double, y: Double, width: Double, height: Double) -> WindowTarget {
+        WindowTarget(id: id, applicationName: name, bundleIdentifier: "com.example.\(name)",
+                     frame: PointRect(x: x, y: y, width: width, height: height))
+    }
+
+    /// **Front to back, so the FIRST match wins.** ScreenCaptureKit returns windows in that
+    /// order and the hit test relies on it: sorting by area or by name would put the wrong
+    /// window under the cursor whenever two overlap, which is most of the time.
+    @Test func theHitTestTakesTheFrontmostOverlappingWindow() {
+        let front = target(1, "Front", x: 0, y: 0, width: 100, height: 100)
+        let behind = target(2, "Behind", x: 0, y: 0, width: 400, height: 400)
+        let targets = [front, behind]
+        #expect(WindowTargets.target(at: 50, y: 50, in: targets) == front)
+        // Outside the front one but inside the back one.
+        #expect(WindowTargets.target(at: 200, y: 200, in: targets) == behind)
+        #expect(WindowTargets.target(at: 900, y: 900, in: targets) == nil)
+    }
+
+    /// The right edge is exclusive, so two windows meeting exactly do not both claim the seam.
+    @Test func theRightAndBottomEdgesAreExclusive() {
+        let one = target(1, "One", x: 0, y: 0, width: 100, height: 100)
+        #expect(WindowTargets.target(at: 99.9, y: 99.9, in: [one]) == one)
+        #expect(WindowTargets.target(at: 100, y: 50, in: [one]) == nil)
+        #expect(WindowTargets.target(at: 50, y: 100, in: [one]) == nil)
+    }
+
+    /// **The card shows the size, which is the second thing a person needs after the name.**
+    @Test func theSizeIsReadAsWholePoints() {
+        #expect(target(1, "X", x: 0, y: 0, width: 1402.4, height: 810.6).sizeDescription
+                == "1402\u{00D7}811")
+    }
+
+    /// Buffer dimensions are even, for `CaptureSource`'s reason: an odd one is where a stray
+    /// column of green comes from.
+    @Test func bufferDimensionsAreAlwaysEven() {
+        for value in [1, 2, 3, 1401, 1402] {
+            #expect(WindowTargets.evenFloor(value) % 2 == 0)
+        }
+        #expect(WindowTargets.evenFloor(0) == 2)
+    }
+
+    /// Enumerating must not prompt or trap on a machine with no grant — it returns what it can.
+    @Test func enumeratingIsSafeWithoutAGrant() async {
+        for candidate in await WindowTargets.onScreen() {
+            #expect(!candidate.applicationName.isEmpty)
+            #expect(candidate.frame.width > 1)
+        }
+    }
+}

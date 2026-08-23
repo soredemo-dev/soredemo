@@ -253,11 +253,38 @@ final class RecordingCoordinator {
         microphoneLevel = scaled > previous ? scaled : previous + (scaled - previous) * 0.25
     }
 
-    private func beginOpenRecording(modes: CaptureSourcePicker.Modes = .displaysAndWindows) {
-        // Ask for Screen Recording, once, before the picker opens.
-        // `SCContentSharingPicker`/`SCStream` never prompt on their own; without this a first-run
-        // user is told "the user declined" by an API that never asked them.
+    /// Starts a window recording through this app's own overlay rather than the system picker.
+    ///
+    /// **Only for windows.** The overlay's whole idea is pointing at the thing, and there is
+    /// nothing to point at for a display: the system picker's display tab already shows a
+    /// preview of each one, and an overlay covering the display it is asking about would be
+    /// covering the answer.
+    func beginWindowRecordingByPointing() {
+        guard !isRecording else { return }
+        askForScreenRecordingOnce()
+        mediaURL = nil
+        pendingMode = .windowsOnly
+        Task { @MainActor in
+            let source = await TargetPickerOverlay.shared.pick()
+            pendingMode = nil
+            await sourceSelected(source)
+        }
+    }
+
+    /// **The one place this app asks for Screen Recording.**
+    ///
+    /// `theScreenRecordingRequestIsCalledExactlyOnceAndWiredBeforeThePicker` requires exactly one
+    /// call site outside the wrapper's own declaration, and its reasoning is right: a second site
+    /// is a second policy about when to ask. Two ways to start a recording arrived — the system
+    /// picker and this app's own overlay — and both need the grant before they show anything,
+    /// because neither `SCContentSharingPicker` nor `SCShareableContent` prompts on its own and a
+    /// first-run person would be told "the user declined" by an API that never asked them.
+    private func askForScreenRecordingOnce() {
         CapturePermissions.requestScreenRecordingAccess()
+    }
+
+    private func beginOpenRecording(modes: CaptureSourcePicker.Modes = .displaysAndWindows) {
+        askForScreenRecordingOnce()
 
         mediaURL = nil
         statusText = "Choose what to record from the picker\u{2026}"
