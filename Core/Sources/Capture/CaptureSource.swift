@@ -209,13 +209,52 @@ public enum CaptureSource: Sendable {
     /// content — and `WindowFollower` no longer reconfigures the stream on a move, since
     /// ScreenCaptureKit follows the window itself. The follower still updates the pointer's
     /// viewport, which nothing else can do.
-    public nonisolated func filter() -> SCContentFilter {
+    /// **This process's own windows are excluded from a display capture**, and the recording
+    /// that proved it necessary has the floating control bar sitting across the bottom of the
+    /// picture for its whole length. `excludingWindows: []` excluded nothing; a recorder that
+    /// puts a control strip over the screen and then records the screen records the strip.
+    ///
+    /// `excludingApplications:` rather than a list of window objects: the bar is created after
+    /// the filter is built — it appears when the capture starts — so a window list captured at
+    /// filter time would not contain it. Excluding the application covers every window this
+    /// process has now or opens later, which for a recorder is exactly the rule wanted.
+    ///
+    /// This is the visual half of what `excludesCurrentProcessAudio` already did for sound. The
+    /// two now say the same thing about the same process.
+    ///
+    /// A window capture needs none of this: `desktopIndependentWindow` captures one window and
+    /// nothing that overlaps it, so the bar is excluded by construction — which is the same
+    /// argument the header makes about the menu bar and notifications.
+    ///
+    /// **The list is an argument with an empty default**, not a static this type reads. The
+    /// applications come from `SCShareableContent`, which is `async`, and this is not; a static
+    /// would have to be written before every call and would be wrong exactly once — on the
+    /// first recording after launch, which is the one a person judges the product by.
+    public nonisolated func filter(excluding applications: [SCRunningApplication] = [])
+    -> SCContentFilter {
         switch self {
         case .display(let display):
-            return SCContentFilter(display: display, excludingWindows: [])
+            return SCContentFilter(display: display, excludingApplications: applications,
+                                   exceptingWindows: [])
         case .window(let capture):
             return SCContentFilter(desktopIndependentWindow: capture.window)
         }
+    }
+
+    /// This process as ScreenCaptureKit sees it — what `filter(excluding:)` wants.
+    ///
+    /// **`SCShareableContent.currentProcess`, which needs no Screen Recording grant**: it
+    /// reports this process's own windows and nothing else, which is all an exclusion list has
+    /// to contain. Asking for the full shareable content would prompt, and would also hand back
+    /// every other application on the machine.
+    ///
+    /// Matched on the process identifier rather than the name: a bundle name can be localised or
+    /// shared, and an exclusion that matched the wrong application would blank part of a
+    /// recording without saying so.
+    public nonisolated static func thisApplication() async -> [SCRunningApplication] {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let content = try? await SCShareableContent.currentProcess
+        return (content?.applications ?? []).filter { $0.processID == pid }
     }
 
     /// The rect ScreenCaptureKit should crop to, in the filtered display's point space —

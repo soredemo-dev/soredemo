@@ -13,9 +13,11 @@ import SwiftUI
 /// `../opensource/Screen Record Opensource/a Swift recorder`'s `CaptureToolbarPanel` sets the same
 /// five, and a Rust recorder's in-progress window is the same object in Tauri's vocabulary.
 ///
-/// **It is deliberately NOT excluded from the capture.** ScreenCaptureKit already excludes this
-/// process's own windows when the filter is built that way, and the honest default for a bar the
-/// recorder owns is that it does not appear in its own recording.
+/// **It is excluded from the capture, and that took a real recording to notice.** A 22-second
+/// screen recording came back with this bar sitting across the bottom of the picture for its
+/// whole length: the display filter was built with `excludingWindows: []`, which excludes
+/// nothing. `CaptureSource.filter(excluding:)` now passes this process, so a recorder that puts a
+/// control strip over the screen stops recording the strip.
 @MainActor
 final class RecordingBarPanel: NSPanel {
     private static let width: Double = 400
@@ -96,8 +98,25 @@ struct RecordingBarView: View {
     /// not a frame-rate cost on a machine already encoding video.
     private static let tick: Double = 1.0 / 20
 
+    /// Collapsed to a dot in the corner. **Not hidden entirely**: a recorder with no visible
+    /// indicator is one people leave running, and the menu bar item can be pushed off a full
+    /// menu bar — which is exactly what happens on a Mac with a notch. Collapsed it is 44 points
+    /// wide and still says a recording is happening.
+    @State private var isCollapsed = false
+
     var body: some View {
+        Group {
+            if isCollapsed { collapsed } else { expanded }
+        }
+        .onReceive(Timer.publish(every: Self.tick, on: .main, in: .common).autoconnect()) { _ in
+            coordinator.tick(Self.tick)
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.85), value: isCollapsed)
+    }
+
+    @ViewBuilder private var expanded: some View {
         HStack(spacing: Space.regular) {
+            grip
             state
             Divider().frame(height: 22).opacity(0.25)
             microphone
@@ -106,15 +125,47 @@ struct RecordingBarView: View {
                       label: coordinator.isPaused ? "Resume" : "Pause") {
                 coordinator.togglePause()
             }
+            BarButton(icon: "chevron.right.2", label: "Collapse — the recording keeps going") {
+                isCollapsed = true
+            }
             stopButton
         }
-        .padding(.horizontal, Space.roomy)
+        .padding(.horizontal, Space.regular)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .glassSurface(radius: Glass.barRadius)
         .padding(Space.tight)
-        .onReceive(Timer.publish(every: Self.tick, on: .main, in: .common).autoconnect()) { _ in
-            coordinator.tick(Self.tick)
+    }
+
+    /// **A dot and nothing else.** Clicking it brings the controls back; the recording never
+    /// stopped, and nothing here can stop it by accident.
+    @ViewBuilder private var collapsed: some View {
+        HStack {
+            Button { isCollapsed = false } label: {
+                HStack(spacing: Space.snug) {
+                    PulsingDot(isPaused: coordinator.isPaused)
+                    Image(systemName: "chevron.left.2")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .padding(.horizontal, Space.regular)
+                .frame(height: 30)
+                .glassSurface(radius: 15)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Show the recording controls")
+            Spacer(minLength: 0)
         }
+        .padding(Space.tight)
+    }
+
+    /// The drag handle. The panel is `isMovableByWindowBackground`, so anywhere on it works —
+    /// this says so, which is the whole job of a grip.
+    @ViewBuilder private var grip: some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.35))
+            .help("Drag anywhere on the bar to move it")
     }
 
     /// The dot and the clock. **`monospacedDigit`, and it is not cosmetic**: a timecode whose

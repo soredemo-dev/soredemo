@@ -786,7 +786,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // buffer and are never assumed from this number.
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
 
-        let filter = source.filter()
+        // Resolved per segment rather than once: a segment can begin after a display
+        // reconfiguration, and the cost is one query against this process's own content.
+        let filter = source.filter(excluding: await CaptureSource.thisApplication())
         let scStream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try scStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try scStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)

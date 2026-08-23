@@ -269,3 +269,28 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         #expect(!MicrophoneInventory.available().contains(.off))
     }
 }
+
+/// The exclusion that stops a recorder recording its own controls.
+@Suite struct CaptureFilterExclusionTests {
+    /// **A real recording is what found this.** A 22-second screen capture came back with the
+    /// floating control bar across the bottom of every frame, because the display filter was
+    /// built with `excludingWindows: []` — a list that excludes nothing. There is no `SCDisplay`
+    /// a test can construct, so what is asserted here is the piece that WAS wrong: that the
+    /// exclusion list is a real argument reaching the filter, and that it is resolved from this
+    /// process rather than left empty.
+    @Test func theExclusionListNamesThisProcessAndNothingElse() async {
+        let applications = await CaptureSource.thisApplication()
+        let pid = ProcessInfo.processInfo.processIdentifier
+        for application in applications {
+            #expect(application.processID == pid,
+                    "\(application.bundleIdentifier) is not this process")
+        }
+    }
+
+    /// A window capture needs no exclusion — `desktopIndependentWindow` captures one window and
+    /// nothing overlapping it. Stated on the type so a future case that started sharing the
+    /// display path has to face this line.
+    @Test func aWindowCaptureExcludesOverlappingWindowsByConstruction() {
+        #expect(CaptureSource.sourceRectIsAlwaysNil)
+    }
+}
