@@ -141,7 +141,9 @@ struct StageWindow: View {
             VStack(spacing: 0) {
                 EditorToolbar(model: timeline, onChange: { editRevision += 1 })
                 Divider()
-                TimelineEditor(model: timeline, onChange: { editRevision += 1 })
+                TimelineEditor(model: timeline, onChange: { editRevision += 1 },
+                               texts: texts.track, captions: captions.track,
+                               redactions: redactions.track)
                     .padding(Space.regular)
             }
             .frame(minHeight: 180, idealHeight: 210)
