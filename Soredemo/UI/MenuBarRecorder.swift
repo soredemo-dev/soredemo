@@ -29,15 +29,19 @@ struct MenuBarRecorderLabel: View {
                 Image(systemName: coordinator.isPaused
                       ? "pause.circle.fill" : "record.circle.fill")
             } else {
-                // **13, not the 17 an SF Symbol wants.** A symbol carries its own margin inside
-                // its box; the logomark's art runs edge to edge, so matching the box made it
-                // stand a third taller than every neighbour in the menu bar. The number that
-                // matches is the one that makes the INK the same height, not the frame.
+                // **No `.frame` here, and that is the fix.** Twice I sized this with a frame
+                // and twice it changed nothing a person could see: SwiftUI scales a menu bar
+                // image to the bar's height whatever frame it is given, so the only thing that
+                // controls how big the mark LOOKS is the proportion of its canvas the ink
+                // occupies. `scripts/make-menubar-logomark.swift` bakes that in — the ink is
+                // 62% of a square canvas and the rest is transparent.
+                //
+                // Measured, which is how the frame theory died: an SF Symbol in the menu bar has
+                // about 14pt of ink, and this mark inside a 13pt frame had 12pt — already
+                // shorter, and still reading as larger, because a solid brushstroke carries far
+                // more visual weight than line art at the same height.
                 Image("LogomarkTemplate")
                     .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 13, height: 13)
             }
         }
         // **The label is where this lives because the label is always in the scene graph.** The
