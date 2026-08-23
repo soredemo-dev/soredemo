@@ -25,7 +25,7 @@ import Render
         Issue.record("no Metal render device on this machine — a real answer, not a skip")
         return
     }
-    try renderer.render(plan, source: source, into: destination)
+    try renderer.render(plan, source: source, camera: nil, into: destination)
 
     // Pixels actually written, not "the call returned": the destination started all-black and
     // neither the stage background nor the card fill is black, so doing nothing leaves it zero.
@@ -72,7 +72,7 @@ import Render
         let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
         let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
                                      sourceWidth: width, sourceHeight: height, style: style)
-        try renderer.render(plan, source: source, into: destination)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
         return try pixels(of: destination)
     }
 
@@ -121,7 +121,7 @@ import Render
         let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
         let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
                                      sourceWidth: width, sourceHeight: height, style: style)
-        try renderer.render(plan, source: source, into: destination)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
         return try pixels(of: destination)
     }
     let first = try rendered()
@@ -154,7 +154,7 @@ import Render
         let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
                               card: base.card, cornerRadius: base.cornerRadius,
                               style: base.style, pointer: placement)
-        try renderer.render(plan, source: source, into: destination)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
         return try pixels(of: destination)
     }
     func identical(_ a: [(r: UInt8, g: UInt8, b: UInt8)],
@@ -204,7 +204,7 @@ import Render
                               style: base.style, pointer: nil,
                               contentZoom: zoom,
                               contentCentre: NormalizedPoint(x: 0.5, y: 0.5))
-        try renderer.render(plan, source: source, into: destination)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
         return try pixels(of: destination)
     }
     let plain = try rendered(zoom: 1.0)
@@ -240,7 +240,7 @@ import Render
                               contentZoom: zoom,
                               // The bright quadrant's centre in normalised source space.
                               contentCentre: NormalizedPoint(x: 0.25, y: 0.25))
-        try renderer.render(plan, source: source, into: destination)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
         return try pixels(of: destination).count { $0.r > 200 && $0.g > 200 && $0.b > 200 }
     }
     let plain = try brightCount(zoom: 1.0)
@@ -303,7 +303,7 @@ import Render
         let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
                               card: base.card, cornerRadius: base.cornerRadius,
                               style: base.style, pointer: pointer)
-        try renderer.render(plan, source: source, into: destination)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
         return try pixels(of: destination)
     }
 
@@ -362,7 +362,7 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
     let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
                                  sourceWidth: width, sourceHeight: height, style: style)
     let renderer = try CoreImageFrameRenderer()
-    try renderer.render(plan, source: source, into: destination)
+    try renderer.render(plan, source: source, camera: nil, into: destination)
     return try pixels(of: destination)
 }
 

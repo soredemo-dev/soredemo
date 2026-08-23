@@ -79,6 +79,7 @@ struct MenuBarRecorderPanel: View {
             } else {
                 targets
                 microphoneRow
+                cameraRow
                 countdownRow
                 startButton
             }
@@ -161,7 +162,53 @@ struct MenuBarRecorderPanel: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .task { coordinator.refreshMicrophones() }
+        .task { coordinator.refreshMicrophones(); coordinator.refreshCameras() }
+    }
+
+    /// Which camera, including none.
+    ///
+    /// **Hidden entirely when this machine has no camera or has refused access** — an option
+    /// that can only fail is worse than no option, and the permission is asked for when a camera
+    /// is chosen rather than at launch, because a recorder that asks for the camera on first run
+    /// before anyone has asked for one is a recorder people distrust.
+    @ViewBuilder private var cameraRow: some View {
+        if !coordinator.availableCameras.isEmpty {
+            Menu {
+                Button("No camera") { coordinator.camera = .off }
+                Divider()
+                ForEach(coordinator.availableCameras, id: \.self) { source in
+                    Button(source.displayName) {
+                        Task {
+                            guard await CameraRecorder.requestAccess() else {
+                                coordinator.camera = .off
+                                return
+                            }
+                            coordinator.camera = source
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: Space.snug) {
+                    Image(systemName: coordinator.camera == .off ? "video.slash" : "video.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(coordinator.camera == .off ? .secondary : .primary)
+                        .frame(width: 14)
+                    Text(coordinator.camera.displayName)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                    Spacer(minLength: Space.tight)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, Space.regular)
+                .frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
+                    .fill(.quaternary.opacity(0.5)))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+        }
     }
 
     /// How long to wait before the capture starts.

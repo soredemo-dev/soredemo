@@ -80,6 +80,15 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// How the drawn cursor looks. Set on the same terms as the seams above.
     public nonisolated(unsafe) static var cursorStyle: CursorStyle = .default
 
+    /// Where the camera sits, or `nil` for a recording without one. Set on the same terms as the
+    /// seams above.
+    public nonisolated(unsafe) static var cameraStyle: CameraOverlayStyle?
+    /// Which of the composition's video tracks is the camera. **Set by whoever built the
+    /// composition** — `CameraComposition.combine` returns it — because nothing about a track
+    /// says what it is, and picking "the last video track" would break the moment a composition
+    /// carried three.
+    public nonisolated(unsafe) static var cameraTrackID: CMPersistentTrackID?
+
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
     nonisolated(unsafe) private static var _diagnostics = Diagnostics()
@@ -128,7 +137,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     public func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
         // Read under the "published before any callback" guarantee, not under `lock`.
-        guard let trackID = request.sourceTrackIDs.first?.int32Value,
+        // **The screen is the first track that is NOT the camera.** With one video track this
+        // is the same as `.first`; with two it is the difference between drawing the recording
+        // and drawing a face at full frame.
+        let cameraTrackID = unsafe Self.cameraTrackID
+        guard let trackID = request.sourceTrackIDs
+                .map(\.int32Value)
+                .first(where: { $0 != cameraTrackID }),
               let source = request.sourceReadOnlyPixelBuffer(byTrackID: trackID),
               let context = unsafe renderContext,
               let destination = context.newPixelBuffer(),
@@ -154,11 +169,24 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               caption: captionOverlay(at: request.compositionTime),
                               texts: textOverlays(at: request.compositionTime),
                               redactions: redactedRegions(at: request.compositionTime),
-                              cursorStyle: unsafe Self.cursorStyle)
+                              cursorStyle: unsafe Self.cursorStyle,
+                              camera: (unsafe Self.cameraStyle).map(CameraOverlay.init(style:)))
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
+            // The camera's buffer, when the composition carries one. Read inside the same
+            // scope as the screen's so neither plain `CVPixelBuffer` outlives the call.
+            let cameraBuffer = cameraTrackID
+                .flatMap { request.sourceReadOnlyPixelBuffer(byTrackID: $0) }
             try source.withUnsafeBuffer { sourceBuffer in
-                try renderer.render(plan, source: sourceBuffer, into: destination)
+                if let cameraBuffer {
+                    try cameraBuffer.withUnsafeBuffer { camera in
+                        try renderer.render(plan, source: sourceBuffer, camera: camera,
+                                            into: destination)
+                    }
+                } else {
+                    try renderer.render(plan, source: sourceBuffer, camera: nil,
+                                        into: destination)
+                }
             }
             request.finish(withComposedPixelBuffer: CVReadOnlyPixelBuffer(unsafeBuffer: destination))
         } catch {

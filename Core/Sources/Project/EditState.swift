@@ -54,6 +54,10 @@ public struct EditState: Codable, Sendable, Equatable {
     public var redactionTrackData: Data?
     /// How the drawn cursor looks, as encoded bytes. Authored.
     public var cursorStyleData: Data?
+    /// Where the camera sits on the stage, as encoded bytes. Authored. Absent for a recording
+    /// with no camera — the placement of a track that does not exist is not a decision anyone
+    /// made.
+    public var cameraStyleData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -66,7 +70,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 burnsInCaptions: Bool? = nil,
                 textTrackData: Data? = nil,
                 redactionTrackData: Data? = nil,
-                cursorStyleData: Data? = nil) {
+                cursorStyleData: Data? = nil,
+                cameraStyleData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -79,6 +84,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.textTrackData = textTrackData
         self.redactionTrackData = redactionTrackData
         self.cursorStyleData = cursorStyleData
+        self.cameraStyleData = cameraStyleData
     }
 
     /// A recording nobody has edited.
@@ -93,7 +99,7 @@ public struct EditState: Codable, Sendable, Equatable {
             || captionTrackData != nil || captionStyleData != nil
             // `false` is not a change: it is the default, and a project that only ever had
             // captions turned off has nothing to save.
-            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil
+            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil || cameraStyleData != nil
     }
 
     // MARK: - the tiers that own these values

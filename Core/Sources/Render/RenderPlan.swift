@@ -264,6 +264,10 @@ public struct RenderPlan: Hashable, Sendable {
     /// renderer, so a frame's appearance is a function of its plan — which is what makes a
     /// render reproducible from one.
     public let cursorStyle: CursorStyle
+    /// The camera's placement, or `nil` when this recording has no camera or it is turned off.
+    /// The PIXELS come from a second video track the compositor reads; this is only where they
+    /// go and what shape they are.
+    public let camera: CameraOverlay?
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
@@ -272,7 +276,8 @@ public struct RenderPlan: Hashable, Sendable {
                 caption: CaptionOverlay? = nil,
                 texts: [TextOverlay] = [],
                 redactions: [RedactionRegion] = [],
-                cursorStyle: CursorStyle = .default) {
+                cursorStyle: CursorStyle = .default,
+                camera: CameraOverlay? = nil) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -285,6 +290,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.texts = texts
         self.redactions = redactions
         self.cursorStyle = cursorStyle
+        self.camera = camera
     }
 }
 

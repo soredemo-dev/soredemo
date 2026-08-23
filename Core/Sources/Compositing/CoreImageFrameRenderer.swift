@@ -25,7 +25,8 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         ])
     }
 
-    public func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
+    public func render(_ plan: RenderPlan, source: CVPixelBuffer, camera: CVPixelBuffer?,
+                       into destination: CVPixelBuffer) throws {
         let background = backgroundImage(plan)
         let card = cardImage(plan, source: source)
         var composed = background
@@ -44,6 +45,12 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
            let image = CaptionArt.image(caption, outputWidth: plan.outputWidth,
                                         outputHeight: plan.outputHeight) {
             composed = image.composited(over: composed)
+        }
+        // **The camera goes above the picture and under the overlays.** It is part of the
+        // recording, so a title or a caption a person placed has to read over it — and a
+        // redaction is applied to the source inside the card, so it is already below.
+        if let overlay = plan.camera, let camera {
+            composed = cameraImage(overlay, buffer: camera, plan: plan).composited(over: composed)
         }
         // Titles above the caption: a caption is a transcript of what is being said and belongs
         // under anything a person deliberately placed.
@@ -248,6 +255,95 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         }
         unsafe cursorCanvases[size] = created
         return created
+    }
+
+    /// The camera's frame, cropped to fill its own rectangle, masked to its shape and ringed.
+    ///
+    /// **Cropped to FILL, never letterboxed.** A 4:3 camera in a circle or a 16:9 slot has to
+    /// lose some of its edges; showing bars instead would put two black stripes on the person's
+    /// face, which is the one place on the stage a viewer is looking.
+    private func cameraImage(_ overlay: CameraOverlay, buffer: CVPixelBuffer,
+                             plan: RenderPlan) -> CIImage {
+        let image = CIImage(cvPixelBuffer: buffer)
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return CIImage.empty() }
+        let style = overlay.style
+        let box = style.rect(inOutputWidth: plan.outputWidth, outputHeight: plan.outputHeight,
+                             sourceAspect: Double(extent.width) / Double(extent.height))
+
+        var placed = image
+        if style.isMirrored {
+            // Flipped about the frame's own centre before it is scaled, so the mirror does not
+            // also move it — a scale and a flip do not commute about the origin.
+            placed = placed.transformed(by: CGAffineTransform(scaleX: -1, y: 1)
+                .concatenating(CGAffineTransform(translationX: extent.width, y: 0)))
+        }
+        let scale = max(box.width / Double(extent.width), box.height / Double(extent.height))
+        placed = placed.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let centred = placed.transformed(by: CGAffineTransform(
+            translationX: box.x + (box.width - Double(placed.extent.width)) / 2
+                - Double(placed.extent.minX),
+            y: box.y + (box.height - Double(placed.extent.height)) / 2
+                - Double(placed.extent.minY)))
+        let cropped = centred.cropped(to: HeadlessGeometryBridge.rect(
+            x: box.x, y: box.y, width: box.width, height: box.height))
+
+        let radius: Double = switch style.shape {
+        case .circle: min(box.width, box.height) / 2
+        case .rounded: box.width * style.cornerFraction
+        case .square: 0
+        }
+        guard radius > 0 else { return ringed(cropped, box: box, radius: 0, style: style) }
+        // The same rounded-rectangle generator the card's own mask uses, so a circular camera
+        // and a rounded card are the same shape family rather than two approximations of one.
+        guard let mask = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+            "inputExtent": CIVector(x: box.x, y: box.y, z: box.width, w: box.height),
+            "inputRadius": radius,
+            "inputColor": CIColor.white,
+        ])?.outputImage else { return ringed(cropped, box: box, radius: radius, style: style) }
+        let masked = cropped.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputMaskImageKey: mask,
+            kCIInputBackgroundImageKey: CIImage.empty(),
+        ])
+        return ringed(masked, box: box, radius: radius, style: style)
+    }
+
+    /// The camera with its ring and its shadow. **A ring, because without one a camera over a
+    /// light screenshot has no edge at all** — which is what makes an overlay look pasted on.
+    private func ringed(_ image: CIImage,
+                        box: (x: Double, y: Double, width: Double, height: Double),
+                        radius: Double, style: CameraOverlayStyle) -> CIImage {
+        var result = image
+        if style.shadowOpacity > 0,
+           let silhouette = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+               "inputExtent": CIVector(x: box.x, y: box.y, z: box.width, w: box.height),
+               "inputRadius": radius,
+               "inputColor": CIColor(red: 0, green: 0, blue: 0, alpha: style.shadowOpacity),
+           ])?.outputImage {
+            result = result.composited(
+                over: silhouette.applyingGaussianBlur(sigma: box.width * 0.06))
+        }
+        guard style.borderOpacity > 0 else { return result }
+        // The ring is the difference between the shape and a slightly smaller one — a stroke
+        // filter would need a path, and this generator makes shapes rather than paths.
+        let inset = max(box.width * 0.006, 1)
+        guard let outer = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+                  "inputExtent": CIVector(x: box.x, y: box.y, z: box.width, w: box.height),
+                  "inputRadius": radius,
+                  "inputColor": CIColor(red: 1, green: 1, blue: 1, alpha: style.borderOpacity),
+              ])?.outputImage,
+              let inner = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+                  "inputExtent": CIVector(x: box.x + inset, y: box.y + inset,
+                                          z: box.width - inset * 2, w: box.height - inset * 2),
+                  "inputRadius": max(radius - inset, 0),
+                  "inputColor": CIColor.white,
+              ])?.outputImage
+        else { return result }
+        let ring = outer.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputMaskImageKey: inner.applyingFilter("CIColorInvert"),
+            kCIInputBackgroundImageKey: CIImage.empty(),
+        ])
+        return ring.composited(over: result)
     }
 
     /// The pointer art for one placement, translated to its output-pixel position. Returns an empty

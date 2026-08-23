@@ -4535,7 +4535,7 @@ enum CrossBoundaryProbe {
                                                     r: 0, g: 0, b: 0)
 
         let renderer = try CoreImageFrameRenderer()
-        try renderer.render(plan, source: source, into: destination)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
 
         let centrePixel = pixel(in: destination, atStageX: 160, y: 90, outputHeight: outputHeight)
         let marginPixel = pixel(in: destination, atStageX: 10, y: 10, outputHeight: outputHeight)
@@ -5950,7 +5950,8 @@ enum CrossBoundaryProbe {
     /// `FrameRendering: Sendable`.
     struct AlwaysThrowingRenderer: FrameRendering {
         struct Boom: Error {}
-        func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws {
+        func render(_ plan: RenderPlan, source: CVPixelBuffer, camera: CVPixelBuffer?,
+                    into destination: CVPixelBuffer) throws {
             throw Boom()
         }
     }

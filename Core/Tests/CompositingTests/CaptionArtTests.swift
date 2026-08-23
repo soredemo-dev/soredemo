@@ -1,4 +1,5 @@
 import Testing
+import AVFoundation
 import Foundation
 import CoreImage
 import Overlays
@@ -296,5 +297,83 @@ import Timeline
 
         let whole = TextArt.DimmedRun(range: 0..<10, alpha: 0.5).rangesOutside(length: 10)
         #expect(whole.isEmpty)
+    }
+}
+
+/// The camera's placement.
+@Suite struct CameraOverlayTests {
+    /// **A circle is square before it is masked.** Fitting a 4:3 camera into a circle by its own
+    /// aspect gives an ellipse; the frame is squared and the source is cropped to fill it, which
+    /// is what every video-call application does with a round self-view.
+    @Test func aCircleIsSquareWhateverTheCameraSAspect() {
+        let style = CameraOverlayStyle.default
+        let box = style.rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 4.0 / 3)
+        #expect(abs(box.width - box.height) < 0.001)
+    }
+
+    /// A rectangle keeps the camera's aspect, so a 16:9 camera is not squashed.
+    @Test func arectangleKeepsTheCamerasAspect() {
+        let style = CameraOverlayStyle.default.changing(shape: .rounded)
+        let box = style.rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 16.0 / 9)
+        #expect(abs(box.width / box.height - 16.0 / 9) < 0.001)
+    }
+
+    /// `x` and `y` point at the camera's CENTRE, and `y` runs up from the bottom.
+    @Test func thePositionIsTheCentreAndYRunsUpward() {
+        let style = CameraOverlayStyle.default.changing(widthFraction: 0.2, x: 0.5, y: 0.25)
+        let box = style.rect(inOutputWidth: 1000, outputHeight: 1000, sourceAspect: 1)
+        #expect(abs(box.x + box.width / 2 - 500) < 0.001)
+        #expect(abs(box.y + box.height / 2 - 250) < 0.001)
+    }
+
+    @Test func everyFieldIsClampedRatherThanTrappedOn() {
+        let wild = CameraOverlayStyle(widthFraction: 9, x: -2, y: 4, shape: .square,
+                                      cornerFraction: 9, isMirrored: false,
+                                      borderOpacity: -1, shadowOpacity: 8)
+        #expect(wild.widthFraction <= 0.6)
+        #expect(wild.x == 0)
+        #expect(wild.y == 1)
+        #expect(wild.cornerFraction <= 0.5)
+        #expect(wild.borderOpacity == 0)
+        #expect(wild.shadowOpacity == 1)
+    }
+
+    /// A project written before the camera existed opens with the defaults, and the default is
+    /// mirrored — an unmirrored self-view is the one that looks wrong to the person recording.
+    @Test func anEmptyStyleDecodesToTheMirroredDefault() throws {
+        let style = try JSONDecoder().decode(CameraOverlayStyle.self, from: Data("{}".utf8))
+        #expect(style == .default)
+        #expect(style.isMirrored)
+    }
+
+    @Test func aStyleRoundTripsAndChangingOneFieldLeavesTheRest() throws {
+        let style = CameraOverlayStyle.default.changing(shape: .rounded, isMirrored: false)
+        let data = try JSONEncoder().encode(style)
+        #expect(try JSONDecoder().decode(CameraOverlayStyle.self, from: data) == style)
+        #expect(style.widthFraction == CameraOverlayStyle.default.widthFraction)
+        #expect(CameraOverlay(style: style).style == style)
+    }
+
+    /// No camera file means the screen asset is handed back untouched — the common path builds
+    /// no composition at all.
+    @MainActor
+    @Test func noCameraLeavesTheAssetAlone() async throws {
+        let screen = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let combined: CameraComposition.Combined =
+            try await CameraComposition.combine(screen: screen, cameraURL: nil)
+        #expect(combined.cameraTrackID == nil)
+        #expect(combined.asset === screen)
+    }
+
+    /// A path with no file behind it is the same as no camera, rather than a throw: a project
+    /// whose camera file was deleted must still open.
+    @MainActor
+    @Test func aMissingCameraFileIsTheSameAsNone() async throws {
+        let screen = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        let combined = try await CameraComposition.combine(
+            screen: screen, cameraURL: URL(fileURLWithPath: "/tmp/nothing-here.mov"))
+        #expect(combined.cameraTrackID == nil)
     }
 }

@@ -105,7 +105,7 @@ func stagePlan(pointer: NormalizedPointerPlacement?) -> RenderPlan {
 func composedFrame(pointer: NormalizedPointerPlacement?) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
     let source = try makePixelBuffer(width: frameWidth, height: frameHeight, fill: sourceFill)
     let destination = try makePixelBuffer(width: frameWidth, height: frameHeight, fill: (0, 0, 0))
-    try CoreImageFrameRenderer().render(stagePlan(pointer: pointer), source: source, into: destination)
+    try CoreImageFrameRenderer().render(stagePlan(pointer: pointer), source: source, camera: nil, into: destination)
     return try pixels(of: destination)
 }
 

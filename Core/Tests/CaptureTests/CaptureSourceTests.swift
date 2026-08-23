@@ -294,3 +294,39 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         #expect(CaptureSource.sourceRectIsAlwaysNil)
     }
 }
+
+/// Which camera a recording uses.
+@Suite struct CameraSourceTests {
+    /// **`.off` is a choice, and a missing camera falls back to it rather than to another one.**
+    /// `MicrophoneInventory.resolve` falls back to the system default because a recording with
+    /// the built-in microphone still records the room; a camera that fell back would record a
+    /// person's FACE when they had asked for a specific device, and that argument does not carry
+    /// over to a lens.
+    @Test func aMissingCameraFallsBackToNoCameraAtAll() {
+        let present = CameraSource(uniqueID: "A", name: "Built-in")
+        let gone = CameraSource(uniqueID: "B", name: "Unplugged")
+        #expect(CameraSource.resolve(present, against: [present]) == present)
+        #expect(CameraSource.resolve(gone, against: [present]) == .off)
+        #expect(CameraSource.resolve(.off, against: [present]) == .off)
+    }
+
+    @Test func offAsksForNoDeviceAndSaysSo() {
+        #expect(CameraSource.off.uniqueID == nil)
+        #expect(CameraSource.off.displayName == "No camera")
+        #expect(CameraSource.off != CameraSource(uniqueID: "A", name: "Built-in"))
+    }
+
+    @Test func theRecorderErrorsDescribeThemselvesDistinctly() {
+        let cases: [CameraRecorder.RecorderError] = [
+            .noCamera("Studio Display"), .sessionRefusedInput, .sessionRefusedOutput,
+        ]
+        #expect(Set(cases.map(\.description)).count == cases.count)
+        #expect(CameraRecorder.RecorderError.noCamera("X").description.contains("X"))
+    }
+
+    /// Asking must not prompt, download, or trap — a caller hides the control when this is false.
+    @Test func availabilityCanBeAskedWithoutRecordingAnything() {
+        _ = CameraRecorder.isAvailable
+        for camera in CameraRecorder.available() { #expect(camera.uniqueID != nil) }
+    }
+}

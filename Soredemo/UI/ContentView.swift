@@ -27,7 +27,8 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let mediaURL = coordinator.mediaURL {
-                StageWindow(mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit())
+                StageWindow(mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit(),
+                            cameraURL: coordinator.cameraURL)
                     // `StageWindow` carries no `.id(mediaURL)`, so `.onDisappear` fires only
                     // because `beginOpenRecording()` sets `mediaURL = nil` first, swapping this
                     // `Group`'s branch out and giving old and new `StageWindow` distinct view
@@ -77,6 +78,18 @@ final class RecordingCoordinator {
     /// Which microphone the next recording asks for. Held across recordings, so a person who
     /// picked their interface once does not pick it again every time.
     var microphone: MicrophoneSource = .systemDefault
+    /// Which camera the next recording uses, or `.off`. Held across recordings for the reason
+    /// `microphone` is.
+    var camera: CameraSource = .off
+    private(set) var availableCameras: [CameraSource] = []
+    private var cameraRecorder: CameraRecorder?
+    /// Where the camera's file landed for the recording being previewed, or `nil`.
+    private(set) var cameraURL: URL?
+
+    func refreshCameras() {
+        availableCameras = CameraRecorder.available()
+        camera = CameraSource.resolve(camera, against: availableCameras)
+    }
     /// The inputs this machine currently offers, refreshed when the menu bar panel opens —
     /// a USB interface plugged in after launch has to appear without a relaunch.
     private(set) var availableMicrophones: [MicrophoneSource] = []
@@ -146,6 +159,12 @@ final class RecordingCoordinator {
         do {
             let opened = try ProjectStore.open(packageURL)
             mediaURL = nil                   // swaps the window's branch, as recording does
+            // The camera file, if the project has one. Named by convention beside the master,
+            // as the observation log is — a package that carries one is self-describing.
+            let camera = packageURL.appending(path: ProjectStore.mediaDirectory,
+                                              directoryHint: .isDirectory)
+                .appending(path: "camera-00.mov")
+            cameraURL = FileManager.default.fileExists(atPath: camera.path) ? camera : nil
             pendingEdit = opened.edit
             mediaURL = opened.mediaURL
             statusText = "Opened \(packageURL.lastPathComponent)."
@@ -161,6 +180,7 @@ final class RecordingCoordinator {
     func openVideo(at url: URL) {
         mediaURL = nil
         pendingEdit = nil
+        cameraURL = nil
         mediaURL = url
         statusText = "Opened \(url.lastPathComponent). It has no pointer track, so there is "
             + "nothing for the camera to follow."
@@ -281,6 +301,25 @@ final class RecordingCoordinator {
                                         pointerHotspotReader: SystemCursorShape.hotspotReader(),
                                         microphone: microphone)
         session = newSession
+        // **The camera starts BEFORE the countdown, not after.** A camera takes a moment to
+        // wake and expose; started with the capture, its first second is a dark frame settling.
+        // The countdown is exactly the pause that hides it — which is a second reason to have
+        // one beyond giving a person time to move the pointer.
+        if case .device = camera, let packageURL = newSink.packageURL {
+            let recorder = CameraRecorder()
+            let url = packageURL.appending(path: ProjectStore.mediaDirectory,
+                                           directoryHint: .isDirectory)
+                .appending(path: "camera-00.mov")
+            do {
+                try recorder.start(camera: camera, to: url)
+                cameraRecorder = recorder
+            } catch {
+                // Not fatal: the screen still records. Said, because a person who turned the
+                // camera on and got no camera is owed the reason.
+                statusText = "The camera could not start: \(error). Recording the screen only."
+            }
+        }
+
         // **Counted before the session starts, not after.** A countdown that ran while the
         // capture was already recording would put itself in the first three seconds of the file.
         await CountdownPresenter.shared.run(seconds: countdownSeconds)
@@ -304,6 +343,12 @@ final class RecordingCoordinator {
     }
 
     private func stopRecording() async {
+        // The camera is stopped first and awaited: `AVCaptureMovieFileOutput` finishes writing
+        // on its own queue, and a composition built before that read a partial file.
+        if let cameraRecorder {
+            cameraURL = await cameraRecorder.stop()
+            self.cameraRecorder = nil
+        }
         guard let session else { return }
         isRecording = false
         isPaused = false

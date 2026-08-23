@@ -25,6 +25,8 @@ struct StageWindow: View {
     @State private var playingAsset: AVAsset?
     /// The video track's thumbnails. Owned here so a cache is not discarded on every edit.
     @State private var filmstrip = Filmstrip()
+    /// Where the camera sits on the stage. Authored, and saved with the rest of the look.
+    @State private var cameraStyle = CameraOverlayStyle.default
     @State private var failure: String?
     // MARK: - export-basic
     @State private var isExporting = false
@@ -130,6 +132,10 @@ struct StageWindow: View {
     /// What a saved project decided, applied once when this window loads. `nil` for a fresh
     /// recording, which is the common case.
     let pendingEdit: EditState?
+    /// The camera's file beside the recording, or `nil` when there is none. Passed in rather
+    /// than derived here: the recorder knows whether a camera ran, and a window that guessed by
+    /// probing for a filename would show camera controls for a file left by an earlier attempt.
+    var cameraURL: URL?
 
     /// **The DEFAULT output size** — `AspectVariant.landscape` at a 1920 longest edge — kept
     /// as constants because the render-parity check in
@@ -389,6 +395,9 @@ struct StageWindow: View {
                         StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 },
                                          packageURL: ProjectStore.packageURL(forMediaAt: mediaURL))
                     }
+                    if cameraURL != nil {
+                        Section("Camera") { cameraControls }
+                    }
                     Section("Cursor") {
                         StageStylePicker(model: stageStyle,
                                          onChange: { reviewRevision += 1 }).cursorControls
@@ -413,6 +422,33 @@ struct StageWindow: View {
                                onChange: { reviewRevision += 1 })
             }
         }
+    }
+
+    /// Where the camera sits. **Shown only when the recording HAS one** — controls for a track
+    /// that does not exist are controls a person changes and sees nothing happen.
+    @ViewBuilder private var cameraControls: some View {
+        Picker("Shape", selection: Binding(
+            get: { cameraStyle.shape },
+            set: { cameraStyle = cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
+            ForEach(CameraOverlayStyle.Shape.allCases, id: \.self) {
+                Text($0.displayName).tag($0)
+            }
+        }
+        Slider(value: Binding(get: { cameraStyle.widthFraction },
+                              set: { cameraStyle = cameraStyle.changing(widthFraction: $0) }),
+               in: 0.05...0.5,
+               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Size") }
+        Slider(value: Binding(get: { cameraStyle.x },
+                              set: { cameraStyle = cameraStyle.changing(x: $0) }),
+               in: 0...1,
+               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Across") }
+        Slider(value: Binding(get: { cameraStyle.y },
+                              set: { cameraStyle = cameraStyle.changing(y: $0) }),
+               in: 0...1,
+               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Up from the bottom") }
+        Toggle("Mirror", isOn: Binding(
+            get: { cameraStyle.isMirrored },
+            set: { cameraStyle = cameraStyle.changing(isMirrored: $0); reviewRevision += 1 }))
     }
 
     @ViewBuilder private var outputControls: some View {
@@ -518,7 +554,9 @@ struct StageWindow: View {
             textTrackData: texts.track.isEmpty ? nil : try? EditState.encoding(texts.track),
             redactionTrackData: redactions.track.isEmpty
                 ? nil : try? EditState.encoding(redactions.track),
-            cursorStyleData: try? EditState.encoding(stageStyle.cursor))
+            cursorStyleData: try? EditState.encoding(stageStyle.cursor),
+            cameraStyleData: cameraURL == nil
+                ? nil : try? EditState.encoding(cameraStyle))
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -574,6 +612,12 @@ struct StageWindow: View {
                 stageStyle.restoreCursor(cursor)
             }
         } catch { failures.append("the cursor") }
+        do {
+            if let camera = try EditState.decoding(edit.cameraStyleData,
+                                                   as: CameraOverlayStyle.self) {
+                cameraStyle = camera
+            }
+        } catch { failures.append("the camera") }
         if let name = edit.outputShapeName,
            let shape = AspectVariant.all.first(where: { $0.name == name }) {
             variant = shape
@@ -638,7 +682,14 @@ struct StageWindow: View {
             // **The preview plays the EDITED asset, not the recording with an end time set.**
             // `EditedAsset` is what the export cuts with too, so the two cannot show different
             // videos — an edit a person can make but not see is a setting, not an edit.
-            let asset = try await EditedAsset.make(from: recording, by: timeline.edit)
+            let cut = try await EditedAsset.make(from: recording, by: timeline.edit)
+            // The camera laid alongside the cut recording, so one composition sees both. Returns
+            // the cut asset untouched when there is no camera, so the common path costs nothing.
+            let combined = try await CameraComposition.combine(screen: cut,
+                                                               cameraURL: cameraURL)
+            StageCompositor.cameraTrackID = combined.cameraTrackID
+            StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : cameraStyle
+            let asset = combined.asset
             let composition = try await Self.configuredComposition(
                 for: asset, logForMediaURL: mediaURL, variant: variant)
             let item = AVPlayerItem(asset: asset)

@@ -25,5 +25,6 @@ enum FrameRenderingError: Error, CustomStringConvertible {
 // and `HeadlessGeometryBridge`, narrowed in the same pass, were not.
 public nonisolated protocol FrameRendering: Sendable {
     /// `CVPixelBuffer` in and out: the one vocabulary every candidate implementation speaks.
-    func render(_ plan: RenderPlan, source: CVPixelBuffer, into destination: CVPixelBuffer) throws
+    func render(_ plan: RenderPlan, source: CVPixelBuffer, camera: CVPixelBuffer?,
+                into destination: CVPixelBuffer) throws
 }
