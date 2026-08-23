@@ -814,7 +814,12 @@ func firstPartySourceFiles() throws -> [URL] {
         // is what distinguishes `addMedia(data, fileExtension: x)` from `var fileExtension:`.
         (", fileExtension:", "Soredemo/UI/ProjectDocument.swift", 0,
          "media can be added under a minted name"),
-        ("shadowRadius", "Sources/Render/RenderPlan.swift", 2,
+        // The needle is the PROPERTY ACCESS, not the bare word. `CALayer` has a `shadowRadius`
+        // too, and `CameraSelfView` sets it on the self-view panel's layer — a different API in
+        // a different framework that this table has no opinion about, counted as a third use of
+        // `RenderPlan`'s. Same collision as `fileExtension:` above and the same fix: name the
+        // thing being claimed about. Both real uses read it off a style.
+        ("style.shadowRadius", "Sources/Render/RenderPlan.swift", 2,
          "the stage draws a shadow AND a person can change it. 0 → 1 was the recorder-parity "
          + "decision (2026-08-19) making CoreImageFrameRenderer.shadowImage read it; 1 → 2 is "
          + "the style picker (2026-08-21) carrying it through StageStyleModel.apply, which "

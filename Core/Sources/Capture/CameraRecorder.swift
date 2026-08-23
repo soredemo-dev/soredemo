@@ -141,6 +141,22 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
         output.startRecording(to: url, recordingDelegate: self)
     }
 
+    /// A layer showing what this recorder is capturing, for a self-view during the recording.
+    ///
+    /// **From the recorder's own session, not a second one.** A preview built on its own
+    /// `AVCaptureSession` would be a second client on the same camera, and the first client
+    /// fixes the active format — the exact contention that makes a browser video call and a
+    /// recorder refuse to start together, self-inflicted this time. One session feeds the file
+    /// and the picture.
+    ///
+    /// Returns `nil` before `start`, because there is nothing to show until there is.
+    public func previewLayer() -> AVCaptureVideoPreviewLayer? {
+        guard session.isRunning || !session.inputs.isEmpty else { return nil }
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        return layer
+    }
+
     /// Stops and waits for the file to be written. `nil` when nothing was recorded.
     ///
     /// **Awaited rather than fire-and-forget.** `AVCaptureMovieFileOutput` finishes writing on

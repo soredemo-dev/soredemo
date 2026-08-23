@@ -19,6 +19,9 @@ import SwiftUI
 /// standard components get Liquid Glass automatically and respond to the system-level Liquid
 /// Glass slider, which a custom surface does not.
 struct StageWindow: View {
+    /// Where the self-view was left during the recording, so the stage opens with the camera
+    /// there rather than back at the default — see `CameraSelfView`.
+    var initialCameraStyle: CameraOverlayStyle = .default
     @State private var player: AVPlayer?
     /// The asset the current item was built from. Held because `AVAudioMix` addresses that
     /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
@@ -27,6 +30,9 @@ struct StageWindow: View {
     @State private var filmstrip = Filmstrip()
     /// Where the camera sits on the stage. Authored, and saved with the rest of the look.
     @State private var cameraStyle = CameraOverlayStyle.default
+    /// One-shot, because `initialCameraStyle` seeds `cameraStyle` and a saved project's own
+    /// value must win over it — the load runs after this and would otherwise be overwritten.
+    @State private var hasSeededCameraStyle = false
     /// The part of the recording used at all, and whether its handles are showing.
     @State private var crop = CropRect.whole
     @State private var isCropping = false
@@ -273,6 +279,11 @@ struct StageWindow: View {
         }
         // The preview follows the chosen shape: showing landscape while Portrait is selected
         // would be showing the wrong thing, which is the fault this surface exists against.
+        .task {
+            guard !hasSeededCameraStyle else { return }
+            hasSeededCameraStyle = true
+            cameraStyle = initialCameraStyle
+        }
         .task(id: variant) { await load() }
         // Rebuilding on a COMMITTED edit, not on every drag event: `load()` builds an
         // `AVVideoComposition` over a freshly cut asset, and doing that per pixel of a

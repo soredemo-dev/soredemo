@@ -27,7 +27,8 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let mediaURL = coordinator.mediaURL {
-                StageWindow(mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit(),
+                StageWindow(initialCameraStyle: coordinator.cameraStyle,
+                            mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit(),
                             cameraURL: coordinator.cameraURL)
                     // `StageWindow` carries no `.id(mediaURL)`, so `.onDisappear` fires only
                     // because `beginOpenRecording()` sets `mediaURL = nil` first, swapping this
@@ -98,6 +99,21 @@ final class RecordingCoordinator {
         activeCameraEffects = CameraEffects.active()
         cameraIsBusy = CameraRecorder.isInUseByAnotherApplication(camera)
     }
+
+    /// Where the camera sits, chosen while recording and carried into the editor.
+    ///
+    /// **Held here so it is placed once.** The self-view is dragged during the recording and the
+    /// stage composites the camera afterwards; if the two kept separate positions, a person who
+    /// moved their face out of the way of the Dock would find it back over the Dock the moment
+    /// the editor opened. Persisted for the reason `frameRate` is — it is a preference, not a
+    /// per-recording decision.
+    var cameraStyle: CameraOverlayStyle {
+        didSet {
+            guard let data = try? JSONEncoder().encode(cameraStyle) else { return }
+            UserDefaults.standard.set(data, forKey: Self.cameraStyleKey)
+        }
+    }
+    static let cameraStyleKey = "cameraOverlayStyle"
 
     /// True when the chosen camera is already held by another application — a video call in a
     /// browser, most often. See `CameraRecorder.isInUseByAnotherApplication`.
@@ -205,6 +221,10 @@ final class RecordingCoordinator {
         // never set, and 0 is not a frame rate.
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
             .flatMap(CaptureFrameRate.init(rawValue:)) ?? .sixty
+        // A shape stored from a previous run, or the bottom-right circle `default` is.
+        cameraStyle = (UserDefaults.standard.data(forKey: Self.cameraStyleKey))
+            .flatMap { try? JSONDecoder().decode(CameraOverlayStyle.self, from: $0) }
+            ?? .default
         TemporaryFileMediaSink.sweepLeftoverDirectories()
     }
 
@@ -388,6 +408,13 @@ final class RecordingCoordinator {
             do {
                 try recorder.start(camera: camera, to: url)
                 cameraRecorder = recorder
+                // **Shown before the countdown, with the camera it is already warming.** The
+                // countdown exists partly to let the camera settle; a person watching it is
+                // exactly the person who wants to check their framing while it does.
+                CameraSelfView.shared.onStyleChange = { [weak self] style in
+                    self?.cameraStyle = style
+                }
+                CameraSelfView.shared.show(recorder: recorder, style: cameraStyle)
             } catch {
                 // Not fatal: the screen still records. Said, because a person who turned the
                 // camera on and got no camera is owed the reason.
@@ -421,6 +448,9 @@ final class RecordingCoordinator {
         // The camera is stopped first and awaited: `AVCaptureMovieFileOutput` finishes writing
         // on its own queue, and a composition built before that read a partial file.
         if let cameraRecorder {
+            // Hidden first: the panel holds a layer on the session this is about to stop, and
+            // a preview of a stopped session is a frozen frame of somebody's face.
+            CameraSelfView.shared.hide()
             cameraURL = await cameraRecorder.stop()
             self.cameraRecorder = nil
         }

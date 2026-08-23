@@ -820,8 +820,13 @@ usage. Second draft used `codeLinesNaming` (comments and strings blanked by
 `SwiftSourceLexer`) but counted bare occurrences: `shadowRadius` came back with
 six, every one inside its own type. Third draft counts uses OUTSIDE the declaring
 file and still matched `CMTimeRange(` as a use of `TimeRange` — the lexer is
-right about comments and naive about word boundaries. **Only the fourth is the
-number.** Publish counts from an instrument that has been wrong about counts, and
+right about comments and naive about word boundaries. **A fifth correction, on
+2026-08-24:** `CameraSelfView` sets `CALayer.shadowRadius` on the self-view panel,
+and the bare needle counted a different framework's identically-named property as
+a third use of `StageStyle`'s. The needle is `style.shadowRadius` now — the
+property ACCESS, which is what the row claims about — the same fix `fileExtension:`
+took for the same reason. A word-boundary rule cannot separate two APIs that share
+a word; only naming the one being claimed about can. Publish counts from an instrument that has been wrong about counts, and
 the table inherits the error while reading exactly as confident.
 
 **The policy: delete it, or mark it VOID with the register's discipline** — what

@@ -192,3 +192,9 @@
 "Open Settings…" = "開啟系統設定…";
 "Ready to record." = "可以開始錄製了。";
 "Soredemo cannot record until the two above are allowed." = "在上面兩項被允許之前,Soredemo 無法錄製。";
+"Circle" = "圓形";
+"Rounded" = "圓角";
+"Square" = "方形";
+"Small" = "小";
+"Medium" = "中";
+"Large" = "大";
