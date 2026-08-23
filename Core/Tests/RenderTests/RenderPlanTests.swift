@@ -83,3 +83,53 @@ import Foundation
                 == CursorStyle.ClickEffect.allCases.count)
     }
 }
+
+/// The part of the recording used at all.
+@Suite struct CropRectTests {
+    /// **Clamped into the frame and never zero-area.** Sliders and decoders both reach here, and
+    /// a crop of no area is a video with no picture in it.
+    @Test func aCropIsClampedRatherThanTrappedOn() {
+        let wild = CropRect(x: -1, y: 0.9, width: 9, height: 9)
+        #expect(wild.x == 0)
+        #expect(wild.y == 0.9)
+        #expect(wild.width == 1)
+        #expect(abs(wild.height - 0.1) < 1e-12)
+
+        let empty = CropRect(x: 0.5, y: 0.5, width: 0, height: 0)
+        #expect(empty.width >= 0.01)
+        #expect(empty.height >= 0.01)
+    }
+
+    /// **`.whole` is a value rather than `nil`**, so a caller compares against one thing in every
+    /// place instead of a rectangle here and an optional there.
+    @Test func theWholeRecordingIsAValue() {
+        #expect(CropRect.whole.isWhole)
+        #expect(!CropRect(x: 0.1, y: 0, width: 0.5, height: 1).isWhole)
+        #expect(CropRect(x: 0, y: 0, width: 1, height: 1) == .whole)
+    }
+
+    /// The cropped size is even on both edges, for the reason every buffer dimension here is.
+    @Test func theCroppedSizeIsEvenOnBothEdges() {
+        let crop = CropRect(x: 0, y: 0, width: 0.333, height: 0.777)
+        let size = crop.size(ofSourceWidth: 1920, sourceHeight: 1080)
+        #expect(size.width % 2 == 0)
+        #expect(size.height % 2 == 0)
+        #expect(size.width > 0 && size.height > 0)
+    }
+
+    /// A project written before crops existed has no key; the decoder still has to clamp, because
+    /// the synthesised one would not.
+    @Test func aDecodedCropIsClampedTheSameWayAConstructedOneIs() throws {
+        let wild = Data(#"{"x":-2,"y":0,"width":9,"height":9}"#.utf8)
+        let crop = try JSONDecoder().decode(CropRect.self, from: wild)
+        #expect(crop.x == 0)
+        #expect(crop.width == 1)
+    }
+
+    @Test func aCropRoundTripsAndChangingOneEdgeLeavesTheRest() throws {
+        let crop = CropRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)
+        let data = try JSONEncoder().encode(crop)
+        #expect(try JSONDecoder().decode(CropRect.self, from: data) == crop)
+        #expect(crop.changing(width: 0.4).y == 0.2)
+    }
+}

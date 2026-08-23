@@ -268,6 +268,8 @@ public struct RenderPlan: Hashable, Sendable {
     /// The PIXELS come from a second video track the compositor reads; this is only where they
     /// go and what shape they are.
     public let camera: CameraOverlay?
+    /// The part of the recording used at all. `.whole` for an uncropped one — see `CropRect`.
+    public let crop: CropRect
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
@@ -277,7 +279,8 @@ public struct RenderPlan: Hashable, Sendable {
                 texts: [TextOverlay] = [],
                 redactions: [RedactionRegion] = [],
                 cursorStyle: CursorStyle = .default,
-                camera: CameraOverlay? = nil) {
+                camera: CameraOverlay? = nil,
+                crop: CropRect = .whole) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -291,6 +294,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.redactions = redactions
         self.cursorStyle = cursorStyle
         self.camera = camera
+        self.crop = crop
     }
 }
 

@@ -27,6 +27,9 @@ struct StageWindow: View {
     @State private var filmstrip = Filmstrip()
     /// Where the camera sits on the stage. Authored, and saved with the rest of the look.
     @State private var cameraStyle = CameraOverlayStyle.default
+    /// The part of the recording used at all, and whether its handles are showing.
+    @State private var crop = CropRect.whole
+    @State private var isCropping = false
     @State private var failure: String?
     // MARK: - export-basic
     @State private var isExporting = false
@@ -168,6 +171,11 @@ struct StageWindow: View {
         // while watching the picture above it, and an inspector is read down a column.
         VStack(spacing: 0) {
             VStack(spacing: 0) {
+                CanvasBar(variant: $variant, crop: $crop, isCropping: $isCropping,
+                          outputWidth: Self.size(for: variant).width,
+                          outputHeight: Self.size(for: variant).height,
+                          onChange: { reviewRevision += 1 })
+                Divider().overlay(Theme.Line.hairline)
                 Group {
                     if let player {
                         PreviewView(player: player)
@@ -187,6 +195,14 @@ struct StageWindow: View {
                     PreviewOverlay(outputWidth: size.width, outputHeight: size.height,
                                    texts: texts, redactions: redactions, tab: inspectorTab,
                                    onChange: { reviewRevision += 1 })
+                }
+                .overlay {
+                    if isCropping {
+                        let size = Self.size(for: variant)
+                        CropOverlay(crop: $crop, outputWidth: size.width,
+                                    outputHeight: size.height,
+                                    onCommit: { reviewRevision += 1 })
+                    }
                 }
                 if let player {
                     Divider()
@@ -614,7 +630,8 @@ struct StageWindow: View {
                 ? nil : try? EditState.encoding(redactions.track),
             cursorStyleData: try? EditState.encoding(stageStyle.cursor),
             cameraStyleData: cameraURL == nil
-                ? nil : try? EditState.encoding(cameraStyle))
+                ? nil : try? EditState.encoding(cameraStyle),
+            cropData: crop.isWhole ? nil : try? EditState.encoding(crop))
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -680,6 +697,11 @@ struct StageWindow: View {
                 cameraStyle = camera
             }
         } catch { failures.append("the camera") }
+        do {
+            if let saved = try EditState.decoding(edit.cropData, as: CropRect.self) {
+                crop = saved
+            }
+        } catch { failures.append("the crop") }
         if let name = edit.outputShapeName,
            let shape = AspectVariant.all.first(where: { $0.name == name }) {
             variant = shape
@@ -726,6 +748,10 @@ struct StageWindow: View {
             // plan — a second derivation would be a second answer.
             // The anchor first: the lane converts every block's absolute instant through it, and
             // blocks set before it would be drawn off the edge for one frame.
+            // The crop before the composition: `StagePlanner` fits the card to the CROPPED
+            // aspect, so a composition built while the static still said "whole" would size the
+            // card for a recording that is no longer what is being drawn.
+            StageCompositor.crop = crop
             timeline.setZoomAnchor(review.anchor)
             timeline.setDerivedZooms(ZoomBlock.blocks(
                 for: review.plan.framedClicks(with: review.overrides,

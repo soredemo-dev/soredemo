@@ -58,6 +58,9 @@ public struct EditState: Codable, Sendable, Equatable {
     /// with no camera — the placement of a track that does not exist is not a decision anyone
     /// made.
     public var cameraStyleData: Data?
+    /// The part of the recording used at all, as encoded bytes. Authored. Absent means the whole
+    /// recording, which is what an uncropped project has always meant.
+    public var cropData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -71,7 +74,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 textTrackData: Data? = nil,
                 redactionTrackData: Data? = nil,
                 cursorStyleData: Data? = nil,
-                cameraStyleData: Data? = nil) {
+                cameraStyleData: Data? = nil,
+                cropData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -85,6 +89,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.redactionTrackData = redactionTrackData
         self.cursorStyleData = cursorStyleData
         self.cameraStyleData = cameraStyleData
+        self.cropData = cropData
     }
 
     /// A recording nobody has edited.
@@ -99,7 +104,7 @@ public struct EditState: Codable, Sendable, Equatable {
             || captionTrackData != nil || captionStyleData != nil
             // `false` is not a change: it is the default, and a project that only ever had
             // captions turned off has nothing to save.
-            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil || cameraStyleData != nil
+            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil || cameraStyleData != nil || cropData != nil
     }
 
     // MARK: - the tiers that own these values

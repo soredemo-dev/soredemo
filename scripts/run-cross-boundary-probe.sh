@@ -109,6 +109,7 @@ xcrun swiftc \
   Soredemo/UI/PermissionsWindow.swift \
   Soredemo/UI/Filmstrip.swift \
   Soredemo/UI/PreviewOverlay.swift \
+  Soredemo/UI/CanvasBar.swift \
   Soredemo/UI/TransportBar.swift \
   Soredemo/UI/ProjectStore.swift \
   Soredemo/UI/CaptionsPanel.swift \

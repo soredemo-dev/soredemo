@@ -83,6 +83,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// Where the camera sits, or `nil` for a recording without one. Set on the same terms as the
     /// seams above.
     public nonisolated(unsafe) static var cameraStyle: CameraOverlayStyle?
+    /// The part of the recording used at all. Set on the same terms as the seams above.
+    public nonisolated(unsafe) static var crop: CropRect = .whole
     /// Which of the composition's video tracks is the camera. **Set by whoever built the
     /// composition** — `CameraComposition.combine` returns it — because nothing about a track
     /// says what it is, and picking "the last video track" would break the moment a composition
@@ -152,9 +154,16 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             request.finish(with: CompositorError.notConfigured)
             return
         }
+        // **The card is fitted to the CROPPED aspect, not the recording's.** `StagePlanner` fits
+        // a rectangle inside the output, and handing it the uncropped size would letterbox a
+        // cropped recording as though it were still 16:9 — the bars would be exactly the part
+        // that was cropped away.
+        let crop = unsafe Self.crop
+        let cropped = crop.size(ofSourceWidth: source.size.width,
+                                sourceHeight: source.size.height)
         let basePlan = StagePlanner.plan(
             outputWidth: Int(context.size.width), outputHeight: Int(context.size.height),
-            sourceWidth: source.size.width, sourceHeight: source.size.height,
+            sourceWidth: cropped.width, sourceHeight: cropped.height,
             style: unsafe Self.style)
         // The camera first: the pointer's placement is computed THROUGH the resulting plan
         // (`StagePlanner.placement` maps by `RenderPlan.contentX/Y`), so a pointer drawn
@@ -170,7 +179,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               texts: textOverlays(at: request.compositionTime),
                               redactions: redactedRegions(at: request.compositionTime),
                               cursorStyle: unsafe Self.cursorStyle,
-                              camera: (unsafe Self.cameraStyle).map(CameraOverlay.init(style:)))
+                              camera: (unsafe Self.cameraStyle).map(CameraOverlay.init(style:)),
+                              crop: crop)
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             // The camera's buffer, when the composition carries one. Read inside the same

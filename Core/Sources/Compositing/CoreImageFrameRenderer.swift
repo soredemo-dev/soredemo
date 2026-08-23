@@ -142,6 +142,26 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return scaled.transformed(by: CGAffineTransform(translationX: offsetX, y: offsetY))
     }
 
+    /// `image` reduced to `crop`, with the result moved back to the origin.
+    ///
+    /// **Moved back, because everything downstream measures from zero.** `cardImage` scales by
+    /// `card.width / image.extent.width` and translates by the plan's own origin; an image
+    /// cropped in place would still carry its offset in `extent.minX` and would land that far
+    /// off the card.
+    static func cropped(_ image: CIImage, to crop: CropRect) -> CIImage {
+        guard !crop.isWhole else { return image }
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return image }
+        // `y` runs from the top in a `CropRect` and from the bottom in a `CIImage`.
+        let box = HeadlessGeometryBridge.rect(
+            x: Double(extent.minX) + crop.x * Double(extent.width),
+            y: Double(extent.minY) + (1 - crop.y - crop.height) * Double(extent.height),
+            width: crop.width * Double(extent.width),
+            height: crop.height * Double(extent.height))
+        return image.cropped(to: box)
+            .transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
+    }
+
     private func gradientImage(_ plan: RenderPlan, start: CIColor, end: CIColor,
                                angleDegrees: Double) -> CIImage {
         let width = Double(plan.outputWidth)
@@ -188,7 +208,10 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // **Redactions first, in the source's own pixels.** Applied before the camera's scale
         // and shift, so a region covers the same window however the camera moved — see
         // `RedactionArt`. Applying them after would let a pan slide the cover off its target.
-        let image = RedactionArt.applied(plan.redactions, to: CIImage(cvPixelBuffer: source))
+        // **Redacted first, then cropped.** A region is placed against the whole recording —
+        // that is the space a person drew it in — so cropping first would move every cover.
+        let redacted = RedactionArt.applied(plan.redactions, to: CIImage(cvPixelBuffer: source))
+        let image = Self.cropped(redacted, to: plan.crop)
         // The camera scales and shifts the CONTENT; `rounded` then masks it to the card,
         // which never moves. `RenderPlan.contentX/Y` owns the mapping so the pointer and
         // the image cannot disagree about where a normalised point lands.
