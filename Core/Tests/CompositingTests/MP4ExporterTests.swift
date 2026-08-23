@@ -551,3 +551,87 @@ private final class PhaseLog: @unchecked Sendable {
         #expect(quiet.setting(microphone, muted: false).effectiveGain(for: microphone) == 0.4)
     }
 }
+
+/// What an export is allowed to spend.
+@Suite struct ExportQualityTests {
+    /// **The number three screen recorders agree on.** an Electron recorder and an Electron recorder both step by pixel
+    /// count and both put 1080p at 20 Mbps; a Rust recorder computes bits-per-pixel and lands at 18.7 for
+    /// 1080p30. Pinned because it is the whole reason this type exists — AVFoundation's own
+    /// default, measured through `AVOutputSettingsAssistant`, is 10.5 Mbps for the same frame.
+    @Test func theBestQualityMatchesWhatEveryScreenRecorderSpendsAt1080p() {
+        let rate = ExportQuality.best.videoBitRate(outputWidth: 1920, outputHeight: 1080,
+                                                   frameRate: 30)
+        #expect(rate > 15_000_000, "\(rate) is below what screen content needs")
+        #expect(rate < 22_000_000, "\(rate) is above what any of the three spend")
+    }
+
+    /// **Doubling the frame rate must not double the file.** Consecutive frames at 60 fps differ
+    /// by half as much as at 30, so the extra frames cost the encoder far less. a Rust recorder tapers
+    /// everything above 30 by 0.6 and its size estimates come within 3% of the files it writes.
+    @Test func sixtyFramesCostsLessThanTwiceThirty() {
+        let thirty = ExportQuality.best.videoBitRate(outputWidth: 1920, outputHeight: 1080,
+                                                     frameRate: 30)
+        let sixty = ExportQuality.best.videoBitRate(outputWidth: 1920, outputHeight: 1080,
+                                                    frameRate: 60)
+        #expect(sixty > thirty)
+        #expect(Double(sixty) < Double(thirty) * 1.7, "60 fps cost \(sixty) against \(thirty)")
+    }
+
+    /// **A small output still has to be legible.** Bits-per-pixel alone gives a 640-wide frame
+    /// almost nothing, and a 640-wide recording of a terminal is entirely text. an Electron recorder's floor
+    /// is the same 2 Mbps for the same reason.
+    @Test func asmallFrameGetsAFloorRatherThanItsShareOfPixels() {
+        let byPixels = 640.0 * 360 * ExportQuality.small.bitsPerPixel * 30
+        #expect(byPixels < 2_000_000, "the premise: pixels alone would give this frame less")
+        #expect(ExportQuality.small.videoBitRate(outputWidth: 640, outputHeight: 360,
+                                                 frameRate: 30) == 2_000_000)
+    }
+
+    /// The three presets are ordered and distinct, or the picker is three words for one thing.
+    @Test func eachQualitySpendsStrictlyLessThanTheOneAboveIt() {
+        let rates = ExportQuality.choices.map {
+            $0.videoBitRate(outputWidth: 1920, outputHeight: 1080, frameRate: 30)
+        }
+        #expect(rates == rates.sorted(by: >))
+        #expect(Set(rates).count == rates.count)
+        #expect(Set(ExportQuality.choices.map(\.displayName)).count == 3)
+    }
+
+    /// **Everything Apple's own assistant sets.** Measured: `AVOutputSettingsAssistant` fills in
+    /// a profile, an expected frame rate, a keyframe interval, frame reordering and an entropy
+    /// mode beside the bit rate — and this was setting a codec and a size and nothing else.
+    @Test func theWriterSettingsCarryEverythingTheEncoderNeedsToBeTold() {
+        let settings = ExportQuality.best.videoSettings(outputWidth: 1920, outputHeight: 1080,
+                                                        frameRate: 60)
+        let properties = settings[AVVideoCompressionPropertiesKey] as? [String: any Sendable]
+        #expect(properties?[AVVideoAverageBitRateKey] != nil)
+        #expect(properties?[AVVideoProfileLevelKey] as? String
+                == AVVideoProfileLevelH264HighAutoLevel)
+        #expect(properties?[AVVideoExpectedSourceFrameRateKey] as? Int == 60)
+        // Two seconds of GOP: every frame is unaffordable, one per file is unscrubbable.
+        #expect(properties?[AVVideoMaxKeyFrameIntervalKey] as? Int == 120)
+        #expect(properties?[AVVideoAllowFrameReorderingKey] as? Bool == true)
+    }
+
+    /// The estimate has to be in the right order of magnitude or it is worse than no estimate.
+    /// a Rust recorder's calibration puts its own within 3%; this only claims the arithmetic.
+    @Test func theEstimateFollowsTheRateAndTheLength() {
+        let ten = ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
+                                                    frameRate: 30, seconds: 10)
+        let twenty = ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
+                                                       frameRate: 30, seconds: 20)
+        #expect(abs(Double(twenty) - Double(ten) * 2) < 2)
+        let smaller = ExportQuality.small.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
+                                                         frameRate: 30, seconds: 10)
+        #expect(smaller < ten)
+        // A negative length is a clamp, not a negative file.
+        #expect(ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
+                                                  frameRate: 30, seconds: -5) == 0)
+    }
+
+    @Test func everyFieldIsClampedRatherThanTrappedOn() {
+        let wild = ExportQuality(bitsPerPixel: 99, audioBitRate: 1)
+        #expect(wild.bitsPerPixel <= 1)
+        #expect(wild.audioBitRate >= 32_000)
+    }
+}

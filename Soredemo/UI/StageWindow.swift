@@ -92,6 +92,9 @@ struct StageWindow: View {
     /// What a GIF export would be. Held even while exporting MP4, so a person who switches the
     /// save panel's format popup does not find the options reset to defaults.
     @State private var gifSettings = GIFSettings.balanced
+    /// How many bits the MP4 export gets. Held here beside `gifSettings` for its reason — the
+    /// save panel is presented from this window and must not find the choice reset.
+    @State private var quality = ExportQuality.best
     /// The captions. Owned here beside `stageStyle` so a change survives the inspector being
     /// closed, and so the preview and the export read the same track.
     @State private var captions = CaptionsModel()
@@ -602,6 +605,30 @@ struct StageWindow: View {
         let size = Self.size(for: variant)
         LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
             .font(Type.detail).foregroundStyle(.secondary)
+
+        // **How many bits the picture gets.** Nothing was choosing before, so AVFoundation did —
+        // at a rate tuned for camera footage, which is the wrong content. See `ExportQuality`.
+        Picker("Quality", selection: Binding(
+            get: { quality }, set: { quality = $0 })) {
+            ForEach(ExportQuality.choices, id: \.self) { choice in
+                Text(LocalizedStringKey(choice.displayName)).tag(choice)
+            }
+        }
+        // **The estimate is why the picker is usable.** a Rust recorder shows one and calibrated it to
+        // within 3% against real recordings; a quality control with no consequence attached is
+        // three words to guess between.
+        LabeledContent("About", value: Self.fileSize(quality.estimatedBytes(
+            outputWidth: size.width, outputHeight: size.height,
+            frameRate: 60,
+            seconds: Double(timeline.edit.outputDuration.rawValue) / 1_000_000_000)))
+            .font(Type.detail).foregroundStyle(.secondary)
+    }
+
+    /// A byte count as a person reads it. `ByteCountFormatStyle` rather than a hand-rolled
+    /// divide: it is localised, and 1,2 GB in a comma-decimal locale is not something to
+    /// reimplement.
+    static func fileSize(_ bytes: Int) -> String {
+        Int64(bytes).formatted(.byteCount(style: .file))
     }
 
     /// What a GIF export would be. In the project tab because it is a property of the OUTPUT,
@@ -926,6 +953,7 @@ struct StageWindow: View {
                 asset: asset, to: destination,
                 outputWidth: size.width, outputHeight: size.height,
                 edit: timeline.edit, assetIsAlreadyEdited: true, audioMix: audioMix,
+                quality: quality,
                 // Hops to the main actor because the export reports from its own context, and
                 // `exportProgress` is view state.
                 onProgress: { progress in

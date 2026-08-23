@@ -67,6 +67,7 @@ public enum MP4Exporter {
                                           assetIsAlreadyEdited: Bool = false,
                                           audioMix: AudioMix = .unchanged,
                                           frameRate: Int = 60,
+                                          quality: ExportQuality = .best,
                                           onProgress: (@Sendable (ExportProgress) -> Void)? = nil
     ) async throws -> ExportReport {
         precondition(frameRate > 0, "frameRate must be positive, got \(frameRate)")
@@ -114,23 +115,23 @@ public enum MP4Exporter {
             frameDuration: frameDuration)
 
         let writer = try AVAssetWriter(url: outputURL, fileType: .mp4)
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: outputWidth,
-            AVVideoHeightKey: outputHeight,
-        ])
+        // **Compression properties, which were not being set at all.** A codec and a size and
+        // nothing else lets AVFoundation choose, and its choice is tuned for camera footage —
+        // measured at 10.5 Mbps for 1080p through `AVOutputSettingsAssistant`, against the
+        // 18–20 Mbps that three screen recorders independently settled on. See `ExportQuality`.
+        let videoInput = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: quality.videoSettings(outputWidth: outputWidth,
+                                                  outputHeight: outputHeight,
+                                                  frameRate: frameRate))
         videoInput.expectsMediaDataInRealTime = false
         guard writer.canAdd(videoInput) else { throw ExportError.writerRefusedInput }
         writer.add(videoInput)
 
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         let audioInput: AVAssetWriterInput? = audioTracks.isEmpty ? nil : {
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVNumberOfChannelsKey: 2,
-                AVSampleRateKey: 48_000,
-                AVEncoderBitRateKey: 128_000,
-            ])
+            let input = AVAssetWriterInput(mediaType: .audio,
+                                           outputSettings: quality.audioSettings())
             input.expectsMediaDataInRealTime = false
             return input
         }()
