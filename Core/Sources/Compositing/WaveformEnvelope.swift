@@ -61,8 +61,40 @@ public struct WaveformEnvelope: Hashable, Sendable {
     /// Mono, because a waveform drawn from two channels is two waveforms and a timeline strip
     /// has room for one — and because the question it answers ("is anyone talking here") does
     /// not depend on which side they are on.
-    public nonisolated static func read(from asset: AVAsset) async throws -> WaveformEnvelope {
+    /// One envelope per audio track, in the master's track order — system audio, then the
+    /// microphone (`AudioMixBuilder.trackOrder`).
+    ///
+    /// **Two tracks are two things and a person mixes them separately.** A single envelope over
+    /// both answers "is there sound here"; it cannot answer "is that me or the machine", which
+    /// is the question someone deciding whether to mute their narration is asking. The mixed
+    /// read stays for callers that want one strip.
+    public nonisolated static func readPerTrack(from asset: AVAsset) async throws
+    -> [WaveformEnvelope] {
         let tracks = try await asset.loadTracks(withMediaType: .audio)
+        var envelopes: [WaveformEnvelope] = []
+        for track in tracks {
+            envelopes.append(try await read(from: asset, tracks: [track]))
+        }
+        return envelopes
+    }
+
+    public nonisolated static func read(from asset: AVAsset) async throws -> WaveformEnvelope {
+        try await read(from: asset, tracks: nil)
+    }
+
+    /// `tracks` of `nil` reads every audio track mixed to mono; a one-element array reads that
+    /// track alone. One implementation, because a second copy would drift in its slice rate and
+    /// two envelopes drawn at different rates cannot be compared by eye.
+    nonisolated static func read(from asset: AVAsset,
+                                 tracks requested: [AVAssetTrack]?) async throws -> WaveformEnvelope {
+        // Written out rather than `requested ?? await …`: the right side of `??` is an
+        // autoclosure, which cannot be `async`.
+        let tracks: [AVAssetTrack]
+        if let requested {
+            tracks = requested
+        } else {
+            tracks = try await asset.loadTracks(withMediaType: .audio)
+        }
         guard !tracks.isEmpty else { return WaveformEnvelope(peaks: [], sliceDuration: 0) }
         let duration = try await asset.load(.duration).seconds
         guard duration.isFinite, duration > 0 else {

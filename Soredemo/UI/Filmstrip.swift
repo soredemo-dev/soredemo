@@ -22,9 +22,13 @@ final class Filmstrip {
     /// waiting for the whole strip — a native editor publishes progressively for the same reason.
     private(set) var frames: [Key: CGImage] = [:]
 
-    private var asset: AVAsset?
+    private var loadedURL: URL?
     private var generator: AVAssetImageGenerator?
     private var inFlight: Set<Key> = []
+    /// Bumped on every real load. **A view's request is keyed on this**, so frames cleared by a
+    /// reload are asked for again — without it, a cleared cache stayed empty because the zoom
+    /// and the clip had not changed and nothing re-fired.
+    private(set) var generation = 0
 
     /// A frame's identity: which step size it belongs to, and which bucket within it.
     struct Key: Hashable {
@@ -58,12 +62,17 @@ final class Filmstrip {
             .map { ($0.key, $0.value) }
     }
 
-    func load(_ asset: AVAsset) {
-        guard self.asset !== asset else { return }
-        self.asset = asset
+    /// **Compared by URL, not by object identity.** The host rebuilds its `AVURLAsset` on every
+    /// reload — a variant change, an edit, an inspector change — and `!==` is true for every one
+    /// of them, so identity comparison cleared the whole cache each time and the strip went
+    /// blank. The file is what a filmstrip is of.
+    func load(url: URL) {
+        guard loadedURL != url else { return }
+        loadedURL = url
         frames.removeAll()
         inFlight.removeAll()
-        let generator = AVAssetImageGenerator(asset: asset)
+        generation += 1
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         // A thumbnail is 40 points tall on screen; 160×90 covers it at 2x with room for a
         // taller lane later, and asking for full frames would decode a 4K image to draw a
         // postage stamp.

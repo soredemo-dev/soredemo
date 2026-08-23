@@ -108,3 +108,38 @@ extension StageCompositorTests {
         #expect(WaveformError.readFailed("why").description.contains("why"))
     }
 }
+
+/// One envelope per track — the split that lets a person tell their own voice from the machine's.
+@Suite struct PerTrackWaveformTests {
+    /// **Two tracks give two envelopes**, which is the whole point: a recording carries system
+    /// audio and a microphone, and one strip over both cannot say which is which.
+    @Test func twoRecordedTracksGiveTwoEnvelopes() async throws {
+        let perTrack = try await WaveformEnvelope.readPerTrack(from: Self.twoTrackFixture())
+        #expect(perTrack.count == 2)
+        for envelope in perTrack { #expect(!envelope.isEmpty) }
+    }
+
+    /// Every envelope shares the mixed read's slice rate. **Two envelopes drawn at different
+    /// rates cannot be compared by eye**, which is what a second implementation would drift
+    /// into — so both paths go through one function.
+    @Test func everyTrackIsSlicedAtTheSameRateAsTheMixedRead() async throws {
+        let asset = Self.twoTrackFixture()
+        let mixed = try await WaveformEnvelope.read(from: asset)
+        for envelope in try await WaveformEnvelope.readPerTrack(from: asset) {
+            #expect(envelope.sliceDuration == mixed.sliceDuration)
+        }
+    }
+
+    /// A recording with no audio gives no envelopes rather than one empty one — the caller draws
+    /// a lane per element, and an empty lane for a track that does not exist is a lie.
+    @Test func aSilentRecordingGivesNoTracks() async throws {
+        let silent = AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+        #expect(try await WaveformEnvelope.readPerTrack(from: silent).isEmpty)
+    }
+
+    private static func twoTrackFixture() -> AVURLAsset {
+        AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/long-two-track-audio.mov"))
+    }
+}

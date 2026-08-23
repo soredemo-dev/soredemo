@@ -46,6 +46,10 @@ final class TimelineEditorModel {
     private var original = EditTimeline(clips: [])
     /// Carried across the events of one drag so a snap holds instead of flickering.
     private var snapState = SnapEngine.State()
+    /// One envelope per recorded audio track, in the master's order — system audio, then the
+    /// microphone. Empty until read, and empty for a recording with no audio.
+    private(set) var trackWaveforms: [WaveformEnvelope] = []
+
     /// **Where a snap has taken hold, or `nil`.** A snap nobody can see is a snap nobody
     /// trusts: an edge that jumps a few pixels reads as the drag being imprecise rather than as
     /// the editor helping. a native editor draws a `SnapIndicatorOverlay` for this, and it is the
@@ -147,6 +151,10 @@ final class TimelineEditorModel {
     /// editor that refuses to open a recording whose audio it could not read.
     func loadWaveform(from asset: AVAsset) async {
         waveform = try? await WaveformEnvelope.read(from: asset)
+        // **Per track as well as mixed**, because system audio and a microphone are two things
+        // a person mixes separately — see `WaveformEnvelope.readPerTrack`. The mixed envelope
+        // stays for the transport's level readout, which is about the output.
+        trackWaveforms = (try? await WaveformEnvelope.readPerTrack(from: asset)) ?? []
     }
 
     func load(duration seconds: Double) {
@@ -389,7 +397,19 @@ struct TimelineEditor: View {
                 // are opaque, so it was covered on every frame it existed. a native editor and
                 // a Swift recorder both give audio a track of its own; a waveform behind the picture
                 // track is a waveform nobody sees.
-                lane("Audio", "waveform", height: 30) { audioLane(duration: duration) }
+                // One lane per recorded track, named for the source it came from. A single
+                // "Audio" lane over both answered "is there sound here" and could not answer
+                // "is that me or the machine" — which is the question someone deciding whether
+                // to keep their narration is asking.
+                if model.trackWaveforms.isEmpty {
+                    lane("Audio", "waveform", height: 30) { audioLane(nil, duration: duration) }
+                } else {
+                    ForEach(Array(model.trackWaveforms.enumerated()), id: \.offset) { index, envelope in
+                        lane(Self.audioTrackName(index), Self.audioTrackIcon(index), height: 26) {
+                            audioLane(envelope, duration: duration, tint: Self.audioTint(index))
+                        }
+                    }
+                }
                 lane("Zooms", "plus.magnifyingglass", height: 18) { zoomLane(duration: duration) }
                 if !texts.isEmpty {
                     lane("Text", "textformat", height: 14) {
@@ -552,21 +572,54 @@ struct TimelineEditor: View {
                 }
             }
             .allowsHitTesting(false)
-            .task(id: "\(step)-\(first)-\(visible)") {
+            .task(id: "\(filmstrip.generation)-\(step)-\(first)-\(visible)") {
                 filmstrip.request(step: step, from: first,
                                   visibleSeconds: max(last - first, step))
             }
         }
     }
 
-    /// The audio track: the waveform across the recording, on its own ground.
-    @ViewBuilder private func audioLane(duration: Nanoseconds) -> some View {
+    /// **The master writes system audio first and the microphone second.** That order is
+    /// `AudioMixBuilder.trackOrder`, which the export mixes by and which has a test on it; an
+    /// `AVAssetTrack` carries no name to match on, so the index IS the identity.
+    static func audioTrackName(_ index: Int) -> String {
+        switch index {
+        case 0: "System"
+        case 1: "Mic"
+        default: "Audio \(index + 1)"
+        }
+    }
+
+    static func audioTrackIcon(_ index: Int) -> String {
+        switch index {
+        case 0: "speaker.wave.2"
+        case 1: "mic"
+        default: "waveform"
+        }
+    }
+
+    /// The two sources are two hues from the same family — the system's audio nearer the video
+    /// track it belongs to, the microphone nearer the caption track it produces.
+    static func audioTint(_ index: Int) -> Color {
+        switch index {
+        case 0: Theme.Lane.audio
+        case 1: Theme.Lane.caption
+        default: Theme.Ink.secondary
+        }
+    }
+
+    /// One audio track's waveform, on its own ground.
+    @ViewBuilder private func audioLane(_ envelope: WaveformEnvelope?, duration: Nanoseconds,
+                                        tint: Color = Theme.Lane.audio) -> some View {
         GeometryReader { geometry in
             // `.topLeading`, matching the bars' own alignment: centred, the strip would sit
             // wherever its measured width put it rather than at time zero.
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
-                if model.waveform == nil {
+                if let envelope, !envelope.isEmpty {
+                    waveformLayer(envelope, width: geometry.size.width,
+                                  height: geometry.size.height, tint: tint)
+                } else if envelope == nil && model.waveform == nil {
                     // Said rather than left blank: an empty lane and a lane still reading the
                     // audio look the same, and one of them is worth waiting for.
                     Text("Reading the audio\u{2026}")
@@ -574,8 +627,13 @@ struct TimelineEditor: View {
                         .foregroundStyle(Theme.Ink.tertiary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    waveformLayer(duration: duration, width: geometry.size.width,
-                                  height: geometry.size.height)
+                    // A track that exists and is silent says so, rather than looking like one
+                    // still loading — a muted microphone and a microphone that failed produce
+                    // the same empty lane otherwise.
+                    Text("Silent")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.Ink.tertiary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
@@ -721,9 +779,9 @@ struct TimelineEditor: View {
     ///
     /// A `Canvas`, not a stack of `Rectangle`s: several hundred views that redraw on every
     /// playhead move is the difference between a strip that scrubs and one that stutters.
-    @ViewBuilder private func waveformLayer(duration: Nanoseconds, width: Double,
-                                            height: Double) -> some View {
-        if let waveform = model.waveform, !waveform.isEmpty, width > 0 {
+    @ViewBuilder private func waveformLayer(_ waveform: WaveformEnvelope, width: Double,
+                                            height: Double, tint: Color) -> some View {
+        if !waveform.isEmpty, width > 0 {
             // The window's span, not the recording's — a zoomed strip must show the audio it
             // is showing, and the offset comes from where the window starts.
             WaveformBars(
@@ -731,7 +789,7 @@ struct TimelineEditor: View {
                     columns: Int(width.rounded(.down)),
                     from: Double(model.window.start.rawValue) / 1_000_000_000,
                     spanningSeconds: Double(model.window.visible.rawValue) / 1_000_000_000),
-                height: height, width: width)
+                height: height, width: width, tint: tint)
                 .equatable()
             .frame(width: width, height: height, alignment: .topLeading)
             .allowsHitTesting(false)
@@ -1011,6 +1069,7 @@ private struct WaveformBars: View, Equatable {
     /// under opaque clips; the reader was fine all along, measured at 3,816 peaks on the
     /// recording that prompted the search.
     let width: Double
+    let tint: Color
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1021,7 +1080,7 @@ private struct WaveformBars: View, Equatable {
                     Rectangle()
                         // Its own lane colour rather than ink at a low opacity: a waveform is a
                         // track, and the four tracks around it all carry a hue.
-                        .fill(Theme.Lane.audio)
+                        .fill(tint)
                         .frame(width: 1, height: bar)
                         .offset(x: Double(column), y: (height - bar) / 2)
                 }

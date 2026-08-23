@@ -637,7 +637,7 @@ struct StageWindow: View {
             // is laid out in source time, and a composition's own timeline has already had the
             // cuts taken out of it — so a frame asked for at 30 s would come back from a
             // different moment after every edit.
-            filmstrip.load(AVURLAsset(url: mediaURL))
+            filmstrip.load(url: mediaURL)
             player = AVPlayer(playerItem: item)
         } catch {
             failure = "\(error)"
