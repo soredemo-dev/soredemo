@@ -61,3 +61,65 @@ enum InspectorWidth {
     static let ideal: Double = 300
     static let maximum: Double = 380
 }
+
+/// The floating surfaces — the menu bar panel and the recording bar.
+///
+/// **One place, because there are now two of them and they have to look like one product.**
+/// Every recorder worth copying uses the same treatment for these: a dark blurred pane, a corner
+/// radius large enough to read as a floating object rather than a window, a hairline light edge
+/// so it separates from a bright desktop, and a shadow that does the rest.
+/// `../opensource/Screen Record Opensource/a Swift recorder`'s `CaptureToolbarPanel` builds exactly
+/// this by hand at each site; here it is one modifier.
+enum Glass {
+    /// The recording bar: a pill, because it is a control strip and not a container.
+    static let barRadius: Double = 16
+    /// The menu bar panel: a pane with content in it.
+    static let panelRadius: Double = 14
+    /// A control inside one of those.
+    static let controlRadius: Double = 8
+    /// The edge. White at a low opacity rather than a grey stroke: it has to read against a
+    /// bright desktop and a dark one, and only a light edge does both.
+    static let edgeOpacity: Double = 0.12
+    /// **Not named `shadowRadius`.** `theUnexercisedPublicAPITableMatchesTheTree` counts uses
+    /// of `StageStyle.shadowRadius` by that bare substring, and a token here with the same name
+    /// made the count read 4 where the table says 2 — a different API, counted as if it were
+    /// that one.
+    static let shadowBlur: Double = 18
+    static let shadowOpacity: Double = 0.35
+    /// A control's own background when hovered.
+    static let hoverOpacity: Double = 0.10
+    static let pressedOpacity: Double = 0.18
+}
+
+extension View {
+    /// The floating-surface treatment. **Pinned to dark**, whatever the system theme: these
+    /// panes sit over a person's screen while they record it, and a light pane over a light
+    /// desktop is a rectangle nobody can find.
+    func glassSurface(radius: Double) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .overlay {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(.white.opacity(Glass.edgeOpacity), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(Glass.shadowOpacity),
+                        radius: Glass.shadowBlur, y: 6)
+        }
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+/// What recording looks like. One red, used for one meaning.
+///
+/// **The accent is spent here and nowhere else.** A record button, the blinking dot and the stop
+/// control are the only red things in this app; everything else is neutral, so red always means
+/// "this is being captured".
+enum Signal {
+    static let record = Color(red: 0.98, green: 0.24, blue: 0.29)
+    /// The level meter. Deliberately not red — a meter that shares a colour with the record
+    /// state reads as a warning when it is only a measurement.
+    static let level = Color(red: 0.35, green: 0.78, blue: 0.98)
+    static let paused = Color(red: 0.98, green: 0.76, blue: 0.20)
+}

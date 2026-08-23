@@ -272,6 +272,19 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             /// "nothing was lost" from "there was nothing".
             public internal(set) var peakRMS: Double?
 
+            /// The RMS of the MOST RECENT buffer, 0…1, or `nil` before any arrives.
+            ///
+            /// **Separate from `peakRMS`, because a meter cannot be drawn from a maximum.** A
+            /// peak-so-far only ever rises: a level meter fed from one climbs to whatever the
+            /// loudest moment was and stays there, which tells a person nothing about whether
+            /// their microphone is working NOW — the one question a meter exists to answer.
+            ///
+            /// **Not decayed here.** A decay needs a clock, and this value is written from the
+            /// audio callback whose only notion of time is the buffer in front of it. The
+            /// reader knows its own refresh rate and smooths against that; see the recording
+            /// bar's meter.
+            public internal(set) var latestRMS: Double?
+
             /// A track that was delivered buffers and wrote none of them — the
             /// state that produces a file with one audio track where two were
             /// expected.
@@ -1406,7 +1419,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         let level = AudioInterleave.rms(of: retimedAudio)
         updateAudioAccounting(isSystemAudio) {
-            if let level { $0.peakRMS = max($0.peakRMS ?? 0, level) }
+            if let level {
+                $0.peakRMS = max($0.peakRMS ?? 0, level)
+                $0.latestRMS = level
+            }
         }
         holdAndDrainAudio(retimedAudio, isSystemAudio: isSystemAudio,
                           track: trackRef, master: masterRef)

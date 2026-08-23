@@ -219,3 +219,26 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
     window.x < display.x + display.w && window.x + window.w > display.x
         && window.y < display.y + display.h && window.y + window.h > display.y
 }
+
+/// The picker's target narrowing — what makes "Record Screen" and "Record Window" two different
+/// buttons rather than two labels on one.
+@Suite struct CaptureSourcePickerModeTests {
+    @Test func eachModeOffersExactlyWhatItsNameSays() {
+        #expect(CaptureSourcePicker.Modes.displaysOnly.allowed == [.singleDisplay])
+        #expect(CaptureSourcePicker.Modes.windowsOnly.allowed == [.singleWindow])
+        #expect(CaptureSourcePicker.Modes.displaysAndWindows.allowed
+                == [.singleWindow, .singleDisplay])
+    }
+
+    /// **No mode offers applications or multi-selection**, which `CaptureSource` has no case for
+    /// — the restriction `present(restrictModes:)` has always documented, now that there are
+    /// three ways to spell it.
+    @Test func noModeOffersATargetCaptureSourceCannotRepresent() {
+        for modes in [CaptureSourcePicker.Modes.displaysOnly, .windowsOnly, .displaysAndWindows] {
+            #expect(!modes.allowed.contains(.multipleWindows))
+            #expect(!modes.allowed.contains(.singleApplication))
+            #expect(!modes.allowed.contains(.multipleApplications))
+            #expect(!modes.allowed.isEmpty)
+        }
+    }
+}

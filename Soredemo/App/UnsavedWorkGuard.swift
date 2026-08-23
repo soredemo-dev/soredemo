@@ -83,7 +83,10 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// One window that holds the recording, so closing it is quitting. Saying so here rather
-    /// than leaving a process with no windows running in the Dock.
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// **False, because this app lives in the menu bar.** It used to be true, on the grounds
+    /// that one window held the recording so closing it was quitting. That stopped being true
+    /// when the menu bar item became the way in: quitting on a window close would take the
+    /// recorder away from a person who closed an editor, which is the opposite of what closing
+    /// an editor means. ⌘Q still quits, and still asks first.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }

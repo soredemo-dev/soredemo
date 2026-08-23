@@ -361,12 +361,32 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
     ///
     /// `restrictModes: false` exists only to check that the restriction changes
     /// what the picker offers; it is not for product use.
+    /// Which tab the picker opens on, and what it will accept.
+    ///
+    /// **A "Record Screen" button that opened the same picker as "Record Window" would be two
+    /// buttons doing one thing.** Narrowing the modes is what makes them different, and it is
+    /// also the only honest way to offer them: this app does not enumerate windows itself — the
+    /// system picker is the permission-correct path and the one Apple keeps working.
+    public enum Modes: Sendable {
+        case displaysAndWindows
+        case displaysOnly
+        case windowsOnly
+
+        var allowed: SCContentSharingPickerMode {
+            switch self {
+            case .displaysAndWindows: [.singleWindow, .singleDisplay]
+            case .displaysOnly: [.singleDisplay]
+            case .windowsOnly: [.singleWindow]
+            }
+        }
+    }
+
     @MainActor
-    public func present(restrictModes: Bool = true) {
+    public func present(restrictModes: Bool = true, modes: Modes = .displaysAndWindows) {
         let picker = SCContentSharingPicker.shared
         if restrictModes {
             var configuration = picker.defaultConfiguration
-            configuration.allowedPickerModes = [.singleWindow, .singleDisplay]
+            configuration.allowedPickerModes = modes.allowed
             picker.defaultConfiguration = configuration
         }
         picker.isActive = true

@@ -41,9 +41,19 @@ struct SoredemoApp: App {
     }
 
     var body: some Scene {
-        // The scratch window that makes a bare launch observable; document
-        // windows come from `ProjectDocument.makeWindowControllers()`, which
-        // produces nothing until a document is opened.
+        // **The menu bar item is the primary surface.** A recorder is used from inside whatever
+        // is being demonstrated, and the moment a person opens this app's window to press
+        // Record, the thing they wanted to record is behind it. See `MenuBarRecorderPanel`.
+        MenuBarExtra {
+            MenuBarRecorderPanel(coordinator: recordingCoordinator)
+        } label: {
+            MenuBarRecorderLabel(coordinator: recordingCoordinator)
+        }
+        // `.window`, not the default menu: the contents are controls, not commands.
+        .menuBarExtraStyle(.window)
+
+        // The editor window. Opened by a recording finishing, by opening a project, or from the
+        // menu bar panel — not the way in any more.
         WindowGroup {
             ContentView(coordinator: recordingCoordinator)
                 // `SCContentSharingPicker.present()` hands off to Control
@@ -77,7 +87,7 @@ struct SoredemoApp: App {
                 Divider()
                 // Human step: record a few seconds and stop; ContentView then
                 // shows StageWindow once recordingCoordinator.mediaURL is set.
-                Button(recordingCoordinator.isRecording ? "Stop Recording" : "Open Recording…") {
+                Button(recordingCoordinator.isRecording ? "Stop Recording" : "Record…") {
                     recordingCoordinator.toggleRecording()
                 }
                 .keyboardShortcut("r")

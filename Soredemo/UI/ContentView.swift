@@ -12,6 +12,7 @@ import Foundation
 import Capture
 import Observation
 import Project
+import Render
 @preconcurrency import ScreenCaptureKit
 import SwiftUI
 import Timeline
@@ -33,13 +34,20 @@ struct ContentView: View {
                     // identities. Without it the scratch directory leaks; the launch sweep bounds it.
                     .onDisappear { coordinator.previewWasDismissed() }
             } else {
-                ContentUnavailableView(
-                    coordinator.isRecording ? "Recording…" : "No recording yet",
-                    systemImage: coordinator.isRecording ? "record.circle" : "video.badge.plus",
-                    description: Text(coordinator.statusText))
+                WelcomeView(coordinator: coordinator)
             }
         }
-        .frame(minWidth: 480, minHeight: 320)
+        .frame(minWidth: 640, minHeight: 460)
+        // **The bar is shown from here rather than owned by a view.** A SwiftUI view that held
+        // an `NSPanel` would build and tear one down on every body evaluation; this observes the
+        // one state change that should create it.
+        .onChange(of: coordinator.isRecording, initial: true) {
+            if coordinator.isRecording {
+                RecordingBarPresenter.shared.show(coordinator: coordinator)
+            } else {
+                RecordingBarPresenter.shared.hide()
+            }
+        }
     }
 }
 
@@ -59,9 +67,20 @@ final class RecordingCoordinator {
     /// once taken, so re-opening the same recording does not re-apply a stale one.
     private(set) var pendingEdit: EditState?
     private(set) var isRecording = false
-    private(set) var statusText =
-        "Choose \u{201C}Open Recording\u{2026}\u{201D} from the File menu (\u{2318}R), record a few " +
-        "seconds of anything, then choose \u{201C}Stop Recording\u{201D} to preview it here."
+    private(set) var isPaused = false
+    /// Seconds since recording started, not counting time paused. Driven by a timer the bar
+    /// starts and stops — see `tick()`.
+    private(set) var elapsed: Double = 0
+    /// 0…1, the microphone's level right now, smoothed. `nil` when no microphone is being
+    /// recorded, which is what lets the bar draw a struck-through mic rather than a dead meter.
+    private(set) var microphoneLevel: Double?
+    /// What the source picker is currently offering, so the menu bar panel can show which of
+    /// its two buttons opened it.
+    private(set) var pendingMode: CaptureSourcePicker.Modes?
+    /// Only ever a REPORT — an error, or what just happened. It used to carry the instructions
+    /// for using the app, which is what a screen with nothing on it needs and a screen with
+    /// buttons on it does not.
+    private(set) var statusText = ""
 
     /// Retained for the life of the pending selection: `SCContentSharingPicker.add(_:)` is not
     /// documented to retain its observer.
@@ -111,6 +130,18 @@ final class RecordingCoordinator {
         }
     }
 
+    /// Opens a video that is not a project — a file dropped on the window, or one recorded
+    /// elsewhere. There is no observation log beside it, so there is no pointer track and no
+    /// camera: `StageCompositor` draws no cursor for a `nil` log, which is the honest result
+    /// rather than a made-up one.
+    func openVideo(at url: URL) {
+        mediaURL = nil
+        pendingEdit = nil
+        mediaURL = url
+        statusText = "Opened \(url.lastPathComponent). It has no pointer track, so there is "
+            + "nothing for the camera to follow."
+    }
+
     /// Taken once. A window that re-read it would re-apply a person's saved edit over changes
     /// they had made since.
     func takePendingEdit() -> EditState? {
@@ -126,7 +157,55 @@ final class RecordingCoordinator {
         }
     }
 
-    private func beginOpenRecording() {
+    /// Starts the flow with the picker narrowed to one kind of target — what the menu bar
+    /// panel's two buttons do. See `CaptureSourcePicker.Modes`.
+    func beginRecording(_ modes: CaptureSourcePicker.Modes) {
+        guard !isRecording else { return }
+        pendingMode = modes
+        beginOpenRecording(modes: modes)
+    }
+
+    func stop() { Task { await stopRecording() } }
+
+    /// **Pause writes nothing rather than writing silence.** `CaptureSession.pause()` closes the
+    /// segment; `resume()` opens another. The recording is one file per segment and the segment
+    /// table stitches them, so a pause costs a cut rather than a stretch of frozen frame.
+    func togglePause() {
+        guard let session, isRecording else { return }
+        Task { @MainActor in
+            do {
+                if isPaused {
+                    try await session.resume()
+                    isPaused = false
+                    statusText = ""
+                } else {
+                    try await session.pause()
+                    isPaused = true
+                }
+            } catch {
+                statusText = "Could not \(isPaused ? "resume" : "pause"): \(error)"
+            }
+        }
+    }
+
+    /// Advances the clock and reads the microphone. **Called by the recording bar's own timer**,
+    /// not by a timer here: a coordinator that ticked whether or not anything was watching would
+    /// be waking the main actor twenty times a second to update a number nobody reads.
+    func tick(_ interval: Double) {
+        guard isRecording, !isPaused else { return }
+        elapsed += interval
+        // Smoothed toward the instantaneous value: `latestRMS` is the RMS of one buffer, and a
+        // meter drawn straight from it flickers at the buffer rate. Rising fast and falling slow
+        // is what every level meter does, because a peak a person missed is worse than a decay
+        // they can see.
+        let reading = session?.diagnostics.microphoneAccounting.latestRMS
+        guard let reading else { microphoneLevel = nil; return }
+        let scaled = min(1, sqrt(reading) * 1.6)
+        let previous = microphoneLevel ?? 0
+        microphoneLevel = scaled > previous ? scaled : previous + (scaled - previous) * 0.25
+    }
+
+    private func beginOpenRecording(modes: CaptureSourcePicker.Modes = .displaysAndWindows) {
         // Ask for Screen Recording, once, before the picker opens.
         // `SCContentSharingPicker`/`SCStream` never prompt on their own; without this a first-run
         // user is told "the user declined" by an API that never asked them.
@@ -138,13 +217,14 @@ final class RecordingCoordinator {
             Task { @MainActor in await sourceSelected(source) }
         })
         self.picker = picker
-        picker.present()
+        picker.present(modes: modes)
     }
 
     private func sourceSelected(_ source: CaptureSource?) async {
         picker = nil
         guard let source else {
-            statusText = "Recording cancelled. Choose \u{201C}Open Recording\u{2026}\u{201D} to try again."
+            pendingMode = nil
+            statusText = ""
             return
         }
         let scale = Self.scale(forDisplay: Self.sizingDisplayID(for: source))
@@ -175,6 +255,9 @@ final class RecordingCoordinator {
         do {
             try await newSession.start()
             isRecording = true
+            isPaused = false
+            elapsed = 0
+            pendingMode = nil
             statusText = "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."
         } catch {
             statusText = "Could not start recording: \(error)"
@@ -185,6 +268,9 @@ final class RecordingCoordinator {
     private func stopRecording() async {
         guard let session else { return }
         isRecording = false
+        isPaused = false
+        microphoneLevel = nil
+        pendingMode = nil
         statusText = "Finishing\u{2026}"
         do {
             let outcome = try await session.stop()
