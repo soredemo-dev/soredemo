@@ -125,15 +125,23 @@ struct StageWindow: View {
         // `../opensource/Screen Record Opensource/` puts it: a timeline is read along its length
         // while watching the picture above it, and an inspector is read down a column.
         VSplitView {
-            Group {
+            VStack(spacing: 0) {
+                Group {
+                    if let player {
+                        PreviewView(player: player)
+                    } else if let failure {
+                        ContentUnavailableView("Could not build the preview",
+                                               systemImage: "exclamationmark.triangle",
+                                               description: Text(failure))
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                .background(Theme.Surface.preview)
                 if let player {
-                    PreviewView(player: player)
-                } else if let failure {
-                    ContentUnavailableView("Could not build the preview",
-                                           systemImage: "exclamationmark.triangle",
-                                           description: Text(failure))
-                } else {
-                    ProgressView()
+                    Divider()
+                    TransportBar(player: player, model: timeline)
                 }
             }
             .frame(minHeight: 240)
@@ -148,6 +156,14 @@ struct StageWindow: View {
             }
             .frame(minHeight: 180, idealHeight: 210)
         }
+        .background(Theme.Surface.base)
+        // **Pinned to dark.** Chrome around a picture shifts how its colours read: a light
+        // surround makes a recording look darker and less saturated than it is, so a person
+        // grading a background gradient in a light window is judging it wrong. Every editor in
+        // the reference set is dark by default for this reason. The menu bar panel is NOT — it
+        // lives in the system's menu bar, where a dark panel in a light system looks broken.
+        .preferredColorScheme(.dark)
+        .tint(Theme.accent)
         .navigationTitle(mediaURL.deletingPathExtension().lastPathComponent)
         .navigationDocument(savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }

@@ -362,12 +362,12 @@ struct TimelineEditor: View {
                 lane("Zooms", "plus.magnifyingglass", height: 18) { zoomLane(duration: duration) }
                 if !texts.isEmpty {
                     lane("Text", "textformat", height: 14) {
-                        blocks(texts.items.map { ($0.start, $0.end) }, tint: .orange)
+                        blocks(texts.items.map { ($0.start, $0.end) }, tint: Theme.Lane.text)
                     }
                 }
                 if !captions.isEmpty {
                     lane("Captions", "captions.bubble", height: 14) {
-                        blocks(captions.cues.map { ($0.start, $0.end) }, tint: .teal)
+                        blocks(captions.cues.map { ($0.start, $0.end) }, tint: Theme.Lane.caption)
                     }
                 }
                 if !redactions.isEmpty {
@@ -378,7 +378,7 @@ struct TimelineEditor: View {
                             // unset start and end would otherwise render as.
                             item.coversEverything ? (Nanoseconds(0), duration)
                                                   : (item.start, item.end)
-                        }, tint: .purple)
+                        }, tint: Theme.Lane.hide)
                     }
                 }
                 readout(duration: duration)
@@ -404,12 +404,12 @@ struct TimelineEditor: View {
                 if let icon {
                     Image(systemName: icon)
                         .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Theme.Ink.tertiary)
                         .frame(width: 11)
                 }
                 if let title {
                     Text(title).font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.Ink.secondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -441,9 +441,9 @@ struct TimelineEditor: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(Self.tickLabel(seconds, step: step))
                                 .font(.system(size: 9).monospacedDigit())
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(Theme.Ink.tertiary)
                                 .fixedSize()
-                            Rectangle().fill(.quaternary).frame(width: 1, height: 4)
+                            Rectangle().fill(Theme.Line.divider).frame(width: 1, height: 4)
                         }
                         .offset(x: fraction * width)
                     }
@@ -483,7 +483,7 @@ struct TimelineEditor: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: Radius.block).fill(.quaternary.opacity(0.4))
+                RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
                 ForEach(Array(spans.enumerated()), id: \.offset) { _, span in
                     let x = model.window.fraction(of: span.0) * width
                     let w = (model.window.fraction(of: span.1)
@@ -503,7 +503,7 @@ struct TimelineEditor: View {
             ZStack(alignment: .topLeading) {
                 // The recording as a whole — the ground the cuts show as gaps in.
                 RoundedRectangle(cornerRadius: Radius.strip)
-                    .fill(.quaternary)
+                    .fill(Theme.Fill.track)
 
                 waveformLayer(duration: duration, width: width, height: geometry.size.height)
 
@@ -519,13 +519,13 @@ struct TimelineEditor: View {
                              - model.window.fraction(of: clip.sourceStart)) * width
                     let isSelected = clip.id == model.selectedClip
                     RoundedRectangle(cornerRadius: Radius.strip)
-                        .fill(.tint)
+                        .fill(Theme.Lane.video.opacity(isSelected ? 0.95 : 0.75))
                         .overlay {
                             // The selected clip is outlined rather than recoloured: the fill
                             // already carries "this is kept footage", and a second colour
                             // there would make selection and keptness the same channel.
                             RoundedRectangle(cornerRadius: Radius.strip)
-                                .strokeBorder(.primary, lineWidth: isSelected ? 2 : 0)
+                                .strokeBorder(Theme.Ink.primary, lineWidth: isSelected ? 2 : 0)
                         }
                         .frame(width: max(w, 1))
                         .offset(x: x)
@@ -536,7 +536,7 @@ struct TimelineEditor: View {
                     let w = (model.window.fraction(of: Nanoseconds(selection.upperBound))
                              - model.window.fraction(of: Nanoseconds(selection.lowerBound))) * width
                     Rectangle()
-                        .fill(.primary.opacity(0.25))
+                        .fill(Theme.Ink.primary.opacity(0.22))
                         .frame(width: max(w, 1))
                         .offset(x: x)
                         .allowsHitTesting(false)
@@ -551,7 +551,7 @@ struct TimelineEditor: View {
                 }
 
                 Rectangle()
-                    .fill(.primary)
+                    .fill(Theme.Ink.primary)
                     .frame(width: 2)
                     .offset(x: fraction(model.playhead, of: duration) * width - 1)
                     .allowsHitTesting(false)
@@ -636,7 +636,7 @@ struct TimelineEditor: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: Radius.block).fill(.quaternary.opacity(0.5))
+                RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
 
                 ForEach(model.derivedZooms, id: \.origin) { derived in
                     // Drawn from the ADJUSTED block where one survives, so a drag is visible
@@ -661,10 +661,11 @@ struct TimelineEditor: View {
                                             laneWidth: Double, duration: Nanoseconds) -> some View {
         let held = model.draggingZoom == origin
         RoundedRectangle(cornerRadius: Radius.block)
-            .fill(suppressed ? AnyShapeStyle(.clear) : AnyShapeStyle(.tint.opacity(held ? 0.9 : 0.6)))
+            .fill(suppressed ? AnyShapeStyle(.clear)
+                  : AnyShapeStyle(Theme.Lane.zoom.opacity(held ? 0.95 : 0.7)))
             .overlay {
                 RoundedRectangle(cornerRadius: Radius.block)
-                    .strokeBorder(.tint, style: StrokeStyle(lineWidth: 1,
+                    .strokeBorder(Theme.Lane.zoom, style: StrokeStyle(lineWidth: 1,
                                                             dash: suppressed ? [3, 2] : []))
             }
             .frame(width: width, height: height)

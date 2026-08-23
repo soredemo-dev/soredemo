@@ -80,6 +80,16 @@ final class RecordingCoordinator {
     /// The inputs this machine currently offers, refreshed when the menu bar panel opens —
     /// a USB interface plugged in after launch has to appear without a relaunch.
     private(set) var availableMicrophones: [MicrophoneSource] = []
+    /// Seconds between choosing a target and the capture starting. Persisted, because it is a
+    /// preference rather than a per-recording decision — a person who wants five seconds wants
+    /// five seconds every time.
+    var countdownSeconds: Int {
+        didSet { UserDefaults.standard.set(countdownSeconds, forKey: Self.countdownKey) }
+    }
+    private static let countdownKey = "countdownSeconds"
+    /// The choices offered. Zero is "off" and is a legitimate answer — a person recording a
+    /// window they have already arranged is not waiting three seconds for it.
+    static let countdownChoices = [0, 3, 5, 10]
 
     func refreshMicrophones() {
         availableMicrophones = MicrophoneInventory.available()
@@ -118,6 +128,10 @@ final class RecordingCoordinator {
     /// Sweeps leftover scratch directories once, at construction — the earliest point this app
     /// runs, before any recording exists to protect.
     init() {
+        // `object(forKey:)` rather than `integer(forKey:)`: the latter answers 0 for a key that
+        // has never been set, and 0 means "off" here — so a first launch would silently ship
+        // with no countdown, which is the opposite of the default this chose.
+        countdownSeconds = UserDefaults.standard.object(forKey: Self.countdownKey) as? Int ?? 3
         TemporaryFileMediaSink.sweepLeftoverDirectories()
     }
 
@@ -267,6 +281,9 @@ final class RecordingCoordinator {
                                         pointerHotspotReader: SystemCursorShape.hotspotReader(),
                                         microphone: microphone)
         session = newSession
+        // **Counted before the session starts, not after.** A countdown that ran while the
+        // capture was already recording would put itself in the first three seconds of the file.
+        await CountdownPresenter.shared.run(seconds: countdownSeconds)
         do {
             try await newSession.start()
             isRecording = true

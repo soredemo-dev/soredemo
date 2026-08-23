@@ -79,6 +79,7 @@ struct MenuBarRecorderPanel: View {
             } else {
                 targets
                 microphoneRow
+                countdownRow
                 startButton
             }
             hotkeyWarning
@@ -161,6 +162,31 @@ struct MenuBarRecorderPanel: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .task { coordinator.refreshMicrophones() }
+    }
+
+    /// How long to wait before the capture starts.
+    @ViewBuilder private var countdownRow: some View {
+        HStack(spacing: Space.snug) {
+            Image(systemName: coordinator.countdownSeconds == 0 ? "timer.square" : "timer")
+                .font(.system(size: 12))
+                .foregroundStyle(coordinator.countdownSeconds == 0 ? .secondary : .primary)
+                .frame(width: 14)
+            Text("Countdown").font(.system(size: 12))
+            Spacer(minLength: Space.tight)
+            Picker("", selection: Binding(get: { coordinator.countdownSeconds },
+                                          set: { coordinator.countdownSeconds = $0 })) {
+                ForEach(RecordingCoordinator.countdownChoices, id: \.self) { value in
+                    Text(value == 0 ? "Off" : "\(value)s").tag(value)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 76)
+        }
+        .padding(.horizontal, Space.regular)
+        .frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
+            .fill(.quaternary.opacity(0.5)))
     }
 
     @ViewBuilder private var startButton: some View {

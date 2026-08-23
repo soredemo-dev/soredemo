@@ -9,7 +9,10 @@ struct PreviewView: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.player = player
-        view.controlsStyle = .inline
+        // **No inline controls.** `TransportBar` under the preview does this job, always
+        // visible, with a timecode rather than a scrubber — AVKit's controls fade out, float
+        // over the picture, and carry a second timeline that knows nothing about the edit.
+        view.controlsStyle = .none
         view.videoGravity = .resizeAspect
         return view
     }

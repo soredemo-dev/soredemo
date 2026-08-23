@@ -29,7 +29,7 @@ struct EditorToolbar: View {
         }
         .padding(.horizontal, Space.regular)
         .frame(height: 34)
-        .background(.quaternary.opacity(0.25))
+        .background(Theme.Surface.raised)
     }
 
     @ViewBuilder private var history: some View {
@@ -97,13 +97,13 @@ struct EditorToolbar: View {
         }
         Text(Self.span(model.window.visible))
             .font(Type.readout)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.Ink.secondary)
             .frame(width: 54, alignment: .trailing)
             .help("How much of the recording the strip is showing")
     }
 
     @ViewBuilder private var separator: some View {
-        Rectangle().fill(.quaternary).frame(width: 1, height: 16)
+        Rectangle().fill(Theme.Line.hairline).frame(width: 1, height: 16)
     }
 
     /// The visible span, in the largest unit that keeps it readable — a strip zoomed into a
@@ -129,10 +129,11 @@ private struct ToolbarAction: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isEnabled ? Theme.Ink.primary : Theme.Ink.tertiary)
                 .frame(width: 24, height: 22)
                 .background {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(.quaternary.opacity(isHovering && isEnabled ? 0.8 : 0))
+                        .fill(isHovering && isEnabled ? Theme.Fill.hover : .clear)
                 }
                 .contentShape(Rectangle())
         }

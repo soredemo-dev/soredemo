@@ -1,0 +1,96 @@
+import SwiftUI
+
+/// The editor's colours, from `assets/tokens/colors.json` rather than from the system.
+///
+/// **The default SwiftUI palette is why this window looked like a settings pane.** `.tint`,
+/// `.quaternary`, `.orange`, `.teal` — every one of those is Apple's, and a video editor built
+/// out of them is a form with a picture in it. The brand already had a palette;
+/// `../opensource/Screen Record Opensource/a native editor`'s `AppTheme` is the shape for using
+/// one, and this is that shape with our values in it.
+///
+/// **Dark, and not adaptive.** Every editor in the reference set is dark by default, and the
+/// reason is not fashion: chrome around a picture shifts how its colours read, and a light
+/// surround makes a recording look darker and less saturated than it is. A person grading a
+/// background gradient in a light window is judging it wrong. The menu bar panel stays adaptive
+/// — it lives in the system's menu bar, where a dark panel in a light system is the thing that
+/// looks broken.
+enum Theme {
+    // MARK: - the brand's own six
+
+    static let ink = Color(red: 0x10 / 255, green: 0x11 / 255, blue: 0x14 / 255)
+    static let background = Color(red: 0x1A / 255, green: 0x1A / 255, blue: 0x1D / 255)
+    static let surface = Color(red: 0x2B / 255, green: 0x2B / 255, blue: 0x31 / 255)
+    static let muted = Color(red: 0x8C / 255, green: 0x8C / 255, blue: 0x94 / 255)
+    static let accent = Color(hue: Lane.videoHue / 360, saturation: Lane.saturation,
+                              brightness: Lane.brightness)
+
+    // MARK: - surfaces, darkest to lightest
+
+    enum Surface {
+        /// Behind everything — the window's own ground.
+        static let base = Theme.ink
+        /// A panel sitting on the base: the inspector, the timeline area.
+        static let panel = Theme.background
+        /// A control or a card on a panel.
+        static let raised = Theme.surface
+        /// The preview's own backdrop. Black rather than the brand's ink, because anything else
+        /// is a colour cast on the thing being judged.
+        static let preview = Color.black
+    }
+
+    enum Ink {
+        static let primary = Color.white
+        static let secondary = Theme.muted
+        static let tertiary = Theme.muted.opacity(0.6)
+    }
+
+    enum Line {
+        /// Between two surfaces of the same weight.
+        static let hairline = Color.white.opacity(0.08)
+        /// Between two areas doing different jobs.
+        static let divider = Color.white.opacity(0.14)
+    }
+
+    /// A control's background as it is pointed at and pressed.
+    enum Fill {
+        static let rest = Color.white.opacity(0.05)
+        static let hover = Color.white.opacity(0.10)
+        static let pressed = Color.white.opacity(0.16)
+        static let track = Color.white.opacity(0.07)
+    }
+
+    /// **One tint per track, all the same colour with the hue turned.**
+    ///
+    /// The accent is HSB(230°, 44%, 100%). Every lane below is that colour with its hue rotated
+    /// and nothing else changed, so the five read as one family and stay equally bright — which
+    /// is what `.orange`/`.teal`/`.purple` did not do: three of Apple's system colours side by
+    /// side have three different brightnesses and belong to no palette.
+    enum Lane {
+        static let saturation: Double = 0.44
+        static let brightness: Double = 1.0
+
+        static let videoHue: Double = 230
+        static let zoomHue: Double = 268
+        static let textHue: Double = 38
+        static let captionHue: Double = 172
+        static let hideHue: Double = 320
+
+        static func colour(_ hue: Double) -> Color {
+            Color(hue: hue / 360, saturation: saturation, brightness: brightness)
+        }
+
+        static var video: Color { colour(videoHue) }
+        static var zoom: Color { colour(zoomHue) }
+        static var text: Color { colour(textHue) }
+        static var caption: Color { colour(captionHue) }
+        static var hide: Color { colour(hideHue) }
+    }
+}
+
+extension View {
+    /// A panel: the brand's background, a hairline edge, and the dark scheme pinned.
+    func editorPanel() -> some View {
+        background(Theme.Surface.panel)
+            .environment(\.colorScheme, .dark)
+    }
+}
