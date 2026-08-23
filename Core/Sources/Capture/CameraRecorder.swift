@@ -36,6 +36,16 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     /// `CapturePermissions.requestScreenRecordingAccess` is: `AVCaptureSession` does not prompt
     /// on its own, so a first-run person would be told the camera failed by an API that never
     /// asked them.
+    /// Whether asking will actually put a prompt on screen.
+    ///
+    /// **`.notDetermined` is the only state that prompts.** `requestAccess` returns the stored
+    /// answer immediately for the other three, and a caller that cannot tell the difference
+    /// cannot tell "they said no just now" from "this Mac said no months ago" — which is the
+    /// difference between waiting for a person and telling them where the switch is.
+    public nonisolated static var needsAsking: Bool {
+        AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined
+    }
+
     public nonisolated static func requestAccess() async -> Bool {
         await AVCaptureDevice.requestAccess(for: .video)
     }

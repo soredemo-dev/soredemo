@@ -96,6 +96,46 @@ final class RecordingCoordinator {
         availableCameras = CameraRecorder.available()
         camera = CameraSource.resolve(camera, against: availableCameras)
     }
+
+    /// True once this Mac has refused the camera, so the panel can say so.
+    ///
+    /// **A refusal has to be visible.** Choosing a camera used to be one `guard` — ask for
+    /// access, and on `false` put the selection back to `.off` and return. Which meant that on a
+    /// Mac where the camera had already been denied, picking one did nothing at all: no prompt,
+    /// no message, the row still reading "No camera". Silence is the worst answer to a
+    /// permission question, because the only thing it teaches is that the button is broken.
+    private(set) var cameraWasRefused = false
+
+    /// Chooses a camera, asking this Mac first.
+    ///
+    /// **Activated before asking.** This is an accessory app with no Dock icon, and a TCC
+    /// prompt raised by one that is not frontmost can come up behind whatever the person is
+    /// looking at. The prompt is the whole interaction; it has to be in front of them.
+    func chooseCamera(_ source: CameraSource) {
+        guard case .device = source else {
+            camera = source
+            cameraWasRefused = false
+            return
+        }
+        Task { @MainActor in
+            if CameraRecorder.needsAsking { NSApp.activate(ignoringOtherApps: true) }
+            guard await CameraRecorder.requestAccess() else {
+                camera = .off
+                cameraWasRefused = true
+                return
+            }
+            cameraWasRefused = false
+            camera = source
+        }
+    }
+
+    /// Opens the pane of System Settings that holds the switch, because "grant it in System
+    /// Settings" is not an instruction anyone should have to follow by hand.
+    func openCameraSettings() {
+        guard let url = URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") else { return }
+        NSWorkspace.shared.open(url)
+    }
     /// The inputs this machine currently offers, refreshed when the menu bar panel opens —
     /// a USB interface plugged in after launch has to appear without a relaunch.
     private(set) var availableMicrophones: [MicrophoneSource] = []

@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import Capture
 import CoreGraphics
@@ -110,10 +111,17 @@ struct MenuBarRecorderPanel: View {
 
     @ViewBuilder private var header: some View {
         HStack(spacing: Space.snug) {
-            Image("Logomark")
+            // **The template mark, not the coloured one.** `Logomark` is the brand's purple,
+            // which is right on a launch screen and wrong beside a label: in the header it read
+            // as the one coloured thing in a panel of white text, drawing the eye to the app's
+            // own name — the least useful thing on the panel. Template rendering hands it the
+            // same ink the title is set in, and follows a light system the way the title does.
+            Image("LogomarkTemplate")
+                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 18, height: 18)
+                .foregroundStyle(.primary)
             Text("Soredemo")
                 .font(.system(size: 14, weight: .semibold))
             Spacer()
@@ -208,6 +216,17 @@ struct MenuBarRecorderPanel: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .task { coordinator.refreshMicrophones(); coordinator.refreshCameras() }
+        // **Plugged in while the panel is open, and it is in the list.** The `.task` above only
+        // runs when the panel appears, so a camera or an interface connected while a person was
+        // looking at these two rows would not be there until they closed the panel and opened it
+        // again — and the natural reading of a device missing from a list is that the app cannot
+        // see it. a Swift recorder's toolbar watches the same two notifications for the same reason.
+        .onReceive(NotificationCenter.default.publisher(for: .AVCaptureDeviceWasConnected)) { _ in
+            coordinator.refreshMicrophones(); coordinator.refreshCameras()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .AVCaptureDeviceWasDisconnected)) { _ in
+            coordinator.refreshMicrophones(); coordinator.refreshCameras()
+        }
     }
 
     /// Which camera, including none.
@@ -222,15 +241,7 @@ struct MenuBarRecorderPanel: View {
                 Button("No camera") { coordinator.camera = .off }
                 Divider()
                 ForEach(coordinator.availableCameras, id: \.self) { source in
-                    Button(source.displayName) {
-                        Task {
-                            guard await CameraRecorder.requestAccess() else {
-                                coordinator.camera = .off
-                                return
-                            }
-                            coordinator.camera = source
-                        }
-                    }
+                    Button(source.displayName) { coordinator.chooseCamera(source) }
                 }
             } label: {
                 HStack(spacing: Space.snug) {
@@ -253,6 +264,16 @@ struct MenuBarRecorderPanel: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+
+            if coordinator.cameraWasRefused {
+                Button { coordinator.openCameraSettings() } label: {
+                    Label("This Mac has not allowed Soredemo the camera. Open Settings\u{2026}",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Signal.paused)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
