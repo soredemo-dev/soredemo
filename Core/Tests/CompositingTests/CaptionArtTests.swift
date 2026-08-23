@@ -98,6 +98,62 @@ import Timeline
 
 @Suite struct CaptionStyleTests {
     /// Rule 8: a style also arrives from a decoder, and an out-of-range value must not trap.
+    /// **The camera is never half off the frame, at any setting.** `x` and `y` place the
+    /// CENTRE and are clamped to 0…1, so `x = 1` used to hang half a face off the right edge of
+    /// the export — and the self-view writes exactly that when somebody drags into a corner,
+    /// which is where cameras go. an Electron recorder and an Electron recorder both place the overlay inside
+    /// `container − overlay − margin × 2` and neither can produce a cropped camera.
+    @Test func aCameraDraggedIntoACornerStaysWhollyInsideTheFrame() {
+        for position in CameraOverlayStyle.Position.allCases {
+            let style = CameraOverlayStyle.default.placed(at: position)
+            let box = style.rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 16.0 / 9)
+            #expect(box.x >= 0, "\(position) put the camera at x \(box.x)")
+            #expect(box.y >= 0, "\(position) put the camera at y \(box.y)")
+            #expect(box.x + box.width <= 1920.001,
+                    "\(position) runs to \(box.x + box.width) of 1920")
+            #expect(box.y + box.height <= 1080.001,
+                    "\(position) runs to \(box.y + box.height) of 1080")
+        }
+    }
+
+    /// The margin is real, not zero: a camera flush against the edge reads as a mistake even
+    /// when it is entirely inside.
+    @Test func aCornerCameraIsInsetFromTheEdgeRatherThanFlushAgainstIt() {
+        let box = CameraOverlayStyle.default.placed(at: .bottomRight)
+            .rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 16.0 / 9)
+        let margin = 1920 * CameraOverlayStyle.edgeMarginFraction
+        #expect(abs(box.x + box.width - (1920 - margin)) < 0.001)
+        #expect(abs(box.y - margin) < 0.001)
+    }
+
+    /// **A camera too big for the frame is centred, not jammed against an edge.** With no room
+    /// to satisfy both margins the symmetric answer is the only one that is not arbitrary —
+    /// clamping to one side would put the whole crop on the other.
+    ///
+    /// Only the VERTICAL case is reachable and the test says so: `widthFraction` is clamped to
+    /// 0.6 and the margin is 0.025 of the width, so a camera can never be too wide for its own
+    /// frame. A circle is as tall as it is wide, and a wide frame is not as tall — 600 points of
+    /// camera in a 400-point frame. The horizontal branch is kept because the two axes should
+    /// not disagree about what "no room" means.
+    @Test func aCameraTallerThanItsFrameIsCentredVertically() {
+        let style = CameraOverlayStyle.default.changing(widthFraction: 0.6, x: 1, y: 1)
+        let box = style.rect(inOutputWidth: 1000, outputHeight: 400, sourceAspect: 1)
+        #expect(abs(box.height - 600) < 0.001, "the premise: 600 of camera in 400 of frame")
+        #expect(abs(box.y + box.height / 2 - 200) < 0.001)
+    }
+
+    /// A preset and a drag into the same corner have to land in the same place, or a person who
+    /// used both would see the camera jump between two answers to one question.
+    @Test func aPresetAndADragIntoTheSameCornerAgree() {
+        let preset = CameraOverlayStyle.default.placed(at: .bottomRight)
+            .rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 1)
+        // What a drag writes when the panel is pushed against the corner of the screen.
+        let dragged = CameraOverlayStyle.default.changing(x: 1.0, y: 0.0)
+            .rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 1)
+        #expect(abs(preset.x - dragged.x) < 0.001)
+        #expect(abs(preset.y - dragged.y) < 0.001)
+    }
+
     @Test func everyFieldIsClampedRatherThanTrappedOn() {
         let wild = CaptionStyle(heightFraction: 99, bottomInsetFraction: -3,
                                 maximumWidthFraction: 0, backgroundOpacity: 4,
@@ -324,6 +380,62 @@ import Timeline
         let box = style.rect(inOutputWidth: 1000, outputHeight: 1000, sourceAspect: 1)
         #expect(abs(box.x + box.width / 2 - 500) < 0.001)
         #expect(abs(box.y + box.height / 2 - 250) < 0.001)
+    }
+
+    /// **The camera is never half off the frame, at any setting.** `x` and `y` place the
+    /// CENTRE and are clamped to 0…1, so `x = 1` used to hang half a face off the right edge of
+    /// the export — and the self-view writes exactly that when somebody drags into a corner,
+    /// which is where cameras go. an Electron recorder and an Electron recorder both place the overlay inside
+    /// `container − overlay − margin × 2` and neither can produce a cropped camera.
+    @Test func aCameraDraggedIntoACornerStaysWhollyInsideTheFrame() {
+        for position in CameraOverlayStyle.Position.allCases {
+            let style = CameraOverlayStyle.default.placed(at: position)
+            let box = style.rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 16.0 / 9)
+            #expect(box.x >= 0, "\(position) put the camera at x \(box.x)")
+            #expect(box.y >= 0, "\(position) put the camera at y \(box.y)")
+            #expect(box.x + box.width <= 1920.001,
+                    "\(position) runs to \(box.x + box.width) of 1920")
+            #expect(box.y + box.height <= 1080.001,
+                    "\(position) runs to \(box.y + box.height) of 1080")
+        }
+    }
+
+    /// The margin is real, not zero: a camera flush against the edge reads as a mistake even
+    /// when it is entirely inside.
+    @Test func aCornerCameraIsInsetFromTheEdgeRatherThanFlushAgainstIt() {
+        let box = CameraOverlayStyle.default.placed(at: .bottomRight)
+            .rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 16.0 / 9)
+        let margin = 1920 * CameraOverlayStyle.edgeMarginFraction
+        #expect(abs(box.x + box.width - (1920 - margin)) < 0.001)
+        #expect(abs(box.y - margin) < 0.001)
+    }
+
+    /// **A camera too big for the frame is centred, not jammed against an edge.** With no room
+    /// to satisfy both margins the symmetric answer is the only one that is not arbitrary —
+    /// clamping to one side would put the whole crop on the other.
+    ///
+    /// Only the VERTICAL case is reachable and the test says so: `widthFraction` is clamped to
+    /// 0.6 and the margin is 0.025 of the width, so a camera can never be too wide for its own
+    /// frame. A circle is as tall as it is wide, and a wide frame is not as tall — 600 points of
+    /// camera in a 400-point frame. The horizontal branch is kept because the two axes should
+    /// not disagree about what "no room" means.
+    @Test func aCameraTallerThanItsFrameIsCentredVertically() {
+        let style = CameraOverlayStyle.default.changing(widthFraction: 0.6, x: 1, y: 1)
+        let box = style.rect(inOutputWidth: 1000, outputHeight: 400, sourceAspect: 1)
+        #expect(abs(box.height - 600) < 0.001, "the premise: 600 of camera in 400 of frame")
+        #expect(abs(box.y + box.height / 2 - 200) < 0.001)
+    }
+
+    /// A preset and a drag into the same corner have to land in the same place, or a person who
+    /// used both would see the camera jump between two answers to one question.
+    @Test func aPresetAndADragIntoTheSameCornerAgree() {
+        let preset = CameraOverlayStyle.default.placed(at: .bottomRight)
+            .rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 1)
+        // What a drag writes when the panel is pushed against the corner of the screen.
+        let dragged = CameraOverlayStyle.default.changing(x: 1.0, y: 0.0)
+            .rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 1)
+        #expect(abs(preset.x - dragged.x) < 0.001)
+        #expect(abs(preset.y - dragged.y) < 0.001)
     }
 
     @Test func everyFieldIsClampedRatherThanTrappedOn() {

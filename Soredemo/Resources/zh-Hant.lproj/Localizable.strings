@@ -199,3 +199,14 @@
 "Medium" = "中";
 "Large" = "大";
 "The camera could not be recorded. The screen recording is fine." = "相機沒有被錄下來。螢幕錄影本身沒有問題。";
+"Position" = "位置";
+"Top Left" = "左上";
+"Top Center" = "上方置中";
+"Top Right" = "右上";
+"Center Left" = "左側置中";
+"Center" = "置中";
+"Center Right" = "右側置中";
+"Bottom Left" = "左下";
+"Bottom Center" = "下方置中";
+"Bottom Right" = "右下";
+"Up" = "垂直";

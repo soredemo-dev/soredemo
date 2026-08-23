@@ -512,9 +512,44 @@ struct StageWindow: View {
         }
     }
 
+    static let positionRows: [[CameraOverlayStyle.Position]] = [
+        [.topLeft, .topCenter, .topRight],
+        [.centerLeft, .center, .centerRight],
+        [.bottomLeft, .bottomCenter, .bottomRight],
+    ]
+
+    /// Whether the style is sitting exactly on a preset. Compared with a tolerance because a
+    /// drag writes a continuous position and would otherwise never light a cell again.
+    static func matches(_ style: CameraOverlayStyle, _ position: CameraOverlayStyle.Position)
+    -> Bool {
+        abs(style.x - position.fractions.x) < 0.02 && abs(style.y - position.fractions.y) < 0.02
+    }
+
     /// Where the camera sits. **Shown only when the recording HAS one** — controls for a track
     /// that does not exist are controls a person changes and sees nothing happen.
     @ViewBuilder private var cameraControls: some View {
+        // **Nine places, as a grid of the frame.** Two sliders can express any position and are
+        // the wrong instrument for the position people actually want: almost every camera goes
+        // in a corner, and finding a corner by aiming two sliders is a job. an Electron recorder and
+        // an Electron recorder both ship the same nine presets beside the free position.
+        //
+        // A 3×3 grid rather than a menu, because the control's SHAPE is the frame — pressing the
+        // bottom-right cell is pointing at where the camera will be.
+        Grid(horizontalSpacing: 2, verticalSpacing: 2) {
+            ForEach(Self.positionRows, id: \.first) { row in
+                GridRow {
+                    ForEach(row, id: \.self) { position in
+                        CameraPositionCell(
+                            position: position,
+                            isChosen: Self.matches(cameraStyle, position),
+                            choose: {
+                                cameraStyle = cameraStyle.placed(at: position)
+                                reviewRevision += 1
+                            })
+                    }
+                }
+            }
+        }
         Picker("Shape", selection: Binding(
             get: { cameraStyle.shape },
             set: { cameraStyle = cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
@@ -920,3 +955,33 @@ struct StageWindow: View {
 }
 
 
+
+/// One cell of the camera's position grid.
+///
+/// **The control is a picture of the frame.** A dot in the corner of a small rectangle says
+/// where the camera goes without a word, and stays true in a language this app has not been
+/// translated into.
+private struct CameraPositionCell: View {
+    let position: CameraOverlayStyle.Position
+    let isChosen: Bool
+    let choose: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: choose) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(isChosen ? Theme.accent.opacity(0.28)
+                               : Theme.Fill.rest.opacity(isHovering ? 1 : 0.6))
+                .overlay {
+                    Circle()
+                        .fill(isChosen ? Theme.accent : Theme.Ink.tertiary)
+                        .frame(width: 5, height: 5)
+                }
+                .frame(width: 22, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(LocalizedStringKey(position.displayName))
+    }
+}

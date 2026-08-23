@@ -72,14 +72,20 @@ final class CameraSelfView {
         container = nil
     }
 
-    /// Re-lays the panel for a shape or size the person chose from its menu, keeping its centre
-    /// where it is — resizing about the corner would walk the camera across the screen.
+    /// Re-lays the panel for something chosen from its menu.
+    ///
+    /// **A shape or a size keeps the centre; a position moves it.** Resizing about the corner
+    /// would walk the camera across the screen every time somebody tried a size — and a position
+    /// preset that kept the centre would do nothing at all, which is the opposite failure.
     private func restyle(_ style: CameraOverlayStyle) {
         guard let panel, let container, let screen = panel.screen ?? NSScreen.main else { return }
-        let centre = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
         let size = Self.panelSize(for: style, on: screen)
-        panel.setFrame(NSRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2,
-                              width: size.width, height: size.height), display: true)
+        let moved = style.x != container.style.x || style.y != container.style.y
+        let origin = moved
+            ? Self.origin(for: style, size: size, on: screen)
+            : NSPoint(x: panel.frame.midX - size.width / 2,
+                      y: panel.frame.midY - size.height / 2)
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
         container.style = style
         reportStyle()
     }
@@ -137,6 +143,8 @@ private final class ShapedCameraView: NSView {
 
     private let preview: AVCaptureVideoPreviewLayer
     private var dragOrigin: NSPoint?
+    private var pressOrigin: NSPoint?
+    private var isDragging = false
 
     init(previewLayer: AVCaptureVideoPreviewLayer, style: CameraOverlayStyle) {
         self.preview = previewLayer
@@ -186,24 +194,53 @@ private final class ShapedCameraView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         dragOrigin = NSEvent.mouseLocation
+        pressOrigin = dragOrigin
+        isDragging = false
     }
 
     /// **The window is moved by its frame, not by the drag's translation.** `NSEvent`'s
     /// `deltaX`/`deltaY` are per-event and lose whatever the run loop coalesced; the difference
     /// between two absolute mouse locations cannot.
+    ///
+    /// **A threshold before anything moves.** Without one, a press that wandered a point — which
+    /// most presses do — nudged the camera, and since the position is persisted, the nudge was
+    /// permanent. an Electron recorder's overlay uses a 6px threshold for the same reason; this is the same
+    /// number because the reason is the same and the hand is the same.
+    ///
+    /// **Clamped to the screen on every frame, not only when the panel is placed.** Dragging
+    /// past an edge otherwise walks the camera off the display, where it cannot be grabbed back
+    /// — and the position it writes is what the export composites with. an Electron recorder clamps inside
+    /// its `requestAnimationFrame` for this; here every drag event does it.
     override func mouseDragged(with event: NSEvent) {
-        guard let start = dragOrigin, let window else { return }
+        guard let start = dragOrigin, let press = pressOrigin, let window else { return }
         let now = NSEvent.mouseLocation
+        if !isDragging {
+            guard hypot(now.x - press.x, now.y - press.y) >= Self.dragThreshold else { return }
+            isDragging = true
+        }
         var frame = window.frame
         frame.origin.x += now.x - start.x
         frame.origin.y += now.y - start.y
+        if let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            frame.origin.x = min(max(frame.origin.x, visible.minX),
+                                 visible.maxX - frame.width)
+            frame.origin.y = min(max(frame.origin.y, visible.minY),
+                                 visible.maxY - frame.height)
+        }
         window.setFrameOrigin(frame.origin)
         dragOrigin = now
     }
 
+    static let dragThreshold: Double = 6
+
     override func mouseUp(with event: NSEvent) {
         dragOrigin = nil
-        onMoved?()
+        pressOrigin = nil
+        // Only a real drag reports. A click that never crossed the threshold moved nothing, and
+        // writing the position back would round-trip it through the screen-fraction conversion
+        // for no reason.
+        if isDragging { onMoved?() }
+        isDragging = false
     }
 
     /// Shape and size, where a person looking at the camera would look for them.
@@ -229,6 +266,21 @@ private final class ShapedCameraView: NSView {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        // The same nine the editor's grid offers, so a person who arranges the camera here and
+        // a person who arranges it afterwards are using one vocabulary.
+        let positions = NSMenu()
+        for position in CameraOverlayStyle.Position.allCases {
+            let item = NSMenuItem(title: NSLocalizedString(position.displayName, comment: ""),
+                                  action: #selector(choosePosition(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = position.rawValue
+            positions.addItem(item)
+        }
+        let positionItem = NSMenuItem(title: NSLocalizedString("Position", comment: ""),
+                                      action: nil, keyEquivalent: "")
+        positionItem.submenu = positions
+        menu.addItem(positionItem)
+        menu.addItem(.separator())
         let mirror = NSMenuItem(title: NSLocalizedString("Mirror", comment: ""),
                                 action: #selector(toggleMirror), keyEquivalent: "")
         mirror.target = self
@@ -248,6 +300,12 @@ private final class ShapedCameraView: NSView {
     @objc private func chooseSize(_ sender: NSMenuItem) {
         guard let fraction = sender.representedObject as? Double else { return }
         onStyleChosen?(style.changing(widthFraction: fraction))
+    }
+
+    @objc private func choosePosition(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let position = CameraOverlayStyle.Position(rawValue: raw) else { return }
+        onStyleChosen?(style.placed(at: position))
     }
 
     @objc private func toggleMirror() {

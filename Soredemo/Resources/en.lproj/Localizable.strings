@@ -199,3 +199,14 @@
 "Medium" = "Medium";
 "Large" = "Large";
 "The camera could not be recorded. The screen recording is fine." = "The camera could not be recorded. The screen recording is fine.";
+"Position" = "Position";
+"Top Left" = "Top Left";
+"Top Center" = "Top Center";
+"Top Right" = "Top Right";
+"Center Left" = "Center Left";
+"Center" = "Center";
+"Center Right" = "Center Right";
+"Bottom Left" = "Bottom Left";
+"Bottom Center" = "Bottom Center";
+"Bottom Right" = "Bottom Right";
+"Up" = "Up";

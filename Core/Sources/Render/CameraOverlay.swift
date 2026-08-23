@@ -94,11 +94,82 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                            shadowOpacity: shadowOpacity ?? self.shadowOpacity)
     }
 
+    /// Nine places a camera is usually put, so a corner is one press rather than two sliders
+    /// aimed by eye.
+    ///
+    /// **Both reference recorders with a webcam offer these.** an Electron recorder's
+    /// `getWebcamPositionForPreset` is the same nine and an Electron recorder carries the same list; a
+    /// person putting a camera in the bottom-right — which is where almost every camera goes —
+    /// should not have to find 0.87 and 0.16 by dragging.
+    public enum Position: String, Hashable, Codable, Sendable, CaseIterable {
+        case topLeft, topCenter, topRight
+        case centerLeft, center, centerRight
+        case bottomLeft, bottomCenter, bottomRight
+
+        /// Where the camera's CENTRE goes, in the same fractions `x` and `y` are in. The edge
+        /// values are inset by half the camera plus the margin, which `rect` would clamp to
+        /// anyway — stated here so a preset and a drag to the same corner agree exactly.
+        public var fractions: (x: Double, y: Double) {
+            switch self {
+            case .topLeft: (0, 1)
+            case .topCenter: (0.5, 1)
+            case .topRight: (1, 1)
+            case .centerLeft: (0, 0.5)
+            case .center: (0.5, 0.5)
+            case .centerRight: (1, 0.5)
+            case .bottomLeft: (0, 0)
+            case .bottomCenter: (0.5, 0)
+            case .bottomRight: (1, 0)
+            }
+        }
+
+        public var displayName: String {
+            switch self {
+            case .topLeft: "Top Left"
+            case .topCenter: "Top Center"
+            case .topRight: "Top Right"
+            case .centerLeft: "Center Left"
+            case .center: "Center"
+            case .centerRight: "Center Right"
+            case .bottomLeft: "Bottom Left"
+            case .bottomCenter: "Bottom Center"
+            case .bottomRight: "Bottom Right"
+            }
+        }
+    }
+
+    /// The same style, moved to one of the nine. `rect` does the insetting, so an edge preset
+    /// lands exactly where a drag into that corner does.
+    public func placed(at position: Position) -> CameraOverlayStyle {
+        changing(x: position.fractions.x, y: position.fractions.y)
+    }
+
+    /// How far the camera is kept from the frame's edge, as a fraction of the output's WIDTH.
+    ///
+    /// One dimension for both axes so the inset looks the same on all four sides — a fraction
+    /// of each axis would be a wider gap at the sides of a 16:9 frame than at the top.
+    public static let edgeMarginFraction = 0.025
+
     /// The camera's rectangle in output pixels, given the source's aspect.
     ///
     /// **A circle is square before it is masked.** Fitting a 4:3 camera into a circle by using
     /// its own aspect would give an ellipse; the frame is squared and the source is cropped to
     /// fill it, which is what every video-call application does with a round self-view.
+    ///
+    /// **Held inside the frame, which it was not.** `x` and `y` place the camera's CENTRE and
+    /// are clamped to 0…1, so `x = 1` hung half a face off the right edge of the export — and
+    /// the self-view writes exactly that value when somebody drags into a corner, which is where
+    /// people put cameras. an Electron recorder places its overlay inside `container − overlay − margin × 2`
+    /// for this reason and an Electron recorder does the same; neither can produce a half-cropped camera
+    /// at any setting.
+    ///
+    /// Clamped rather than remapped, deliberately. Remapping would change what a stored `x`
+    /// MEANS, and a project saved before this would open with its camera somewhere else — the
+    /// producer-value rule broken to fix a rendering bug. A drag that saturates at the edge is
+    /// also what a person dragging expects.
+    ///
+    /// A camera too big for the frame is centred rather than clamped to a corner: with no room
+    /// to satisfy both margins, the symmetric answer is the only one that is not arbitrary.
     public func rect(inOutputWidth outputWidth: Int, outputHeight: Int,
                      sourceAspect: Double)
     -> (x: Double, y: Double, width: Double, height: Double) {
@@ -106,8 +177,15 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
         let height = shape == .circle
             ? width
             : width / max(sourceAspect, 0.01)
-        return (Double(outputWidth) * x - width / 2,
-                Double(outputHeight) * y - height / 2,
+        let margin = Double(outputWidth) * Self.edgeMarginFraction
+        let placedX = Double(outputWidth) * x - width / 2
+        let placedY = Double(outputHeight) * y - height / 2
+        let maximumX = Double(outputWidth) - margin - width
+        let maximumY = Double(outputHeight) - margin - height
+        return (maximumX < margin ? (Double(outputWidth) - width) / 2
+                                  : min(max(placedX, margin), maximumX),
+                maximumY < margin ? (Double(outputHeight) - height) / 2
+                                  : min(max(placedY, margin), maximumY),
                 width, height)
     }
 }
