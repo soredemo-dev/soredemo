@@ -101,6 +101,12 @@ struct MenuBarRecorderPanel: View {
         }
         .padding(Space.roomy)
         .frame(width: 292)
+        // **Its own surface again.** It lost this when the item was a system popover, which drew
+        // one — now the panel is borderless and there is nothing behind the content unless this
+        // puts it there. Pinned to dark for `Glass`'s reason: it floats over whatever is on
+        // screen at the moment a person reaches for it.
+        .glassSurface(radius: Glass.barRadius)
+        .padding(Space.snug)
     }
 
     @ViewBuilder private var header: some View {
@@ -349,11 +355,14 @@ struct MenuBarRecorderPanel: View {
             PanelLink(title: "Open Project\u{2026}", shortcut: "\u{2318}O") {
                 coordinator.openProject()
             }
-            SettingsLink {
-                Text("Settings\u{2026}").font(.system(size: 12))
+            // **`sendAction`, not `SettingsLink`.** A `SettingsLink` in this panel instantiated
+            // the Settings scene as soon as the panel was built — measured: opening the menu bar
+            // panel produced a second window titled after the settings' first section. The
+            // selector is what the menu item AppKit installs for ⌘, sends, and it opens the
+            // window when it is pressed rather than when it is drawn.
+            PanelLink(title: "Settings\u{2026}", shortcut: "\u{2318},") {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
             PanelLink(title: "Permissions\u{2026}", shortcut: "") {
                 EditorWindowPresence.willOpen()
                 openWindow(id: SoredemoApp.permissionsWindowID)

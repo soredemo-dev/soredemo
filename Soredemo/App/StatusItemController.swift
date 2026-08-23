@@ -24,7 +24,9 @@ final class StatusItemController: NSObject {
     static let shared = StatusItemController()
 
     private var item: NSStatusItem?
-    private var popover: NSPopover?
+    private var panel: NSPanel?
+    private var dismissMonitor: Any?
+    private var keyMonitor: Any?
     private var coordinator: RecordingCoordinator?
     private var refresh: Timer?
 
@@ -86,21 +88,86 @@ final class StatusItemController: NSObject {
         button.image?.isTemplate = true
     }
 
+    /// **A borderless panel, not an `NSPopover`.** A popover draws its own opaque background and
+    /// an arrow pointing at the button, and neither can be turned off — the content was designed
+    /// for `MenuBarExtra`'s window style, which is a floating rounded pane with no chrome of its
+    /// own, and inside a popover it came out with two backgrounds and a spike. This is that
+    /// window style, kept while the item itself stays an `NSStatusItem` for the position control
+    /// `MenuBarExtra` does not give.
     @objc private func togglePanel() {
-        if let popover, popover.isShown {
-            popover.performClose(nil)
+        if panel != nil {
+            dismissPanel()
             return
         }
-        guard let button = item?.button, let coordinator else { return }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = true
-        // The panel sizes itself; `contentSize` is a first guess AppKit corrects once the
-        // hosting view reports its own.
-        popover.contentSize = NSSize(width: 292, height: 340)
-        popover.contentViewController = NSHostingController(
-            rootView: MenuBarRecorderPanel(coordinator: coordinator))
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-        self.popover = popover
+        guard let button = item?.button, let buttonWindow = button.window,
+              let coordinator else { return }
+
+        let hosting = NSHostingView(rootView: MenuBarRecorderPanel(coordinator: coordinator))
+        // **Floored, because a fitting size of zero is a panel nobody can see.** `fittingSize`
+        // is measured before the view has been in a window, and a SwiftUI hierarchy that has not
+        // laid out yet can report nothing at all. The width is fixed by the panel itself; the
+        // floor on the height is what stops a bad measurement becoming an invisible menu.
+        let measured = hosting.fittingSize
+        let size = NSSize(width: max(measured.width, 308), height: max(measured.height, 240))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size),
+                            styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        // `.popUpMenu`, which is where a menu bar item's own window sits: above ordinary
+        // floating windows and below a screen saver.
+        panel.level = .popUpMenu
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.contentView = hosting
+
+        // Under the button and right-aligned to it, which is where every menu bar panel on this
+        // system opens — and clamped to the screen, because an item near the right edge would
+        // otherwise put its panel half off it.
+        let buttonInScreen = buttonWindow.convertToScreen(button.frame)
+        let visible = (buttonWindow.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        let x = min(max(buttonInScreen.maxX - size.width, visible.minX + 8),
+                    visible.maxX - size.width - 8)
+        panel.setFrameOrigin(NSPoint(x: x, y: buttonInScreen.minY - size.height - 6))
+        panel.orderFrontRegardless()
+        self.panel = panel
+        button.highlight(true)
+        installDismissMonitors()
+    }
+
+    /// **Closed by a click anywhere else, and by ⎋.** A popover does this for free; a borderless
+    /// panel does not, and a menu that stays open after you click past it is the thing that
+    /// makes one feel broken. The global monitor catches clicks in other applications, the local
+    /// one catches clicks in this app's own windows — neither sees the other's.
+    private func installDismissMonitors() {
+        dismissMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                Task { @MainActor in self?.dismissPanel() }
+            }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+                if event.type == .keyDown {
+                    guard event.keyCode == 53 else { return event }
+                    Task { @MainActor in self?.dismissPanel() }
+                    return nil
+                }
+                // A click inside the panel itself is the person using it.
+                if event.window === self?.panel { return event }
+                Task { @MainActor in self?.dismissPanel() }
+                return event
+            }
+    }
+
+    private func dismissPanel() {
+        panel?.orderOut(nil)
+        panel = nil
+        item?.button?.highlight(false)
+        if let dismissMonitor { NSEvent.removeMonitor(dismissMonitor) }
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        dismissMonitor = nil
+        keyMonitor = nil
     }
 }
