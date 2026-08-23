@@ -175,6 +175,13 @@ struct StageWindow: View {
                 }
                 .frame(maxHeight: .infinity)
                 .background(Theme.Surface.preview)
+                // Handles for whatever the inspector is editing — see `PreviewOverlay`.
+                .overlay {
+                    let size = Self.size(for: variant)
+                    PreviewOverlay(outputWidth: size.width, outputHeight: size.height,
+                                   texts: texts, redactions: redactions, tab: inspectorTab,
+                                   onChange: { reviewRevision += 1 })
+                }
                 if let player {
                     Divider()
                     TransportBar(player: player, model: timeline)

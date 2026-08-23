@@ -46,6 +46,11 @@ final class TimelineEditorModel {
     private var original = EditTimeline(clips: [])
     /// Carried across the events of one drag so a snap holds instead of flickering.
     private var snapState = SnapEngine.State()
+    /// **Where a snap has taken hold, or `nil`.** A snap nobody can see is a snap nobody
+    /// trusts: an edge that jumps a few pixels reads as the drag being imprecise rather than as
+    /// the editor helping. a native editor draws a `SnapIndicatorOverlay` for this, and it is the
+    /// difference between a feature and an unexplained twitch.
+    private(set) var snapIndicator: Nanoseconds?
     /// The recording's audio, for drawing. `nil` until it has been read, and empty when the
     /// recording has no audio — two different things, and the strip shows nothing for both.
     private(set) var waveform: WaveformEnvelope?
@@ -163,14 +168,26 @@ final class TimelineEditorModel {
     /// **Snapped to clip edges and the playhead.** A cut a person aims at an existing edge
     /// should land ON it: a cut that misses by a nanosecond leaves a sliver of a clip that is
     /// invisible on the strip and real in the export.
+    @discardableResult
     func snapped(_ time: Nanoseconds, threshold: Nanoseconds) -> Nanoseconds {
         let targets = SnapEngine.targets(in: edit, playhead: playhead)
-        return SnapEngine.snap(position: time, targets: targets,
-                               state: &snapState, threshold: threshold)?.time ?? time
+        guard let result = SnapEngine.snap(position: time, targets: targets,
+                                           state: &snapState, threshold: threshold) else {
+            snapIndicator = nil
+            return time
+        }
+        // The line is drawn at the TARGET, which is where the probe landed — not at `result.time`
+        // plus the probe's offset, which is where the dragged thing's origin ended up. A clip
+        // snapped by its trailing edge shows the line at that edge.
+        snapIndicator = Nanoseconds(result.time.rawValue + result.probeOffset.rawValue)
+        return result.time
     }
 
     /// Ends a drag, so the next one starts unsnapped rather than inheriting a stale hold.
-    func endDrag() { snapState = SnapEngine.State() }
+    func endDrag() {
+        snapState = SnapEngine.State()
+        snapIndicator = nil
+    }
 
     /// Selects the clip at a SOURCE position, or clears the selection when the tap missed
     /// every clip — a tap on a cut span selects nothing rather than the nearest thing.
@@ -357,7 +374,12 @@ struct TimelineEditor: View {
         if let duration = model.duration, duration.rawValue > 0 {
             VStack(alignment: .leading, spacing: 2) {
                 lane(nil, nil, height: 16) { ruler(duration: duration) }
-                lane("Video", "film", height: 44) { strip(duration: duration) }
+                lane("Video", "film", height: 44) {
+                    ZStack(alignment: .topLeading) {
+                        strip(duration: duration)
+                        snapLine(height: 44)
+                    }
+                }
                 // **Zooms get their own lane.** Screen Studio shows each click as a keyframe
                 // with an adjustable duration; ScreenKite gives zooms a lane beside speed and
                 // annotations. A review panel can reject a zoom but cannot fix one that is a
@@ -483,6 +505,24 @@ struct TimelineEditor: View {
                           Int((seconds - Double(whole)) * 10))
         }
         return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+
+    /// The line a snap took hold at. Drawn over the video track rather than across every lane:
+    /// the thing being snapped is on that track, and a full-height line would be a second
+    /// playhead.
+    @ViewBuilder private func snapLine(height: Double) -> some View {
+        if let snap = model.snapIndicator {
+            GeometryReader { geometry in
+                let x = model.window.fraction(of: snap) * geometry.size.width
+                Rectangle()
+                    .fill(Theme.accent)
+                    .frame(width: 1)
+                    .offset(x: x)
+                    .shadow(color: Theme.accent.opacity(0.8), radius: 3)
+            }
+            .frame(height: height)
+            .allowsHitTesting(false)
+        }
     }
 
     /// The frames covering one clip's span, at the current zoom.
