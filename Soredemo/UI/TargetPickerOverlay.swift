@@ -20,6 +20,7 @@ import SwiftUI
 final class TargetPickerOverlay {
     static let shared = TargetPickerOverlay()
     private var panels: [NSPanel] = []
+    private var refresh: Task<Void, Never>?
     private var monitor: Any?
     private let state = PickerState()
 
@@ -48,6 +49,31 @@ final class TargetPickerOverlay {
         }
     }
 
+    /// **The window list is re-read while the overlay is up, not frozen when it opens.**
+    /// Measured with a dump from inside the app: `SCShareableContent.windows` really is ordered
+    /// front to back and really does follow the active application, so the hit test — first
+    /// match wins — was right. What was wrong is that it was testing against a list captured
+    /// before the overlay appeared. Bring another window forward while pointing (\u{2318}\u{21E5}
+    /// still works over an overlay) and every point in the overlap kept answering with the
+    /// window that used to be on top — Claude in front of Spotify, and the card said Spotify.
+    ///
+    /// Windows also move, close and open while a person is deciding, and a picker that shows
+    /// where a window WAS is worse than one that shows nothing.
+    ///
+    /// Polled rather than observed: there is no notification for z-order, and 400ms is far below
+    /// the time it takes to bring an app forward and move the pointer back.
+    private func startRefreshing() {
+        refresh = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard let self, !self.panels.isEmpty, !Task.isCancelled else { return }
+                let fresh = await WindowTargets.onScreen()
+                guard !Task.isCancelled else { return }
+                self.state.targets = fresh
+            }
+        }
+    }
+
     private func present() {
         // **One panel per screen.** A single panel sized to the union of every display is one
         // rectangle the window server has to composite across displays with different scales;
@@ -71,6 +97,7 @@ final class TargetPickerOverlay {
             panel.orderFrontRegardless()
             panels.append(panel)
         }
+        startRefreshing()
         // ⎋ cancels. A local monitor rather than a `.keyboardShortcut`, because these panels are
         // non-activating and never become key — the same reason the recording bar's ⎋ did
         // nothing until the shortcut became a global hot key.
@@ -88,6 +115,8 @@ final class TargetPickerOverlay {
     private var localMonitor: Any?
 
     private func dismiss() {
+        refresh?.cancel()
+        refresh = nil
         panels.forEach { $0.orderOut(nil) }
         panels.removeAll()
         if let monitor { NSEvent.removeMonitor(monitor) }
@@ -147,9 +176,12 @@ private struct TargetPickerView: View {
         .onContinuousHover { phase in
             guard case .active(let point) = phase else { hovered = nil; return }
             local = (Double(point.x), Double(point.y))
-            hovered = WindowTargets.target(at: globalX(local.x), y: globalY(local.y),
-                                           in: state.targets)
+            rehighlight()
         }
+        // **The list can change while the pointer is still.** Bringing a window forward without
+        // moving the mouse is exactly the case that started this, and a highlight that only
+        // updates on movement would answer with the old window until the pointer twitched.
+        .onChange(of: state.targets) { rehighlight() }
         .onTapGesture {
             guard let hovered, !state.isResolving else { return }
             state.isResolving = true
@@ -158,6 +190,11 @@ private struct TargetPickerView: View {
                 state.onFinish?(source)
             }
         }
+    }
+
+    private func rehighlight() {
+        hovered = WindowTargets.target(at: globalX(local.x), y: globalY(local.y),
+                                       in: state.targets)
     }
 
     /// **The panel's y runs down and the screen's runs up.** A panel covering `screen.frame` has
