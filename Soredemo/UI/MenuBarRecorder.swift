@@ -312,6 +312,11 @@ struct MenuBarRecorderPanel: View {
             PanelLink(title: "Open Project\u{2026}", shortcut: "\u{2318}O") {
                 coordinator.openProject()
             }
+            SettingsLink {
+                Text("Settings\u{2026}").font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
             PanelLink(title: "Permissions\u{2026}", shortcut: "") {
                 EditorWindowPresence.willOpen()
                 openWindow(id: SoredemoApp.permissionsWindowID)

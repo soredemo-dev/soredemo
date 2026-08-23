@@ -71,11 +71,11 @@ trap 'rm -rf "$OUT"' EXIT
 # comment where this one used to be: `set -euo pipefail` made the truncated
 # `xcrun swiftc` (no input files) abort the script before the bogus second
 # command ever ran. Comments belong outside the continuation, as above.
-# **The recording surfaces are deliberately not in the list below** — WelcomeView,
-# RecordingBar and MenuBarRecorder. They depend on RecordingCoordinator, which lives in
+# **The recording surfaces are deliberately not in the list below** — RecordingBar,
+# MenuBarRecorder and SettingsWindow. They depend on RecordingCoordinator, which lives in
 # ContentView.swift with the app lifecycle this probe does not compile. They carry no
-# cross-boundary rule of their own, and Tests/AppSourceTests scans every app source
-# whether or not it appears here, so nothing goes unchecked by leaving them out.
+# cross-boundary rule of their own, and Tests/AppSourceTests scans every app source whether
+# or not it appears here, so nothing goes unchecked by leaving them out.
 xcrun swiftc \
   -swift-version 6 \
   -default-isolation MainActor \

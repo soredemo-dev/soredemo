@@ -65,6 +65,12 @@ struct SoredemoApp: App {
         // `.window`, not the default menu: the contents are controls, not commands.
         .menuBarExtraStyle(.window)
 
+        // **Preferences**, in the place macOS puts them. `Settings` rather than a `Window`, so
+        // it gets ⌘, and the standard title without either being written out here.
+        Settings {
+            SettingsWindow(coordinator: recordingCoordinator)
+        }
+
         // **Permissions, opened on first run and from the menu bar afterwards.** Suppressed at
         // launch like the editor: a person who has already granted everything should not be
         // greeted by a window telling them so.
