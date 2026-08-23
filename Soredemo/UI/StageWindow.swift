@@ -60,6 +60,15 @@ struct StageWindow: View {
     @State private var editRevision = 0
     @State private var isReviewShown = true
     @State private var inspectorTab = InspectorTab.project
+    /// How tall the timeline area is, remembered between launches — see the divider's comment.
+    @AppStorage("timelineHeight") private var timelineHeight: Double = 210
+    @AppStorage("timelineCollapsed") private var isTimelineCollapsed = false
+
+    /// The band the timeline may be dragged within. A floor because a strip shorter than its
+    /// tracks is a strip nothing can be aimed at; a ceiling because a timeline taller than the
+    /// preview is an editor that cannot show what it is editing.
+    static let minimumTimelineHeight: Double = 150
+    static let maximumTimelineHeight: Double = 480
     /// What a GIF export would be. Held even while exporting MP4, so a person who switches the
     /// save panel's format popup does not find the options reset to defaults.
     @State private var gifSettings = GIFSettings.balanced
@@ -124,7 +133,7 @@ struct StageWindow: View {
         // **The timeline sits under the preview**, where every editor in
         // `../opensource/Screen Record Opensource/` puts it: a timeline is read along its length
         // while watching the picture above it, and an inspector is read down a column.
-        VSplitView {
+        VStack(spacing: 0) {
             VStack(spacing: 0) {
                 Group {
                     if let player {
@@ -146,15 +155,31 @@ struct StageWindow: View {
             }
             .frame(minHeight: 240)
 
-            VStack(spacing: 0) {
-                EditorToolbar(model: timeline, onChange: { editRevision += 1 })
-                Divider()
-                TimelineEditor(model: timeline, onChange: { editRevision += 1 },
-                               texts: texts.track, captions: captions.track,
-                               redactions: redactions.track)
-                    .padding(Space.regular)
+            // **A divider this file owns, not `VSplitView`'s.** SwiftUI's split views cannot be
+            // collapsed programmatically and do not remember where they were left, and both are
+            // things a person expects of an editor: a native editor gives every one of its five
+            // panels an `autosaveName` and a collapse, and the reason is that a timeline you
+            // have to re-drag every launch is one you stop dragging.
+            SplitHandle { delta in
+                timelineHeight = min(max(timelineHeight - delta, Self.minimumTimelineHeight),
+                                     Self.maximumTimelineHeight)
             }
-            .frame(minHeight: 180, idealHeight: 210)
+
+            VStack(spacing: 0) {
+                EditorToolbar(model: timeline, onChange: { editRevision += 1 },
+                              isCollapsed: isTimelineCollapsed) {
+                    isTimelineCollapsed.toggle()
+                }
+                if !isTimelineCollapsed {
+                    Divider()
+                    TimelineEditor(model: timeline, onChange: { editRevision += 1 },
+                                   texts: texts.track, captions: captions.track,
+                                   redactions: redactions.track)
+                        .padding(Space.regular)
+                        .frame(height: timelineHeight - EditorToolbar.height)
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: isTimelineCollapsed)
         }
         .background(Theme.Surface.base)
         // **Pinned to dark.** Chrome around a picture shifts how its colours read: a light

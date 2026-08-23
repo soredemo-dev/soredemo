@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Timeline
 
@@ -16,6 +17,14 @@ import Timeline
 struct EditorToolbar: View {
     let model: TimelineEditorModel
     let onChange: () -> Void
+    /// True while the timeline below is collapsed, so the chevron points the right way.
+    var isCollapsed = false
+    /// `nil` leaves the collapse control out — the toolbar is useful without one.
+    var onToggleCollapse: (() -> Void)?
+
+    /// Its own height, exported because the host subtracts it from the split's height to size
+    /// the strip. One number in one place; two would drift and the strip would be clipped.
+    static let height: Double = 34
 
     var body: some View {
         HStack(spacing: Space.regular) {
@@ -26,9 +35,15 @@ struct EditorToolbar: View {
             reverting
             Spacer(minLength: Space.regular)
             zoom
+            if let onToggleCollapse {
+                separator
+                ToolbarAction(icon: isCollapsed ? "chevron.up" : "chevron.down",
+                              help: isCollapsed ? "Show the timeline" : "Hide the timeline",
+                              isEnabled: true, action: onToggleCollapse)
+            }
         }
         .padding(.horizontal, Space.regular)
-        .frame(height: 34)
+        .frame(height: Self.height)
         .background(Theme.Surface.raised)
     }
 
@@ -143,5 +158,49 @@ private struct ToolbarAction: View {
         .onHover { isHovering = $0 }
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+
+/// The draggable line between the preview and the timeline.
+///
+/// **Hand-rolled because `VSplitView` cannot do the two things that matter**: it cannot be
+/// collapsed from code, and it forgets where it was left. a native editor gives every one of its
+/// five panels an `autosaveName` and a collapse; a timeline you have to re-drag every launch is
+/// one you stop dragging.
+///
+/// The hit area is taller than the line. A one-pixel target is a target people miss, and
+/// a native editor widens its own divider hit rect for the same reason
+/// (`PaddedDividerSplitViewController`).
+struct SplitHandle: View {
+    /// The INCREMENT since the last callback, in points, positive downward.
+    let onDrag: (Double) -> Void
+    @State private var isHovering = false
+    /// **`DragGesture.translation` is cumulative from where the drag began**, so handing it
+    /// straight to a caller that adds it to a height moves that height by the whole distance on
+    /// every callback — the strip jumps to a limit on the first few points of a drag. This is
+    /// the running total, subtracted to get the step.
+    @State private var applied: Double = 0
+
+    var body: some View {
+        Rectangle()
+            .fill(isHovering ? Theme.Line.divider : Theme.Line.hairline)
+            .frame(height: 1)
+            .frame(height: 7)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovering = hovering
+                if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let total = Double(value.translation.height)
+                        onDrag(total - applied)
+                        applied = total
+                    }
+                    .onEnded { _ in applied = 0 }
+            )
+            .accessibilityLabel("Resize the timeline")
     }
 }
