@@ -526,7 +526,11 @@ struct StageWindow: View {
     /// drag writes a continuous position and would otherwise never light a cell again.
     static func matches(_ style: CameraOverlayStyle, _ position: CameraOverlayStyle.Position)
     -> Bool {
-        abs(style.x - position.fractions.x) < 0.02 && abs(style.y - position.fractions.y) < 0.02
+        // **Identity, not proximity, now that the preset is stored.** It used to compare
+        // coordinates with a tolerance because a preset was baked into numbers and a drag wrote
+        // numbers that happened to be near them; `position` says which cell was pressed, so the
+        // highlight is exact and a hand-placed camera lights none of them — which is true.
+        style.position == position
     }
 
     /// Where the camera sits. **Shown only when the recording HAS one** — controls for a track
@@ -539,6 +543,9 @@ struct StageWindow: View {
         //
         // A 3×3 grid rather than a menu, because the control's SHAPE is the frame — pressing the
         // bottom-right cell is pointing at where the camera will be.
+        Toggle("Show camera", isOn: Binding(
+            get: { !cameraStyle.isHidden },
+            set: { cameraStyle = cameraStyle.changing(isHidden: !$0); reviewRevision += 1 }))
         Grid(horizontalSpacing: 2, verticalSpacing: 2) {
             ForEach(Self.positionRows, id: \.first) { row in
                 GridRow {
@@ -565,6 +572,14 @@ struct StageWindow: View {
                               set: { cameraStyle = cameraStyle.changing(widthFraction: $0) }),
                in: 0.05...0.5,
                onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Size") }
+        // **How much the camera shrinks while the stage is zoomed in.** A zoom makes the picture
+        // bigger, and a camera that holds its width is covering a larger share of a smaller area
+        // — which is exactly when it is most in the way. a Rust recorder models this as `scale_during_zoom`;
+        // 1 holds the size, which is what this did before the control existed.
+        Slider(value: Binding(get: { cameraStyle.scaleDuringZoom },
+                              set: { cameraStyle = cameraStyle.changing(scaleDuringZoom: $0) }),
+               in: 0.3...1,
+               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Shrink on zoom") }
         Slider(value: Binding(get: { cameraStyle.x },
                               set: { cameraStyle = cameraStyle.changing(x: $0) }),
                in: 0...1,

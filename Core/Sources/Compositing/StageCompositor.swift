@@ -179,7 +179,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               texts: textOverlays(at: request.compositionTime),
                               redactions: redactedRegions(at: request.compositionTime),
                               cursorStyle: unsafe Self.cursorStyle,
-                              camera: (unsafe Self.cameraStyle).map(CameraOverlay.init(style:)),
+                              // **A hidden camera produces no overlay at all**, rather than one
+                              // the renderer then has to know to skip. `Camera.hide` is a Rust recorder's
+                              // switch for "not in this one" as distinct from "throw the footage
+                              // away", and the cheapest place to honour it is before a plan
+                              // carries it.
+                              camera: (unsafe Self.cameraStyle)
+                                  .flatMap { $0.isHidden ? nil : CameraOverlay(style: $0) },
                               crop: crop)
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.

@@ -154,6 +154,76 @@ import Timeline
         #expect(abs(preset.y - dragged.y) < 0.001)
     }
 
+    /// **A preset stays a preset.** a Rust recorder carries a `position` enum beside an optional
+    /// `manual_position` that overrides it, because baking a corner into coordinates means
+    /// "bottom right" stops being bottom right the moment the size changes. Ours resolves the
+    /// preset at draw time, so a bigger camera on the same preset is still in the corner.
+    @Test func aPresetSurvivesASizeChangeAndAHandPlacementClearsIt() {
+        let corner = CameraOverlayStyle.default.placed(at: .bottomRight)
+        #expect(corner.position == .bottomRight)
+        let bigger = corner.changing(widthFraction: 0.4)
+        #expect(bigger.position == .bottomRight, "resizing dropped the preset")
+        let box = bigger.rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 1)
+        let margin = 1920 * CameraOverlayStyle.edgeMarginFraction
+        #expect(abs(box.x + box.width - (1920 - margin)) < 0.001, "no longer in the corner")
+
+        // Moving by hand is not on a preset any more, and must not claim to be.
+        let dragged = corner.changing(x: 0.4)
+        #expect(dragged.position == nil)
+    }
+
+    /// **A hidden camera is off, not deleted.** a Rust recorder's `Camera.hide` is the same switch: "not in
+    /// this one" and "throw the footage away" are different decisions and only one is reversible.
+    @Test func hidingTheCameraIsAStyleAndNotALostRecording() {
+        let hidden = CameraOverlayStyle.default.changing(isHidden: true)
+        #expect(hidden.isHidden)
+        #expect(hidden.changing(isHidden: false).isHidden == false)
+        // Everything else survives, so turning it back on restores what was there.
+        #expect(hidden.widthFraction == CameraOverlayStyle.default.widthFraction)
+        #expect(hidden.position == CameraOverlayStyle.default.position)
+    }
+
+    /// **The camera shrinks as the stage zooms in**, because a zoom makes the picture bigger and
+    /// a camera holding its width covers a larger share of a smaller area. Interpolated rather
+    /// than snapped: a step at the first frame of a zoom reads as a glitch.
+    @Test func theCameraShrinksWithTheZoomRatherThanSnapping() {
+        let style = CameraOverlayStyle.default.changing(scaleDuringZoom: 0.7)
+        let rest = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                              sourceAspect: 1, contentZoom: 1).width
+        let gentle = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                                sourceAspect: 1, contentZoom: 1.5).width
+        let hard = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                              sourceAspect: 1, contentZoom: 4).width
+        #expect(gentle < rest, "a zoom did not shrink the camera at all")
+        #expect(hard < gentle, "a harder zoom did not shrink it further")
+        // Never below the fraction that was asked for, however hard the zoom.
+        #expect(hard >= rest * 0.7 - 0.001)
+    }
+
+    /// A style that holds its size through a zoom is what every project written before the field
+    /// existed asked for, and the decoder has to keep meaning that.
+    @Test func aScaleOfOneHoldsTheCameraThroughAZoom() {
+        let style = CameraOverlayStyle.default.changing(scaleDuringZoom: 1)
+        let rest = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                              sourceAspect: 1, contentZoom: 1).width
+        let zoomed = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                                sourceAspect: 1, contentZoom: 3).width
+        #expect(abs(rest - zoomed) < 0.001)
+    }
+
+    /// **An old project decodes to what it meant, not to the new defaults.** `position` absent
+    /// means the coordinates are the answer; `scaleDuringZoom` absent means the camera held its
+    /// size. `CameraOverlayStyle.default` says otherwise on both, and that is for NEW recordings.
+    @Test func aProjectWrittenBeforeTheseFieldsKeepsItsOwnMeaning() throws {
+        let old = Data(#"{"widthFraction":0.2,"x":0.3,"y":0.4,"shape":"square"}"#.utf8)
+        let style = try JSONDecoder().decode(CameraOverlayStyle.self, from: old)
+        #expect(style.position == nil, "a preset was invented for a project that had none")
+        #expect(style.scaleDuringZoom == 1, "an old camera would shrink on zoom for the first time")
+        #expect(style.isHidden == false)
+        let box = style.rect(inOutputWidth: 1000, outputHeight: 1000, sourceAspect: 1)
+        #expect(abs(box.x + box.width / 2 - 300) < 0.001, "the saved coordinates moved")
+    }
+
     @Test func everyFieldIsClampedRatherThanTrappedOn() {
         let wild = CaptionStyle(heightFraction: 99, bottomInsetFraction: -3,
                                 maximumWidthFraction: 0, backgroundOpacity: 4,
@@ -438,6 +508,76 @@ import Timeline
         #expect(abs(preset.y - dragged.y) < 0.001)
     }
 
+    /// **A preset stays a preset.** a Rust recorder carries a `position` enum beside an optional
+    /// `manual_position` that overrides it, because baking a corner into coordinates means
+    /// "bottom right" stops being bottom right the moment the size changes. Ours resolves the
+    /// preset at draw time, so a bigger camera on the same preset is still in the corner.
+    @Test func aPresetSurvivesASizeChangeAndAHandPlacementClearsIt() {
+        let corner = CameraOverlayStyle.default.placed(at: .bottomRight)
+        #expect(corner.position == .bottomRight)
+        let bigger = corner.changing(widthFraction: 0.4)
+        #expect(bigger.position == .bottomRight, "resizing dropped the preset")
+        let box = bigger.rect(inOutputWidth: 1920, outputHeight: 1080, sourceAspect: 1)
+        let margin = 1920 * CameraOverlayStyle.edgeMarginFraction
+        #expect(abs(box.x + box.width - (1920 - margin)) < 0.001, "no longer in the corner")
+
+        // Moving by hand is not on a preset any more, and must not claim to be.
+        let dragged = corner.changing(x: 0.4)
+        #expect(dragged.position == nil)
+    }
+
+    /// **A hidden camera is off, not deleted.** a Rust recorder's `Camera.hide` is the same switch: "not in
+    /// this one" and "throw the footage away" are different decisions and only one is reversible.
+    @Test func hidingTheCameraIsAStyleAndNotALostRecording() {
+        let hidden = CameraOverlayStyle.default.changing(isHidden: true)
+        #expect(hidden.isHidden)
+        #expect(hidden.changing(isHidden: false).isHidden == false)
+        // Everything else survives, so turning it back on restores what was there.
+        #expect(hidden.widthFraction == CameraOverlayStyle.default.widthFraction)
+        #expect(hidden.position == CameraOverlayStyle.default.position)
+    }
+
+    /// **The camera shrinks as the stage zooms in**, because a zoom makes the picture bigger and
+    /// a camera holding its width covers a larger share of a smaller area. Interpolated rather
+    /// than snapped: a step at the first frame of a zoom reads as a glitch.
+    @Test func theCameraShrinksWithTheZoomRatherThanSnapping() {
+        let style = CameraOverlayStyle.default.changing(scaleDuringZoom: 0.7)
+        let rest = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                              sourceAspect: 1, contentZoom: 1).width
+        let gentle = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                                sourceAspect: 1, contentZoom: 1.5).width
+        let hard = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                              sourceAspect: 1, contentZoom: 4).width
+        #expect(gentle < rest, "a zoom did not shrink the camera at all")
+        #expect(hard < gentle, "a harder zoom did not shrink it further")
+        // Never below the fraction that was asked for, however hard the zoom.
+        #expect(hard >= rest * 0.7 - 0.001)
+    }
+
+    /// A style that holds its size through a zoom is what every project written before the field
+    /// existed asked for, and the decoder has to keep meaning that.
+    @Test func aScaleOfOneHoldsTheCameraThroughAZoom() {
+        let style = CameraOverlayStyle.default.changing(scaleDuringZoom: 1)
+        let rest = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                              sourceAspect: 1, contentZoom: 1).width
+        let zoomed = style.rect(inOutputWidth: 1920, outputHeight: 1080,
+                                sourceAspect: 1, contentZoom: 3).width
+        #expect(abs(rest - zoomed) < 0.001)
+    }
+
+    /// **An old project decodes to what it meant, not to the new defaults.** `position` absent
+    /// means the coordinates are the answer; `scaleDuringZoom` absent means the camera held its
+    /// size. `CameraOverlayStyle.default` says otherwise on both, and that is for NEW recordings.
+    @Test func aProjectWrittenBeforeTheseFieldsKeepsItsOwnMeaning() throws {
+        let old = Data(#"{"widthFraction":0.2,"x":0.3,"y":0.4,"shape":"square"}"#.utf8)
+        let style = try JSONDecoder().decode(CameraOverlayStyle.self, from: old)
+        #expect(style.position == nil, "a preset was invented for a project that had none")
+        #expect(style.scaleDuringZoom == 1, "an old camera would shrink on zoom for the first time")
+        #expect(style.isHidden == false)
+        let box = style.rect(inOutputWidth: 1000, outputHeight: 1000, sourceAspect: 1)
+        #expect(abs(box.x + box.width / 2 - 300) < 0.001, "the saved coordinates moved")
+    }
+
     @Test func everyFieldIsClampedRatherThanTrappedOn() {
         let wild = CameraOverlayStyle(widthFraction: 9, x: -2, y: 4, shape: .square,
                                       cornerFraction: 9, isMirrored: false,
@@ -452,10 +592,32 @@ import Timeline
 
     /// A project written before the camera existed opens with the defaults, and the default is
     /// mirrored — an unmirrored self-view is the one that looks wrong to the person recording.
-    @Test func anEmptyStyleDecodesToTheMirroredDefault() throws {
+    ///
+    /// **This used to assert `style == .default`, and that claim has moved.** Two fields now
+    /// mean different things to an old project than to a new recording, deliberately: `position`
+    /// is `nil` because a project that has coordinates and no preset must keep its coordinates,
+    /// and `scaleDuringZoom` is `1` because a camera saved before the field existed held its
+    /// size through a zoom and opening the project must not shrink it. Everything else still
+    /// comes back as the default, which is what this test was written to protect.
+    @Test func anEmptyStyleDecodesToTheDefaultsExceptWhereThatWouldMoveSomebodysCamera() throws {
         let style = try JSONDecoder().decode(CameraOverlayStyle.self, from: Data("{}".utf8))
-        #expect(style == .default)
         #expect(style.isMirrored)
+        #expect(style.position == nil)
+        #expect(style.scaleDuringZoom == 1)
+        // Field by field rather than against a constructed twin: `changing` deliberately cannot
+        // clear a preset without also moving the camera, so there is no expression for "the
+        // default, minus its preset" — which is itself the guarantee this file wants.
+        let fallback = CameraOverlayStyle.default
+        #expect(style.widthFraction == fallback.widthFraction)
+        #expect(style.x == fallback.x)
+        #expect(style.y == fallback.y)
+        #expect(style.shape == fallback.shape)
+        #expect(style.cornerFraction == fallback.cornerFraction)
+        #expect(style.borderOpacity == fallback.borderOpacity)
+        #expect(style.shadowOpacity == fallback.shadowOpacity)
+        #expect(style.isHidden == fallback.isHidden)
+        #expect(fallback.position == .bottomRight)
+        #expect(fallback.scaleDuringZoom == 0.7)
     }
 
     @Test func aStyleRoundTripsAndChangingOneFieldLeavesTheRest() throws {

@@ -18,6 +18,29 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     public let x: Double
     /// 0…1 up from the bottom of the frame, to the camera's own centre.
     public let y: Double
+    /// The preset this camera sits on, or `nil` when it was placed by hand.
+    ///
+    /// **a Rust recorder's arrangement, and it is the right one.** Its `Camera` carries a `position` enum
+    /// AND an `Option<XY<f64>> manual_position` that overrides it when set. Baking a preset into
+    /// coordinates — which is what this did — means "bottom right" stops being bottom right the
+    /// moment the size changes, and the control that set it stops looking chosen. A preset that
+    /// stays a preset is re-evaluated against whatever the camera's size is now.
+    public let position: Position?
+    /// Whether the camera is drawn at all.
+    ///
+    /// **Off, not deleted.** a Rust recorder's `Camera.hide` exists because "I do not want my face in this
+    /// one" and "throw away the footage of my face" are different decisions, and only one of them
+    /// is reversible. Turning the track off leaves the file in the package and the switch where
+    /// somebody can change their mind.
+    public let isHidden: Bool
+    /// How much of its size the camera keeps while the stage is zoomed in, 0…1.
+    ///
+    /// **A zoom makes the picture bigger and the camera should not stay put.** The stage zooms
+    /// into a click; a camera that holds its full width is covering a larger share of a smaller
+    /// area, which is exactly when it is most in the way. a Rust recorder models this as `scale_during_zoom`
+    /// and defaults it to 0.7, which is carried over rather than re-guessed. `1` holds the size,
+    /// which is what this did before the field existed.
+    public let scaleDuringZoom: Double
     public let shape: Shape
     /// The corner radius for `.rounded`, as a fraction of the camera's own width.
     public let cornerFraction: Double
@@ -41,13 +64,25 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
         }
     }
 
+    /// **`position` is `.bottomRight` here and `nil` in the decoder, and the difference is the
+    /// point.** A new recording starts on the preset, so moving the camera's size keeps it in the
+    /// corner. A project saved before this field existed has coordinates and no preset, and
+    /// honouring those coordinates is the only reading that does not move somebody's camera.
     public static let `default` = CameraOverlayStyle(
-        widthFraction: 0.16, x: 0.87, y: 0.16, shape: .circle,
+        widthFraction: 0.16, x: 0.87, y: 0.16, position: .bottomRight, isHidden: false,
+        scaleDuringZoom: 0.7, shape: .circle,
         cornerFraction: 0.18, isMirrored: true, borderOpacity: 0.35, shadowOpacity: 0.45)
 
-    public init(widthFraction: Double, x: Double, y: Double, shape: Shape,
+    public init(widthFraction: Double, x: Double, y: Double,
+                position: Position? = nil, isHidden: Bool = false,
+                scaleDuringZoom: Double = 1, shape: Shape,
                 cornerFraction: Double, isMirrored: Bool,
                 borderOpacity: Double, shadowOpacity: Double) {
+        self.position = position
+        self.isHidden = isHidden
+        // Clamped like every other field — rule 8's case, and a zoom scale of zero would be a
+        // camera that vanishes on the first click.
+        self.scaleDuringZoom = min(max(scaleDuringZoom, 0.1), 1)
         // Clamped rather than trapped: sliders and decoders both reach here — rule 8's case.
         self.widthFraction = min(max(widthFraction, 0.05), 0.6)
         self.x = min(max(x, 0), 1)
@@ -66,6 +101,15 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                                                          forKey: .widthFraction) ?? 0.16,
             x: try container.decodeIfPresent(Double.self, forKey: .x) ?? 0.87,
             y: try container.decodeIfPresent(Double.self, forKey: .y) ?? 0.16,
+            // **`nil`, not `.default`'s `.bottomRight`.** A project written before this field
+            // existed carries coordinates and no preset, and the only reading that does not move
+            // somebody's camera is to honour the coordinates.
+            position: try container.decodeIfPresent(Position.self, forKey: .position),
+            isHidden: try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false,
+            // `1` for the same reason: a project written before this held its size through a
+            // zoom, and opening it must not shrink the camera somebody had placed.
+            scaleDuringZoom: try container.decodeIfPresent(Double.self,
+                                                           forKey: .scaleDuringZoom) ?? 1,
             shape: try container.decodeIfPresent(Shape.self, forKey: .shape) ?? .circle,
             cornerFraction: try container.decodeIfPresent(Double.self,
                                                           forKey: .cornerFraction) ?? 0.18,
@@ -77,17 +121,26 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case widthFraction, x, y, shape, cornerFraction, isMirrored, borderOpacity, shadowOpacity
+        case widthFraction, x, y, position, isHidden, scaleDuringZoom, shape, cornerFraction
+        case isMirrored, borderOpacity, shadowOpacity
     }
 
     /// The same style with one field changed — the shape every style in this tier uses, for the
     /// reason `TextOverlayStyle.changing` gives.
+    /// **Moving by hand clears the preset**, because it is no longer on one. `position` is not
+    /// reachable through this for that reason — `placed(at:)` sets it and a coordinate clears it,
+    /// so the two cannot both claim to be where the camera is.
     public func changing(widthFraction: Double? = nil, x: Double? = nil, y: Double? = nil,
+                         isHidden: Bool? = nil, scaleDuringZoom: Double? = nil,
                          shape: Shape? = nil, cornerFraction: Double? = nil,
                          isMirrored: Bool? = nil, borderOpacity: Double? = nil,
                          shadowOpacity: Double? = nil) -> CameraOverlayStyle {
         CameraOverlayStyle(widthFraction: widthFraction ?? self.widthFraction,
-                           x: x ?? self.x, y: y ?? self.y, shape: shape ?? self.shape,
+                           x: x ?? self.x, y: y ?? self.y,
+                           position: (x == nil && y == nil) ? self.position : nil,
+                           isHidden: isHidden ?? self.isHidden,
+                           scaleDuringZoom: scaleDuringZoom ?? self.scaleDuringZoom,
+                           shape: shape ?? self.shape,
                            cornerFraction: cornerFraction ?? self.cornerFraction,
                            isMirrored: isMirrored ?? self.isMirrored,
                            borderOpacity: borderOpacity ?? self.borderOpacity,
@@ -140,8 +193,17 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
 
     /// The same style, moved to one of the nine. `rect` does the insetting, so an edge preset
     /// lands exactly where a drag into that corner does.
+    ///
+    /// The coordinates are written too, so anything reading `x`/`y` without knowing about
+    /// presets — the self-view's panel placement, a saved project opened by an older build —
+    /// still puts the camera in the right corner.
     public func placed(at position: Position) -> CameraOverlayStyle {
-        changing(x: position.fractions.x, y: position.fractions.y)
+        CameraOverlayStyle(widthFraction: widthFraction,
+                           x: position.fractions.x, y: position.fractions.y,
+                           position: position, isHidden: isHidden,
+                           scaleDuringZoom: scaleDuringZoom, shape: shape,
+                           cornerFraction: cornerFraction, isMirrored: isMirrored,
+                           borderOpacity: borderOpacity, shadowOpacity: shadowOpacity)
     }
 
     /// How far the camera is kept from the frame's edge, as a fraction of the output's WIDTH.
@@ -170,9 +232,22 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     ///
     /// A camera too big for the frame is centred rather than clamped to a corner: with no room
     /// to satisfy both margins, the symmetric answer is the only one that is not arbitrary.
+    ///
+    /// `contentZoom` is the stage's zoom for this frame; the camera keeps `scaleDuringZoom` of
+    /// its width while the stage is zoomed in, interpolated so it shrinks as the zoom rises
+    /// rather than snapping the moment a zoom starts.
     public func rect(inOutputWidth outputWidth: Int, outputHeight: Int,
-                     sourceAspect: Double)
+                     sourceAspect: Double, contentZoom: Double = 1)
     -> (x: Double, y: Double, width: Double, height: Double) {
+        // a Rust recorder's own default is 0.7 AT the zoom; between 1× and the zoom in force the camera
+        // walks down to it, so a gentle zoom moves the camera a little and a hard one moves it
+        // a lot. A snap at the first frame of a zoom would read as a glitch.
+        let zoomed = max(contentZoom, 1)
+        let shrink = zoomed <= 1 ? 1 : scaleDuringZoom + (1 - scaleDuringZoom) / zoomed
+        let placement = position?.fractions ?? (x: x, y: y)
+        let x = placement.x
+        let y = placement.y
+        let widthFraction = self.widthFraction * shrink
         let width = Double(outputWidth) * widthFraction
         let height = shape == .circle
             ? width

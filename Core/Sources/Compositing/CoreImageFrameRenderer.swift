@@ -292,7 +292,11 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         guard extent.width > 0, extent.height > 0 else { return CIImage.empty() }
         let style = overlay.style
         let box = style.rect(inOutputWidth: plan.outputWidth, outputHeight: plan.outputHeight,
-                             sourceAspect: Double(extent.width) / Double(extent.height))
+                             sourceAspect: Double(extent.width) / Double(extent.height),
+                             // The stage's zoom for this frame: a camera that held its full width
+                             // while the picture zoomed in would be covering a larger share of a
+                             // smaller area, which is exactly when it is most in the way.
+                             contentZoom: plan.contentZoom)
 
         var placed = image
         if style.isMirrored {
