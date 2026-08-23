@@ -215,6 +215,38 @@ final class TimelineEditorModel {
         return result.time
     }
 
+    // MARK: - silence
+
+    /// The silent stretches the recording has, or empty until they are looked for.
+    private(set) var silences: [SilenceFinder.Span] = []
+    var silenceSettings = SilenceFinder.Settings.default
+
+    /// **Found from the mixed envelope, not from one track.** A pause is a pause when NOTHING is
+    /// making a sound; a stretch where the system is playing music and nobody is talking is not
+    /// dead air, and cutting it would take the music with it.
+    func findSilences() {
+        guard let waveform, !waveform.isEmpty else {
+            silences = []
+            return
+        }
+        silences = SilenceFinder.spans(peaks: waveform.peaks,
+                                       sliceSeconds: waveform.sliceDuration,
+                                       settings: silenceSettings)
+    }
+
+    /// Cuts every span found. One undo step, because it is one decision.
+    func removeSilences() {
+        guard !silences.isEmpty else { return }
+        apply("Remove \(silences.count) Silent Span(s)",
+              SilenceFinder.removing(silences, from: edit))
+        selection = nil
+        selectedClip = nil
+        // The spans were positions in the SOURCE and the source has not changed, so they stay
+        // valid — but they have already been cut, and offering to cut them again would remove
+        // whatever moved into their place.
+        silences = []
+    }
+
     /// Ends a drag, so the next one starts unsnapped rather than inheriting a stale hold.
     func endDrag() {
         snapState = SnapEngine.State()
@@ -439,6 +471,14 @@ struct TimelineEditor: View {
                     }
                 }
                 lane("Zooms", "plus.magnifyingglass", height: 18) { zoomLane(duration: duration) }
+                // Only while there is something to show. A permanently empty lane is a lane a
+                // person learns to ignore, and this one is empty until they ask.
+                if !model.silences.isEmpty {
+                    lane("Silence", "waveform.slash", height: 12) {
+                        blocks(model.silences.map { ($0.start, $0.end) },
+                               tint: Theme.Ink.secondary)
+                    }
+                }
                 if !texts.isEmpty {
                     lane("Text", "textformat", height: 14) {
                         blocks(texts.items.map { ($0.start, $0.end) }, tint: Theme.Lane.text)

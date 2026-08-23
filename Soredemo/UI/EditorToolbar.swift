@@ -1,4 +1,5 @@
 import AppKit
+import Overlays
 import SwiftUI
 import Timeline
 
@@ -32,6 +33,7 @@ struct EditorToolbar: View {
             separator
             cutting
             separator
+            silence
             reverting
             Spacer(minLength: Space.regular)
             zoom
@@ -86,6 +88,35 @@ struct EditorToolbar: View {
             model.keepOnlySelection()
             onChange()
         }
+    }
+
+    /// Finding and cutting the pauses.
+    ///
+    /// **Two presses, not one.** Finding shows the spans on their own lane; cutting removes
+    /// them. A single button that did both would make an irreversible-looking edit out of a
+    /// threshold nobody had seen the effect of — and the whole difficulty of dead-air removal is
+    /// that the right threshold is different for every room.
+    @ViewBuilder private var silence: some View {
+        if model.silences.isEmpty {
+            ToolbarAction(icon: "waveform.badge.magnifyingglass",
+                          help: "Find the silent stretches",
+                          isEnabled: model.waveform != nil) {
+                model.findSilences()
+            }
+        } else {
+            ToolbarAction(icon: "waveform.slash",
+                          help: "Remove \(model.silences.count) silent stretch(es), "
+                          + "\(EditorToolbar.seconds(SilenceFinder.total(model.silences))) in all",
+                          isEnabled: true) {
+                model.removeSilences()
+                onChange()
+            }
+        }
+    }
+
+    /// Seconds, to one decimal — what a person compares against the length beside it.
+    static func seconds(_ value: Nanoseconds) -> String {
+        String(format: "%.1fs", Double(value.rawValue) / 1_000_000_000)
     }
 
     @ViewBuilder private var reverting: some View {
