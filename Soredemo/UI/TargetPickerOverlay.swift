@@ -32,8 +32,16 @@ final class TargetPickerOverlay {
         state.chosen = nil
 
         return await withCheckedContinuation { continuation in
+            // **Cleared before it is called, so it can only be called once.** A
+            // `CheckedContinuation` resumed twice is a hard crash, and there are two ways in:
+            // press \u{238B} while a chosen window is still being resolved and both the escape
+            // monitor and the resolve task finish this pick, or let \u{238B} arrive at the global
+            // and the local monitor. Neither is exotic — the resolve is a system round trip a
+            // person waits through — and the app disappearing mid-pick is what it looked like.
             state.onFinish = { [weak self] source in
-                self?.dismiss()
+                guard let self, self.state.onFinish != nil else { return }
+                self.state.onFinish = nil
+                self.dismiss()
                 continuation.resume(returning: source)
             }
             present()

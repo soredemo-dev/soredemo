@@ -373,7 +373,11 @@ public enum CaptureSource: Sendable {
 /// without the `InferIsolatedConformances` upcoming feature rejects an
 /// implicitly `@MainActor` conformance; the picker is also not documented to
 /// call back on the main thread.
-public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver {
+/// `@unchecked Sendable` because the three observer callbacks are `nonisolated` and each has to
+/// hop to the main actor to hand the shared picker back — which sends `self`. Safe: both stored
+/// properties are `let`, and both are already `@Sendable` closures, so there is no mutable state
+/// for two threads to disagree about.
+public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver, @unchecked Sendable {
     private let onSelect: @Sendable (CaptureSource?) -> Void
 
     /// Optional hook for the raw `SCContentFilter` the picker returned, called
@@ -433,6 +437,29 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
         picker.present()
     }
 
+    /// Hands the shared picker back.
+    ///
+    /// **`isActive = true` puts a screen-sharing indicator in the menu bar, and it is the
+    /// system's, not ours.** That is what the flag is documented to do: it tells macOS this app
+    /// may start sharing at any moment, so macOS says so. Nothing here ever set it back, so one
+    /// cancelled picker left a green recording pill sitting in the menu bar for the rest of the
+    /// session, next to an app that was recording nothing — the strongest possible claim a Mac
+    /// can make about an app, made falsely, and made permanently.
+    ///
+    /// **`remove` matters as much.** `SCContentSharingPicker` is a singleton and it RETAINS its
+    /// observers. Without this every attempt added another one and none was ever released, so
+    /// the second cancel called `onSelect(nil)` twice, the third three times, each on a
+    /// `CaptureSourcePicker` whose owner had already dropped it.
+    ///
+    /// Called from all three terminal callbacks — chosen, cancelled, failed to start — because
+    /// each of them is the end of this picker's life and only one of them is the happy one.
+    @MainActor
+    public func dismiss() {
+        let picker = SCContentSharingPicker.shared
+        picker.remove(self)
+        picker.isActive = false
+    }
+
     /// `init(pickerFilter:availableDisplays:)` is main-actor isolated, so this
     /// hops there rather than calling it inline; the callback itself stays
     /// `nonisolated`.
@@ -452,6 +479,7 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
         // documented ordering: the filter, then the value derived from it.
         Task { @MainActor in
             debugFilterObserver?(filter)
+            self.dismiss()
             let availableDisplays = (try? await SCShareableContent.currentProcess)?.displays ?? []
             onSelect(CaptureSource(pickerFilter: filter, availableDisplays: availableDisplays))
         }
@@ -459,10 +487,18 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
 
     public nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker,
                                                   didCancelFor stream: SCStream?) {
-        onSelect(nil)
+        let onSelect = self.onSelect
+        Task { @MainActor in
+            self.dismiss()
+            onSelect(nil)
+        }
     }
 
     public nonisolated func contentSharingPickerStartDidFailWithError(_ error: Error) {
-        onSelect(nil)
+        let onSelect = self.onSelect
+        Task { @MainActor in
+            self.dismiss()
+            onSelect(nil)
+        }
     }
 }
