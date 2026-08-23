@@ -819,8 +819,10 @@ func firstPartySourceFiles() throws -> [URL] {
          + "decision (2026-08-19) making CoreImageFrameRenderer.shadowImage read it; 1 → 2 is "
          + "the style picker (2026-08-21) carrying it through StageStyleModel.apply, which "
          + "rebuilds the whole struct so its validating initialiser runs once per change"),
-        ("blockingFailures()", "Sources/Capture/CapturePermissions.swift", 0,
-         "callers can ask what blocks recording"),
+        ("blockingFailures()", "Sources/Capture/CapturePermissions.swift", 1,
+         "callers can ask what blocks recording. 0 → 1 is the permission page (2026-08-23): "
+         + "the menu bar item opens it on launch when something a recording needs is missing, "
+         + "which is exactly the question this function answers"),
         ("noMicrophoneTrack", "Sources/Capture/CapturePermissions.swift", 0,
          "a denied microphone degrades mildly — measured false, so nothing produces it"),
         ("TimeRange", "Sources/Timeline/TimeRange.swift", 0,

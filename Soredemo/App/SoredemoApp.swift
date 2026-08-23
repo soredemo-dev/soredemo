@@ -25,7 +25,8 @@ struct SoredemoApp: App {
     /// `View`, so the "Open Recording…" command cannot live in `ContentView`.
     @State private var recordingCoordinator = RecordingCoordinator()
     /// The editor window's identity, so `openWindow(id:)` can reach it from the menu bar item.
-    static let editorWindowID = "editor" 
+    static let editorWindowID = "editor"
+    static let permissionsWindowID = "permissions" 
     /// The one thing an app delegate is needed for: asking before the app quits over an edit
     /// nobody saved. See `UnsavedWorkGuard`.
     @NSApplicationDelegateAdaptor(SoredemoAppDelegate.self) private var appDelegate
@@ -63,6 +64,15 @@ struct SoredemoApp: App {
         }
         // `.window`, not the default menu: the contents are controls, not commands.
         .menuBarExtraStyle(.window)
+
+        // **Permissions, opened on first run and from the menu bar afterwards.** Suppressed at
+        // launch like the editor: a person who has already granted everything should not be
+        // greeted by a window telling them so.
+        Window("Permissions", id: Self.permissionsWindowID) {
+            PermissionsWindow()
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .windowResizability(.contentSize)
 
         // **The editor, and it does not exist until there is something to edit.**
         // `.defaultLaunchBehavior(.suppressed)` is what stops SwiftUI opening it at launch: a

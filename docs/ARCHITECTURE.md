@@ -801,7 +801,7 @@ instances in this tree on 2026-08-04:
 | Symbol | The claim | Uses outside its own file |
 | --- | --- | --- |
 | `StageStyle.shadowRadius` / `.shadowOpacity` | the stage draws a shadow, and a person can change it | **2** — `CoreImageFrameRenderer.shadowImage` reads both since the recorder-parity decision (2026-08-19), pinned by `theShadowDarkensTheBackgroundJustOutsideTheCard`; `StageStyleModel.apply` carries them since the style picker (2026-08-21), which rebuilds the whole `StageStyle` so its validating initialiser runs once per change rather than four near-copies each remembering to. This row spent a phase at **0**, documenting a persisted value that reached no pixel — the table doing its job |
-| `CapturePermissions.blockingFailures()` | callers can ask what blocks recording | **0** |
+| `CapturePermissions.blockingFailures()` | callers can ask what blocks recording | **1** — 0 → 1 is the permission page (2026-08-23): the menu bar item opens it on launch when something a recording needs is missing, which is exactly the question this function answers |
 | `Sources/Timeline/TimeRange.swift` | an epoch-less interval type is useful | **0** — its stated first caller moved to `HostRange` |
 | `Degradation.noMicrophoneTrack` | a denied microphone degrades mildly | **0** — measured false; a denied microphone fails the whole `SCStream` |
 | `Minting.now()` | callers can take a wall-clock reading | **0** — the recording path needs no wall clock, and inventing a caller is what this row refuses to do |

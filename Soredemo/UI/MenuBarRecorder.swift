@@ -53,6 +53,16 @@ struct MenuBarRecorderLabel: View {
             openWindow(id: SoredemoApp.editorWindowID)
             NSApp.activate(ignoringOtherApps: true)
         }
+        // **First run opens the permission page.** Not every run: a person who has granted
+        // everything is greeted by nothing, which is the correct amount of greeting. The check
+        // is on what is MISSING rather than on a "have we shown this" flag, so someone who
+        // revokes a permission later gets the page again instead of a silent failure.
+        .task {
+            guard !CapturePermissions.blockingFailures().isEmpty else { return }
+            EditorWindowPresence.willOpen()
+            openWindow(id: SoredemoApp.permissionsWindowID)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
 
@@ -301,6 +311,11 @@ struct MenuBarRecorderPanel: View {
         HStack(spacing: Space.regular) {
             PanelLink(title: "Open Project\u{2026}", shortcut: "\u{2318}O") {
                 coordinator.openProject()
+            }
+            PanelLink(title: "Permissions\u{2026}", shortcut: "") {
+                EditorWindowPresence.willOpen()
+                openWindow(id: SoredemoApp.permissionsWindowID)
+                NSApp.activate(ignoringOtherApps: true)
             }
             Spacer()
             PanelLink(title: "Quit", shortcut: "\u{2318}Q") { NSApp.terminate(nil) }

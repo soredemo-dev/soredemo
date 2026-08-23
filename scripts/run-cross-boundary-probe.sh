@@ -93,6 +93,7 @@ xcrun swiftc \
   Soredemo/App/UnsavedWorkGuard.swift \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
+  Soredemo/App/PermissionRequests.swift \
   Soredemo/UI/DesignTokens.swift \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/UI/PreviewView.swift \
@@ -104,6 +105,7 @@ xcrun swiftc \
   Soredemo/UI/Theme.swift \
   Soredemo/UI/WindowConfigurator.swift \
   Soredemo/UI/TargetPickerOverlay.swift \
+  Soredemo/UI/PermissionsWindow.swift \
   Soredemo/UI/Filmstrip.swift \
   Soredemo/UI/PreviewOverlay.swift \
   Soredemo/UI/TransportBar.swift \

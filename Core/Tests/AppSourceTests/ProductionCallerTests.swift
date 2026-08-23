@@ -89,10 +89,16 @@ func projectPbxprojText() throws -> String {
         \(wrapperCalls.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
         """)
     guard let wrapperCall = wrapperCalls.first else { return }
-    #expect(wrapperCall.location.hasPrefix("Soredemo/UI/ContentView.swift:"), """
-        the request is called at \(wrapperCall.location), not from ContentView's \
-        RecordingCoordinator.beginOpenRecording(), where the brief asks for it — "before the \
-        picker opens".
+    // **The location moved, and the rule did not.** The brief said "before the picker opens",
+    // which was the whole of it while `RecordingCoordinator.beginOpenRecording()` was the only
+    // way to start. Three surfaces now want the grant before they show anything — the system
+    // picker, this app's own window overlay, and the permission page's Allow button — and all
+    // three want it at the same moment. One wrapper is what keeps that one policy; pinning the
+    // call to `ContentView` would have forced the other two to call the API directly, which is
+    // the thing this test exists to prevent.
+    #expect(wrapperCall.location.hasPrefix("Soredemo/App/PermissionRequests.swift:"), """
+        the request is called at \(wrapperCall.location), not from \
+        PermissionRequests.screenRecording() — the one place this app's policy for asking lives.
         """)
 }
 

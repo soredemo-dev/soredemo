@@ -261,7 +261,7 @@ final class RecordingCoordinator {
     /// covering the answer.
     func beginWindowRecordingByPointing() {
         guard !isRecording else { return }
-        askForScreenRecordingOnce()
+        PermissionRequests.screenRecording()
         mediaURL = nil
         pendingMode = .windowsOnly
         Task { @MainActor in
@@ -271,20 +271,8 @@ final class RecordingCoordinator {
         }
     }
 
-    /// **The one place this app asks for Screen Recording.**
-    ///
-    /// `theScreenRecordingRequestIsCalledExactlyOnceAndWiredBeforeThePicker` requires exactly one
-    /// call site outside the wrapper's own declaration, and its reasoning is right: a second site
-    /// is a second policy about when to ask. Two ways to start a recording arrived — the system
-    /// picker and this app's own overlay — and both need the grant before they show anything,
-    /// because neither `SCContentSharingPicker` nor `SCShareableContent` prompts on its own and a
-    /// first-run person would be told "the user declined" by an API that never asked them.
-    private func askForScreenRecordingOnce() {
-        CapturePermissions.requestScreenRecordingAccess()
-    }
-
     private func beginOpenRecording(modes: CaptureSourcePicker.Modes = .displaysAndWindows) {
-        askForScreenRecordingOnce()
+        PermissionRequests.screenRecording()
 
         mediaURL = nil
         statusText = "Choose what to record from the picker\u{2026}"
