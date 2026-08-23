@@ -38,33 +38,31 @@ struct SoredemoApp: App {
         let coordinator = recordingCoordinator
         SoredemoAppDelegate.toggleRecording = { coordinator.toggleRecording() }
     }
-    /// `--dump-permissions` prints the permission dump and exits here, before
-    /// `body` is evaluated and therefore before any window appears. Launch it
-    /// with `open -a Soredemo.app --args --dump-permissions`, not the raw
-    /// executable: TCC attributes a direct `fork`/`exec` to the responsible
-    /// parent process, so the grants reported would not be this bundle's.
+
+    /// **Run in `init`, before the delegate's `applicationDidFinishLaunching`.** The status item
+    /// is installed there and needs the coordinator; a `.task` on a scene would not have run yet,
+    /// and with every window suppressed there may be no scene body evaluated at all.
     init() {
         if CommandLine.arguments.dropFirst().contains("--dump-permissions") {
             print(CapturePermissions.dumpText(
                 build: BuildProvenance.builtAt, commit: BuildProvenance.commit))
             exit(0)
         }
-    }
-
-    var body: some Scene {
-        // **The menu bar item is the primary surface.** A recorder is used from inside whatever
-        // is being demonstrated, and the moment a person opens this app's window to press
-        // Record, the thing they wanted to record is behind it. See `MenuBarRecorderPanel`.
-        MenuBarExtra {
-            MenuBarRecorderPanel(coordinator: recordingCoordinator)
-                .task { connectGlobalHotkey() }
-        } label: {
-            MenuBarRecorderLabel(coordinator: recordingCoordinator)
-                .task { connectGlobalHotkey() }
+        let coordinator = RecordingCoordinator()
+        _recordingCoordinator = State(initialValue: coordinator)
+        MainActor.assumeIsolated {
+            SoredemoAppDelegate.installStatusItem = {
+                StatusItemController.shared.install(coordinator: coordinator)
+            }
+            SoredemoAppDelegate.toggleRecording = { coordinator.toggleRecording() }
         }
-        // `.window`, not the default menu: the contents are controls, not commands.
-        .menuBarExtraStyle(.window)
-
+    }
+    /// `--dump-permissions` prints the permission dump and exits here, before
+    /// `body` is evaluated and therefore before any window appears. Launch it
+    /// with `open -a Soredemo.app --args --dump-permissions`, not the raw
+    /// executable: TCC attributes a direct `fork`/`exec` to the responsible
+    /// parent process, so the grants reported would not be this bundle's.
+    var body: some Scene {
         // **Preferences**, in the place macOS puts them. `Settings` rather than a `Window`, so
         // it gets ⌘, and the standard title without either being written out here.
         Settings {
