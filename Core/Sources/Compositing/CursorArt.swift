@@ -76,9 +76,9 @@ nonisolated enum CursorArt {
 
     /// A circle at the origin whose radius interpolates start to end as `phase` runs `0...1`,
     /// clamped to that range. The caller fades the stroke alpha; a `CGPath` carries none.
-    public static func ripplePath(phase: Double) -> CGPath {
+    public static func ripplePath(phase: Double, size: Double = 1) -> CGPath {
         let clamped = min(max(phase, 0), 1)
-        let radius = rippleStartRadius + (rippleEndRadius - rippleStartRadius) * clamped
+        let radius = (rippleStartRadius + (rippleEndRadius - rippleStartRadius) * clamped) * size
         let k = radius * circleKappa
 
         let path = CGMutablePath()

@@ -77,6 +77,9 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// Parts of the recording to hide. Set on the same terms as the seams above.
     public nonisolated(unsafe) static var redactions = RedactionTrack()
 
+    /// How the drawn cursor looks. Set on the same terms as the seams above.
+    public nonisolated(unsafe) static var cursorStyle: CursorStyle = .default
+
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
     nonisolated(unsafe) private static var _diagnostics = Diagnostics()
@@ -150,7 +153,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               contentCentre: aimed.contentCentre,
                               caption: captionOverlay(at: request.compositionTime),
                               texts: textOverlays(at: request.compositionTime),
-                              redactions: redactedRegions(at: request.compositionTime))
+                              redactions: redactedRegions(at: request.compositionTime),
+                              cursorStyle: unsafe Self.cursorStyle)
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             try source.withUnsafeBuffer { sourceBuffer in

@@ -260,6 +260,10 @@ public struct RenderPlan: Hashable, Sendable {
     /// Parts of the SOURCE to hide, in the source's own normalised coordinates. Applied before
     /// the camera moves the picture — see `RedactionArt`.
     public let redactions: [RedactionRegion]
+    /// How the drawn cursor looks. Carried on the plan rather than read from a static by the
+    /// renderer, so a frame's appearance is a function of its plan — which is what makes a
+    /// render reproducible from one.
+    public let cursorStyle: CursorStyle
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
@@ -267,7 +271,8 @@ public struct RenderPlan: Hashable, Sendable {
                 contentCentre: NormalizedPoint = NormalizedPoint(x: 0.5, y: 0.5),
                 caption: CaptionOverlay? = nil,
                 texts: [TextOverlay] = [],
-                redactions: [RedactionRegion] = []) {
+                redactions: [RedactionRegion] = [],
+                cursorStyle: CursorStyle = .default) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -279,6 +284,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.caption = caption
         self.texts = texts
         self.redactions = redactions
+        self.cursorStyle = cursorStyle
     }
 }
 

@@ -35,7 +35,8 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         composed = card.composited(over: composed)
         // Whether to draw a pointer is `StageCompositor`'s decision, not this file's.
         if let pointer = plan.pointer {
-            composed = cursorImage(for: pointer, outputHeight: plan.outputHeight).composited(over: composed)
+            composed = cursorImage(for: pointer, outputHeight: plan.outputHeight,
+                                   style: plan.cursorStyle).composited(over: composed)
         }
         // **Above the cursor, and last.** A caption sits over the picture by definition; drawing
         // it under the pointer would let the pointer cross the text it is meant to be read with.
@@ -252,9 +253,13 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// The pointer art for one placement, translated to its output-pixel position. Returns an empty
     /// image if the bitmap could not be created, so a hiccup loses the pointer, not the frame.
     /// `cursorCanvasLock` is never held across the caller's GPU render.
-    private func cursorImage(for placement: NormalizedPointerPlacement, outputHeight: Int) -> CIImage {
-        let scale = Self.pointerScale(forOutputHeight: outputHeight)
-        let halfExtent = max(CursorArt.rippleEndRadius, scale * CursorArt.pointerMaxExtent)
+    private func cursorImage(for placement: NormalizedPointerPlacement, outputHeight: Int,
+                             style: CursorStyle) -> CIImage {
+        // The chosen scale multiplies the density scale rather than replacing it: the second is
+        // about the export's pixels and the first is about how big a person wants the cursor.
+        let scale = Self.pointerScale(forOutputHeight: outputHeight) * style.scale
+        let halfExtent = max(CursorArt.rippleEndRadius * style.clickSize,
+                             scale * CursorArt.pointerMaxExtent)
             + Self.cursorCanvasPadding
         let size = Int((halfExtent * 2).rounded(.up))
         // The tip, the origin both paths are built around, sits at the canvas centre.
@@ -287,12 +292,26 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             bitmap.addPath(art)
             bitmap.drawPath(using: .fillStroke)
 
-            // `ripplePhase == nil` means "not clicking", so no ring is drawn.
-            if let phase = placement.ripplePhase {
-                bitmap.addPath(CursorArt.ripplePath(phase: phase))
-                bitmap.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1 - min(max(phase, 0), 1)))
-                bitmap.setLineWidth(2)
-                bitmap.strokePath()
+            // `ripplePhase == nil` means "not clicking", so nothing is drawn.
+            if let phase = placement.ripplePhase, style.clickEffect != .none {
+                let fade = (1 - min(max(phase, 0), 1)) * style.clickOpacity
+                bitmap.addPath(CursorArt.ripplePath(phase: phase, size: style.clickSize))
+                switch style.clickEffect {
+                case .ripple:
+                    bitmap.setStrokeColor(CGColor(red: style.red, green: style.green,
+                                                  blue: style.blue, alpha: fade))
+                    bitmap.setLineWidth(2 * style.clickSize)
+                    bitmap.strokePath()
+                case .pulse:
+                    // **A filled disc, at a lower alpha than the ring.** A fill at the ring's
+                    // opacity covers what was clicked, which is the thing a viewer is looking
+                    // at; halved, it reads as a highlight rather than a lid.
+                    bitmap.setFillColor(CGColor(red: style.red, green: style.green,
+                                                blue: style.blue, alpha: fade * 0.5))
+                    bitmap.fillPath()
+                case .none:
+                    break
+                }
             }
             bitmap.restoreGState()
             return bitmap.makeImage()

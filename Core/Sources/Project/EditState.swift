@@ -52,6 +52,8 @@ public struct EditState: Codable, Sendable, Equatable {
     public var textTrackData: Data?
     /// Parts of the recording to hide, as encoded bytes. Authored.
     public var redactionTrackData: Data?
+    /// How the drawn cursor looks, as encoded bytes. Authored.
+    public var cursorStyleData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -63,7 +65,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 captionStyleData: Data? = nil,
                 burnsInCaptions: Bool? = nil,
                 textTrackData: Data? = nil,
-                redactionTrackData: Data? = nil) {
+                redactionTrackData: Data? = nil,
+                cursorStyleData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -75,6 +78,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.burnsInCaptions = burnsInCaptions
         self.textTrackData = textTrackData
         self.redactionTrackData = redactionTrackData
+        self.cursorStyleData = cursorStyleData
     }
 
     /// A recording nobody has edited.
@@ -89,7 +93,7 @@ public struct EditState: Codable, Sendable, Equatable {
             || captionTrackData != nil || captionStyleData != nil
             // `false` is not a change: it is the default, and a project that only ever had
             // captions turned off has nothing to save.
-            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil
+            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil
     }
 
     // MARK: - the tiers that own these values

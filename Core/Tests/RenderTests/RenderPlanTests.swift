@@ -38,3 +38,48 @@ import Foundation
         }
     }
 }
+
+/// The cursor's own look — the two things every reference recorder makes a choice and this one
+/// had as constants.
+@Suite struct CursorStyleTests {
+    /// Rule 8: these arrive from sliders AND from a decoder, and neither may trap.
+    @Test func everyFieldIsClampedRatherThanTrappedOn() {
+        let wild = CursorStyle(scale: 99, clickEffect: .pulse, clickOpacity: -4,
+                               clickSize: 0, red: 5, green: -1, blue: 0.5)
+        #expect(wild.scale == 3)
+        #expect(wild.clickOpacity == 0)
+        #expect(wild.clickSize == 0.25)
+        #expect(wild.red == 1)
+        #expect(wild.green == 0)
+        #expect(wild.blue == 0.5)
+    }
+
+    /// A project written before this existed opens with the defaults rather than failing — the
+    /// absence-tolerance every field in `EditState` promises.
+    @Test func aStyleWithNoKeysAtAllDecodesToTheDefault() throws {
+        let empty = Data("{}".utf8)
+        #expect(try JSONDecoder().decode(CursorStyle.self, from: empty) == .default)
+    }
+
+    @Test func aStyleRoundTripsThroughItsOwnEncoding() throws {
+        let style = CursorStyle.default.changing(scale: 1.8, clickEffect: .pulse, clickSize: 2)
+        let data = try JSONEncoder().encode(style)
+        #expect(try JSONDecoder().decode(CursorStyle.self, from: data) == style)
+    }
+
+    @Test func changingOneFieldLeavesEveryOtherAlone() {
+        let base = CursorStyle.default
+        #expect(base.changing(scale: 2).clickEffect == base.clickEffect)
+        #expect(base.changing(clickEffect: .none).scale == base.scale)
+        #expect(base.changing() == base)
+    }
+
+    /// **Turning a click effect off is one of the three cases**, not an opacity of zero: a
+    /// person recording a drawing app wants no ring, and a zero-opacity ring still costs the
+    /// canvas the room to draw it in.
+    @Test func everyClickEffectSaysWhatItIsAndOneOfThemIsNothing() {
+        #expect(CursorStyle.ClickEffect.allCases.contains(.none))
+        #expect(Set(CursorStyle.ClickEffect.allCases.map(\.displayName)).count
+                == CursorStyle.ClickEffect.allCases.count)
+    }
+}

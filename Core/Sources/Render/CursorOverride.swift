@@ -81,3 +81,98 @@ extension CursorOverride: Codable {
         try container.encode(duration, forKey: .duration)
     }
 }
+
+
+/// How the drawn cursor looks: how big, and what a click does.
+///
+/// **Every reference recorder makes both of these a choice, and we made neither.** a Swift recorder has
+/// a `Cursor Scale` and a smoothing preset; an Electron recorder has a click effect with a style, a colour,
+/// a size, a duration and an opacity. A cursor drawn at one fixed size is right for one export
+/// size and one screen density, and a ripple nobody can turn off is a ripple in the way of
+/// anyone recording a drawing app.
+///
+/// **Not a smoothing control, deliberately.** The obvious fifth field here is the one Screen
+/// Studio is known for and complained about — a spring that makes the pointer drift behind the
+/// real one. This recorder's pointer is linearly interpolated between real samples with three
+/// refusals (`PointerTrack.smoothedPosition`) and never invents motion, so there is no drift to
+/// tune away and no knob that would improve it. Adding one would mean adding the drift first.
+public struct CursorStyle: Hashable, Codable, Sendable {
+    /// A multiplier on the drawn cursor, 0.5…3. **The recording's own cursor is not resized** —
+    /// this is the art this app draws, and making it larger is how a demo stays legible when it
+    /// is watched in a 400-point embed.
+    public let scale: Double
+    /// What a click draws.
+    public let clickEffect: ClickEffect
+    /// The ring's opacity at its brightest.
+    public let clickOpacity: Double
+    /// The ring's final radius as a multiple of the default.
+    public let clickSize: Double
+    public let red: Double
+    public let green: Double
+    public let blue: Double
+
+    public enum ClickEffect: String, Hashable, Codable, Sendable, CaseIterable {
+        /// An expanding ring — what this app has always drawn.
+        case ripple
+        /// A filled disc that fades, which reads better on a busy screen than an outline.
+        case pulse
+        /// Nothing at all. The option a person recording a drawing app needs.
+        case none
+
+        public var displayName: String {
+            switch self {
+            case .ripple: "Ripple"
+            case .pulse: "Pulse"
+            case .none: "None"
+            }
+        }
+    }
+
+    public static let `default` = CursorStyle(
+        scale: 1, clickEffect: .ripple, clickOpacity: 0.85, clickSize: 1,
+        red: 1, green: 1, blue: 1)
+
+    public init(scale: Double, clickEffect: ClickEffect, clickOpacity: Double,
+                clickSize: Double, red: Double, green: Double, blue: Double) {
+        // Clamped rather than trapped: every one of these arrives from a slider AND from a
+        // decoder, which is rule 8's case.
+        self.scale = min(max(scale, 0.5), 3)
+        self.clickEffect = clickEffect
+        self.clickOpacity = min(max(clickOpacity, 0), 1)
+        self.clickSize = min(max(clickSize, 0.25), 3)
+        self.red = min(max(red, 0), 1)
+        self.green = min(max(green, 0), 1)
+        self.blue = min(max(blue, 0), 1)
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(scale: try container.decodeIfPresent(Double.self, forKey: .scale) ?? 1,
+                  clickEffect: try container.decodeIfPresent(ClickEffect.self,
+                                                             forKey: .clickEffect) ?? .ripple,
+                  clickOpacity: try container.decodeIfPresent(Double.self,
+                                                              forKey: .clickOpacity) ?? 0.85,
+                  clickSize: try container.decodeIfPresent(Double.self, forKey: .clickSize) ?? 1,
+                  red: try container.decodeIfPresent(Double.self, forKey: .red) ?? 1,
+                  green: try container.decodeIfPresent(Double.self, forKey: .green) ?? 1,
+                  blue: try container.decodeIfPresent(Double.self, forKey: .blue) ?? 1)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scale, clickEffect, clickOpacity, clickSize, red, green, blue
+    }
+
+    /// The same style with one field changed — the shape `TextOverlayStyle.changing` uses, for
+    /// the same reason: a seven-argument initialiser repeated per slider is seven chances to
+    /// pass `green` where `blue` belongs.
+    public func changing(scale: Double? = nil, clickEffect: ClickEffect? = nil,
+                         clickOpacity: Double? = nil, clickSize: Double? = nil,
+                         red: Double? = nil, green: Double? = nil,
+                         blue: Double? = nil) -> CursorStyle {
+        CursorStyle(scale: scale ?? self.scale,
+                    clickEffect: clickEffect ?? self.clickEffect,
+                    clickOpacity: clickOpacity ?? self.clickOpacity,
+                    clickSize: clickSize ?? self.clickSize,
+                    red: red ?? self.red, green: green ?? self.green, blue: blue ?? self.blue)
+    }
+}

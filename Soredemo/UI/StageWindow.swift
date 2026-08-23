@@ -389,6 +389,10 @@ struct StageWindow: View {
                         StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 },
                                          packageURL: ProjectStore.packageURL(forMediaAt: mediaURL))
                     }
+                    Section("Cursor") {
+                        StageStylePicker(model: stageStyle,
+                                         onChange: { reviewRevision += 1 }).cursorControls
+                    }
                     Section("Audio") { audioControls }
                     Section("Animated GIF") { gifControls }
                 }
@@ -513,7 +517,8 @@ struct StageWindow: View {
             burnsInCaptions: captions.burnsIn ? true : nil,
             textTrackData: texts.track.isEmpty ? nil : try? EditState.encoding(texts.track),
             redactionTrackData: redactions.track.isEmpty
-                ? nil : try? EditState.encoding(redactions.track))
+                ? nil : try? EditState.encoding(redactions.track),
+            cursorStyleData: try? EditState.encoding(stageStyle.cursor))
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -564,6 +569,11 @@ struct StageWindow: View {
                 stageStyle.restore(style)
             }
         } catch { failures.append("the look") }
+        do {
+            if let cursor = try EditState.decoding(edit.cursorStyleData, as: CursorStyle.self) {
+                stageStyle.restoreCursor(cursor)
+            }
+        } catch { failures.append("the cursor") }
         if let name = edit.outputShapeName,
            let shape = AspectVariant.all.first(where: { $0.name == name }) {
             variant = shape

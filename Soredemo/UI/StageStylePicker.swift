@@ -24,6 +24,22 @@ final class StageStyleModel {
     /// reverse-engineering one from colour values. `nil` after a knob is changed by hand.
     private(set) var presetName: String? = StageBackground.presets.first?.name
 
+    /// How the drawn cursor looks. **Held beside the stage's style rather than in its own
+    /// model**, because they are the same decision from a person's side — "how should this
+    /// video look" — and a second `@Observable` for six numbers would be a second thing to
+    /// remember to publish and to restore.
+    private(set) var cursor: CursorStyle = .default
+
+    func setCursor(_ value: CursorStyle) {
+        cursor = value
+        publish()
+    }
+
+    func restoreCursor(_ saved: CursorStyle) {
+        cursor = saved
+        publish()
+    }
+
     /// The chosen picture's filename, or `nil` when the background is not an image.
     var imageBackgroundName: String? {
         if case .image(let filename) = style.background { return filename }
@@ -105,6 +121,7 @@ final class StageStyleModel {
 
     private func publish() {
         StageCompositor.style = style
+        StageCompositor.cursorStyle = cursor
     }
 }
 
@@ -165,6 +182,32 @@ struct StageStylePicker: View {
             }
             slider("Shadow", value: model.style.shadowOpacity, range: 0...1) {
                 model.setShadowOpacity($0); onChange()
+            }
+        }
+    }
+
+    /// The cursor's own controls. **Both of these were fixed constants**, and every reference
+    /// recorder makes them a choice: a Swift recorder has a `Cursor Scale`, an Electron recorder a click effect
+    /// with a style, a size and an opacity. A cursor drawn at one size is right for one export
+    /// size, and a ripple nobody can turn off is in the way of anyone recording a drawing app.
+    @ViewBuilder var cursorControls: some View {
+        slider("Cursor size", value: model.cursor.scale, range: 0.5...3) {
+            model.setCursor(model.cursor.changing(scale: $0)); onChange()
+        }
+        Picker("Click effect", selection: Binding(
+            get: { model.cursor.clickEffect },
+            set: { model.setCursor(model.cursor.changing(clickEffect: $0)); onChange() })
+        ) {
+            ForEach(CursorStyle.ClickEffect.allCases, id: \.self) { effect in
+                Text(effect.displayName).tag(effect)
+            }
+        }
+        if model.cursor.clickEffect != .none {
+            slider("Effect size", value: model.cursor.clickSize, range: 0.25...3) {
+                model.setCursor(model.cursor.changing(clickSize: $0)); onChange()
+            }
+            slider("Effect opacity", value: model.cursor.clickOpacity, range: 0...1) {
+                model.setCursor(model.cursor.changing(clickOpacity: $0)); onChange()
             }
         }
     }
