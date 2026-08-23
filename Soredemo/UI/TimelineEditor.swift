@@ -391,7 +391,7 @@ struct TimelineEditor: View {
                     }
                 }
                 readout(duration: duration)
-                controls
+                shortcutLayer
                 playheadKeys(duration: duration)
             }
         } else {
@@ -522,7 +522,9 @@ struct TimelineEditor: View {
     /// The audio track: the waveform across the recording, on its own ground.
     @ViewBuilder private func audioLane(duration: Nanoseconds) -> some View {
         GeometryReader { geometry in
-            ZStack(alignment: .center) {
+            // `.topLeading`, matching the bars' own alignment: centred, the strip would sit
+            // wherever its measured width put it rather than at time zero.
+            ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
                 if model.waveform == nil {
                     // Said rather than left blank: an empty lane and a lane still reading the
@@ -530,6 +532,7 @@ struct TimelineEditor: View {
                     Text("Reading the audio\u{2026}")
                         .font(.system(size: 9))
                         .foregroundStyle(Theme.Ink.tertiary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     waveformLayer(duration: duration, width: geometry.size.width,
                                   height: geometry.size.height)
@@ -688,9 +691,9 @@ struct TimelineEditor: View {
                     columns: Int(width.rounded(.down)),
                     from: Double(model.window.start.rawValue) / 1_000_000_000,
                     spanningSeconds: Double(model.window.visible.rawValue) / 1_000_000_000),
-                height: height)
+                height: height, width: width)
                 .equatable()
-            .frame(height: height)
+            .frame(width: width, height: height, alignment: .topLeading)
             .allowsHitTesting(false)
         }
     }
@@ -865,77 +868,36 @@ struct TimelineEditor: View {
                 Text("\(Self.stamp(model.edit.outputDuration)) of \(Self.stamp(duration))")
             }
         }
-        .font(Type.readout).foregroundStyle(.secondary)
+        .font(Type.readout).foregroundStyle(Theme.Ink.secondary)
     }
 
-    @ViewBuilder private var controls: some View {
-        HStack(spacing: Space.snug) {
-            Button("Split at playhead") {
-                model.splitAtPlayhead()
-                onChange()
-            }
-            .disabled(!model.canSplitAtPlayhead)
-            // `S` unmodified, the spelling every editor in the reference set uses for a cut
-            // at the playhead. No modifier: it is the most-used key in an editing session.
-            .keyboardShortcut("s", modifiers: [])
-
-            Button("Delete clip") {
-                model.deleteSelectedClip()
-                onChange()
-            }
-            .disabled(model.selectedClip == nil)
-            .keyboardShortcut(.delete, modifiers: [])
-
-            Button("Remove selection") {
-                model.removeSelection()
-                onChange()
-            }
-            .disabled(model.selection == nil)
-
-            Button("Keep only selection") {
-                model.keepOnlySelection()
-                onChange()
-            }
-            .disabled(model.selection == nil)
-
-            if model.hasZoomEdits {
-                Button("Reset zooms") {
-                    model.resetZooms()
-                    onChange()
-                }
-            }
-            if model.hasEdits {
-                Button("Revert all") {
-                    model.restore()
-                    onChange()
-                }
-            }
-        }
-        .buttonStyle(.link)
-        .font(Type.detail)
-
-        HStack(spacing: Space.snug) {
-            // Titled with the action — "Undo Split at Playhead" — because a bare "Undo" makes
-            // a person press it to find out what it does. Every editor in the reference set
-            // names the action; `EditHistory` carries the name for exactly this.
-            Button(model.undoTitle ?? "Undo") {
-                model.undo()
-                onChange()
-            }
-            .disabled(!model.canUndo)
-            .keyboardShortcut("z", modifiers: .command)
-
-            Button(model.redoTitle ?? "Redo") {
-                model.redo()
-                onChange()
-            }
-            .disabled(!model.canRedo)
-            .keyboardShortcut("z", modifiers: [.command, .shift])
-
-            Spacer()
-
-            // Zoom anchored on the PLAYHEAD for a keyboard zoom, on the fingers for a pinch:
-            // both keep what a person is looking at where they are looking.
+    /// **The keyboard shortcuts, with no buttons on them.**
+    ///
+    /// This used to be two rows of `.link`-styled buttons under the strip — which is where the
+    /// last of the system's blue in this window was living, and which duplicated every control
+    /// `EditorToolbar` now shows. What could not be deleted with them is the shortcuts: a
+    /// `.keyboardShortcut` has to be attached to a live view, and these are the keys an editing
+    /// session is actually driven by. Zero-sized and hidden from accessibility, because the
+    /// toolbar's buttons are the ones a reader should find.
+    @ViewBuilder private var shortcutLayer: some View {
+        Group {
+            Button("Split at playhead") { model.splitAtPlayhead(); onChange() }
+                .disabled(!model.canSplitAtPlayhead)
+                // `S` unmodified, the spelling every editor in the reference set uses for a cut
+                // at the playhead. No modifier: it is the most-used key in an editing session.
+                .keyboardShortcut("s", modifiers: [])
+            Button("Delete clip") { model.deleteSelectedClip(); onChange() }
+                .disabled(model.selectedClip == nil)
+                .keyboardShortcut(.delete, modifiers: [])
+            Button("Undo") { model.undo(); onChange() }
+                .disabled(!model.canUndo)
+                .keyboardShortcut("z", modifiers: .command)
+            Button("Redo") { model.redo(); onChange() }
+                .disabled(!model.canRedo)
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+            // Zoom anchored on the PLAYHEAD for a keyboard zoom: it keeps what a person is
+            // looking at where they are looking. The toolbar's buttons anchor at the middle,
+            // because a click has no position — see `EditorToolbar.zoom`.
             Button("Zoom in") { model.zoomStrip(by: 2, anchoredAtFraction: playheadAnchor) }
                 .disabled(!model.window.canZoomIn)
                 .keyboardShortcut("=", modifiers: .command)
@@ -946,8 +908,9 @@ struct TimelineEditor: View {
                 .disabled(!model.window.canZoomOut)
                 .keyboardShortcut("0", modifiers: .command)
         }
-        .buttonStyle(.link)
-        .font(Type.detail)
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
     }
 
     // MARK: - strip geometry
@@ -1001,6 +964,13 @@ struct TimelineEditor: View {
 private struct WaveformBars: View, Equatable {
     let heights: [Double]
     let height: Double
+    /// **The frame's width, and without it nothing is drawn.** `.offset` moves a view without
+    /// changing the layout, so a `ZStack` of offset bars is as wide as ONE bar — and
+    /// `.drawingGroup()` rasterises to the view's bounds, which clipped every bar past the first
+    /// away. The waveform had been invisible since it was written, for this and for being drawn
+    /// under opaque clips; the reader was fine all along, measured at 3,816 peaks on the
+    /// recording that prompted the search.
+    let width: Double
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1017,7 +987,7 @@ private struct WaveformBars: View, Equatable {
                 }
             }
         }
-        .frame(height: height)
+        .frame(width: width, height: height, alignment: .topLeading)
         .drawingGroup()
         .allowsHitTesting(false)
     }
