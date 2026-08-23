@@ -1,0 +1,216 @@
+import AppKit
+import Compositing
+import Foundation
+import Observation
+import SwiftUI
+
+/// Exports waiting their turn.
+///
+/// **One export at a time was also one export at all.** Pressing Export replaced the button with
+/// a progress readout and a Cancel, so a person who wanted a 4K master and a small copy to send
+/// had to sit through the first, then set the second up by hand — and a person who wanted both
+/// plus a GIF had to do it three times. a native editor's `ExportQueue` is the answer and this
+/// follows its shape: FIFO, one running, cancel per job, finished jobs cleared.
+///
+/// **The compositor's statics are why each job carries a `Settings`.** They are process-global,
+/// because AVFoundation owns compositor instances; a job queued now and run in two minutes would
+/// otherwise draw whatever a person had edited in between. `StageCompositor.settings()` is
+/// captured when the job is enqueued and applied before it runs.
+@MainActor
+@Observable
+final class ExportQueue {
+    static let shared = ExportQueue()
+
+    private(set) var jobs: [ExportJob] = []
+    private var work: [Int: @MainActor () async -> Void] = [:]
+    private var running: Int?
+    private var runningTask: Task<Void, Never>?
+    /// **A counter, not a UUID.** This project mints identifiers from a counter everywhere for
+    /// the same reason: an identifier a test cannot predict is a test that has to work around it.
+    private var nextID = 1
+
+    private init() {}
+
+    var isBusy: Bool { jobs.contains { !$0.status.isFinished } }
+
+    /// Whether an export to this path is already waiting or running.
+    ///
+    /// **Two exports to one path is a race for one file**, and the second one's first act is to
+    /// delete the file the first is still writing. a native editor refuses the enqueue for this
+    /// reason and names the file in the refusal, which is the only way somebody works out which
+    /// of their jobs they collided with.
+    func isReserved(_ url: URL) -> Bool {
+        jobs.contains { !$0.status.isFinished
+            && $0.destination.standardizedFileURL.path == url.standardizedFileURL.path }
+    }
+
+    /// Adds a job. Returns `nil` when the destination is already spoken for.
+    @discardableResult
+    func enqueue(destination: URL,
+                 run: @escaping @MainActor (@escaping @MainActor (ExportProgress) -> Void)
+                     async -> String?) -> Int? {
+        guard !isReserved(destination) else { return nil }
+        let id = nextID
+        nextID += 1
+        jobs.append(ExportJob(id: id, destination: destination, status: .waiting, progress: nil))
+        work[id] = { [weak self] in
+            let failure = await run { progress in
+                self?.update(id) { $0.progress = progress }
+            }
+            self?.update(id) {
+                $0.status = failure == nil ? .finished : .failed
+                $0.failure = failure
+                $0.progress = nil
+            }
+        }
+        startNext()
+        return id
+    }
+
+    /// **Cancelling depends on which state the job is in**, as a native editor's does. A waiting job
+    /// is simply dropped; a running one has its task cancelled and reports itself cancelled when
+    /// the export notices — the exporter's own cooperative cancellation deletes its partial file,
+    /// so nothing here has to.
+    func cancel(_ id: Int) {
+        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        switch jobs[index].status {
+        case .waiting:
+            work[id] = nil
+            jobs[index].status = .cancelled
+        case .running:
+            runningTask?.cancel()
+            jobs[index].status = .cancelled
+        case .finished, .failed, .cancelled:
+            break
+        }
+    }
+
+    /// Only finished jobs, so a list cannot be emptied of the one still running.
+    func clearFinished() {
+        jobs.removeAll { $0.status.isFinished }
+    }
+
+    private func update(_ id: Int, _ change: (inout ExportJob) -> Void) {
+        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        change(&jobs[index])
+    }
+
+    private func startNext() {
+        guard running == nil,
+              let index = jobs.firstIndex(where: { $0.status == .waiting && work[$0.id] != nil })
+        else { return }
+        let id = jobs[index].id
+        jobs[index].status = .running
+        running = id
+        let operation = work[id]
+        work[id] = nil
+        runningTask = Task { @MainActor [weak self] in
+            await operation?()
+            self?.running = nil
+            self?.runningTask = nil
+            self?.startNext()
+        }
+    }
+}
+
+/// One queued export.
+struct ExportJob: Identifiable, Sendable {
+    let id: Int
+    let destination: URL
+    var status: Status
+    var progress: ExportProgress?
+    var failure: String?
+
+    var filename: String { destination.lastPathComponent }
+
+    enum Status: Sendable {
+        case waiting, running, finished, failed, cancelled
+
+        var isFinished: Bool {
+            switch self {
+            case .finished, .failed, .cancelled: true
+            case .waiting, .running: false
+            }
+        }
+    }
+}
+
+/// The queue, as a toolbar button that only exists when there is something in it.
+///
+/// **Present only while it has content.** A permanently visible export queue in a window whose
+/// usual state is "nothing exporting" is a control people learn to ignore — and this app's
+/// toolbar is already carrying the shape, the crop and the inspector.
+struct ExportQueueButton: View {
+    @State private var queue = ExportQueue.shared
+
+    var body: some View {
+        if !queue.jobs.isEmpty {
+            Menu {
+                ForEach(queue.jobs) { job in
+                    ExportJobRow(job: job)
+                }
+                if queue.jobs.contains(where: { $0.status.isFinished }) {
+                    Divider()
+                    Button("Clear Finished") { queue.clearFinished() }
+                }
+            } label: {
+                HStack(spacing: Space.tight) {
+                    if let running = queue.jobs.first(where: { $0.status == .running }) {
+                        // A determinate bar while writing, an indeterminate one while finishing:
+                        // `finishWriting` reports nothing, and a bar pinned at 100% reads as
+                        // stopped.
+                        if let fraction = running.progress?.fraction {
+                            ProgressView(value: fraction).frame(width: 60)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    // The waiting count, because a queue whose length is invisible is a queue
+                    // somebody adds a fourth job to without meaning to.
+                    let waiting = queue.jobs.filter { $0.status == .waiting }.count
+                    if waiting > 0 { Text("\(waiting)").font(.caption) }
+                }
+            }
+            .help("Exports")
+        }
+    }
+}
+
+/// One row of the queue's menu: what it is doing, and the one thing you can do about it.
+private struct ExportJobRow: View {
+    let job: ExportJob
+
+    var body: some View {
+        switch job.status {
+        case .waiting, .running:
+            Button("\(job.filename) \u{2014} \(Self.label(job))") {
+                ExportQueue.shared.cancel(job.id)
+            }
+        case .finished:
+            // Reveals rather than opens: an export is usually one of several files a person is
+            // collecting, and the Finder window is what they want next.
+            Button("\(job.filename) \u{2014} Done") {
+                NSWorkspace.shared.activateFileViewerSelecting([job.destination])
+            }
+        case .failed, .cancelled:
+            Text("\(job.filename) \u{2014} \(Self.label(job))")
+        }
+    }
+
+    static func label(_ job: ExportJob) -> String {
+        switch job.status {
+        case .waiting: NSLocalizedString("Waiting \u{2014} cancel", comment: "")
+        case .running:
+            switch job.progress {
+            case .writing(let fraction, _): "\(Int(fraction * 100))% \u{2014} cancel"
+            case .finishing: NSLocalizedString("Finishing\u{2026}", comment: "")
+            case .preparing, nil: NSLocalizedString("Preparing\u{2026}", comment: "")
+            }
+        case .finished: NSLocalizedString("Done", comment: "")
+        case .failed: job.failure ?? NSLocalizedString("Failed", comment: "")
+        case .cancelled: NSLocalizedString("Cancelled", comment: "")
+        }
+    }
+}

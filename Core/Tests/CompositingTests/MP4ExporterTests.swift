@@ -3,6 +3,7 @@ import Foundation
 import AVFoundation
 import CoreMedia
 import Project
+import Render
 import Timeline
 @testable import Compositing
 
@@ -633,5 +634,48 @@ private final class PhaseLog: @unchecked Sendable {
         let wild = ExportQuality(bitsPerPixel: 99, audioBitRate: 1)
         #expect(wild.bitsPerPixel <= 1)
         #expect(wild.audioBitRate >= 32_000)
+    }
+}
+
+/// The compositor's statics, as a value.
+@Suite struct StageCompositorSettingsTests {
+    /// **Every field, or a partial restore leaves a stale static behind.** The statics are
+    /// process-global — AVFoundation owns compositor instances — which is workable while the
+    /// thing rendering is the thing on screen and stops being workable the moment a render is
+    /// deferred. A queued export captures this and applies it before running.
+    /// Reads a captured value without touching the statics — a deferred job's whole situation.
+    static func describes(_ settings: StageCompositor.Settings, cropWidth: Double) -> Bool {
+        abs(settings.crop.width - cropWidth) < 0.0001
+    }
+
+    @MainActor
+    @Test func settingsRoundTripEveryStaticTheCompositorDrawsFrom() throws {
+        let restore = unsafe StageCompositor.settings()
+        defer { unsafe StageCompositor.apply(restore) }
+
+        unsafe StageCompositor.crop = CropRect(x: 0.1, y: 0.2, width: 0.5, height: 0.5)
+        unsafe StageCompositor.burnsInCaptions = true
+        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(scale: 2)
+        unsafe StageCompositor.cameraStyle = .default
+        unsafe StageCompositor.cameraTrackID = 7
+        let captured: StageCompositor.Settings = unsafe StageCompositor.settings()
+        // Read as a VALUE, which is the whole point of it: a queued job holds one of these for
+        // minutes and the statics move underneath it.
+        #expect(Self.describes(captured, cropWidth: 0.5))
+
+        // Everything moves away from what was captured…
+        unsafe StageCompositor.crop = .whole
+        unsafe StageCompositor.burnsInCaptions = false
+        unsafe StageCompositor.cursorStyle = .default
+        unsafe StageCompositor.cameraStyle = nil
+        unsafe StageCompositor.cameraTrackID = nil
+
+        // …and comes back.
+        unsafe StageCompositor.apply(captured)
+        #expect(unsafe StageCompositor.crop.width == 0.5)
+        #expect(unsafe StageCompositor.burnsInCaptions)
+        #expect(unsafe StageCompositor.cursorStyle.scale == 2)
+        #expect(unsafe StageCompositor.cameraStyle != nil)
+        #expect(unsafe StageCompositor.cameraTrackID == 7)
     }
 }

@@ -98,6 +98,7 @@ xcrun swiftc \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \
+  Soredemo/UI/ExportQueue.swift \
   Soredemo/UI/FramingReview.swift \
   Soredemo/UI/StageStylePicker.swift \
   Soredemo/UI/WallpaperGallery.swift \

@@ -91,6 +91,67 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// carried three.
     public nonisolated(unsafe) static var cameraTrackID: CMPersistentTrackID?
 
+    /// Everything the compositor renders from, as one value.
+    ///
+    /// **The statics are process-global because AVFoundation owns compositor instances**, which
+    /// this file has said since it was written — there is nowhere to hang per-render state. That
+    /// is workable while one thing renders at a time and the thing rendering is the thing on
+    /// screen. It stops being workable the moment a render is DEFERRED: a job queued now and run
+    /// in two minutes would draw whatever the statics say then, which is whatever the person has
+    /// edited since.
+    ///
+    /// So a caller that means "render what I meant when I asked" captures this first and applies
+    /// it before rendering. `renderer` is deliberately absent — it is a `CIContext` and a device,
+    /// shared by everything, and not part of what a frame LOOKS like.
+    public struct Settings: Sendable {
+        var style: StageStyle
+        var observationLogURL: URL?
+        var overrides: [CursorOverride]
+        var editTimeline: EditTimeline?
+        var framingOverrides: [FramingOverride]
+        var zoomAdjustments: [ZoomAdjustment]
+        var captions: CaptionTrack
+        var captionStyle: CaptionStyle
+        var burnsInCaptions: Bool
+        var texts: TextTrack
+        var redactions: RedactionTrack
+        var cursorStyle: CursorStyle
+        var cameraStyle: CameraOverlayStyle?
+        var crop: CropRect
+        var cameraTrackID: CMPersistentTrackID?
+    }
+
+    /// What the compositor would draw right now.
+    public nonisolated static func settings() -> Settings {
+        unsafe Settings(style: style, observationLogURL: observationLogURL, overrides: overrides,
+                        editTimeline: editTimeline, framingOverrides: framingOverrides,
+                        zoomAdjustments: zoomAdjustments, captions: captions,
+                        captionStyle: captionStyle, burnsInCaptions: burnsInCaptions,
+                        texts: texts, redactions: redactions, cursorStyle: cursorStyle,
+                        cameraStyle: cameraStyle, crop: crop, cameraTrackID: cameraTrackID)
+    }
+
+    /// Puts them all back. Every field, so a value captured before one was added cannot leave a
+    /// stale static behind — which is the failure mode a partial restore has and a total one
+    /// cannot.
+    public nonisolated static func apply(_ settings: Settings) {
+        unsafe style = settings.style
+        unsafe observationLogURL = settings.observationLogURL
+        unsafe overrides = settings.overrides
+        unsafe editTimeline = settings.editTimeline
+        unsafe framingOverrides = settings.framingOverrides
+        unsafe zoomAdjustments = settings.zoomAdjustments
+        unsafe captions = settings.captions
+        unsafe captionStyle = settings.captionStyle
+        unsafe burnsInCaptions = settings.burnsInCaptions
+        unsafe texts = settings.texts
+        unsafe redactions = settings.redactions
+        unsafe cursorStyle = settings.cursorStyle
+        unsafe cameraStyle = settings.cameraStyle
+        unsafe crop = settings.crop
+        unsafe cameraTrackID = settings.cameraTrackID
+    }
+
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
     /// Reset per opened recording, so not a lifetime total.
     nonisolated(unsafe) private static var _diagnostics = Diagnostics()

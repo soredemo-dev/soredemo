@@ -42,14 +42,7 @@ struct StageWindow: View {
     @State private var isCropping = false
     @State private var failure: String?
     // MARK: - export-basic
-    @State private var isExporting = false
     @State private var exportStatus: String?
-    /// Where the running export has got to, or `nil` when none is. Its PHASE matters as much
-    /// as its fraction — see `ExportProgress`.
-    @State private var exportProgress: ExportProgress?
-    /// The running export, so Cancel has something to cancel. Swift's cooperative cancellation
-    /// is the whole mechanism; the exporter checks it and deletes its partial file.
-    @State private var exportTask: Task<Void, Never>?
     // MARK: - review-ui
     /// Every framing decision the gate made, and the reviewer's own. Owned here rather than
     /// by the inspector so it survives the inspector being closed.
@@ -362,25 +355,15 @@ struct StageWindow: View {
                 }
                 .disabled(player == nil)
             }
+            // **Export stays pressable while one is running.** It used to be replaced by a
+            // progress readout, which made "a master and a small copy" a thing you had to sit
+            // and wait to ask for twice. The running job's progress moved into the queue beside
+            // it — see `ExportQueueButton`.
             ToolbarItem {
-                if isExporting {
-                    HStack(spacing: 8) {
-                        // A determinate bar while writing, an indeterminate one while
-                        // finishing: `finishWriting` reports nothing, and a bar pinned at 100%
-                        // reads as stopped.
-                        if let fraction = exportProgress?.fraction {
-                            ProgressView(value: fraction).frame(width: 90)
-                        } else {
-                            ProgressView().controlSize(.small)
-                        }
-                        Text(exportPhaseLabel).font(.caption).foregroundStyle(.secondary)
-                        Button("Cancel") { exportTask?.cancel() }
-                    }
-                } else {
-                    Button("Export…") { startExport() }
-                        .disabled(player == nil)
-                }
+                Button("Export…") { startExport() }
+                    .disabled(player == nil)
             }
+            ToolbarItem { ExportQueueButton() }
             ToolbarItem {
                 Button {
                     isReviewShown.toggle()
@@ -896,20 +879,9 @@ struct StageWindow: View {
         }
     }
 
-    /// What the toolbar says the export is doing. Named phases rather than a percentage alone,
-    /// because "Finishing" is the honest answer for a step that takes seconds and reports
-    /// nothing.
-    private var exportPhaseLabel: String {
-        switch exportProgress {
-        case .writing(let fraction, _): "\(Int(fraction * 100))%"
-        case .finishing: "Finishing…"
-        case .preparing, nil: "Preparing…"
-        }
-    }
-
-    /// Starts an export and keeps the task, so Cancel can reach it. The panel is presented
-    /// before the task begins — a cancel button for a job a person has not chosen a
-    /// destination for would be a button for nothing.
+    /// Presents the save panel and queues what it chose. The panel comes first because a job
+    /// with no destination is not a job — and because the panel's own format popup is where
+    /// macOS puts the format chooser.
     private func startExport() {
         let panel = NSSavePanel()
         // **Two types, so the panel's own format popup is the format chooser.** an Electron recorder and
@@ -921,80 +893,74 @@ struct StageWindow: View {
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
-        isExporting = true
-        exportProgress = .preparing
-        exportTask = Task {
-            if destination.pathExtension.lowercased() == "gif" {
-                await exportGIF(to: destination)
+        // **Queued rather than run, so a second export does not have to wait for a person.**
+        // A 4K master and a small copy to send is two exports of one recording, and until this
+        // the second could not even be set up until the first finished. See `ExportQueue`.
+        //
+        // The compositor's settings are captured HERE, not when the job runs: they are
+        // process-global statics, and a job that started in two minutes would otherwise draw
+        // whatever had been edited since.
+        let settings = StageCompositor.settings()
+        let asset = playingAsset
+        let edit = timeline.edit
+        let mix = audioMix
+        let chosen = quality
+        let gif = gifSettings
+        let size = Self.size(for: variant)
+        let isGIF = destination.pathExtension.lowercased() == "gif"
+        let queued = ExportQueue.shared.enqueue(destination: destination) { report in
+            guard let asset else { return "There is nothing loaded to export." }
+            StageCompositor.apply(settings)
+            return await Self.runExport(asset: asset, to: destination, isGIF: isGIF,
+                                        size: size, edit: edit, audioMix: mix,
+                                        quality: chosen, gifSettings: gif, report: report)
+        }
+        if queued == nil {
+            // Named, because the only way somebody works out which of their jobs they collided
+            // with is being told the filename. a native editor's `destinationInUse` says the same.
+            exportStatus = "An export to \(destination.lastPathComponent) is already waiting."
+        }
+    }
+
+    /// Runs one queued export and reports what went wrong, or `nil`.
+    ///
+    /// **Static, and every input passed in.** A queued job runs later than the view that asked
+    /// for it, and reading `self` then would read whatever a person had changed since — which is
+    /// the same argument `StageCompositor.settings()` makes about the statics, applied to view
+    /// state. The parameters are the job.
+    ///
+    /// The asset is the one the preview is playing rather than the file on disk: the camera
+    /// reaches the picture as a SECOND VIDEO TRACK laid alongside the cut asset, and a bare file
+    /// has one. `StageCompositor.cameraTrackID` names a track in that composition too.
+    static func runExport(asset: sending AVAsset, to destination: URL, isGIF: Bool,
+                          size: (width: Int, height: Int), edit: EditTimeline,
+                          audioMix: AudioMix, quality: ExportQuality, gifSettings: GIFSettings,
+                          report: @escaping @MainActor (ExportProgress) -> Void) async -> String? {
+        do {
+            if isGIF {
+                _ = try await GIFExporter.export(
+                    asset: asset, to: destination,
+                    outputWidth: size.width, outputHeight: size.height,
+                    edit: edit, assetIsAlreadyEdited: true, settings: gifSettings,
+                    onProgress: { progress in Task { @MainActor in report(progress) } })
             } else {
-                await exportRecording(to: destination)
+                _ = try await MP4Exporter.export(
+                    asset: asset, to: destination,
+                    outputWidth: size.width, outputHeight: size.height,
+                    edit: edit, assetIsAlreadyEdited: true, audioMix: audioMix,
+                    quality: quality,
+                    onProgress: { progress in Task { @MainActor in report(progress) } })
             }
-            isExporting = false
-            exportProgress = nil
-            exportTask = nil
+            return nil
+        } catch is CancellationError {
+            // Nothing to report: a person who cancelled knows they cancelled, and the exporter's
+            // own cancellation has already deleted the partial file.
+            return nil
+        } catch {
+            return "\(error)"
         }
     }
 
-    /// Presents a save panel, then runs `MP4Exporter.export`. `StageCompositor`'s statics are
-    /// already set by `load()` (the toolbar button is disabled while `player == nil`), so the
-    /// export composes the identical framing and pointer the preview showed.
-    private func exportRecording(to destination: URL) async {
-        do {
-            // **The asset the preview is playing, not the file on disk.** Building a fresh
-            // `AVURLAsset(url:)` here exported the screen recording and nothing else: the camera
-            // reaches the picture as a SECOND VIDEO TRACK that `load()` lays alongside the cut
-            // asset, and a bare file has one track. The self-view showed a face the whole way
-            // through and the export had none — and `StageCompositor.cameraTrackID` names a
-            // track in the composition `load()` built, so it would not have matched this asset's
-            // tracks even if the camera had been in it.
-            guard let asset = playingAsset else { return }
-            let size = Self.size(for: variant)
-            let report = try await MP4Exporter.export(
-                asset: asset, to: destination,
-                outputWidth: size.width, outputHeight: size.height,
-                edit: timeline.edit, assetIsAlreadyEdited: true, audioMix: audioMix,
-                quality: quality,
-                // Hops to the main actor because the export reports from its own context, and
-                // `exportProgress` is view state.
-                onProgress: { progress in
-                    Task { @MainActor in exportProgress = progress }
-                })
-            exportStatus = "Exported \(report.framesWritten) frame(s) at "
-                + "\(size.width)\u{00D7}\(size.height) to "
-                + "\(report.outputURL.lastPathComponent)."
-        } catch is CancellationError {
-            // Nothing to report: a person who cancelled knows they cancelled, and an alert
-            // telling them so is a second thing to dismiss. The partial file is already gone.
-        } catch {
-            exportStatus = "Export failed: \(error)"
-        }
-    }
-
-    /// The same composition, written as a GIF. Sized from `gifSettings` rather than from the
-    /// variant, because a GIF that is 1920 wide is a file nobody can attach to anything.
-    private func exportGIF(to destination: URL) async {
-        do {
-            // The same asset the MP4 export takes, for the same reason.
-            guard let asset = playingAsset else { return }
-            let size = Self.size(for: variant)
-            let report = try await GIFExporter.export(
-                asset: asset, to: destination,
-                outputWidth: size.width, outputHeight: size.height,
-                edit: timeline.edit, assetIsAlreadyEdited: true, settings: gifSettings,
-                onProgress: { progress in
-                    Task { @MainActor in exportProgress = progress }
-                })
-            // The RATE is reported, not the setting, and they can differ — see `GIFSettings`.
-            // A person who picked an off-list rate should learn it here rather than by timing
-            // the file against the recording.
-            exportStatus = "Exported \(report.framesWritten) frame(s) at "
-                + "\(report.width)\u{00D7}\(report.height), "
-                + "\(formatted(report.playbackRate)) fps, to \(report.outputURL.lastPathComponent)."
-        } catch is CancellationError {
-        } catch {
-            exportStatus = "GIF export failed: \(error)"
-        }
-    }
 
     /// Whole numbers without a trailing `.0`, which is what every rate on `exactRates` is.
     private func formatted(_ rate: Double) -> String {

@@ -216,3 +216,10 @@
 "About" = "約";
 "Best" = "最佳";
 "Balanced" = "平衡";
+"Waiting — cancel" = "等待中 — 取消";
+"Failed" = "失敗";
+"Cancelled" = "已取消";
+"Clear Finished" = "清除已完成";
+"Exports" = "匯出";
+"Finishing…" = "收尾中…";
+"Preparing…" = "準備中…";
