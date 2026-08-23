@@ -42,6 +42,31 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
         return device.isInUseByAnotherApplication
     }
 
+    /// What this Mac has decided about the camera, in the same four words the rest of the
+    /// permissions are reported in.
+    ///
+    /// **`isAvailable` is not this question and was being used as though it were.** It answers
+    /// "not refused, and a lens exists", which is true before anybody has been asked — so a
+    /// first-run permission page reading it showed the camera as allowed when nothing had been
+    /// granted at all.
+    ///
+    /// **And the difference decides whether asking is even legal.** Measured, with a probe run
+    /// from inside this bundle: `requestAccess` on a `.notDetermined` camera can return false
+    /// AND write `.denied` without ever putting a prompt on screen, if the process is in no
+    /// state to present one. After that, every later press of an Allow button calls an API that
+    /// is contractually obliged to say no in silence. A refused camera has exactly one route
+    /// back — System Settings — and a button that does not know the difference sends people to
+    /// press a dead control forever.
+    public nonisolated static var authorization: PermissionStatus {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: return .granted
+        case .notDetermined: return .notDetermined
+        case .denied: return .denied
+        case .restricted: return .restricted
+        @unknown default: return .notGrantedIndeterminate
+        }
+    }
+
     /// Whether a camera can be recorded at all — the permission plus a device.
     public nonisolated static var isAvailable: Bool {
         AVCaptureDevice.authorizationStatus(for: .video) != .denied && !available().isEmpty

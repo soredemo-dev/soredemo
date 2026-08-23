@@ -18,6 +18,11 @@ struct WindowConfigurator: NSViewRepresentable {
         // assembled after. Reading `view.window` here returns nil, every time.
         DispatchQueue.main.async {
             guard let window = view.window else { return }
+            // **The yellow button, which this window did not have.** A `Window` scene comes up
+            // without `.miniaturizable`, so the middle traffic light was drawn and dead — and an
+            // editor holding a recording is exactly the window somebody wants out of the way for
+            // a minute without closing it and being asked about unsaved work.
+            window.styleMask.insert(.miniaturizable)
             window.collectionBehavior.insert(.fullScreenPrimary)
             window.collectionBehavior.insert(.moveToActiveSpace)
         }

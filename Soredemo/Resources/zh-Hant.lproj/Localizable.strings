@@ -181,3 +181,14 @@
 "Video Effects…" = "視訊效果…";
 "Window" = "視窗";
 "Another app is using this camera. The screen will still record." = "其他 App 正在使用這台相機。螢幕仍然會錄製。";
+"Permissions" = "權限";
+"Screen Recording" = "螢幕錄製";
+"Input Monitoring" = "輸入監控";
+"Accessibility" = "輔助使用";
+"To record the screen at all. Nothing is captured until you start a recording." = "才能錄製螢幕。在你開始錄製之前不會擷取任何東西。";
+"To record your narration as its own track, which you can mute afterwards." = "把你的旁白錄成獨立的一軌,事後可以靜音。";
+"To know when you click, so the camera can move there. Key CODES only — this app cannot read what you type." = "知道你何時點擊,鏡頭才能跟過去。只讀按鍵代碼 —— 這個程式讀不到你打了什麼。";
+"To ask what you clicked ON, so a zoom frames the button rather than the pointer. It reads the element's position and role, never its contents." = "詢問你點在什麼元件上,縮放才能框住按鈕而不是指標。它讀取元件的位置和角色,絕不讀取內容。";
+"Open Settings…" = "開啟系統設定…";
+"Ready to record." = "可以開始錄製了。";
+"Soredemo cannot record until the two above are allowed." = "在上面兩項被允許之前,Soredemo 無法錄製。";

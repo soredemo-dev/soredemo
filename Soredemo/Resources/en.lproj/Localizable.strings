@@ -181,3 +181,14 @@
 "Video Effects…" = "Video Effects…";
 "Window" = "Window";
 "Another app is using this camera. The screen will still record." = "Another app is using this camera. The screen will still record.";
+"Permissions" = "Permissions";
+"Screen Recording" = "Screen Recording";
+"Input Monitoring" = "Input Monitoring";
+"Accessibility" = "Accessibility";
+"To record the screen at all. Nothing is captured until you start a recording." = "To record the screen at all. Nothing is captured until you start a recording.";
+"To record your narration as its own track, which you can mute afterwards." = "To record your narration as its own track, which you can mute afterwards.";
+"To know when you click, so the camera can move there. Key CODES only — this app cannot read what you type." = "To know when you click, so the camera can move there. Key CODES only — this app cannot read what you type.";
+"To ask what you clicked ON, so a zoom frames the button rather than the pointer. It reads the element's position and role, never its contents." = "To ask what you clicked ON, so a zoom frames the button rather than the pointer. It reads the element's position and role, never its contents.";
+"Open Settings…" = "Open Settings…";
+"Ready to record." = "Ready to record.";
+"Soredemo cannot record until the two above are allowed." = "Soredemo cannot record until the two above are allowed.";

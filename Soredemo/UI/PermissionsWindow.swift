@@ -18,7 +18,7 @@ import SwiftUI
 /// listed twice.
 struct PermissionsWindow: View {
     @State private var statuses: [CapturePermission: PermissionStatus] = [:]
-    @State private var cameraGranted = CameraRecorder.isAvailable
+    @State private var cameraStatus = CameraRecorder.authorization
     @Environment(\.dismiss) private var dismiss
 
     /// Permissions the product cannot work without — derived from `Degradation`, so a change to
@@ -51,7 +51,7 @@ struct PermissionsWindow: View {
                 ForEach(optional, id: \.self) { PermissionRow(permission: $0,
                                                              status: statuses[$0],
                                                              refresh: refresh) }
-                CameraRow(isGranted: cameraGranted, refresh: refresh)
+                CameraRow(status: cameraStatus, refresh: refresh)
             }
             // **The accessibility helper, and only when it is needed.** macOS cannot be told to
             // grant Accessibility; the API opens System Settings and the person does the rest —
@@ -63,9 +63,17 @@ struct PermissionsWindow: View {
             }
             Spacer(minLength: 0)
             HStack {
-                Text(everythingRequiredIsGranted
-                     ? "Ready to record."
-                     : "Soredemo cannot record until the two above are allowed.")
+                // **Two `Text`s, not one with a ternary.** `Text(cond ? "a" : "b")` is
+                // `Text(String)` — the branches are concatenated into a `String` before the
+                // initialiser sees them, so neither is ever a key. This line was English on a
+                // Chinese system for that reason alone.
+                Group {
+                    if everythingRequiredIsGranted {
+                        Text("Ready to record.")
+                    } else {
+                        Text("Soredemo cannot record until the two above are allowed.")
+                    }
+                }
                     .font(Type.detail)
                     .foregroundStyle(everythingRequiredIsGranted
                                      ? Theme.Ink.secondary : Signal.paused)
@@ -107,7 +115,7 @@ struct PermissionsWindow: View {
         statuses = Dictionary(uniqueKeysWithValues: CapturePermission.allCases.map {
             ($0, CapturePermissions.status(of: $0))
         })
-        cameraGranted = CameraRecorder.isAvailable
+        cameraStatus = CameraRecorder.authorization
     }
 }
 
@@ -124,10 +132,14 @@ private struct PermissionRow: View {
                 .foregroundStyle(status == .granted ? Theme.accent : Theme.Ink.secondary)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(Self.title(permission))
+                // `LocalizedStringKey`, because `title` and `reason` hand back a `String` and
+                // SwiftUI only looks a string up when it arrives as a key. This is why the four
+                // rows stayed English beside a Camera row written as a literal — see
+                // `TargetCard` in `MenuBarRecorder.swift`, which had it too.
+                Text(LocalizedStringKey(Self.title(permission)))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Theme.Ink.primary)
-                Text(Self.reason(permission))
+                Text(LocalizedStringKey(Self.reason(permission)))
                     .font(Type.detail)
                     .foregroundStyle(Theme.Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -230,14 +242,14 @@ private struct PermissionRow: View {
 /// The camera, which is not a `CapturePermission` because it is not one of the four this app's
 /// capture tier tracks — it belongs to `AVCaptureDevice`.
 private struct CameraRow: View {
-    let isGranted: Bool
+    let status: PermissionStatus
     let refresh: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.regular) {
             Image(systemName: "video")
                 .font(.system(size: 16))
-                .foregroundStyle(isGranted ? Theme.accent : Theme.Ink.secondary)
+                .foregroundStyle(status == .granted ? Theme.accent : Theme.Ink.secondary)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Camera").font(.system(size: 13, weight: .medium))
@@ -247,22 +259,41 @@ private struct CameraRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: Space.snug)
-            if isGranted {
-                Label("Allowed", systemImage: "checkmark.circle.fill")
-                    .font(Type.detail).foregroundStyle(Theme.accent)
-            } else {
-                Button("Allow\u{2026}") {
-                    Task {
-                        _ = await CameraRecorder.requestAccess()
-                        refresh()
-                    }
-                }
-                .controlSize(.small)
-            }
+            control
         }
         .padding(Space.regular)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
             .fill(Theme.Fill.rest))
+    }
+
+    /// **Asking is only correct once.** `AVCaptureDevice.requestAccess` prompts in exactly one
+    /// state; in the other three it returns the stored answer with no UI at all, which is a
+    /// button that visibly does nothing. Measured from inside this bundle: it can even move a
+    /// camera from `.notDetermined` straight to `.denied` without a prompt, and from there the
+    /// only route back is System Settings. So a refused camera is offered System Settings, and
+    /// the button says which one it is.
+    @ViewBuilder private var control: some View {
+        switch status {
+        case .granted:
+            Label("Allowed", systemImage: "checkmark.circle.fill")
+                .font(Type.detail).foregroundStyle(Theme.accent)
+        case .restricted:
+            Text("Blocked by this Mac's settings")
+                .font(Type.detail).foregroundStyle(Signal.paused)
+        case .denied, .notGrantedIndeterminate:
+            Button("Open Settings\u{2026}") {
+                PermissionRow.open("Privacy_Camera")
+            }
+            .controlSize(.small)
+        case .notDetermined:
+            Button("Allow\u{2026}") {
+                Task {
+                    _ = await CameraRecorder.requestAccess()
+                    refresh()
+                }
+            }
+            .controlSize(.small)
+        }
     }
 }
 

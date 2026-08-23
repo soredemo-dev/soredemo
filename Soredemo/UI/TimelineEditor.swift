@@ -33,7 +33,32 @@ final class TimelineEditorModel {
     private var liveEdit: EditTimeline?
     var edit: EditTimeline { liveEdit ?? history.current }
     /// Where the playhead sits, in SOURCE time.
-    var playhead = Nanoseconds(0)
+    private(set) var playhead = Nanoseconds(0)
+
+    /// Bumped only when a PERSON moved the playhead, and what the preview seeks on.
+    ///
+    /// **Playback has to be able to move the playhead without moving the player.** The seek used
+    /// to key on `playhead` itself, which was fine while the only thing that wrote it was a
+    /// drag — and the moment playback started writing it too, every tick would have seeked the
+    /// player to where the player already was, several times a second, for the whole recording.
+    /// A counter separates "somebody asked to go there" from "that is where we are".
+    private(set) var seekRequest = 0
+
+    /// A person put the playhead here. Seeks the preview.
+    func movePlayhead(to time: Nanoseconds) {
+        playhead = time
+        seekRequest += 1
+    }
+
+    /// The preview is here. Moves the line and nothing else.
+    ///
+    /// **Without this the playhead did not move during playback at all** — the line sat where it
+    /// was last dragged while the picture ran on, so the one surface that says WHEN things
+    /// happen could not say when NOW was.
+    func followPlayer(outputTime: Nanoseconds) {
+        guard let source = edit.sourceTime(atOutput: outputTime) else { return }
+        playhead = source
+    }
     /// The span a person has dragged out, in SOURCE time, or `nil` for no selection.
     var selection: Range<Int64>?
     /// The clip a person clicked, or `nil`. **Kept as an identity, never an index**: deleting
@@ -189,7 +214,7 @@ final class TimelineEditorModel {
         history.reset(to: EditTimeline.whole(duration: total))
         window = .whole(total)
         original = edit
-        playhead = Nanoseconds(0)
+        movePlayhead(to: Nanoseconds(0))
         selection = nil
         selectedClip = nil
         publish()
@@ -525,9 +550,33 @@ struct TimelineEditor: View {
                 shortcutLayer
                 playheadKeys(duration: duration)
             }
+            // **One line down the whole stack, not a mark inside the picture track.** The strip
+            // drew its own and no other lane did, so a zoom block, a caption and the waveform
+            // could not be read against the position the preview was at — which is the entire
+            // reason those lanes are stacked and aligned in the first place. Every editor in
+            // `../opensource/Screen Record Opensource/` runs it from the ruler to the bottom.
+            //
+            // An overlay rather than a row in the stack: it has to cross the lane gaps, and it
+            // must not take a hit test away from the strip underneath it.
+            .overlay(alignment: .topLeading) { playheadLine(duration: duration) }
         } else {
             Text("Loading the recording…").foregroundStyle(.secondary).font(Type.detail)
         }
+    }
+
+    /// The line, drawn over every lane at once.
+    ///
+    /// Offset by the header column, because the lanes' content starts there — the same one
+    /// number every lane uses, so this cannot drift away from the strips it is measuring.
+    @ViewBuilder private func playheadLine(duration: Nanoseconds) -> some View {
+        GeometryReader { proxy in
+            let track = max(proxy.size.width - Self.headerWidth, 1)
+            Rectangle()
+                .fill(Theme.Ink.primary)
+                .frame(width: 1)
+                .offset(x: Self.headerWidth + fraction(model.playhead, of: duration) * track)
+        }
+        .allowsHitTesting(false)
     }
 
     /// One track: a labelled header cell and its content, both at the same height.
@@ -865,12 +914,12 @@ struct TimelineEditor: View {
                             // and select the CLIP under it. Without the first part every click
                             // would leave a zero-width span that the buttons would act on.
                             model.selection = nil
-                            model.playhead = now
+                            model.movePlayhead(to: now)
                             model.selectClip(atSource: now)
                         } else {
                             model.selection = min(start.rawValue, now.rawValue)
                                 ..< max(start.rawValue, now.rawValue)
-                            model.playhead = now
+                            model.movePlayhead(to: now)
                         }
                     }
                     .onEnded { _ in model.endDrag() }
@@ -1071,7 +1120,7 @@ struct TimelineEditor: View {
 
     private func nudge(by delta: Int64, duration: Nanoseconds) {
         let moved = min(max(model.playhead.rawValue + delta, 0), duration.rawValue)
-        model.playhead = Nanoseconds(moved)
+        model.movePlayhead(to: Nanoseconds(moved))
         // The clip under the playhead follows it, so ← / → walk the clips as well as the time.
         model.selectClip(atSource: model.playhead)
         // …and the view follows the playhead off the edge, but only when it has gone off.

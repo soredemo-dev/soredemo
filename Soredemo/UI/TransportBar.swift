@@ -119,6 +119,13 @@ struct TransportBar: View {
             // which would leak one observer per rebuild.
             isPlaying = player.timeControlStatus == .playing
             position = player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0
+            // **The timeline's playhead is driven from here.** This is the one place that
+            // already asks the player where it is, and a second poller would be a second answer
+            // to the same question — drifting from this one by whatever the two timers differ
+            // by. `followPlayer` moves the line without asking the player to seek.
+            if isPlaying, position.isFinite {
+                model.followPlayer(outputTime: Nanoseconds(Int64(position * 1_000_000_000)))
+            }
             if let item = player.currentItem, item.duration.seconds.isFinite {
                 total = item.duration.seconds
             }

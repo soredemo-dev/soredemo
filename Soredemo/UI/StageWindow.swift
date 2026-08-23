@@ -282,7 +282,10 @@ struct StageWindow: View {
         // SOURCE time and the player counts in OUTPUT time, so the seek goes through the
         // edit; a position inside a cut has no output time and the player stays where it is
         // rather than jumping to zero.
-        .task(id: timeline.playhead) {
+        // Keyed on the REQUEST, not the position: playback writes the position several times a
+        // second, and seeking the player to where it already is would stall it. See
+        // `TimelineEditorModel.seekRequest`.
+        .task(id: timeline.seekRequest) {
             guard let player,
                   let output = timeline.edit.outputTime(atSource: timeline.playhead)
             else { return }
