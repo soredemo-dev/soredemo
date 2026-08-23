@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
+import Render
 import Timeline
 @testable import Compositing
 
@@ -75,4 +76,98 @@ extension StageCompositorTests {
         #expect(EditedAssetError.noVideoTrack.description.contains("video track"))
         #expect(EditedAssetError.trackRefused.description.contains("AVMutableComposition"))
     }
+}
+
+/// The camera has to survive the trip from the preview to the file.
+extension StageCompositorTests {
+    /// **Why the order has to be cut-then-combine, pinned.** `EditedAsset.make` keeps the FIRST
+    /// video track and drops the rest, so cutting an asset that already has a camera laid
+    /// alongside it deletes the camera. This is the constraint that forced `assetIsAlreadyEdited`
+    /// to exist: the exporter cuts what it is given, so a caller who needs a second video track
+    /// in the output has to do the cut itself and tell the exporter not to repeat it.
+    @MainActor
+    @Test func cuttingAnAssetThatAlreadyHasACameraDropsTheCamera() async throws {
+        let source = Self.cameraFixture()
+        let nanos = Int64(try await source.load(.duration).seconds * 1_000_000_000)
+        let edit = EditTimeline.whole(duration: Nanoseconds(nanos))
+        let combined = try await CameraComposition.combine(screen: source, cameraURL: source.url)
+        #expect(try await combined.asset.loadTracks(withMediaType: .video).count == 2)
+        let cutAfterCombining = try await EditedAsset.make(from: combined.asset, by: edit)
+        let survivors = try await cutAfterCombining.loadTracks(withMediaType: .video).count
+        // If this is 2, the exporter may cut a combined asset and `assetIsAlreadyEdited` is no
+        // longer needed for the reason it was added.
+        #expect(survivors == 1)
+    }
+
+    /// **The camera reaches the exported pixels.** The editor built `cut → combine(camera)` and
+    /// played that; the export built a fresh `AVURLAsset` from the recording on disk, which has
+    /// one video track. So the self-view showed a face for the whole recording and the export
+    /// had none.
+    ///
+    /// Asserted by rendering the same asset twice — once with a camera style and once without —
+    /// and requiring the pictures to differ. A duration check cannot see this: cutting an
+    /// already-cut asset by the same edit is a no-op on length and still drops the second track,
+    /// so the file would be the right length with the wrong content, which is precisely the
+    /// failure that shipped.
+    @MainActor
+    @Test func theCameraIsInTheExportedPictureAndNotOnlyInThePreview() async throws {
+        let source = Self.cameraFixture()
+        let nanos = Int64(try await source.load(.duration).seconds * 1_000_000_000)
+        let edit = EditTimeline.whole(duration: Nanoseconds(nanos))
+        let cut = try await EditedAsset.make(from: source, by: edit)
+        let combined = try await CameraComposition.combine(screen: cut, cameraURL: source.url)
+        #expect(combined.cameraTrackID != nil)
+
+        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+        // The compositor is still told the edit — it maps the observation log through it, and
+        // the exporter still checks the pairing. Saying "already cut" opts out of the CUT, not
+        // out of the check.
+        unsafe StageCompositor.editTimeline = edit
+        unsafe StageCompositor.cameraTrackID = combined.cameraTrackID
+        defer {
+            unsafe StageCompositor.editTimeline = nil
+            unsafe StageCompositor.cameraTrackID = nil
+            unsafe StageCompositor.cameraStyle = nil
+        }
+
+        let withCamera = try await Self.exportFirstFrame(
+            of: combined.asset, edit: edit, cameraStyle: .default)
+        let without = try await Self.exportFirstFrame(
+            of: combined.asset, edit: edit, cameraStyle: nil)
+        #expect(withCamera != without,
+                "the two renders are identical, so the camera track reached no pixel")
+    }
+
+    private static func cameraFixture() -> AVURLAsset {
+        AVURLAsset(url: repositoryRootFromTests
+            .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
+    }
+
+    /// Exports and returns the first frame's bytes. Small on purpose: this is a comparison, not
+    /// a picture anybody looks at, and 160×90 decodes in a fraction of the time.
+    @MainActor
+    private static func exportFirstFrame(of asset: sending AVAsset, edit: EditTimeline,
+                                         cameraStyle: CameraOverlayStyle?) async throws -> Data {
+        unsafe StageCompositor.cameraStyle = cameraStyle
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("camera-parity-\(cameraStyle == nil ? "off" : "on").mp4")
+        try? FileManager.default.removeItem(at: outputURL)
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        _ = try await MP4Exporter.export(
+            asset: asset, to: outputURL, outputWidth: 160, outputHeight: 90,
+            edit: edit, assetIsAlreadyEdited: true)
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: outputURL))
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+        let image = try await generator.image(at: .zero).image
+        guard let data = image.dataProvider?.data as Data? else {
+            throw CameraParityError.noPixels
+        }
+        return data
+    }
+
+    private enum CameraParityError: Error { case noPixels }
 }

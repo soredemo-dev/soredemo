@@ -92,6 +92,8 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
 
     private let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
+    /// Built during `start`'s configuration block — see `previewLayer()`.
+    private var preview: AVCaptureVideoPreviewLayer?
     private var destination: URL?
     private var finished: CheckedContinuation<URL?, Never>?
 
@@ -133,6 +135,15 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
             throw RecorderError.sessionRefusedOutput
         }
         session.addOutput(output)
+        // **The preview layer is made HERE, inside the configuration block, and not later.**
+        // `AVCaptureVideoPreviewLayer(session:)` adds a connection, and adding a connection is a
+        // session configuration change — which `AVCaptureMovieFileOutput` responds to by ENDING
+        // the recording it is in the middle of. Built after `startRecording`, as it was, the
+        // self-view appeared and the camera file was killed the instant it did: on screen while
+        // recording, absent from the export. The two are the same session and it can only be
+        // configured once.
+        preview = AVCaptureVideoPreviewLayer(session: session)
+        preview?.videoGravity = .resizeAspectFill
         session.commitConfiguration()
 
         destination = url
@@ -150,21 +161,22 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     /// and the picture.
     ///
     /// Returns `nil` before `start`, because there is nothing to show until there is.
-    public func previewLayer() -> AVCaptureVideoPreviewLayer? {
-        guard session.isRunning || !session.inputs.isEmpty else { return nil }
-        let layer = AVCaptureVideoPreviewLayer(session: session)
-        layer.videoGravity = .resizeAspectFill
-        return layer
-    }
+    public func previewLayer() -> AVCaptureVideoPreviewLayer? { preview }
 
     /// Stops and waits for the file to be written. `nil` when nothing was recorded.
     ///
     /// **Awaited rather than fire-and-forget.** `AVCaptureMovieFileOutput` finishes writing on
     /// its own queue after `stopRecording` returns, and a caller that read the file immediately
     /// would read a partial one — which is the same shape as the export's `finishWriting`.
+    ///
+    /// **A `nil` here means the recording had already ended**, which is a fact worth acting on
+    /// rather than a quiet absence: the output stops itself when the session is reconfigured
+    /// underneath it, and the only symptom the caller ever saw was an export with no camera in
+    /// it. `RecordingCoordinator` says so now.
     public func stop() async -> URL? {
         guard output.isRecording else {
             session.stopRunning()
+            preview = nil
             return nil
         }
         let url = await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
@@ -172,6 +184,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
             output.stopRecording()
         }
         session.stopRunning()
+        preview = nil
         return url
     }
 }

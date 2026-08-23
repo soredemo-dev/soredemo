@@ -453,6 +453,13 @@ final class RecordingCoordinator {
             CameraSelfView.shared.hide()
             cameraURL = await cameraRecorder.stop()
             self.cameraRecorder = nil
+            // **A camera that was asked for and did not arrive is said out loud.** It used to
+            // be a `nil` that travelled all the way to an export with no face in it and no
+            // explanation — the shape this project keeps finding, where the only symptom of a
+            // failure is the absence of a thing nobody was told about.
+            if cameraURL == nil {
+                statusText = "The camera could not be recorded. The screen recording is fine."
+            }
         }
         guard let session else { return }
         isRecording = false

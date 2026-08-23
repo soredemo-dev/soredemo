@@ -858,12 +858,19 @@ struct StageWindow: View {
     /// export composes the identical framing and pointer the preview showed.
     private func exportRecording(to destination: URL) async {
         do {
-            let asset = AVURLAsset(url: mediaURL)
+            // **The asset the preview is playing, not the file on disk.** Building a fresh
+            // `AVURLAsset(url:)` here exported the screen recording and nothing else: the camera
+            // reaches the picture as a SECOND VIDEO TRACK that `load()` lays alongside the cut
+            // asset, and a bare file has one track. The self-view showed a face the whole way
+            // through and the export had none — and `StageCompositor.cameraTrackID` names a
+            // track in the composition `load()` built, so it would not have matched this asset's
+            // tracks even if the camera had been in it.
+            guard let asset = playingAsset else { return }
             let size = Self.size(for: variant)
             let report = try await MP4Exporter.export(
                 asset: asset, to: destination,
                 outputWidth: size.width, outputHeight: size.height,
-                edit: timeline.edit, audioMix: audioMix,
+                edit: timeline.edit, assetIsAlreadyEdited: true, audioMix: audioMix,
                 // Hops to the main actor because the export reports from its own context, and
                 // `exportProgress` is view state.
                 onProgress: { progress in
@@ -884,12 +891,13 @@ struct StageWindow: View {
     /// variant, because a GIF that is 1920 wide is a file nobody can attach to anything.
     private func exportGIF(to destination: URL) async {
         do {
-            let asset = AVURLAsset(url: mediaURL)
+            // The same asset the MP4 export takes, for the same reason.
+            guard let asset = playingAsset else { return }
             let size = Self.size(for: variant)
             let report = try await GIFExporter.export(
                 asset: asset, to: destination,
                 outputWidth: size.width, outputHeight: size.height,
-                edit: timeline.edit, settings: gifSettings,
+                edit: timeline.edit, assetIsAlreadyEdited: true, settings: gifSettings,
                 onProgress: { progress in
                     Task { @MainActor in exportProgress = progress }
                 })

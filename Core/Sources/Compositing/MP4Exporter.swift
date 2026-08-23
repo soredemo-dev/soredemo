@@ -64,6 +64,7 @@ public enum MP4Exporter {
     public nonisolated static func export(asset: AVAsset, to outputURL: URL,
                                           outputWidth: Int, outputHeight: Int,
                                           edit: EditTimeline? = nil,
+                                          assetIsAlreadyEdited: Bool = false,
                                           audioMix: AudioMix = .unchanged,
                                           frameRate: Int = 60,
                                           onProgress: (@Sendable (ExportProgress) -> Void)? = nil
@@ -92,7 +93,16 @@ public enum MP4Exporter {
         // `if let` rather than `Optional.map`: the transform is `async throws`, which `map`
         // cannot carry.
         var asset = asset
-        if let edit { asset = try await EditedAsset.make(from: asset, by: edit) }
+        // **`assetIsAlreadyEdited` separates two things `edit` was doing at once.** It said
+        // "cut this for me" AND "this is the edit the compositor is mapping the observation log
+        // through", and a caller who had already cut the asset could only opt out of the first
+        // by lying about the second. The camera is why: `EditedAsset.make` takes the FIRST video
+        // track and drops the rest, so a camera laid alongside must be combined AFTER the cut —
+        // which means the caller does the cut. The compositor still has to be told the same
+        // edit, and the check below still holds it to that.
+        if let edit, !assetIsAlreadyEdited {
+            asset = try await EditedAsset.make(from: asset, by: edit)
+        }
 
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         guard !videoTracks.isEmpty else { throw ExportError.noVideoTrack }
