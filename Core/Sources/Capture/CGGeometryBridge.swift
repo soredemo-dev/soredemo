@@ -156,4 +156,15 @@ public enum CGGeometryBridge {
     public nonisolated static func rect(from points: PointRect) -> CGRect {
         CGRect(x: points.x, y: points.y, width: points.width, height: points.height)
     }
+
+    /// The `CGSize` `AVAssetImageGenerator.maximumSize` takes, from plain `Int`s.
+    ///
+    /// **The app tier names no CoreGraphics geometry type at all** — a zero-permit claim
+    /// (`noAppSourceNamesACoreGraphicsGeometryType`), and a filmstrip has to cap its thumbnail
+    /// size or it decodes 4K frames to draw postage stamps. Distinct from
+    /// `HeadlessGeometryBridge.renderSize(width:height:)` by name as well as by tier, because a
+    /// test forbids the two bridges from sharing a function signature.
+    public nonisolated static func thumbnailSize(width: Int, height: Int) -> CGSize {
+        CGSize(width: CGFloat(width), height: CGFloat(height))
+    }
 }

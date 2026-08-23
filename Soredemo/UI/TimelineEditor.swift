@@ -336,6 +336,9 @@ struct TimelineEditor: View {
     /// invisible on the timeline: a person could add a title and see nothing on the one surface
     /// that says WHEN things happen. Their own panels still own the editing — this shows where
     /// they are, which is what a timeline is for.
+    /// The frames drawn along the video track. Owned by the host so it survives a rebuild of
+    /// this view — a cache discarded on every edit would re-decode the whole strip per keystroke.
+    var filmstrip: Filmstrip?
     var texts = TextTrack()
     var captions = CaptionTrack()
     var redactions = RedactionTrack()
@@ -482,6 +485,40 @@ struct TimelineEditor: View {
         return String(format: "%d:%02d", whole / 60, whole % 60)
     }
 
+    /// The frames covering one clip's span, at the current zoom.
+    ///
+    /// **Positioned by their own time, not tiled.** A filmstrip laid out by index would slide
+    /// out of step with the picture as soon as a cut moved a clip; each frame is drawn where its
+    /// timestamp lands, so it stays over the moment it came from.
+    @ViewBuilder private func filmstripLayer(from start: Nanoseconds, to end: Nanoseconds,
+                                             width: Double, height: Double) -> some View {
+        if let filmstrip, width > 2 {
+            let visible = Double(model.window.visible.rawValue) / 1_000_000_000
+            let step = Filmstrip.step(visibleSeconds: visible, width: width + 1)
+            let stripWidth = height * 16 / 9
+            let first = Double(start.rawValue) / 1_000_000_000
+            let last = Double(end.rawValue) / 1_000_000_000
+            GeometryReader { _ in
+                ZStack(alignment: .topLeading) {
+                    ForEach(filmstrip.framesIn(step: step, from: first, to: last), id: \.0) { key, image in
+                        let x = (key.seconds - first) / max(last - first, 0.000_001) * width
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: stripWidth, height: height)
+                            .clipped()
+                            .offset(x: x)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .task(id: "\(step)-\(first)-\(visible)") {
+                filmstrip.request(step: step, from: first,
+                                  visibleSeconds: max(last - first, step))
+            }
+        }
+    }
+
     /// The audio track: the waveform across the recording, on its own ground.
     @ViewBuilder private func audioLane(duration: Nanoseconds) -> some View {
         GeometryReader { geometry in
@@ -542,7 +579,16 @@ struct TimelineEditor: View {
                              - model.window.fraction(of: clip.sourceStart)) * width
                     let isSelected = clip.id == model.selectedClip
                     RoundedRectangle(cornerRadius: Radius.strip)
-                        .fill(Theme.Lane.video.opacity(isSelected ? 0.95 : 0.75))
+                        .fill(Theme.Lane.video.opacity(isSelected ? 0.55 : 0.35))
+                        // **The frames go INSIDE the clip, clipped to it.** Drawn behind, they
+                        // would show through the gaps a cut leaves and a removed span would
+                        // still have a picture in it — which is the opposite of what a cut
+                        // means. `clipShape` is what makes the strip say what survives.
+                        .overlay {
+                            filmstripLayer(from: clip.sourceStart, to: clip.sourceEnd,
+                                           width: w, height: geometry.size.height)
+                                .clipShape(RoundedRectangle(cornerRadius: Radius.strip))
+                        }
                         .overlay {
                             // The selected clip is outlined rather than recoloured: the fill
                             // already carries "this is kept footage", and a second colour

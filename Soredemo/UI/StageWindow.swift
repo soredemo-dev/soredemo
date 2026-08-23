@@ -23,6 +23,8 @@ struct StageWindow: View {
     /// The asset the current item was built from. Held because `AVAudioMix` addresses that
     /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
     @State private var playingAsset: AVAsset?
+    /// The video track's thumbnails. Owned here so a cache is not discarded on every edit.
+    @State private var filmstrip = Filmstrip()
     @State private var failure: String?
     // MARK: - export-basic
     @State private var isExporting = false
@@ -198,6 +200,7 @@ struct StageWindow: View {
                 if !isTimelineCollapsed {
                     Divider()
                     TimelineEditor(model: timeline, onChange: { editRevision += 1 },
+                                   filmstrip: filmstrip,
                                    texts: texts.track, captions: captions.track,
                                    redactions: redactions.track)
                         .padding(Space.regular)
@@ -623,6 +626,11 @@ struct StageWindow: View {
             // with the microphone muted must sound muted before anyone touches a control.
             await AudioMixBuilder.apply(audioMix, to: item, of: asset)
             playingAsset = asset
+            // **The filmstrip reads the UNCUT recording**, not the edited composition: the strip
+            // is laid out in source time, and a composition's own timeline has already had the
+            // cuts taken out of it — so a frame asked for at 30 s would come back from a
+            // different moment after every edit.
+            filmstrip.load(AVURLAsset(url: mediaURL))
             player = AVPlayer(playerItem: item)
         } catch {
             failure = "\(error)"
