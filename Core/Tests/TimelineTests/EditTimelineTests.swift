@@ -376,3 +376,114 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         }
     }
 }
+
+/// A clip that plays at a rate other than the recording's.
+@Suite struct ClipSpeedTests {
+    private func ns(_ seconds: Double) -> Nanoseconds {
+        Nanoseconds(Int64(seconds * 1_000_000_000))
+    }
+
+    /// **Source duration and output duration stop being the same number.** That is the whole
+    /// cost of the feature, and every conversion below is a consequence of it.
+    @Test func aClipAtDoubleSpeedPlaysInHalfTheTime() {
+        let clip = EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(10),
+                            speed: 2)
+        #expect(clip.duration == ns(10))
+        #expect(clip.outputDuration == ns(5))
+        #expect(clip.playing(at: 0.5).outputDuration == ns(20))
+    }
+
+    /// Bounded at a quarter and four: below a quarter the recording has no more frames to give,
+    /// and above four the pointer moves faster than a viewer can follow.
+    @Test func speedIsClampedRatherThanTrappedOn() {
+        let clip = EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(1))
+        #expect(clip.playing(at: 99).speed == 4)
+        #expect(clip.playing(at: 0).speed == 0.25)
+        #expect(clip.playing(at: .nan).speed == 1)
+    }
+
+    /// The timeline's own length is the sum of what PLAYS.
+    @Test func theTimelinesLengthIsTheSumOfWhatPlays() {
+        let timeline = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(10), speed: 2),
+            EditClip(id: ClipID(rawValue: 1), sourceStart: ns(10), duration: ns(10)),
+        ])
+        #expect(timeline.outputDuration == ns(15))
+        #expect(timeline.outputStarts == [ns(0), ns(5)])
+    }
+
+    /// **The mapping both ways, which is what the pointer, the camera and the captions all use.**
+    /// Four seconds into a 2× clip is eight seconds into the recording.
+    @Test func theMappingScalesInBothDirections() {
+        let timeline = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(10), speed: 2),
+        ])
+        #expect(timeline.sourceTime(atOutput: ns(4)) == ns(8))
+        #expect(timeline.outputTime(atSource: ns(8)) == ns(4))
+        // Past the end of what plays is still nil, not the last frame.
+        #expect(timeline.sourceTime(atOutput: ns(6)) == nil)
+    }
+
+    /// A cut lands in OUTPUT time, so the offset has to be converted back before it becomes a
+    /// source duration — otherwise the split is at the wrong frame on every clip whose speed
+    /// is not 1.
+    @Test func aSplitOnAFastClipCutsAtTheFrameItLooksLike() throws {
+        let timeline = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(10), speed: 2),
+        ])
+        let split = try #require(timeline.split(atOutput: ns(2)))
+        #expect(split.clips.count == 2)
+        // Two seconds of playback is four seconds of recording.
+        #expect(split.clips[0].duration == ns(4))
+        #expect(split.clips[1].sourceStart == ns(4))
+        // Both halves keep the speed; a split is not a change of pace.
+        #expect(split.clips.allSatisfy { $0.speed == 2 })
+        #expect(split.outputDuration == timeline.outputDuration)
+    }
+
+    /// **Adjacent clips at different speeds are not merged.** Two spans played at different
+    /// rates are two clips however contiguous their source is, and merging would silently give
+    /// the whole run one of the two speeds.
+    @Test func mergingLeavesClipsAtDifferentSpeedsAlone() {
+        let timeline = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(5), speed: 2),
+            EditClip(id: ClipID(rawValue: 1), sourceStart: ns(5), duration: ns(5)),
+        ])
+        #expect(timeline.merged().clips.count == 2)
+
+        let sameSpeed = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(5), speed: 2),
+            EditClip(id: ClipID(rawValue: 1), sourceStart: ns(5), duration: ns(5), speed: 2),
+        ])
+        #expect(sameSpeed.merged().clips.count == 1)
+        #expect(sameSpeed.merged().clips[0].speed == 2)
+    }
+
+    /// A project written before speeds existed opens with its clips at the recording's own pace
+    /// — which is what they did when it was saved.
+    @Test func aClipWithNoSpeedKeyDecodesAtNormalPace() throws {
+        let older = Data(#"{"id":0,"sourceStart":{"rawValue":0},"duration":{"rawValue":1000}}"#.utf8)
+        let clip = try JSONDecoder().decode(EditClip.self, from: older)
+        #expect(clip.speed == 1)
+        #expect(clip.outputDuration == clip.duration)
+    }
+
+    @Test func aClipRoundTripsWithItsSpeed() throws {
+        let clip = EditClip(id: ClipID(rawValue: 3), sourceStart: ns(1), duration: ns(2),
+                            speed: 1.5)
+        let data = try JSONEncoder().encode(clip)
+        #expect(try JSONDecoder().decode(EditClip.self, from: data) == clip)
+    }
+
+    /// A trim keeps the speed, for `spanning`'s reason: a trim is an edit to a clip rather than
+    /// a replacement of it.
+    @Test func trimmingKeepsTheSpeed() throws {
+        let timeline = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(10), speed: 2),
+        ])
+        let trimmed = try #require(timeline.trimming(id: ClipID(rawValue: 0),
+                                                     startDelta: 0,
+                                                     endDelta: -1_000_000_000))
+        #expect(trimmed.clips[0].speed == 2)
+    }
+}

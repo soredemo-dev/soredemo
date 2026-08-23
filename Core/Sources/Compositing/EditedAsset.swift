@@ -43,13 +43,35 @@ public enum EditedAsset {
                 start: CMTime(value: clip.sourceStart.rawValue, timescale: 1_000_000_000),
                 duration: CMTime(value: clip.duration.rawValue, timescale: 1_000_000_000))
             try videoTrack.insertTimeRange(range, of: sourceVideoTrack, at: cursor)
+            // **Scaled after the insert, over the span just written.** `scaleTimeRange` operates
+            // on the composition's own timeline, so it must be given where the material landed
+            // rather than where it came from — and it must be applied per clip, because the
+            // speeds differ. A clip at 1 is skipped: scaling a range to its own duration is a
+            // no-op that still costs an edit-list entry per clip.
+            let played = CMTime(value: clip.outputDuration.rawValue, timescale: 1_000_000_000)
+            if clip.speed != 1 {
+                videoTrack.scaleTimeRange(CMTimeRange(start: cursor, duration: range.duration),
+                                          toDuration: played)
+            }
             for (index, track) in audioTracks.enumerated() where index < sourceAudio.count {
                 // A source whose audio is shorter than its video is normal — the microphone
                 // may have started late. A clip past the end of one track is skipped for that
                 // track rather than failing the whole export.
                 try? track.insertTimeRange(range, of: sourceAudio[index], at: cursor)
+                if clip.speed != 1 {
+                    // The audio is scaled with the picture, or a sped-up clip would run out of
+                    // sound half way through and the tracks would drift for the rest of the
+                    // export. AVFoundation resamples rather than dropping samples, so the
+                    // narration comes back higher and faster — which is what speeding up
+                    // narration sounds like, and what every editor does by default.
+                    track.scaleTimeRange(CMTimeRange(start: cursor, duration: range.duration),
+                                         toDuration: played)
+                }
             }
-            cursor = cursor + range.duration
+            // **Advanced by what was PLAYED, not by what was read.** After a scale the material
+            // occupies `played` on the composition's timeline; advancing by the source duration
+            // would leave a gap after every slowed clip and overlap after every fast one.
+            cursor = cursor + played
         }
         return composition
     }

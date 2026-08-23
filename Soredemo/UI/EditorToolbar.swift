@@ -33,6 +33,7 @@ struct EditorToolbar: View {
             separator
             cutting
             separator
+            speed
             silence
             reverting
             Spacer(minLength: Space.regular)
@@ -88,6 +89,40 @@ struct EditorToolbar: View {
             model.keepOnlySelection()
             onChange()
         }
+    }
+
+    /// How fast the selected clip plays.
+    ///
+    /// **Per clip, not per timeline.** The point of the control is that the boring middle of a
+    /// walkthrough plays at 2× while the part being explained plays at 1 — a single rate for the
+    /// whole video is a different feature, and a less useful one.
+    @ViewBuilder private var speed: some View {
+        Menu {
+            ForEach(TimelineEditorModel.speedChoices, id: \.self) { value in
+                Button(Self.speedLabel(value)) {
+                    model.setSelectedSpeed(value)
+                    onChange()
+                }
+            }
+        } label: {
+            Text(model.selectedSpeed.map(Self.speedLabel) ?? "1\u{00D7}")
+                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .foregroundStyle((model.selectedSpeed ?? 1) == 1
+                                 ? Theme.Ink.secondary : Theme.accent)
+                .frame(width: 34)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(model.selectedClip == nil)
+        .opacity(model.selectedClip == nil ? 0.35 : 1)
+        .help(model.selectedClip == nil ? "Select a clip to change its speed"
+              : "How fast the selected clip plays")
+    }
+
+    /// `2×`, `0.5×` — trailing zeroes dropped, as the transport's rate label does.
+    static func speedLabel(_ value: Double) -> String {
+        value == value.rounded() ? "\(Int(value))\u{00D7}" : String(format: "%.2g\u{00D7}", value)
     }
 
     /// Finding and cutting the pauses.

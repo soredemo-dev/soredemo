@@ -47,21 +47,47 @@ public struct ClipID: Hashable, Sendable, Codable, Comparable {
 public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     public let id: ClipID
     public let sourceStart: Nanoseconds
+    /// How much of the RECORDING this clip covers. Not how long it plays — see `speed`.
     public let duration: Nanoseconds
+    /// How fast it plays. 1 is the recording's own pace; 2 plays it in half the time.
+    ///
+    /// **Source duration and output duration stop being the same number here**, which is the
+    /// whole cost of this feature and the reason it is a field on the clip rather than a
+    /// setting on the timeline: every conversion between the two spaces has to divide, and a
+    /// timeline-wide speed would still need the same division while pretending it did not.
+    ///
+    /// Bounded at a quarter and four. Below a quarter a demo is a slideshow of held frames —
+    /// the recording has no more frames to give — and above four the pointer moves faster than
+    /// a viewer can follow, which is the opposite of what a walkthrough is for.
+    public let speed: Double
 
-    public init(id: ClipID, sourceStart: Nanoseconds, duration: Nanoseconds) {
+    public init(id: ClipID, sourceStart: Nanoseconds, duration: Nanoseconds,
+                speed: Double = 1) {
         precondition(sourceStart.rawValue >= 0, "a clip cannot start before the recording")
         precondition(duration.rawValue > 0, "a clip with no duration is not a clip")
         self.id = id
         self.sourceStart = sourceStart
         self.duration = duration
+        // Clamped rather than trapped: a speed reaches here from a slider and from a decoder,
+        // and rule 8 forbids trapping on an untrusted input.
+        self.speed = Swift.min(Swift.max(speed.isFinite ? speed : 1, 0.25), 4)
+    }
+
+    /// How long this clip PLAYS. Every output-space position is a sum of these.
+    public var outputDuration: Nanoseconds {
+        Nanoseconds(Int64((Double(duration.rawValue) / speed).rounded()))
+    }
+
+    /// The same clip at a different speed. Keeps the id, for `spanning`'s reason.
+    public func playing(at speed: Double) -> EditClip {
+        EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed)
     }
 
     /// The same clip covering a different span of the recording. **Keeps the id**, which is
     /// what makes a trim an edit to a clip rather than a replacement of it: a selection
     /// survives, and so does anything else keyed on the clip.
     public func spanning(sourceStart: Nanoseconds, duration: Nanoseconds) -> EditClip {
-        EditClip(id: id, sourceStart: sourceStart, duration: duration)
+        EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed)
     }
 
     /// **Validated on decode, not by the `precondition` above** (D6 rule 8). The synthesised
@@ -81,9 +107,13 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
         self.id = id
         self.sourceStart = sourceStart
         self.duration = duration
+        // **Absence-tolerant.** A project written before speeds existed has no key, and its
+        // clips play at the recording's own pace — which is what they did when it was saved.
+        self.speed = Swift.min(
+            Swift.max(try container.decodeIfPresent(Double.self, forKey: .speed) ?? 1, 0.25), 4)
     }
 
-    private enum CodingKeys: String, CodingKey { case id, sourceStart, duration }
+    private enum CodingKeys: String, CodingKey { case id, sourceStart, duration, speed }
 
     /// One past the last nanosecond this clip reads from the recording.
     public var sourceEnd: Nanoseconds { Nanoseconds(sourceStart.rawValue + duration.rawValue) }
@@ -143,7 +173,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         guard outputTime.rawValue >= 0 else { return nil }
         var running: Int64 = 0
         for clip in clips {
-            let next = running + clip.duration.rawValue
+            let next = running + clip.outputDuration.rawValue
             if outputTime.rawValue < next { return clip }
             running = next
         }
@@ -169,7 +199,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         var running: Int64 = 0
         for clip in clips {
             if clip.id == id { return Nanoseconds(running) }
-            running += clip.duration.rawValue
+            running += clip.outputDuration.rawValue
         }
         return nil
     }
@@ -196,15 +226,26 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     public func split(atOutput outputTime: Nanoseconds) -> EditTimeline? {
         var running: Int64 = 0
         for (index, clip) in clips.enumerated() {
-            let next = running + clip.duration.rawValue
+            let next = running + clip.outputDuration.rawValue
             if outputTime.rawValue > running && outputTime.rawValue < next {
-                let leftLength = outputTime.rawValue - running
+                // **Converted back into SOURCE time before it becomes a duration.** The offset
+                // is how far into the clip's PLAYBACK the cut fell; a clip at 2× covers twice
+                // that much of the recording. Using the output offset directly would put the
+                // cut at the wrong frame on every clip whose speed is not 1.
+                let leftLength = Int64((Double(outputTime.rawValue - running)
+                                        * clip.speed).rounded())
                 let left = clip.spanning(sourceStart: clip.sourceStart,
                                          duration: Nanoseconds(leftLength))
                 let right = EditClip(
                     id: nextID,
                     sourceStart: Nanoseconds(clip.sourceStart.rawValue + leftLength),
-                    duration: Nanoseconds(clip.duration.rawValue - leftLength))
+                    duration: Nanoseconds(clip.duration.rawValue - leftLength),
+                    // **The right half keeps the speed too.** A split is preparation for an
+                    // edit, not an edit: the output must be unchanged, and a right half at the
+                    // default pace would make the video longer the moment it was cut. The left
+                    // half inherits it through `spanning`; this one is constructed, so it has
+                    // to be said.
+                    speed: clip.speed)
                 var updated = clips
                 updated.replaceSubrange(index...index, with: [left, right])
                 return EditTimeline(clips: updated,
@@ -251,7 +292,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
 
     /// How long the edited video runs — the sum of what survived, not the recording's length.
     public var outputDuration: Nanoseconds {
-        Nanoseconds(clips.reduce(0) { $0 + $1.duration.rawValue })
+        Nanoseconds(clips.reduce(0) { $0 + $1.outputDuration.rawValue })
     }
 
     /// Where each clip begins in the OUTPUT, in the same order as `clips`.
@@ -260,7 +301,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         var running: Int64 = 0
         for clip in clips {
             starts.append(Nanoseconds(running))
-            running += clip.duration.rawValue
+            running += clip.outputDuration.rawValue
         }
         return starts
     }
@@ -276,9 +317,13 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         guard outputTime.rawValue >= 0 else { return nil }
         var running: Int64 = 0
         for clip in clips {
-            let next = running + clip.duration.rawValue
+            let next = running + clip.outputDuration.rawValue
             if outputTime.rawValue < next {
-                return Nanoseconds(clip.sourceStart.rawValue + (outputTime.rawValue - running))
+                // Scaled by the clip's speed: an output offset covers `speed` times as much of
+                // the recording. This is the conversion the pointer, the camera, the captions
+                // and the text overlays all reach the source through.
+                let into = Int64((Double(outputTime.rawValue - running) * clip.speed).rounded())
+                return Nanoseconds(clip.sourceStart.rawValue + into)
             }
             running = next
         }
@@ -295,9 +340,13 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         for clip in clips {
             if sourceTime.rawValue >= clip.sourceStart.rawValue,
                sourceTime.rawValue < clip.sourceEnd.rawValue {
-                return Nanoseconds(running + (sourceTime.rawValue - clip.sourceStart.rawValue))
+                // The inverse of `sourceTime(atOutput:)`: a source offset takes `1/speed` as
+                // long to play.
+                let into = Int64((Double(sourceTime.rawValue - clip.sourceStart.rawValue)
+                                  / clip.speed).rounded())
+                return Nanoseconds(running + into)
             }
-            running += clip.duration.rawValue
+            running += clip.outputDuration.rawValue
         }
         return nil
     }
@@ -369,7 +418,12 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     public func merged() -> EditTimeline {
         var merged: [EditClip] = []
         for clip in clips {
-            if let last = merged.last, last.sourceEnd.rawValue == clip.sourceStart.rawValue {
+            // **Only when the speeds match.** Two adjacent spans of the recording played at
+            // different rates are two clips however contiguous their source is; merging them
+            // would silently give the whole run one of the two speeds. Before speeds existed
+            // this condition was always true, which is why it was not written.
+            if let last = merged.last, last.sourceEnd.rawValue == clip.sourceStart.rawValue,
+               last.speed == clip.speed {
                 // The survivor keeps the FIRST clip's id: the merged clip starts where it did.
                 merged[merged.count - 1] = last.spanning(
                     sourceStart: last.sourceStart,

@@ -259,6 +259,27 @@ final class TimelineEditorModel {
         selectedClip = edit.clip(atSource: sourceTime)?.id
     }
 
+    /// The speeds the toolbar offers. Not a slider: a demo is sped up to a ROUND number a
+    /// viewer can feel — half, twice — and a slider invites 1.37×, which is a number nobody
+    /// chose on purpose.
+    static let speedChoices: [Double] = [0.5, 1, 1.5, 2, 4]
+
+    /// The selected clip's speed, or `nil` when nothing is selected.
+    var selectedSpeed: Double? {
+        selectedClip.flatMap { id in edit.clips.first { $0.id == id }?.speed }
+    }
+
+    /// Plays the selected clip at `speed`.
+    func setSelectedSpeed(_ speed: Double) {
+        guard let id = selectedClip,
+              let clip = edit.clips.first(where: { $0.id == id }), clip.speed != speed else {
+            return
+        }
+        apply("Play at \(EditorToolbar.speedLabel(speed))",
+              EditTimeline(clips: edit.clips.map { $0.id == id ? $0.playing(at: speed) : $0 },
+                           nextID: edit.nextID))
+    }
+
     /// Cuts the selected clip in two at the playhead.
     ///
     /// **The playhead is in SOURCE time and `split` takes OUTPUT time**, so it converts —
@@ -773,7 +794,9 @@ struct TimelineEditor: View {
                         // squeezed — a clipped label is worse than none.
                         .overlay(alignment: .topLeading) {
                             if w > Self.clipLabelMinimumWidth {
-                                Text(Self.stamp(clip.duration))
+                                Text(clip.speed == 1 ? Self.stamp(clip.duration)
+                                     : "\(Self.stamp(clip.duration)) \u{00B7} "
+                                     + EditorToolbar.speedLabel(clip.speed))
                                     .font(.system(size: 9, weight: .medium).monospacedDigit())
                                     .foregroundStyle(Theme.Ink.primary.opacity(0.85))
                                     .padding(.horizontal, Space.tight)
