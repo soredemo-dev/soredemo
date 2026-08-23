@@ -34,7 +34,14 @@ struct ContentView: View {
                     // identities. Without it the scratch directory leaks; the launch sweep bounds it.
                     .onDisappear { coordinator.previewWasDismissed() }
             } else {
-                WelcomeView(coordinator: coordinator)
+                // **Reachable only if the window is opened with nothing loaded**, which the
+                // scene's `.defaultLaunchBehavior(.suppressed)` and the one call site of
+                // `openWindow` are between them meant to prevent. Kept as a plain statement of
+                // fact rather than a welcome screen: the welcome screen WAS this window, and it
+                // was the thing covering the screen a person came to record.
+                ContentUnavailableView("Nothing open",
+                                       systemImage: "record.circle",
+                                       description: Text("Start a recording from the menu bar."))
             }
         }
         .frame(minWidth: 640, minHeight: 460)

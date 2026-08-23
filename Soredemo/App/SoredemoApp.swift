@@ -24,6 +24,8 @@ struct SoredemoApp: App {
     /// Held here because a SwiftUI command can only attach to a `Scene`, never a
     /// `View`, so the "Open Recording…" command cannot live in `ContentView`.
     @State private var recordingCoordinator = RecordingCoordinator()
+    /// The editor window's identity, so `openWindow(id:)` can reach it from the menu bar item.
+    static let editorWindowID = "editor" 
     /// The one thing an app delegate is needed for: asking before the app quits over an edit
     /// nobody saved. See `UnsavedWorkGuard`.
     @NSApplicationDelegateAdaptor(SoredemoAppDelegate.self) private var appDelegate
@@ -52,9 +54,18 @@ struct SoredemoApp: App {
         // `.window`, not the default menu: the contents are controls, not commands.
         .menuBarExtraStyle(.window)
 
-        // The editor window. Opened by a recording finishing, by opening a project, or from the
-        // menu bar panel — not the way in any more.
-        WindowGroup {
+        // **The editor, and it does not exist until there is something to edit.**
+        // `.defaultLaunchBehavior(.suppressed)` is what stops SwiftUI opening it at launch: a
+        // recorder that greets you with an empty editor window is a recorder whose first act is
+        // to cover the screen you wanted to record. `MenuBarRecorderLabel` opens it when a
+        // recording finishes or a project is opened, which are the only two times it has
+        // anything in it.
+        //
+        // `Window`, not `WindowGroup`: one recording is open at a time, so a second window would
+        // be a second set of models over the same `StageCompositor` statics — which are
+        // process-global because AVFoundation owns compositor instances, and would therefore
+        // disagree between the two windows.
+        Window("Soredemo", id: Self.editorWindowID) {
             ContentView(coordinator: recordingCoordinator)
                 // `SCContentSharingPicker.present()` hands off to Control
                 // Center's UI and needs a running run loop to call back into,
@@ -69,6 +80,7 @@ struct SoredemoApp: App {
                     }
                 }
         }
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             // `ProjectDocument` is an `NSDocument`, not a `FileDocument`, so
             // `DocumentGroup` cannot host it. `NSDocumentController` is stood up

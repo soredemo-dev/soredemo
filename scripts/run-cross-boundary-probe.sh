@@ -91,6 +91,7 @@ xcrun swiftc \
   -o "$OUT/probe" \
   Soredemo/App/BuildProvenance.swift \
   Soredemo/App/UnsavedWorkGuard.swift \
+  Soredemo/App/EditorWindowPresence.swift \
   Soredemo/UI/DesignTokens.swift \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/UI/PreviewView.swift \

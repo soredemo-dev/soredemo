@@ -73,6 +73,16 @@ final class UnsavedWorkGuard {
 
 /// The one thing an `NSApplicationDelegate` is needed for here.
 final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
+    /// Takes the Dock icon away again once the last editor closes — see `EditorWindowPresence`.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
+                // After the close, not during it: the window being closed is still in
+                // `NSApp.windows` while the notification is being delivered.
+                Task { @MainActor in EditorWindowPresence.windowClosed() }
+            }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // `runModal` inside this callback rather than `.terminateLater` plus a reply: the alert
         // is synchronous and modal either way, and `.terminateLater` adds a state machine whose

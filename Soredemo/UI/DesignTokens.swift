@@ -62,19 +62,22 @@ enum InspectorWidth {
     static let maximum: Double = 380
 }
 
-/// The floating surfaces — the menu bar panel and the recording bar.
+/// The floating recording bar's surface.
 ///
-/// **One place, because there are now two of them and they have to look like one product.**
-/// Every recorder worth copying uses the same treatment for these: a dark blurred pane, a corner
-/// radius large enough to read as a floating object rather than a window, a hairline light edge
-/// so it separates from a bright desktop, and a shadow that does the rest.
+/// **Only the bar, since the menu bar panel stopped drawing its own.** That panel used to build
+/// a glass card inside the system's popover, which had already drawn a rounded translucent
+/// surface — two sets of corners and an inset that read as a mistake. It now fills the popover
+/// and the system is the surface, which left `panelRadius` and `pressedOpacity` here with no
+/// callers; they are gone rather than kept for a symmetry that no longer exists.
+///
+/// What is left is what a pane floating over a person's SCREEN needs: a dark blurred surface, a
+/// radius large enough to read as an object rather than a window, a hairline light edge so it
+/// separates from a bright desktop, and a shadow.
 /// `../opensource/Screen Record Opensource/a Swift recorder`'s `CaptureToolbarPanel` builds exactly
-/// this by hand at each site; here it is one modifier.
+/// this by hand; here it is one modifier.
 enum Glass {
     /// The recording bar: a pill, because it is a control strip and not a container.
     static let barRadius: Double = 16
-    /// The menu bar panel: a pane with content in it.
-    static let panelRadius: Double = 14
     /// A control inside one of those.
     static let controlRadius: Double = 8
     /// The edge. White at a low opacity rather than a grey stroke: it has to read against a
@@ -88,7 +91,6 @@ enum Glass {
     static let shadowOpacity: Double = 0.35
     /// A control's own background when hovered.
     static let hoverOpacity: Double = 0.10
-    static let pressedOpacity: Double = 0.18
 }
 
 extension View {

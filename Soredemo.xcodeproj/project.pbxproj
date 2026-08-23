@@ -274,6 +274,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Soredemo-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Soredemo. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Soredemo records microphone audio as one track of a screen recording.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Soredemo transcribes a recording's own audio on this Mac to make captions. Nothing is sent anywhere.";
@@ -311,6 +312,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Soredemo-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Soredemo. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Soredemo records microphone audio as one track of a screen recording.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Soredemo transcribes a recording's own audio on this Mac to make captions. Nothing is sent anywhere.";
