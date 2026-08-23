@@ -68,6 +68,7 @@ public enum MP4Exporter {
                                           audioMix: AudioMix = .unchanged,
                                           frameRate: Int = 60,
                                           quality: ExportQuality = .best,
+                                          codec: ExportCodec = .h264,
                                           onProgress: (@Sendable (ExportProgress) -> Void)? = nil
     ) async throws -> ExportReport {
         precondition(frameRate > 0, "frameRate must be positive, got \(frameRate)")
@@ -114,7 +115,9 @@ public enum MP4Exporter {
             for: asset, outputWidth: outputWidth, outputHeight: outputHeight,
             frameDuration: frameDuration)
 
-        let writer = try AVAssetWriter(url: outputURL, fileType: .mp4)
+        // The container follows the codec: ProRes belongs in QuickTime, where every tool that
+        // reads it expects to find it, and an MP4 carrying it is a file other editors refuse.
+        let writer = try AVAssetWriter(url: outputURL, fileType: codec.fileType)
         // **Compression properties, which were not being set at all.** A codec and a size and
         // nothing else lets AVFoundation choose, and its choice is tuned for camera footage —
         // measured at 10.5 Mbps for 1080p through `AVOutputSettingsAssistant`, against the
@@ -123,7 +126,7 @@ public enum MP4Exporter {
             mediaType: .video,
             outputSettings: quality.videoSettings(outputWidth: outputWidth,
                                                   outputHeight: outputHeight,
-                                                  frameRate: frameRate))
+                                                  frameRate: frameRate, codec: codec))
         videoInput.expectsMediaDataInRealTime = false
         guard writer.canAdd(videoInput) else { throw ExportError.writerRefusedInput }
         writer.add(videoInput)

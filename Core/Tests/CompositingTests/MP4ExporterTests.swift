@@ -679,3 +679,89 @@ private final class PhaseLog: @unchecked Sendable {
         #expect(unsafe StageCompositor.cameraTrackID == 7)
     }
 }
+
+/// What an export is written as, and how large.
+@Suite struct ExportFormatTests {
+    /// **HEVC is the same picture at about half the file**, and every Mac this runs on encodes
+    /// it in hardware. 0.55 rather than the usual "half": that claim is measured on camera
+    /// footage at broadcast rates and the margin narrows at the rates screen content needs, so
+    /// the saving is rounded down — the direction that costs a file size rather than the text.
+    @Test func hevcAsksForLessThanH264ForTheSameFrame() {
+        let h264 = ExportQuality.best.videoBitRate(outputWidth: 1920, outputHeight: 1080,
+                                                   frameRate: 30, codec: .h264)
+        let hevc = ExportQuality.best.videoBitRate(outputWidth: 1920, outputHeight: 1080,
+                                                   frameRate: 30, codec: .hevc)
+        #expect(hevc < h264)
+        #expect(Double(hevc) > Double(h264) * 0.5, "rounded the saving the wrong way")
+    }
+
+    /// **ProRes takes no bit rate and no profile level.** Every frame is complete and the profile
+    /// decides the size; an average bit rate is a setting it has no use for, and an H.264 profile
+    /// level would be refused outright.
+    @Test func proResIsGivenNeitherABitRateNorAProfile() {
+        let settings = ExportQuality.best.videoSettings(outputWidth: 1920, outputHeight: 1080,
+                                                        frameRate: 60, codec: .proRes)
+        #expect(settings[AVVideoCompressionPropertiesKey] == nil)
+        #expect(settings[AVVideoCodecKey] as? AVVideoCodecType == .proRes422)
+        #expect(ExportCodec.proRes.takesBitRate == false)
+    }
+
+    /// ProRes belongs in QuickTime. An MP4 carrying it is a file other editors refuse.
+    @Test func theContainerFollowsTheCodec() {
+        #expect(ExportCodec.proRes.fileType == .mov)
+        #expect(ExportCodec.proRes.fileExtension == "mov")
+        #expect(ExportCodec.h264.fileType == .mp4)
+        #expect(ExportCodec.hevc.fileType == .mp4)
+    }
+
+    /// **ProRes is estimated from its data rate, not from a bit rate it does not have.** Apple
+    /// publishes 147 Mbps for ProRes 422 at 1080p29.97, which is 5.1 bits per pixel per frame.
+    @Test func theProResEstimateIsInTheRightOrderOfMagnitude() {
+        let bytes = ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
+                                                      frameRate: 30, seconds: 60, codec: .proRes)
+        let megabitsPerSecond = Double(bytes) * 8 / 60 / 1_000_000
+        #expect(megabitsPerSecond > 120, "\(megabitsPerSecond) Mbps is not ProRes")
+        #expect(megabitsPerSecond < 180, "\(megabitsPerSecond) Mbps is above ProRes 422")
+        // …and enormously larger than the H.264 file, which is the whole reason to warn about it.
+        let h264 = ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
+                                                     frameRate: 30, seconds: 60, codec: .h264)
+        #expect(bytes > h264 * 8)
+    }
+
+    /// **By SHORT side, so a portrait output is describable.** A ladder written as 1920×1080
+    /// cannot say what "1080p" means for a 9:16 export, and this app has portrait and square
+    /// variants for the places people post them.
+    @Test func aResolutionIsTheShortSideInEveryShape() {
+        let landscape = ExportResolution.p1080.size(forAspect: 16.0 / 9, recordingShortSide: 1964)
+        #expect(landscape.height == 1080)
+        #expect(landscape.width == 1920)
+        let portrait = ExportResolution.p1080.size(forAspect: 9.0 / 16, recordingShortSide: 1964)
+        #expect(portrait.width == 1080)
+        #expect(portrait.height == 1920)
+        let square = ExportResolution.p720.size(forAspect: 1, recordingShortSide: 1964)
+        #expect(square.width == 720 && square.height == 720)
+    }
+
+    /// **`Match Recording` is why the recording's size is a parameter.** Measured on a real
+    /// recording: the capture was 3024×1964 and every export came out 1920×1080, so six pixels
+    /// in ten were thrown away with no control that could ask for them back.
+    @Test func matchRecordingUsesTheCapturesOwnShortSide() {
+        let matched = ExportResolution.matchRecording.size(forAspect: 3024.0 / 1964,
+                                                           recordingShortSide: 1964)
+        #expect(matched.height == 1964)
+        #expect(matched.width == 3024)
+    }
+
+    /// Odd dimensions are where a stray column of green comes from — the rule `CaptureSource`
+    /// and `WindowTargets.evenFloor` already apply, applied here too.
+    @Test func everyDimensionComesBackEven() {
+        for aspect in [16.0 / 9, 4.0 / 3, 1, 9.0 / 16, 1.777, 2.35] {
+            for resolution in ExportResolution.allCases {
+                let size = resolution.size(forAspect: aspect, recordingShortSide: 1963)
+                #expect(size.width % 2 == 0, "\(resolution) \(aspect) gave \(size.width)")
+                #expect(size.height % 2 == 0, "\(resolution) \(aspect) gave \(size.height)")
+                #expect(size.width >= 2 && size.height >= 2)
+            }
+        }
+    }
+}

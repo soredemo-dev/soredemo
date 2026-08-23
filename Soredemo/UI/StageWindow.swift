@@ -88,6 +88,14 @@ struct StageWindow: View {
     /// How many bits the MP4 export gets. Held here beside `gifSettings` for its reason — the
     /// save panel is presented from this window and must not find the choice reset.
     @State private var quality = ExportQuality.best
+    /// How large the exported picture is, and what it is written as. Held beside `quality` for
+    /// its reason — the save panel must not find them reset.
+    @State private var resolution = ExportResolution.p1080
+    @State private var codec = ExportCodec.h264
+    /// The recording's own short side in pixels, so `Match Recording` has something to match.
+    /// Read from the asset when it loads; 1080 until then, which is what the export used to be
+    /// pinned to anyway.
+    @State private var recordingShortSide = 1080
     /// The captions. Owned here beside `stageStyle` so a change survives the inspector being
     /// closed, and so the preview and the export read the same track.
     @State private var captions = CaptionsModel()
@@ -161,8 +169,16 @@ struct StageWindow: View {
     /// `StagePlanner` fits and never fills, so a portrait export of a landscape recording
     /// letterboxes rather than cutting the sides off — the part of the screen the demo was
     /// happening in is often exactly what a crop would remove.
-    static func size(for variant: AspectVariant) -> (width: Int, height: Int) {
-        variant.dimensions(longestEdge: 1920)
+    /// **The export size, which used to be the constant 1920.** Measured on a real recording:
+    /// the capture was 3024×1964 and every export came out 1920×1080, so six pixels in ten were
+    /// thrown away and there was no control that could ask for them back. `ExportResolution`
+    /// picks by short side — a native editor's choice, and the only one that describes a portrait
+    /// output as well as a landscape one.
+    static func size(for variant: AspectVariant, resolution: ExportResolution,
+                     recordingShortSide: Int) -> (width: Int, height: Int) {
+        let shape = variant.dimensions(longestEdge: 1920)
+        let aspect = Double(shape.width) / Double(max(shape.height, 1))
+        return resolution.size(forAspect: aspect, recordingShortSide: recordingShortSide)
     }
 
     var body: some View {
@@ -178,8 +194,10 @@ struct StageWindow: View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 CanvasBar(variant: $variant, crop: $crop, isCropping: $isCropping,
-                          outputWidth: Self.size(for: variant).width,
-                          outputHeight: Self.size(for: variant).height,
+                          outputWidth: Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide).width,
+                          outputHeight: Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide).height,
                           onChange: { reviewRevision += 1 })
                 Divider().overlay(Theme.Line.hairline)
                 Group {
@@ -197,14 +215,16 @@ struct StageWindow: View {
                 .background(Theme.Surface.preview)
                 // Handles for whatever the inspector is editing — see `PreviewOverlay`.
                 .overlay {
-                    let size = Self.size(for: variant)
+                    let size = Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide)
                     PreviewOverlay(outputWidth: size.width, outputHeight: size.height,
                                    texts: texts, redactions: redactions, tab: inspectorTab,
                                    onChange: { reviewRevision += 1 })
                 }
                 .overlay {
                     if isCropping {
-                        let size = Self.size(for: variant)
+                        let size = Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide)
                         CropOverlay(crop: $crop, outputWidth: size.width,
                                     outputHeight: size.height,
                                     onCommit: { reviewRevision += 1 })
@@ -395,14 +415,21 @@ struct StageWindow: View {
     /// `EditedAsset`, which has no URL of its own. `observationLogFor` still names the media
     /// file, because the log belongs to the recording rather than to any edit of it.
     static func configuredComposition(for mediaURL: URL,
-                                      variant: AspectVariant = .landscape) async throws
+                                      variant: AspectVariant = .landscape,
+                                      resolution: ExportResolution = .p1080,
+                                      recordingShortSide: Int = 1080) async throws
         -> AVVideoComposition {
         try await configuredComposition(for: AVURLAsset(url: mediaURL),
-                                        logForMediaURL: mediaURL, variant: variant)
+                                        logForMediaURL: mediaURL,
+                                        resolution: resolution,
+                                        recordingShortSide: recordingShortSide,
+                                        variant: variant)
     }
 
     static func configuredComposition(for asset: AVAsset,
                                       logForMediaURL mediaURL: URL? = nil,
+                                      resolution: ExportResolution = .p1080,
+                                      recordingShortSide: Int = 1080,
                                       variant: AspectVariant = .landscape) async throws
         -> AVVideoComposition {
         StageCompositor.renderer = try CoreImageFrameRenderer()
@@ -418,7 +445,8 @@ struct StageWindow: View {
         StageCompositor.observationLogURL = candidateLogURL.flatMap {
             FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
         }
-        let size = Self.size(for: variant)
+        let size = size(for: variant, resolution: resolution,
+                        recordingShortSide: recordingShortSide)
         return try await CompositionBuilder.composition(
             for: asset, outputWidth: size.width, outputHeight: size.height,
             frameDuration: CMTime(value: 1, timescale: 60))
@@ -488,7 +516,8 @@ struct StageWindow: View {
                 List { FramingReviewSections(model: review, onChange: { reviewRevision += 1 }) }
                     .listStyle(.sidebar)
             case .captions:
-                let size = Self.size(for: variant)
+                let size = Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide)
                 CaptionsPanel(model: captions, mediaURL: mediaURL, edit: timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 })
@@ -585,16 +614,35 @@ struct StageWindow: View {
                 Text(shape.name).tag(shape)
             }
         }
-        let size = Self.size(for: variant)
+        let size = Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide)
         LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
             .font(Type.detail).foregroundStyle(.secondary)
 
+        // **How large, by SHORT side.** A ladder written as 1920×1080 cannot describe a portrait
+        // output, and this app exports portrait and square for the places people post them.
+        Picker("Resolution", selection: Binding(
+            get: { resolution }, set: { resolution = $0 })) {
+            ForEach(ExportResolution.allCases, id: \.self) { choice in
+                Text(LocalizedStringKey(choice.displayName)).tag(choice)
+            }
+        }
+        // **Three codecs that are not ranked.** HEVC is the same picture at about half the file
+        // and every Mac this runs on encodes it in hardware; ProRes is enormous and meant for
+        // handing to an editor; H.264 plays everywhere without a question being asked.
+        Picker("Format", selection: Binding(get: { codec }, set: { codec = $0 })) {
+            ForEach(ExportCodec.allCases, id: \.self) { choice in
+                Text(choice.displayName).tag(choice)
+            }
+        }
         // **How many bits the picture gets.** Nothing was choosing before, so AVFoundation did —
         // at a rate tuned for camera footage, which is the wrong content. See `ExportQuality`.
-        Picker("Quality", selection: Binding(
-            get: { quality }, set: { quality = $0 })) {
-            ForEach(ExportQuality.choices, id: \.self) { choice in
-                Text(LocalizedStringKey(choice.displayName)).tag(choice)
+        if codec.takesBitRate {
+            Picker("Quality", selection: Binding(
+                get: { quality }, set: { quality = $0 })) {
+                ForEach(ExportQuality.choices, id: \.self) { choice in
+                    Text(LocalizedStringKey(choice.displayName)).tag(choice)
+                }
             }
         }
         // **The estimate is why the picker is usable.** a Rust recorder shows one and calibrated it to
@@ -603,7 +651,8 @@ struct StageWindow: View {
         LabeledContent("About", value: Self.fileSize(quality.estimatedBytes(
             outputWidth: size.width, outputHeight: size.height,
             frameRate: 60,
-            seconds: Double(timeline.edit.outputDuration.rawValue) / 1_000_000_000)))
+            seconds: Double(timeline.edit.outputDuration.rawValue) / 1_000_000_000,
+            codec: codec)))
             .font(Type.detail).foregroundStyle(.secondary)
     }
 
@@ -631,7 +680,8 @@ struct StageWindow: View {
         }
         Toggle("Loop forever", isOn: $gifSettings.loops)
 
-        let size = Self.size(for: variant)
+        let size = Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide)
         let gif = gifSettings.size(fitting: size.width, height: size.height)
         // The size is worth stating because it is not the export size beside it, and the
         // "no sound" is worth stating because a person who recorded themselves talking would
@@ -835,6 +885,12 @@ struct StageWindow: View {
                 for: review.plan.framedClicks(with: review.overrides,
                                               pointerFallbackRevision: review.fallbackRevision)))
             let recording = AVURLAsset(url: mediaURL)
+            // What `Match Recording` matches. Read once from the file, because it is a property
+            // of the capture and no edit changes it.
+            if let track = try await recording.loadTracks(withMediaType: .video).first {
+                let natural = try await track.load(.naturalSize)
+                recordingShortSide = Int(min(natural.width, natural.height).rounded())
+            }
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)
                 // **After `load`, which resets the models.** Restoring first would be wiped by
@@ -861,7 +917,8 @@ struct StageWindow: View {
             StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : cameraStyle
             let asset = combined.asset
             let composition = try await Self.configuredComposition(
-                for: asset, logForMediaURL: mediaURL, variant: variant)
+                for: asset, logForMediaURL: mediaURL, resolution: resolution,
+                recordingShortSide: recordingShortSide, variant: variant)
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
             // The mix is applied at load too, not only on change: reopening a saved project
@@ -888,8 +945,12 @@ struct StageWindow: View {
         // an Electron recorder both build a FormatSelector into the editor; on macOS that control already
         // exists and lives in the save panel, and a second one in the window would be a second
         // place to look for the same answer.
-        panel.allowedContentTypes = [.mpeg4Movie, .gif]
-        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".mp4"
+        // The chosen codec's container first, so the panel opens on it — ProRes is a `.mov`
+        // and offering an `.mp4` for it would be offering a file other editors refuse.
+        panel.allowedContentTypes = codec == .proRes ? [.quickTimeMovie, .gif]
+                                                     : [.mpeg4Movie, .quickTimeMovie, .gif]
+        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent
+            + "." + codec.fileExtension
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
@@ -905,15 +966,18 @@ struct StageWindow: View {
         let edit = timeline.edit
         let mix = audioMix
         let chosen = quality
+        let chosenCodec = codec
         let gif = gifSettings
-        let size = Self.size(for: variant)
+        let size = Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide)
         let isGIF = destination.pathExtension.lowercased() == "gif"
         let queued = ExportQueue.shared.enqueue(destination: destination) { report in
             guard let asset else { return "There is nothing loaded to export." }
             StageCompositor.apply(settings)
             return await Self.runExport(asset: asset, to: destination, isGIF: isGIF,
                                         size: size, edit: edit, audioMix: mix,
-                                        quality: chosen, gifSettings: gif, report: report)
+                                        quality: chosen, codec: chosenCodec,
+                                        gifSettings: gif, report: report)
         }
         if queued == nil {
             // Named, because the only way somebody works out which of their jobs they collided
@@ -934,7 +998,8 @@ struct StageWindow: View {
     /// has one. `StageCompositor.cameraTrackID` names a track in that composition too.
     static func runExport(asset: sending AVAsset, to destination: URL, isGIF: Bool,
                           size: (width: Int, height: Int), edit: EditTimeline,
-                          audioMix: AudioMix, quality: ExportQuality, gifSettings: GIFSettings,
+                          audioMix: AudioMix, quality: ExportQuality, codec: ExportCodec,
+                          gifSettings: GIFSettings,
                           report: @escaping @MainActor (ExportProgress) -> Void) async -> String? {
         do {
             if isGIF {
@@ -948,7 +1013,7 @@ struct StageWindow: View {
                     asset: asset, to: destination,
                     outputWidth: size.width, outputHeight: size.height,
                     edit: edit, assetIsAlreadyEdited: true, audioMix: audioMix,
-                    quality: quality,
+                    quality: quality, codec: codec,
                     onProgress: { progress in Task { @MainActor in report(progress) } })
             }
             return nil

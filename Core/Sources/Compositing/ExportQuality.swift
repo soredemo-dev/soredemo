@@ -1,5 +1,7 @@
 import AVFoundation
 import Foundation
+// For `kVTProfileLevel_HEVC_Main_AutoLevel`, which AVFoundation does not re-export.
+import VideoToolbox
 
 /// How many bits an export is allowed to spend, and the settings that spend them.
 ///
@@ -58,9 +60,11 @@ public struct ExportQuality: Hashable, Sendable, Codable {
     }
 
     /// The average video bit rate for a frame of this size at this rate.
-    public func videoBitRate(outputWidth: Int, outputHeight: Int, frameRate: Int) -> Int {
+    public func videoBitRate(outputWidth: Int, outputHeight: Int, frameRate: Int,
+                             codec: ExportCodec = .h264) -> Int {
         let pixels = Double(outputWidth * outputHeight)
         let rate = pixels * bitsPerPixel * Self.effectiveFrameRate(frameRate)
+            * codec.bitRateFactor
         // **A floor, because a small output still has to be legible.** an Electron recorder's is 2 Mbps and
         // it is there for the same reason: a 640-wide MP4 of a terminal is text, and
         // bits-per-pixel alone would give it almost nothing.
@@ -72,25 +76,45 @@ public struct ExportQuality: Hashable, Sendable, Codable {
     /// **Everything Apple's own assistant sets, which this was setting none of.** Measured:
     /// `AVOutputSettingsAssistant` fills in `ProfileLevel`, `ExpectedFrameRate`,
     /// `MaxKeyFrameInterval`, `AllowFrameReordering` and `H264EntropyMode` beside the bit rate.
-    public func videoSettings(outputWidth: Int, outputHeight: Int,
-                              frameRate: Int) -> [String: any Sendable] {
-        [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+    public func videoSettings(outputWidth: Int, outputHeight: Int, frameRate: Int,
+                              codec: ExportCodec = .h264) -> [String: any Sendable] {
+        // **ProRes takes no bit rate and no profile level.** Every frame is complete and the
+        // profile decides the size; handing it an average bit rate is handing it a setting it
+        // has no use for, and a profile level from H.264's vocabulary would be refused.
+        guard codec.takesBitRate else {
+            return [
+                AVVideoCodecKey: codec.videoCodec,
+                AVVideoWidthKey: outputWidth,
+                AVVideoHeightKey: outputHeight,
+            ]
+        }
+        var properties: [String: any Sendable] = [
+            AVVideoAverageBitRateKey: videoBitRate(outputWidth: outputWidth,
+                                                   outputHeight: outputHeight,
+                                                   frameRate: frameRate, codec: codec),
+            AVVideoExpectedSourceFrameRateKey: frameRate,
+            // **Two seconds of GOP.** A keyframe every frame is a file nobody can afford and
+            // one keyframe per file is a file nobody can scrub; two seconds is what every
+            // player is built for.
+            AVVideoMaxKeyFrameIntervalKey: max(frameRate * 2, 2),
+            AVVideoAllowFrameReorderingKey: true,
+        ]
+        // The profile vocabularies are per-codec and not interchangeable; H.264's entropy mode
+        // has no HEVC equivalent because HEVC has only CABAC.
+        switch codec {
+        case .h264:
+            properties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+            properties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
+        case .hevc:
+            properties[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main_AutoLevel as String
+        case .proRes:
+            break
+        }
+        return [
+            AVVideoCodecKey: codec.videoCodec,
             AVVideoWidthKey: outputWidth,
             AVVideoHeightKey: outputHeight,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: videoBitRate(outputWidth: outputWidth,
-                                                       outputHeight: outputHeight,
-                                                       frameRate: frameRate),
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC,
-                AVVideoExpectedSourceFrameRateKey: frameRate,
-                // **Two seconds of GOP.** A keyframe every frame is a file nobody can afford and
-                // one keyframe per file is a file nobody can scrub; two seconds is what every
-                // player is built for.
-                AVVideoMaxKeyFrameIntervalKey: max(frameRate * 2, 2),
-                AVVideoAllowFrameReorderingKey: true,
-            ] as [String: any Sendable],
+            AVVideoCompressionPropertiesKey: properties,
         ]
     }
 
@@ -112,11 +136,21 @@ public struct ExportQuality: Hashable, Sendable, Codable {
     ///
     /// An estimate, and named as one. The true size depends on what is on the screen, and a
     /// recording of a video playing full-screen will beat it.
-    public func estimatedBytes(outputWidth: Int, outputHeight: Int,
-                               frameRate: Int, seconds: Double) -> Int {
+    public func estimatedBytes(outputWidth: Int, outputHeight: Int, frameRate: Int,
+                               seconds: Double, codec: ExportCodec = .h264) -> Int {
+        // **ProRes is not estimated from a bit rate**, because it has none. Apple publishes 147
+        // Mbps for ProRes 422 at 1080p29.97, and 147e6 / (1920 × 1080 × 29.97) is 2.37 bits per
+        // pixel per frame — a figure that scales with pixels and frames, which is what an intra
+        // codec's size does. No encoder-efficiency factor either: an intra codec's size IS its
+        // data rate, not a guess about how well it predicts.
+        guard codec.takesBitRate else {
+            let pixels = Double(outputWidth * outputHeight)
+            let bits = pixels * 2.37 * Double(frameRate)
+            return Int((bits * max(seconds, 0) / 8).rounded())
+        }
         let encoderEfficiency = 0.5
         let bits = Double(videoBitRate(outputWidth: outputWidth, outputHeight: outputHeight,
-                                       frameRate: frameRate) + audioBitRate)
+                                       frameRate: frameRate, codec: codec) + audioBitRate)
         return Int((bits * encoderEfficiency * max(seconds, 0) / 8).rounded())
     }
 }
