@@ -24,6 +24,7 @@ final class StatusItemController: NSObject {
     static let shared = StatusItemController()
 
     private var item: NSStatusItem?
+    private var bridge: NSView?
     private var panel: NSPanel?
     private var dismissMonitor: Any?
     private var keyMonitor: Any?
@@ -34,6 +35,9 @@ final class StatusItemController: NSObject {
     private static let autosaveName = "soredemo.recorder"
     private static let positionKey = "NSStatusItem Preferred Position \(autosaveName)"
     private static let seededKey = "statusItemPositionSeeded"
+    /// What macOS rounds a menu bar window to. Not `Glass.barRadius`, which is the recording
+    /// bar's pill: this pane is meant to be indistinguishable from a system one.
+    private static let cornerRadius: Double = 10
 
     private override init() { super.init() }
 
@@ -49,6 +53,17 @@ final class StatusItemController: NSObject {
         item.button?.toolTip = "Soredemo"
         self.item = item
         updateIcon()
+
+        // **The one view in this app that is alive from launch to quit.** `openWindow` is a
+        // SwiftUI environment action and nothing in AppKit holds one, so the editor cannot be
+        // opened from here when a recording finishes unless some view is around to do it. Zero
+        // size and hit testing off — it is behaviour, not a picture; the mark above is the
+        // picture. See `MenuBarWindowBridge`, which was dead code from the day `MenuBarExtra`
+        // was removed until it was hung here.
+        let bridge = NSHostingView(rootView: MenuBarWindowBridge(coordinator: coordinator))
+        bridge.frame = NSRect(origin: .zero, size: .zero)
+        item.button?.addSubview(bridge)
+        self.bridge = bridge
 
         // **Polled, and only a second.** The icon has three states and they change when a
         // recording starts, pauses or stops — none of which is frequent, and a second late is
@@ -88,12 +103,19 @@ final class StatusItemController: NSObject {
         button.image?.isTemplate = true
     }
 
-    /// **A borderless panel, not an `NSPopover`.** A popover draws its own opaque background and
-    /// an arrow pointing at the button, and neither can be turned off — the content was designed
-    /// for `MenuBarExtra`'s window style, which is a floating rounded pane with no chrome of its
-    /// own, and inside a popover it came out with two backgrounds and a spike. This is that
-    /// window style, kept while the item itself stays an `NSStatusItem` for the position control
-    /// `MenuBarExtra` does not give.
+    /// **A borderless panel dressed as `MenuBarExtra`'s window style**, kept while the item
+    /// itself stays an `NSStatusItem` for the position control that scene does not give.
+    ///
+    /// Two wrong answers came before this one. An `NSPopover` draws its own opaque background
+    /// and an arrow at the button and neither can be turned off, so the content — designed for a
+    /// chromeless floating pane — came out with two backgrounds and a spike. Then the panel drew
+    /// the app's own `glassSurface`, which is pinned dark: correct for the recording bar, which
+    /// floats over a person's screen, and wrong here, where a dark pane hanging off a light menu
+    /// bar is the thing that looks broken.
+    ///
+    /// So the surface is `NSVisualEffectView` with the `.menu` material — literally what the
+    /// system draws behind a menu bar window, in the system's own light or dark. The content
+    /// draws nothing of its own and fills it edge to edge.
     @objc private func togglePanel() {
         if panel != nil {
             dismissPanel()
@@ -108,8 +130,7 @@ final class StatusItemController: NSObject {
         // laid out yet can report nothing at all. The width is fixed by the panel itself; the
         // floor on the height is what stops a bad measurement becoming an invisible menu.
         let measured = hosting.fittingSize
-        let size = NSSize(width: max(measured.width, 308), height: max(measured.height, 240))
-        hosting.frame = NSRect(origin: .zero, size: size)
+        let size = NSSize(width: max(measured.width, 292), height: max(measured.height, 240))
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
@@ -121,8 +142,23 @@ final class StatusItemController: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.contentView = hosting
+        panel.hasShadow = true
+
+        let surface = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        surface.material = .menu
+        surface.blendingMode = .behindWindow
+        // `.active`, not `.followsWindowActiveState`: this is a non-activating panel, so the
+        // window is never key and the material would render in its inactive, flatter form for
+        // the whole time it is up.
+        surface.state = .active
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = Self.cornerRadius
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.masksToBounds = true
+        hosting.frame = surface.bounds
+        hosting.autoresizingMask = [.width, .height]
+        surface.addSubview(hosting)
+        panel.contentView = surface
 
         // Under the button and right-aligned to it, which is where every menu bar panel on this
         // system opens — and clamped to the screen, because an item near the right edge would

@@ -3,67 +3,46 @@ import Capture
 import CoreGraphics
 import SwiftUI
 
-/// What sits in the menu bar.
+/// The behaviours that have to outlive the panel.
 ///
-/// **This is the app.** A recorder is used from inside whatever is being demonstrated: the
-/// moment a person opens a window to press Record, the thing they wanted to record is behind it.
-/// So there is no window at launch and no Dock icon — the editor is opened by a recording
-/// finishing, which is the only moment there is anything to edit.
+/// **This is a view with no picture, and that is the point.** It used to be
+/// `MenuBarRecorderLabel` — the `MenuBarExtra`'s label, which drew the mark AND carried the two
+/// `openWindow` calls below, because a label is in the scene graph for as long as the app is.
+/// When the item became an `NSStatusItem` the mark moved to `StatusItemController` and this file
+/// kept a view nobody built: measured on the shipped app, finishing a recording opened nothing
+/// at all and a first run never showed the permission page. Both had been dead since the day the
+/// scene was removed.
 ///
-/// **The icon carries the state, and nothing else does — it used to carry the clock too.**
-/// A menu bar with the notch and a dozen extras in it has no room to spare, and an item that
-/// grows when recording starts is an item macOS hides at the moment it matters most: measured on
-/// a full menu bar, adding the timer text made this disappear entirely the instant a recording
-/// began. So the width is constant. The elapsed time lives on the floating bar, which is on the
-/// recorded screen the whole time anyway, and in the panel.
-///
-/// Idle it is the logomark as a template image, so the system tints it for a light or dark menu
-/// bar. Recording it is a filled record symbol, and paused a filled pause — different SHAPES
-/// rather than different colours, because a template image has no colour of its own.
-struct MenuBarRecorderLabel: View {
+/// `openWindow` is a SwiftUI environment action and no AppKit object holds one, so the view has
+/// to exist somewhere. It is hosted at zero size inside the status item's button, which is the
+/// one thing in this app that is alive from launch to quit.
+struct MenuBarWindowBridge: View {
     let coordinator: RecordingCoordinator
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Group {
-            if coordinator.isRecording {
-                Image(systemName: coordinator.isPaused
-                      ? "pause.circle.fill" : "record.circle.fill")
-            } else {
-                // **No `.frame` here, and that is the fix.** Twice I sized this with a frame
-                // and twice it changed nothing a person could see: SwiftUI scales a menu bar
-                // image to the bar's height whatever frame it is given, so the only thing that
-                // controls how big the mark LOOKS is the proportion of its canvas the ink
-                // occupies. `scripts/make-menubar-logomark.swift` bakes that in — the ink is
-                // 62% of a square canvas and the rest is transparent.
-                //
-                // Measured, which is how the frame theory died: an SF Symbol in the menu bar has
-                // about 14pt of ink, and this mark inside a 13pt frame had 12pt — already
-                // shorter, and still reading as larger, because a solid brushstroke carries far
-                // more visual weight than line art at the same height.
-                Image("LogomarkTemplate")
-                    .renderingMode(.template)
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            // **The editor opens when there is something in it, and nowhere else.** A recorder
+            // that stops and shows you nothing has, as far as anyone watching can tell, lost the
+            // recording.
+            .onChange(of: coordinator.mediaURL) {
+                guard coordinator.mediaURL != nil else { return }
+                EditorWindowPresence.willOpen()
+                openWindow(id: SoredemoApp.editorWindowID)
+                NSApp.activate(ignoringOtherApps: true)
             }
-        }
-        // **The label is where this lives because the label is always in the scene graph.** The
-        // panel's body only runs while the popover is open, so an editor opened from there would
-        // wait for a person to click the menu bar item after their recording finished.
-        .onChange(of: coordinator.mediaURL) {
-            guard coordinator.mediaURL != nil else { return }
-            EditorWindowPresence.willOpen()
-            openWindow(id: SoredemoApp.editorWindowID)
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        // **First run opens the permission page.** Not every run: a person who has granted
-        // everything is greeted by nothing, which is the correct amount of greeting. The check
-        // is on what is MISSING rather than on a "have we shown this" flag, so someone who
-        // revokes a permission later gets the page again instead of a silent failure.
-        .task {
-            guard !CapturePermissions.blockingFailures().isEmpty else { return }
-            EditorWindowPresence.willOpen()
-            openWindow(id: SoredemoApp.permissionsWindowID)
-            NSApp.activate(ignoringOtherApps: true)
-        }
+            // **First run opens the permission page.** Not every run: a person who has granted
+            // everything is greeted by nothing, which is the correct amount of greeting. The
+            // check is on what is MISSING rather than on a "have we shown this" flag, so someone
+            // who revokes a permission later gets the page again instead of a silent failure.
+            .task {
+                guard !CapturePermissions.blockingFailures().isEmpty else { return }
+                EditorWindowPresence.willOpen()
+                openWindow(id: SoredemoApp.permissionsWindowID)
+                NSApp.activate(ignoringOtherApps: true)
+            }
     }
 }
 
@@ -101,12 +80,6 @@ struct MenuBarRecorderPanel: View {
         }
         .padding(Space.roomy)
         .frame(width: 292)
-        // **Its own surface again.** It lost this when the item was a system popover, which drew
-        // one — now the panel is borderless and there is nothing behind the content unless this
-        // puts it there. Pinned to dark for `Glass`'s reason: it floats over whatever is on
-        // screen at the moment a person reaches for it.
-        .glassSurface(radius: Glass.barRadius)
-        .padding(Space.snug)
     }
 
     @ViewBuilder private var header: some View {
@@ -123,7 +96,35 @@ struct MenuBarRecorderPanel: View {
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+            settingsMenu
         }
+    }
+
+    /// Settings and Permissions, behind one glyph.
+    ///
+    /// **Because four links do not fit on one row.** The footer used to hold two — Open Project
+    /// and Quit — and grew to four as Settings and then the permission page were built. Measured
+    /// at the panel's own width: the four need 357pt of a 260pt row, so SwiftUI truncated them
+    /// into a jam of half-words. These two are the pair a person opens once and forgets, so they
+    /// are the pair that goes behind a gear.
+    @ViewBuilder private var settingsMenu: some View {
+        Menu {
+            Button("Settings\u{2026}") {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+            Button("Permissions\u{2026}") {
+                EditorWindowPresence.willOpen()
+                openWindow(id: SoredemoApp.permissionsWindowID)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 16)
     }
 
     /// The two ways to start. **Cards rather than a segmented control**, because they are not two
@@ -354,19 +355,6 @@ struct MenuBarRecorderPanel: View {
         HStack(spacing: Space.regular) {
             PanelLink(title: "Open Project\u{2026}", shortcut: "\u{2318}O") {
                 coordinator.openProject()
-            }
-            // **`sendAction`, not `SettingsLink`.** A `SettingsLink` in this panel instantiated
-            // the Settings scene as soon as the panel was built — measured: opening the menu bar
-            // panel produced a second window titled after the settings' first section. The
-            // selector is what the menu item AppKit installs for ⌘, sends, and it opens the
-            // window when it is pressed rather than when it is drawn.
-            PanelLink(title: "Settings\u{2026}", shortcut: "\u{2318},") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            }
-            PanelLink(title: "Permissions\u{2026}", shortcut: "") {
-                EditorWindowPresence.willOpen()
-                openWindow(id: SoredemoApp.permissionsWindowID)
-                NSApp.activate(ignoringOtherApps: true)
             }
             Spacer()
             PanelLink(title: "Quit", shortcut: "\u{2318}Q") { NSApp.terminate(nil) }

@@ -68,6 +68,17 @@ struct SoredemoApp: App {
         Settings {
             SettingsWindow(coordinator: recordingCoordinator)
         }
+        // **Suppressed like the other two, because it was the only one that was not.** Measured
+        // on the shipped app: once Settings had been opened even once, every launch afterwards
+        // came up showing it — SwiftUI presents the one scene that has not opted out, and this
+        // was it. A recorder whose whole design is "no window at launch" was greeting people
+        // with a preferences pane and no obvious way back to the menu bar.
+        //
+        // ⌘, and the panel's gear still open it; `.suppressed` governs LAUNCH and nothing else.
+        .defaultLaunchBehavior(.suppressed)
+        // And nothing comes back from the last session either: every window here is opened FROM
+        // the menu bar item and means nothing without the state that opened it.
+        .restorationBehavior(.disabled)
 
         // **Permissions, opened on first run and from the menu bar afterwards.** Suppressed at
         // launch like the editor: a person who has already granted everything should not be
@@ -76,6 +87,7 @@ struct SoredemoApp: App {
             PermissionsWindow()
         }
         .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
         .windowResizability(.contentSize)
 
         // **The editor, and it does not exist until there is something to edit.**
@@ -105,6 +117,7 @@ struct SoredemoApp: App {
                 }
         }
         .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
         .commands {
             // `ProjectDocument` is an `NSDocument`, not a `FileDocument`, so
             // `DocumentGroup` cannot host it. `NSDocumentController` is stood up
