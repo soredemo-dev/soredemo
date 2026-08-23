@@ -100,6 +100,7 @@ xcrun swiftc \
   Soredemo/UI/StageWindow.swift \
   Soredemo/UI/FramingReview.swift \
   Soredemo/UI/StageStylePicker.swift \
+  Soredemo/UI/WallpaperGallery.swift \
   Soredemo/UI/TimelineEditor.swift \
   Soredemo/UI/EditorToolbar.swift \
   Soredemo/UI/Theme.swift \

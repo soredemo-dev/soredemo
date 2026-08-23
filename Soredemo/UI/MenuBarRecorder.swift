@@ -1,5 +1,6 @@
 import AppKit
 import Capture
+import CoreGraphics
 import SwiftUI
 
 /// What sits in the menu bar.
@@ -90,6 +91,7 @@ struct MenuBarRecorderPanel: View {
                 targets
                 microphoneRow
                 cameraRow
+                frameRateRow
                 countdownRow
                 startButton
             }
@@ -219,6 +221,41 @@ struct MenuBarRecorderPanel: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
         }
+    }
+
+    /// How often the capture may deliver a frame.
+    ///
+    /// **Only rates this display can produce.** `minimumFrameInterval` is a ceiling and the
+    /// panel is the floor, so offering 120 on a 60 Hz display would be offering a control that
+    /// changes no observable thing.
+    @ViewBuilder private var frameRateRow: some View {
+        Picker(selection: Binding(get: { coordinator.frameRate },
+                                  set: { coordinator.frameRate = $0 })) {
+            ForEach(CaptureFrameRate.available(upTo: Self.mainDisplayRefreshRate), id: \.self) {
+                Text($0.displayName).tag($0)
+            }
+        } label: {
+            HStack(spacing: Space.snug) {
+                Image(systemName: "speedometer").font(.system(size: 12)).frame(width: 14)
+                Text("Frame rate").font(.system(size: 12))
+            }
+        }
+        .pickerStyle(.menu)
+        .padding(.horizontal, Space.regular)
+        .frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
+            .fill(.quaternary.opacity(0.5)))
+    }
+
+    /// The main display's refresh rate.
+    ///
+    /// **Zero means unknown, not zero.** `CGDisplayMode.refreshRate` reports 0 for several
+    /// built-in panels rather than their actual rate, and treating that as a ceiling would leave
+    /// a MacBook offering 30 fps and nothing else. Unknown offers everything: the ceiling simply
+    /// does not bind, and the panel remains the floor it always was.
+    static var mainDisplayRefreshRate: Double {
+        let reported = CGDisplayCopyDisplayMode(CGMainDisplayID())?.refreshRate ?? 0
+        return reported > 0 ? reported : .greatestFiniteMagnitude
     }
 
     /// How long to wait before the capture starts.

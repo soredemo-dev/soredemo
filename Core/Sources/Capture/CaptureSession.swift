@@ -96,6 +96,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// caller records exactly what it did before; see `MicrophoneSource` for why naming one
     /// is worth the parameter.
     private let microphone: MicrophoneSource
+    /// The ceiling on how often ScreenCaptureKit delivers a frame. See `CaptureFrameRate`.
+    private let frameRate: CaptureFrameRate
 
     /// Every Nth complete video frame is luminance-sampled for the black-frame
     /// detector. Uncalibrated placeholder. `nonisolated` on all three constants
@@ -498,8 +500,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 mediaSink: any MediaSink, epoch: BootEpoch,
                 pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil },
                 pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil },
-                microphone: MicrophoneSource = .systemDefault) {
+                microphone: MicrophoneSource = .systemDefault,
+                frameRate: CaptureFrameRate = .sixty) {
         self.microphone = microphone
+        self.frameRate = frameRate
         self.source = source
         self.scale = scale
         self.displayUUID = displayUUID
@@ -784,7 +788,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         unsafe configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned, placeholder gamut choice
         // A floor, not a cadence — presentation times come from each sample
         // buffer and are never assumed from this number.
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        configuration.minimumFrameInterval = frameRate.minimumFrameInterval
 
         // Resolved per segment rather than once: a segment can begin after a display
         // reconfiguration, and the cost is one query against this process's own content.

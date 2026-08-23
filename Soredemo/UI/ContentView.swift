@@ -81,6 +81,12 @@ final class RecordingCoordinator {
     /// Which camera the next recording uses, or `.off`. Held across recordings for the reason
     /// `microphone` is.
     var camera: CameraSource = .off
+    /// The ceiling on capture frame delivery. Persisted, like the countdown: a preference rather
+    /// than a per-recording decision.
+    var frameRate: CaptureFrameRate {
+        didSet { UserDefaults.standard.set(frameRate.rawValue, forKey: Self.frameRateKey) }
+    }
+    private static let frameRateKey = "captureFrameRate"
     private(set) var availableCameras: [CameraSource] = []
     private var cameraRecorder: CameraRecorder?
     /// Where the camera's file landed for the recording being previewed, or `nil`.
@@ -145,6 +151,10 @@ final class RecordingCoordinator {
         // has never been set, and 0 means "off" here — so a first launch would silently ship
         // with no countdown, which is the opposite of the default this chose.
         countdownSeconds = UserDefaults.standard.object(forKey: Self.countdownKey) as? Int ?? 3
+        // Same reasoning as the countdown's default: `integer(forKey:)` answers 0 for a key
+        // never set, and 0 is not a frame rate.
+        frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
+            .flatMap(CaptureFrameRate.init(rawValue:)) ?? .sixty
         TemporaryFileMediaSink.sweepLeftoverDirectories()
     }
 
@@ -314,7 +324,7 @@ final class RecordingCoordinator {
                                         mediaSink: newSink, epoch: Minting.bootEpoch(),
                                         pointerShapeReader: SystemCursorShape.reader(),
                                         pointerHotspotReader: SystemCursorShape.hotspotReader(),
-                                        microphone: microphone)
+                                        microphone: microphone, frameRate: frameRate)
         session = newSession
         // **The camera starts BEFORE the countdown, not after.** A camera takes a moment to
         // wake and expose; started with the capture, its first second is a dark frame settling.

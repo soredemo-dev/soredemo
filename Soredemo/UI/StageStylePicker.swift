@@ -153,6 +153,7 @@ struct StageStylePicker: View {
             }
 
             if let packageURL {
+                WallpaperPicker(model: model, packageURL: packageURL, onChange: onChange)
                 HStack(spacing: Space.snug) {
                     Button(model.imageBackgroundName == nil ? "Choose image\u{2026}"
                            : "Change image\u{2026}") {

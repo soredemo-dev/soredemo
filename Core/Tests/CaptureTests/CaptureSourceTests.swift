@@ -383,3 +383,39 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         }
     }
 }
+
+/// The ceiling on how often a capture delivers a frame.
+@Suite struct CaptureFrameRateTests {
+    /// **A ceiling, not a cadence** — the interval is one over the rate, and a still screen
+    /// still produces nothing.
+    @Test func theIntervalIsOneOverTheRate() {
+        #expect(CaptureFrameRate.sixty.minimumFrameInterval == CMTime(value: 1, timescale: 60))
+        #expect(CaptureFrameRate.thirty.minimumFrameInterval == CMTime(value: 1, timescale: 30))
+        #expect(CaptureFrameRate.oneHundredTwenty.minimumFrameInterval
+                == CMTime(value: 1, timescale: 120))
+    }
+
+    /// **Offering 120 on a 60 Hz panel would be offering nothing**: the interval is a ceiling and
+    /// the panel is the floor, so the recording would be 60 either way.
+    @Test func onlyRatesTheDisplayCanProduceAreOffered() {
+        #expect(CaptureFrameRate.available(upTo: 60) == [.thirty, .sixty])
+        #expect(CaptureFrameRate.available(upTo: 120).count == 3)
+        #expect(CaptureFrameRate.available(upTo: 30) == [.thirty])
+    }
+
+    /// A ProMotion panel reports 120.0 and a 59.94 Hz one reports just under 60 — which must
+    /// still offer 60, or an ordinary display would lose its own rate to a rounding error.
+    @Test func aRateJustUnderTheNominalOneStillOffersIt() {
+        #expect(CaptureFrameRate.available(upTo: 59.94).contains(.sixty))
+        #expect(CaptureFrameRate.available(upTo: 119.88).contains(.oneHundredTwenty))
+    }
+
+    @Test func everyRateSaysWhatItIsAndWhatItCosts() {
+        for rate in CaptureFrameRate.allCases {
+            #expect(rate.displayName.contains("\(rate.rawValue)"))
+            #expect(!rate.detail.isEmpty)
+        }
+        #expect(Set(CaptureFrameRate.allCases.map(\.detail)).count
+                == CaptureFrameRate.allCases.count)
+    }
+}
