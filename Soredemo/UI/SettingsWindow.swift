@@ -14,6 +14,7 @@ import SwiftUI
 /// expects to hold: which microphone, whether to count down, what an export defaults to.
 struct SettingsWindow: View {
     @State private var section = Section.recording
+    @State private var languageChanged = false
     let coordinator: RecordingCoordinator
 
     enum Section: String, CaseIterable, Hashable {
@@ -59,6 +60,21 @@ struct SettingsWindow: View {
     }
 
     @ViewBuilder private var recording: some View {
+        SwiftUI.Section("Language") {
+            Picker("Interface", selection: Binding(
+                get: { AppLanguage.stored ?? .system },
+                set: { AppLanguage.choose($0); languageChanged = true })) {
+                ForEach(AppLanguage.available, id: \.self) { language in
+                    Text(language.displayName).tag(language)
+                }
+            }
+            if languageChanged {
+                // Said rather than pretended: `AppleLanguages` is read once when the process
+                // starts, so a change cannot reach views that are already built.
+                Label("Takes effect the next time Soredemo starts.", systemImage: "arrow.clockwise")
+                    .font(Type.detail).foregroundStyle(Signal.paused)
+            }
+        }
         SwiftUI.Section("Before recording") {
             Picker("Countdown", selection: Binding(
                 get: { coordinator.countdownSeconds },
