@@ -115,34 +115,39 @@ struct StageWindow: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            List { Text(mediaURL.lastPathComponent) }
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220)
-        } detail: {
-            // **The timeline sits under the preview, not in the inspector.** Every editor in
-            // `../opensource/Screen Record Opensource/` puts it there, and the reason is what
-            // the two surfaces are for: a timeline is read along its length while watching the
-            // picture above it, and an inspector is read down a column. It was in the
-            // inspector because that is where it was easiest to add.
-            VSplitView {
-                Group {
-                    if let player {
-                        PreviewView(player: player)
-                    } else if let failure {
-                        ContentUnavailableView("Could not build the preview",
-                                               systemImage: "exclamationmark.triangle",
-                                               description: Text(failure))
-                    } else {
-                        ProgressView()
-                    }
+        // **No sidebar.** It held one row — the recording's filename — which is a whole column
+        // spent on a label. The filename is the window's TITLE now, with `navigationDocument`
+        // giving it the proxy icon and path popup every document window on this system has.
+        // a Swift recorder's editor is `HSplitView { preview + timeline | inspector }` and a native editor's
+        // left column is a media browser with content in it; neither spends a column on a name.
+        //
+        // **The timeline sits under the preview**, where every editor in
+        // `../opensource/Screen Record Opensource/` puts it: a timeline is read along its length
+        // while watching the picture above it, and an inspector is read down a column.
+        VSplitView {
+            Group {
+                if let player {
+                    PreviewView(player: player)
+                } else if let failure {
+                    ContentUnavailableView("Could not build the preview",
+                                           systemImage: "exclamationmark.triangle",
+                                           description: Text(failure))
+                } else {
+                    ProgressView()
                 }
-                .frame(minHeight: 240)
+            }
+            .frame(minHeight: 240)
 
+            VStack(spacing: 0) {
+                EditorToolbar(model: timeline, onChange: { editRevision += 1 })
+                Divider()
                 TimelineEditor(model: timeline, onChange: { editRevision += 1 })
                     .padding(Space.regular)
-                    .frame(minHeight: 140, idealHeight: 170)
             }
+            .frame(minHeight: 180, idealHeight: 210)
         }
+        .navigationTitle(mediaURL.deletingPathExtension().lastPathComponent)
+        .navigationDocument(savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }
         // **Registered on every change, not once.** The closure captures this view's current
         // state, so a stale one would save an older edit than the one being asked about.

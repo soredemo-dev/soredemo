@@ -52,6 +52,8 @@ final class TimelineEditorModel {
     /// What part of the recording the strip is showing. **Every position on the strip goes
     /// through this**, so a zoomed view cannot have one conversion for clips and another for
     /// the playhead — see `TimelineWindow` for why that is worth a type.
+    /// `private(set)` and not private: the toolbar reads `visible` to say how much of the
+    /// recording is on screen, which is the readout that makes a zoom control legible.
     private(set) var window = TimelineWindow.whole(Nanoseconds(0))
     /// The zooms the gate derived, before anyone touched them.
     private(set) var derivedZooms: [ZoomBlock] = []
