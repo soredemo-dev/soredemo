@@ -242,3 +242,30 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         }
     }
 }
+
+/// The one selection that is a choice rather than a capability.
+@Suite struct MicrophoneOffTests {
+    /// **`.off` must not resolve to the default.** Every other fallback in `resolve` trades a
+    /// missing device for a working one; this one would trade silence for a live microphone,
+    /// which is the only fallback there that is worse than failing.
+    @Test func offStaysOffWhereAMissingDeviceFallsBack() {
+        #expect(MicrophoneInventory.resolve(.off) == .off)
+        #expect(MicrophoneInventory.resolve(.device(uniqueID: "gone", name: "Unplugged"))
+                == .systemDefault)
+    }
+
+    @Test func offAsksForNoDeviceAndSaysSo() {
+        #expect(MicrophoneSource.off.deviceID == nil)
+        #expect(MicrophoneSource.off.displayName == "No microphone")
+        // Distinct from the default in every way a caller can observe — the two used to be
+        // indistinguishable, which is why "you asked us not to" was recorded as "we could not".
+        #expect(MicrophoneSource.off != MicrophoneSource.systemDefault)
+        #expect(MicrophoneSource.off.displayName != MicrophoneSource.systemDefault.displayName)
+    }
+
+    /// `available()` reports devices, and a device is never `.off` — so a list built from it
+    /// cannot silently contain the choice not to record.
+    @Test func theInventoryNeverReportsOffAsADevice() {
+        #expect(!MicrophoneInventory.available().contains(.off))
+    }
+}

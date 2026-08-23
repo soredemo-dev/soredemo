@@ -740,7 +740,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // without the capability got a silent no, and a person with two microphones got
         // whichever one the system preferred. an Electron recorder probes the same three things and
         // degrades with a warning; an Electron recorder names the device the same way.
-        if MicrophoneInventory.captureIsSupported(by: configuration) {
+        if case .off = microphone {
+            // **Asked not to, which is not the same as could not.** No `.microphoneUnavailable`
+            // in the blindness record: that list is what this module failed to observe, and a
+            // person's choice does not belong in it. The source is still named, so a recording
+            // with no microphone track says why it has none.
+            configuration.captureMicrophone = false
+            lock.withLock { unsafe _diagnostics.microphoneSource = "off (not requested)" }
+        } else if MicrophoneInventory.captureIsSupported(by: configuration) {
             configuration.captureMicrophone = true
             let resolved = MicrophoneInventory.resolve(microphone)
             if let deviceID = resolved.deviceID {

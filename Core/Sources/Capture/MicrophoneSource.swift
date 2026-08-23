@@ -21,6 +21,12 @@ import ScreenCaptureKit
 /// this machine, `SCStreamConfiguration` responds to both selectors — which is why this uses
 /// ScreenCaptureKit and keeps one capture rather than running a second session.
 public enum MicrophoneSource: Hashable, Sendable {
+    /// **No microphone at all — a choice, not a failure.** Until this case existed the type
+    /// could say "we could not capture one" and could not say "you asked us not to", and the
+    /// recorder treated the second as the first: it appended `.microphoneUnavailable` to the
+    /// observation blindness, which is the record of what this module could not see. A person
+    /// recording a UI demo in a shared office has not been degraded by choosing silence.
+    case off
     /// Whatever the system considers the default input. Follows the user changing it in
     /// System Settings, which a pinned device does not.
     case systemDefault
@@ -31,13 +37,14 @@ public enum MicrophoneSource: Hashable, Sendable {
     /// The `microphoneCaptureDeviceID` this selection asks for, or `nil` for the default.
     public var deviceID: String? {
         switch self {
-        case .systemDefault: return nil
+        case .off, .systemDefault: return nil
         case .device(let uniqueID, _): return uniqueID
         }
     }
 
     public var displayName: String {
         switch self {
+        case .off: return "No microphone"
         case .systemDefault: return "System default"
         case .device(_, let name): return name
         }
@@ -91,6 +98,10 @@ public enum MicrophoneInventory {
     /// with the built-in microphone is a better answer than no recording, and the fallback is
     /// visible because `MicrophoneSource.displayName` will not be the name that was asked for.
     public nonisolated static func resolve(_ requested: MicrophoneSource) -> MicrophoneSource {
+        // **`.off` resolves to `.off`.** Falling back to the default here would turn "record no
+        // microphone" into "record whichever microphone", which is the one fallback in this
+        // function that would be worse than failing.
+        if case .off = requested { return .off }
         guard case .device(let uniqueID, _) = requested else { return .systemDefault }
         let present = available().contains { $0.deviceID == uniqueID }
         return present ? requested : .systemDefault

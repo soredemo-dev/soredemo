@@ -77,6 +77,19 @@ final class RecordingCoordinator {
     /// What the source picker is currently offering, so the menu bar panel can show which of
     /// its two buttons opened it.
     private(set) var pendingMode: CaptureSourcePicker.Modes?
+    /// Which microphone the next recording asks for. Held across recordings, so a person who
+    /// picked their interface once does not pick it again every time.
+    var microphone: MicrophoneSource = .systemDefault
+    /// The inputs this machine currently offers, refreshed when the menu bar panel opens —
+    /// a USB interface plugged in after launch has to appear without a relaunch.
+    private(set) var availableMicrophones: [MicrophoneSource] = []
+
+    func refreshMicrophones() {
+        availableMicrophones = MicrophoneInventory.available()
+        // A device that has gone away must not stay selected: `resolve` falls back, and the
+        // panel should show what will actually be recorded rather than what was asked for.
+        microphone = MicrophoneInventory.resolve(microphone)
+    }
     /// Only ever a REPORT — an error, or what just happened. It used to carry the instructions
     /// for using the app, which is what a screen with nothing on it needs and a screen with
     /// buttons on it does not.
@@ -198,6 +211,10 @@ final class RecordingCoordinator {
         // meter drawn straight from it flickers at the buffer rate. Rising fast and falling slow
         // is what every level meter does, because a peak a person missed is worse than a decay
         // they can see.
+        // `.off` reads as no meter rather than as a silent one: a full-height empty track is
+        // what "not hearing you" looks like, and that is not what a person who turned the
+        // microphone off should be shown.
+        guard microphone != .off else { microphoneLevel = nil; return }
         let reading = session?.diagnostics.microphoneAccounting.latestRMS
         guard let reading else { microphoneLevel = nil; return }
         let scaled = min(1, sqrt(reading) * 1.6)
@@ -250,7 +267,8 @@ final class RecordingCoordinator {
         let newSession = CaptureSession(source: source, scale: scale, displayUUID: displayUUID,
                                         mediaSink: newSink, epoch: Minting.bootEpoch(),
                                         pointerShapeReader: SystemCursorShape.reader(),
-                                        pointerHotspotReader: SystemCursorShape.hotspotReader())
+                                        pointerHotspotReader: SystemCursorShape.hotspotReader(),
+                                        microphone: microphone)
         session = newSession
         do {
             try await newSession.start()

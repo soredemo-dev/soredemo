@@ -49,6 +49,7 @@ struct MenuBarRecorderPanel: View {
                 recordingState
             } else {
                 targets
+                microphoneRow
                 Divider().opacity(0.3)
                 startButton
             }
@@ -92,6 +93,49 @@ struct MenuBarRecorderPanel: View {
                 coordinator.beginRecording(.windowsOnly)
             }
         }
+    }
+
+    /// Which microphone, including none.
+    ///
+    /// **System audio is not offered beside it, and the asymmetry is deliberate.** a Swift recorder's
+    /// toolbar has both toggles. Ours records system audio always, because turning it off leaves
+    /// an `AVAssetWriter` input that nothing ever feeds — the exact condition that produced the
+    /// export deadlock this project spent two commits on. `closeAudioTracksNothingIsFeeding`
+    /// recovers from it after ninety frames, so a toggle would work and would cost a second and
+    /// a half of every recording to a control almost nobody wants. It goes in when the writer
+    /// can be told up front that a track will not exist.
+    @ViewBuilder private var microphoneRow: some View {
+        Menu {
+            Button("No microphone") { coordinator.microphone = .off }
+            Divider()
+            Button("System default") { coordinator.microphone = .systemDefault }
+            ForEach(coordinator.availableMicrophones, id: \.self) { source in
+                Button(source.displayName) { coordinator.microphone = source }
+            }
+        } label: {
+            HStack(spacing: Space.snug) {
+                Image(systemName: coordinator.microphone == .off ? "mic.slash" : "mic.fill")
+                    .foregroundStyle(coordinator.microphone == .off
+                                     ? .white.opacity(0.45) : .white.opacity(0.9))
+                Text(coordinator.microphone.displayName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, Space.regular)
+            .padding(.vertical, Space.snug)
+            .background {
+                RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
+                    .fill(.white.opacity(0.05))
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .task { coordinator.refreshMicrophones() }
     }
 
     @ViewBuilder private var startButton: some View {
