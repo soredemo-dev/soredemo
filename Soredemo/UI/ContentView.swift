@@ -95,7 +95,13 @@ final class RecordingCoordinator {
     func refreshCameras() {
         availableCameras = CameraRecorder.available()
         camera = CameraSource.resolve(camera, against: availableCameras)
+        activeCameraEffects = CameraEffects.active()
+        cameraIsBusy = CameraRecorder.isInUseByAnotherApplication(camera)
     }
+
+    /// True when the chosen camera is already held by another application — a video call in a
+    /// browser, most often. See `CameraRecorder.isInUseByAnotherApplication`.
+    private(set) var cameraIsBusy = false
 
     /// True once this Mac has refused the camera, so the panel can say so.
     ///
@@ -105,6 +111,10 @@ final class RecordingCoordinator {
     /// no message, the row still reading "No camera". Silence is the worst answer to a
     /// permission question, because the only thing it teaches is that the button is broken.
     private(set) var cameraWasRefused = false
+
+    /// The effects macOS is applying to every camera on this Mac. Re-read with the device list,
+    /// because they are switched on in a panel this app does not own — see `CameraEffects`.
+    private(set) var activeCameraEffects: [CameraEffects.Effect] = []
 
     /// Chooses a camera, asking this Mac first.
     ///

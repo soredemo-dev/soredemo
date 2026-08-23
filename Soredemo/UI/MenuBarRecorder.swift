@@ -102,6 +102,7 @@ struct MenuBarRecorderPanel: View {
                 startButton
             }
             hotkeyWarning
+            failureNote
             Divider()
             footer
         }
@@ -194,13 +195,25 @@ struct MenuBarRecorderPanel: View {
             ForEach(coordinator.availableMicrophones, id: \.self) { source in
                 Button(source.displayName) { coordinator.microphone = source }
             }
+            Divider()
+            // **Voice Isolation is the noise removal, done by the system, on the input.** It is
+            // a mode macOS applies before any app sees a sample, so it is in the recording
+            // rather than something an export has to undo. No app can set it — see
+            // `CameraEffects` — so this opens the panel that can.
+            Button("Microphone Modes\u{2026}") { CameraEffects.showMicrophoneModes() }
         } label: {
             HStack(spacing: Space.snug) {
                 Image(systemName: coordinator.microphone == .off ? "mic.slash" : "mic.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(coordinator.microphone == .off ? .secondary : .primary)
                     .frame(width: 14)
-                Text(coordinator.microphone.displayName)
+                // **Looked up here, because the name crosses a module boundary as a `String`.**
+                // `MicrophoneSource.displayName` is in the package, which has no strings table
+                // and should not have one — a capture module that knew about the app's UI
+                // language would be the wrong shape. "System default" and "No microphone" are
+                // keys in this app's table; a real device's name is not, and falls through to
+                // itself, which is right — the system already localised it.
+                Text(LocalizedStringKey(coordinator.microphone.displayName))
                     .font(.system(size: 12))
                     .lineLimit(1)
                 Spacer(minLength: Space.tight)
@@ -243,13 +256,15 @@ struct MenuBarRecorderPanel: View {
                 ForEach(coordinator.availableCameras, id: \.self) { source in
                     Button(source.displayName) { coordinator.chooseCamera(source) }
                 }
+                Divider()
+                Button("Video Effects\u{2026}") { CameraEffects.showVideoEffects() }
             } label: {
                 HStack(spacing: Space.snug) {
                     Image(systemName: coordinator.camera == .off ? "video.slash" : "video.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(coordinator.camera == .off ? .secondary : .primary)
                         .frame(width: 14)
-                    Text(coordinator.camera.displayName)
+                    Text(LocalizedStringKey(coordinator.camera.displayName))
                         .font(.system(size: 12))
                         .lineLimit(1)
                     Spacer(minLength: Space.tight)
@@ -265,6 +280,34 @@ struct MenuBarRecorderPanel: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
 
+            // **What the system is applying, said where the camera is chosen.** Portrait and
+            // Studio Light are switched on in Control Center and stay on for every app, so a
+            // person who turned one on for a call months ago has it in this recording too. The
+            // row that picks the camera is where that belongs; the effects panel itself is one
+            // press away in the menu above.
+            if !coordinator.activeCameraEffects.isEmpty {
+                Button { CameraEffects.showVideoEffects() } label: {
+                    HStack(spacing: Space.tight) {
+                        Image(systemName: "sparkles").font(.system(size: 9))
+                        Text(coordinator.activeCameraEffects
+                            .map { NSLocalizedString($0.rawValue, comment: "") }
+                            .joined(separator: " \u{00B7} "))
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            // **Said before the recording, not after it.** A camera another application already
+            // holds is what a video call in a browser looks like from here, and the failure
+            // used to arrive as a missing camera track in a finished recording.
+            if coordinator.cameraIsBusy {
+                Label("Another app is using this camera. The screen will still record.",
+                      systemImage: "video.badge.ellipsis")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Signal.paused)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if coordinator.cameraWasRefused {
                 Button { coordinator.openCameraSettings() } label: {
                     Label("This Mac has not allowed Soredemo the camera. Open Settings\u{2026}",
@@ -383,6 +426,25 @@ struct MenuBarRecorderPanel: View {
         }
     }
 
+    /// Whatever went wrong, said here.
+    ///
+    /// **`statusText` used to be written where only the editor could see it.** So a camera that
+    /// refused to start — because another application already had it, which is exactly what a
+    /// video call is — produced a recording with no camera in it and not one word about why.
+    /// The recorder is started from this panel and this panel is where a person comes back to.
+    ///
+    /// Only failures: the running commentary was removed from `statusText` long ago, and what is
+    /// left is a report.
+    @ViewBuilder private var failureNote: some View {
+        if !coordinator.statusText.isEmpty, coordinator.statusText.contains("could not")
+            || coordinator.statusText.contains("Could not") {
+            Label(coordinator.statusText, systemImage: "exclamationmark.triangle")
+                .font(.system(size: 10))
+                .foregroundStyle(Signal.paused)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     /// The global shortcut, spelled the way a menu would.
     static let toggleShortcut = "\u{2318}\u{21E7}R"
 
@@ -413,8 +475,14 @@ struct MenuBarRecorderPanel: View {
 /// One of the two target choices.
 private struct TargetCard: View {
     let icon: String
-    let title: String
-    let detail: String
+    // **`LocalizedStringKey`, not `String`, and that is the whole translation bug.** Every one
+    // of these words was already in `zh-Hant.lproj/Localizable.strings` — "Screen" = "螢幕" has
+    // been there since the file was written. SwiftUI only looks a string up when it arrives as
+    // a `LocalizedStringKey`; a `String` passed through a parameter is drawn verbatim. So the
+    // panel showed 開始錄製 and 倒數, which are literals in this file, beside Screen and Window,
+    // which are not — and it read as a half-finished translation rather than a type mistake.
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey
     /// True while the system picker this card opened is up, so the card reads as the thing that
     /// is happening rather than staying inert behind a picker a person may not connect to it.
     let isBusy: Bool
@@ -474,7 +542,9 @@ private struct PanelLevel: View {
 /// A footer action: a label and its shortcut, with no button chrome — the row is a list of
 /// places to go, and three bordered buttons would compete with the red one above them.
 private struct PanelLink: View {
-    let title: String
+    /// `LocalizedStringKey` for `TargetCard`'s reason — this is why Open Project and Quit
+    /// stayed English while everything written as a literal in this file was translated.
+    let title: LocalizedStringKey
     let shortcut: String
     let action: () -> Void
     @State private var isHovering = false

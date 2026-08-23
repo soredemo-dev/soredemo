@@ -169,3 +169,15 @@
 "covers nothing" = "沒有涵蓋任何範圍";
 "A burnt-in caption cannot be turned off, translated or searched. A sidecar file can." = "燒錄進畫面的字幕無法關閉、翻譯或搜尋,外掛字幕檔可以。";
 "A screen recorder whose camera follows what you click." = "一個鏡頭會跟著你點擊的地方走的螢幕錄影程式。";
+"A whole display" = "整個顯示器";
+"Center Stage" = "自動置中";
+"Microphone Modes…" = "麥克風模式…";
+"Point at it" = "指向它";
+"Portrait" = "人像";
+"Quit" = "結束";
+"Reactions" = "反應";
+"Studio Light" = "攝影棚燈光";
+"This Mac has not allowed Soredemo the camera. Open Settings…" = "這台 Mac 尚未允許 Soredemo 使用相機。開啟系統設定…";
+"Video Effects…" = "視訊效果…";
+"Window" = "視窗";
+"Another app is using this camera. The screen will still record." = "其他 App 正在使用這台相機。螢幕仍然會錄製。";

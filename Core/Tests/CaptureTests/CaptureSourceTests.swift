@@ -316,6 +316,38 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         #expect(CameraSource.off != CameraSource(uniqueID: "A", name: "Built-in"))
     }
 
+    /// **The raw values are the strings table's keys, not decoration.** The panel writes
+    /// `NSLocalizedString(effect.rawValue)`, so a raw value edited to read better in code — to
+    /// "portrait", say — would silently ship an untranslated word to every non-English reader.
+    /// Pinned here because nothing else can notice.
+    @Test func everyEffectIsNamedByTheKeyTheAppLooksUp() {
+        #expect(CameraEffects.Effect.portrait.rawValue == "Portrait")
+        #expect(CameraEffects.Effect.studioLight.rawValue == "Studio Light")
+        #expect(CameraEffects.Effect.centerStage.rawValue == "Center Stage")
+        #expect(CameraEffects.Effect.reactions.rawValue == "Reactions")
+        #expect(CameraEffects.Effect.background.rawValue == "Background")
+        let names = CameraEffects.Effect.allCases.map(\.rawValue)
+        #expect(Set(names).count == names.count)
+    }
+
+    /// **Reading which effects are on must not need a camera, a permission, or a session.**
+    /// It is called while a menu is being drawn — every one of those would be a stall in front
+    /// of somebody, and a permission prompt raised by drawing a menu would be worse than a
+    /// stall. The class properties are the whole implementation for exactly this reason.
+    @Test func theActiveEffectsCanBeReadWithoutOpeningACamera() {
+        let active = CameraEffects.active()
+        #expect(Set(active).count == active.count)
+        for effect in active { #expect(CameraEffects.Effect.allCases.contains(effect)) }
+        // Declared order, so the row does not reshuffle itself between two readings.
+        let ranks = active.compactMap { CameraEffects.Effect.allCases.firstIndex(of: $0) }
+        #expect(ranks == ranks.sorted())
+    }
+
+    /// A camera nobody named is not in use by anybody, and asking must not construct a device.
+    @Test func noCameraIsNeverInUseByAnotherApplication() {
+        #expect(CameraRecorder.isInUseByAnotherApplication(.off) == false)
+    }
+
     @Test func theRecorderErrorsDescribeThemselvesDistinctly() {
         let cases: [CameraRecorder.RecorderError] = [
             .noCamera("Studio Display"), .sessionRefusedInput, .sessionRefusedOutput,

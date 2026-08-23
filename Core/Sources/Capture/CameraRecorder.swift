@@ -27,6 +27,21 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
             .map { CameraSource(uniqueID: $0.uniqueID, name: $0.localizedName) }
     }
 
+    /// Whether another application currently holds this camera.
+    ///
+    /// **macOS lets several apps read one camera, and several is not unlimited.** The built-in
+    /// camera has one active format, and the first client fixes it; a second client asking for
+    /// something the first has not configured is refused, which is what a video call in a
+    /// browser and a recorder starting at the same time run into. Reported rather than
+    /// discovered at `start()`, so the panel can say it while there is still a choice to make.
+    ///
+    /// A macOS-only property — there is no iOS equivalent, because iOS never shares a camera.
+    public nonisolated static func isInUseByAnotherApplication(_ source: CameraSource) -> Bool {
+        guard let uniqueID = source.uniqueID,
+              let device = AVCaptureDevice(uniqueID: uniqueID) else { return false }
+        return device.isInUseByAnotherApplication
+    }
+
     /// Whether a camera can be recorded at all — the permission plus a device.
     public nonisolated static var isAvailable: Bool {
         AVCaptureDevice.authorizationStatus(for: .video) != .denied && !available().isEmpty
