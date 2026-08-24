@@ -307,6 +307,9 @@ public struct RenderPlan: Hashable, Sendable {
     /// `MotionBlur`. Applies to the content inside the card only: the card, the stage and
     /// every overlay are not moving.
     public let motionBlur: MotionBlur?
+    /// The shortcut badge on this frame, or `nil` — see `KeystrokeBadge`. Drawn above the
+    /// caption and below the titles, like the caption a viewer reads alongside.
+    public let keystroke: KeystrokeBadge?
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
@@ -318,7 +321,8 @@ public struct RenderPlan: Hashable, Sendable {
                 cursorStyle: CursorStyle = .default,
                 camera: CameraOverlay? = nil,
                 crop: CropRect = .whole,
-                motionBlur: MotionBlur? = nil) {
+                motionBlur: MotionBlur? = nil,
+                keystroke: KeystrokeBadge? = nil) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -334,6 +338,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.camera = camera
         self.crop = crop
         self.motionBlur = motionBlur
+        self.keystroke = keystroke
     }
 }
 

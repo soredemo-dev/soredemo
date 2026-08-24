@@ -46,6 +46,13 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                                         outputHeight: plan.outputHeight) {
             composed = image.composited(over: composed)
         }
+        // **A pressed shortcut, above the caption.** Both are read alongside the picture;
+        // the badge sits higher so the two never share a line when both are on.
+        if let badge = plan.keystroke,
+           let image = KeystrokeArt.image(badge, outputWidth: plan.outputWidth,
+                                          outputHeight: plan.outputHeight) {
+            composed = image.composited(over: composed)
+        }
         // **The camera goes above the picture and under the overlays.** It is part of the
         // recording, so a title or a caption a person placed has to read over it — and a
         // redaction is applied to the source inside the card, so it is already below.

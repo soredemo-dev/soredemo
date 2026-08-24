@@ -61,6 +61,9 @@ public struct EditState: Codable, Sendable, Equatable {
     /// The part of the recording used at all, as encoded bytes. Authored. Absent means the whole
     /// recording, which is what an uncropped project has always meant.
     public var cropData: Data?
+    /// Whether pressed shortcuts are NOT drawn as badges. Absent means they are — the default
+    /// since the badges landed (2026-08-25) — so only turning them off is a decision to keep.
+    public var hidesKeystrokes: Bool?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -75,7 +78,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 redactionTrackData: Data? = nil,
                 cursorStyleData: Data? = nil,
                 cameraStyleData: Data? = nil,
-                cropData: Data? = nil) {
+                cropData: Data? = nil,
+                hidesKeystrokes: Bool? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -90,6 +94,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.cursorStyleData = cursorStyleData
         self.cameraStyleData = cameraStyleData
         self.cropData = cropData
+        self.hidesKeystrokes = hidesKeystrokes
     }
 
     /// A recording nobody has edited.
@@ -105,6 +110,7 @@ public struct EditState: Codable, Sendable, Equatable {
             // `false` is not a change: it is the default, and a project that only ever had
             // captions turned off has nothing to save.
             || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil || cameraStyleData != nil || cropData != nil
+            || hidesKeystrokes == true
     }
 
     // MARK: - the tiers that own these values

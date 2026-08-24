@@ -148,3 +148,10 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(first == second)
     }
 }
+
+/// Hiding the badges is a decision worth saving; showing them — the default — is not.
+@Test func hidingKeystrokesIsAChangeAndShowingThemIsNot() {
+    #expect(!EditState(hidesKeystrokes: nil).changesAnything)
+    #expect(!EditState(hidesKeystrokes: false).changesAnything)
+    #expect(EditState(hidesKeystrokes: true).changesAnything)
+}

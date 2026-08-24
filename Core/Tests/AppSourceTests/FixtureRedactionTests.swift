@@ -2,12 +2,13 @@ import Testing
 import Foundation
 import CheckerLexer
 
-/// Redaction adjudicated by SCHEMA, not by instance: `KeySample.shortcut` has zero
-/// occurrences in today's fixture, so only a schema scan can find it. Every `String` field
-/// and every `String`-carrying enum case under `Sources/Project` needs a verdict here.
+/// Redaction adjudicated by SCHEMA, not by instance: a field with zero occurrences in today's
+/// fixture (`KeySample.shortcut` had none when this was written) can only be found by a schema
+/// scan. Every `String` field and every `String`-carrying enum case under `Sources/Project`
+/// needs a verdict here.
 let adjudicatedStringFields: [String: String] = [
     "AXElementRecord.title": "REDACT — user data; UI text (button/window labels) appears in hit, ancestors[], children[]; already legible in the video this log accompanies (ObservationLog's own \"what a record may contain\" section)",
-    "KeySample.shortcut": "REDACT — reflects what key combination a person pressed, even filtered to an approved-shortcut identifier by InputObserver; zero occurrences in today's fixture (no \"key\" record is present), which is exactly why an instance scan cannot find it and a schema scan must",
+    "KeySample.shortcut": "keep — RE-ADJUDICATED 2026-08-25, from REDACT. An identifier from InputObserver.approvedShortcuts (⌘C, ⇧⌘Z), never a typed character: the allow-list is the redaction, applied before the value is written. It was marked REDACT \"on principle\" while nothing read it; the keystroke badges (KeystrokeTrack, design audit item 3) draw exactly this value, and Gate 2's own message says what happens then — the fixture cannot be redacted of a value the render path needs, so the adjudication changes, not the gate. A fixture that carries a key record must therefore show the identifier, which is what a badge test needs it to",
     "SegmentBoundary.failed": "REDACT — carries String(describing: error) from CaptureSession.stream(_:didStopWithError:); AVFoundation/ScreenCaptureKit error descriptions routinely embed a file URL (home path, username, package name). Persisted via MasterSegment.endedBy into project.json, NOT into an observation log — this case cannot appear in Tests/HeadlessFixtures/*.jsonl (the observation-log wire format), so Gate 1 below is scoped to a format this field structurally cannot reach. Note for the day a project.json fixture is ever committed: the JSON key that would actually carry the leak is the associated value's own label, \"reason\", not the case name \"failed\" — Swift's synthesised Codable for an associated-value case encodes {\"failed\":{\"reason\":\"…\"}}, a nested object, so a future gate over that format must key on \"reason\", not on this entry's own case name",
     "AXElementRecord.role": "keep — system AX role constant (e.g. AXButton, AXWindow), not user-authored text",
     "PointerSample.kind": "keep — literal discriminator \"pointer\", never anything else (ObservationRecord.kind)",
@@ -192,8 +193,8 @@ func stringValues(named fieldNames: Set<String>, in json: Any) -> [String] {
 }
 
 /// **Gate 1 — content.** No `REDACT`-marked field in any committed fixture holds a value other
-/// than the placeholder. The vacuity guard is per fixture, summed across every redacted field:
-/// `shortcut` has zero occurrences by design, so a per-field guard would fail permanently.
+/// than the placeholder. The vacuity guard is per fixture, summed across every redacted field,
+/// so a REDACT field with no occurrence in a fixture cannot fail the guard on its own.
 @Test func noCommittedFixtureCarriesAnUnredactedStringField() throws {
     let redactedFields = Set(adjudicatedStringFields
         .filter { $0.value.hasPrefix("REDACT") }

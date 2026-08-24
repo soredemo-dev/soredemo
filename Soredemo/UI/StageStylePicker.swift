@@ -29,9 +29,17 @@ final class StageStyleModel {
     /// video look" — and a second `@Observable` for six numbers would be a second thing to
     /// remember to publish and to restore.
     private(set) var cursor: CursorStyle = .default
+    /// Whether pressed shortcuts are drawn as badges. Held here with the cursor for the same
+    /// reason the cursor is held with the stage: one decision about how the video looks.
+    private(set) var showsKeystrokes = true
 
     func setCursor(_ value: CursorStyle) {
         cursor = value
+        publish()
+    }
+
+    func setShowsKeystrokes(_ value: Bool) {
+        showsKeystrokes = value
         publish()
     }
 
@@ -122,6 +130,7 @@ final class StageStyleModel {
     private func publish() {
         StageCompositor.style = style
         StageCompositor.cursorStyle = cursor
+        StageCompositor.showsKeystrokes = showsKeystrokes
     }
 }
 
@@ -225,6 +234,12 @@ struct StageStylePicker: View {
         slider("Tilt while moving", value: model.cursor.tilt, range: 0...1) {
             model.setCursor(model.cursor.changing(tilt: $0)); onChange()
         }
+        // **The badges the recorder has always captured for.** Only approved shortcuts are
+        // ever recorded — never typing — so there is nothing here a person did not mean to show.
+        Toggle("Show keyboard shortcuts", isOn: Binding(
+            get: { model.showsKeystrokes },
+            set: { model.setShowsKeystrokes($0); onChange() }))
+            .font(Type.detail)
     }
 
     /// The open panel. Images only, and one at a time.

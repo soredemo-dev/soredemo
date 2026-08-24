@@ -816,7 +816,8 @@ struct StageWindow: View {
             cursorStyleData: try? EditState.encoding(stageStyle.cursor),
             cameraStyleData: cameraURL == nil
                 ? nil : try? EditState.encoding(cameraStyle),
-            cropData: crop.isWhole ? nil : try? EditState.encoding(crop))
+            cropData: crop.isWhole ? nil : try? EditState.encoding(crop),
+            hidesKeystrokes: stageStyle.showsKeystrokes ? nil : true)
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -876,6 +877,7 @@ struct StageWindow: View {
                 stageStyle.restoreCursor(cursor)
             }
         } catch { failures.append("the cursor") }
+        stageStyle.setShowsKeystrokes(edit.hidesKeystrokes != true)
         do {
             if let camera = try EditState.decoding(edit.cameraStyleData,
                                                    as: CameraOverlayStyle.self) {

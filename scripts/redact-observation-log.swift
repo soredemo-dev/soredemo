@@ -10,22 +10,17 @@
 //     but that is a rule about what the CAPTURE PATH may write, not about what a
 //     fixture checked into a public git history may carry, and the two questions
 //     get different answers here.
-//   * `shortcut` (`KeySample.shortcut`) — REDACT. The identifier of an approved
-//     keyboard shortcut a person pressed. `InputObserver` already filters this to
-//     an identifier rather than raw keystrokes before it is ever written — see
-//     `KeySample`'s own doc comment, "there is nothing here to redact later" — but
-//     "later" turns out to include this script: a shortcut identifier still says
-//     what a person did, on their own machine, with their own hands, and it costs
-//     nothing to hold this fixture to a stricter bar than the writer holds itself.
-//     **This field has ZERO occurrences in `segment-00.jsonl`** (no `"kind":"key"`
-//     line exists in it at all) — it is redacted anyway, on principle, so the
-//     script does the right thing on the day a fixture recorded with a shortcut in
-//     it is produced, rather than needing to be remembered on that day.
+//   * `shortcut` (`KeySample.shortcut`) — KEEP, re-adjudicated 2026-08-25 from
+//     REDACT. The identifier of an approved keyboard shortcut (⌘C, ⇧⌘Z), which
+//     `InputObserver` filters through an allow-list before it is ever written —
+//     never a typed character. It was redacted "on principle" while nothing read
+//     it; the keystroke badges now draw exactly this value, and a fixture stripped
+//     of it could not exercise them. The allow-list is the redaction.
 //
 // This list is adjudicated once, by schema rather than by instance, in
 // `Tests/AppSourceTests/FixtureRedactionTests.swift`'s `adjudicatedStringFields` —
 // see that file for the full table (14 string-valued fields in `Sources/Project`,
-// of which these two are the only `REDACT` verdicts) and for
+// of which `title` is the observation-log `REDACT` verdict) and for
 // `everyStringFieldInTheObservationLogSchemaHasAVerdict`, which fails the build the
 // day a fifteenth field appears with no verdict attached. **The two lists —
 // `redactedFields` below and the `REDACT` rows of that table — are kept in step by
@@ -52,12 +47,12 @@
 // the unredacted original — `~/soredemo-evidence/row14/…/segment-00.jsonl` — which
 // exists only on the machine that recorded it and is never committed. **This
 // redaction is auditable by its author and not by its readers.** A future reader
-// of the committed fixture can verify the NEGATIVE — that no `title` or
-// `shortcut` value in the committed file is anything but the placeholder; Gate 1
+// of the committed fixture can verify the NEGATIVE — that no `title` value in the
+// committed file is anything but the placeholder; Gate 1
 // in `FixtureRedactionTests.swift` does exactly that, mechanically, forever. What
 // a reader cannot do is verify that the right things were removed and nothing
-// else was — that the diff against the original really is empty outside the two
-// redacted fields — because the original is not there to diff against. That is a
+// else was — that the diff against the original really is empty outside the
+// redacted field — because the original is not there to diff against. That is a
 // known, accepted cost of choosing a recorded fixture (half its value is that it
 // is dirty: 149 tap-disabled windows, an `accessibilityUnavailable` flip, two
 // different blind rates in one session — a constructed fixture would not have
@@ -75,7 +70,7 @@ import Foundation
 
 /// Kept in step BY HAND with the `REDACT` rows of `adjudicatedStringFields` in
 /// `Tests/AppSourceTests/FixtureRedactionTests.swift` — see the header above.
-let redactedFields = ["title", "shortcut"]
+let redactedFields = ["title"]
 let placeholder = "[redacted]"
 
 /// Rewrites every `"field":"…"` value for `field` in `redactedFields` to the

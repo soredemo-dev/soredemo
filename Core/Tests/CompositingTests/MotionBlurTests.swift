@@ -211,3 +211,37 @@ private func luminance(of image: CIImage, width: Int, height: Int) throws -> [Do
     #expect(brightest(half) < brightest(upright) && brightest(half) > brightest(none),
             "half opacity did not land between hidden and drawn")
 }
+
+// MARK: - the keystroke badge reaches the pixels
+
+/// A plan carrying a badge draws pixels a badge-less plan does not, near the bottom of the
+/// frame where the style puts it, and a badge at opacity 0 draws nothing.
+@Test func aKeystrokeBadgeIsDrawnWhereTheStylePutsIt() throws {
+    let width = 640, height = 360
+    let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: .default)
+    let renderer = try CoreImageFrameRenderer()
+    func frame(_ badge: KeystrokeBadge?) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let plan = RenderPlan(outputWidth: width, outputHeight: height, card: base.card,
+                              cornerRadius: base.cornerRadius, style: base.style, pointer: nil,
+                              keystroke: badge)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
+        return try pixels(of: destination)
+    }
+    let without = try frame(nil)
+    let with = try frame(KeystrokeBadge(text: "⌘⇧Z", opacity: 1))
+    let faded = try frame(KeystrokeBadge(text: "⌘⇧Z", opacity: 0))
+
+    let changed = zip(with, without).enumerated().filter { $0.element.0 != $0.element.1 }.map(\.offset)
+    #expect(!changed.isEmpty, "the badge drew nothing")
+    // Rows are top-down in the buffer; the badge sits `bottomFraction` up from the bottom.
+    let rows = changed.map { $0 / width }
+    let expectedRow = height - Int(Double(height) * KeystrokeBadgeStyle.bottomFraction)
+    let centreRow = (rows.min()! + rows.max()!) / 2
+    #expect(abs(centreRow - expectedRow) < Int(Double(height) * KeystrokeBadgeStyle.heightFraction) * 2, """
+        the badge's rows centre on \(centreRow); the style puts its baseline near \(expectedRow)
+        """)
+    #expect(!zip(faded, without).contains { $0 != $1 }, "a badge at opacity 0 still drew")
+}

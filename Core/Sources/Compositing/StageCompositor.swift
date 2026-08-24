@@ -77,6 +77,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// Parts of the recording to hide. Set on the same terms as the seams above.
     public nonisolated(unsafe) static var redactions = RedactionTrack()
 
+    /// Whether pressed shortcuts are drawn as badges. **On by default**: the recorder writes
+    /// `key` records for exactly this, the row has claimed the badges since Phase 3, and a
+    /// recording with no approved shortcut in it draws nothing either way. The track itself
+    /// is read from the observation log with the pointer's, not set from outside.
+    public nonisolated(unsafe) static var showsKeystrokes = true
+
     /// How the drawn cursor looks. Set on the same terms as the seams above.
     public nonisolated(unsafe) static var cursorStyle: CursorStyle = .default
 
@@ -115,6 +121,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         var burnsInCaptions: Bool
         var texts: TextTrack
         var redactions: RedactionTrack
+        var showsKeystrokes: Bool
         var cursorStyle: CursorStyle
         var cameraStyle: CameraOverlayStyle?
         var crop: CropRect
@@ -127,7 +134,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                         editTimeline: editTimeline, framingOverrides: framingOverrides,
                         zoomAdjustments: zoomAdjustments, captions: captions,
                         captionStyle: captionStyle, burnsInCaptions: burnsInCaptions,
-                        texts: texts, redactions: redactions, cursorStyle: cursorStyle,
+                        texts: texts, redactions: redactions, showsKeystrokes: showsKeystrokes,
+                        cursorStyle: cursorStyle,
                         cameraStyle: cameraStyle, crop: crop, cameraTrackID: cameraTrackID)
     }
 
@@ -146,6 +154,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         unsafe burnsInCaptions = settings.burnsInCaptions
         unsafe texts = settings.texts
         unsafe redactions = settings.redactions
+        unsafe showsKeystrokes = settings.showsKeystrokes
         unsafe cursorStyle = settings.cursorStyle
         unsafe cameraStyle = settings.cameraStyle
         unsafe crop = settings.crop
@@ -194,6 +203,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// again only if that ceiling changes, which within one compositor instance it does not.
     private nonisolated(unsafe) var camera: CameraMotion?
     private nonisolated(unsafe) var cameraCeiling: Double = .infinity
+    /// The pressed shortcuts, from the same log.
+    private nonisolated(unsafe) var keystrokes: KeystrokeTrack?
     private nonisolated(unsafe) var tracksLoaded = false
 
     public func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
@@ -253,7 +264,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               // carries it.
                               camera: (unsafe Self.cameraStyle)
                                   .flatMap { $0.isHidden ? nil : CameraOverlay(style: $0) },
-                              crop: crop)
+                              crop: crop,
+                              keystroke: keystrokeBadge(at: request.compositionTime))
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             // The camera's buffer, when the composition carries one. Read inside the same
@@ -338,6 +350,18 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }
+    }
+
+    /// The shortcut badge on screen at an OUTPUT time, or `nil`. Converted to source time and
+    /// then to the recorder's clock exactly as the pointer is: a press is an observation.
+    public func keystrokeBadge(at compositionTime: CMTime) -> KeystrokeBadge? {
+        guard unsafe Self.showsKeystrokes, compositionTime.isValid,
+              let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                             timescale: compositionTime.timescale),
+              let offset = Self.sourceOffset(forOutput: outputOffset) else { return nil }
+        let (_, _, anchor, _) = loadedTracks()
+        guard let anchor, let track = lock.withLock({ unsafe keystrokes }) else { return nil }
+        return track.badge(at: anchor.instant(atOffset: offset))
     }
 
     /// `basePlan` with the camera applied for `compositionTime`, or unchanged when the log
@@ -507,6 +531,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                     unsafe clickTrack = built.click
                     unsafe camera = built.camera
                     unsafe cameraCeiling = built.camera.zoomCeiling
+                    unsafe keystrokes = built.keystrokes
                     unsafe logAnchor = built.anchor
                 }
             }
@@ -524,11 +549,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// project-level judgement, not an observed fact.
     private static func buildTracks(from url: URL, overrides: [CursorOverride],
                                     framingOverrides: [FramingOverride] = []) throws
-        -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?, camera: CameraMotion) {
+        -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?, camera: CameraMotion,
+            keystrokes: KeystrokeTrack) {
         let lines = try JSONLReader.linesOfFile(at: url).lines
         var samples: [PointerSample] = []
         var blindIntervals: [BlindInterval] = []
         var buttonEvents: [ButtonEvent] = []
+        var presses: [KeystrokeTrack.Press] = []
         var anchor: EpochAnchor?
         var planEntries: [FramingPlan.Entry] = []
         for line in lines {
@@ -539,6 +566,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 samples.append(try ObservationLog.decode(line) as PointerSample)
             case "button":
                 buttonEvents.append(try ObservationLog.decode(line) as ButtonEvent)
+            case "key":
+                // **Read at last.** The writer has emitted these since Phase 2 and this
+                // `switch` fell through to `default` on every one of them.
+                let key = try ObservationLog.decode(line) as KeySample
+                presses.append(KeystrokeTrack.Press(instant: key.instant, shortcut: key.shortcut))
             case "secureInput":
                 let interval = (try ObservationLog.decode(line) as SecureInputInterval).interval
                 blindIntervals.append(BlindInterval(start: interval.start, duration: interval.duration,
@@ -589,6 +621,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             if case .drawn(let point, _, _) = pointer.presentedPosition(at: instant) { return point }
             return nil
         })
-        return (pointer: pointer, click: click, anchor: anchor, camera: camera)
+        return (pointer: pointer, click: click, anchor: anchor, camera: camera,
+                keystrokes: KeystrokeTrack(presses: presses))
     }
 }
