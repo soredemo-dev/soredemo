@@ -2,8 +2,12 @@
 
 **Teams ship 20+ times a year and demo two or three times.**
 
-Soredemo turns each release into a published demo — detected from GitHub, recorded once, derived into
-video and launch copy, reviewed by a person, and posted.
+Soredemo records a demo and edits it into something worth watching — the pointer drawn from what
+actually happened, the camera moving to whatever was clicked, and every one of those decisions
+reviewable by the person who made the recording.
+
+*It began as something wider — detect a release, record it, derive launch copy, post it. That half
+is out of scope as of 2026-08-25; see `ROADMAP.md`.*
 
 Measured, not assumed: 2.1% of 2,241 releases from 151 developer tools carried any visual demo, and
 one project in 530 did it every time — see [`soredemo-research/release-coverage`](../soredemo-research/release-coverage).
@@ -25,14 +29,16 @@ macOS 26 · Swift 6.4 · Apple Silicon · local by default
 > reopen. The interface is English and Traditional Chinese.
 > `scripts/build-release.sh` signs and notarises a Developer ID copy.
 >
-> **What is not built:** the derivation graph, the storyboard, the launch pack, the CLI, and
-> publishing. Framing decisions are made per click but are not yet graph-provenanced, and a portrait
-> export still inherits landscape's zoom decisions — both named in `ROADMAP.md` on rows that stay `◐`
-> rather than being rounded up.
+> **What is not built:** the derivation graph, titles and transitions, and the CLI. Framing
+> decisions are made per click but are not yet graph-provenanced, and a portrait export still
+> inherits landscape's zoom decisions — both named in `ROADMAP.md` on rows that stay `◐` rather than
+> being rounded up.
 >
-> **Phase 0 has never been run, and it is still the riskiest open question** — whether teams record a
-> demo per release once the friction is gone. `ROADMAP.md`'s Phase 0 rows are all `☐`. Nothing built
-> since tests that assumption, and a feature-complete recorder does not change that.
+> **Scope narrowed 2026-08-25: the work is the screen recorder.** Phase 0 — validating that teams
+> would record a demo per release once the friction was gone — was never run and is now out of
+> scope, along with the release loop that rested on it: detecting a release, proposing a recording,
+> drafting a post, publishing. Both are marked removed in `ROADMAP.md` with the reason rather than
+> deleted quietly. The claim is not disproved; it is not what this is any more.
 
 ---
 
@@ -70,7 +76,8 @@ the product. A pure function with no caller does not satisfy a row that claims a
 silently replaced. Test it by supplying a value the producer could not have derived.
 
 **The publishing rule.** Soredemo never posts anything without explicit, per-post human approval. No
-auto-publish, no "approve all", no CI bypass.
+auto-publish, no "approve all", no CI bypass. Nothing publishes as of 2026-08-25 — the rule stands
+as the answer for the first time somebody wants a share button, not as a description of a feature.
 
 **Native Liquid Glass only.** App chrome is 100% standard SwiftUI. Never `.glassEffect()`, never
 `NSGlassEffectView`. Content surfaces are deliberately opaque.

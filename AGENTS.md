@@ -27,6 +27,11 @@ That is the product thesis and it is also the architecture.
 This is the thesis at the one boundary where getting it wrong is public and permanent. It is also the
 rule most likely to be eroded by a well-meaning convenience feature. Do not add one.
 
+**The surface it guards was removed on 2026-08-25** — publishing went out of scope with Phase 0 and
+the release loop, so there is no `publish_post` and no `soredemo publish` to refuse anything. The
+rule stays, and it is not decoration: it is the standing answer to a question that will be asked
+again the first time somebody wants a share button. Nothing may add a publishing surface without it.
+
 ---
 
 ## Method

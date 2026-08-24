@@ -14,27 +14,16 @@ Legend: ☐ not started · ◐ in progress · ☑ complete · ⛔ blocked
 
 ## Phase 0 — Validate the hypothesis
 
-**Disposable. Not product code. Two weeks, hard stop.**
+**Removed 2026-08-25, by decision, and recorded rather than deleted quietly.**
 
-The riskiest claim in this plan is not technical: *if you remove the friction, will teams actually
-record a demo per release?* Everything else assumes it, and nothing has tested it. Two weeks now beats
-finding out in month nine.
+This phase asked whether teams would record a demo per release once the friction was gone, and it
+was named as the riskiest claim in the plan. It was never run. The project's owner has narrowed the
+work to the screen recorder itself, which does not rest on that claim: a recorder is worth having
+whether or not anybody wires it to a release feed.
 
-| State | Row | Outcome |
-| --- | --- | --- |
-| ☐ | `spike-poller` | Poll a GitHub repo, detect user-visible releases. Throwaway, any language |
-| ☐ | `spike-proposal` | The simplest possible "v0.4.0 shipped 3 changes. Record a demo?" surface — menu-bar item, Slack message, email. Whatever is fastest |
-| ☐ | `spike-manual-pack` | Record and edit demos **by hand** for 5–10 real releases from repos that are not yours. Learn what the output must look like and how long it genuinely takes |
-| ☐ | `spike-prepare` | Stage a post by hand: right aspect, text on the clipboard, composer opened |
-| ☐ | `spike-findings` | `docs/findings/validation.md` — did anyone record, what stopped them, what is the real baseline coverage |
+The claim is not disproved and is not withdrawn — it is out of scope. Anything downstream of it that
+was in this plan has gone with it, and the rows below are the ones that stand on their own.
 
-**What would change the plan.** If teams see the proposal and still do not record, friction was never
-the binding constraint and the positioning needs rework. If they record but the demo is not what they
-would post, output quality matters more than the loop.
-
-**Delete the poller afterwards.** The temptation to keep and grow it is this phase's failure mode.
-
----
 
 ## Phase 1 — Foundation
 
@@ -324,24 +313,28 @@ Four operations. Deliberately not an NLE.
 
 ---
 
-## Phase 5 — Launch video
+## Phase 5 — What goes in the picture
+
+**Was "Launch video". Narrowed 2026-08-25 with Phase 0.** The rows that assembled a launch pack —
+`platform-profiles`, `launch-video`, `written-steps`, `post-draft`, `output-pack` — went with the
+publishing half. What is left is video craft a screen recorder wants whether or not anything is
+ever posted: shapes, titles, transitions, music and a still.
 
 | State | Row | Outcome | Depends on |
 | --- | --- | --- | --- |
 | ◐ | `variants` | 16:9, 9:16, 1:1 — **re-framed against each variant's coverage, not cropped**. Even dimensions inside encoder limits **Half done 2026-08-21.** `AspectVariant` vends the three shapes with even dimensions floored inside a 3840 cap — even because H.264 in 4:2:0 subsamples chroma by two in each direction, so an odd edge has no defined chroma plane and VideoToolbox silently rounds it. The picker drives the PREVIEW as well as the export, and `StagePlanner` fits rather than fills, so a portrait export letterboxes instead of cutting the sides off. **The re-framing clause is not done:** `coverage(ofSourceAspect:)` computes the number the row's argument rests on — a 16:9 recording covers about 0.32 of a 9:16 frame, so a control legible in landscape is a third the size in portrait — but `FramingGate` is not yet re-run per variant, so a portrait export inherits landscape's zoom decisions. | `framing-depth`, `timeline-core` |
-| ☐ | `platform-profiles` | Duration and aspect as compile-time constraints. Reels needs 9:16 **and** 5–90 s, and the compiler says so rather than exporting something that will not appear | `variants` |
 | ☐ | `title-scenes` | Core Animation text and shape scenes composited via `AVVideoCompositionCoreAnimationTool` | `render-core` |
 | ☐ | `scene-transitions` | Whole-scene transitions between title and product-proof scenes | `title-scenes` |
 | ☐ | `music-bed` | `AVAudioEngine` mixing with ducking. Spike Music Understanding before writing beat detection | `title-scenes` |
-| ☐ | `launch-video` | Assemble a 15–25 s launch video from reviewed beats. **Every product-proof scene must reference real footage; with no valid proof it cannot be approved, and it never invents a shot** | `scene-transitions`, `variants` |
-| ☐ | `written-steps` | Markdown walkthrough, each step citing the action and source interval it came from | `beat-segmentation`, `transcript` |
-| ☐ | `post-draft` | Platform-specific copy. **Foundation Models guided generation phrases facts the graph established — never supplies facts it lacks.** Generated type carries citation fields, so `evaluations-harness` in Phase 6 can assert an uncited claim cannot be approved | `written-steps` |
 | ☐ | `poster-frame` | Still export via `CGImageDestination` | `render-core` |
-| ☐ | `output-pack` | All outputs planned from one graph revision so they cannot disagree. Progress, cancellation, atomic completion. Planning fails loudly rather than producing empty files | `launch-video`, `post-draft`, `poster-frame` |
 
 ---
 
 ## Phase 6 — CLI and AI editor
+
+**Out of the current focus, kept rather than deleted.** Nothing here is publishing, and an MCP
+surface over a recorder is a real thing somebody might want — but the work is the recorder, and
+these rows wait.
 
 | State | Row | Outcome | Depends on |
 | --- | --- | --- | --- |
@@ -362,31 +355,17 @@ Four operations. Deliberately not an NLE.
 | --- | --- | --- | --- |
 | ☐ | `range-export` | In/out range export | `basic-edit` |
 | ☐ | `custom-control-a11y` | Timeline, waveform, and transcript are custom controls and get no accessibility for free | `app-shell` |
-| ☐ | `smoke-tests` | End-to-end: record → derive → review → edit → pack → export | `output-pack` |
+| ☐ | `smoke-tests` | End-to-end: record → review → edit → export. **Was "record → derive → review → edit → pack → export" and depended on `output-pack`**, which went with the publishing half on 2026-08-25 | `basic-edit` |
 | ☐ | `signing-notarization` | Entitlements, hardened runtime, signed and notarised disk image, Sparkle feed | `smoke-tests` |
 
 ---
 
-## Phase 8 — The release loop
+## Phase 8 — Removed
 
-Core to the product, last in build order — it sits on top of everything else.
-**Gate: use Phases 1–7 for one of your own real releases first.**
+**Removed 2026-08-25 with Phase 0, by the same decision.** This phase was the release loop —
+detecting a release, proposing a recording, preparing and publishing a post. It is the half of the
+original product that sits either side of the recorder, and the work is now the recorder.
 
-| State | Row | Outcome | Depends on |
-| --- | --- | --- | --- |
-| ☐ | `github-watch` | Local polling of releases, tags, labelled PRs, changelog diffs. No webhook, no server. Token in Keychain | `app-shell` |
-| ☐ | `release-evidence` | A GitHub release becomes evidence in the graph, so staleness and the producer-value rule apply unchanged | `github-watch`, `observation-ingest` |
-| ☐ | `release-proposal` | Dismissable card. **Never opens the recorder unprompted** | `release-evidence` |
-| ☐ | `pack-release-binding` | Every output pack carries the release ref and its evidence hash | `release-evidence`, `output-pack` |
-| ☐ | `post-from-release` | Draft cites real PR titles and changelog entries, not a guess from the video | `pack-release-binding`, `post-draft` |
-| ☐ | `prepare-post` | Render the right variant, stage text and media, open the platform's web composer. **No API, no OAuth, no cost — works day one on every platform** | `platform-profiles`, `post-from-release` |
-| ☐ | `approval-gate` | Per-platform, per-post human approval bound to a content hash. **No auto-publish, no "approve all", no CI bypass** | `prepare-post` |
-| ☐ | `coverage-metric` | Releases seen, demos recorded, posts published, per repo, over time. Swift Charts | `release-proposal`, `approval-gate` |
-| ☐ | `publish-threads` | Threads API. Free, Tech Provider Verification, 250 posts/24h | `approval-gate` |
-| ☐ | `publish-instagram` | IG Reels. **Start the Meta app review early — it is weeks of waiting** | `approval-gate` |
-| ☐ | `publish-x` | X API. **Not shippable without visible per-post cost and a spend cap** — $0.015/post, $0.20 with a link | `approval-gate` |
-
----
 
 ## Explicitly not building
 
