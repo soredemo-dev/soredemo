@@ -190,25 +190,89 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             // frame with the start colour is a better failure than a crash mid-export.
             return CIImage(color: start)
         }
-        return output
+        return Self.dithered(output, width: width, height: height)
     }
 
-    /// The card's own silhouette — same rect, same corner radius — filled black at
-    /// `shadowOpacity` and gaussian-blurred. `nil` when either knob is zero, so a
-    /// shadowless style costs no filter pass at all (`aZeroOpacityShadowChangesNothing`).
-    /// Sigma is `shadowRadius / 2`: the style's radius names the visual reach, and a
-    /// gaussian at sigma s is visually spent by ~2s.
+    /// **A grain of noise on a gradient, so an 8-bit export does not band.** A ramp across
+    /// 1080 px between two colours a few dozen levels apart steps once every twenty or thirty
+    /// pixels, and the eye finds every step; the smooth filter's easing removes the Mach bands
+    /// at the ends and not the steps in the middle. Adding noise of ±`ditherLevels` / 255 —
+    /// below what anyone sees as grain — breaks each step into a dither, which is how a Rust recorder's
+    /// gradient layer (`noise_intensity`) and every film scan handle the same thing.
+    /// `CIRandomGenerator` is procedural in position, so the same frame dithers the same way
+    /// in the preview and in the export (`aDitheredGradientIsDeterministic`).
+    static let ditherLevels: Double = 1.5
+
+    static func dithered(_ image: CIImage, width: Double, height: Double) -> CIImage {
+        guard let noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
+        let amplitude = Self.ditherLevels / 255
+        let canvas = HeadlessGeometryBridge.rect(x: 0, y: 0, width: width, height: height)
+        // **Alpha set to one FIRST, and that was a measured mistake twice over.** The
+        // generator's alpha is random too, and Core Image holds colour premultiplied by it: a
+        // matrix that set alpha to 1 on the premultiplied values rendered a ±1.5 level grain
+        // as spikes of 255, and dividing the alpha out first (`unpremultiplyingAlpha`) made
+        // the spikes worse, because a colour divided by a near-zero alpha is enormous before
+        // the matrix scales it. `settingAlphaOne(in:)` is the operation that means what is
+        // wanted — the noise's colour, at alpha 1 — measured flat at 127/128 around a 0.5
+        // bias (probe, 2026-08-25). One channel's noise into all three, centred on zero.
+        guard let grain = CIFilter(name: "CIColorMatrix", parameters: [
+            kCIInputImageKey: noise.settingAlphaOne(in: canvas),
+            "inputRVector": CIVector(x: amplitude, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: amplitude, y: 0, z: 0, w: 0),
+            "inputBVector": CIVector(x: amplitude, y: 0, z: 0, w: 0),
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputBiasVector": CIVector(x: -amplitude / 2, y: -amplitude / 2, z: -amplitude / 2, w: 1),
+        ])?.outputImage else { return image }
+        guard let summed = CIFilter(name: "CIAdditionCompositing", parameters: [
+            kCIInputImageKey: grain.cropped(to: canvas),
+            kCIInputBackgroundImageKey: image.cropped(to: canvas),
+        ])?.outputImage else { return image }
+        return summed
+    }
+
+    /// **Two shadows from one silhouette, and the second falls DOWN.** The single blurred
+    /// silhouette this used to draw is a halo: the same darkness on every side, which is what
+    /// a rectangle glowing looks like and not what a window on a surface looks like. A real
+    /// shadow has two parts — a wide, faint ambient one from light everywhere, and a tighter,
+    /// darker key one displaced away from the light — and every reference recorder that reads
+    /// as "a window sitting there" draws both (a Rust recorder's `ShadowConfiguration` {size, opacity,
+    /// blur}; Screen Studio's frame shadow visibly hangs below the card). Both here are
+    /// derived from the style's two knobs, so nothing a person saved changes meaning:
+    ///
+    /// * ambient — the silhouette at `opacity × ambientShare`, sigma `radius / 2`, centred;
+    /// * key — the silhouette at `opacity × keyShare`, sigma `radius × keySigmaFraction`,
+    ///   moved down by `radius × keyDropFraction`.
+    ///
+    /// `nil` when either knob is zero, so a shadowless style costs no filter pass at all
+    /// (`aZeroOpacityShadowChangesNothing`). The proportions are **uncalibrated**: chosen so a
+    /// default style (radius 32, opacity 0.35) reads as a card on a desk rather than a card in
+    /// fog, measured by eye on the "Dusk" preset and pinned by
+    /// `theShadowFallsBelowTheCardMoreThanAboveIt`.
+    static let ambientShare: Double = 0.6
+    static let keyShare: Double = 0.75
+    static let keySigmaFraction: Double = 0.3
+    static let keyDropFraction: Double = 0.35
+
     private func shadowImage(_ plan: RenderPlan) -> CIImage? {
         let opacity = plan.style.shadowOpacity
         let radius = plan.style.shadowRadius
         guard opacity > 0, radius > 0 else { return nil }
-        guard let silhouette = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
-            "inputExtent": CIVector(x: plan.card.x, y: plan.card.y,
-                                    z: plan.card.width, w: plan.card.height),
-            "inputRadius": plan.cornerRadius,
-            "inputColor": CIColor(red: 0, green: 0, blue: 0, alpha: opacity),
-        ])?.outputImage else { return nil }
-        return silhouette.applyingGaussianBlur(sigma: radius / 2)
+        func silhouette(alpha: Double) -> CIImage? {
+            CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+                "inputExtent": CIVector(x: plan.card.x, y: plan.card.y,
+                                        z: plan.card.width, w: plan.card.height),
+                "inputRadius": plan.cornerRadius,
+                "inputColor": CIColor(red: 0, green: 0, blue: 0, alpha: alpha),
+            ])?.outputImage
+        }
+        guard let ambient = silhouette(alpha: opacity * Self.ambientShare) else { return nil }
+        let ambientBlurred = ambient.applyingGaussianBlur(sigma: radius / 2)
+        guard let key = silhouette(alpha: opacity * Self.keyShare) else { return ambientBlurred }
+        // Down is −y: the plan is bottom-left origin.
+        let keyBlurred = key
+            .transformed(by: CGAffineTransform(translationX: 0, y: -radius * Self.keyDropFraction))
+            .applyingGaussianBlur(sigma: radius * Self.keySigmaFraction)
+        return keyBlurred.composited(over: ambientBlurred)
     }
 
     private func cardImage(_ plan: RenderPlan, source: CVPixelBuffer) -> CIImage {

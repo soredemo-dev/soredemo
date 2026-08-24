@@ -467,3 +467,66 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
     let data = try JSONEncoder().encode(style)
     #expect(try JSONDecoder().decode(StageStyle.self, from: data) == style)
 }
+
+// MARK: - the shadow falls down, and the gradient does not band
+
+/// **The key shadow hangs below the card.** Sampled at the same distance outside the card's
+/// bottom and top edges, the pixel below is darker than the pixel above — a halo would make
+/// them equal. Light background, so darkening is unmistakable.
+@Test func theShadowFallsBelowTheCardMoreThanAboveIt() throws {
+    let width = 640, height = 360
+    let style = StageStyle(insetFraction: 0.12, cornerRadius: 12, shadowRadius: 32,
+                           shadowOpacity: 0.6, background: .solid(red: 0.9, green: 0.9, blue: 0.9))
+    let renderer = try CoreImageFrameRenderer()
+    let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+    let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+    let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: style)
+    try renderer.render(plan, source: source, camera: nil, into: destination)
+    let frame = try pixels(of: destination)
+    let x = Int(plan.card.x + plan.card.width / 2)
+    let gap = 6
+    // Bottom-left plan space → top-down rows.
+    let belowRow = height - 1 - Int(plan.card.y - Double(gap))
+    let aboveRow = height - 1 - Int(plan.card.y + plan.card.height + Double(gap))
+    let below = frame[belowRow * width + x], above = frame[aboveRow * width + x]
+    #expect(below.r < above.r - 8, """
+        below the card the background is \(below.r), above it \(above.r) — the shadow is a halo, \
+        not a shadow falling down
+        """)
+    // And both are still darker than the far corner, so the ambient half is present too.
+    let corner = frame[2 * width + 2]
+    #expect(above.r < corner.r, "no ambient shadow above the card")
+}
+
+/// A gradient between two colours a few levels apart, rendered full-frame: with the dither
+/// the row holds more distinct values than the bare ramp's steps, and every value stays
+/// within the ramp's range plus the grain. And the same plan renders the same pixels twice,
+/// which is what lets the preview and the export dither identically.
+@Test func aDitheredGradientIsDeterministicAndDoesNotBand() throws {
+    let width = 640, height = 360
+    let style = StageStyle(insetFraction: 0.45, cornerRadius: 0, shadowRadius: 0, shadowOpacity: 0,
+                           background: .linearGradient(startRed: 0.20, startGreen: 0.20, startBlue: 0.22,
+                                                       endRed: 0.24, endGreen: 0.24, endBlue: 0.26,
+                                                       angleDegrees: 0))
+    let renderer = try CoreImageFrameRenderer()
+    func render() throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: style)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
+        return try pixels(of: destination)
+    }
+    let first = try render(), second = try render()
+    #expect(first.elementsEqual(second, by: ==), "the dithered gradient rendered differently twice")
+    // The top row is all background (the card is inset 45%).
+    let row = Array(first[0..<width]).map { Int($0.r) }
+    let distinct = Set(row).count
+    // A 10-level ramp over 640 px without dither shows ≤ 11 distinct values in a row; with a
+    // ±1.5-level grain each step is dithered and adjacent pixels differ in both directions.
+    let alternations = zip(row, row.dropFirst()).filter { $0 != $1 }.count
+    #expect(alternations > width / 4, "only \(alternations) adjacent changes across \(width) px — the ramp is stepped, not dithered")
+    #expect(distinct >= 8 && distinct <= 20, "\(distinct) distinct values in the row")
+    #expect((row.max() ?? 0) - (row.min() ?? 0) <= 10 + 4, "the grain pushed the ramp past its range")
+}

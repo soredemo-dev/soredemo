@@ -4771,10 +4771,16 @@ enum CrossBoundaryProbe {
         check(closeEnough(marginPixel, (23, 23, 28), tolerance: 6),
               "a point in the inset margin carries the background colour",
               actual: "\(marginPixel)", expected: "(23, 23, 28) ± 6")
-        check(closeEnough(cardCornerPixel, (23, 23, 28), tolerance: 6),
+        // **Background OR shadowed background, since 2026-08-25.** The card's key shadow now
+        // falls below the card (design audit item 4), so the notch outside the bottom-left
+        // arc is a darkened background rather than the bare (23, 23, 28) this once expected.
+        // What the check exists to tell apart is a rounded corner from a square one — the
+        // square one is RED here — so the discriminator is "not the source, and no lighter
+        // than the background": a shadow can only darken.
+        check(cardCornerPixel.r < 60 && cardCornerPixel.g <= 23 + 6 && cardCornerPixel.b <= 28 + 6,
               "a point inside the card's bounding box but outside its rounded corner carries the "
-              + "background colour",
-              actual: "\(cardCornerPixel)", expected: "(23, 23, 28) ± 6")
+              + "background colour, or the background under the card's shadow — never the source",
+              actual: "\(cardCornerPixel)", expected: "r < 60, g ≤ 29, b ≤ 34 (not red; no lighter than the background)")
     }
 
     // MARK: - § 12  the drawn pointer — StageCompositor reads the observation log (Phase 2B Task 5)
@@ -5658,10 +5664,11 @@ enum CrossBoundaryProbe {
         check(closeEnough(marginPixel, (23, 23, 28), tolerance: 6),
               "and a point in the inset margin carries the background colour",
               actual: "\(marginPixel)", expected: "(23, 23, 28) ± 6")
-        check(closeEnough(cardCornerPixel, (23, 23, 28), tolerance: 6),
+        // The same shadowed-background discriminator as § 10's, for the same 2026-08-25 reason.
+        check(cardCornerPixel.r < 60 && cardCornerPixel.g <= 23 + 6 && cardCornerPixel.b <= 28 + 6,
               "and a point inside the card's bounding box but outside its rounded corner carries "
-              + "the background colour",
-              actual: "\(cardCornerPixel)", expected: "(23, 23, 28) ± 6")
+              + "the background colour, or the background under the card's shadow — never the source",
+              actual: "\(cardCornerPixel)", expected: "r < 60, g ≤ 29, b ≤ 34 (not red; no lighter than the background)")
     }
 
     // MARK: - § 15  render-parity — the preview path and the export path share one composition (Phase 2B Task 8)

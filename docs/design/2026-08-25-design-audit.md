@@ -102,4 +102,6 @@ Match Recording, HEVC/ProRes/4444, size estimate calibrated to a Rust recorder's
 | 6 | Add-zoom on the lane | App | override minted at the instant | model state |
 | 7 | Voice processing behind a toggle | Capture, App | second track present | file inspection |
 
-Items 1–4 are implemented in this pass in that order; 5–7 follow. Each has its own commit and gates.
+Items 1–4 are implemented, in that order, one commit each with all four gates green (`2162706`, `2fd2225`, `f0da6b6`, and the shadow/dither commit that follows this doc). Items 5–7 are NOT implemented in this pass and are the next work: 5 (recorded cursor images) is the largest visible gap left and touches every tier plus the observation schema; 6 and 7 are app-tier and capture-tier changes with their own design questions (a draggable target in the preview; a second microphone track behind a toggle).
+
+Two things this pass measured that the plan did not predict: the gradient dither took two wrong turns on Core Image's premultiplied alpha before `settingAlphaOne(in:)` gave the ±1.5-level grain that was asked for, and the cross-boundary probe's rounded-corner check assumed a shadow-free notch below the card — it now asserts what it was always for, a corner that is not the source and no lighter than the background.
