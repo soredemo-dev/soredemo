@@ -23,6 +23,49 @@ import Geometry
 /// Everything a window capture needs, as its own type rather than four associated values
 /// on an enum case: the case's data has its own invariants — the rect must be the window's
 /// place on THAT display, the buffer must be sized to the window — and they belong together.
+/// A rectangle of a display, and the buffer it is recorded into.
+///
+/// **The same shape as `WindowCapture` minus the window**, deliberately — the two are captured
+/// by the same mechanism and differ only in what chose the rectangle. Not folded into one type
+/// with an optional window: `WindowFollower` asks whether there is a window to follow, and an
+/// optional would make that a runtime question in a place the type system can answer it.
+public struct RegionCapture: Sendable {
+    /// The display the region sits on.
+    public let display: SCDisplay
+    /// The region in that display's own POINT space, for `SCStreamConfiguration.sourceRect`.
+    public let sourceRect: PointRect
+    /// The output buffer in pixels, sized to the region. Even in both dimensions, for
+    /// `CaptureSource.evenFloor`'s reason: an odd dimension is where a stray column of green
+    /// comes from.
+    public let bufferWidth: Int
+    public let bufferHeight: Int
+
+    public init(display: SCDisplay, sourceRect: PointRect,
+                bufferWidth: Int, bufferHeight: Int) {
+        self.display = display
+        self.sourceRect = sourceRect
+        self.bufferWidth = bufferWidth
+        self.bufferHeight = bufferHeight
+    }
+
+    /// The buffer a dragged rectangle needs, in pixels.
+    ///
+    /// **Separate from the initialiser so it can be tested.** An `SCDisplay` cannot be
+    /// constructed in a unit test, so the value type itself is only reachable through the
+    /// cross-boundary probe — but the arithmetic is where this goes wrong, and the arithmetic
+    /// needs no handle. `CaptureSource.evenFloor` is the same rule the window path uses: an odd
+    /// dimension is where a stray column of green comes from.
+    ///
+    /// **Floored to at least 2**, because a drag can end where it started. A zero-width buffer is
+    /// an `AVAssetWriter` that refuses its input, and a recording that fails at the moment of
+    /// starting is the worst time to fail.
+    public nonisolated static func buffer(for rect: PointRect, scale: Double)
+    -> (width: Int, height: Int) {
+        (max(CaptureSource.evenFloor(rect.width * scale), 2),
+         max(CaptureSource.evenFloor(rect.height * scale), 2))
+    }
+}
+
 public struct WindowCapture: Sendable {
     public let window: SCWindow
     /// The display the window's centre sits on. **A display filter with a source rect, not
@@ -64,11 +107,30 @@ public enum CaptureSource: Sendable {
 
     case window(WindowCapture)
 
+    /// A rectangle of a display, chosen by dragging it out.
+    ///
+    /// **The seam this file left open.** `sourceRect` returned `nil` for every case and said so
+    /// in a comment — "a future case that started cropping again has to change this line". This
+    /// is that case, and everything it needs was already here: `SCStreamConfiguration.sourceRect`
+    /// is applied by the session, `destinationRect` and `viewport` already handle a source whose
+    /// buffer is smaller than its display, and the pointer rebase for a window is the same
+    /// arithmetic a region wants.
+    ///
+    /// **Why a recorder needs one.** A display capture of a demo that lives in a 600-point panel
+    /// spends nine tenths of its pixels on desktop, and a window capture cannot do it at all when
+    /// the thing being shown is part of a window rather than all of it. a Rust recorder, an Electron recorder and
+    /// an Electron recorder all offer this.
+    case region(RegionCapture)
+
     /// The same source cropped at a new rectangle, for a window that moved mid-recording.
     /// A display source has no crop to move and returns itself — the caller does not branch.
+    ///
+    /// **A region returns itself too, and for a different reason.** A window's crop follows the
+    /// window; a region is a rectangle of the SCREEN that somebody dragged out, and moving it
+    /// because a window under it moved would be following a thing they did not choose.
     public nonisolated func following(sourceRect updated: PointRect) -> CaptureSource {
         switch self {
-        case .display: return self
+        case .display, .region: return self
         case .window(let capture): return .window(capture.following(sourceRect: updated))
         }
     }
@@ -77,7 +139,7 @@ public enum CaptureSource: Sendable {
     /// to identify and re-read. `nil` for a display.
     public nonisolated var window: SCWindow? {
         switch self {
-        case .display: return nil
+        case .display, .region: return nil
         case .window(let capture): return capture.window
         }
     }
@@ -100,6 +162,12 @@ public enum CaptureSource: Sendable {
                 pixelHeight: Int((Double(display.height) * scale).rounded()),
                 scale: scale)
         case .window(let capture):
+            return DisplayGeometry(
+                displayUUID: displayUUID,
+                pixelWidth: capture.bufferWidth,
+                pixelHeight: capture.bufferHeight,
+                scale: scale)
+        case .region(let capture):
             return DisplayGeometry(
                 displayUUID: displayUUID,
                 pixelWidth: capture.bufferWidth,
@@ -131,6 +199,11 @@ public enum CaptureSource: Sendable {
             // it exactly and the destination is the identity — the same shape as `.display`
             // above. Before the repair this clamped a window-sized rect into a
             // display-sized buffer, which is the offset that put the recording in a corner.
+            return PixelRect(x: 0, y: 0,
+                             width: Double(capture.bufferWidth),
+                             height: Double(capture.bufferHeight))
+        case .region(let capture):
+            // Identity, for `.window`'s reason: the buffer IS the region.
             return PixelRect(x: 0, y: 0,
                              width: Double(capture.bufferWidth),
                              height: Double(capture.bufferHeight))
@@ -168,11 +241,21 @@ public enum CaptureSource: Sendable {
                                    globalOriginY: bounds.y + capture.sourceRect.y,
                                    widthInPoints: capture.sourceRect.width,
                                    heightInPoints: capture.sourceRect.height)
+        case .region(let capture):
+            // The same rebase as a window's, and for the same reason: the crop is display-local
+            // and the pointer arrives in global points. A region does not move, so unlike a
+            // window there is no follower feeding it a new rect.
+            let bounds = CGGeometryBridge.pointRect(from: capture.display.frame)
+            return CaptureViewport(geometry: geometry,
+                                   globalOriginX: bounds.x + capture.sourceRect.x,
+                                   globalOriginY: bounds.y + capture.sourceRect.y,
+                                   widthInPoints: capture.sourceRect.width,
+                                   heightInPoints: capture.sourceRect.height)
         }
     }
 
     /// Largest even integer at or below `value`. See the buffer-size comment for why even.
-    static func evenFloor(_ value: Double) -> Int {
+    public static func evenFloor(_ value: Double) -> Int {
         guard value.isFinite, value >= 2 else { return 0 }
         let rounded = Int(value.rounded(.down))
         return rounded - (rounded % 2)
@@ -238,6 +321,13 @@ public enum CaptureSource: Sendable {
                                    exceptingWindows: [])
         case .window(let capture):
             return SCContentFilter(desktopIndependentWindow: capture.window)
+        case .region(let capture):
+            // **A display filter, because a region is part of a display and not of any window.**
+            // The crop is `SCStreamConfiguration.sourceRect`; this only decides what may appear
+            // inside it, and what may not is this application — the same exclusion the display
+            // case makes, and for the same reason the recording bar was once burnt into a video.
+            return SCContentFilter(display: capture.display, excludingApplications: applications,
+                                   exceptingWindows: [])
         }
     }
 
@@ -268,13 +358,25 @@ public enum CaptureSource: Sendable {
     ///
     /// Kept as a property rather than deleted because a REGION capture is a real future case
     /// (`ROADMAP`'s `capture-source` names one), and that is what `sourceRect` is for.
-    public nonisolated var sourceRect: PointRect? { nil }
+    public nonisolated var sourceRect: PointRect? {
+        switch self {
+        // A window is captured with `desktopIndependentWindow`, which crops for us.
+        case .display, .window: return nil
+        case .region(let capture): return capture.sourceRect
+        }
+    }
 
-    /// **A claim a test can reach without an `SCWindow`.** `sourceRect` is `nil` for every
-    /// case, and a test asserting that on a constructed value would only be asserting that
-    /// `nil == nil`. This states the property of the TYPE, so a future case that started
-    /// cropping again has to change this line and face the comment above it.
-    public nonisolated static var sourceRectIsAlwaysNil: Bool { true }
+    /// **Which cases crop at the source, named, as a property of the TYPE.** This used to read
+    /// `sourceRectIsAlwaysNil` and return `true`, with a comment saying a future case that
+    /// started cropping again would have to change the line and face it. `.region` is that case:
+    /// it is captured as a display filter, so the rectangle has to reach
+    /// `SCStreamConfiguration.sourceRect` or the whole screen arrives.
+    ///
+    /// Named rather than counted, so the test that reads it says WHICH case crops rather than how
+    /// many do — a count would go on passing if a future case started cropping and `.region`
+    /// stopped. A test can assert this without an `SCWindow` or an `SCDisplay`, which is why it
+    /// exists at all: neither handle can be constructed in a unit test.
+    public nonisolated static var croppingCases: [String] { ["region"] }
 
     /// Where the window sits, in its display's point space. Not the stream's crop any more —
     /// `viewport(scale:displayUUID:)` rebases it back to global points so the pointer is
@@ -283,6 +385,10 @@ public enum CaptureSource: Sendable {
         switch self {
         case .display: return nil
         case .window(let capture): return capture.sourceRect
+        // **`nil`, because a region is not a window.** `WindowFollower` reads this to decide
+        // what to keep following; a region does not move, and reporting one here would have the
+        // follower chasing a rectangle nobody is going to drag.
+        case .region: return nil
         }
     }
 

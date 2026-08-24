@@ -26,6 +26,17 @@ final class TargetPickerOverlay {
 
     private init() {}
 
+    /// Cancels a pick that is already up, as though \u{238B} had been pressed.
+    ///
+    /// **Because starting any recording has to end whatever else was being started.** Measured:
+    /// press Window, get the pointing overlay, then press Screen — the display picker opened and
+    /// counted down while the pointing overlay was still on the screen, so the countdown was
+    /// happening behind a dimmed desktop waiting to be pointed at. Two starts were in flight and
+    /// neither knew about the other.
+    func cancel() {
+        state.onFinish?(nil)
+    }
+
     /// Shows the overlay and returns what was chosen, or `nil` if it was cancelled.
     func pick() async -> CaptureSource? {
         guard panels.isEmpty else { return nil }

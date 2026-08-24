@@ -289,8 +289,24 @@ final class RecordingCoordinator {
     /// panel's two buttons do. See `CaptureSourcePicker.Modes`.
     func beginRecording(_ modes: CaptureSourcePicker.Modes) {
         guard !isRecording else { return }
+        // **Whatever else was being started is ended first.** Press Window, get the pointing
+        // overlay, then press Screen: the display picker used to open and count down while the
+        // overlay was still up, so a countdown ran behind a dimmed desktop waiting to be pointed
+        // at. Two starts were in flight and neither knew about the other.
+        cancelPendingStart()
         pendingMode = modes
         beginOpenRecording(modes: modes)
+    }
+
+    /// Ends a start that has not finished — the pointing overlay, and the system picker.
+    ///
+    /// Called by both ways in, so pressing either one twice, or one and then the other, leaves
+    /// exactly one thing happening.
+    func cancelPendingStart() {
+        TargetPickerOverlay.shared.cancel()
+        picker?.dismiss()
+        picker = nil
+        pendingMode = nil
     }
 
     func stop() { Task { await stopRecording() } }
@@ -345,6 +361,7 @@ final class RecordingCoordinator {
     /// covering the answer.
     func beginWindowRecordingByPointing() {
         guard !isRecording else { return }
+        cancelPendingStart()
         PermissionRequests.screenRecording()
         mediaURL = nil
         pendingMode = .windowsOnly
@@ -520,6 +537,10 @@ final class RecordingCoordinator {
         switch source {
         case .display(let display): return display.displayID
         case .window: return CGMainDisplayID()
+        // **A region knows its display exactly**, unlike a window, so it does not need the main
+        // display as an approximation — and a region dragged out on a secondary panel with a
+        // different backing scale gets the right one.
+        case .region(let capture): return capture.display.displayID
         }
     }
 
@@ -538,6 +559,11 @@ final class RecordingCoordinator {
             return Minting.displayIdentity(of: display.displayID) ?? Minting.newIdentifier()
         case .window:
             return Minting.newIdentifier()
+        case .region(let capture):
+            // **The display's identity, not a fresh one.** A region IS a rectangle of a known
+            // display, so the persistent identity is available and is the truer answer; a window
+            // gets a minted one only because it has no identity surviving its app's restart.
+            return Minting.displayIdentity(of: capture.display.displayID) ?? Minting.newIdentifier()
         }
     }
 }

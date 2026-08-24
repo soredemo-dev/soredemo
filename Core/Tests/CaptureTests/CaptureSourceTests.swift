@@ -155,8 +155,13 @@ private func probeShapedCapture(windowPoints: (Double, Double),
 /// display. No test here can construct an `SCWindow` to check the filter's type directly;
 /// `scripts/run-cross-boundary-probe.sh` does that against real handles.
 @Test func aWindowCaptureNoLongerCropsItsDisplay() {
-    #expect(CaptureSource.sourceRectIsAlwaysNil,
-            "a non-nil source rect means a window filter is cropping the window's own content")
+    // **The claim moved when `.region` arrived, rather than the constant being bent.** This
+    // read `sourceRectIsAlwaysNil` and asserted `true`, which stopped being true the day a case
+    // that crops was added — and the reason to keep it was never "every case is nil", it was
+    // "the WINDOW case is nil, because a window filter's frames already are the window".
+    // Naming the cropping cases says that and still fails if `.window` ever rejoins them.
+    #expect(!CaptureSource.croppingCases.contains("window"),
+            "a window filter cropping means the window's own content is cut by its display offset")
 }
 
 /// The window's place on its display is still needed — the pointer is normalised against the
@@ -291,7 +296,37 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
     /// nothing overlapping it. Stated on the type so a future case that started sharing the
     /// display path has to face this line.
     @Test func aWindowCaptureExcludesOverlappingWindowsByConstruction() {
-        #expect(CaptureSource.sourceRectIsAlwaysNil)
+        #expect(!CaptureSource.croppingCases.contains("window"))
+    }
+
+    /// **The buffer a dragged rectangle gets.** The value type holds an `SCDisplay` and so is
+    /// only reachable from the cross-boundary probe, but the arithmetic is where this goes wrong
+    /// and the arithmetic needs no handle.
+    @Test func aRegionsBufferIsEvenAndNeverZero() {
+        // A Retina drag: 300 x 200 points at scale 2.
+        let ordinary = RegionCapture.buffer(for: PointRect(x: 10, y: 10, width: 300, height: 200),
+                                            scale: 2)
+        #expect(ordinary.width == 600 && ordinary.height == 400)
+
+        // Odd sizes floor to even — an odd dimension is where a stray column of green comes from.
+        let odd = RegionCapture.buffer(for: PointRect(x: 0, y: 0, width: 101.5, height: 51.5),
+                                       scale: 1)
+        #expect(odd.width % 2 == 0 && odd.height % 2 == 0)
+        #expect(odd.width == 100 && odd.height == 50)
+
+        // **A drag that ended where it started.** Zero would be a writer that refuses its input,
+        // and a recording that fails at the moment of starting is the worst time to fail.
+        let degenerate = RegionCapture.buffer(for: PointRect(x: 5, y: 5, width: 0, height: 0),
+                                              scale: 2)
+        #expect(degenerate.width == 2 && degenerate.height == 2)
+    }
+
+    /// **A region crops, and it is the only case that does.** Its filter is the DISPLAY's, so
+    /// without a source rect the whole screen arrives — which is the opposite failure to the one
+    /// the window case was fixed for, and the reason both are stated on the type rather than
+    /// left to be inferred from an `SCWindow` no unit test can build.
+    @Test func aRegionCaptureIsTheOnlyCaseThatCropsAtTheSource() {
+        #expect(CaptureSource.croppingCases == ["region"])
     }
 }
 

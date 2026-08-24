@@ -195,6 +195,12 @@ struct SoredemoApp: App {
                     // redirected to a file. `windowID` is identity, not content.
                     print("derived CaptureSource: .window(windowID: \(window.windowID), " +
                           "bufferSize: \(sizeInPixels))")
+                case .region(let capture):
+                    // Unreachable from the system picker, which offers displays and windows.
+                    // Handled rather than defaulted, so a case added later faces this line.
+                    let sizeInPoints = capture.sourceRect
+                    print("derived CaptureSource: .region(on displayID: " +
+                          "\(capture.display.displayID), rect: \(sizeInPoints))")
                 case nil:
                     print("derived CaptureSource: nil — filter.style was not .display/.window, " +
                           "or no display was available to size a window buffer against")

@@ -877,7 +877,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         switch source {
         case .window(let capture):
             displayBounds = CGGeometryBridge.pointRect(from: capture.display.frame)
-        case .display:
+        case .display, .region:
+            // Neither has a window to follow. The `source.window` guard above already returned
+            // for both; this is here so a case added later has to face the question rather than
+            // fall through to a default that silently means "do not follow".
             return
         }
         let initialFrame = CGGeometryBridge.pointRect(from: window.frame)
