@@ -34,7 +34,16 @@ struct PreviewOverlay: View {
             let video = Self.videoRect(in: geometry.size.width, geometry.size.height,
                                        outputWidth: outputWidth, outputHeight: outputHeight)
             ZStack(alignment: .topLeading) {
-                Color.clear
+                // **Not hit-testable, so the empty area passes clicks to the picture.** It is
+                // here to give the `ZStack` a size, not to catch anything — and `Color.clear`
+                // does catch clicks, unlike `EmptyView`.
+                //
+                // This replaces a gate on the whole overlay that switched it off unless a TEXT
+                // or a REDACTION was selected. The camera handle is not either of those, so it
+                // was drawn and could not be grabbed: visibly there, inert. Handling it here
+                // fixes the problem where it is rather than by naming every handle in a list
+                // that the next one would have to be added to.
+                Color.clear.allowsHitTesting(false)
                 switch tab {
                 case .text:
                     if let item = texts.selected { textHandle(item, in: video) }
@@ -50,16 +59,6 @@ struct PreviewOverlay: View {
                 // an object on the stage, and grabbing it is the obvious thing to try.
                 if hasCamera, let cameraStyle { cameraHandle(cameraStyle, in: video) }
             }
-        }
-        // The overlay must not swallow clicks meant for the picture when nothing is selected.
-        .allowsHitTesting(hasHandle)
-    }
-
-    private var hasHandle: Bool {
-        switch tab {
-        case .text: texts.selected != nil
-        case .hide: redactions.selected != nil
-        default: false
         }
     }
 

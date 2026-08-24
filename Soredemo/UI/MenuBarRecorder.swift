@@ -242,10 +242,10 @@ struct MenuBarRecorderPanel: View {
         // looking at these two rows would not be there until they closed the panel and opened it
         // again — and the natural reading of a device missing from a list is that the app cannot
         // see it. a Swift recorder's toolbar watches the same two notifications for the same reason.
-        .onReceive(NotificationCenter.default.publisher(for: .AVCaptureDeviceWasConnected)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             coordinator.refreshMicrophones(); coordinator.refreshCameras()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .AVCaptureDeviceWasDisconnected)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
             coordinator.refreshMicrophones(); coordinator.refreshCameras()
         }
     }
