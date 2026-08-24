@@ -23,7 +23,14 @@ struct SoredemoApp: App {
 
     /// Held here because a SwiftUI command can only attach to a `Scene`, never a
     /// `View`, so the "Open Recording…" command cannot live in `ContentView`.
-    @State private var recordingCoordinator = RecordingCoordinator()
+    ///
+    /// **Declared without a default, and set in `init`.** Written as
+    /// `= RecordingCoordinator()` it built TWO: the stored-property default runs before the
+    /// `init` body, which then replaced it with a second. Measured by logging from the
+    /// coordinator — every line appeared twice, one per instance — and each one read the
+    /// persisted defaults and scanned the machine's cameras and microphones for a copy of the
+    /// app nothing was pointing at.
+    @State private var recordingCoordinator: RecordingCoordinator
     /// The editor window's identity, so `openWindow(id:)` can reach it from the menu bar item.
     static let editorWindowID = "editor"
     static let permissionsWindowID = "permissions" 

@@ -104,14 +104,24 @@ final class RecordingCoordinator {
     }
     static let cameraQualityKey = "cameraQuality"
 
+    /// **Asymmetric about a recording on purpose: showing is refused, hiding never is.**
+    /// A self-view that appeared once the countdown had begun would be a face arriving in the
+    /// middle of the take. But a self-view that stays on screen after something set `camera` to
+    /// `.off` is the app saying "No camera" while a camera is plainly on — which is what the
+    /// menu bar panel used to do, because this guard sat above both branches and returned
+    /// before the hide. The panel now refuses the change during a recording (`cameraRow`), and
+    /// this is the second lock on the same door.
     private func showOrHideSelfView() {
-        guard !isRecording else { return }
         guard case .device = camera else {
             CameraSelfView.shared.hide()
+            // Only the preview session is released here. Once a recording has taken it over the
+            // property is `nil` and the file belongs to `stopRecording`, which has to await the
+            // writer rather than drop it.
             previewRecorder?.stopPreview()
             previewRecorder = nil
             return
         }
+        guard !isRecording else { return }
         let recorder = previewRecorder ?? CameraRecorder()
         do {
             try recorder.startPreview(camera: camera, quality: cameraQuality)
@@ -526,6 +536,15 @@ final class RecordingCoordinator {
         } catch {
             statusText = "Could not start recording: \(error)"
             session = nil
+            // **The camera was started before the countdown, so it is running by now.** Left
+            // alone it would hold the device open with its indicator lit for a recording that
+            // never began — the failure would be invisible except as a green dot nobody could
+            // account for.
+            if let cameraRecorder {
+                CameraSelfView.shared.hide()
+                self.cameraRecorder = nil
+                _ = await cameraRecorder.stop()
+            }
         }
     }
 
