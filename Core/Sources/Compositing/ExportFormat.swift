@@ -127,3 +127,37 @@ public enum ExportResolution: String, Hashable, Sendable, Codable, CaseIterable 
         return max(2, rounded - (rounded % 2))
     }
 }
+
+/// How many frames a second the export writes.
+///
+/// **The export was writing 60 whatever the recording was.** Measured: the recorder offers 30,
+/// 60 and 120, and every export resampled to 60 — so a 30 fps capture had every frame written
+/// twice, at twice the bit rate the estimate then quoted, and a 120 fps capture lost half of
+/// what it had. a Swift recorder's export sheet has this picker for the same reason, with a custom
+/// field beside it.
+public enum ExportFrameRate: String, Hashable, Sendable, Codable, CaseIterable {
+    case matchRecording, fps24, fps30, fps60
+
+    public var displayName: String {
+        switch self {
+        case .matchRecording: "Match Recording"
+        case .fps24: "24 fps"
+        case .fps30: "30 fps"
+        case .fps60: "60 fps"
+        }
+    }
+
+    /// **Clamped to the recording's own rate, never above it.** Asking for 60 from a 30 fps
+    /// capture is asking a resampler to invent thirty frames a second that were never captured:
+    /// it writes each one twice, which is a bigger file of the same video. Down is a real
+    /// choice — 60 to 30 halves the file and most screen recordings survive it — and up is not.
+    public func frames(recording: Int) -> Int {
+        let recorded = max(recording, 1)
+        switch self {
+        case .matchRecording: return recorded
+        case .fps24: return min(24, recorded)
+        case .fps30: return min(30, recorded)
+        case .fps60: return min(60, recorded)
+        }
+    }
+}

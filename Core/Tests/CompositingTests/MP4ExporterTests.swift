@@ -765,3 +765,31 @@ private final class PhaseLog: @unchecked Sendable {
         }
     }
 }
+
+/// How many frames a second the export writes.
+@Suite struct ExportFrameRateTests {
+    /// **Never above the recording's own rate.** Asking for 60 from a 30 fps capture asks a
+    /// resampler to invent thirty frames a second that were never captured: it writes each one
+    /// twice, which is a bigger file of the same video. Down is a real choice and up is not.
+    @Test func aRateAboveTheRecordingIsClampedToIt() {
+        #expect(ExportFrameRate.fps60.frames(recording: 30) == 30)
+        #expect(ExportFrameRate.fps30.frames(recording: 24) == 24)
+        #expect(ExportFrameRate.fps60.frames(recording: 120) == 60)
+        #expect(ExportFrameRate.fps24.frames(recording: 60) == 24)
+    }
+
+    /// **Matching is the default because a capture's rate is a decision somebody already made.**
+    /// The export used to write 60 whatever the recording was — every frame of a 30 fps capture
+    /// written twice, and half of a 120 fps one thrown away.
+    @Test func matchingFollowsTheRecordingInBothDirections() {
+        #expect(ExportFrameRate.matchRecording.frames(recording: 30) == 30)
+        #expect(ExportFrameRate.matchRecording.frames(recording: 120) == 120)
+    }
+
+    /// A rate of zero is a division nobody survives; the recording's rate is clamped up.
+    @Test func azeroRecordingRateIsNotAZeroExportRate() {
+        for rate in ExportFrameRate.allCases {
+            #expect(rate.frames(recording: 0) >= 1)
+        }
+    }
+}

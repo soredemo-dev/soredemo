@@ -96,6 +96,10 @@ struct StageWindow: View {
     /// Read from the asset when it loads; 1080 until then, which is what the export used to be
     /// pinned to anyway.
     @State private var recordingShortSide = 1080
+    /// How many frames a second the export writes, and what the recording itself has. Matching
+    /// by default, because a capture's rate is a decision somebody already made.
+    @State private var frameRate = ExportFrameRate.matchRecording
+    @State private var recordingFrameRate = 60
     /// The captions. Owned here beside `stageStyle` so a change survives the inspector being
     /// closed, and so the preview and the export read the same track.
     @State private var captions = CaptionsModel()
@@ -627,6 +631,12 @@ struct StageWindow: View {
                 Text(LocalizedStringKey(choice.displayName)).tag(choice)
             }
         }
+        Picker("Frame rate", selection: Binding(
+            get: { frameRate }, set: { frameRate = $0 })) {
+            ForEach(ExportFrameRate.allCases, id: \.self) { choice in
+                Text(LocalizedStringKey(choice.displayName)).tag(choice)
+            }
+        }
         // **Three codecs that are not ranked.** HEVC is the same picture at about half the file
         // and every Mac this runs on encodes it in hardware; ProRes is enormous and meant for
         // handing to an editor; H.264 plays everywhere without a question being asked.
@@ -650,7 +660,7 @@ struct StageWindow: View {
         // three words to guess between.
         LabeledContent("About", value: Self.fileSize(quality.estimatedBytes(
             outputWidth: size.width, outputHeight: size.height,
-            frameRate: 60,
+            frameRate: frameRate.frames(recording: recordingFrameRate),
             seconds: Double(timeline.edit.outputDuration.rawValue) / 1_000_000_000,
             codec: codec)))
             .font(Type.detail).foregroundStyle(.secondary)
@@ -688,6 +698,19 @@ struct StageWindow: View {
         // otherwise find that out from the file.
         LabeledContent("GIF", value: "\(gif.width)\u{00D7}\(gif.height), no sound")
             .font(Type.detail).foregroundStyle(.secondary)
+        // **A GIF has no inter-frame compression worth the name**, so its size is frames times
+        // pixels and nothing else — a twenty-second 640-wide GIF is tens of megabytes, which is
+        // past what most places accept. a Swift recorder warns for the same reason rather than letting
+        // somebody find out from the upload.
+        let seconds = Double(timeline.edit.outputDuration.rawValue) / 1_000_000_000
+        let gifBytes = Int(Double(gif.width * gif.height) * 0.5 * 0.07
+                           * Double(gifSettings.frameRate) * seconds)
+        if gifBytes > 20_000_000 {
+            Label("About \(Self.fileSize(gifBytes)) \u{2014} fewer frames or a smaller edge",
+                  systemImage: "exclamationmark.triangle")
+                .font(Type.detail).foregroundStyle(Signal.paused)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// One row per recorded source: a level and a mute.
@@ -890,6 +913,10 @@ struct StageWindow: View {
             if let track = try await recording.loadTracks(withMediaType: .video).first {
                 let natural = try await track.load(.naturalSize)
                 recordingShortSide = Int(min(natural.width, natural.height).rounded())
+                // `nominalFrameRate` is a Float and a capture reports 59.999996; rounding is what
+                // makes "match the recording" mean 60 rather than a rate no container has.
+                let nominal = try await track.load(.nominalFrameRate)
+                if nominal > 0 { recordingFrameRate = Int(nominal.rounded()) }
             }
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)
@@ -967,6 +994,7 @@ struct StageWindow: View {
         let mix = audioMix
         let chosen = quality
         let chosenCodec = codec
+        let frames = frameRate.frames(recording: recordingFrameRate)
         let gif = gifSettings
         let size = Self.size(for: variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
@@ -977,7 +1005,7 @@ struct StageWindow: View {
             return await Self.runExport(asset: asset, to: destination, isGIF: isGIF,
                                         size: size, edit: edit, audioMix: mix,
                                         quality: chosen, codec: chosenCodec,
-                                        gifSettings: gif, report: report)
+                                        frameRate: frames, gifSettings: gif, report: report)
         }
         if queued == nil {
             // Named, because the only way somebody works out which of their jobs they collided
@@ -999,7 +1027,7 @@ struct StageWindow: View {
     static func runExport(asset: sending AVAsset, to destination: URL, isGIF: Bool,
                           size: (width: Int, height: Int), edit: EditTimeline,
                           audioMix: AudioMix, quality: ExportQuality, codec: ExportCodec,
-                          gifSettings: GIFSettings,
+                          frameRate: Int, gifSettings: GIFSettings,
                           report: @escaping @MainActor (ExportProgress) -> Void) async -> String? {
         do {
             if isGIF {
@@ -1013,7 +1041,7 @@ struct StageWindow: View {
                     asset: asset, to: destination,
                     outputWidth: size.width, outputHeight: size.height,
                     edit: edit, assetIsAlreadyEdited: true, audioMix: audioMix,
-                    quality: quality, codec: codec,
+                    frameRate: frameRate, quality: quality, codec: codec,
                     onProgress: { progress in Task { @MainActor in report(progress) } })
             }
             return nil
