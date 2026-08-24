@@ -70,7 +70,13 @@ swift package --package-path Core clean --scratch-path "$SCRATCH"
 
 # Precondition: the clean actually cleaned. A clean that leaves objects behind
 # would quietly reintroduce the incremental blindness this design exists to remove.
-LEFTOVER=$(find "$SCRATCH" -name '*.o' 2>/dev/null | wc -l | tr -d ' ')
+# **`|| true`, because `find` on a directory that does not exist EXITS 1** — and with
+# `set -euo pipefail` that aborts the script before it prints anything. `2>/dev/null` silenced
+# the message and left the exit status, which is why this looked like a gate that ran and
+# produced nothing rather than one that never ran. It only showed up when the scratch directory
+# was deleted: on any machine that had run this before, the directory existed and `find`
+# succeeded. A gate that cannot run on a fresh checkout is a gate nobody new can use.
+LEFTOVER=$( { find "$SCRATCH" -name '*.o' 2>/dev/null || true; } | wc -l | tr -d ' ')
 if [ "$LEFTOVER" != "0" ]; then
     echo "FAILED: 'swift package clean' left $LEFTOVER object file(s) under $SCRATCH." >&2
     echo "A build over leftover objects is incremental, and an incremental build" >&2
@@ -102,7 +108,7 @@ fi
 # Postcondition: the build did real work. Object files are the build's own product,
 # so this cannot be satisfied by a log line that says nothing about compilation —
 # the hole the old progress-line guard died of.
-COMPILED=$(find "$SCRATCH" -name '*.o' 2>/dev/null | wc -l | tr -d ' ')
+COMPILED=$( { find "$SCRATCH" -name '*.o' 2>/dev/null || true; } | wc -l | tr -d ' ')
 if [ "$COMPILED" = "0" ]; then
     echo "FAILED: swift build reported success but produced no object files under" >&2
     echo "$SCRATCH — nothing was compiled, so nothing was scanned. This is an" >&2

@@ -650,15 +650,15 @@ private final class PhaseLog: @unchecked Sendable {
 
     @MainActor
     @Test func settingsRoundTripEveryStaticTheCompositorDrawsFrom() throws {
-        let restore = unsafe StageCompositor.settings()
-        defer { unsafe StageCompositor.apply(restore) }
+        let restore = StageCompositor.settings()
+        defer { StageCompositor.apply(restore) }
 
         unsafe StageCompositor.crop = CropRect(x: 0.1, y: 0.2, width: 0.5, height: 0.5)
         unsafe StageCompositor.burnsInCaptions = true
         unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(scale: 2)
         unsafe StageCompositor.cameraStyle = .default
         unsafe StageCompositor.cameraTrackID = 7
-        let captured: StageCompositor.Settings = unsafe StageCompositor.settings()
+        let captured: StageCompositor.Settings = StageCompositor.settings()
         // Read as a VALUE, which is the whole point of it: a queued job holds one of these for
         // minutes and the statics move underneath it.
         #expect(Self.describes(captured, cropWidth: 0.5))
@@ -671,7 +671,7 @@ private final class PhaseLog: @unchecked Sendable {
         unsafe StageCompositor.cameraTrackID = nil
 
         // …and comes back.
-        unsafe StageCompositor.apply(captured)
+        StageCompositor.apply(captured)
         #expect(unsafe StageCompositor.crop.width == 0.5)
         #expect(unsafe StageCompositor.burnsInCaptions)
         #expect(unsafe StageCompositor.cursorStyle.scale == 2)

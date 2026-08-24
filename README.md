@@ -1,18 +1,14 @@
 # Soredemo
 
-**Teams ship 20+ times a year and demo two or three times.**
+**A screen recorder that keeps its reasons.**
 
 Soredemo records a demo and edits it into something worth watching — the pointer drawn from what
 actually happened, the camera moving to whatever was clicked, and every one of those decisions
 reviewable by the person who made the recording.
 
-*It began as something wider — detect a release, record it, derive launch copy, post it. That half
-is out of scope as of 2026-08-25; see `ROADMAP.md`.*
+Every recorder zooms. This one can say why it did not, and let you disagree.
 
-Measured, not assumed: 2.1% of 2,241 releases from 151 developer tools carried any visual demo, and
-one project in 530 did it every time — see [`soredemo-research/release-coverage`](../soredemo-research/release-coverage).
-
-macOS 26 · Swift 6.4 · Apple Silicon · local by default
+macOS 26 · Swift 6.4 · Apple Silicon · local by default · MIT
 
 > **Status: the free recorder is feature-complete; the derivation pipeline is not.** The app lives
 > in the menu bar. A person can record a display, a window they point at, or a rectangle they drag
@@ -33,12 +29,6 @@ macOS 26 · Swift 6.4 · Apple Silicon · local by default
 > decisions are made per click but are not yet graph-provenanced, and a portrait export still
 > inherits landscape's zoom decisions — both named in `ROADMAP.md` on rows that stay `◐` rather than
 > being rounded up.
->
-> **Scope narrowed 2026-08-25: the work is the screen recorder.** Phase 0 — validating that teams
-> would record a demo per release once the friction was gone — was never run and is now out of
-> scope, along with the release loop that rested on it: detecting a release, proposing a recording,
-> drafting a post, publishing. Both are marked removed in `ROADMAP.md` with the reason rather than
-> deleted quietly. The claim is not disproved; it is not what this is any more.
 
 ---
 
@@ -75,9 +65,9 @@ the product. A pure function with no caller does not satisfy a row that claims a
 **The producer-value rule.** An authored override always wins over a derived value and is never
 silently replaced. Test it by supplying a value the producer could not have derived.
 
-**The publishing rule.** Soredemo never posts anything without explicit, per-post human approval. No
-auto-publish, no "approve all", no CI bypass. Nothing publishes as of 2026-08-25 — the rule stands
-as the answer for the first time somebody wants a share button, not as a description of a feature.
+**The publishing rule.** Nothing this app produces leaves the machine without a person sending it.
+There is no auto-publish, no "approve all", and no share button — and any that is ever proposed
+answers to this rule first.
 
 **Native Liquid Glass only.** App chrome is 100% standard SwiftUI. Never `.glassEffect()`, never
 `NSGlassEffectView`. Content surfaces are deliberately opaque.
@@ -130,7 +120,7 @@ Phase 3A-3 and referenced each other zero times; splitting them turned a fact no
 the compiler holds. If something is genuinely needed by both, it belongs in a pure target both can
 depend on.
 
-Sibling directories, outside the repo: `../soredemo-research/` (the release-coverage measurement),
+Sibling directories, outside the repo:
 `../soredemo-web/` (design research) and `../opensource/` (comparable projects — **read for ideas, not
 for code**).
 

@@ -9,10 +9,10 @@ macOS 26 · Apple Silicon · Swift 6.4 strict concurrency · SwiftUI · SDK 27
 
 ## What this project is
 
-**You ship a feature; Soredemo carries it to published.** It watches your GitHub releases, proposes a
-demo when something user-visible shipped, helps you record it, treats the recording as **evidence**,
-and derives everything else from it — the framing, the story beats, the per-platform variants, and the
-launch outputs. Then, behind a human approval gate, it publishes.
+**A screen recorder that keeps its reasons.** A recording carries an observation log beside the
+video — where the pointer was, when it was clicked, what accessibility element was under each click
+— and everything the editor does afterwards is derived from that log rather than guessed from the
+pixels: the drawn cursor, the zoom to whatever was clicked, the reason a click was not zoomed to.
 
 Every derived value carries its origin and a review state. **Automation proposes; the person decides.**
 That is the product thesis and it is also the architecture.
@@ -27,10 +27,9 @@ That is the product thesis and it is also the architecture.
 This is the thesis at the one boundary where getting it wrong is public and permanent. It is also the
 rule most likely to be eroded by a well-meaning convenience feature. Do not add one.
 
-**The surface it guards was removed on 2026-08-25** — publishing went out of scope with Phase 0 and
-the release loop, so there is no `publish_post` and no `soredemo publish` to refuse anything. The
-rule stays, and it is not decoration: it is the standing answer to a question that will be asked
-again the first time somebody wants a share button. Nothing may add a publishing surface without it.
+**There is no publishing surface today**, so nothing calls `publish_post` and there is no
+`soredemo publish`. The rule is not decoration for that: it is the standing answer the first time
+somebody wants a share button. Nothing may add one without it.
 
 ---
 

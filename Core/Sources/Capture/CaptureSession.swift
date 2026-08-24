@@ -1369,9 +1369,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             // Durations are untouched. Only the presentation — and the decode stamp when the
             // source carried one, since a shifted PTS with an unshifted DTS is not a
             // consistent pair.
-            unsafe timings[index].presentationTimeStamp = timings[index].presentationTimeStamp + shift
-            if unsafe timings[index].decodeTimeStamp.isValid {
-                unsafe timings[index].decodeTimeStamp = timings[index].decodeTimeStamp + shift
+            // Not `unsafe`: subscripting a local `Array` is bounds-checked. The marks were here
+            // and the compiler reports none of the three as needed.
+            timings[index].presentationTimeStamp = timings[index].presentationTimeStamp + shift
+            if timings[index].decodeTimeStamp.isValid {
+                timings[index].decodeTimeStamp = timings[index].decodeTimeStamp + shift
             }
         }
 

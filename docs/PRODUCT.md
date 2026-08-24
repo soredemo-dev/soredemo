@@ -5,15 +5,6 @@ against.*
 
 Features and the frameworks behind them are in `FEATURES.md`.
 
-> **Rewritten 2026-08-25, and most of what was here is gone.** This document used to argue a
-> different product: detect a GitHub release, record a demo of it, derive launch copy from the
-> recording, and post it with a person's approval. That scope was cut — see `ROADMAP.md`'s Phase 0
-> and Phase 8, both marked removed with the reason. Two thirds of this file described it: the
-> release-coverage metric, the loop, publishing reality, who buys, packaging. Keeping a positioning
-> document for a product that no longer exists would mislead every future reader, and the file's
-> own scope table had gone further than stale — it listed a camera overlay and region capture as
-> things deliberately not built, and both shipped.
-
 ---
 
 ## What it is
@@ -43,16 +34,15 @@ convention.
 
 ## Scope — what is deliberately not built
 
-Saying no is part of the definition. **This table was wrong in two places before 2026-08-25**: it
-listed a camera overlay and region capture as refusals, and both are built. A refusal that has been
-quietly reversed is worse than no table, because the next reader trusts the rest of it.
+Saying no is part of the definition. A refusal that is quietly reversed is worse than no table at
+all, because the next reader trusts the rest of it — so a row that stops being true comes out.
 
 | Not built | Why |
 | --- | --- |
 | **Full NLE** — ripple, multicam, clip transitions | Wrong product. A demo needs a handful of operations, and the ripple is free here because a clip's output position is the sum of what precedes it |
 | **Colour grading, LUTs** | This is not a colourist's tool |
 | **Generative video, images, audio** | Contradicts the thesis. Everything is derived from what happened |
-| **Auto-publishing** | Never — and there is nothing to publish from since the release loop was cut. The rule stays as the standing answer, see `AGENTS.md` |
+| **Auto-publishing** | Never. Nothing leaves the machine without a person sending it — see `AGENTS.md` |
 | **Cloud rendering, hosted projects** | Local by default is a product value |
 | **HDR export** | Measured, not assumed: the pipeline is 8-bit sRGB end to end, so an HDR tag would ship a file claiming something its pixels cannot support. `docs/design/2026-08-24-colour-pipeline.md` is the measurement and the way in if it is ever wanted |
 | **Watermarks** | It exists in the recorders that sell a paid tier, as the reason to buy it. That reason does not apply here |

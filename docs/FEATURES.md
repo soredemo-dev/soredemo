@@ -114,9 +114,7 @@ Turn one raw recording into something worth posting. **Not an NLE** — four ope
 
 ## Pillar 3 — What goes in the picture
 
-**Was "Launch video". Narrowed 2026-08-25** with `ROADMAP.md`'s Phase 0 and Phase 8. Written steps,
-post drafts and platform profiles went with the publishing half; what is left is video craft a
-screen recorder wants whether or not anything is ever posted.
+Video craft a screen recorder wants: titles, transitions, music and a still.
 
 ### What you build
 

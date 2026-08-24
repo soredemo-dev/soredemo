@@ -70,7 +70,9 @@ import Foundation
     @Test func changingOneFieldLeavesEveryOtherAlone() {
         let base = CursorStyle.default
         #expect(base.changing(scale: 2).clickEffect == base.clickEffect)
-        #expect(base.changing(clickEffect: .none).scale == base.scale)
+        // `CursorStyle.ClickEffect.none` spelled out: a bare `.none` in an optional context is
+        // `Optional.none`, and the compiler cannot tell which was meant.
+        #expect(base.changing(clickEffect: CursorStyle.ClickEffect.none).scale == base.scale)
         #expect(base.changing() == base)
     }
 
