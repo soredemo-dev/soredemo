@@ -107,7 +107,7 @@ public struct ExportQuality: Hashable, Sendable, Codable {
             properties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
         case .hevc:
             properties[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main_AutoLevel as String
-        case .proRes:
+        case .proRes, .proRes4444:
             break
         }
         return [
@@ -139,13 +139,13 @@ public struct ExportQuality: Hashable, Sendable, Codable {
     public func estimatedBytes(outputWidth: Int, outputHeight: Int, frameRate: Int,
                                seconds: Double, codec: ExportCodec = .h264) -> Int {
         // **ProRes is not estimated from a bit rate**, because it has none. Apple publishes 147
-        // Mbps for ProRes 422 at 1080p29.97, and 147e6 / (1920 × 1080 × 29.97) is 2.37 bits per
-        // pixel per frame — a figure that scales with pixels and frames, which is what an intra
+        // Mbps for ProRes 422 at 1080p29.97 and 330 for 4444; dividing each by 1920 × 1080 ×
+        // 29.97 gives the per-pixel figures in `ExportCodec.intraBitsPerPixel` — a figure that scales with pixels and frames, which is what an intra
         // codec's size does. No encoder-efficiency factor either: an intra codec's size IS its
         // data rate, not a guess about how well it predicts.
         guard codec.takesBitRate else {
             let pixels = Double(outputWidth * outputHeight)
-            let bits = pixels * 2.37 * Double(frameRate)
+            let bits = pixels * codec.intraBitsPerPixel * Double(frameRate)
             return Int((bits * max(seconds, 0) / 8).rounded())
         }
         let encoderEfficiency = 0.5

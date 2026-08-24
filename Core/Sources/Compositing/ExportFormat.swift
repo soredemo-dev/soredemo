@@ -19,12 +19,39 @@ public enum ExportCodec: String, Hashable, Sendable, Codable, CaseIterable {
     /// frame is complete, and the profile decides the size. Ten times an H.264 file, and that is
     /// what it is for.
     case proRes
+    /// **The only export that keeps a coloured edge, and that is a measured claim.**
+    ///
+    /// Encode 8-pixel red bars on black, decode them back, and read the last red column, which
+    /// should be 255:
+    ///
+    /// | | last red column | worst edge error |
+    /// | --- | --- | --- |
+    /// | H.264 High | 145 | 110 |
+    /// | HEVC Main | 145 | 111 |
+    /// | HEVC Main 4:2:2 10-bit | 143 | 112 |
+    /// | ProRes 422 | 144 | 111 |
+    /// | **ProRes 4444** | **234** | **21** |
+    ///
+    /// Everything except 4444 smears the edge by more than a hundred levels, because everything
+    /// except 4444 is 4:2:0 by the time the encoder sees it — including ProRes 422, and including
+    /// HEVC asked for 4:2:2 and handed a genuine 4:2:2 10-bit source. That is the coloured
+    /// fringing on red-on-black text, on a one-pixel border, on a thin diagonal, that everybody
+    /// recognises from a screen recording, and it is the largest picture-quality difference
+    /// available here — far larger than sRGB versus Display P3, and unlike the gamut question
+    /// anybody can see it.
+    ///
+    /// The residual 21 is not chroma. It is what a fully saturated red costs in 8-bit YCbCr at
+    /// all: measured separately, neutral 255, 16 and 0 round-trip exactly through every codec
+    /// here, so nothing is being crushed to video range. Fed a 4:4:4 buffer rather than BGRA,
+    /// 4444 comes back at 1.
+    case proRes4444
 
     public var displayName: String {
         switch self {
         case .h264: "H.264"
         case .hevc: "HEVC"
         case .proRes: "ProRes 422"
+        case .proRes4444: "ProRes 4444"
         }
     }
 
@@ -33,14 +60,14 @@ public enum ExportCodec: String, Hashable, Sendable, Codable, CaseIterable {
     public var fileType: AVFileType {
         switch self {
         case .h264, .hevc: .mp4
-        case .proRes: .mov
+        case .proRes, .proRes4444: .mov
         }
     }
 
     public var fileExtension: String {
         switch self {
         case .h264, .hevc: "mp4"
-        case .proRes: "mov"
+        case .proRes, .proRes4444: "mov"
         }
     }
 
@@ -49,6 +76,7 @@ public enum ExportCodec: String, Hashable, Sendable, Codable, CaseIterable {
         case .h264: .h264
         case .hevc: .hevc
         case .proRes: .proRes422
+        case .proRes4444: .proRes4444
         }
     }
 
@@ -62,12 +90,23 @@ public enum ExportCodec: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .h264: 1
         case .hevc: 0.55
-        case .proRes: 1  // unused: ProRes takes no average bit rate
+        case .proRes, .proRes4444: 1  // unused: ProRes takes no average bit rate
         }
     }
 
     /// Whether an average bit rate means anything for this codec.
-    public var takesBitRate: Bool { self != .proRes }
+    public var takesBitRate: Bool { self != .proRes && self != .proRes4444 }
+
+    /// Bits per pixel per frame, for the intra codecs, from Apple's published data rates:
+    /// 147 Mbps for ProRes 422 at 1080p29.97 and 330 for 4444. Both work out by dividing by
+    /// `1920 × 1080 × 29.97`.
+    var intraBitsPerPixel: Double {
+        switch self {
+        case .proRes: 2.37
+        case .proRes4444: 5.31
+        case .h264, .hevc: 0
+        }
+    }
 }
 
 /// How large the exported picture is.

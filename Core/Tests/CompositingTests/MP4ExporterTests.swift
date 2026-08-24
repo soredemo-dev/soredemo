@@ -706,6 +706,27 @@ private final class PhaseLog: @unchecked Sendable {
         #expect(ExportCodec.proRes.takesBitRate == false)
     }
 
+    /// **ProRes 4444 is the only export that keeps a coloured edge, and the estimate has to say
+    /// what that costs.** Measured by encoding 8-pixel red bars on black and reading the last red
+    /// column back: H.264 145, HEVC 145, HEVC 4:2:2 143, ProRes 422 144, ProRes 4444 234, against
+    /// a reference of 255. Everything but 4444 is 4:2:0 by the time the encoder sees it.
+    @Test func proRes4444CostsMoreThanEverythingElseAndTheEstimateSaysSo() {
+        let sizes = ExportCodec.allCases.map {
+            ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
+                                              frameRate: 30, seconds: 10, codec: $0)
+        }
+        #expect(sizes.max() == sizes.last, "4444 must be the largest, and it is last in the list")
+        let fourFour = ExportQuality.best.estimatedBytes(
+            outputWidth: 1920, outputHeight: 1080, frameRate: 30, seconds: 60, codec: .proRes4444)
+        let fourTwoTwo = ExportQuality.best.estimatedBytes(
+            outputWidth: 1920, outputHeight: 1080, frameRate: 30, seconds: 60, codec: .proRes)
+        // Apple publishes 330 Mbps against 147 — a bit over twice, and the estimate follows.
+        #expect(Double(fourFour) / Double(fourTwoTwo) > 2)
+        #expect(Double(fourFour) / Double(fourTwoTwo) < 2.5)
+        #expect(ExportCodec.proRes4444.takesBitRate == false)
+        #expect(ExportCodec.proRes4444.fileType == .mov)
+    }
+
     /// ProRes belongs in QuickTime. An MP4 carrying it is a file other editors refuse.
     @Test func theContainerFollowsTheCodec() {
         #expect(ExportCodec.proRes.fileType == .mov)

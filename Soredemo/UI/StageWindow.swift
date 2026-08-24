@@ -976,8 +976,8 @@ struct StageWindow: View {
         // place to look for the same answer.
         // The chosen codec's container first, so the panel opens on it — ProRes is a `.mov`
         // and offering an `.mp4` for it would be offering a file other editors refuse.
-        panel.allowedContentTypes = codec == .proRes ? [.quickTimeMovie, .gif]
-                                                     : [.mpeg4Movie, .quickTimeMovie, .gif]
+        panel.allowedContentTypes = codec.fileExtension == "mov" ? [.quickTimeMovie, .gif]
+                                                                 : [.mpeg4Movie, .quickTimeMovie, .gif]
         panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent
             + "." + codec.fileExtension
         panel.canCreateDirectories = true

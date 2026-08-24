@@ -108,7 +108,38 @@ What is measured on this Mac (Apple M1 Pro):
 | `VTCompressionSessionCreate` for H.264, HEVC, ProRes 422, ProRes 4444 | all succeed |
 | Setting `HEVC_Main_AutoLevel`, `Main10_AutoLevel`, `Main42210_AutoLevel` | all accepted, `UsingHardwareAcceleratedVideoEncoder == true` |
 | Encoding one frame at each | all succeed |
-| Whether the 4:2:2 and 10-bit outputs are genuinely 4:2:2 and 10-bit | **not established** — the format description reports `Depth = 24` for every one of them, so that field does not distinguish them. Proving it means parsing the `hvcC` SPS, and this note does not claim what it did not measure. |
+| Whether the 4:2:2 output is genuinely 4:2:2 | **No — established by measuring the picture rather than the metadata.** See below. |
+
+### The measurement that settled it
+
+Encode 8-pixel red bars on black through each path, decode, and read the last red column of
+the first bar, which should be 255. A text edge is exactly this: a sharp vertical transition
+between a saturated colour and a dark ground, wide enough that luma is easy, so only the
+chroma resolution decides whether the edge survives.
+
+| Path | last red column | worst edge error |
+| --- | --- | --- |
+| H.264 High | 145 | 110 |
+| HEVC Main | 145 | 111 |
+| HEVC Main 4:2:2 10-bit, from BGRA | 143 | 112 |
+| HEVC Main 4:2:2 10-bit, **from a genuine 4:2:2 10-bit source** | 143 | 112 |
+| ProRes 422 | 144 | 111 |
+| **ProRes 4444, from BGRA** | **234** | **21** |
+| **ProRes 4444, from a 4:4:4 source** | **254** | **1** |
+
+**Everything except ProRes 4444 is 4:2:0 by the time the encoder sees it** — including ProRes
+422, and including HEVC asked for `Main42210` and handed exactly the source that profile
+wants. The profile is accepted, `UsingHardwareAcceleratedVideoEncoder` reports true, the
+frame encodes without error, and the output is 4:2:0. **There is no HEVC 4:2:2 path on this
+hardware; do not build one.**
+
+The residual 21 on ProRes 4444 from BGRA is not chroma — it is what a fully saturated red
+costs in 8-bit YCbCr. Measured separately: neutral 255, 16 and 0 round-trip **exactly**
+through every codec here, tagged or untagged, so nothing is being crushed to video range.
+Feeding 4444 a `4444AYpCbCr8` buffer instead of BGRA takes the error to 1.
+
+**Shipped as a result (2026-08-24):** ProRes 4444 is in the codec picker. It is the only
+export this app can produce that keeps coloured text edges.
 
 **And one escape route is already shipping.** ProRes 422 is in the export's codec picker as
 of 2026-08-24, and ProRes 422 is 4:2:2 by definition. Somebody who needs clean coloured
