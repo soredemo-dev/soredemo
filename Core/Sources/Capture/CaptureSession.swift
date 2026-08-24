@@ -22,8 +22,10 @@ import Timeline
 /// segment and tears the stream down while `resume()` builds a new one; display
 /// reconfiguration and stream failure use the same mechanism.
 /// `showsCursor = false` — the compositor draws the cursor later from the
-/// pointer track. `colorSpaceName` is pinned to sRGB (a placeholder choice);
-/// unset, it follows the display and the master's colour meaning becomes
+/// pointer track. `colorSpaceName` is pinned to sRGB — a decision, not a placeholder:
+/// the colour-pipeline note (2026-08-24) chose it, and the compositor's ingest declares
+/// the master's pixels sRGB on the strength of it (`CoreImageFrameRenderer.screenImage`).
+/// Unset, it follows the display and the master's colour meaning becomes
 /// machine-dependent.
 ///
 /// Locking: every mutable property is touched only inside `lock.withLock { … }`
@@ -797,7 +799,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // `SCFrameStatus` counters this session already keeps are how a change here is judged.
         configuration.queueDepth = 6
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        unsafe configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned, placeholder gamut choice
+        unsafe configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned; see the header and the 2026-08-24 colour note
         // A floor, not a cadence — presentation times come from each sample
         // buffer and are never assumed from this number.
         configuration.minimumFrameInterval = frameRate.minimumFrameInterval

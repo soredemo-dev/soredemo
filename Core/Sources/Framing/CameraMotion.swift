@@ -55,6 +55,13 @@ public struct CameraState: Hashable, Sendable {
 /// lands, which is what makes the motion read as following the action rather than
 /// anticipating it.
 ///
+/// **Inside a zoom the camera follows the cursor, by the least it can.** A block aims at
+/// the clicked control; a cursor that then travels toward the edge of the zoomed viewport
+/// pushes the aim along with it only once it crosses into `followMargin`'s band, and only
+/// by the excess — so the camera holds still while a person reads and moves when they
+/// leave. The complaint this answers is a menu opening beside a button and leaving the
+/// frame; the rule is an Electron recorder's `cursorFollowCamera.ts`, the motion is this spring's.
+///
 /// **The target is eased before the spring sees it.** A block's aim is a step function —
 /// one centre and depth until the next block, then another — and a spring fed a step has a
 /// discontinuous acceleration at the step: a jerk, which the eye reads as a lurch even when
@@ -62,9 +69,25 @@ public struct CameraState: Hashable, Sendable {
 /// spring's input is C1 and its output C2. Screen Studio's transitions read as one motion
 /// rather than a start and a stop for this reason.
 public struct CameraMotion: Sendable {
+    /// Where the presented cursor is at an instant, or `nil` where it is not drawn. The
+    /// cursor lives in `Render` and this module does not depend on it, so it arrives as a
+    /// function; the compositor, which has both, is what closes the loop. `@Sendable`
+    /// because it is kept for a re-bake under another ceiling.
+    public typealias CursorSource = @Sendable (HostInstant) -> NormalizedPoint?
+
     /// Integration step. 8 ms is ~2× finer than a 60 Hz frame, so a frame's state never
     /// depends on where its instant falls between steps.
     public static let timestep: Double = 0.008
+
+    /// **The share of the zoomed viewport, on each side, that the cursor may not enter
+    /// without the camera moving.** Inside the remaining middle the camera holds still —
+    /// a camera that tracked the cursor's every move would never let a viewer read what
+    /// it framed; at the band the aim shifts by exactly enough to bring the cursor back
+    /// to the band's edge, so the picture pans no further than the cursor pushed it.
+    /// `../opensource/Screen Record Opensource/an Electron recorder-main`'s `cursorFollowCamera.ts`
+    /// calls this `snapToEdgesRatio` and ships 0.25 for both auto and manual zooms; the
+    /// value is theirs. **Uncalibrated** here, like every constant in this module.
+    public static let followMargin: Double = 0.25
 
     /// ζ = 1. Named rather than inlined so the "no overshoot" claim is legible as a
     /// parameter rather than a hope.
@@ -105,6 +128,9 @@ public struct CameraMotion: Sendable {
     /// the top of the curve while the spring's velocity kept winding against the clamp, and a
     /// renderer reading that velocity would smear a picture that had stopped.
     public let zoomCeiling: Double
+    /// The cursor the camera follows inside a zoom, or `nil` for a camera that frames the
+    /// click's target and holds — see `followMargin`.
+    private let cursor: CursorSource?
     /// One baked path per boot epoch. Two boots produce overlapping host times, so a path
     /// spanning both would be a duration computed across two clocks.
     private let paths: [BootEpoch: BakedPath]
@@ -114,15 +140,18 @@ public struct CameraMotion: Sendable {
     /// merged would pass a gap test vacuously.
     public var blocksForTesting: [ZoomBlock] { blocks }
 
-    public init(blocks: [ZoomBlock], zoomCeiling: Double = .infinity) {
+    public init(blocks: [ZoomBlock], zoomCeiling: Double = .infinity,
+                cursor: CursorSource? = nil) {
         let sorted = blocks.sorted { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue }
         self.blocks = sorted
         // A ceiling below 1 is "no zoom", never "zoom out"; NaN is treated as no ceiling.
         let ceiling = zoomCeiling.isNaN ? .infinity : max(zoomCeiling, 1.0)
         self.zoomCeiling = ceiling
+        self.cursor = cursor
         var paths: [BootEpoch: BakedPath] = [:]
         for (epoch, group) in Dictionary(grouping: sorted, by: { $0.start.epoch }) {
-            paths[epoch] = Integrator(blocks: group, zoomCeiling: ceiling).bake()
+            paths[epoch] = Integrator(blocks: group, zoomCeiling: ceiling, epoch: epoch,
+                                      cursor: cursor).bake()
         }
         self.paths = paths
     }
@@ -130,7 +159,7 @@ public struct CameraMotion: Sendable {
     /// The same blocks under another ceiling — what the compositor asks for once it knows
     /// the output's card, which the log alone does not say. A re-bake, not a clamp.
     public func limited(toZoomCeiling ceiling: Double) -> CameraMotion {
-        CameraMotion(blocks: blocks, zoomCeiling: ceiling)
+        CameraMotion(blocks: blocks, zoomCeiling: ceiling, cursor: cursor)
     }
 
     /// The camera at `instant`. At rest before the first block and past the last plus
@@ -183,6 +212,18 @@ public struct CameraMotion: Sendable {
     private struct Integrator {
         let blocks: [ZoomBlock]     // one epoch, sorted by start
         let zoomCeiling: Double
+        let epoch: BootEpoch
+        let cursor: CursorSource?
+
+        /// **The follow's memory: which block the camera is inside and where its centre has
+        /// been pushed to.** Persistent across steps, because the rule is "hold until the
+        /// cursor leaves the band, then move by the excess" — a centre recomputed from the
+        /// cursor every step would be a tracking camera, which is the thing the band exists
+        /// to prevent. Reset when the block changes, so each zoom starts on its target.
+        struct Follow {
+            var origin: HostInstant?
+            var centre: NormalizedPoint
+        }
 
         func bake() -> BakedPath {
             guard let first = blocks.first,
@@ -205,6 +246,7 @@ public struct CameraMotion: Sendable {
             // The aim the camera is currently converging on, held across steps so a target
             // inside the safe zone leaves it unchanged rather than being re-decided per step.
             var aim = CameraState.rest
+            var follow = Follow(origin: nil, centre: NormalizedPoint(x: 0.5, y: 0.5))
             // The EASED aim, in two stages: the first rounds the step, the second rounds the
             // first's kink. The second is what the spring chases.
             var stageX = 0.5, stageY = 0.5, stageZoom = 1.0
@@ -219,7 +261,7 @@ public struct CameraMotion: Sendable {
             var time = 0.0
             while time < horizon {
                 // `aim` is asked in ABSOLUTE seconds; the loop counts from the first block.
-                aim = self.aim(at: begin + time, previous: aim)
+                aim = self.aim(at: begin + time, previous: aim, follow: &follow)
                 stageX += (aim.centre.x - stageX) * ease
                 stageY += (aim.centre.y - stageY) * ease
                 stageZoom += (aim.zoom - stageZoom) * ease
@@ -271,14 +313,15 @@ public struct CameraMotion: Sendable {
         /// The block covering `time`, as an aim — or rest between blocks. A new aim inside
         /// the safe zone of the previous one keeps the previous one exactly, which is what
         /// stops the camera chasing jitter; the zoom is compared on its own scale.
-        private func aim(at time: Double, previous: CameraState) -> CameraState {
+        private func aim(at time: Double, previous: CameraState,
+                         follow: inout Follow) -> CameraState {
             let nanos = Int64(time * 1_000_000_000)
             let active = blocks.first {
                 $0.start.hostTime.rawValue <= nanos && nanos < $0.end.hostTime.rawValue
             }
             let proposed: CameraState
             if let active {
-                proposed = aim(of: active)
+                proposed = followed(aim(of: active), in: active, at: nanos, follow: &follow)
             } else if let chained = chainedNeighbour(at: nanos) {
                 // **In a short gap the camera pans to the next block instead of returning to
                 // rest.** Blocks merge only on overlap — for the reason `ZoomBlock.blocks`
@@ -306,6 +349,35 @@ public struct CameraMotion: Sendable {
             return CameraState(centre: NormalizedPoint(x: frame.minX + frame.size.width / 2,
                                                        y: frame.minY + frame.size.height / 2),
                                zoom: min(block.zoom, zoomCeiling))
+        }
+
+        /// `base` with its centre pushed by the cursor, per `followMargin`.
+        ///
+        /// The band is measured in the block's OWN viewport — `1 / base.zoom` of the
+        /// recording — rather than the camera's current one: while the zoom is still
+        /// arriving the current viewport is wider than the block's, and a band drawn on it
+        /// would let the cursor sit somewhere that is off-screen a moment later. A block
+        /// whose depth is 1 has no viewport to leave and follows nothing.
+        private func followed(_ base: CameraState, in block: ZoomBlock, at nanos: Int64,
+                              follow: inout Follow) -> CameraState {
+            guard let cursor, base.zoom > CameraMotion.identityZoomBound else { return base }
+            if follow.origin != block.origin {
+                follow = Follow(origin: block.origin, centre: base.centre)
+            }
+            let instant = HostInstant(epoch: epoch, hostTime: Nanoseconds(nanos))
+            guard let pointer = cursor(instant) else {
+                return CameraState(centre: follow.centre, zoom: base.zoom)
+            }
+            // The band's half-width: the viewport's half, less the margin on that side.
+            let half = 0.5 / base.zoom
+            let reach = half * (1 - 2 * CameraMotion.followMargin)
+            var centre = follow.centre
+            if pointer.x > centre.x + reach { centre = NormalizedPoint(x: pointer.x - reach, y: centre.y) }
+            if pointer.x < centre.x - reach { centre = NormalizedPoint(x: pointer.x + reach, y: centre.y) }
+            if pointer.y > centre.y + reach { centre = NormalizedPoint(x: centre.x, y: pointer.y - reach) }
+            if pointer.y < centre.y - reach { centre = NormalizedPoint(x: centre.x, y: pointer.y + reach) }
+            follow.centre = CameraMotion.confine(centre, zoom: base.zoom)
+            return CameraState(centre: follow.centre, zoom: base.zoom)
         }
 
         /// The block to pan toward while `nanos` sits in a gap short enough to chain, or

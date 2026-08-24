@@ -84,6 +84,11 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
                         samples(reAim, from: 0.5, to: 3.0).dropFirst())
         .map { abs($1.centre.x - $0.centre.x) }.max() ?? 0
 
+    // Measured 2026-08-25 with the eased aim: the re-aim's largest jump is 2.14× the plain
+    // move's (0.0394 against 0.0184 per frame) — a re-aim mid-settle genuinely moves faster,
+    // because it carries the velocity it already had. A bound of 3 is the right side of
+    // that; the design audit's guess that it had become slack was wrong, and this number
+    // is why the bound stays.
     #expect(reAimJump <= singleJump * 3, """
         the re-aim produced a \(reAimJump) per-frame jump against \(singleJump) for a plain \
         move — the spring restarted rather than carrying its velocity
@@ -384,6 +389,75 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
         #expect(camera.zoomCeiling == 1.0)
         for seconds in stride(from: 1.0, through: 7.0, by: 0.25) {
             #expect(camera.state(at: instant(seconds)).zoom == 1.0)
+        }
+    }
+}
+
+// MARK: - following the cursor inside a zoom
+
+/// **Inside a zoom the camera holds still until the cursor leaves the band, then moves by
+/// the excess.** Three cases, each of which a different wrong rule passes: a cursor inside
+/// the band must not move the centre (a tracking camera fails); a cursor past it must (a
+/// fixed camera fails); and the move must be BY THE EXCESS, not to the cursor (a snapping
+/// camera fails). The block is a 3.0× zoom on a small control at (0.5, 0.5), so the
+/// viewport is a third of the recording and the band's reach is `(0.5 / 3) × 0.5`.
+@Suite struct CursorFollowTests {
+    private let epoch = BootEpoch(id: UUID(uuidString: "F0110000-0000-4000-8000-00000000000C")!)
+    private func instant(_ seconds: Double) -> HostInstant {
+        HostInstant(epoch: epoch, hostTime: Nanoseconds(Int64(seconds * 1_000_000_000)))
+    }
+    private var block: ZoomBlock {
+        let target = FramingTarget(
+            frame: NormalizedFrame(origin: NormalizedPoint(x: 0.49, y: 0.49),
+                                   size: NormalizedSize(width: 0.02, height: 0.02),
+                                   revision: GeometryRevision(id: 1)), role: "AXCheckBox")
+        return ZoomBlock(origin: instant(2), start: instant(2), end: instant(8),
+                         target: target, zoom: FramingDepth.zoom(for: target))
+    }
+    private var reach: Double { (0.5 / block.zoom) * (1 - 2 * CameraMotion.followMargin) }
+
+    /// A cursor that moves to `x` at t = 4 s and rests there.
+    private func camera(cursorAt x: Double, y: Double = 0.5) -> CameraMotion {
+        CameraMotion(blocks: [block], cursor: { instant in
+            let seconds = Double(instant.hostTime.rawValue) / 1e9
+            return seconds < 4 ? NormalizedPoint(x: 0.5, y: 0.5) : NormalizedPoint(x: x, y: y)
+        })
+    }
+
+    @Test func aCursorInsideTheBandDoesNotMoveTheCamera() {
+        #expect(block.zoom == 3.0, "the fixture must zoom deep enough to have a band")
+        let inside = camera(cursorAt: 0.5 + reach * 0.9)
+        let settled = inside.state(at: instant(7.5))
+        #expect(abs(settled.centre.x - 0.5) < 0.002,
+                "the camera moved to \(settled.centre.x) for a cursor still inside the band")
+    }
+
+    @Test func aCursorPastTheBandMovesTheCameraByTheExcess() {
+        let x = 0.5 + reach + 0.06
+        let pushed = camera(cursorAt: x)
+        let settled = pushed.state(at: instant(7.5))
+        // By the excess: the centre ends where the cursor sits exactly on the band's edge.
+        #expect(abs(settled.centre.x - (x - reach)) < 0.003, """
+            the camera settled at \(settled.centre.x); by-the-excess puts it at \(x - reach), \
+            a snap-to-cursor at \(x)
+            """)
+        #expect(abs(settled.centre.y - 0.5) < 0.002, "a horizontal push moved the camera vertically")
+    }
+
+    /// The follow starts on the block's target: before the cursor moves, the camera frames
+    /// the click, whatever the cursor did in an earlier block.
+    @Test func eachBlockStartsOnItsOwnTarget() {
+        let none = CameraMotion(blocks: [block])
+        let following = camera(cursorAt: 0.9)
+        // Before t = 4 the cursor sits on the target; both cameras must agree.
+        #expect(none.state(at: instant(3.5)).centre == following.state(at: instant(3.5)).centre)
+    }
+
+    /// No cursor source is the camera that was: nothing here changes a block-only bake.
+    @Test func withoutACursorTheCameraFramesTheTargetAndHolds() {
+        let none = CameraMotion(blocks: [block])
+        for seconds in stride(from: 3.0, through: 7.5, by: 0.5) {
+            #expect(abs(none.state(at: instant(seconds)).centre.x - 0.5) < 0.002)
         }
     }
 }

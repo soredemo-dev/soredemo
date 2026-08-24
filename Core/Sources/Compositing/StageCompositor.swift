@@ -569,7 +569,14 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                                    pointerFallbackRevision: plan.fallbackRevision))
         // `unsafe`: `zoomAdjustments` is a `nonisolated(unsafe)` static, read here under the
         // same "published before playback starts" guarantee as every other seam on this type.
-        let camera = CameraMotion(blocks: unsafe zoomAdjustments.applied(to: derived))
+        // **The presented cursor is what the camera follows inside a zoom** — the same
+        // reading the renderer draws, so the camera and the drawn pointer agree about where
+        // the person is. `Framing` cannot name `PointerTrack`, so it arrives as a function.
+        let camera = CameraMotion(blocks: unsafe zoomAdjustments.applied(to: derived),
+                                  cursor: { instant in
+            if case .drawn(let point, _, _) = pointer.presentedPosition(at: instant) { return point }
+            return nil
+        })
         return (pointer: pointer, click: click, anchor: anchor, camera: camera)
     }
 }
