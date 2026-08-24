@@ -88,6 +88,25 @@ public enum ExportResolution: String, Hashable, Sendable, Codable, CaseIterable 
         }
     }
 
+    /// The rungs worth offering for a recording of this size.
+    ///
+    /// **Nothing above what was captured.** A ladder written as a fixed list offers 4K for a
+    /// 720p recording, and upscaling adds no detail — it adds pixels, and a bit rate computed
+    /// from pixels then spends four times as much on the same picture. The recording is the
+    /// ceiling for the same reason a display is the ceiling on a capture rate.
+    ///
+    /// `matchRecording` is always first, because a capture's own size is the answer a person is
+    /// most often after and the only rung that stays right on a display nobody has yet.
+    public static func available(recordingShortSide: Int) -> [ExportResolution] {
+        [.matchRecording] + allCases.filter { rung in
+            guard let side = rung.shortSide else { return false }
+            // Within a rung of the capture counts as reachable: a 1964-tall recording should
+            // still offer 2160 rather than stopping at 1440, since the difference is a crop
+            // away and refusing it would be pedantry a person cannot act on.
+            return side <= recordingShortSide
+        }
+    }
+
     var shortSide: Int? {
         switch self {
         case .p720: 720
@@ -136,7 +155,7 @@ public enum ExportResolution: String, Hashable, Sendable, Codable, CaseIterable 
 /// what it had. a Swift recorder's export sheet has this picker for the same reason, with a custom
 /// field beside it.
 public enum ExportFrameRate: String, Hashable, Sendable, Codable, CaseIterable {
-    case matchRecording, fps24, fps30, fps60
+    case matchRecording, fps24, fps30, fps60, fps120
 
     public var displayName: String {
         switch self {
@@ -144,6 +163,17 @@ public enum ExportFrameRate: String, Hashable, Sendable, Codable, CaseIterable {
         case .fps24: "24 fps"
         case .fps30: "30 fps"
         case .fps60: "60 fps"
+        case .fps120: "120 fps"
+        }
+    }
+
+    /// The rungs worth offering for a recording at this rate. Nothing above it, for
+    /// `ExportResolution.available`'s reason: writing each captured frame twice is a bigger file
+    /// of the same video.
+    public static func available(recording: Int) -> [ExportFrameRate] {
+        [.matchRecording] + allCases.filter { rung in
+            guard rung != .matchRecording else { return false }
+            return rung.frames(recording: recording) == rung.frames(recording: .max)
         }
     }
 
@@ -158,6 +188,7 @@ public enum ExportFrameRate: String, Hashable, Sendable, Codable, CaseIterable {
         case .fps24: return min(24, recorded)
         case .fps30: return min(30, recorded)
         case .fps60: return min(60, recorded)
+        case .fps120: return min(120, recorded)
         }
     }
 }

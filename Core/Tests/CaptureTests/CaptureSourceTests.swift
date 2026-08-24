@@ -427,27 +427,77 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
                 == CMTime(value: 1, timescale: 120))
     }
 
-    /// **Offering 120 on a 60 Hz panel would be offering nothing**: the interval is a ceiling and
-    /// the panel is the floor, so the recording would be 60 either way.
-    @Test func onlyRatesTheDisplayCanProduceAreOffered() {
-        #expect(CaptureFrameRate.available(upTo: 60) == [.thirty, .sixty])
-        #expect(CaptureFrameRate.available(upTo: 120).count == 3)
-        #expect(CaptureFrameRate.available(upTo: 30) == [.thirty])
+    /// **A 144 Hz panel is offered 144.** The old ladder was an enum of 30, 60 and 120, so a
+    /// sixth of that display's frames were discarded to match a number written before anybody
+    /// owned it. The rates come from the hardware now.
+    @Test func adisplayFasterThanTheOldLadderIsOfferedItsOwnRate() {
+        let rates = CaptureFrameRate.available(forDisplayRates: [144])
+        #expect(rates.map(\.rawValue) == [30, 60, 144])
+    }
+
+    /// **Every display, not the main one.** Somebody with a 60 Hz built-in and a 144 Hz panel
+    /// beside it makes the choice before picking which one to record, so the honest set is what
+    /// any of them can do — and choosing 144 then recording the 60 costs nothing, because the
+    /// interval is a ceiling and the panel is the floor.
+    @Test func theRatesOfEveryDisplayAreOfferedTogether() {
+        let rates = CaptureFrameRate.available(forDisplayRates: [60, 144])
+        #expect(rates.map(\.rawValue) == [30, 60, 144])
+    }
+
+    /// A rate is never offered above what any display can do — that would be a control that
+    /// changes no observable thing.
+    @Test func nothingFasterThanTheFastestPanelIsOffered() {
+        #expect(CaptureFrameRate.available(forDisplayRates: [60]).map(\.rawValue) == [30, 60])
+        #expect(CaptureFrameRate.available(forDisplayRates: [30]).map(\.rawValue) == [30])
+    }
+
+    /// **A panel reporting 59.999 means 60.** `CGDisplayMode.refreshRate` is a Double and the
+    /// rounding is what stops the menu offering "59 fps", which is not a thing anybody means.
+    @Test func afractionalRefreshRateIsRoundedToWhatPeopleCallIt() {
+        #expect(CaptureFrameRate.available(forDisplayRates: [59.999]).map(\.rawValue) == [30, 60])
+    }
+
+    /// **Zero means the system said nothing, not that the screen is still.** Several built-in
+    /// panels answer 0; treating that as a ceiling would offer 30 and nothing else on a MacBook.
+    @Test func asystemThatReportsNoRatesStillOffersTheUsualThree() {
+        #expect(CaptureFrameRate.available(forDisplayRates: []).map(\.rawValue) == [30, 60, 120])
+        #expect(CaptureFrameRate.available(forDisplayRates: [0, 0]).map(\.rawValue) == [30, 60, 120])
+    }
+
+    /// **A decoded zero would be a `CMTime` timescale of zero and a division.** The synthesised
+    /// decoder assigns the stored property directly and never calls the failable initialiser, so
+    /// this type writes its own — clamping rather than throwing, because refusing to open a
+    /// recording over a frame rate is worse than opening it at 60.
+    @Test func acorruptRateDecodesToSomethingUsableRatherThanCrashing() throws {
+        let zero = try JSONDecoder().decode(CaptureFrameRate.self, from: Data("0".utf8))
+        #expect(zero == .sixty)
+        let absurd = try JSONDecoder().decode(CaptureFrameRate.self, from: Data("100000".utf8))
+        #expect(absurd == .sixty)
+        let real = try JSONDecoder().decode(CaptureFrameRate.self, from: Data("144".utf8))
+        #expect(real.rawValue == 144)
+        #expect(real.minimumFrameInterval.timescale == 144)
     }
 
     /// A ProMotion panel reports 120.0 and a 59.94 Hz one reports just under 60 — which must
     /// still offer 60, or an ordinary display would lose its own rate to a rounding error.
+    ///
+    /// **This used to test `available(upTo:)`, which took ONE ceiling** and could only pick from
+    /// a fixed ladder. Both halves of that were wrong — the ceiling was the main display's, and
+    /// the ladder discarded a sixth of a 144 Hz panel's frames — so the claim moved with the API
+    /// rather than the API being kept to preserve a green test.
     @Test func aRateJustUnderTheNominalOneStillOffersIt() {
-        #expect(CaptureFrameRate.available(upTo: 59.94).contains(.sixty))
-        #expect(CaptureFrameRate.available(upTo: 119.88).contains(.oneHundredTwenty))
+        #expect(CaptureFrameRate.available(forDisplayRates: [59.94]).contains(.sixty))
+        #expect(CaptureFrameRate.available(forDisplayRates: [119.88])
+            .contains(.oneHundredTwenty))
     }
 
     @Test func everyRateSaysWhatItIsAndWhatItCosts() {
-        for rate in CaptureFrameRate.allCases {
+        for rate in CaptureFrameRate.available(forDisplayRates: [30, 60, 120, 144]) {
             #expect(rate.displayName.contains("\(rate.rawValue)"))
             #expect(!rate.detail.isEmpty)
         }
-        #expect(Set(CaptureFrameRate.allCases.map(\.detail)).count
-                == CaptureFrameRate.allCases.count)
+        // The three bands say different things — a rate is offered with a reason, not a number.
+        let bands = [CaptureFrameRate.thirty, .sixty, .oneHundredTwenty]
+        #expect(Set(bands.map(\.detail)).count == bands.count)
     }
 }

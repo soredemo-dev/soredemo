@@ -627,13 +627,15 @@ struct StageWindow: View {
         // output, and this app exports portrait and square for the places people post them.
         Picker("Resolution", selection: Binding(
             get: { resolution }, set: { resolution = $0 })) {
-            ForEach(ExportResolution.allCases, id: \.self) { choice in
+            ForEach(ExportResolution.available(recordingShortSide: recordingShortSide),
+                    id: \.self) { choice in
                 Text(LocalizedStringKey(choice.displayName)).tag(choice)
             }
         }
         Picker("Frame rate", selection: Binding(
             get: { frameRate }, set: { frameRate = $0 })) {
-            ForEach(ExportFrameRate.allCases, id: \.self) { choice in
+            ForEach(ExportFrameRate.available(recording: recordingFrameRate),
+                    id: \.self) { choice in
                 Text(LocalizedStringKey(choice.displayName)).tag(choice)
             }
         }

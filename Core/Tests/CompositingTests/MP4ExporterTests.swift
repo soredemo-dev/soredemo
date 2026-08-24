@@ -752,6 +752,34 @@ private final class PhaseLog: @unchecked Sendable {
         #expect(matched.width == 3024)
     }
 
+    /// **Nothing above what was captured.** A fixed list offers 4K for a 720p recording, and
+    /// upscaling adds no detail — it adds pixels, and a bit rate computed from pixels then spends
+    /// four times as much on the same picture. The recording is the ceiling for the same reason a
+    /// display is the ceiling on a capture rate.
+    @Test func theResolutionLadderStopsAtWhatWasRecorded() {
+        let small = ExportResolution.available(recordingShortSide: 720)
+        #expect(small == [.matchRecording, .p720])
+        let retina = ExportResolution.available(recordingShortSide: 1964)
+        #expect(retina == [.matchRecording, .p720, .p1080, .p1440])
+        let uhd = ExportResolution.available(recordingShortSide: 2160)
+        #expect(uhd == [.matchRecording, .p720, .p1080, .p1440, .p2160])
+    }
+
+    /// `matchRecording` is always offered, whatever the capture is — it is the answer a person is
+    /// most often after, and the only rung that stays right on a display nobody has yet.
+    @Test func matchingIsOfferedEvenForARecordingBelowEveryRung() {
+        #expect(ExportResolution.available(recordingShortSide: 240) == [.matchRecording])
+    }
+
+    /// The same rule for the rate: writing each captured frame twice is a bigger file of the
+    /// same video.
+    @Test func theFrameRateLadderStopsAtWhatWasRecorded() {
+        #expect(ExportFrameRate.available(recording: 30) == [.matchRecording, .fps24, .fps30])
+        #expect(ExportFrameRate.available(recording: 120)
+                == [.matchRecording, .fps24, .fps30, .fps60, .fps120])
+        #expect(ExportFrameRate.available(recording: 24) == [.matchRecording, .fps24])
+    }
+
     /// Odd dimensions are where a stray column of green comes from — the rule `CaptureSource`
     /// and `WindowTargets.evenFloor` already apply, applied here too.
     @Test func everyDimensionComesBackEven() {
