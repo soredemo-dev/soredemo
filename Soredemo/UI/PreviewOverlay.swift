@@ -24,6 +24,10 @@ struct PreviewOverlay: View {
     /// they will grab by accident.
     let tab: StageWindow.InspectorTab
     let onChange: () -> Void
+    /// Where the camera sits, so it can be dragged on the picture rather than aimed with two
+    /// sliders. `nil` when the recording has no camera, which is when there is nothing to drag.
+    var cameraStyle: Binding<CameraOverlayStyle>?
+    var hasCamera = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -39,6 +43,12 @@ struct PreviewOverlay: View {
                 default:
                     EmptyView()
                 }
+                // **The camera is dragged on the picture, in every tab.** Nine presets is nine
+                // answers to a question with infinitely many, and the two sliders beside them
+                // are aimed by watching a number rather than the face. Not gated on the tab like
+                // the handles above, because the camera is not being "edited" in a panel — it is
+                // an object on the stage, and grabbing it is the obvious thing to try.
+                if hasCamera, let cameraStyle { cameraHandle(cameraStyle, in: video) }
             }
         }
         // The overlay must not swallow clicks meant for the picture when nothing is selected.
@@ -194,5 +204,71 @@ private struct HandlePuck: View {
         .padding(11)
         .contentShape(Rectangle())
         .shadow(color: .black.opacity(0.4), radius: 4)
+    }
+}
+
+extension PreviewOverlay {
+    /// The camera's own rectangle on the preview, draggable, with a corner to resize by.
+    ///
+    /// **Placed through `CameraOverlayStyle.rect`, not by repeating its arithmetic.** That
+    /// function already decides where the camera goes, including the margin that keeps it inside
+    /// the frame and the shrink a zoom applies; a second copy here would be a handle that sits
+    /// where the camera is not.
+    @ViewBuilder func cameraHandle(_ style: Binding<CameraOverlayStyle>,
+                                   in video: (x: Double, y: Double,
+                                              width: Double, height: Double)) -> some View {
+        // The source aspect is unknown here — the camera's file is not loaded by this view — so
+        // 16:9 stands in. It only affects a rectangular camera's height, and the handle is a grab
+        // target rather than a preview of the picture.
+        let box = style.wrappedValue.rect(inOutputWidth: outputWidth, outputHeight: outputHeight,
+                                          sourceAspect: 16.0 / 9)
+        let scale = video.width / Double(max(outputWidth, 1))
+        // `rect`'s y runs UP from the bottom and the view's runs down, so it is flipped once here.
+        let onScreen = (x: video.x + box.x * scale,
+                        y: video.y + (Double(outputHeight) - box.y - box.height) * scale,
+                        width: box.width * scale,
+                        height: box.height * scale)
+
+        ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Theme.accent.opacity(0.9), lineWidth: 1.5)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let width = max(video.width, 1), height = max(video.height, 1)
+                            // `translation` is cumulative, so it is applied to the position the
+                            // drag STARTED from rather than accumulated — the mistake that made
+                            // an earlier drag in this app accelerate away from the pointer.
+                            let startX = video.x + box.x * scale + box.width * scale / 2
+                            let startY = video.y
+                                + (Double(outputHeight) - box.y - box.height / 2) * scale
+                            let x = (startX + Double(value.translation.width) - video.x) / width
+                            let y = 1 - (startY + Double(value.translation.height) - video.y)
+                                / height
+                            style.wrappedValue = style.wrappedValue.changing(
+                                x: min(max(x, 0), 1), y: min(max(y, 0), 1))
+                        }
+                        .onEnded { _ in onChange() }
+                )
+
+            // The corner that resizes. Bottom-trailing because that is where every resize grip
+            // on this system is, and because the camera's usual home is the opposite corner.
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 10, height: 10)
+                .offset(x: 5, y: 5)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let widened = box.width + Double(value.translation.width) / scale
+                            style.wrappedValue = style.wrappedValue.changing(
+                                widthFraction: widened / Double(max(outputWidth, 1)))
+                        }
+                        .onEnded { _ in onChange() }
+                )
+        }
+        .frame(width: onScreen.width, height: onScreen.height)
+        .offset(x: onScreen.x, y: onScreen.y)
     }
 }

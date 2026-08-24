@@ -150,113 +150,128 @@ enum GlobalRect {
     }
 }
 
-/// One screen's worth of the overlay: drag out a rectangle, see its size, click to record.
+/// One screen's worth of the overlay.
+///
+/// **Drawing the rectangle and starting the recording are two acts, not one.** The first version
+/// started recording the moment the drag ended, which meant the rectangle could only ever be the
+/// one your hand happened to leave — and a rectangle drawn by eye around a panel is almost never
+/// the rectangle you wanted on the first try. So a drag proposes, handles adjust, and a button
+/// commits.
 private struct RegionPickerView: View {
     let state: RegionState
     let screen: NSScreen
 
-    /// **Two `Double`s, not a `CGPoint`.** Rule 5 keeps CoreGraphics geometry types out of the
-    /// app target entirely, and a drag's start is the one place a view is handed one — SwiftUI's
-    /// `startLocation` is a `CGPoint`, so the components are taken off it and the type is never
-    /// named here.
-    @State private var anchor: (x: Double, y: Double)?
+    /// Where a drag began, and what it is doing — drawing a new rectangle, moving the one that
+    /// is there, or pulling one of its edges.
+    @State private var gesture: RegionGesture?
 
     /// Below this the region is not worth recording and a stray click would start one.
-    /// a Rust recorder refuses a remembered rectangle under a minimum for the same reason.
     private static let minimumSide: Double = 40
+    /// How close to an edge counts as grabbing it rather than moving the whole rectangle.
+    private static let handleReach: Double = 14
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .topLeading) {
-                // The dim, light enough to still recognise what is underneath — the same value
-                // the window picker uses, because they are the same decision.
-                Color.black.opacity(0.35)
+        ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.35)
 
-                if let box = localBox() {
-                    // **A hole, not a highlight.** The region is what will be recorded, so it is
-                    // shown at full brightness with the dim cut away from it; brightening a
-                    // rectangle over a dimmed screen would still be a dimmed rectangle.
-                    Rectangle()
-                        .fill(.white)
-                        .frame(width: box.width, height: box.height)
-                        .offset(x: box.x, y: box.y)
-                        .blendMode(.destinationOut)
+            if let box = localBox() {
+                // **A hole, not a highlight.** The region is what will be recorded, so it is
+                // shown at full brightness with the dim cut away from it; brightening a
+                // rectangle over a dimmed screen would still be a dimmed rectangle.
+                Rectangle()
+                    .fill(.white)
+                    .frame(width: box.width, height: box.height)
+                    .offset(x: box.x, y: box.y)
+                    .blendMode(.destinationOut)
 
-                    Rectangle()
-                        .strokeBorder(.white.opacity(0.9), lineWidth: 1.5)
-                        .frame(width: box.width, height: box.height)
-                        .offset(x: box.x, y: box.y)
+                Rectangle()
+                    .strokeBorder(.white.opacity(0.9), lineWidth: 1.5)
+                    .frame(width: box.width, height: box.height)
+                    .offset(x: box.x, y: box.y)
 
-                    RegionSizeLabel(width: box.width, height: box.height,
-                                    isResolving: state.isResolving)
-                        .offset(x: box.x, y: max(box.y - 30, 4))
+                // The four corners, so the rectangle looks adjustable rather than final.
+                ForEach(RegionEdge.corners, id: \.name) { corner in
+                    RegionHandle()
+                        .offset(x: box.x + corner.x * box.width - 4,
+                                y: box.y + corner.y * box.height - 4)
                 }
+
+                RegionConfirmBar(width: box.width, height: box.height,
+                                 isResolving: state.isResolving,
+                                 record: { choose() })
+                    // Below the rectangle when there is room, above it when there is not — a bar
+                    // off the bottom of the screen is a bar nobody can press.
+                    .offset(x: box.x,
+                            y: box.y + box.height + 44 < screen.frame.height
+                                ? box.y + box.height + 8
+                                : max(box.y - 36, 4))
             }
-            .compositingGroup()
-            .ignoresSafeArea()
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if anchor == nil {
-                            anchor = (Double(value.startLocation.x), Double(value.startLocation.y))
-                        }
-                        guard let anchor else { return }
-                        state.chosen = global(from: anchor,
-                                              toX: Double(value.location.x),
-                                              toY: Double(value.location.y))
+        }
+        .compositingGroup()
+        .ignoresSafeArea()
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let startX = Double(value.startLocation.x)
+                    let startY = Double(value.startLocation.y)
+                    let x = Double(value.location.x), y = Double(value.location.y)
+                    if gesture == nil { gesture = began(atX: startX, y: startY) }
+                    guard let gesture else { return }
+                    state.chosen = gesture.applied(toX: x, y: y,
+                                                   screenFrame: GlobalRect.topLeft(of: screen))
+                }
+                .onEnded { _ in
+                    // **The rectangle stays; nothing starts.** Ending a drag used to begin the
+                    // recording, so the rectangle was whatever your hand left behind.
+                    if let chosen = state.chosen,
+                       chosen.width < Self.minimumSide || chosen.height < Self.minimumSide {
+                        // A click, or a drag too small to record. Not a cancel — somebody who
+                        // clicked by accident should still have the overlay, and ⎋ is the way out.
+                        state.chosen = state.remembered
                     }
-                    .onEnded { value in
-                        defer { anchor = nil }
-                        guard let anchor,
-                              let rect = global(from: anchor,
-                                                toX: Double(value.location.x),
-                                                toY: Double(value.location.y)),
-                              rect.width >= Self.minimumSide, rect.height >= Self.minimumSide
-                        else {
-                            // A click rather than a drag. Not a cancel — somebody who clicked by
-                            // accident should still have the overlay, and \u{238B} is the way out.
-                            state.chosen = state.remembered
-                            return
-                        }
-                        state.chosen = rect
-                        choose(rect)
-                    }
-            )
-            .onAppear {
-                // The remembered rectangle is shown straight away, so a second take starts from
-                // the first take's frame rather than from an empty screen.
-                if state.chosen == nil { state.chosen = state.remembered }
-            }
-            .onTapGesture {
-                // Tapping with a remembered rectangle up records it — the "same again" path,
-                // which is the whole reason the rectangle is remembered.
-                guard !state.isResolving, let rect = state.chosen,
-                      rect.width >= Self.minimumSide, rect.height >= Self.minimumSide else { return }
-                choose(rect)
-            }
-            .onChange(of: proxy.size) { }
+                    gesture = nil
+                }
+        )
+        .onAppear {
+            // The remembered rectangle is shown straight away, so a second take starts from the
+            // first take's frame rather than from an empty screen.
+            if state.chosen == nil { state.chosen = state.remembered }
         }
     }
 
-    private func choose(_ rect: PointRect) {
+    /// What a drag starting here means: pulling an edge of the rectangle, moving it, or drawing
+    /// a new one.
+    ///
+    /// **Edges first, then inside, then a new rectangle.** A corner is inside the rectangle too,
+    /// so testing "inside" first would make the handles unreachable — which is the bug every
+    /// crop tool has had at least once.
+    private func began(atX x: Double, y: Double) -> RegionGesture {
+        let frame = GlobalRect.topLeft(of: screen)
+        guard let chosen = state.chosen else {
+            return .drawing(originX: frame.x + x, originY: frame.y + y)
+        }
+        let localX = chosen.x - frame.x, localY = chosen.y - frame.y
+        if let edge = RegionEdge.grabbed(atX: x, y: y, boxX: localX, boxY: localY,
+                                         width: chosen.width, height: chosen.height,
+                                         reach: Self.handleReach) {
+            return .resizing(edge: edge, from: chosen)
+        }
+        if x >= localX, x <= localX + chosen.width, y >= localY, y <= localY + chosen.height {
+            return .moving(from: chosen, grabX: frame.x + x, grabY: frame.y + y)
+        }
+        return .drawing(originX: frame.x + x, originY: frame.y + y)
+    }
+
+    private func choose() {
+        guard !state.isResolving, let rect = state.chosen,
+              rect.width >= Self.minimumSide, rect.height >= Self.minimumSide else { return }
         state.isResolving = true
         RememberedRegion.save(rect)
         Task { @MainActor in
             let source = await RegionTargets.source(for: rect)
             state.onFinish?(source)
         }
-    }
-
-    /// The dragged rectangle in the global top-left space, normalised so a drag in any direction
-    /// gives a positive size.
-    private func global(from start: (x: Double, y: Double),
-                        toX endX: Double, toY endY: Double) -> PointRect? {
-        let frame = GlobalRect.topLeft(of: screen)
-        let x0 = min(start.x, endX), x1 = max(start.x, endX)
-        let y0 = min(start.y, endY), y1 = max(start.y, endY)
-        guard x1 > x0 || y1 > y0 else { return nil }
-        return PointRect(x: frame.x + x0, y: frame.y + y0, width: x1 - x0, height: y1 - y0)
     }
 
     /// The chosen rectangle in THIS panel's own coordinates, or `nil` when it is on another
@@ -272,26 +287,49 @@ private struct RegionPickerView: View {
     }
 }
 
-/// The size of the rectangle, where a person is already looking.
-private struct RegionSizeLabel: View {
+/// One corner's grab handle.
+private struct RegionHandle: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(.white)
+            .frame(width: 8, height: 8)
+            .shadow(color: .black.opacity(0.5), radius: 2)
+            .allowsHitTesting(false)
+    }
+}
+
+/// The size, and the button that starts the recording.
+private struct RegionConfirmBar: View {
     let width: Double
     let height: Double
     let isResolving: Bool
+    let record: () -> Void
 
     var body: some View {
         HStack(spacing: Space.snug) {
             Text("\(Int(width.rounded()))\u{00D7}\(Int(height.rounded()))")
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(.white)
             if isResolving {
                 ProgressView().controlSize(.small)
             } else {
-                Text("\u{238B}").font(.system(size: 11)).foregroundStyle(.secondary)
+                Button(action: record) {
+                    HStack(spacing: Space.tight) {
+                        Image(systemName: "record.circle.fill").font(.system(size: 11))
+                        Text("Record").font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Space.snug)
+                    .frame(height: 22)
+                    .background(Capsule().fill(Signal.record))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Text("\u{238B}").font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
             }
         }
-        .foregroundStyle(.white)
         .padding(.horizontal, Space.snug)
         .padding(.vertical, Space.tight)
         .glassSurface(radius: 8)
-        .allowsHitTesting(false)
     }
 }

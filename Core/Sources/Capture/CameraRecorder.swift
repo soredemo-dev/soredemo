@@ -136,33 +136,110 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     /// across in the finished video; recording 4K to shrink it costs disk and encode time for
     /// detail the export throws away. a native editor and a Rust recorder both cap their camera capture for the
     /// same reason.
-    public func start(camera: CameraSource, to url: URL) throws {
+    /// Which camera this session is already showing or recording, so a second request for the
+    /// same one reuses it rather than opening a second client on one device.
+    private var openedCamera: CameraSource?
+
+    /// Starts the camera WITHOUT recording it, so a person can see their framing first.
+    ///
+    /// **A recorder that only shows the camera once recording has begun is asking you to check
+    /// your framing in the take.** The self-view used to appear at `start`, which is after the
+    /// target has been picked and the countdown has begun — the one moment it is too late to
+    /// move the laptop.
+    ///
+    /// **One session, opened here and kept.** `start` adds the movie output to this same session
+    /// rather than building another: two `AVCaptureSession`s on one camera is two clients, and
+    /// the first client fixes the active format — the exact contention that stops a browser video
+    /// call and this recorder starting together.
+    public func startPreview(camera: CameraSource) throws {
+        guard openedCamera != camera else { return }
         guard let uniqueID = camera.uniqueID,
               let device = AVCaptureDevice(uniqueID: uniqueID) else {
             throw RecorderError.noCamera(camera.displayName)
         }
         session.beginConfiguration()
-        session.sessionPreset = .medium
+        for existing in session.inputs { session.removeInput(existing) }
+        session.sessionPreset = Self.preset(for: device)
         let input = try AVCaptureDeviceInput(device: device)
         guard session.canAddInput(input) else {
             session.commitConfiguration()
             throw RecorderError.sessionRefusedInput
         }
         session.addInput(input)
-        guard session.canAddOutput(output) else {
+        if preview == nil {
+            preview = AVCaptureVideoPreviewLayer(session: session)
+            preview?.videoGravity = .resizeAspectFill
+        }
+        session.commitConfiguration()
+        openedCamera = camera
+        if !session.isRunning { session.startRunning() }
+    }
+
+    /// Stops a preview that is not recording. A no-op while recording, so hiding the self-view
+    /// cannot take the camera away from a take in progress.
+    public func stopPreview() {
+        guard !output.isRecording else { return }
+        session.stopRunning()
+        session.beginConfiguration()
+        for existing in session.inputs { session.removeInput(existing) }
+        session.commitConfiguration()
+        preview = nil
+        openedCamera = nil
+    }
+
+    /// **The best preset this device can do, not `.medium` for everything.**
+    ///
+    /// An external camera is exactly what somebody recording a demo with a real setup is using,
+    /// and `.medium` is 480p — it threw away most of what a 1080p webcam or a capture card can
+    /// produce. The presets are tried best-first and the device answers; nothing is assumed about
+    /// what it supports, which is the same rule the capture frame rate follows for displays.
+    ///
+    /// Not the device's absolute best: the camera is drawn a few hundred pixels across in the
+    /// finished video, and 4K to shrink to 300 points is disk and encode time for detail the
+    /// export throws away. 1080p is the ceiling for that reason, and it is a ceiling rather than
+    /// a demand — a 720p camera gets 720p.
+    /// What this camera will actually be recorded at, for the panel to say.
+    ///
+    /// **Because "is my external camera being used properly" is a real question with a wrong
+    /// answer available.** Every camera was recorded at `.medium` — 480p — whatever it could do,
+    /// so a 1080p webcam or a capture card was throwing away most of itself and nothing said so.
+    /// Measured on this Mac: the built-in FaceTime HD supports 1080p and was getting 480p.
+    ///
+    /// `nil` when the device is gone between the list and the question, which is a real gap: a
+    /// USB camera can be unplugged in it.
+    public nonisolated static func recordingSize(of camera: CameraSource) -> String? {
+        guard let uniqueID = camera.uniqueID,
+              let device = AVCaptureDevice(uniqueID: uniqueID) else { return nil }
+        switch preset(for: device) {
+        case .hd1920x1080: return "1920\u{00D7}1080"
+        case .hd1280x720: return "1280\u{00D7}720"
+        default: return "640\u{00D7}480"
+        }
+    }
+
+    static func preset(for device: AVCaptureDevice) -> AVCaptureSession.Preset {
+        for candidate: AVCaptureSession.Preset in [.hd1920x1080, .hd1280x720, .medium]
+        where device.supportsSessionPreset(candidate) {
+            return candidate
+        }
+        return .medium
+    }
+
+    public func start(camera: CameraSource, to url: URL) throws {
+        // Reuses the preview's session when it is already showing this camera, so the picture a
+        // person framed is the picture that records — and so the camera is not opened twice.
+        try startPreview(camera: camera)
+        session.beginConfiguration()
+        guard session.outputs.contains(output) || session.canAddOutput(output) else {
             session.commitConfiguration()
             throw RecorderError.sessionRefusedOutput
         }
-        session.addOutput(output)
-        // **The preview layer is made HERE, inside the configuration block, and not later.**
+        if !session.outputs.contains(output) { session.addOutput(output) }
+        // The preview layer is built by `startPreview` above, inside ITS configuration block.
         // `AVCaptureVideoPreviewLayer(session:)` adds a connection, and adding a connection is a
         // session configuration change — which `AVCaptureMovieFileOutput` responds to by ENDING
-        // the recording it is in the middle of. Built after `startRecording`, as it was, the
-        // self-view appeared and the camera file was killed the instant it did: on screen while
-        // recording, absent from the export. The two are the same session and it can only be
-        // configured once.
-        preview = AVCaptureVideoPreviewLayer(session: session)
-        preview?.videoGravity = .resizeAspectFill
+        // the recording it is in the middle of. Built after `startRecording`, as it once was, the
+        // self-view appeared and the camera file was killed the instant it did.
         session.commitConfiguration()
 
         destination = url
@@ -197,6 +274,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
         guard output.isRecording else {
             session.stopRunning()
             preview = nil
+            openedCamera = nil
             return nil
         }
         let url = await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
@@ -205,6 +283,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
         }
         session.stopRunning()
         preview = nil
+        openedCamera = nil
         return url
     }
 }

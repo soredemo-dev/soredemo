@@ -223,7 +223,9 @@ struct StageWindow: View {
                                 recordingShortSide: recordingShortSide)
                     PreviewOverlay(outputWidth: size.width, outputHeight: size.height,
                                    texts: texts, redactions: redactions, tab: inspectorTab,
-                                   onChange: { reviewRevision += 1 })
+                                   onChange: { reviewRevision += 1 },
+                                   cameraStyle: $cameraStyle,
+                                   hasCamera: cameraURL != nil && !cameraStyle.isHidden)
                 }
                 .overlay {
                     if isCropping {
@@ -605,6 +607,15 @@ struct StageWindow: View {
             ForEach(CameraOverlayStyle.Shape.allCases, id: \.self) {
                 Text($0.displayName).tag($0)
             }
+        }
+        // **Only for the shape that has corners.** A slider that does nothing on a circle and
+        // nothing on a square is a slider people conclude is broken.
+        if cameraStyle.shape == .rounded {
+            Slider(value: Binding(
+                get: { cameraStyle.cornerFraction },
+                set: { cameraStyle = cameraStyle.changing(cornerFraction: $0) }),
+                   in: 0...0.5,
+                   onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Corner") }
         }
         Slider(value: Binding(get: { cameraStyle.widthFraction },
                               set: { cameraStyle = cameraStyle.changing(widthFraction: $0) }),

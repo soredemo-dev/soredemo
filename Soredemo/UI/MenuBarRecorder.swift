@@ -293,6 +293,17 @@ struct MenuBarRecorderPanel: View {
             // person who turned one on for a call months ago has it in this recording too. The
             // row that picks the camera is where that belongs; the effects panel itself is one
             // press away in the menu above.
+            // **What the chosen camera will actually record at.** Every camera used to be
+            // recorded at 480p whatever it could do, so an external one was throwing away most
+            // of itself and nothing said so. Shown rather than made a control: the camera is
+            // drawn a few hundred pixels across in the finished video, so the ceiling is 1080p
+            // and 4K would be disk and encode time for detail the export discards.
+            if case .device = coordinator.camera,
+               let size = CameraRecorder.recordingSize(of: coordinator.camera) {
+                Text(size)
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
             if !coordinator.activeCameraEffects.isEmpty {
                 Button { CameraEffects.showVideoEffects() } label: {
                     HStack(spacing: Space.tight) {

@@ -82,7 +82,37 @@ final class RecordingCoordinator {
     var microphone: MicrophoneSource = .systemDefault
     /// Which camera the next recording uses, or `.off`. Held across recordings for the reason
     /// `microphone` is.
-    var camera: CameraSource = .off
+    var camera: CameraSource = .off {
+        // **The self-view follows the choice, not the recording.** Choosing a camera and only
+        // seeing it once the countdown has begun is being asked to check your framing in the
+        // take. See `CameraSelfView` and `CameraRecorder.startPreview`.
+        didSet { showOrHideSelfView() }
+    }
+
+    /// The camera that is only being SHOWN — no file, no recording. Handed to
+    /// `CameraSelfView`, and handed on to the recording when one starts so the picture somebody
+    /// framed is the picture that records.
+    private var previewRecorder: CameraRecorder?
+
+    private func showOrHideSelfView() {
+        guard !isRecording else { return }
+        guard case .device = camera else {
+            CameraSelfView.shared.hide()
+            previewRecorder?.stopPreview()
+            previewRecorder = nil
+            return
+        }
+        let recorder = previewRecorder ?? CameraRecorder()
+        do {
+            try recorder.startPreview(camera: camera)
+        } catch {
+            statusText = "The camera could not be shown: \(error)"
+            return
+        }
+        previewRecorder = recorder
+        CameraSelfView.shared.onStyleChange = { [weak self] style in self?.cameraStyle = style }
+        CameraSelfView.shared.show(recorder: recorder, style: cameraStyle)
+    }
     /// The ceiling on capture frame delivery. Persisted, like the countdown: a preference rather
     /// than a per-recording decision.
     var frameRate: CaptureFrameRate {
@@ -441,16 +471,19 @@ final class RecordingCoordinator {
         // The countdown is exactly the pause that hides it — which is a second reason to have
         // one beyond giving a person time to move the pointer.
         if case .device = camera, let packageURL = newSink.packageURL {
-            let recorder = CameraRecorder()
+            // The recorder that has been showing the preview, so the session already running the
+            // camera is the one that records it — one client on one device, and the framing a
+            // person set up is the framing that is captured.
+            let recorder = previewRecorder ?? CameraRecorder()
+            previewRecorder = nil
             let url = packageURL.appending(path: ProjectStore.mediaDirectory,
                                            directoryHint: .isDirectory)
                 .appending(path: "camera-00.mov")
             do {
                 try recorder.start(camera: camera, to: url)
                 cameraRecorder = recorder
-                // **Shown before the countdown, with the camera it is already warming.** The
-                // countdown exists partly to let the camera settle; a person watching it is
-                // exactly the person who wants to check their framing while it does.
+                // Already on screen since the camera was chosen — this only makes sure of it for
+                // the path where a recording starts without the panel having been opened.
                 CameraSelfView.shared.onStyleChange = { [weak self] style in
                     self?.cameraStyle = style
                 }
