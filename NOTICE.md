@@ -2,39 +2,50 @@
 
 Soredemo — Copyright © 2026 Soredemo.
 
-Soredemo is free software under the **GNU Affero General Public License v3.0**
-(`LICENSE`). This file records why that licence and not another, and what in this
-tree came from somewhere else.
+Soredemo is free software under the **MIT License** (`LICENSE`). This file records why
+that licence and not another, and what in this tree came from somewhere else.
 
 ---
 
-## Why AGPLv3
+## Why MIT, and what it took to get here
 
-The licence is not a preference. Soredemo incorporates work derived from
-copyleft-licensed projects, and AGPLv3 is the licence that can hold all of it:
+**This tree was AGPLv3 until 2026-08-25, and the licence was not a preference — it was
+a consequence.** One file, `Sources/Timeline/SnapEngine.swift`, was a structural port of
+a native editor's `Timeline/SnapEngine.swift`, which is GPL-3.0. Its own header said so. A
+GPLv3-derived file can be combined into an AGPLv3 work (GPLv3 §13 grants exactly that
+permission) and the direction does not reverse: once such a line is in the tree, the
+whole tree is copyleft.
 
-- **GPLv3 code may be combined into an AGPLv3 work.** GPLv3 §13 grants exactly
-  this permission, and it is the reason a GPLv3 source can be used here at all.
-- **AGPLv3 code may be combined directly.**
+That port is gone. `SnapEngine.swift` is now written from the behaviour
+`Tests/TimelineTests/SnapEngineTests.swift` pins — the same ten tests, unchanged, all
+passing, so nothing a person can observe about the app has moved. What changed is the
+expression: the first version shared their two-phase control flow, their variable roles
+and their accumulator shape, and this one does not.
 
-The direction does not reverse. Once a GPLv3- or AGPLv3-derived line is in this
-tree, Soredemo cannot be distributed under a permissive or proprietary licence
-without removing it and everything derived from it. That is a real constraint on
-what this project can later be sold or dual-licensed as, and it was accepted
-deliberately.
+**The idea is still theirs and is still credited**, in the table below and in the file's
+own header: sticky snapping with a hold threshold, an easier reach for the playhead than
+for a clip edge, and one probe per edge of the thing being dragged. Copyright attaches to
+expression, not to ideas — which is why crediting the idea and re-expressing the code are
+the same act rather than opposite ones.
 
-**AGPLv3 §13 adds an obligation GPLv3 does not have:** if a modified version is
-made available to users over a network, its complete source must be offered to
-those users. Soredemo is a local application today, so nothing triggers this yet
-— but anything built on it that becomes a hosted service does.
+**What is left, stated so a reader can judge it rather than trust it.** Every other entry
+below is "read for approach": the design or the insight came from elsewhere and the code
+was written here. Several measured constants are carried over rather than re-guessed —
+an Electron recorder's 1350 ms chained-pan gap, a Rust recorder's bits-per-pixel table and its 0.7 camera scale
+during zoom, Apple's published ProRes data rates. A single measured number is a fact; a
+table of them is closer to a line, and that is written down here rather than left for
+somebody to find.
+
+**Not legal advice.** This section is what the code says, checked by reading both sides.
+Anyone whose plans depend on the answer should have a lawyer read it.
 
 ---
 
 ## Derived work
 
 Each entry names what was taken, from where, under what licence, and how far the
-derivation goes. "Read for approach" means no code was copied; "ported" means
-code was.
+derivation goes. "Read for approach" means no code was copied. **Nothing in this tree is
+a port any more** — the one entry that was is marked with what replaced it and when.
 
 | From | Licence | What | How |
 | --- | --- | --- | --- |
@@ -47,7 +58,6 @@ code was.
 | [an Electron recorder](https://github.com/an Electron recorder) | AGPL-3.0 | **Chained zoom** — panning between two zoom blocks whose gap is short instead of returning to rest, at a 1350 ms threshold | Read for approach. `ZoomBlock.chainedPanGap` carries their constant rather than re-guessing it; the implementation is a change to `CameraMotion.aim`, not a port. |
 | [a Rust recorder](https://github.com/a Rust recorder) | AGPL-3.0 | Snapping the camera centre to its target while the zoom is still ~1, so a zoom scales straight toward its focus instead of drifting sideways | Read for approach. `CameraMotion.identityZoomBound` follows the same argument their `zoom_spring.rs` gives. |
 | [a Rust recorder](https://github.com/a Rust recorder) | AGPL-3.0 (`cap-camera*`/`scap-*` are MIT) | Hashing the live cursor image against a table of known digests to classify it; `NSCursor.currentSystem` with a `current` fallback | Read for approach. a Rust recorder's implementation is Rust. `Soredemo/UI/SystemCursorShape.swift` explains why the classification is honestly `.other` here rather than pretending to a table it does not have. |
-| a Rust recorder | AGPL-3.0 | The verbatim text of the GNU AGPLv3 in `LICENSE` | Copied. The licence text is itself freely copyable verbatim; copying it from a project that ships it is not a derivation of that project. |
 
 ### Read and deliberately not used
 
@@ -60,7 +70,16 @@ code was.
 ## Applying the licence to new files
 
 Contributors do not need a per-file header: the `LICENSE` at the root covers the
-whole work, which is how AGPLv3 §5(c) expects it. A file that **ports** code from
-another project must say so in its own header, name the source and its licence,
-and be added to the table above in the same commit — the table is the record, and
-a derivation that only exists in a commit message is a derivation nobody will find.
+whole work.
+
+**A file that ports code from another project cannot be added to this tree.** That is a
+harder rule than the one this file carried under AGPLv3, and it is what MIT costs: a
+copyleft-derived line makes the whole tree copyleft, and the licence at the root would
+then be false. Reading another project for its approach is welcome and is how most of
+the table above came to exist — the code has to be written here.
+
+If something is read for approach, say so in the file's own header, name the source and
+its licence, and add it to the table above **in the same commit**. The table is the
+record, and a derivation that only exists in a commit message is a derivation nobody
+will find. That is exactly how the one port this tree did have was caught: its own
+header said what it was.

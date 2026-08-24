@@ -93,7 +93,7 @@ someone has to remember. `docs/ARCHITECTURE.md` has the full module map.
 soredemo-main/            ← this repo
 ├── AGENTS.md             the rules
 ├── ROADMAP.md            the work list
-├── LICENSE NOTICE.md     AGPLv3, and what in this tree came from where
+├── LICENSE NOTICE.md     MIT, and what in this tree came from where
 ├── docs/                 PRODUCT · FEATURES · ARCHITECTURE · TOOLCHAIN · design/
 │
 ├── Core/                 THE SWIFTPM PACKAGE. Its own directory since 2026-08-23:
