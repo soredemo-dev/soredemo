@@ -94,6 +94,16 @@ final class RecordingCoordinator {
     /// framed is the picture that records.
     private var previewRecorder: CameraRecorder?
 
+    /// How much of the camera to record. Persisted like the frame rate, because it is a
+    /// preference rather than a per-recording decision.
+    var cameraQuality: CameraRecorder.Quality {
+        didSet {
+            UserDefaults.standard.set(cameraQuality.rawValue, forKey: Self.cameraQualityKey)
+            showOrHideSelfView()
+        }
+    }
+    static let cameraQualityKey = "cameraQuality"
+
     private func showOrHideSelfView() {
         guard !isRecording else { return }
         guard case .device = camera else {
@@ -104,7 +114,7 @@ final class RecordingCoordinator {
         }
         let recorder = previewRecorder ?? CameraRecorder()
         do {
-            try recorder.startPreview(camera: camera)
+            try recorder.startPreview(camera: camera, quality: cameraQuality)
         } catch {
             statusText = "The camera could not be shown: \(error)"
             return
@@ -256,6 +266,8 @@ final class RecordingCoordinator {
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
             .flatMap(CaptureFrameRate.init(rawValue:)) ?? .sixty
         // A shape stored from a previous run, or the bottom-right circle `default` is.
+        cameraQuality = (UserDefaults.standard.string(forKey: Self.cameraQualityKey))
+            .flatMap(CameraRecorder.Quality.init(rawValue:)) ?? .best
         cameraStyle = (UserDefaults.standard.data(forKey: Self.cameraStyleKey))
             .flatMap { try? JSONDecoder().decode(CameraOverlayStyle.self, from: $0) }
             ?? .default
@@ -480,7 +492,7 @@ final class RecordingCoordinator {
                                            directoryHint: .isDirectory)
                 .appending(path: "camera-00.mov")
             do {
-                try recorder.start(camera: camera, to: url)
+                try recorder.start(camera: camera, to: url, quality: cameraQuality)
                 cameraRecorder = recorder
                 // Already on screen since the camera was chosen — this only makes sure of it for
                 // the path where a recording starts without the panel having been opened.

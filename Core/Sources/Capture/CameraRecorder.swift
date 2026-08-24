@@ -139,6 +139,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     /// Which camera this session is already showing or recording, so a second request for the
     /// same one reuses it rather than opening a second client on one device.
     private var openedCamera: CameraSource?
+    private var openedQuality: Quality?
 
     /// Starts the camera WITHOUT recording it, so a person can see their framing first.
     ///
@@ -151,15 +152,15 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     /// rather than building another: two `AVCaptureSession`s on one camera is two clients, and
     /// the first client fixes the active format — the exact contention that stops a browser video
     /// call and this recorder starting together.
-    public func startPreview(camera: CameraSource) throws {
-        guard openedCamera != camera else { return }
+    public func startPreview(camera: CameraSource, quality: Quality = .best) throws {
+        guard openedCamera != camera || openedQuality != quality else { return }
         guard let uniqueID = camera.uniqueID,
               let device = AVCaptureDevice(uniqueID: uniqueID) else {
             throw RecorderError.noCamera(camera.displayName)
         }
         session.beginConfiguration()
         for existing in session.inputs { session.removeInput(existing) }
-        session.sessionPreset = Self.preset(for: device)
+        session.sessionPreset = Self.preset(for: device, quality: quality)
         let input = try AVCaptureDeviceInput(device: device)
         guard session.canAddInput(input) else {
             session.commitConfiguration()
@@ -172,6 +173,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
         }
         session.commitConfiguration()
         openedCamera = camera
+        openedQuality = quality
         if !session.isRunning { session.startRunning() }
     }
 
@@ -185,50 +187,115 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
         session.commitConfiguration()
         preview = nil
         openedCamera = nil
+        openedQuality = nil
     }
 
-    /// **The best preset this device can do, not `.medium` for everything.**
+    /// What a camera is recorded at.
     ///
-    /// An external camera is exactly what somebody recording a demo with a real setup is using,
-    /// and `.medium` is 480p — it threw away most of what a 1080p webcam or a capture card can
-    /// produce. The presets are tried best-first and the device answers; nothing is assumed about
-    /// what it supports, which is the same rule the capture frame rate follows for displays.
+    /// **A choice, not a ceiling somebody else picked.** An earlier version capped every camera
+    /// at 1080p on the grounds that it is drawn a few hundred pixels across in the finished
+    /// video, so 4K would be disk and encode time for detail the export discards. That decides
+    /// for somebody else what detail they are allowed to keep, and it is wrong on its own terms:
+    /// a camera grows when the stage zooms, it can be made large, and a ProRes 4444 export of a
+    /// large overlay wants every pixel the source has.
     ///
-    /// Not the device's absolute best: the camera is drawn a few hundred pixels across in the
-    /// finished video, and 4K to shrink to 300 points is disk and encode time for detail the
-    /// export throws away. 1080p is the ceiling for that reason, and it is a ceiling rather than
-    /// a demand — a 720p camera gets 720p.
-    /// What this camera will actually be recorded at, for the panel to say.
+    /// So the rungs come from the device, best-first, the same rule the capture frame rate
+    /// follows for displays. A camera that cannot do 4K is not offered 4K.
+    public enum Quality: String, Hashable, Sendable, Codable, CaseIterable {
+        case best, hd1080, hd720, small
+
+        var preset: AVCaptureSession.Preset {
+            switch self {
+            case .best: .hd4K3840x2160
+            case .hd1080: .hd1920x1080
+            case .hd720: .hd1280x720
+            case .small: .medium
+            }
+        }
+
+        public var displayName: String {
+            switch self {
+            case .best: "Best available"
+            case .hd1080: "1080p"
+            case .hd720: "720p"
+            case .small: "Small"
+            }
+        }
+
+        /// What choosing it costs, said where the choice is made — the same shape
+        /// `CaptureFrameRate.detail` uses.
+        ///
+        /// **The cost is stated rather than used as a reason to decide.** A 4K camera recorded
+        /// beside a 4K screen capture is two encoders and two write streams, and on a busy
+        /// machine the screen is what drops frames. That is worth knowing and is not worth
+        /// taking the choice away for.
+        public var detail: String {
+            switch self {
+            case .best: "Every pixel the camera has. Heaviest while recording."
+            case .hd1080: "Plenty for an overlay at any size."
+            case .hd720: "Lighter, and enough for a small overlay."
+            case .small: "Smallest files."
+            }
+        }
+    }
+
+    /// The qualities this camera can actually produce, best first.
+    ///
+    /// **`Best available` is always offered and always means the device's own maximum**, which is
+    /// why it is a case rather than the top rung: a camera that cannot do 4K still has a best,
+    /// and a list that dropped the top entry would leave somebody choosing 1080p on a 4K camera
+    /// without knowing there was more.
+    public nonisolated static func qualities(for camera: CameraSource) -> [Quality] {
+        guard let uniqueID = camera.uniqueID,
+              let device = AVCaptureDevice(uniqueID: uniqueID) else { return [.best] }
+        return [.best] + Quality.allCases.filter {
+            $0 != .best && device.supportsSessionPreset($0.preset)
+        }
+    }
+
+    /// What this camera will be recorded at, for the panel to say.
     ///
     /// **Because "is my external camera being used properly" is a real question with a wrong
     /// answer available.** Every camera was recorded at `.medium` — 480p — whatever it could do,
-    /// so a 1080p webcam or a capture card was throwing away most of itself and nothing said so.
-    /// Measured on this Mac: the built-in FaceTime HD supports 1080p and was getting 480p.
+    /// and nothing said so. Measured on this Mac: the built-in FaceTime HD supports 1080p and
+    /// was getting 480p.
     ///
     /// `nil` when the device is gone between the list and the question, which is a real gap: a
     /// USB camera can be unplugged in it.
-    public nonisolated static func recordingSize(of camera: CameraSource) -> String? {
+    public nonisolated static func recordingSize(of camera: CameraSource,
+                                                 quality: Quality) -> String? {
         guard let uniqueID = camera.uniqueID,
               let device = AVCaptureDevice(uniqueID: uniqueID) else { return nil }
-        switch preset(for: device) {
+        switch preset(for: device, quality: quality) {
+        case .hd4K3840x2160: return "3840\u{00D7}2160"
         case .hd1920x1080: return "1920\u{00D7}1080"
         case .hd1280x720: return "1280\u{00D7}720"
         default: return "640\u{00D7}480"
         }
     }
 
-    static func preset(for device: AVCaptureDevice) -> AVCaptureSession.Preset {
-        for candidate: AVCaptureSession.Preset in [.hd1920x1080, .hd1280x720, .medium]
-        where device.supportsSessionPreset(candidate) {
+    /// The preset for a chosen quality, falling back down what this device supports.
+    ///
+    /// **Falls back rather than failing.** A camera unplugged and replaced between one recording
+    /// and the next may not do what the last one did, and refusing to record over a preset is a
+    /// worse answer than recording at what is available — the same argument
+    /// `MicrophoneInventory.resolve` makes about a device that has gone away.
+    static func preset(for device: AVCaptureDevice,
+                       quality: Quality) -> AVCaptureSession.Preset {
+        let ladder: [AVCaptureSession.Preset] = [.hd4K3840x2160, .hd1920x1080,
+                                                 .hd1280x720, .medium]
+        let start = quality == .best ? 0 : (ladder.firstIndex(of: quality.preset) ?? 0)
+        for candidate in ladder[start...] where device.supportsSessionPreset(candidate) {
             return candidate
         }
         return .medium
     }
 
-    public func start(camera: CameraSource, to url: URL) throws {
+
+    public func start(camera: CameraSource, to url: URL, quality: Quality = .best) throws {
         // Reuses the preview's session when it is already showing this camera, so the picture a
         // person framed is the picture that records — and so the camera is not opened twice.
-        try startPreview(camera: camera)
+        try startPreview(camera: camera, quality: quality)
         session.beginConfiguration()
         guard session.outputs.contains(output) || session.canAddOutput(output) else {
             session.commitConfiguration()

@@ -265,6 +265,20 @@ struct MenuBarRecorderPanel: View {
                     Button(source.displayName) { coordinator.chooseCamera(source) }
                 }
                 Divider()
+                // **The quality is the camera's, read from the device.** It was capped at 1080p
+                // by a decision this app had no business making — a camera grows when the stage
+                // zooms, it can be made large, and a ProRes 4444 export of a large overlay wants
+                // every pixel the source has.
+                Menu("Camera Quality") {
+                    ForEach(CameraRecorder.qualities(for: coordinator.camera), id: \.self) { q in
+                        Button {
+                            coordinator.cameraQuality = q
+                        } label: {
+                            Text(LocalizedStringKey(q.displayName))
+                        }
+                    }
+                }
+                Divider()
                 Button("Video Effects\u{2026}") { CameraEffects.showVideoEffects() }
             } label: {
                 HStack(spacing: Space.snug) {
@@ -299,7 +313,8 @@ struct MenuBarRecorderPanel: View {
             // drawn a few hundred pixels across in the finished video, so the ceiling is 1080p
             // and 4K would be disk and encode time for detail the export discards.
             if case .device = coordinator.camera,
-               let size = CameraRecorder.recordingSize(of: coordinator.camera) {
+               let size = CameraRecorder.recordingSize(of: coordinator.camera,
+                                                       quality: coordinator.cameraQuality) {
                 Text(size)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.tertiary)
