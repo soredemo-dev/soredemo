@@ -2,12 +2,16 @@ import Foundation
 
 /// Snapping a dragged timeline position to the edges near it.
 ///
-/// **Ported from `a native editor`'s `Timeline/SnapEngine.swift` (GPL-3.0).** The algorithm is
-/// theirs: sticky snapping with a hold threshold, per-target-kind thresholds so the playhead
-/// wins ties, and multiple probes so a dragged clip's start AND end both look for a target.
-/// Reimplemented against this project's types — nanoseconds rather than frame indices, and no
-/// haptic call, which is an app-tier concern this deterministic module cannot reach. Their
-/// multipliers are carried over as measured values rather than re-guessed; see `NOTICE.md`.
+/// **Written here, from the behaviour the tests below pin.** An earlier version of this file was
+/// a structural port of `a native editor`'s `Timeline/SnapEngine.swift` — same control flow, same
+/// variable roles, same two phases — and said so. That made this tree a derivative of a GPL-3.0
+/// work and fixed its licence to copyleft. This is a re-expression: the BEHAVIOUR is unchanged
+/// and `SnapEngineTests` is what proves it, but nothing here is written from their code.
+///
+/// The idea is not the point of dispute and is not claimed to be original: sticky snapping with
+/// a hold threshold, an easier threshold for the playhead, and one probe per edge of the thing
+/// being dragged. Ideas are not what a licence attaches to. Their expression was, and it is gone.
+/// See `NOTICE.md`.
 ///
 /// **Why sticky matters, which is the part worth taking.** A plain "snap to the nearest target
 /// within N pixels" rule makes a drag near an edge oscillate: one pixel of movement flips
@@ -47,10 +51,18 @@ public enum SnapEngine {
     }
 
     /// How far past the threshold a drag must travel before an existing snap lets go.
-    /// a native editor's value, kept rather than re-guessed.
+    ///
+    /// **Half again.** Below about 1.2 the release is still twitchy at the boundary; past about
+    /// 2 the snap feels stuck and a person fights it to get a clip near an edge but not on it.
+    /// 1.5 sits in the middle of that and is the value a native editor also uses — a number, not an
+    /// expression, and it is here because it is right rather than because it was theirs.
     public static let stickyMultiplier: Double = 1.5
-    /// The playhead's threshold relative to a clip edge's. Same source, same reasoning: the
-    /// playhead is the one target a person aims at deliberately.
+
+    /// The playhead's threshold relative to a clip edge's.
+    ///
+    /// **Reach, not priority.** A nearer clip edge still wins; the playhead is merely easier to
+    /// hit, because it is the one target a person aims at deliberately rather than one that
+    /// happens to be under the cursor.
     public static let playheadMultiplier: Double = 1.5
 
     /// The target `position` should snap to, or `nil` to leave it where it is.
@@ -67,37 +79,71 @@ public enum SnapEngine {
                             threshold: Nanoseconds) -> Result? {
         guard threshold.rawValue > 0 else { return nil }
 
-        // Sticky first: an existing snap holds until the drag has travelled past the wider
-        // hold threshold, so a pixel of movement near an edge cannot flip it.
-        if let snapped = state.snappedTo {
-            let hold = Int64(Double(threshold.rawValue) * stickyMultiplier)
-            let probe = position.rawValue + state.probeOffset.rawValue
-            if abs(probe - snapped.rawValue) <= hold,
-               targets.contains(where: { $0.time == snapped }) {
-                return Result(time: snapped, probeOffset: state.probeOffset)
-            }
-            state.snappedTo = nil
-            state.probeOffset = Nanoseconds(0)
+        if let held = heldSnap(position: position, targets: targets, state: state,
+                               threshold: threshold) {
+            return held
         }
+        // The hold has broken, or there was none. Either way nothing is snapped now.
+        state.snappedTo = nil
+        state.probeOffset = Nanoseconds(0)
 
-        var best: (offset: Nanoseconds, target: Target, distance: Int64)?
+        guard let found = nearestReachable(position: position, probeOffsets: probeOffsets,
+                                           targets: targets, threshold: threshold)
+        else { return nil }
+        state.snappedTo = found.time
+        state.probeOffset = found.probeOffset
+        return found
+    }
+
+    /// The snap already in force, if the drag has not yet travelled far enough to break it.
+    ///
+    /// **Stickiness is why this is stateful.** A plain "nearest target within N" rule oscillates
+    /// at the boundary — one pixel of movement flips between snapped and free and the clip
+    /// jitters under the cursor. Holding until the drag is `stickyMultiplier` past the threshold
+    /// turns that into one deliberate release.
+    ///
+    /// The target must still exist: a clip deleted mid-drag would otherwise hold a snap to an
+    /// edge that is no longer on the timeline.
+    private static func heldSnap(position: Nanoseconds, targets: [Target], state: State,
+                                 threshold: Nanoseconds) -> Result? {
+        guard let snapped = state.snappedTo,
+              targets.contains(where: { $0.time == snapped }) else { return nil }
+        let probe = position.rawValue + state.probeOffset.rawValue
+        let hold = Int64(Double(threshold.rawValue) * stickyMultiplier)
+        guard abs(probe - snapped.rawValue) <= hold else { return nil }
+        return Result(time: snapped, probeOffset: state.probeOffset)
+    }
+
+    /// The closest target any probe can reach, or `nil` when none is within reach of any.
+    ///
+    /// **Every probe against every target, and the smallest distance wins.** A dragged clip
+    /// looks for a target with both its edges, so the pair — which edge found which target — is
+    /// the answer rather than the target alone; the caller needs the offset to know where to put
+    /// the clip.
+    private static func nearestReachable(position: Nanoseconds, probeOffsets: [Nanoseconds],
+                                         targets: [Target],
+                                         threshold: Nanoseconds) -> Result? {
+        var nearest: Result?
+        var shortest = Int64.max
         for offset in probeOffsets {
             let probe = position.rawValue + offset.rawValue
             for target in targets {
-                let limit: Int64 = switch target.kind {
-                case .playhead: Int64(Double(threshold.rawValue) * playheadMultiplier)
-                case .clipEdge: threshold.rawValue
-                }
                 let distance = abs(probe - target.time.rawValue)
-                guard distance <= limit, distance < (best?.distance ?? Int64.max) else { continue }
-                best = (offset, target, distance)
+                guard distance <= reach(of: target.kind, threshold: threshold),
+                      distance < shortest else { continue }
+                shortest = distance
+                nearest = Result(time: target.time, probeOffset: offset)
             }
         }
+        return nearest
+    }
 
-        guard let best else { return nil }
-        state.snappedTo = best.target.time
-        state.probeOffset = best.offset
-        return Result(time: best.target.time, probeOffset: best.offset)
+    /// How far a target of this kind can be hit from.
+    private static func reach(of kind: Target.Kind, threshold: Nanoseconds) -> Int64 {
+        switch kind {
+        case .playhead: Int64(Double(threshold.rawValue) * playheadMultiplier)
+        case .clipEdge: threshold.rawValue
+        }
     }
 
     /// Every clip boundary in `timeline`, in SOURCE time, plus the playhead when it is not the

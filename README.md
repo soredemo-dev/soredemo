@@ -10,11 +10,19 @@ one project in 530 did it every time — see [`soredemo-research/release-coverag
 
 macOS 26 · Swift 6.4 · Apple Silicon · local by default
 
-> **Status: the free recorder is feature-complete; the derivation pipeline is not.** A person can
-> pick a display or a window, record it with system and microphone audio, and watch a live preview
-> with the pointer drawn from real observations and the camera zooming to the control under each
-> click. They can see why every click was or was not zoomed to and disagree with any of it, choose
-> the stage's look, trim the recording, pick 16:9 / 9:16 / 1:1, and export an MP4.
+> **Status: the free recorder is feature-complete; the derivation pipeline is not.** The app lives
+> in the menu bar. A person can record a display, a window they point at, or a rectangle they drag
+> out, with system audio, a chosen microphone and a camera whose self-view is on screen before the
+> countdown starts. The preview draws the pointer from real observations and zooms the camera to
+> the control under each click; they can see why every click was or was not zoomed to and disagree
+> with any of it.
+>
+> They can then choose the stage's look and background, cut and split and reorder and re-speed the
+> clips, remove dead air, crop, place a camera overlay by dragging it, add titles and redactions,
+> transcribe on-device and burn word-timed captions, pick 16:9 / 9:16 / 1:1, and export — MP4 in
+> H.264 or HEVC, MOV in ProRes 422 or 4444, or a GIF — at a chosen resolution, frame rate and
+> quality, with the file size estimated first and several exports queued at once. Projects save and
+> reopen. The interface is English and Traditional Chinese.
 > `scripts/build-release.sh` signs and notarises a Developer ID copy.
 >
 > **What is not built:** the derivation graph, the storyboard, the launch pack, the CLI, and
