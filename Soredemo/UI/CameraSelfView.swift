@@ -52,7 +52,12 @@ final class CameraSelfView {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // **No window shadow, and that is the outline you were seeing.** AppKit derives a
+        // borderless window's shadow from the window's own alpha and approximates the outline
+        // with a coarse polygon — around a circle it draws a visible dark octagon a few points
+        // outside the edge. The layer shadow below is shaped by the content's actual alpha and
+        // follows the circle exactly, so this is the one to drop rather than the one to keep.
+        panel.hasShadow = false
 
         let view = ShapedCameraView(previewLayer: layer, style: style)
         view.frame = NSRect(origin: .zero, size: size)
@@ -187,6 +192,11 @@ private final class ShapedCameraView: NSView {
         layer.borderWidth = 0
         layer.shadowOpacity = Float(style.shadowOpacity)
         layer.shadowRadius = 12
+        // **The shadow's shape, given explicitly.** Without a path CoreAnimation derives it from
+        // the composited alpha, which is correct but is recomputed on every resize and every
+        // drag; with one it is the same curve the picture is masked to and costs nothing.
+        layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius,
+                                  cornerHeight: radius, transform: nil)
         layer.shadowOffset = .zero
         preview.borderWidth = style.borderOpacity > 0 ? 2 : 0
         preview.borderColor = NSColor.white.withAlphaComponent(style.borderOpacity).cgColor
