@@ -70,17 +70,62 @@ anyway. Changing it means setting the capture's colour space, the master's tags,
 `CIContext`'s working space, and the export's tags — all four, or the chain stops agreeing
 with itself.
 
-**The 8-bit caveat is real and has to be said**: P3 in 8 bits has coarser steps than sRGB in
-8 bits, because the same 256 values cover a larger volume. Gradients that are clean today
-can band. Apple's own convention for P3 video is 10-bit for this reason. So this change
-wants `kCVPixelFormatType_ARGB2101010LEPacked` at the capture and a 10-bit render context
-with it, or it trades clipping for banding.
+**The 8-bit caveat, stated carefully.** An earlier draft said "8-bit sRGB has no banding and
+8-bit P3 does", which is too strong and would not survive the first counter-example: every
+HEIC an iPhone takes is 8-bit Display P3 and none of them band. P3's gamut volume is about
+25% larger than sRGB's, and under a gamma-encoded transfer that makes each step slightly
+coarser — a marginal cost, not a threshold. Where it actually shows is large smooth
+gradients: a macOS wallpaper, a gradient panel in a design tool. Ordinary UI does not care.
+
+So the honest form is: **P3 at 8 bits has a marginal cost, and for screen-recording content
+it buys almost nothing** — not "8-bit P3 breaks". The conclusion is the same and the reason
+now holds up.
 
 **2. HDR output.** Nobody's HDR is a captured HDR — a native editor's is a conversion at
 export. We could do the same thing, from the same starting point, with the same technique,
 and it would be equally honest as long as the pixels are converted rather than the file
 re-tagged. It buys interoperability with a pipeline that demands HDR; it does not buy a
 better picture, because there is no more information in the source.
+
+## The bigger lever, which this note missed at first: chroma subsampling
+
+The master is 8-bit H.264, which on Apple's hardware encoder means **4:2:0** — the colour
+channels at a quarter of the luma's resolution.
+
+**For screen content that does far more damage than sRGB versus P3, and unlike the gamut
+question anybody can see it.** Red text on black, a one-pixel coloured border, a thin
+diagonal line: all of them get the coloured fringing that everyone recognises from a screen
+recording, and all of it comes from here. A clipped saturated colour, by contrast, is
+something almost nobody notices without the original beside it.
+
+So the priority order for picture quality is the opposite of what this note originally
+implied. **Chroma, bit rate and codec come before gamut, not after.**
+
+What is measured on this Mac (Apple M1 Pro):
+
+| | Result |
+| --- | --- |
+| `VTCompressionSessionCreate` for H.264, HEVC, ProRes 422, ProRes 4444 | all succeed |
+| Setting `HEVC_Main_AutoLevel`, `Main10_AutoLevel`, `Main42210_AutoLevel` | all accepted, `UsingHardwareAcceleratedVideoEncoder == true` |
+| Encoding one frame at each | all succeed |
+| Whether the 4:2:2 and 10-bit outputs are genuinely 4:2:2 and 10-bit | **not established** — the format description reports `Depth = 24` for every one of them, so that field does not distinguish them. Proving it means parsing the `hvcC` SPS, and this note does not claim what it did not measure. |
+
+**And one escape route is already shipping.** ProRes 422 is in the export's codec picker as
+of 2026-08-24, and ProRes 422 is 4:2:2 by definition. Somebody who needs clean coloured
+text out of this app has that today; what they do not have is a small file that also has it,
+which is what an HEVC 4:2:2 path would be if the encoder really produces one.
+
+## Open, and worth measuring before D2-15 is revisited
+
+**Is the sRGB conversion a clip or a gamut map?** `SCStreamConfiguration.colorSpaceName` is
+set to sRGB and ScreenCaptureKit converts before we see a pixel; whether out-of-gamut
+colours are hard-clipped or perceptually mapped decides how much is actually lost.
+
+**And "screen content is overwhelmingly sRGB" is weaker in 2026 than it sounds.** What people
+record contains photographs, video playing, Figma, Final Cut — all P3-authored. If the
+conversion is a hard clip, those saturated colours are genuinely cut off. That does not
+change "leave it alone for now", but it does move D2-15 from *placeholder* to *a decision
+with a known cost*, which is a different thing to write down.
 
 ## The recommendation
 
@@ -98,7 +143,23 @@ makes sense is the whole thing or none of it.
 pipeline means four of the five options change a label and not a pixel — and its
 `avTransferFunction` returning 709 for BT.2020 is that showing through.
 
+**Chroma before gamut.** See the section above: 4:2:0 is what makes screen recordings look
+like screen recordings, and it is fixable with a codec rather than a pipeline.
+
 **HDR last, if at all.** From an SDR source it buys interoperability with a pipeline that
 demands HDR, and not a better picture. Doing it before the P3 path means doing it twice,
 because converting from a 709 source is a different conversion from converting from a P3
 one.
+
+## Two notes for whoever picks this up
+
+**ScreenCaptureKit's pixel formats are documented and do not need probing.** `BGRA`,
+`l10r` (`ARGB2101010LEPacked`), `420v` and `420f`. A 10-bit capture is available whenever a
+P3 path is wanted; the probe written to establish this hung in `startCapture`, which is not
+cancellable, and was deleted. Nobody needs to run it again.
+
+**How the first draft of this note got it wrong.** It said `colorSpaceName` was never set.
+It is set, one line below the `pixelFormat` line that was grepped for — and the conclusion
+"there is no setting" was drawn from "the grep did not show one". That is inferring absence
+from a single-line search, which is never safe, and it nearly produced a design note
+announcing a defect where there was a deliberate choice. Read the block, not the line.
