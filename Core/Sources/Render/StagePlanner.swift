@@ -24,10 +24,19 @@ public enum StagePlanner {
 
         // Fit, never fill: the recording is evidence and must not be cropped.
         let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
-        let cardWidth = min(available.w, available.h * sourceAspect)
-        let cardHeight = cardWidth / sourceAspect
+        let fittedWidth = min(available.w, available.h * sourceAspect)
+        let fittedHeight = fittedWidth / sourceAspect
 
-        let card = StageRect(x: (output.w - cardWidth) / 2, y: (output.h - cardHeight) / 2,
+        // **Snapped to whole output pixels.** A card whose edge falls at x = 113.6 is drawn
+        // with every source pixel resampled at a 0.6 px phase, which at a 1:1 scale turns a
+        // crisp screenshot into a uniformly soft one — the worst case being exactly the
+        // export a person asked for at the recording's own size. The snap costs at most
+        // half a pixel of aspect, below anything visible; it is applied to the size first
+        // and the origin second so the card stays centred to the same half pixel.
+        let cardWidth = max(fittedWidth.rounded(), 2)
+        let cardHeight = max(fittedHeight.rounded(), 2)
+        let card = StageRect(x: ((output.w - cardWidth) / 2).rounded(),
+                             y: ((output.h - cardHeight) / 2).rounded(),
                              width: cardWidth, height: cardHeight)
         // A radius larger than half the shorter side is not a rounder rectangle, it is an
         // undefined one. Clamped here so no renderer has to decide.

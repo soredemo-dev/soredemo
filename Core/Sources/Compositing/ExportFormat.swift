@@ -19,31 +19,38 @@ public enum ExportCodec: String, Hashable, Sendable, Codable, CaseIterable {
     /// frame is complete, and the profile decides the size. Ten times an H.264 file, and that is
     /// what it is for.
     case proRes
-    /// **The only export that keeps a coloured edge, and that is a measured claim.**
+    /// **The only export that keeps a coloured edge, and that is a measured claim — remeasured
+    /// on 2026-08-25, because the first measurement was wrong in a way that changed the
+    /// story.**
     ///
     /// Encode 8-pixel red bars on black, decode them back, and read the last red column, which
-    /// should be 255:
+    /// should be 255, and the worst error across the edge. With `ExportQuality.colourProperties`
+    /// on the writer — Rec.709 primaries, transfer AND matrix, said explicitly:
     ///
     /// | | last red column | worst edge error |
     /// | --- | --- | --- |
-    /// | H.264 High | 145 | 110 |
-    /// | HEVC Main | 145 | 111 |
-    /// | HEVC Main 4:2:2 10-bit | 143 | 112 |
-    /// | ProRes 422 | 144 | 111 |
-    /// | **ProRes 4444** | **234** | **21** |
+    /// | H.264 High | 154 | 101 |
+    /// | HEVC Main | 154 | 101 |
+    /// | ProRes 422 | 155 | 101 |
+    /// | **ProRes 4444** | **255** | **0** |
     ///
-    /// Everything except 4444 smears the edge by more than a hundred levels, because everything
-    /// except 4444 is 4:2:0 by the time the encoder sees it — including ProRes 422, and including
-    /// HEVC asked for 4:2:2 and handed a genuine 4:2:2 10-bit source. That is the coloured
-    /// fringing on red-on-black text, on a one-pixel border, on a thin diagonal, that everybody
-    /// recognises from a screen recording, and it is the largest picture-quality difference
-    /// available here — far larger than sRGB versus Display P3, and unlike the gamut question
-    /// anybody can see it.
+    /// Everything except 4444 smears the edge by a hundred levels, because everything except
+    /// 4444 is 4:2:0 by the time the encoder sees it — including ProRes 422. That is the
+    /// coloured fringing on red-on-black text, on a one-pixel border, on a thin diagonal, that
+    /// everybody recognises from a screen recording, and it is the largest picture-quality
+    /// difference available here — far larger than sRGB versus Display P3, and unlike the
+    /// gamut question anybody can see it.
     ///
-    /// The residual 21 is not chroma. It is what a fully saturated red costs in 8-bit YCbCr at
-    /// all: measured separately, neutral 255, 16 and 0 round-trip exactly through every codec
-    /// here, so nothing is being crushed to video range. Fed a 4:4:4 buffer rather than BGRA,
-    /// 4444 comes back at 1.
+    /// **What the first measurement got wrong.** It read 234 / 21 for 4444 and 145 / 110 for
+    /// the rest, and explained the 21 as "what a fully saturated red costs in 8-bit YCbCr at
+    /// all" — reasoning from the fact that neutrals round-tripped exactly. The neutrals were
+    /// a red herring: the writer had been given no colour properties, and a writer fed
+    /// untagged BGRA infers a **601 matrix** under a 709 tag. Neutrals are identical under
+    /// both matrices, which is exactly why they passed, and a saturated red is where the two
+    /// differ most. Named, the matrix costs nothing, and 4444 is exact. The 4:2:0 figures
+    /// moved by ten in the other direction for the same reason. The rule this is an
+    /// instance of: a conclusion whose stated reason is false looks settled, and this one
+    /// stood for a day.
     case proRes4444
 
     public var displayName: String {

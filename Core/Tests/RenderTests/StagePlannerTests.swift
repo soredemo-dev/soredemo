@@ -9,13 +9,32 @@ import Project
     let plan = StagePlanner.plan(outputWidth: 1920, outputHeight: 1080,
                                  sourceWidth: 1600, sourceHeight: 1000,
                                  style: .default)
-    // The card keeps the SOURCE aspect ratio, is centred, and never touches the edge.
-    #expect(plan.card.width / plan.card.height == 1.6)
+    // The card keeps the SOURCE aspect ratio to within the pixel snap, is centred to within
+    // it, and never touches the edge. **Not exact**: the card is snapped to whole output
+    // pixels (see `StagePlanner.plan`), so a 1520.64 × 950.4 fit becomes 1521 × 950 and the
+    // ratio moves by a thousandth — which is the price of a crisp 1:1 resample.
+    #expect(abs(plan.card.width / plan.card.height - 1.6) < 1.0 / min(plan.card.width, plan.card.height) * 2)
     #expect(plan.card.x > 0 && plan.card.y > 0)
     #expect(plan.card.x + plan.card.width < 1920)
     #expect(plan.card.y + plan.card.height < 1080)
-    #expect(abs((plan.card.x + plan.card.width / 2) - 960) < 0.5)
-    #expect(abs((plan.card.y + plan.card.height / 2) - 540) < 0.5)
+    #expect(abs((plan.card.x + plan.card.width / 2) - 960) <= 0.5)
+    #expect(abs((plan.card.y + plan.card.height / 2) - 540) <= 0.5)
+}
+
+/// **Every edge of the card lands on a whole output pixel.** A fractional edge resamples
+/// the whole card at a fractional phase, which at a 1:1 scale is a uniform blur of a
+/// picture that needed none. The fixture is chosen so the un-snapped fit is fractional on
+/// every side — a fit that happened to be integral would pass whether or not the snap ran.
+@Test func theCardIsSnappedToWholePixels() {
+    let plan = StagePlanner.plan(outputWidth: 1920, outputHeight: 1080,
+                                 sourceWidth: 1600, sourceHeight: 1000, style: .default)
+    // The un-snapped fit: 1920 × 0.88 = 1689.6 wide is available, 1080 × 0.88 = 950.4 high,
+    // so the card is 950.4 × 1.6 = 1520.64 wide. Neither is integral.
+    #expect(1520.64 != 1520.64.rounded() && 950.4 != 950.4.rounded(),
+            "the fixture's fit must be fractional for this to test anything")
+    for value in [plan.card.x, plan.card.y, plan.card.width, plan.card.height] {
+        #expect(value == value.rounded(), "\(value) is not a whole pixel")
+    }
 }
 
 @Test func aTallerSourceIsFittedByHeightNotStretched() {

@@ -20,12 +20,20 @@ public struct PointerTrack: Sendable {
     private let samples: [PointerSample]      // sorted by instant
     private let blindIntervals: [BlindInterval]
     private let overrides: [CursorOverride]
+    /// The presentation path, baked once from the same samples — see `PointerPath`.
+    private let path: PointerPath
 
+    /// `clickInstants` are button-DOWN instants and feed only the presentation path, where
+    /// the spring stiffens into a click; neither review query reads them. Defaulted so the
+    /// two-argument construction every test and the review UI use is unchanged.
     public init(samples: [PointerSample], blindIntervals: [BlindInterval],
-                overrides: [CursorOverride]) {
+                overrides: [CursorOverride], clickInstants: [HostInstant] = [],
+                tuning: PointerPath.Tuning = .default) {
         self.samples = samples.sorted { $0.instant.hostTime.rawValue < $1.instant.hostTime.rawValue }
         self.blindIntervals = blindIntervals
         self.overrides = overrides
+        self.path = PointerPath(samples: self.samples, blindIntervals: blindIntervals,
+                                clickInstants: clickInstants, tuning: tuning)
     }
 
     /// The reviewer's decision wins, then a measured gap, then the most recent sample at or before
@@ -163,6 +171,34 @@ public struct PointerTrack: Sendable {
         return .drawn(NormalizedPoint(x: a.position.x + (b.position.x - a.position.x) * fraction,
                                       y: a.position.y + (b.position.y - a.position.y) * fraction),
                       shape: a.shape, hotspot: a.hotspot)
+    }
+
+    /// **The PRESENTATION path's position: the spring-followed cursor, with the lerp as its
+    /// floor.** Three queries now, one per consumer, and the order is the design:
+    ///
+    /// * `position(at:)` — the review path. Stepwise, never gentle, so a gap stays visible.
+    /// * `smoothedPosition(at:)` — the lerp between brackets: the geometric truth between two
+    ///   observations, with three named refusals.
+    /// * this — what a viewer sees. `PointerPath` resamples the observations through a spline
+    ///   and follows them with a spring, which is what removes the hand from the motion
+    ///   without removing the motion. Wherever the path has no answer — before its first
+    ///   sample, after its last, a track too short to bake — the lerp answers instead, so
+    ///   the presentation is never LESS than the lerp was.
+    ///
+    /// Overrides and blindness AT the instant keep exactly `position(at:)`'s precedence: the
+    /// spring is consulted only once the stepwise reading is `.drawn`. Shape and hotspot are
+    /// the stepwise sample's — identities, and they do not blend.
+    public func presentedPosition(at instant: HostInstant) -> PointerReading {
+        let smoothed = smoothedPosition(at: instant)
+        guard case .drawn(_, let shape, let hotspot) = smoothed,
+              let followed = path.position(at: instant) else { return smoothed }
+        return .drawn(followed.position, shape: shape, hotspot: hotspot)
+    }
+
+    /// The presentation path's own speed at `instant`, normalised units per second, or `nil`
+    /// where it has no answer. For a renderer that keys an effect off motion.
+    public func presentedSpeed(at instant: HostInstant) -> Double? {
+        path.position(at: instant)?.speed
     }
 
     /// The share of `span` covered by blind intervals. Clamped to the span, so an interval that

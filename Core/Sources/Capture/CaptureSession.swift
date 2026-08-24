@@ -698,6 +698,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
+            // **The master's bit rate, which nothing was setting** — see `MasterQuality`. The
+            // export's rate is bounded by this file's, so it spends what the best export does.
+            AVVideoCompressionPropertiesKey: MasterQuality.compressionProperties(
+                pixelWidth: geometry.pixelWidth, pixelHeight: geometry.pixelHeight,
+                frameRate: frameRate.rawValue),
         ]
         // Passthrough (`nil` settings) for both audio tracks, not AAC: the master
         // is unprocessed evidence, QuickTime needs no format hint for

@@ -70,6 +70,13 @@ swift package --package-path Core clean --scratch-path "$SCRATCH"
 
 # Precondition: the clean actually cleaned. A clean that leaves objects behind
 # would quietly reintroduce the incremental blindness this design exists to remove.
+#
+# The directory is created first. On a fresh worktree it does not exist yet, and
+# `find` on a missing path exits 1 — which under `pipefail` and `set -e` ended this
+# script HERE, silently, with exit 1 and not a line of output: the shape of failure
+# AGENTS.md's "a measurement has no safe default" is about, one level up, since a
+# silent 1 reads as "unsafe sites found" to a caller checking only the status.
+mkdir -p "$SCRATCH"
 LEFTOVER=$(find "$SCRATCH" -name '*.o' 2>/dev/null | wc -l | tr -d ' ')
 if [ "$LEFTOVER" != "0" ]; then
     echo "FAILED: 'swift package clean' left $LEFTOVER object file(s) under $SCRATCH." >&2

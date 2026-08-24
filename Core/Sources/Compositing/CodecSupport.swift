@@ -31,8 +31,10 @@ public enum CodecSupport {
     static let probeWidth = 256
     static let probeHeight = 64
     /// How far the last column of a bar may drift before the edge counts as smeared. The two
-    /// outcomes measured are ~21 and ~111 out of 255, so anything between them separates them;
-    /// 60 is the middle of that gap rather than a threshold anybody tuned.
+    /// outcomes measured are 0 and ~101 out of 255 — with the writer's colour properties named,
+    /// as the real export names them; without them the probe read ~21 and ~111, the 601-matrix
+    /// inference `ExportQuality.colourProperties` describes. Anything between separates them;
+    /// 60 is the middle of the gap rather than a threshold anybody tuned.
     static let edgeTolerance = 60
 
     /// Whether `codec` reproduces a saturated colour edge on this machine.
@@ -87,6 +89,9 @@ public enum CodecSupport {
             AVVideoCodecKey: codec.videoCodec,
             AVVideoWidthKey: probeWidth,
             AVVideoHeightKey: probeHeight,
+            // The same colour properties the export writes with, or the probe measures a
+            // different file from the one a person gets — see `ExportQuality.colourProperties`.
+            AVVideoColorPropertiesKey: ExportQuality.colourProperties,
         ]
         if codec.takesBitRate {
             settings[AVVideoCompressionPropertiesKey] = [

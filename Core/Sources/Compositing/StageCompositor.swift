@@ -189,8 +189,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// The log header's origin for turning a composition time into the host clock the samples are
     /// stamped in. `nil` when the log had no header, which draws nothing.
     private nonisolated(unsafe) var logAnchor: EpochAnchor?
-    /// The camera, built with the tracks from the same log and queried per frame.
+    /// The camera, built with the tracks from the same log and queried per frame — re-baked
+    /// under the output's zoom ceiling the first time a frame says what the output is, and
+    /// again only if that ceiling changes, which within one compositor instance it does not.
     private nonisolated(unsafe) var camera: CameraMotion?
+    private nonisolated(unsafe) var cameraCeiling: Double = .infinity
     private nonisolated(unsafe) var tracksLoaded = false
 
     public func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
@@ -229,7 +232,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // The camera first: the pointer's placement is computed THROUGH the resulting plan
         // (`StagePlanner.placement` maps by `RenderPlan.contentX/Y`), so a pointer drawn
         // against the un-zoomed plan would sit where the user never pointed.
-        let aimed = cameraPlan(basePlan, at: request.compositionTime)
+        // The source's pixels across the card are what bound the zoom — see
+        // `FramingDepth.zoomCeiling`; the cropped width, because that is what the card shows.
+        let aimed = cameraPlan(basePlan, at: request.compositionTime,
+                               sourcePixelWidth: cropped.width)
         let plan = RenderPlan(outputWidth: aimed.outputWidth, outputHeight: aimed.outputHeight,
                               card: aimed.card, cornerRadius: aimed.cornerRadius,
                               style: aimed.style,
@@ -308,10 +314,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // `HostInstant`, so holding a bare `Nanoseconds` here — `1a98402`'s shape — no longer
         // typechecks. Rough placement, not a frame-accurate media origin.
         let instant = anchor.instant(atOffset: offset)
-        // `smoothedPosition`, not `position`: this is the RENDERING path, the one consumer
+        // `presentedPosition`, not `position`: this is the RENDERING path, the one consumer
         // allowed to be gentle. The review path keeps the stepwise truth (recorder-parity
-        // design, 2026-08-19 — presentation and diagnosis are different outputs).
-        switch pointer.smoothedPosition(at: instant) {
+        // design, 2026-08-19 — presentation and diagnosis are different outputs), and the
+        // presented reading is the spring-followed cursor with the lerp as its floor.
+        switch pointer.presentedPosition(at: instant) {
         case .drawn(let point, let shape, let hotspot):
             return StagePlanner.placement(for: point, in: plan,
                                           ripplePhase: click?.ripplePhase(at: instant),
@@ -328,7 +335,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     ///
     /// `public` for the same reason `pointerPlacement` is: `startRequest(_:)` takes a type
     /// only AVFoundation constructs, so this is the seam a test can reach.
-    public func cameraPlan(_ basePlan: RenderPlan, at compositionTime: CMTime) -> RenderPlan {
+    ///
+    /// `sourcePixelWidth` is how many of the recording's pixels the card shows at zoom 1 —
+    /// the cropped width. With it the camera is baked under `FramingDepth.zoomCeiling`, so a
+    /// zoom never stretches a source pixel past `maximumMagnification`; without it (`nil`,
+    /// the tests' seam) the camera aims at each block's own depth.
+    public func cameraPlan(_ basePlan: RenderPlan, at compositionTime: CMTime,
+                           sourcePixelWidth: Int? = nil) -> RenderPlan {
         guard compositionTime.isValid,
               let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
                                              timescale: compositionTime.timescale),
@@ -337,13 +350,63 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
               // outside the region the camera framed, on every frame after the first cut.
               let offset = Self.sourceOffset(forOutput: outputOffset)
         else { return basePlan }
-        let (_, _, anchor, camera) = loadedTracks()
+        let ceiling = sourcePixelWidth.map {
+            FramingDepth.zoomCeiling(sourcePixels: Double($0), cardPixels: basePlan.card.width)
+        } ?? .infinity
+        let (_, _, anchor, camera) = loadedTracks(zoomCeiling: ceiling)
         guard let anchor, let camera else { return basePlan }
         let state = camera.state(at: anchor.instant(atOffset: offset))
+        // The exposure this frame stands for is the composition's own frame duration —
+        // the one number a smear length needs that `Render` does not have.
+        let frameSeconds = (unsafe renderContext)?.videoComposition.frameDuration.seconds
         return RenderPlan(outputWidth: basePlan.outputWidth, outputHeight: basePlan.outputHeight,
                           card: basePlan.card, cornerRadius: basePlan.cornerRadius,
                           style: basePlan.style, pointer: basePlan.pointer,
-                          contentZoom: state.zoom, contentCentre: state.centre)
+                          contentZoom: state.zoom, contentCentre: state.centre,
+                          motionBlur: Self.motionBlur(for: state, card: basePlan.card,
+                                                      outputHeight: basePlan.outputHeight,
+                                                      frameSeconds: frameSeconds ?? 1.0 / 60))
+    }
+
+    /// **A 180° shutter.** Film exposes each frame for half its duration, and that is the
+    /// smear an audience has learned to read as motion rather than as blur; a full-frame
+    /// smear reads as a defocus and none reads as judder. a Swift recorder's `MotionBlurSettings`
+    /// arrives at an intensity in the same range by eye.
+    static let shutterFraction: Double = 0.5
+    /// The smear below which the filter is not worth its cost — under a pixel and a half a
+    /// blur is a slightly softer frame with nothing to show for it.
+    static let motionBlurThreshold: Double = 1.5
+    /// The longest smear, as a fraction of the output height: 2% is ~22 px at 1080p, which
+    /// is a fast pan's whole exposure. Past it the picture is unreadable for the frames it
+    /// lasts and the cap is what keeps a whip pan legible.
+    static let maximumBlurFraction: Double = 0.02
+
+    /// The content's smear for one frame, from the camera's velocities. Pure and internal
+    /// so `StageCompositorTests` can drive it with a state rather than a composition.
+    ///
+    /// A centre moving at `v` normalised units/s at zoom `z` moves the content across the
+    /// card at `v × z × card` pixels/s — the sign is the content's, opposite to the camera's,
+    /// which a symmetric blur does not care about. A zoom changing at `ż` scales the content
+    /// by `ż/z` per second, so a point at the card's edge, `card/2` from the centre, moves
+    /// `ż/z × card/2` pixels/s.
+    nonisolated static func motionBlur(for state: CameraState, card: StageRect,
+                                       outputHeight: Int, frameSeconds: Double) -> MotionBlur? {
+        guard state.isMoving, frameSeconds > 0, frameSeconds.isFinite else { return nil }
+        let exposure = frameSeconds * shutterFraction
+        let cap = Double(outputHeight) * maximumBlurFraction
+
+        let panX = state.velocityX * state.zoom * card.width * exposure
+        let panY = state.velocityY * state.zoom * card.height * exposure
+        let panLength = min(hypot(panX, panY), cap)
+        let zoomLength = min(abs(state.zoomVelocity) / max(state.zoom, 1)
+                             * max(card.width, card.height) / 2 * exposure, cap)
+        guard panLength >= motionBlurThreshold || zoomLength >= motionBlurThreshold else {
+            return nil
+        }
+        return MotionBlur(panRadius: panLength >= motionBlurThreshold ? panLength / 2 : 0,
+                          panAngle: atan2(panY, panX),
+                          zoomAmount: zoomLength >= motionBlurThreshold ? zoomLength : 0,
+                          centreX: card.x + card.width / 2, centreY: card.y + card.height / 2)
     }
 
     /// The caption on screen at an OUTPUT time, or `nil`.
@@ -414,8 +477,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     /// Reads `Self.observationLogURL` at most once per instance, caching success or failure alike.
     /// Check and set are one critical section; the lock is never held across `render`.
-    private func loadedTracks() -> (pointer: PointerTrack?, click: ClickTrack?,
-                                    anchor: EpochAnchor?, camera: CameraMotion?) {
+    ///
+    /// `zoomCeiling` re-bakes the camera when it differs from the one it was baked under —
+    /// the first camera query of an instance, in practice, since the ceiling is a function
+    /// of the output and the crop and both are fixed for a composition. The pointer queries
+    /// pass `.infinity` and never trigger a bake: a pointer does not zoom.
+    private func loadedTracks(zoomCeiling: Double = .infinity)
+        -> (pointer: PointerTrack?, click: ClickTrack?, anchor: EpochAnchor?, camera: CameraMotion?) {
         // The shared statics are read under the "published before playback starts" guarantee.
         lock.withLock {
             if !(unsafe tracksLoaded) {
@@ -426,8 +494,14 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                     unsafe pointerTrack = built.pointer
                     unsafe clickTrack = built.click
                     unsafe camera = built.camera
+                    unsafe cameraCeiling = built.camera.zoomCeiling
                     unsafe logAnchor = built.anchor
                 }
+            }
+            if zoomCeiling.isFinite, let current = unsafe camera,
+               unsafe cameraCeiling != max(zoomCeiling, 1.0) {
+                unsafe camera = current.limited(toZoomCeiling: zoomCeiling)
+                unsafe cameraCeiling = unsafe camera?.zoomCeiling ?? .infinity
             }
             return unsafe (pointerTrack, clickTrack, logAnchor, camera)
         }
@@ -475,7 +549,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 break
             }
         }
-        let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals, overrides: overrides)
+        // The button-down instants feed the presentation path, where the cursor's spring
+        // stiffens into a click so it has arrived when the ripple starts — see `PointerPath`.
+        let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals,
+                                   overrides: overrides,
+                                   clickInstants: buttonEvents.filter { $0.phase == .down }
+                                       .map(\.instant))
         let click = ClickTrack(events: buttonEvents)
         // Overrides first, the gate second — the resolution order IS the producer-value rule.
         let plan = FramingPlan(entries: planEntries)

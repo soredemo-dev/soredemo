@@ -210,7 +210,7 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // `RedactionArt`. Applying them after would let a pan slide the cover off its target.
         // **Redacted first, then cropped.** A region is placed against the whole recording —
         // that is the space a person drew it in — so cropping first would move every cover.
-        let redacted = RedactionArt.applied(plan.redactions, to: CIImage(cvPixelBuffer: source))
+        let redacted = RedactionArt.applied(plan.redactions, to: Self.screenImage(source))
         let image = Self.cropped(redacted, to: plan.crop)
         // The camera scales and shifts the CONTENT; `rounded` then masks it to the card,
         // which never moves. `RenderPlan.contentX/Y` owns the mapping so the pointer and
@@ -219,10 +219,102 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         let scaleY = plan.card.height * plan.contentZoom / image.extent.height
         let originX = plan.contentX(ofNormalised: 0)
         let originY = plan.contentY(ofNormalised: 0)
-        let placed = image
-            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        var placed = Self.resampled(image, scaleX: scaleX, scaleY: scaleY)
             .transformed(by: CGAffineTransform(translationX: originX, y: originY))
+        if let blur = plan.motionBlur {
+            placed = Self.smeared(placed, by: blur)
+        }
         return rounded(placed, plan: plan)
+    }
+
+    /// **The screen's pixels are sRGB, whatever the master's tag says, and this is where that
+    /// is declared.** `CaptureSession` asks ScreenCaptureKit for `colorSpaceName = sRGB` and
+    /// writes the master tagged Rec.709 — the convention every screen recording on this
+    /// platform follows, since 709 and sRGB share primaries and the tag is what players
+    /// expect. They do NOT share a transfer curve. A decoded master frame arrives with 709
+    /// attachments, and `CIImage(cvPixelBuffer:)` honours them: it converts the pixels
+    /// through 709's curve into the context's sRGB working space, the context renders sRGB
+    /// out, and the writer tags 709 again without converting back. **Measured: mid grey 128
+    /// left the export as 141 and 200 as 208**, on every frame, with every tag agreeing with
+    /// every other tag — the failure the colour-pipeline note (2026-08-24) said this chain
+    /// did not have, because it checked the tags and not the pixels.
+    ///
+    /// Declaring the buffer sRGB on the way in makes the round trip the identity: the
+    /// values the capture wrote are the values the export writes
+    /// (`theExportPreservesTheSourcesPixelValues`). **The camera's frames are not treated
+    /// this way** — `cameraImage` reads its buffer with its own tags, because a webcam's
+    /// pixels really are the video the tag says they are.
+    static let screenColourSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
+    static func screenImage(_ buffer: CVPixelBuffer) -> CIImage {
+        CIImage(cvPixelBuffer: buffer, options: [.colorSpace: screenColourSpace])
+    }
+
+    /// **Lanczos, not the affine transform's bilinear sampler — and this is the single
+    /// largest sharpness change available in the renderer.** A Retina recording drawn into
+    /// a card is scaled DOWN by roughly 2×: at that ratio a bilinear sample reads four
+    /// source pixels per output pixel and skips every other row and column outright, which
+    /// on screen content — text, one-pixel rules, hard edges — is aliasing on top of the
+    /// softness. A Lanczos kernel integrates every source pixel under its footprint, so a
+    /// downscaled line is a thinner line rather than a broken or a blurred one, and an
+    /// UPSCALE under the camera's zoom keeps its edges where bilinear rounds them.
+    /// `RedactionArt` was already using this filter to make its blocks; the picture itself
+    /// was not.
+    ///
+    /// The image is clamped to its extent before the kernel runs and cropped back after:
+    /// Lanczos reads past the edge, and reading transparent there would darken the card's
+    /// outermost pixel — a hairline the rounded mask would then feather into a visible
+    /// border. At a scale of exactly 1 the filter is skipped, because the kernel is then the
+    /// identity and the clamp-and-crop would be work for nothing.
+    static func resampled(_ image: CIImage, scaleX: Double, scaleY: Double) -> CIImage {
+        guard scaleX > 0, scaleY > 0, scaleX.isFinite, scaleY.isFinite,
+              abs(scaleX - 1) > 1e-9 || abs(scaleY - 1) > 1e-9 else { return image }
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return image }
+        let target = HeadlessGeometryBridge.rect(
+            x: Double(extent.minX) * scaleX, y: Double(extent.minY) * scaleY,
+            width: Double(extent.width) * scaleX, height: Double(extent.height) * scaleY)
+        guard let filter = CIFilter(name: "CILanczosScaleTransform", parameters: [
+            kCIInputImageKey: image.clampedToExtent(),
+            kCIInputScaleKey: scaleY,
+            kCIInputAspectRatioKey: scaleX / scaleY,
+        ]), let output = filter.outputImage else {
+            // The affine sampler is the fallback, never nothing: a frame drawn softer beats
+            // a frame not drawn.
+            return image.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        }
+        return output.cropped(to: target)
+    }
+
+    /// The content smeared by this frame's camera motion — see `MotionBlur`. Pan and zoom
+    /// smears compose when both are present; each is skipped when its length is zero, so a
+    /// pure pan costs one filter. Clamped and cropped for the same reason `resampled` is:
+    /// a blur reads past the edge, and a transparent edge would fade the card's border.
+    static func smeared(_ image: CIImage, by blur: MotionBlur) -> CIImage {
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0, !extent.isInfinite else { return image }
+        // Rule 5: no `CGRect` here, so the crop rect is asked of the bridge.
+        let bounds = HeadlessGeometryBridge.rect(
+            x: Double(extent.minX), y: Double(extent.minY),
+            width: Double(extent.width), height: Double(extent.height))
+        var result = image.clampedToExtent()
+        if blur.panRadius > 0,
+           let filter = CIFilter(name: "CIMotionBlur", parameters: [
+               kCIInputImageKey: result,
+               kCIInputRadiusKey: blur.panRadius,
+               kCIInputAngleKey: blur.panAngle,
+           ]), let output = filter.outputImage {
+            result = output
+        }
+        if blur.zoomAmount > 0,
+           let filter = CIFilter(name: "CIZoomBlur", parameters: [
+               kCIInputImageKey: result,
+               kCIInputAmountKey: blur.zoomAmount,
+               kCIInputCenterKey: CIVector(x: blur.centreX, y: blur.centreY),
+           ]), let output = filter.outputImage {
+            result = output
+        }
+        return result.cropped(to: bounds)
     }
 
     /// Rounded corners as a mask; a crop would give square corners.

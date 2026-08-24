@@ -235,3 +235,155 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
                 "the camera was still drifting sideways at \(later.centre.x), not pre-aimed")
     }
 }
+
+// MARK: - the bake: cost, continuity, and the velocities a renderer reads
+
+/// **A frame's cost does not grow with its distance into the recording.** The per-query
+/// integration paid every step from the first block to the frame, so a 60 fps walk over a
+/// ten-minute recording was O(n²) and stuttered on every zoom; the bake makes each query a
+/// binary search. Measured rather than assumed: 36,000 queries — ten minutes at 60 fps —
+/// across 200 blocks must finish inside two seconds, where the old shape needed minutes.
+@Suite struct CameraBakeTests {
+    private let epoch = BootEpoch(id: UUID(uuidString: "BA4E0000-1111-4222-8333-444455556666")!)
+
+    private func instant(_ seconds: Double) -> HostInstant {
+        HostInstant(epoch: epoch, hostTime: Nanoseconds(Int64(seconds * 1_000_000_000)))
+    }
+
+    private func block(from: Double, to: Double, x: Double, y: Double) -> ZoomBlock {
+        let target = FramingTarget(
+            frame: NormalizedFrame(origin: NormalizedPoint(x: x, y: y),
+                                   size: NormalizedSize(width: 0.05, height: 0.05),
+                                   revision: GeometryRevision(id: 1)), role: "AXButton")
+        return ZoomBlock(origin: instant(from), start: instant(from), end: instant(to),
+                         target: target, zoom: FramingDepth.zoom(for: target))
+    }
+
+    @Test func tenMinutesOfFramesIsQueriedInSeconds() {
+        let blocks = (0..<200).map { i -> ZoomBlock in
+            let start = 1.0 + Double(i) * 3.0
+            return block(from: start, to: start + 1.4,
+                         x: 0.1 + Double(i % 7) * 0.1, y: 0.1 + Double(i % 5) * 0.15)
+        }
+        let camera = CameraMotion(blocks: blocks)
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            var checksum = 0.0
+            for frame in 0..<36_000 {
+                checksum += camera.state(at: instant(Double(frame) / 60)).zoom
+            }
+            #expect(checksum > 36_000, "the camera never zoomed; the walk measured nothing")
+        }
+        #expect(elapsed < .seconds(2), "36,000 queries took \(elapsed)")
+    }
+
+    /// **The target is eased, so the acceleration ramps rather than jumps.** With a step
+    /// target the spring's acceleration at the first step of a block is its PEAK for the
+    /// move — the lurch the eye reads at every zoom. With the eased target the first
+    /// step's acceleration is a small fraction of the peak. Second differences of the
+    /// baked centre, per step, are the acceleration.
+    @Test func theAccelerationRampsInsteadOfJumpingAtABlockStart() throws {
+        let camera = CameraMotion(blocks: [block(from: 2.0, to: 5.0, x: 0.8, y: 0.8)])
+        let path = camera.bakedPath(in: epoch)
+        try #require(path.count > 100)
+        // The zoom axis: the centre snaps at zoom 1 by design, so only the zoom's spring
+        // starts from rest at the block start.
+        let zooms = path.map(\.state.zoom)
+        var accelerations: [Double] = []
+        for i in 1..<(zooms.count - 1) {
+            accelerations.append(abs(zooms[i + 1] - 2 * zooms[i] + zooms[i - 1]))
+        }
+        let peak = try #require(accelerations.max())
+        #expect(peak > 0, "the zoom never moved")
+        // The block opens at path index 0. With a STEP target the very first step's
+        // acceleration is the move's peak — that is the lurch. Measured while this was
+        // written, at an 8 ms step and a 120 ms ease: a single stage put the first step at
+        // ~50% of the peak, the two-stage ease at 19%. A quarter discriminates both wrong
+        // shapes from the right one without pinning the exact figure to the timestep.
+        let opening = accelerations[0]
+        #expect(opening < peak * 0.25, """
+            the zoom's acceleration on the first step was \(opening) against a peak of \
+            \(peak) — the spring saw a step, not an eased target
+            """)
+    }
+
+    /// The velocities a renderer smears by: zero at rest, non-zero mid-move, zero again once
+    /// settled — and the zoom's sign follows its direction.
+    @Test func theStateCarriesVelocitiesThatMatchTheMotion() {
+        let camera = CameraMotion(blocks: [block(from: 2.0, to: 5.0, x: 0.8, y: 0.8)])
+        let before = camera.state(at: instant(1.0))
+        #expect(!before.isMoving)
+        let rising = camera.state(at: instant(2.15))
+        #expect(rising.zoomVelocity > 0, "zooming in with a non-positive zoom velocity")
+        #expect(rising.isMoving)
+        let settled = camera.state(at: instant(4.9))
+        #expect(abs(settled.zoomVelocity) < 0.01 && hypot(settled.velocityX, settled.velocityY) < 0.01,
+                "still moving at \(settled) two seconds into a three-second block")
+        let falling = camera.state(at: instant(5.2))
+        #expect(falling.zoomVelocity < 0, "zooming out with a non-negative zoom velocity")
+    }
+
+    /// Two epochs, overlapping host times: each has its own path, and neither answers for
+    /// the other.
+    @Test func epochsBakeSeparatePaths() {
+        let other = BootEpoch(id: UUID(uuidString: "0BADC0DE-0000-4000-8000-000000000003")!)
+        let foreign = ZoomBlock(origin: HostInstant(epoch: other, hostTime: Nanoseconds(2_000_000_000)),
+                                start: HostInstant(epoch: other, hostTime: Nanoseconds(2_000_000_000)),
+                                end: HostInstant(epoch: other, hostTime: Nanoseconds(5_000_000_000)),
+                                target: block(from: 2, to: 5, x: 0.8, y: 0.8).target, zoom: 2.0)
+        let camera = CameraMotion(blocks: [foreign])
+        #expect(camera.state(at: instant(3.0)) == .rest)
+        #expect(camera.state(at: HostInstant(epoch: other, hostTime: Nanoseconds(3_000_000_000))).zoom > 1.5)
+    }
+}
+
+// MARK: - the zoom ceiling
+
+/// **The camera never aims past the ceiling, and it gets there as one motion.** A block whose
+/// depth is 3 under a ceiling of 1.7: the peak zoom is the ceiling, and — because the ceiling
+/// is applied to the AIM rather than clamped onto the state — the zoom's velocity is zero
+/// once it has settled there, so the renderer does not smear a picture that has stopped.
+@Suite struct ZoomCeilingTests {
+    private let epoch = BootEpoch(id: UUID(uuidString: "CE111116-0000-4000-8000-000000000001")!)
+    private func instant(_ seconds: Double) -> HostInstant {
+        HostInstant(epoch: epoch, hostTime: Nanoseconds(Int64(seconds * 1_000_000_000)))
+    }
+    private var deep: ZoomBlock {
+        let target = FramingTarget(
+            frame: NormalizedFrame(origin: NormalizedPoint(x: 0.4, y: 0.4),
+                                   size: NormalizedSize(width: 0.02, height: 0.02),
+                                   revision: GeometryRevision(id: 1)), role: "AXCheckBox")
+        return ZoomBlock(origin: instant(2), start: instant(2), end: instant(6),
+                         target: target, zoom: FramingDepth.zoom(for: target))
+    }
+
+    @Test func theZoomStopsAtTheCeilingWithoutWindingUp() {
+        #expect(deep.zoom == FramingDepth.maximumZoom, "the fixture must aim deeper than the ceiling")
+        let camera = CameraMotion(blocks: [deep], zoomCeiling: 1.7)
+        let states = stride(from: 1.0, through: 6.0, by: 1.0 / 60).map { camera.state(at: instant($0)) }
+        let peak = states.map(\.zoom).max() ?? 0
+        #expect(peak <= 1.7 + 1e-6, "the zoom reached \(peak) past a ceiling of 1.7")
+        #expect(peak > 1.65, "the zoom never approached the ceiling (\(peak))")
+        let settled = camera.state(at: instant(5.5))
+        #expect(abs(settled.zoomVelocity) < 0.01, "still moving at the ceiling: \(settled.zoomVelocity)")
+    }
+
+    /// Re-baking under a ceiling is the same blocks under another aim — nothing else moves.
+    @Test func limitingRebakesTheSameBlocks() {
+        let free = CameraMotion(blocks: [deep])
+        let limited = free.limited(toZoomCeiling: 1.5)
+        #expect(limited.blocksForTesting == free.blocksForTesting)
+        #expect(limited.zoomCeiling == 1.5)
+        #expect(free.zoomCeiling == .infinity)
+        #expect(free.state(at: instant(4)).zoom > limited.state(at: instant(4)).zoom)
+    }
+
+    /// A ceiling below 1 is "no zoom": the camera stays at rest for the whole block.
+    @Test func aCeilingBelowOneMeansNoZoom() {
+        let camera = CameraMotion(blocks: [deep], zoomCeiling: 0.6)
+        #expect(camera.zoomCeiling == 1.0)
+        for seconds in stride(from: 1.0, through: 7.0, by: 0.25) {
+            #expect(camera.state(at: instant(seconds)).zoom == 1.0)
+        }
+    }
+}

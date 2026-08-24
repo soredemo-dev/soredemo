@@ -139,3 +139,27 @@ private let realisticExtents: [(name: String, extent: Double)] = [
     #expect(zoom.isFinite)
     #expect(zoom <= FramingDepth.maximumZoom)
 }
+
+// MARK: - the ceiling: a zoom is a magnification of recorded pixels
+
+/// **The ceiling is a function of pixel density, not a constant.** The same card carries a
+/// deeper zoom from a Retina capture than from a 1x one, because a source pixel may only be
+/// stretched `maximumMagnification` times. Two captures, one card — the fixture the rule
+/// exists to distinguish; a constant ceiling would return the same number for both.
+@Test func theCeilingIsDeeperForADenserRecording() {
+    let card = 2661.0
+    let retina = FramingDepth.zoomCeiling(sourcePixels: 3024, cardPixels: card)
+    let onePixel = FramingDepth.zoomCeiling(sourcePixels: 1920, cardPixels: card)
+    #expect(retina > onePixel)
+    // At the ceiling the magnification is exactly the maximum: z × card / source.
+    #expect(abs(retina * card / 3024 - FramingDepth.maximumMagnification) < 1e-9)
+    #expect(abs(onePixel * card / 1920 - FramingDepth.maximumMagnification) < 1e-9)
+}
+
+/// A card the recording cannot fill at 1× — a 720p capture in a 4K stage — gives "no zoom",
+/// never a zoom out; and a degenerate size is the floor, not a NaN handed to a camera.
+@Test func theCeilingNeverFallsBelowNoZoom() {
+    #expect(FramingDepth.zoomCeiling(sourcePixels: 1280, cardPixels: 3379) == FramingDepth.minimumZoom)
+    #expect(FramingDepth.zoomCeiling(sourcePixels: 0, cardPixels: 100) == FramingDepth.minimumZoom)
+    #expect(FramingDepth.zoomCeiling(sourcePixels: 100, cardPixels: .infinity) == FramingDepth.minimumZoom)
+}

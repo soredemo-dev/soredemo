@@ -90,7 +90,12 @@ struct StageWindow: View {
     @State private var quality = ExportQuality.best
     /// How large the exported picture is, and what it is written as. Held beside `quality` for
     /// its reason — the save panel must not find them reset.
-    @State private var resolution = ExportResolution.p1080
+    // **The recording's own size, not 1080p.** Measured: a 3024×1964 Retina capture exported
+    // at the 1080p default came out 1662×1080, six pixels in ten discarded before the card's
+    // inset discarded more — the softness every review of the export complained about, and
+    // the only control that could undo it defaulted to the wrong rung. `available` lists
+    // `.matchRecording` first for the reason `ExportResolution` gives; the default agrees.
+    @State private var resolution = ExportResolution.matchRecording
     @State private var codec = ExportCodec.h264
     /// The recording's own short side in pixels, so `Match Recording` has something to match.
     /// Read from the asset when it loads; 1080 until then, which is what the export used to be
@@ -439,7 +444,7 @@ struct StageWindow: View {
     /// file, because the log belongs to the recording rather than to any edit of it.
     static func configuredComposition(for mediaURL: URL,
                                       variant: AspectVariant = .landscape,
-                                      resolution: ExportResolution = .p1080,
+                                      resolution: ExportResolution = .matchRecording,
                                       recordingShortSide: Int = 1080) async throws
         -> AVVideoComposition {
         try await configuredComposition(for: AVURLAsset(url: mediaURL),
@@ -451,7 +456,7 @@ struct StageWindow: View {
 
     static func configuredComposition(for asset: AVAsset,
                                       logForMediaURL mediaURL: URL? = nil,
-                                      resolution: ExportResolution = .p1080,
+                                      resolution: ExportResolution = .matchRecording,
                                       recordingShortSide: Int = 1080,
                                       variant: AspectVariant = .landscape) async throws
         -> AVVideoComposition {

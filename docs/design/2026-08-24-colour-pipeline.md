@@ -216,3 +216,15 @@ It is set, one line below the `pixelFormat` line that was grepped for — and th
 "there is no setting" was drawn from "the grep did not show one". That is inferring absence
 from a single-line search, which is never safe, and it nearly produced a design note
 announcing a defect where there was a deliberate choice. Read the block, not the line.
+
+
+## Addendum, 2026-08-25 — the tags agreed and the pixels did not
+
+This note checked every tag and none of the values. A probe that wrote known patches through
+the chain found mid grey 128 leaving the export as 141 (Core Image converting the master's
+709-tagged sRGB pixels through the wrong curve) and pure red leaving an untagged writer as
+234 (a 601 matrix inferred under a 709 tag). Both are fixed and measured in
+`2026-08-25-presentation-motion.md` § 4; the "residual 21" reasoning in the edge table above
+was wrong for the second reason, and the table in `ExportCodec.proRes4444` is the remeasured
+one. The conclusion of this note — stay in sRGB/709, chroma before gamut — stands; the claim
+that the chain was internally consistent did not.

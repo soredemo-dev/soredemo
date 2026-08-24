@@ -45,6 +45,14 @@ extension StageCompositorTests {
     /// alone has a hole: the drawn tip against the returned placement, and the placement against
     /// the position re-read from the fixture's bytes — an offset inside `StagePlanner.placement`
     /// moves drawing and expectation together, and only the second assertion catches it.
+    ///
+    /// **The placement is BOUNDED by the recording, not equal to it, since the presentation
+    /// path became a spring** (`PointerPath`). A spring following a target moving at speed
+    /// `s` trails it by at most `s × worstCaseLag`; that is the bound, with the speed
+    /// re-derived from the fixture's own bracket samples. The bound is `s`-shaped on purpose:
+    /// a resting pointer has `s = 0` and the assertion collapses back to equality within a
+    /// pixel, so a wrong offset cannot hide behind the spring's tolerance at a still instant
+    /// — and `aRestingPointerIsDrawnExactlyWhereItRests` below pins that case on its own.
     @Test func aPointerIsDrawnAtTheRecordedPosition() throws {
         let instants = try drawnInstants()
         let samples = try recordedPointerSamples()
@@ -61,12 +69,20 @@ extension StageCompositorTests {
                 "frame \(instant.frame): the log has no sample at or before this instant")
             let expectedX = card.x + reading.position.x * card.width
             let expectedY = card.y + reading.position.y * card.height
-            #expect(abs(instant.placement.x - expectedX) < 0.001
-                    && abs(instant.placement.y - expectedY) < 0.001, """
+            // Pixels per second across the bracket, from the bytes; zero at rest.
+            let speed = recordedSpeed(in: samples, atHostTime: instant.hostTime)
+            let lag = PointerPath.Tuning.default.worstCaseLagSeconds
+            // Two lags, because the spring also has to ACCELERATE into a move and the
+            // steady-state figure is for a target already moving; plus one pixel of slack.
+            let bound = speed.x * card.width * lag * 2 + 1.0
+            let boundY = speed.y * card.height * lag * 2 + 1.0
+            #expect(abs(instant.placement.x - expectedX) <= bound
+                    && abs(instant.placement.y - expectedY) <= boundY, """
                 frame \(instant.frame) (\(reading.priorCount) of \(samples.count) samples lie at \
                 or before it): the compositor placed the pointer at (\(instant.placement.x), \
                 \(instant.placement.y)); the sample the log selects at this instant places it at \
-                (\(expectedX), \(expectedY))
+                (\(expectedX), \(expectedY)), and at \(speed) units/s the spring may trail by at \
+                most (\(bound), \(boundY)) px
                 """)
 
             let withPointer = try composedFrame(pointer: instant.placement)
@@ -86,6 +102,91 @@ extension StageCompositorTests {
                 """)
         }
     }
+}
+
+extension StageCompositorTests {
+    /// **Where the recording's pointer has been still, the drawn pointer is exactly there.**
+    /// The bound in `aPointerIsDrawnAtTheRecordedPosition` is zero at rest, but the three
+    /// instants it asserts are chosen for sample history, not for stillness; this one is
+    /// chosen for stillness, so the spring's equality case is pinned by a test that would
+    /// go red on a constant offset however small the tolerance elsewhere.
+    ///
+    /// Still means one of two things, because the log's two eras record stillness
+    /// differently. Before `PointerSampler`, the tap emitted only on motion, so a resting
+    /// pointer is a SILENCE: the latest sample is at least `settleSeconds` old and the next
+    /// one has not happened yet. Since the sampler, a resting pointer is a STREAM of
+    /// positions within a tenth of a pixel of one another for the whole window. Either way
+    /// the spring has had `settleSeconds` — long enough to converge from anywhere it could
+    /// have been — and the drawn position must be the recorded one.
+    @Test func aRestingPointerIsDrawnExactlyWhereItRests() throws {
+        unsafe StageCompositor.observationLogURL = try recordedObservationLog()
+        unsafe StageCompositor.overrides = []
+        let compositor = StageCompositor()
+        let plan = stagePlan(pointer: nil)
+        let anchor = try recordedAnchor()
+        let samples = try recordedPointerSamples()
+            .sorted { $0.instant.hostTime.rawValue < $1.instant.hostTime.rawValue }
+        let settleSeconds = 0.4
+        let stillTolerance = 0.1 / min(plan.card.width, plan.card.height)
+
+        var asserted = 0
+        for frame in 0..<1800 {
+            let time = CMTime(value: CMTimeValue(frame), timescale: 60)
+            guard let offset = Nanoseconds(rationalSeconds: time.value, timescale: time.timescale)
+            else { continue }
+            let hostTime = anchor + offset
+            guard let latest = samples.last(where: { $0.instant.hostTime.rawValue <= hostTime.rawValue })
+            else { continue }
+            let latestAge = Double(hostTime.rawValue - latest.instant.hostTime.rawValue) / 1e9
+            // Every sample inside the settle window before the instant.
+            let window = samples.filter {
+                $0.instant.hostTime.rawValue <= hostTime.rawValue
+                    && Double(hostTime.rawValue - $0.instant.hostTime.rawValue) / 1e9 <= settleSeconds
+            }
+            let silent = latestAge >= settleSeconds
+            let streamed = window.count >= 3 && window.allSatisfy {
+                abs($0.position.x - latest.position.x) < stillTolerance
+                    && abs($0.position.y - latest.position.y) < stillTolerance
+            }
+            guard silent || streamed,
+                  let placement = compositor.pointerPlacement(at: time, in: plan) else { continue }
+            let expectedX = plan.card.x + latest.position.x * plan.card.width
+            let expectedY = plan.card.y + latest.position.y * plan.card.height
+            #expect(abs(placement.x - expectedX) < 1 && abs(placement.y - expectedY) < 1, """
+                frame \(frame): the pointer had rested for \(settleSeconds) s at (\(expectedX), \
+                \(expectedY)) and was drawn at (\(placement.x), \(placement.y))
+                """)
+            asserted += 1
+            if asserted >= 5 { break }
+        }
+        #expect(asserted > 0, """
+            the first 30 s of the fixture had no instant where the pointer rested for \
+            \(settleSeconds) s with a sighted placement — the test asserted nothing
+            """)
+    }
+}
+
+/// The recorded pointer's speed across the bracket at `time`, in normalised units per
+/// second per axis — zero when held, exactly as `recordedReading` holds.
+func recordedSpeed(in samples: [PointerSample],
+                   atHostTime time: Nanoseconds) -> (x: Double, y: Double) {
+    var latest: PointerSample?
+    var next: PointerSample?
+    for sample in samples {
+        if sample.instant.hostTime.rawValue <= time.rawValue {
+            if let current = latest,
+               current.instant.hostTime.rawValue > sample.instant.hostTime.rawValue { continue }
+            latest = sample
+        } else if next == nil || sample.instant.hostTime.rawValue < next!.instant.hostTime.rawValue {
+            next = sample
+        }
+    }
+    guard let latest, let next else { return (0, 0) }
+    let span = next.instant.hostTime.rawValue - latest.instant.hostTime.rawValue
+    guard span > 0, span <= PointerTrack.maxInterpolationGap.rawValue else { return (0, 0) }
+    let seconds = Double(span) / 1e9
+    return (abs(next.position.x - latest.position.x) / seconds,
+            abs(next.position.y - latest.position.y) / seconds)
 }
 
 // MARK: - the frame both tests compose

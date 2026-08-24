@@ -224,7 +224,11 @@ public enum GIFExporter {
         while let buffer = resampler.next() {
             try Task.checkCancellation()
             guard let pixels = CMSampleBufferGetImageBuffer(buffer) else { continue }
-            let image = CIImage(cvPixelBuffer: pixels)
+            // Declared sRGB on the way in, for `CoreImageFrameRenderer.screenImage`'s
+            // reason: the composed frame arrives from the composition carrying the master's
+            // 709 tags over sRGB-rendered pixels, and honouring the tag would lighten every
+            // mid tone a second time before the palette is chosen.
+            let image = CoreImageFrameRenderer.screenImage(pixels)
             guard let frame = context.createCGImage(image, from: canvas,
                                                     format: .RGBA8, colorSpace: sRGB) else {
                 throw ExportError.frameRenderFailed(written)

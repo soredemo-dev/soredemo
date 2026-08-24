@@ -226,6 +226,39 @@ extension StageStyle {
     }
 }
 
+/// **How much the content moved during this frame's exposure, in output pixels.** A frame
+/// is not an instant; a camera panning at speed across a still recording shows a hard edge
+/// every 16 ms that the eye reads as judder, and a real camera would have smeared it. This
+/// is the smear, and it is a WHAT: a length along an axis, and a radial length about a
+/// point, both already in pixels, so the renderer draws it without knowing a frame rate.
+///
+/// The compositor derives it from `CameraState`'s velocities and the composition's frame
+/// duration; `Render` does not know either, which is why this carries pixels rather than
+/// speeds. `nil` on a still frame, so a frame with no motion costs no filter.
+public struct MotionBlur: Hashable, Sendable {
+    /// Half the pan smear's length, in output pixels — the radius a directional blur takes.
+    public let panRadius: Double
+    /// The pan's direction, radians counter-clockwise from +x, in the bottom-left-origin
+    /// space the renderer draws in.
+    public let panAngle: Double
+    /// The zoom smear at the card's edge, in output pixels, about `centreX`/`centreY`.
+    public let zoomAmount: Double
+    public let centreX: Double
+    public let centreY: Double
+
+    public init(panRadius: Double, panAngle: Double, zoomAmount: Double,
+                centreX: Double, centreY: Double) {
+        precondition(panRadius.isFinite && panAngle.isFinite && zoomAmount.isFinite
+                     && centreX.isFinite && centreY.isFinite,
+                     "MotionBlur requires finite components")
+        self.panRadius = max(panRadius, 0)
+        self.panAngle = panAngle
+        self.zoomAmount = max(zoomAmount, 0)
+        self.centreX = centreX
+        self.centreY = centreY
+    }
+}
+
 /// Everything a renderer needs to draw one frame, and nothing about HOW.
 ///
 /// The pointer is optional because the track can be silent — see `PointerTrack.position(at:)`
@@ -270,6 +303,10 @@ public struct RenderPlan: Hashable, Sendable {
     public let camera: CameraOverlay?
     /// The part of the recording used at all. `.whole` for an uncropped one — see `CropRect`.
     public let crop: CropRect
+    /// The content's smear for this frame, or `nil` when the camera is still — see
+    /// `MotionBlur`. Applies to the content inside the card only: the card, the stage and
+    /// every overlay are not moving.
+    public let motionBlur: MotionBlur?
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
@@ -280,7 +317,8 @@ public struct RenderPlan: Hashable, Sendable {
                 redactions: [RedactionRegion] = [],
                 cursorStyle: CursorStyle = .default,
                 camera: CameraOverlay? = nil,
-                crop: CropRect = .whole) {
+                crop: CropRect = .whole,
+                motionBlur: MotionBlur? = nil) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -295,6 +333,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.cursorStyle = cursorStyle
         self.camera = camera
         self.crop = crop
+        self.motionBlur = motionBlur
     }
 }
 

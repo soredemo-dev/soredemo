@@ -257,3 +257,19 @@ private enum MasterOrderTestError: Error {
     case refused(String)
     case startFailed(String?)
 }
+
+// MARK: - the master's own bit rate
+
+/// **The master spends what the best export spends, and the two are pinned to one number.**
+/// `MasterQuality` restates `ExportQuality.best`'s arithmetic because `Capture` cannot import
+/// `Compositing`; this is the figure both produce for 1080p60 — 1920 × 1080 × 0.3 × (30 +
+/// 30 × 0.6) = 29,859,840 — so a retune of either that is not mirrored in the other reddens
+/// here. The floor is asserted on a window small enough to need it.
+@Test func theMasterSpendsWhatTheBestExportSpends() {
+    #expect(MasterQuality.videoBitRate(pixelWidth: 1920, pixelHeight: 1080, frameRate: 60) == 29_859_840)
+    #expect(MasterQuality.videoBitRate(pixelWidth: 320, pixelHeight: 200, frameRate: 30) == 2_000_000)
+    let properties = MasterQuality.compressionProperties(pixelWidth: 3024, pixelHeight: 1964, frameRate: 60)
+    #expect(properties[AVVideoAverageBitRateKey] as? Int == MasterQuality.videoBitRate(pixelWidth: 3024, pixelHeight: 1964, frameRate: 60))
+    #expect(properties[AVVideoMaxKeyFrameIntervalKey] as? Int == 120)
+    #expect(properties[AVVideoProfileLevelKey] as? String == AVVideoProfileLevelH264HighAutoLevel)
+}

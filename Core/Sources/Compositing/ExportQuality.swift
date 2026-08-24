@@ -86,6 +86,7 @@ public struct ExportQuality: Hashable, Sendable, Codable {
                 AVVideoCodecKey: codec.videoCodec,
                 AVVideoWidthKey: outputWidth,
                 AVVideoHeightKey: outputHeight,
+                AVVideoColorPropertiesKey: Self.colourProperties,
             ]
         }
         var properties: [String: any Sendable] = [
@@ -115,8 +116,24 @@ public struct ExportQuality: Hashable, Sendable, Codable {
             AVVideoWidthKey: outputWidth,
             AVVideoHeightKey: outputHeight,
             AVVideoCompressionPropertiesKey: properties,
+            AVVideoColorPropertiesKey: Self.colourProperties,
         ]
     }
+
+    /// **Rec.709 primaries, transfer and matrix, said explicitly — the same three the
+    /// master is written with.** Without them the writer infers the tags from the buffers
+    /// it is handed, and a BGRA buffer with no attachments is inferred as 709 transfer with
+    /// a **601 matrix**: measured, pure red leaves such a file as (234, 0, 3) and pure
+    /// green as (21, 255, 9), with the file's own tag still reading 709. That is the
+    /// "residual 21" the `ExportCodec.proRes4444` table once attributed to what a
+    /// saturated red costs in YCbCr; with the matrix named, red comes back at 255. The
+    /// composition's buffers usually do carry attachments, so the export was usually right
+    /// by inheritance — a property this makes a decision instead.
+    public static let colourProperties: [String: any Sendable] = [
+        AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+        AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+        AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+    ]
 
     public func audioSettings() -> [String: any Sendable] {
         [

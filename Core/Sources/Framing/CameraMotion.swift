@@ -3,15 +3,32 @@ import Geometry
 import Timeline
 
 /// Where the camera is at one instant: the centre of the viewport in normalised
-/// coordinates, and how far in it is zoomed.
+/// coordinates, how far in it is zoomed — and how fast both are changing, for a renderer
+/// that draws motion as motion.
 public struct CameraState: Hashable, Sendable {
     public let centre: NormalizedPoint
     /// 1.0 is the whole recording; at `z` the viewport is `1/z` of it.
     public let zoom: Double
+    /// The centre's velocity, normalised units of the recording per second.
+    public let velocityX: Double
+    public let velocityY: Double
+    /// The zoom's rate of change per second.
+    public let zoomVelocity: Double
 
-    public init(centre: NormalizedPoint, zoom: Double) {
+    public init(centre: NormalizedPoint, zoom: Double,
+                velocityX: Double = 0, velocityY: Double = 0, zoomVelocity: Double = 0) {
         self.centre = centre
         self.zoom = zoom
+        self.velocityX = velocityX
+        self.velocityY = velocityY
+        self.zoomVelocity = zoomVelocity
+    }
+
+    /// At rest: the whole recording, centred, still.
+    public static let rest = CameraState(centre: NormalizedPoint(x: 0.5, y: 0.5), zoom: 1.0)
+
+    public var isMoving: Bool {
+        velocityX != 0 || velocityY != 0 || zoomVelocity != 0
     }
 }
 
@@ -21,9 +38,15 @@ public struct CameraState: Hashable, Sendable {
 /// interval the caller happens to ask for accumulates differently on a 60 Hz preview and a
 /// 24 fps export — the same recording would produce two different camera paths, and
 /// `render-parity`'s claim that one compositor drives both would quietly become false in
-/// the one place nobody thinks to look. Every query integrates from zero at a fixed
-/// `timestep`, so the answer is a function of the instant alone
-/// (`theSameInstantAlwaysYieldsTheSameState`).
+/// the one place nobody thinks to look. The path is integrated at a fixed `timestep`, so
+/// the answer is a function of the instant alone (`theSameInstantAlwaysYieldsTheSameState`).
+///
+/// **Baked once in `init`, read by binary search — and that is a correctness fix twice
+/// over.** The first draft integrated from absolute zero per query and never finished on six
+/// seconds of a real recording; the second started at the first block, which was still a
+/// full re-integration PER FRAME: the frame at minute ten paid 75,000 steps, each scanning
+/// the block list, on `AVPlayer`'s real-time path. That is the stutter a long recording
+/// showed on every zoom. `state(at:)` now costs a binary search whatever the instant.
 ///
 /// **Critically damped, not tuned by feel.** `camera-motion`'s row says "settles without
 /// overshoot", and for a spring-mass-damper that is exactly ζ = 1 — not a value found by
@@ -31,6 +54,13 @@ public struct CameraState: Hashable, Sendable {
 /// in ~0.9 s: slower than `ZoomBlock.preRoll`, so the camera is still moving when the click
 /// lands, which is what makes the motion read as following the action rather than
 /// anticipating it.
+///
+/// **The target is eased before the spring sees it.** A block's aim is a step function —
+/// one centre and depth until the next block, then another — and a spring fed a step has a
+/// discontinuous acceleration at the step: a jerk, which the eye reads as a lurch even when
+/// the position curve looks fine. `targetTimeConstant` low-passes the aim first, so the
+/// spring's input is C1 and its output C2. Screen Studio's transitions read as one motion
+/// rather than a start and a stop for this reason.
 public struct CameraMotion: Sendable {
     /// Integration step. 8 ms is ~2× finer than a 60 Hz frame, so a frame's state never
     /// depends on where its instant falls between steps.
@@ -43,6 +73,15 @@ public struct CameraMotion: Sendable {
     /// Natural frequency, rad/s. Settling to 2% takes ~0.9 s at ζ = 1.
     public static let angularFrequency: Double = 10.0
 
+    /// The time constant of the easing the aim passes through, seconds — two first-order
+    /// stages of half this each, so the eased aim is C1: its VELOCITY starts at zero too,
+    /// and the spring's acceleration grows from nothing rather than jumping to a value at
+    /// the block boundary (`theAccelerationRampsInsteadOfJumpingAtABlockStart` measures the
+    /// first step against the peak). A single stage rounds the step but still kinks. 120 ms
+    /// in total: short enough that the camera still arrives inside the block's pre-roll.
+    /// **Uncalibrated**, like every constant in this module.
+    public static let targetTimeConstant: Double = 0.12
+
     /// Movement below this is not worth making. Without it the camera chases the few-pixel
     /// difference between consecutive AX frames for what is visually the same control, and
     /// the footage shimmers. **Uncalibrated**, like every constant in this module.
@@ -54,150 +93,233 @@ public struct CameraMotion: Sendable {
     /// reason.
     public static let identityZoomBound: Double = 1.002
 
+    /// How long after the last block the camera is treated as having settled back to rest.
+    /// At ω = 10 a move is within 2% in ~0.9 s; 3 s is comfortably past that and is what
+    /// bounds the integration on the far side.
+    private static let settleMargin: Double = 3.0
+
     private let blocks: [ZoomBlock]
+    /// The deepest zoom any block is allowed to aim for — `FramingDepth.zoomCeiling` for the
+    /// recording's pixels on this output's card, or `.infinity` when the caller has no output
+    /// yet. **Applied to the AIM, not to the state**: clamping the integrated zoom would flatten
+    /// the top of the curve while the spring's velocity kept winding against the clamp, and a
+    /// renderer reading that velocity would smear a picture that had stopped.
+    public let zoomCeiling: Double
+    /// One baked path per boot epoch. Two boots produce overlapping host times, so a path
+    /// spanning both would be a duration computed across two clocks.
+    private let paths: [BootEpoch: BakedPath]
 
     /// The blocks as sorted and grouped. Exposed so a test can assert its own fixture did NOT
     /// merge before asserting anything about the gap between two of them — a fixture that
     /// merged would pass a gap test vacuously.
     public var blocksForTesting: [ZoomBlock] { blocks }
 
-    public init(blocks: [ZoomBlock]) {
-        self.blocks = blocks.sorted { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue }
+    public init(blocks: [ZoomBlock], zoomCeiling: Double = .infinity) {
+        let sorted = blocks.sorted { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue }
+        self.blocks = sorted
+        // A ceiling below 1 is "no zoom", never "zoom out"; NaN is treated as no ceiling.
+        let ceiling = zoomCeiling.isNaN ? .infinity : max(zoomCeiling, 1.0)
+        self.zoomCeiling = ceiling
+        var paths: [BootEpoch: BakedPath] = [:]
+        for (epoch, group) in Dictionary(grouping: sorted, by: { $0.start.epoch }) {
+            paths[epoch] = Integrator(blocks: group, zoomCeiling: ceiling).bake()
+        }
+        self.paths = paths
     }
 
-    /// How long after the last block the camera is treated as having settled back to rest.
-    /// At ω = 10 a move is within 2% in ~0.9 s; 3 s is comfortably past that and is what
-    /// bounds the integration on the far side.
-    private static let settleMargin: Double = 3.0
+    /// The same blocks under another ceiling — what the compositor asks for once it knows
+    /// the output's card, which the log alone does not say. A re-bake, not a clamp.
+    public func limited(toZoomCeiling ceiling: Double) -> CameraMotion {
+        CameraMotion(blocks: blocks, zoomCeiling: ceiling)
+    }
 
-    /// The camera at `instant`, integrated from rest.
-    ///
-    /// **Integration starts at the first block, not at zero, and that is a correctness fix
-    /// rather than an optimisation.** Host instants are `mach_absolute_time` — on the order
-    /// of 10¹⁴ ns — so integrating from absolute zero at an 8 ms step is ~12 million steps
-    /// PER QUERY, and a 30 Hz sample of six seconds of a real recording never finished.
-    /// Found by the end-to-end test against the row-14 recording, which is what a fixture
-    /// made of real data is for. The camera is provably at rest before its first block, so
-    /// starting there changes no answer; past the last block plus `settleMargin` it is at
-    /// rest again, which bounds the far side.
+    /// The camera at `instant`. At rest before the first block and past the last plus
+    /// `settleMargin`; in between, the baked state at the first integration step at or past
+    /// the instant — the same step a per-query `while time < end` integration stopped at,
+    /// so the bake changes where the work happens and not which step answers.
     public func state(at instant: HostInstant) -> CameraState {
-        let rest = CameraState(centre: NormalizedPoint(x: 0.5, y: 0.5), zoom: 1.0)
-        guard let firstBlock = blocks.first(where: { $0.start.epoch == instant.epoch }),
-              let lastEnd = blocks.filter({ $0.start.epoch == instant.epoch })
-                  .map(\.end.hostTime.rawValue).max()
-        else { return rest }
-
+        guard let path = paths[instant.epoch] else { return .rest }
         let now = Double(instant.hostTime.rawValue) / 1_000_000_000
-        let begin = Double(firstBlock.start.hostTime.rawValue) / 1_000_000_000
-        guard now > begin else { return rest }
-        guard now <= Double(lastEnd) / 1_000_000_000 + Self.settleMargin else { return rest }
-
-        let end = now - begin
-        var centre = NormalizedPoint(x: 0.5, y: 0.5)
-        var zoom = 1.0
-        var velocityX = 0.0, velocityY = 0.0, velocityZoom = 0.0
-        // The aim the camera is currently converging on, held across steps so a target
-        // inside the safe zone leaves it unchanged rather than being re-decided per step.
-        var aim = CameraState(centre: NormalizedPoint(x: 0.5, y: 0.5), zoom: 1.0)
-
-        var time = 0.0
-        while time < end {
-            // `aim` is asked in ABSOLUTE seconds; the loop counts from the first block.
-            aim = self.aim(at: begin + time, previous: aim)
-            let dt = Self.timestep
-            let k = Self.angularFrequency * Self.angularFrequency
-            let c = 2 * Self.dampingRatio * Self.angularFrequency
-
-            // Semi-implicit Euler: velocity first, then position. Stable at this step for
-            // the frequencies here, and the ordering is what keeps it so.
-            velocityX += (-k * (centre.x - aim.centre.x) - c * velocityX) * dt
-            velocityY += (-k * (centre.y - aim.centre.y) - c * velocityY) * dt
-            velocityZoom += (-k * (zoom - aim.zoom) - c * velocityZoom) * dt
-            zoom += velocityZoom * dt
-            // Zoom cannot go below 1: a spring undershooting past rest would show more than
-            // the recording contains.
-            zoom = max(1.0, zoom)
-            if zoom <= Self.identityZoomBound {
-                // **While the viewport still covers the whole frame, the centre snaps.**
-                // At zoom 1 the centre changes nothing that is visible, so springing it
-                // wastes the only moment it is free: the camera arrives at the next zoom's
-                // focus already aimed, and scales STRAIGHT toward it instead of drifting
-                // sideways as it goes in. Taken from `../opensource/.../a Rust recorder`'s
-                // `zoom_spring.rs`, whose bound is chosen on the same argument — a centre
-                // jump at this zoom moves the card by at most `(bound - 1)` of it, which is
-                // sub-pixel.
-                centre = Self.confine(aim.centre, zoom: zoom)
-                velocityX = 0
-                velocityY = 0
-            } else {
-                centre = Self.confine(
-                    NormalizedPoint(x: centre.x + velocityX * dt, y: centre.y + velocityY * dt),
-                    zoom: zoom)
-            }
-            time += dt
+        guard now > path.begin, now <= path.stop else { return .rest }
+        let elapsed = now - path.begin
+        // Lower bound: the first stored time that is `>= elapsed`. The integration loop
+        // ran `while time < end`, so it stopped at exactly this step.
+        var low = 0, high = path.times.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if path.times[mid] < elapsed { low = mid + 1 } else { high = mid }
         }
-        return CameraState(centre: centre, zoom: zoom)
+        return low < path.states.count ? path.states[low] : path.states[path.states.count - 1]
     }
 
-    /// The block covering `time`, as an aim — or rest between blocks. A new aim inside the
-    /// safe zone of the previous one keeps the previous one exactly, which is what stops
-    /// the camera chasing jitter; the zoom is compared on its own scale.
-    private func aim(at time: Double, previous: CameraState) -> CameraState {
-        let nanos = Int64(time * 1_000_000_000)
-        let active = blocks.first {
-            $0.start.hostTime.rawValue <= nanos && nanos < $0.end.hostTime.rawValue
-        }
-        let proposed: CameraState
-        if let active {
-            proposed = Self.aim(of: active)
-        } else if let chained = chainedNeighbour(at: nanos) {
-            // **In a short gap the camera pans to the next block instead of returning to
-            // rest.** Blocks merge only on overlap — for the reason `ZoomBlock.blocks`
-            // gives — so two clicks 2.5 s apart leave a 1.1 s gap, which at ω = 10 is long
-            // enough to make most of the way back to zoom 1 and then go out again. Every
-            // block is individually correct and the result still reads as a mistake.
-            // `../opensource/.../an Electron recorder-main` calls this a chained zoom.
-            proposed = Self.aim(of: chained)
-        } else {
-            proposed = CameraState(centre: NormalizedPoint(x: 0.5, y: 0.5), zoom: 1.0)
-        }
-        let moved = hypot(proposed.centre.x - previous.centre.x,
-                          proposed.centre.y - previous.centre.y)
-        if moved < Self.safeZone && abs(proposed.zoom - previous.zoom) < Self.safeZone {
-            return previous
-        }
-        return proposed
-    }
-
-    /// A block as an aim: its target's centre, at its own depth.
-    private static func aim(of block: ZoomBlock) -> CameraState {
-        let frame = block.target.frame
-        return CameraState(centre: NormalizedPoint(x: frame.minX + frame.size.width / 2,
-                                                   y: frame.minY + frame.size.height / 2),
-                           zoom: block.zoom)
-    }
-
-    /// The block to pan toward while `nanos` sits in a gap short enough to chain, or `nil`
-    /// when the gap is long enough that returning to rest is the right answer.
-    ///
-    /// Both sides are required: a gap before the FIRST block is not a chain — there is
-    /// nothing to hold a zoom from — and neither is one after the last.
-    private func chainedNeighbour(at nanos: Int64) -> ZoomBlock? {
-        guard let previous = blocks.last(where: { $0.end.hostTime.rawValue <= nanos }),
-              let next = blocks.first(where: { $0.start.hostTime.rawValue > nanos }),
-              previous.start.epoch == next.start.epoch
-        else { return nil }
-        let gap = next.start.hostTime.rawValue - previous.end.hostTime.rawValue
-        guard gap > 0, gap < ZoomBlock.chainedPanGap.rawValue else { return nil }
-        return next
+    /// The whole baked path for one epoch as (seconds after the first block, state) pairs,
+    /// for a test or a timeline that wants the curve rather than one point on it.
+    public func bakedPath(in epoch: BootEpoch) -> [(seconds: Double, state: CameraState)] {
+        guard let path = paths[epoch] else { return [] }
+        return Array(zip(path.times, path.states)).map { (seconds: $0.0, state: $0.1) }
     }
 
     /// Keeps the viewport inside the recording: at zoom `z` it is `1/z` wide, so the centre
     /// lives in the inset region. A target at the very edge pulls the centre to the edge of
     /// that region and no further, or the export shows blank where the recording ends.
-    private static func confine(_ point: NormalizedPoint, zoom: Double) -> NormalizedPoint {
+    static func confine(_ point: NormalizedPoint, zoom: Double) -> NormalizedPoint {
         let half = 0.5 / zoom
         let lo = min(half, 0.5), hi = max(1 - half, 0.5)
         return NormalizedPoint(x: min(max(point.x, lo), hi), y: min(max(point.y, lo), hi))
+    }
+
+    // MARK: - the bake
+
+    private struct BakedPath: Sendable {
+        /// Absolute seconds of the first block's start and of rest on the far side.
+        let begin: Double
+        let stop: Double
+        /// `times[k]` is the accumulated integration time after `k` steps; `states[k]` the
+        /// state then. `times[0] == 0` is the rest state at `begin`.
+        let times: [Double]
+        let states: [CameraState]
+    }
+
+    private struct Integrator {
+        let blocks: [ZoomBlock]     // one epoch, sorted by start
+        let zoomCeiling: Double
+
+        func bake() -> BakedPath {
+            guard let first = blocks.first,
+                  let lastEnd = blocks.map(\.end.hostTime.rawValue).max() else {
+                return BakedPath(begin: 0, stop: 0, times: [0], states: [.rest])
+            }
+            let begin = Double(first.start.hostTime.rawValue) / 1_000_000_000
+            let stop = Double(lastEnd) / 1_000_000_000 + CameraMotion.settleMargin
+            let horizon = stop - begin
+
+            let dt = CameraMotion.timestep
+            let k = CameraMotion.angularFrequency * CameraMotion.angularFrequency
+            let c = 2 * CameraMotion.dampingRatio * CameraMotion.angularFrequency
+            // Each stage's per-step gain, exact for a held input.
+            let ease = 1 - exp(-dt / (CameraMotion.targetTimeConstant / 2))
+
+            var centre = NormalizedPoint(x: 0.5, y: 0.5)
+            var zoom = 1.0
+            var velocityX = 0.0, velocityY = 0.0, velocityZoom = 0.0
+            // The aim the camera is currently converging on, held across steps so a target
+            // inside the safe zone leaves it unchanged rather than being re-decided per step.
+            var aim = CameraState.rest
+            // The EASED aim, in two stages: the first rounds the step, the second rounds the
+            // first's kink. The second is what the spring chases.
+            var stageX = 0.5, stageY = 0.5, stageZoom = 1.0
+            var targetX = 0.5, targetY = 0.5, targetZoom = 1.0
+
+            var times: [Double] = [0]
+            var states: [CameraState] = [.rest]
+            let expected = Int(horizon / dt) + 2
+            times.reserveCapacity(expected)
+            states.reserveCapacity(expected)
+
+            var time = 0.0
+            while time < horizon {
+                // `aim` is asked in ABSOLUTE seconds; the loop counts from the first block.
+                aim = self.aim(at: begin + time, previous: aim)
+                stageX += (aim.centre.x - stageX) * ease
+                stageY += (aim.centre.y - stageY) * ease
+                stageZoom += (aim.zoom - stageZoom) * ease
+                targetX += (stageX - targetX) * ease
+                targetY += (stageY - targetY) * ease
+                targetZoom += (stageZoom - targetZoom) * ease
+
+                // Semi-implicit Euler: velocity first, then position. Stable at this step
+                // for the frequencies here, and the ordering is what keeps it so.
+                velocityX += (-k * (centre.x - targetX) - c * velocityX) * dt
+                velocityY += (-k * (centre.y - targetY) - c * velocityY) * dt
+                velocityZoom += (-k * (zoom - targetZoom) - c * velocityZoom) * dt
+                zoom += velocityZoom * dt
+                // Zoom cannot go below 1: a spring undershooting past rest would show more
+                // than the recording contains.
+                if zoom < 1.0 { zoom = 1.0; velocityZoom = max(velocityZoom, 0) }
+                if zoom <= CameraMotion.identityZoomBound {
+                    // **While the viewport still covers the whole frame, the centre snaps.**
+                    // At zoom 1 the centre changes nothing that is visible, so springing it
+                    // wastes the only moment it is free: the camera arrives at the next
+                    // zoom's focus already aimed, and scales STRAIGHT toward it instead of
+                    // drifting sideways as it goes in. Taken from a Rust recorder's `zoom_spring.rs`,
+                    // whose bound is chosen on the same argument.
+                    centre = CameraMotion.confine(NormalizedPoint(x: targetX, y: targetY),
+                                                  zoom: zoom)
+                    velocityX = 0
+                    velocityY = 0
+                } else {
+                    let free = NormalizedPoint(x: centre.x + velocityX * dt,
+                                               y: centre.y + velocityY * dt)
+                    centre = CameraMotion.confine(free, zoom: zoom)
+                    // **The edge of the recording is a wall, and a wall stops the camera.**
+                    // A target past the confined region — a control at the screen's edge —
+                    // would otherwise wind the spring's velocity up against a position that
+                    // cannot move, and a renderer reading that velocity would smear a
+                    // picture that is standing still. Zeroed per axis, on the axis that hit.
+                    if centre.x != free.x { velocityX = 0 }
+                    if centre.y != free.y { velocityY = 0 }
+                }
+                time += dt
+                times.append(time)
+                states.append(CameraState(centre: centre, zoom: zoom,
+                                          velocityX: velocityX, velocityY: velocityY,
+                                          zoomVelocity: velocityZoom))
+            }
+            return BakedPath(begin: begin, stop: stop, times: times, states: states)
+        }
+
+        /// The block covering `time`, as an aim — or rest between blocks. A new aim inside
+        /// the safe zone of the previous one keeps the previous one exactly, which is what
+        /// stops the camera chasing jitter; the zoom is compared on its own scale.
+        private func aim(at time: Double, previous: CameraState) -> CameraState {
+            let nanos = Int64(time * 1_000_000_000)
+            let active = blocks.first {
+                $0.start.hostTime.rawValue <= nanos && nanos < $0.end.hostTime.rawValue
+            }
+            let proposed: CameraState
+            if let active {
+                proposed = aim(of: active)
+            } else if let chained = chainedNeighbour(at: nanos) {
+                // **In a short gap the camera pans to the next block instead of returning to
+                // rest.** Blocks merge only on overlap — for the reason `ZoomBlock.blocks`
+                // gives — so two clicks 2.5 s apart leave a 1.1 s gap, which at ω = 10 is
+                // long enough to make most of the way back to zoom 1 and then go out again.
+                // Every block is individually correct and the result still reads as a
+                // mistake. `../opensource/.../an Electron recorder-main` calls this a chained zoom.
+                proposed = aim(of: chained)
+            } else {
+                proposed = .rest
+            }
+            let moved = hypot(proposed.centre.x - previous.centre.x,
+                              proposed.centre.y - previous.centre.y)
+            if moved < CameraMotion.safeZone
+                && abs(proposed.zoom - previous.zoom) < CameraMotion.safeZone {
+                return previous
+            }
+            return proposed
+        }
+
+        /// A block as an aim: its target's centre, at its own depth — or at the ceiling,
+        /// when the recording's pixels cannot carry the depth on this output.
+        private func aim(of block: ZoomBlock) -> CameraState {
+            let frame = block.target.frame
+            return CameraState(centre: NormalizedPoint(x: frame.minX + frame.size.width / 2,
+                                                       y: frame.minY + frame.size.height / 2),
+                               zoom: min(block.zoom, zoomCeiling))
+        }
+
+        /// The block to pan toward while `nanos` sits in a gap short enough to chain, or
+        /// `nil` when the gap is long enough that returning to rest is the right answer.
+        ///
+        /// Both sides are required: a gap before the FIRST block is not a chain — there is
+        /// nothing to hold a zoom from — and neither is one after the last.
+        private func chainedNeighbour(at nanos: Int64) -> ZoomBlock? {
+            guard let previous = blocks.last(where: { $0.end.hostTime.rawValue <= nanos }),
+                  let next = blocks.first(where: { $0.start.hostTime.rawValue > nanos })
+            else { return nil }
+            let gap = next.start.hostTime.rawValue - previous.end.hostTime.rawValue
+            guard gap > 0, gap < ZoomBlock.chainedPanGap.rawValue else { return nil }
+            return next
+        }
     }
 }
