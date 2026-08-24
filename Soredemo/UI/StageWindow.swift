@@ -339,8 +339,26 @@ struct StageWindow: View {
         // sound, which is why every slider used to interrupt playback.
         .task(id: reviewRevision) {
             guard reviewRevision > 0, let player else { return }
+            // **Only when PAUSED, and that is the fix.** The seek is here to give a stopped
+            // player a reason to redraw the frame it is already showing. Running it during
+            // playback stops the playback — `AVPlayer.seek` does not resume — so dragging a
+            // slider halted the video, and what a person saw was a control that did nothing
+            // until they pressed play again. The comment above already said "while playing, it
+            // simply appears"; the guard to match it was never written.
+            guard player.timeControlStatus != .playing else { return }
             await player.seek(to: player.currentTime(),
                               toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+        // **The two statics that only `load()` was writing.** Everything else in the inspector
+        // publishes its own — `StageStylePicker`, `CaptionsPanel`, `TextPanel` and
+        // `RedactionPanel` each set theirs the moment a control moves — so the camera and the
+        // crop were the two whose changes waited for the next composition rebuild. A control
+        // that takes effect on some later unrelated action is a control people learn not to
+        // trust.
+        .task(id: crop) { StageCompositor.crop = crop }
+        .task(id: cameraStyle) {
+            guard StageCompositor.cameraTrackID != nil else { return }
+            StageCompositor.cameraStyle = cameraStyle
         }
         .inspector(isPresented: $isReviewShown) {
             // **A vertical rail, not a row of tabs across the top.** ScreenKite and a native editor

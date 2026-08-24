@@ -321,6 +321,37 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         #expect(degenerate.width == 2 && degenerate.height == 2)
     }
 
+    /// **A dragged rectangle is clamped into its display and rebased into that display's own
+    /// space.** A drag can start on one display and end on another; the part outside cannot be
+    /// captured, and asking ScreenCaptureKit to crop outside its own bounds is asking for a frame
+    /// it has no answer for.
+    @Test func aRegionIsClampedIntoItsDisplayAndRebasedToIt() {
+        // A secondary display to the right of the primary, in the global top-left space.
+        let display = PointRect(x: 1512, y: 0, width: 1920, height: 1080)
+
+        // Wholly inside: only the rebase applies.
+        let inside = RegionTargets.localRect(
+            of: PointRect(x: 1600, y: 100, width: 400, height: 300), inDisplay: display)
+        #expect(inside?.x == 88 && inside?.y == 100)
+        #expect(inside?.width == 400 && inside?.height == 300)
+
+        // Straddling the left edge: the part on the other display is cut off.
+        let straddling = RegionTargets.localRect(
+            of: PointRect(x: 1400, y: 100, width: 400, height: 300), inDisplay: display)
+        #expect(straddling?.x == 0, "the clamp did not move the origin to the display's edge")
+        #expect(straddling?.width == 288, "400 wide starting 112 outside leaves 288")
+
+        // Running off the bottom right: clamped to what the display has.
+        let overhanging = RegionTargets.localRect(
+            of: PointRect(x: 3300, y: 1000, width: 400, height: 400), inDisplay: display)
+        #expect(overhanging?.width == 132 && overhanging?.height == 80)
+
+        // Entirely elsewhere — what a drag that crossed and came back looks like by the time it
+        // is measured against the display it did not end on.
+        #expect(RegionTargets.localRect(
+            of: PointRect(x: 0, y: 0, width: 200, height: 200), inDisplay: display) == nil)
+    }
+
     /// **A region crops, and it is the only case that does.** Its filter is the DISPLAY's, so
     /// without a source rect the whole screen arrives — which is the opposite failure to the one
     /// the window case was fixed for, and the reason both are stated on the type rather than

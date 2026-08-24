@@ -175,6 +175,14 @@ struct MenuBarRecorderPanel: View {
                        isBusy: coordinator.pendingMode == .windowsOnly) {
                 coordinator.beginWindowRecordingByPointing()
             }
+            // **The third thing a recorder has to be able to point at.** A display capture of a
+            // demo living in a small panel spends most of its pixels on desktop, and a window
+            // capture cannot do it at all when the subject is part of a window rather than all
+            // of it. a Rust recorder, an Electron recorder and an Electron recorder all offer this.
+            TargetCard(icon: "rectangle.dashed", title: "Area", detail: "Drag it out",
+                       isBusy: coordinator.pendingMode == .region) {
+                coordinator.beginRegionRecording()
+            }
         }
     }
 

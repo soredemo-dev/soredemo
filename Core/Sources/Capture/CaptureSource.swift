@@ -520,10 +520,15 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
         case displaysAndWindows
         case displaysOnly
         case windowsOnly
+        /// **A rectangle, which this picker cannot offer.** `SCContentSharingPicker` has displays,
+        /// windows and applications and no fourth kind; a region is chosen by dragging one out on
+        /// `RegionPickerOverlay`. The case is here anyway because the panel reads `pendingMode` to
+        /// show which of its cards is busy, and a card whose mode had no name could not be lit.
+        case region
 
         var allowed: SCContentSharingPickerMode {
             switch self {
-            case .displaysAndWindows: [.singleWindow, .singleDisplay]
+            case .displaysAndWindows, .region: [.singleWindow, .singleDisplay]
             case .displaysOnly: [.singleDisplay]
             case .windowsOnly: [.singleWindow]
             }

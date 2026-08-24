@@ -100,6 +100,7 @@ xcrun swiftc \
   Soredemo/UI/StageWindow.swift \
   Soredemo/UI/ExportQueue.swift \
   Soredemo/UI/CodecVerdicts.swift \
+  Soredemo/UI/RegionPickerOverlay.swift \
   Soredemo/UI/FramingReview.swift \
   Soredemo/UI/StageStylePicker.swift \
   Soredemo/UI/WallpaperGallery.swift \

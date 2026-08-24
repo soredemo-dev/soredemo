@@ -304,6 +304,7 @@ final class RecordingCoordinator {
     /// exactly one thing happening.
     func cancelPendingStart() {
         TargetPickerOverlay.shared.cancel()
+        RegionPickerOverlay.shared.cancel()
         picker?.dismiss()
         picker = nil
         pendingMode = nil
@@ -359,6 +360,24 @@ final class RecordingCoordinator {
     /// nothing to point at for a display: the system picker's display tab already shows a
     /// preview of each one, and an overlay covering the display it is asking about would be
     /// covering the answer.
+    /// Starts the flow by dragging out a rectangle. See `RegionPickerOverlay`.
+    ///
+    /// **The system picker cannot do this**, which is why it is a third way in rather than a mode
+    /// of the other two: `SCContentSharingPicker` offers displays, windows and applications, and
+    /// a rectangle is none of them.
+    func beginRegionRecording() {
+        guard !isRecording else { return }
+        cancelPendingStart()
+        PermissionRequests.screenRecording()
+        mediaURL = nil
+        pendingMode = .region
+        Task { @MainActor in
+            let source = await RegionPickerOverlay.shared.pick()
+            pendingMode = nil
+            await sourceSelected(source)
+        }
+    }
+
     func beginWindowRecordingByPointing() {
         guard !isRecording else { return }
         cancelPendingStart()

@@ -103,6 +103,11 @@ public enum WindowTargets {
     }
 
     /// The displays a person could record, in the order the system reports them.
+    ///
+    /// **Kept beside the window targets on purpose.** Both are answers to "what can this
+    /// recording point at", and a caller that had to ask two modules would be a caller that
+    /// could get the display list from one and the crop from the other.
+
     public static func displays() async -> [SCDisplay] {
         (try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true))?
             .displays ?? []
@@ -120,4 +125,61 @@ public enum WindowTargets {
     /// Even, because an odd buffer dimension is where a stray column of green comes from —
     /// the same rule `CaptureSource` applies to its own buffer sizes.
     static func evenFloor(_ value: Int) -> Int { max(2, value - (value % 2)) }
+}
+
+/// A rectangle of the screen a person dragged out, turned into something recordable.
+///
+/// **Separate from `WindowTargets` because the question is different.** That one asks "which
+/// window is under this point"; this one is handed a rectangle and has to work out which display
+/// owns it and where the rectangle sits inside that display's own space.
+public enum RegionTargets {
+    /// A global rectangle clamped into a display and rebased into that display's own space.
+    ///
+    /// **Clamped, because a drag can start on one display and end on another.** The part outside
+    /// the owning display cannot be captured, and asking ScreenCaptureKit to crop outside its own
+    /// bounds is asking for a frame it has no answer for.
+    ///
+    /// `nil` when nothing is left — a rectangle entirely on the other display, which is what a
+    /// drag that crossed and came back looks like by the time it is measured.
+    ///
+    /// Separate from `source(for:)` so it can be tested: that one needs an `SCDisplay` no unit
+    /// test can construct, and this is where the arithmetic lives.
+    public nonisolated static func localRect(of rect: PointRect, inDisplay bounds: PointRect)
+    -> PointRect? {
+        let left = max(rect.x, bounds.x)
+        let top = max(rect.y, bounds.y)
+        let right = min(rect.x + rect.width, bounds.x + bounds.width)
+        let bottom = min(rect.y + rect.height, bounds.y + bounds.height)
+        guard right > left, bottom > top else { return nil }
+        return PointRect(x: left - bounds.x, y: top - bounds.y,
+                         width: right - left, height: bottom - top)
+    }
+
+    /// The `CaptureSource` for a region given in GLOBAL top-left points.
+    ///
+    /// **The display whose bounds contain the region's CENTRE**, which is `CaptureSource`'s own
+    /// rule for a window and the same one for the same reason: a rectangle straddling two
+    /// displays belongs to one of them, and the centre is the only answer that does not depend
+    /// on which edge is asked about.
+    ///
+    /// Returns `nil` when no display owns it — a rectangle from a monitor unplugged between the
+    /// drag and the click, which is a real gap between two user actions.
+    public static func source(for rect: PointRect) async -> CaptureSource? {
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(
+                  true, onScreenWindowsOnly: true) else { return nil }
+        let centreX = rect.x + rect.width / 2
+        let centreY = rect.y + rect.height / 2
+        let display = content.displays.first { candidate in
+            let bounds = CGGeometryBridge.pointRect(from: candidate.frame)
+            return centreX >= bounds.x && centreX < bounds.x + bounds.width
+                && centreY >= bounds.y && centreY < bounds.y + bounds.height
+        }
+        guard let display else { return nil }
+        let bounds = CGGeometryBridge.pointRect(from: display.frame)
+        guard let local = localRect(of: rect, inDisplay: bounds) else { return nil }
+        let scale = WindowTargets.scale(of: display)
+        let buffer = RegionCapture.buffer(for: local, scale: scale)
+        return .region(RegionCapture(display: display, sourceRect: local,
+                                     bufferWidth: buffer.width, bufferHeight: buffer.height))
+    }
 }
