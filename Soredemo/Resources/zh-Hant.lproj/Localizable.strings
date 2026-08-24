@@ -234,3 +234,5 @@
 "30 fps" = "30 fps";
 "60 fps" = "60 fps";
 "ProRes 4444" = "ProRes 4444";
+"Keeps coloured text edges on this Mac." = "在這台 Mac 上,彩色文字邊緣不會糊。";
+"Coloured text edges will soften on this Mac." = "在這台 Mac 上,彩色文字邊緣會糊掉。";

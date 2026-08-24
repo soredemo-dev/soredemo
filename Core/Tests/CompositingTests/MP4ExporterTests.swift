@@ -842,3 +842,52 @@ private final class PhaseLog: @unchecked Sendable {
         }
     }
 }
+
+/// What this machine's encoders actually do, asked rather than tabulated.
+@Suite struct CodecSupportTests {
+    /// **The reading of a perfect frame is zero, and of a smeared one is large.** Pinned because
+    /// the whole probe rests on this arithmetic: a bar's edge columns are 0 and 7 of each eight,
+    /// and the expected value alternates with the bar.
+    @Test func theEdgeReadingIsZeroForAPerfectFrameAndLargeForASmearedOne() {
+        var perfect: [Int] = []
+        for x in 0..<256 { perfect.append((x / 8) % 2 == 0 ? 255 : 0) }
+        #expect(CodecSupport.worstEdgeError(perfect) == 0)
+
+        // What every 4:2:0 path measured: the last column of a red bar comes back near 145.
+        var smeared = perfect
+        for x in stride(from: 7, to: 256, by: 16) { smeared[x] = 145 }
+        #expect(CodecSupport.worstEdgeError(smeared) == 110)
+        #expect(CodecSupport.worstEdgeError(smeared) > CodecSupport.edgeTolerance)
+
+        // And what ProRes 4444 measured, which must read as clean.
+        var saturationLoss = perfect
+        for x in stride(from: 0, to: 256, by: 16) { saturationLoss[x] = 234 }
+        for x in stride(from: 7, to: 256, by: 16) { saturationLoss[x] = 234 }
+        #expect(CodecSupport.worstEdgeError(saturationLoss) <= CodecSupport.edgeTolerance)
+    }
+
+    /// The frame the probe encodes has to be the pattern it later expects, or the reading is of
+    /// something else entirely.
+    @Test func theProbeFrameIsTheBarsTheReadingAssumes() throws {
+        let frame = try #require(CodecSupport.barsFrame())
+        #expect(CVPixelBufferGetWidth(frame) == CodecSupport.probeWidth)
+        #expect(CVPixelBufferGetHeight(frame) == CodecSupport.probeHeight)
+        #expect(CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_32BGRA)
+    }
+
+    /// **Asked of this machine, not read from a table.** The verdicts are not asserted — they are
+    /// hardware, and a test that pinned them would fail on the first Mac with a different media
+    /// engine, which is precisely the mistake this type exists to stop. What IS asserted is that
+    /// every codec gives an answer rather than hanging or throwing, and that the answer for
+    /// ProRes 4444 is not worse than the answer for H.264 anywhere.
+    @Test func everyCodecAnswersAndProRes4444IsNeverTheWorseOne() async {
+        var verdicts: [ExportCodec: Bool?] = [:]
+        for codec in ExportCodec.allCases {
+            verdicts[codec] = await CodecSupport.keepsColourEdges(codec)
+        }
+        #expect(verdicts.count == ExportCodec.allCases.count)
+        if let best = verdicts[.proRes4444] ?? nil, let baseline = verdicts[.h264] ?? nil {
+            #expect(best || !baseline, "4444 lost an edge that H.264 kept")
+        }
+    }
+}

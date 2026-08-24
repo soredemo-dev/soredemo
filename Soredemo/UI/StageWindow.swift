@@ -303,6 +303,7 @@ struct StageWindow: View {
         }
         // The preview follows the chosen shape: showing landscape while Portrait is selected
         // would be showing the wrong thing, which is the fault this surface exists against.
+        .task { CodecVerdicts.shared.askOnce() }
         .task {
             guard !hasSeededCameraStyle else { return }
             hasSeededCameraStyle = true
@@ -646,6 +647,14 @@ struct StageWindow: View {
             ForEach(ExportCodec.allCases, id: \.self) { choice in
                 Text(choice.displayName).tag(choice)
             }
+        }
+        // **What this Mac's encoder actually does with a coloured edge**, asked rather than
+        // tabulated — see `CodecVerdicts`. Silent when the probe could not run: "we could not
+        // ask" and "the answer is no" are different things.
+        if let note = CodecVerdicts.shared.note(for: codec) {
+            Text(LocalizedStringKey(note))
+                .font(Type.detail).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         // **How many bits the picture gets.** Nothing was choosing before, so AVFoundation did —
         // at a rate tuned for camera footage, which is the wrong content. See `ExportQuality`.

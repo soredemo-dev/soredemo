@@ -130,16 +130,38 @@ chroma resolution decides whether the edge survives.
 **Everything except ProRes 4444 is 4:2:0 by the time the encoder sees it** — including ProRes
 422, and including HEVC asked for `Main42210` and handed exactly the source that profile
 wants. The profile is accepted, `UsingHardwareAcceleratedVideoEncoder` reports true, the
-frame encodes without error, and the output is 4:2:0. **There is no HEVC 4:2:2 path on this
-hardware; do not build one.**
+frame encodes without error, and the output is 4:2:0.
+
+**On this M1 Pro.** An earlier draft of this section wrote "on this hardware; do not build
+one", which is a claim about one laptop dressed as a claim about the product. Soredemo runs
+on M1 through M5 and on Intel, and Apple's media engines have gained formats with every
+generation — a table written today is wrong for somebody by next autumn, which is the same
+mistake the frame-rate ladder made before it started asking the displays.
+
+So the app asks the machine instead. `CodecSupport.keepsColourEdges(_:)` runs exactly the
+test above — a few milliseconds per codec — and the export panel says what is true *here*.
+A codec that cannot be probed says nothing rather than being reported as a failure: "we could
+not ask" and "the answer is no" are different, and only one of them is safe to put in front of
+somebody.
+
+**The answers are not cached, and that is worth writing down because the cache is what taught
+this.** The first version keyed a `UserDefaults` entry on the chip name and the OS build.
+That meant reading the chip name, which is an ambient value: the app tier may not read one
+(`noAppSourceReadsAnAmbientValueAtAll`), and the package's single audited ambient file may
+not be widened for it either, because that file's whole-file permit rests on *every member of
+it reading the same clock*. Both refusals were right, and chasing them turned up that the
+cache was solving a problem nobody had — the whole probe is about seven tenths of a second,
+it runs off the main actor, and it happens once when an editor window opens. The cache would
+have bought that second back and paid for it with an invalidation key that has to stay correct
+forever.
 
 The residual 21 on ProRes 4444 from BGRA is not chroma — it is what a fully saturated red
 costs in 8-bit YCbCr. Measured separately: neutral 255, 16 and 0 round-trip **exactly**
 through every codec here, tagged or untagged, so nothing is being crushed to video range.
 Feeding 4444 a `4444AYpCbCr8` buffer instead of BGRA takes the error to 1.
 
-**Shipped as a result (2026-08-24):** ProRes 4444 is in the codec picker. It is the only
-export this app can produce that keeps coloured text edges.
+**Shipped as a result (2026-08-24):** ProRes 4444 is in the codec picker, and the panel's
+claim about any codec is measured on the machine in front of the person reading it.
 
 **And one escape route is already shipping.** ProRes 422 is in the export's codec picker as
 of 2026-08-24, and ProRes 422 is 4:2:2 by definition. Somebody who needs clean coloured
