@@ -54,6 +54,9 @@ public struct PointerPath: Sendable {
         public let hostTime: Int64
         public let position: NormalizedPoint
         public let speed: Double
+        /// The spring's velocity by axis, normalised units per second — what a tilt reads.
+        public let velocityX: Double
+        public let velocityY: Double
     }
 
     /// The knobs. **Uncalibrated in this project's sense** — no measurement chose them —
@@ -80,18 +83,30 @@ public struct PointerPath: Sendable {
         public var clickResponseSeconds: Double
         /// Cardinal-spline tension, 0 = Catmull-Rom, 1 = straight lines.
         public var splineTension: Double
+        /// **Drop a reversal inside a short window** — a Rust recorder's `filter_cursor_shake`: three
+        /// samples inside `shakeWindow` where the middle one reverses direction and both
+        /// legs are under `shakeThreshold` are a hand tremor, not a move, and the middle
+        /// sample goes. Screen Studio calls the same thing "Remove cursor shakes".
+        public var removesShakes: Bool
+        public var shakeWindow: Nanoseconds
+        /// Normalised units; a Rust recorder's `SHAKE_THRESHOLD_UV`.
+        public var shakeThreshold: Double
 
         public static let `default` = Tuning(
             dampingRatio: 0.9, responseSeconds: 0.06,
             adaptiveMaxSpeed: 4.0, adaptiveMinScale: 0.4,
             idleSpeed: 0.3, idleBlendRate: 3.0, idleBlendCap: 0.95,
             clickStiffenWindow: Nanoseconds(175_000_000), clickResponseSeconds: 0.035,
-            splineTension: 0.2)
+            splineTension: 0.2,
+            removesShakes: true, shakeWindow: Nanoseconds(100_000_000), shakeThreshold: 0.015)
 
         public init(dampingRatio: Double, responseSeconds: Double, adaptiveMaxSpeed: Double,
                     adaptiveMinScale: Double, idleSpeed: Double, idleBlendRate: Double,
                     idleBlendCap: Double, clickStiffenWindow: Nanoseconds,
-                    clickResponseSeconds: Double, splineTension: Double) {
+                    clickResponseSeconds: Double, splineTension: Double,
+                    removesShakes: Bool = true,
+                    shakeWindow: Nanoseconds = Nanoseconds(100_000_000),
+                    shakeThreshold: Double = 0.015) {
             // Clamped, not trapped: a tuning can arrive from a preferences file one day and
             // a spring with a zero or negative response divides by it.
             self.dampingRatio = min(max(dampingRatio, 0.05), 2)
@@ -104,6 +119,9 @@ public struct PointerPath: Sendable {
             self.clickStiffenWindow = Nanoseconds(max(clickStiffenWindow.rawValue, 0))
             self.clickResponseSeconds = max(clickResponseSeconds, 0.001)
             self.splineTension = min(max(splineTension, 0), 1)
+            self.removesShakes = removesShakes
+            self.shakeWindow = Nanoseconds(max(shakeWindow.rawValue, 0))
+            self.shakeThreshold = max(shakeThreshold, 0)
         }
 
         /// The longest the spring can trail a target moving at constant speed, in seconds.
@@ -149,6 +167,12 @@ public struct PointerPath: Sendable {
     /// the first sample, after the last, or in an epoch with no samples. **`nil` is a real
     /// answer**, and the caller falls back to the lerp; it is never a position.
     public func position(at instant: HostInstant) -> (position: NormalizedPoint, speed: Double)? {
+        guard let entry = entry(at: instant) else { return nil }
+        return (entry.position, entry.speed)
+    }
+
+    /// The whole interpolated entry at `instant`, or `nil` outside the path.
+    public func entry(at instant: HostInstant) -> Entry? {
         guard let entries = byEpoch[instant.epoch], let first = entries.first,
               let last = entries.last else { return nil }
         let time = instant.hostTime.rawValue
@@ -159,16 +183,17 @@ public struct PointerPath: Sendable {
             let mid = low + (high - low) / 2
             if entries[mid].hostTime <= time { low = mid + 1 } else { high = mid }
         }
-        guard low < entries.count else {
-            return (last.position, last.speed)
-        }
+        guard low < entries.count else { return last }
         let a = entries[low - 1], b = entries[low]
         let span = b.hostTime - a.hostTime
-        guard span > 0 else { return (a.position, a.speed) }
+        guard span > 0 else { return a }
         let f = Double(time - a.hostTime) / Double(span)
-        return (NormalizedPoint(x: a.position.x + (b.position.x - a.position.x) * f,
-                                y: a.position.y + (b.position.y - a.position.y) * f),
-                a.speed + (b.speed - a.speed) * f)
+        return Entry(hostTime: time,
+                     position: NormalizedPoint(x: a.position.x + (b.position.x - a.position.x) * f,
+                                               y: a.position.y + (b.position.y - a.position.y) * f),
+                     speed: a.speed + (b.speed - a.speed) * f,
+                     velocityX: a.velocityX + (b.velocityX - a.velocityX) * f,
+                     velocityY: a.velocityY + (b.velocityY - a.velocityY) * f)
     }
 
     // MARK: - baking
@@ -187,6 +212,10 @@ public struct PointerPath: Sendable {
             } else {
                 unique.append(sample)
             }
+        }
+        if tuning.removesShakes {
+            unique = Self.withoutShakes(unique, window: tuning.shakeWindow.rawValue,
+                                        threshold: tuning.shakeThreshold)
         }
         guard unique.count >= 2, let first = unique.first, let last = unique.last else {
             return []
@@ -208,7 +237,8 @@ public struct PointerPath: Sendable {
 
         var entries: [Entry] = []
         entries.reserveCapacity(Int((end - start) / stepNanos) + 3)
-        entries.append(Entry(hostTime: start, position: first.position, speed: 0))
+        entries.append(Entry(hostTime: start, position: first.position, speed: 0,
+                             velocityX: 0, velocityY: 0))
 
         // The grid runs to the first step AT OR PAST the last sample, so the path covers
         // the last sample's own instant: a grid that stopped short left the final few
@@ -261,10 +291,43 @@ public struct PointerPath: Sendable {
             x = min(max(x, 0), 1)
             y = min(max(y, 0), 1)
             entries.append(Entry(hostTime: time, position: NormalizedPoint(x: x, y: y),
-                                 speed: (vx * vx + vy * vy).squareRoot()))
+                                 speed: (vx * vx + vy * vy).squareRoot(),
+                                 velocityX: vx, velocityY: vy))
             time += stepNanos
         }
         return entries
+    }
+}
+
+extension PointerPath {
+    /// a Rust recorder's `filter_cursor_shake`, sample for sample: walk the samples keeping the last
+    /// KEPT one as `prev`; a middle sample whose legs to `prev` and to `next` reverse
+    /// direction (negative dot product), both shorter than `threshold`, inside `window`
+    /// from `prev` to `next`, is dropped. First and last samples always survive. Blind
+    /// intervals are not consulted: a tremor across a blind edge is still a tremor, and
+    /// the spline refuses the blind span on its own.
+    static func withoutShakes(_ samples: [PointerSample], window: Int64,
+                              threshold: Double) -> [PointerSample] {
+        guard samples.count >= 3 else { return samples }
+        var kept: [PointerSample] = [samples[0]]
+        kept.reserveCapacity(samples.count)
+        var i = 1
+        while i < samples.count - 1 {
+            let prev = kept[kept.count - 1], current = samples[i], next = samples[i + 1]
+            let span = next.instant.hostTime.rawValue - prev.instant.hostTime.rawValue
+            if span <= window {
+                let toCurrent = (current.position.x - prev.position.x, current.position.y - prev.position.y)
+                let toNext = (next.position.x - current.position.x, next.position.y - current.position.y)
+                let reversal = toCurrent.0 * toNext.0 + toCurrent.1 * toNext.1 < 0
+                let small = hypot(toCurrent.0, toCurrent.1) < threshold
+                    && hypot(toNext.0, toNext.1) < threshold
+                if reversal && small { i += 1; continue }
+            }
+            kept.append(current)
+            i += 1
+        }
+        kept.append(samples[samples.count - 1])
+        return kept
     }
 }
 

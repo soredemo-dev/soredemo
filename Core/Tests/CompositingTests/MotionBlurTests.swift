@@ -178,3 +178,36 @@ private func luminance(of image: CIImage, width: Int, height: Int) throws -> [Do
     let same = CoreImageFrameRenderer.resampled(source, scaleX: 1, scaleY: 1)
     #expect(same === source)
 }
+
+// MARK: - the cursor's opacity and lean reach the pixels
+
+/// A placement at opacity 0 draws nothing — the frame equals the pointerless one — and a
+/// leaned placement draws a different silhouette from an upright one. Both through the
+/// production renderer.
+@Test func opacityAndTiltChangeWhatIsDrawn() throws {
+    let width = 320, height = 180
+    let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: .default)
+    let renderer = try CoreImageFrameRenderer()
+    func frame(_ pointer: NormalizedPointerPlacement?) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let planned = RenderPlan(outputWidth: width, outputHeight: height, card: plan.card,
+                                 cornerRadius: plan.cornerRadius, style: plan.style, pointer: pointer)
+        try renderer.render(planned, source: source, camera: nil, into: destination)
+        return try pixels(of: destination)
+    }
+    let none = try frame(nil)
+    let upright = try frame(NormalizedPointerPlacement(x: 160, y: 90, ripplePhase: nil))
+    let hidden = try frame(NormalizedPointerPlacement(x: 160, y: 90, ripplePhase: nil, opacity: 0))
+    let leaned = try frame(NormalizedPointerPlacement(x: 160, y: 90, ripplePhase: nil, tiltDegrees: 10))
+    let half = try frame(NormalizedPointerPlacement(x: 160, y: 90, ripplePhase: nil, opacity: 0.5))
+
+    #expect(zip(upright, none).contains { $0 != $1 }, "the upright cursor drew nothing")
+    #expect(!zip(hidden, none).contains { $0 != $1 }, "a cursor at opacity 0 still drew")
+    #expect(zip(leaned, upright).contains { $0 != $1 }, "a 10° lean drew the same pixels as upright")
+    // Half opacity: over the blue source the white fill lands between the two.
+    let brightest = { (f: [(r: UInt8, g: UInt8, b: UInt8)]) in f.map { Int($0.r) }.max() ?? 0 }
+    #expect(brightest(half) < brightest(upright) && brightest(half) > brightest(none),
+            "half opacity did not land between hidden and drawn")
+}

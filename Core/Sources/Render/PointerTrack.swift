@@ -22,6 +22,11 @@ public struct PointerTrack: Sendable {
     private let overrides: [CursorOverride]
     /// The presentation path, baked once from the same samples — see `PointerPath`.
     private let path: PointerPath
+    /// Host times, per epoch, of every sample that MOVED — differed from the sample before
+    /// it by more than `motionThreshold`. What the idle fade is measured against: a
+    /// `PointerSampler` stream of a resting pointer is not motion, and neither is a
+    /// sub-pixel wobble.
+    private let motionInstants: [BootEpoch: [Int64]]
 
     /// `clickInstants` are button-DOWN instants and feed only the presentation path, where
     /// the spring stiffens into a click; neither review query reads them. Defaulted so the
@@ -34,6 +39,58 @@ public struct PointerTrack: Sendable {
         self.overrides = overrides
         self.path = PointerPath(samples: self.samples, blindIntervals: blindIntervals,
                                 clickInstants: clickInstants, tuning: tuning)
+        var motion: [BootEpoch: [Int64]] = [:]
+        var previous: [BootEpoch: NormalizedPoint] = [:]
+        for sample in self.samples {
+            let epoch = sample.instant.epoch
+            defer { previous[epoch] = sample.position }
+            guard let last = previous[epoch] else { continue }
+            if hypot(sample.position.x - last.x, sample.position.y - last.y) > Self.motionThreshold {
+                motion[epoch, default: []].append(sample.instant.hostTime.rawValue)
+            }
+        }
+        self.motionInstants = motion
+    }
+
+    /// A move smaller than this is stillness for the idle fade: half a pixel of a 2160-tall
+    /// recording, the finest a tap reports on a Retina display.
+    public static let motionThreshold: Double = 0.5 / 2160
+
+    /// How long the idle fade takes, out and in. a Rust recorder fades over a similar span; Screen
+    /// Studio's is not published. **Uncalibrated.**
+    public static let idleFadeSeconds: Double = 0.3
+
+    /// **The cursor's opacity under the idle rule: 1 while it has moved within `hideAfter`,
+    /// fading to 0 over `idleFadeSeconds` after that, and back to 1 over the same span BEFORE
+    /// the next move** — the look-ahead is a Rust recorder's `CURSOR_IDLE_RESUME_LOOKAHEAD`, and it is
+    /// what stops a hidden cursor popping into existence already moving. A track with no
+    /// motion at all is drawn: a pointer that never moved is not idle, it is where it is.
+    public func idleOpacity(at instant: HostInstant, hideAfter delay: Double) -> Double {
+        guard let moves = motionInstants[instant.epoch], !moves.isEmpty else { return 1 }
+        let time = instant.hostTime.rawValue
+        // First move strictly after `time`.
+        var low = 0, high = moves.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if moves[mid] <= time { low = mid + 1 } else { high = mid }
+        }
+        let fade = Self.idleFadeSeconds
+        var fadeIn = 0.0
+        if low < moves.count {
+            let untilNext = Double(moves[low] - time) / 1e9
+            if untilNext <= fade { fadeIn = 1 - untilNext / fade }
+        }
+        guard low > 0 else { return 1 }   // before the first move: not yet idle
+        let sinceLast = Double(time - moves[low - 1]) / 1e9
+        let fadeOut = sinceLast <= delay ? 1.0 : max(0, 1 - (sinceLast - delay) / fade)
+        return max(fadeOut, fadeIn)
+    }
+
+    /// The presentation path's velocity at `instant`, normalised units per second per axis,
+    /// or `nil` where the path has no answer — what the tilt is computed from.
+    public func presentedVelocity(at instant: HostInstant) -> (x: Double, y: Double)? {
+        guard let entry = path.entry(at: instant) else { return nil }
+        return (entry.velocityX, entry.velocityY)
     }
 
     /// The reviewer's decision wins, then a measured gap, then the most recent sample at or before

@@ -480,10 +480,20 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // The tip, the origin both paths are built around, sits at the canvas centre.
         let tip = Double(size) / 2
 
+        // Faded out entirely: nothing to draw, and no bitmap work to do it with.
+        guard placement.opacity > 0 else { return CIImage.empty() }
         let image = cursorCanvasLock.withLock { () -> CGImage? in
             guard let bitmap = cursorCanvas(size: size) else { return nil }
             bitmap.saveGState()
             bitmap.translateBy(x: tip, y: tip)
+            // The lean, about the hotspot: the art is built around its origin, so a rotation
+            // here pivots the tip and swings the body — the way a real cursor's body trails.
+            // Negative because Core Graphics rotates counter-clockwise for a positive angle
+            // and a lean to the RIGHT is clockwise.
+            if placement.tiltDegrees != 0 {
+                bitmap.rotate(by: -placement.tiltDegrees * .pi / 180)
+            }
+            bitmap.setAlpha(placement.opacity)
 
             bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             bitmap.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))

@@ -350,11 +350,17 @@ public struct NormalizedPointerPlacement: Hashable, Sendable {
     /// `nil` falls back to the art's path origin, which is right for the arrow and wrong
     /// for everything else — see `PointerSample.hotspot`.
     public let hotspot: NormalizedPoint?
+    /// 1 drawn fully, 0 not at all — the idle fade. Clamped on the way in.
+    public let opacity: Double
+    /// The lean, degrees, positive to the right — see `CursorTilt`.
+    public let tiltDegrees: Double
 
     public init(x: Double, y: Double, ripplePhase: Double?, shape: PointerShape? = nil,
-                hotspot: NormalizedPoint? = nil) {
+                hotspot: NormalizedPoint? = nil, opacity: Double = 1, tiltDegrees: Double = 0) {
         self.x = x; self.y = y; self.ripplePhase = ripplePhase
         self.shape = shape; self.hotspot = hotspot
+        self.opacity = opacity.isFinite ? min(max(opacity, 0), 1) : 1
+        self.tiltDegrees = tiltDegrees.isFinite ? tiltDegrees : 0
     }
 }
 

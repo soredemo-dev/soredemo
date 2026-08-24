@@ -91,11 +91,19 @@ extension CursorOverride: Codable {
 /// size and one screen density, and a ripple nobody can turn off is a ripple in the way of
 /// anyone recording a drawing app.
 ///
-/// **Not a smoothing control, deliberately.** The obvious fifth field here is the one Screen
-/// Studio is known for and complained about — a spring that makes the pointer drift behind the
-/// real one. This recorder's pointer is linearly interpolated between real samples with three
-/// refusals (`PointerTrack.smoothedPosition`) and never invents motion, so there is no drift to
-/// tune away and no knob that would improve it. Adding one would mean adding the drift first.
+/// **Still not a smoothing control, and the reason changed on 2026-08-25.** This paragraph
+/// used to say the pointer was a lerp with no drift to tune. It is a spring now
+/// (`PointerPath`), with a phase lead that cancels the steady-state trail — so the drift the
+/// knob would tune is compensated by construction, and the tuning lives in
+/// `PointerPath.Tuning` beside the mechanism it tunes rather than in a style a person edits
+/// per project. Screen Studio ships its equivalent as four presets ("Smooth / Medium / Rapid /
+/// None", guide/animations); if a knob ever comes here, it is that picker, not a number.
+///
+/// **What did come: idle hiding and tilt**, the two Screen Studio cursor options every
+/// reference recorder also has ("Auto-hide idle cursor", "Rotate cursor while moving";
+/// a Rust recorder's `hide_when_idle`/`rotation_amount`, an Electron recorder's `cursorSway`). Both default OFF: a
+/// cursor that vanishes or leans is a choice a person makes about their video, not a
+/// default that changes what an existing project looks like when it is reopened.
 public struct CursorStyle: Hashable, Codable, Sendable {
     /// A multiplier on the drawn cursor, 0.5…3. **The recording's own cursor is not resized** —
     /// this is the art this app draws, and making it larger is how a demo stays legible when it
@@ -110,6 +118,13 @@ public struct CursorStyle: Hashable, Codable, Sendable {
     public let red: Double
     public let green: Double
     public let blue: Double
+    /// Fade the cursor out when it has not moved for `idleDelay`, and back in just before it
+    /// moves again — see `PointerTrack.idleOpacity(at:hideAfter:)`.
+    public let hidesWhenIdle: Bool
+    /// Seconds of stillness before the fade begins, 0.5…10.
+    public let idleDelay: Double
+    /// How much the cursor leans into its own motion, 0…1 — `CursorTilt` turns it into degrees.
+    public let tilt: Double
 
     public enum ClickEffect: String, Hashable, Codable, Sendable, CaseIterable {
         /// An expanding ring — what this app has always drawn.
@@ -132,8 +147,15 @@ public struct CursorStyle: Hashable, Codable, Sendable {
         scale: 1, clickEffect: .ripple, clickOpacity: 0.85, clickSize: 1,
         red: 1, green: 1, blue: 1)
 
+    /// Two seconds: long enough that a pause to read does not blink the cursor away, short
+    /// enough that a cursor parked while someone talks is gone before it distracts. a Rust recorder's
+    /// default is the same order. **Uncalibrated.**
+    public static let defaultIdleDelay: Double = 2.0
+
     public init(scale: Double, clickEffect: ClickEffect, clickOpacity: Double,
-                clickSize: Double, red: Double, green: Double, blue: Double) {
+                clickSize: Double, red: Double, green: Double, blue: Double,
+                hidesWhenIdle: Bool = false, idleDelay: Double = CursorStyle.defaultIdleDelay,
+                tilt: Double = 0) {
         // Clamped rather than trapped: every one of these arrives from a slider AND from a
         // decoder, which is rule 8's case.
         self.scale = min(max(scale, 0.5), 3)
@@ -143,6 +165,9 @@ public struct CursorStyle: Hashable, Codable, Sendable {
         self.red = min(max(red, 0), 1)
         self.green = min(max(green, 0), 1)
         self.blue = min(max(blue, 0), 1)
+        self.hidesWhenIdle = hidesWhenIdle
+        self.idleDelay = idleDelay.isFinite ? min(max(idleDelay, 0.5), 10) : CursorStyle.defaultIdleDelay
+        self.tilt = tilt.isFinite ? min(max(tilt, 0), 1) : 0
     }
 
     public init(from decoder: any Decoder) throws {
@@ -155,11 +180,16 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                   clickSize: try container.decodeIfPresent(Double.self, forKey: .clickSize) ?? 1,
                   red: try container.decodeIfPresent(Double.self, forKey: .red) ?? 1,
                   green: try container.decodeIfPresent(Double.self, forKey: .green) ?? 1,
-                  blue: try container.decodeIfPresent(Double.self, forKey: .blue) ?? 1)
+                  blue: try container.decodeIfPresent(Double.self, forKey: .blue) ?? 1,
+                  hidesWhenIdle: try container.decodeIfPresent(Bool.self, forKey: .hidesWhenIdle) ?? false,
+                  idleDelay: try container.decodeIfPresent(Double.self, forKey: .idleDelay)
+                      ?? CursorStyle.defaultIdleDelay,
+                  tilt: try container.decodeIfPresent(Double.self, forKey: .tilt) ?? 0)
     }
 
     private enum CodingKeys: String, CodingKey {
         case scale, clickEffect, clickOpacity, clickSize, red, green, blue
+        case hidesWhenIdle, idleDelay, tilt
     }
 
     /// The same style with one field changed — the shape `TextOverlayStyle.changing` uses, for
@@ -168,11 +198,37 @@ public struct CursorStyle: Hashable, Codable, Sendable {
     public func changing(scale: Double? = nil, clickEffect: ClickEffect? = nil,
                          clickOpacity: Double? = nil, clickSize: Double? = nil,
                          red: Double? = nil, green: Double? = nil,
-                         blue: Double? = nil) -> CursorStyle {
+                         blue: Double? = nil, hidesWhenIdle: Bool? = nil,
+                         idleDelay: Double? = nil, tilt: Double? = nil) -> CursorStyle {
         CursorStyle(scale: scale ?? self.scale,
                     clickEffect: clickEffect ?? self.clickEffect,
                     clickOpacity: clickOpacity ?? self.clickOpacity,
                     clickSize: clickSize ?? self.clickSize,
-                    red: red ?? self.red, green: green ?? self.green, blue: blue ?? self.blue)
+                    red: red ?? self.red, green: green ?? self.green, blue: blue ?? self.blue,
+                    hidesWhenIdle: hidesWhenIdle ?? self.hidesWhenIdle,
+                    idleDelay: idleDelay ?? self.idleDelay,
+                    tilt: tilt ?? self.tilt)
+    }
+}
+
+
+/// **How far the cursor leans into its motion.** Screen Studio's "Rotate cursor while
+/// moving"; an Electron recorder's `cursorSway.ts` is the formulation borrowed: the lean is the
+/// horizontal speed as a share of a reference speed, clamped, times a maximum angle, so
+/// a slow drift does not tilt and a flick tilts fully. a Rust recorder does the same from the
+/// displacement over the last 0.4 s (`rendering/src/lib.rs:3234`), clamped at ±20°.
+public enum CursorTilt {
+    /// an Electron recorder's `CURSOR_SWAY_MAX_ROTATION`, π/18. **Uncalibrated.**
+    public static let maximumDegrees: Double = 10
+    /// an Electron recorder's `CURSOR_SWAY_SPEED_REFERENCE`: the horizontal speed, in output pixels per
+    /// second, at which the lean is fully applied. **Uncalibrated.**
+    public static let speedReferencePixelsPerSecond: Double = 1400
+
+    /// Degrees, positive leaning to the right — the way a moving cursor's tip trails its
+    /// body. `amount` is `CursorStyle.tilt`.
+    public static func degrees(velocityXPixelsPerSecond velocity: Double, amount: Double) -> Double {
+        guard amount > 0, velocity.isFinite else { return 0 }
+        let share = min(max(velocity / speedReferencePixelsPerSecond, -1), 1)
+        return share * maximumDegrees * min(max(amount, 0), 1)
     }
 }

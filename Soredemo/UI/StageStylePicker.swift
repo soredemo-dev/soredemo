@@ -211,6 +211,20 @@ struct StageStylePicker: View {
                 model.setCursor(model.cursor.changing(clickOpacity: $0)); onChange()
             }
         }
+        // **Screen Studio's two cursor options every reference recorder also has.** Both
+        // off by default — see `CursorStyle` — so a saved project looks as it did.
+        Toggle("Hide cursor when idle", isOn: Binding(
+            get: { model.cursor.hidesWhenIdle },
+            set: { model.setCursor(model.cursor.changing(hidesWhenIdle: $0)); onChange() }))
+            .font(Type.detail)
+        if model.cursor.hidesWhenIdle {
+            slider("Hide after (s)", value: model.cursor.idleDelay, range: 0.5...10) {
+                model.setCursor(model.cursor.changing(idleDelay: $0)); onChange()
+            }
+        }
+        slider("Tilt while moving", value: model.cursor.tilt, range: 0...1) {
+            model.setCursor(model.cursor.changing(tilt: $0)); onChange()
+        }
     }
 
     /// The open panel. Images only, and one at a time.

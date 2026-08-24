@@ -133,3 +133,26 @@ import Foundation
         #expect(crop.changing(width: 0.4).y == 0.2)
     }
 }
+
+// MARK: - the 2026-08-25 cursor options
+
+/// The three new fields round-trip, an old file without them decodes to their defaults —
+/// which are OFF, so a reopened project looks as it did — and the clamps hold.
+@Suite struct CursorPresentationStyleTests {
+    @Test func theNewFieldsRoundTripAndDefaultOff() throws {
+        let style = CursorStyle.default.changing(hidesWhenIdle: true, idleDelay: 3.5, tilt: 0.7)
+        let data = try JSONEncoder().encode(style)
+        #expect(try JSONDecoder().decode(CursorStyle.self, from: data) == style)
+        let old = Data(#"{"scale":1.2,"clickEffect":"pulse"}"#.utf8)
+        let decoded = try JSONDecoder().decode(CursorStyle.self, from: old)
+        #expect(decoded.hidesWhenIdle == false && decoded.tilt == 0
+                && decoded.idleDelay == CursorStyle.defaultIdleDelay)
+        #expect(decoded.scale == 1.2 && decoded.clickEffect == .pulse)
+    }
+
+    @Test func theNewFieldsAreClamped() {
+        let wild = CursorStyle.default.changing(idleDelay: 99, tilt: -3)
+        #expect(wild.idleDelay == 10 && wild.tilt == 0)
+        #expect(CursorStyle.default.changing(idleDelay: .nan).idleDelay == CursorStyle.defaultIdleDelay)
+    }
+}

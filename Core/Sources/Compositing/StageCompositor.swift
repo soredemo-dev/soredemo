@@ -320,9 +320,21 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // presented reading is the spring-followed cursor with the lerp as its floor.
         switch pointer.presentedPosition(at: instant) {
         case .drawn(let point, let shape, let hotspot):
+            let style = unsafe Self.cursorStyle
+            // The idle fade and the lean are presentation, computed here beside the
+            // position they belong to. The lean reads the spring's own velocity in OUTPUT
+            // pixels — the content's scale under the camera included — so a flick across a
+            // zoomed-in card leans as much as the same flick across the whole recording.
+            let opacity = style.hidesWhenIdle
+                ? pointer.idleOpacity(at: instant, hideAfter: style.idleDelay) : 1
+            let velocityX = pointer.presentedVelocity(at: instant)?.x ?? 0
+            let tilt = CursorTilt.degrees(
+                velocityXPixelsPerSecond: velocityX * plan.card.width * plan.contentZoom,
+                amount: style.tilt)
             return StagePlanner.placement(for: point, in: plan,
                                           ripplePhase: click?.ripplePhase(at: instant),
-                                          shape: shape, hotspot: hotspot)
+                                          shape: shape, hotspot: hotspot,
+                                          opacity: opacity, tiltDegrees: tilt)
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }
