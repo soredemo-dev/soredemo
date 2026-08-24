@@ -112,9 +112,11 @@ Turn one raw recording into something worth posting. **Not an NLE** — four ope
 
 ---
 
-## Pillar 3 — Launch video
+## Pillar 3 — What goes in the picture
 
-The demo is the raw material. The launch video is what you actually post.
+**Was "Launch video". Narrowed 2026-08-25** with `ROADMAP.md`'s Phase 0 and Phase 8. Written steps,
+post drafts and platform profiles went with the publishing half; what is left is video craft a
+screen recorder wants whether or not anything is ever posted.
 
 ### What you build
 
@@ -125,9 +127,6 @@ The demo is the raw material. The launch video is what you actually post.
 | Scene transitions | Cross-fade, push, scale — whole-scene, not clip-level |
 | Background music | Optional, with ducking under narration |
 | Poster frame | A still for social cards and READMEs |
-| Written steps | A Markdown walkthrough derived from what was clicked and said |
-| Post draft | Platform-specific copy |
-| Platform profiles | Instagram Reels needs **9:16 and 5–90 s**; Threads ≤5 min; X has its own limits. These are compile-time constraints, not export-time surprises |
 
 ### Frameworks
 
@@ -140,8 +139,6 @@ The demo is the raw material. The launch video is what you actually post.
 **Audio** — `AVAudioEngine`, `AVAudioMixerNode`, `AVAudioUnitEQ` for music and ducking; `AVAudioFile` for assets.
 
 **Beat sync (optional)** — **Music Understanding framework** (macOS 27) analyses audio on-device across six dimensions. Spike this before writing beat detection by hand.
-
-**Copy generation** — **Foundation Models**. Use `@Generable` guided generation so the output is a typed Swift structure with citation fields, not free prose. **Phrase facts the project already established; never supply facts it lacks.** `LanguageModelSession` for multi-turn. Free Private Cloud Compute tier applies under 2M downloads.
 
 **Still export** — `CGImageDestination`, `UTType.png`/`.jpeg`.
 
@@ -213,11 +210,6 @@ a document, not a database.
 Swift 6.4 strict concurrency. `actor` for capture and render pipelines, `@MainActor` for UI,
 `Sendable` across every boundary. `AsyncSequence`/`AsyncStream` for sample delivery and progress.
 Swift 6.4 allows `async` in `defer`, which is directly useful for capture-session teardown.
-
-### GitHub integration
-
-`URLSession` against the GitHub REST API. Poll on launch and on a timer — **no webhook, no server**.
-Keychain (`Security` framework) for the token.
 
 ### Distribution
 
@@ -303,7 +295,6 @@ Recorded so these are decisions, not questions that come back every few weeks.
 
 | Framework | When |
 | --- | --- |
-| **StoreKit group and organisation subscriptions** | This is literally the Team tier in `PRODUCT.md` § Packaging. Read before designing billing |
 | **MetricKit** (new in the 2027 releases) | Crash and hang telemetry, local-first |
 | **Xcode Cloud** | CI. Worth it for a solo developer once the test suite is real |
 | **DiskImageKit** (new in macOS 27) | Built on Apple Sparse Image Format with stacked images. Relevant at `.dmg` build time, though `create-dmg` is probably still simpler |

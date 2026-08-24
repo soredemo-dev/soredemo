@@ -57,7 +57,7 @@ macOS 26 · Swift 6.4 · Apple Silicon · local by default
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | **Working agreement.** Method, rules, the publishing rule |
 | [`ROADMAP.md`](ROADMAP.md) | **The only ordered work list.** Take the first unblocked row |
-| [`docs/PRODUCT.md`](docs/PRODUCT.md) | Positioning, the loop, and what is deliberately not built |
+| [`docs/PRODUCT.md`](docs/PRODUCT.md) | What this is, what is deliberately not built, and how it differs from the recorders it was read against |
 | [`docs/FEATURES.md`](docs/FEATURES.md) | **Every feature and the Apple framework behind it.** Four pillars: record, edit, launch video, CLI + agent |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Eight binding decisions (D1–D8) and the module map |
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
