@@ -20,7 +20,7 @@ Our tiers in full (`Core/Sources/{Capture,Framing,Render,Compositing,Overlays,Pr
 
 **Difference a viewer sees.** A hand over a link, a crosshair in a design tool, a resize arrow on a divider — all drawn as an arrow; and the arrow itself is not the macOS arrow.
 
-**What closes it.** Record the cursor's own image. `SystemCursorShape` already samples `NSCursor.currentSystem` on the main actor every 100 ms; the same sample can hand back the image bytes and hotspot. Dedupe by a digest of the alpha mask, write each new image once into `<package>/cursors/<digest>.png`, and stamp `PointerSample` with the digest. The renderer draws the recorded image at the recorded hotspot — which is precisely the value `PointerSample.hotspot` was carried for and the renderer's own comment says it would be right for. Schema 2 → 3 with the field optional, so every existing log decodes unchanged (the same shape `shape`/`hotspot` took). Cost: capture app tier + `Project` record + `Compositing` draw + package I/O. **The largest item here and the one with the most visible return.**
+**What closes it — REVISED by Part 1b below, and the revision is the useful part.** This paragraph originally said: record the cursor's own image. `SystemCursorShape` already samples `NSCursor.currentSystem` on the main actor every 100 ms; the same sample can hand back the image bytes and hotspot. Dedupe by a digest of the alpha mask, write each new image once into `<package>/cursors/<digest>.png`, and stamp `PointerSample` with the digest. The renderer draws the recorded image at the recorded hotspot — which is precisely the value `PointerSample.hotspot` was carried for and the renderer's own comment says it would be right for. Schema 2 → 3 with the field optional, so every existing log decodes unchanged (the same shape `shape`/`hotspot` took). **Neither Screen Studio nor ScreenKite does any of that** — both draw their own art for every shape and offer it as a picker — so the visible half of this gap closes by drawing four more paths in `CursorArt`, at no schema cost. See Part 1b.
 
 ### 2. The camera does not follow the cursor inside a zoom — **the complaint that started this**
 
@@ -79,6 +79,78 @@ Display, window (followed live), region (remembered rectangle) — parity with S
 Match Recording, HEVC/ProRes/4444, size estimate calibrated to a Rust recorder's — parity or better. ScreenKite exports H.264 only. Screen Studio's "new GIF pipeline" (changelog) — ours already quantises after scaling with ImageIO's palettes; no measured gap.
 
 ---
+
+## Part 1b — What Screen Studio and ScreenKite actually ship
+
+The first pass read the two commercial recorders thinly and leaned on the open-source four for detail. Read properly — every Screen Studio guide page, its changelog back to 2023, ScreenKite's changelog across 25 releases and its comparison posts — they answer questions the open-source projects do not, and two of those answers change the plan below.
+
+### The two findings that changed the plan
+
+**1. Both ship the comfort zone, and ScreenKite says so in as many words.** Its 1.9 release note reads "Follow Cursor with comfort-zone tracking that closely matches Screen Studio", and 1.8's says "Follow Cursor now uses smarter comfort-zone tracking to keep canvas naturally centered". That is item 1 of this audit, already implemented from an Electron recorder's `cursorFollowCamera.ts` — so the rule was not a guess from one open-source project, it is what both commercial recorders converge on. The 0.25 margin stands.
+
+**2. The cursor gap is two gaps, and the cheap half was mistaken for the expensive one.** Part 1 said the answer to "we draw an arrow for every shape" was to record the system cursor's own bitmap — a schema change across four tiers. Neither commercial recorder does that. Screen Studio offers a **Cursor type** picker ("macOS or Touch"), an "Always use default system cursor" switch, and ships *cursor sets* (macOS Tahoe set, 3.4.8; a Halloween set, 3.5.0) — its own art, of every shape. ScreenKite ships "selectable cursor styles including built-in SVG themes (Tabler, Lucide) and Phosphor-derived cursor artwork" (1.11) plus novelty styles (1.16). **Both draw their own art; neither records the user's bitmap.** So the visible gap — a hand drawn as an arrow — closes by drawing the four missing shapes, with no schema change and no capture work at all. Recording the real bitmap is a separate, later question about fidelity to *this* user's cursor, and it is one nobody else has thought worth answering.
+
+### Cursor
+
+| Behaviour | Screen Studio | ScreenKite | Soredemo |
+| --- | --- | --- | --- |
+| Size | `Cursor size` | scales to display resolution (0.8) | `CursorStyle.scale`, 0.5–3 ✅ |
+| Shape art | macOS / Touch types, OS-matched sets | Tabler / Lucide / Phosphor SVG themes | **arrow + I-beam only; four shapes fall back to the arrow** ✗ |
+| Smoothing | on by default; per-fragment `Disable smooth mouse movement`; four speeds (Smooth/Medium/Rapid/None) | "smoothing… make cursor movement look polished" | `PointerPath` spring ✅; **no per-fragment override, no preset picker** ✗ |
+| Hide when idle | `Hide cursor if it's not moving` | camera layouts hide during silence | `hidesWhenIdle` + delay ✅ |
+| Hide entirely | `Hide cursor`; per-fragment via right-click | camera-only mode hides it (0.8) | `CursorOverride` (review-path suppression) ◐ — no per-fragment UI |
+| Rotate while moving | `Rotate cursor while moving` | — | `CursorStyle.tilt` ✅ |
+| Remove shakes | `Remove cursor shakes` | — | `PointerPath.Tuning.removesShakes` ✅ |
+| Cursor motion blur | — | "cursor motion blur" in the inspector (1.0) | **camera blur only** ✗ |
+| Click effects | ripple + shockwave (2.26), customisable (3.0) | click highlight animations with inspector controls (1.13), water-drop refraction ripple (1.16) | ripple + pulse, colour/size/opacity ✅ |
+| Click sound | sound effects with volume (3.3.0) | — | ✗ |
+| Loop cursor position | `Loop cursor position` | — | ✗ |
+| Stop at end | `Stop cursor movement at the end of the video` | — | ✗ |
+| Type-change damping | `Optimize original cursor types` | — | ✗ (moot until more shapes exist) |
+
+### Zoom and camera motion
+
+| Behaviour | Screen Studio | ScreenKite | Soredemo |
+| --- | --- | --- | --- |
+| Auto zoom on clicks | yes; "if no click occurs, it will not zoom" | on clicks **and keystrokes**; circling-mouse detection (0.9) | clicks + AX target ✅ |
+| Follow cursor inside a zoom | yes | comfort-zone tracking (1.8/1.9) | `followMargin` ✅ |
+| Manual zoom | purple dot target, zoom level | Option-click target with a minimap (1.9) | ✗ — audit item 6 |
+| Add a zoom where no click was | click the zoom lane | yes | ✗ — audit item 6 |
+| Instant (unanimated) zoom | `Instant Animation` per zoom | — | ✗ |
+| Transition character | `Focused` vs `Smooth` presets | "adjust auto-zoom motion settings" (1.4) | fixed ζ=1 spring ◐ |
+| Motion blur | slider, split three ways: cursor / zooming / panning | in the inspector | one `MotionBlur`, camera only ◐ |
+| Copy/paste zoom ranges | 2.26 | export-range markers (1.13) | ✗ |
+| Zoom depth ceiling | not published | not published | `FramingDepth.zoomCeiling`, pixel-density derived ✅ |
+
+### Everything else, briefly
+
+**Camera.** Both ship position, size, roundness, mirror, and shrink-during-zoom; we have all five (`CameraOverlayStyle`, `scaleDuringZoom`) ✅. Both ship a **layouts timeline** — fullscreen / default / hidden segments — and we have one static placement ✗. ScreenKite adds face-centred crop and chroma key.
+
+**Audio.** Screen Studio: microphone enhancement (3.7.1), background-music library with ducking (3.4.0/3.4.9), per-clip volume (2.20). ScreenKite: "Studio Master" offline noise reduction, speech isolation, de-reverb, broadcast levelling (1.14/1.15), voice ducking, filler-word cleanup (1.0). We have per-source gain and silence removal ✅, and **nothing else** ✗. This is the largest non-visual gap and both ship far more than the open-source four, which is why the first pass under-rated it.
+
+**Captions.** Screen Studio: Whisper (base/small/medium) or Apple Speech, a prompt field for product names, transcript editor, sidecar export. ScreenKite: on-device transcription with speaker detection, word-level highlights, SRT/VTT, translation, transcript-based cutting. We have Apple `SpeechAnalyzer`, word highlighting, SRT/VTT, and burn-in ✅; no prompt field, no translation, no transcript-driven cutting ✗ (the last is `basic-edit`'s own row).
+
+**Keystrokes.** Screen Studio has had "show pressed shortcuts" since 2.7.0 and a **dedicated shortcuts timeline** since 2.22.0. ScreenKite ships a frosted-glass overlay. We drew our first badge today ✅; no lane, no per-press editing ◐.
+
+**Masking.** Screen Studio added masking plus a *highlight* mask (3.1.0). We have mosaic and solid, rectangular or oval ✅; no highlight (invert-mask) style ✗.
+
+**Export.** Screen Studio: MP4/GIF, HD/4K, 24/30/60, a compression level. ScreenKite: HEVC tiers, 2K/4K, HDR, transparent video, GIF, FCPXML, 120/144 fps capture. Ours — Match Recording up to the capture's own size, H.264/HEVC/ProRes/4444, any rate the capture supports, calibrated size estimate — is **ahead of Screen Studio's and level with ScreenKite's**, minus transparency and FCPXML ✅.
+
+**What neither has that we do.** A recorded reason for every framing decision (`FramingPlan`, `review-ui`), an observation log a person can audit, ProRes 4444 with a measured edge table, and a zoom ceiling derived from pixel density. Those are the parts of this project that are not a race.
+
+### The plan, revised by this reading
+
+Items 1–4 are done. The remainder, re-ordered by what the two commercial recorders show is worth having:
+
+| # | Item | Why this rank |
+| --- | --- | --- |
+| **5** | **Draw the four missing cursor shapes** | The #1 visible gap, and this reading shows it costs art, not a schema. Both competitors ship their own art for every shape. |
+| 6 | Cursor motion blur | ScreenKite ships it; `PointerPath` already carries the velocity, and `MotionBlur` already exists. |
+| 7 | Manual zoom + add-zoom on the lane | Both ship it; ours is the only recorder here where a zoom cannot be placed by hand. |
+| 8 | Audio: noise suppression, ducking | Both ship far more than the open-source four. `AVAudioEngine.isVoiceProcessingEnabled` is the platform's own. |
+| 9 | Instant zoom, loop cursor, stop-at-end, click sound | Small Screen Studio options, each an afternoon. |
+| 10 | Camera layouts timeline | Both ship it; the largest remaining structural difference. |
+| 11 | Recorded cursor bitmaps | Deferred: nobody else does it, and item 5 closes the visible gap without it. |
 
 ## Part 2 — Flaws found while reading
 

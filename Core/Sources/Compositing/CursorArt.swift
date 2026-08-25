@@ -18,7 +18,12 @@ nonisolated enum CursorArt {
         (0, 0), (0, -22), (5, -17), (8.5, -24.5), (11.5, -23), (8, -15.5), (16, -15.5),
     ]
 
-    /// The largest coordinate magnitude in `outline` at `scale == 1`, for callers sizing a canvas.
+    /// The largest coordinate magnitude any of this file's shapes reaches at `scale == 1`, for
+    /// callers sizing a canvas. **Every shape, not just the arrow** — it was the arrow's alone
+    /// while the arrow was the only art, and a shape that outgrew it would be clipped at the
+    /// bitmap's edge rather than drawn. `noShapeOutgrowsTheCanvasItIsDrawnOn` measures each
+    /// path's own bounding box against it, so adding a fifth shape that does not fit is a red
+    /// test rather than a corner missing from a frame.
     public static let pointerMaxExtent: Double = 24.5
 
     /// The arrow silhouette scaled uniformly by `scale`, as a closed path to fill and/or stroke.
@@ -62,6 +67,97 @@ nonisolated enum CursorArt {
                    width: serifHalfWidth * 2, height: serifThickness)
         closedRect(x: -serifHalfWidth, y: -halfHeight,
                    width: serifHalfWidth * 2, height: serifThickness)
+        return path
+    }
+
+    /// **The pointing hand, built around its FINGERTIP** — which is where the system puts this
+    /// cursor's hotspot, measured on this machine at (0.406, 0.250) of its image
+    /// (`PointerSample.hotspot`). Every path in this file is built around its own hotspot at
+    /// the origin, because the renderer draws that origin at the recorded position and applies
+    /// no offset; a hand built around its centre would sit half a cursor from where the person
+    /// pointed.
+    ///
+    /// One closed silhouette: down the index finger's left edge, out around the thumb and the
+    /// fist, up the right, over three knuckle humps, and back up the finger's right edge. The
+    /// humps are what make it read as a hand rather than a mitten at 24 px, which is the size
+    /// it is actually drawn at.
+    public static func pointingHandPath(scale s: Double) -> CGPath {
+        closedPath(of: [
+            (0, 0),                                          // the fingertip: the hotspot
+            (-2.6, -2.0), (-2.6, -12.5),                     // the finger's left edge
+            (-4.8, -13.0), (-6.4, -15.0), (-6.7, -18.4),     // the thumb
+            (-5.7, -21.6), (-3.4, -23.4),                    // the fist's lower left
+            (-0.5, -24.0), (5.4, -24.0),                     // across the bottom
+            (8.3, -22.8), (9.8, -20.4), (10.0, -13.8), (8.9, -11.7),
+            (7.1, -11.2), (7.1, -13.0),                      // three knuckles, right to left
+            (5.1, -11.2), (5.1, -13.0),
+            (3.1, -11.2),
+            (2.6, -12.5), (2.6, -2.0),                       // the finger's right edge
+        ], scale: s)
+    }
+
+    /// **The crosshair: four arms around a gap, centred on the origin.** Its hotspot is its
+    /// centre — measured at (0.458, 0.458), which is the centre to within the rounding of a
+    /// 32 px image — so the path is built symmetrically about zero.
+    ///
+    /// Four subpaths rather than two crossing bars, because the gap IS the shape: a precision
+    /// cursor leaves the pixel it is pointing at visible, and a solid plus covers it. Same
+    /// multi-subpath construction `iBeamPath` uses.
+    public static func crosshairPath(scale s: Double) -> CGPath {
+        let path = CGMutablePath()
+        let halfThickness = 1.2 * s
+        let gap = 3.0 * s
+        let reach = 15.0 * s
+        // Point-by-point through the bridge, like every other path here: rule 5 keeps the rect
+        // initialiser out of this file, and its absence is enforced rather than stylistic.
+        func arm(minX: Double, minY: Double, maxX: Double, maxY: Double) {
+            path.move(to: HeadlessGeometryBridge.point(x: minX, y: minY))
+            path.addLine(to: HeadlessGeometryBridge.point(x: maxX, y: minY))
+            path.addLine(to: HeadlessGeometryBridge.point(x: maxX, y: maxY))
+            path.addLine(to: HeadlessGeometryBridge.point(x: minX, y: maxY))
+            path.closeSubpath()
+        }
+        arm(minX: -halfThickness, minY: gap, maxX: halfThickness, maxY: reach)
+        arm(minX: -halfThickness, minY: -reach, maxX: halfThickness, maxY: -gap)
+        arm(minX: -reach, minY: -halfThickness, maxX: -gap, maxY: halfThickness)
+        arm(minX: gap, minY: -halfThickness, maxX: reach, maxY: halfThickness)
+        return path
+    }
+
+    /// **The horizontal resize cursor: a double-headed arrow, centred.** A shaft between two
+    /// triangular heads, as one closed outline — the shape a person drags a column divider
+    /// with. Centred for the same reason the crosshair is.
+    public static func resizeLeftRightPath(scale s: Double) -> CGPath {
+        closedPath(of: [
+            (-15, 0), (-8, -5.5), (-8, -2),      // the left head, then into the shaft
+            (8, -2), (8, -5.5),
+            (15, 0), (8, 5.5), (8, 2),           // the right head, then back along the shaft
+            (-8, 2), (-8, 5.5),
+        ], scale: s)
+    }
+
+    /// The vertical twin, transposed. Written out rather than derived by swapping the axes of
+    /// the path above: a transform would need `CGAffineTransform`, and the two shapes reading
+    /// identically in this file is worth more than the four lines it saves.
+    public static func resizeUpDownPath(scale s: Double) -> CGPath {
+        closedPath(of: [
+            (0, -15), (-5.5, -8), (-2, -8),
+            (-2, 8), (-5.5, 8),
+            (0, 15), (5.5, 8), (2, 8),
+            (2, -8), (5.5, -8),
+        ], scale: s)
+    }
+
+    /// One closed polygon from scaled points. The shape `pointerPath` builds by hand, factored
+    /// out once the third caller appeared.
+    private static func closedPath(of points: [(x: Double, y: Double)], scale: Double) -> CGPath {
+        let path = CGMutablePath()
+        guard let first = points.first else { return path }
+        path.move(to: HeadlessGeometryBridge.point(x: first.x * scale, y: first.y * scale))
+        for point in points.dropFirst() {
+            path.addLine(to: HeadlessGeometryBridge.point(x: point.x * scale, y: point.y * scale))
+        }
+        path.closeSubpath()
         return path
     }
 

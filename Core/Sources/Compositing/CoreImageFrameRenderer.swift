@@ -579,11 +579,14 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                 art = CursorArt.iBeamPath(scale: scale)
             case .arrow, .other, nil:
                 art = CursorArt.pointerPath(scale: scale)
-            case .pointingHand, .crosshair, .resizeLeftRight, .resizeUpDown:
-                // No art yet — falls back to the arrow, DISCLOSED in the parity design
-                // doc rather than silently: the shape is still recorded, so drawing can
-                // improve without touching capture.
-                art = CursorArt.pointerPath(scale: scale)
+            case .pointingHand:
+                art = CursorArt.pointingHandPath(scale: scale)
+            case .crosshair:
+                art = CursorArt.crosshairPath(scale: scale)
+            case .resizeLeftRight:
+                art = CursorArt.resizeLeftRightPath(scale: scale)
+            case .resizeUpDown:
+                art = CursorArt.resizeUpDownPath(scale: scale)
             }
             bitmap.addPath(art)
             bitmap.drawPath(using: .fillStroke)

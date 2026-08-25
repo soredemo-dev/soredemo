@@ -245,3 +245,48 @@ private func luminance(of image: CIImage, width: Int, height: Int) throws -> [Do
         """)
     #expect(!zip(faded, without).contains { $0 != $1 }, "a badge at opacity 0 still drew")
 }
+
+// MARK: - every recorded shape draws its own silhouette (design audit item 5)
+
+/// **The pixels, pairwise.** Until 2026-08-25 `.pointingHand`, `.crosshair` and both resize
+/// shapes were drawn as the arrow: the shape was recorded, carried through the reading, the
+/// placement and the plan, and then thrown away at the last switch. Composing each shape and
+/// comparing every pair is what would have caught that, and it is what would catch a fifth
+/// shape added to the enum and forgotten in the renderer.
+@Test func everyPointerShapeDrawsItsOwnSilhouette() throws {
+    let width = 240, height = 160
+    let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: .default)
+    let renderer = try CoreImageFrameRenderer()
+    func frame(_ shape: PointerShape?) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let pointer = NormalizedPointerPlacement(x: Double(width) / 2, y: Double(height) / 2,
+                                                 ripplePhase: nil, shape: shape)
+        let planned = RenderPlan(outputWidth: width, outputHeight: height, card: plan.card,
+                                 cornerRadius: plan.cornerRadius, style: plan.style, pointer: pointer)
+        try renderer.render(planned, source: source, camera: nil, into: destination)
+        return try pixels(of: destination)
+    }
+    let shapes: [PointerShape] = [.arrow, .iBeam, .pointingHand, .crosshair,
+                                  .resizeLeftRight, .resizeUpDown]
+    let drawn = try shapes.map { try ($0, frame($0)) }
+    let blank = try frame(nil as PointerShape?)   // `nil` is unrecorded and draws the arrow
+
+    for (shape, frame) in drawn {
+        #expect(zip(frame, blank).contains { $0 != $1 } || shape == .arrow,
+                "\(shape) drew nothing distinguishable from the arrow-for-unrecorded frame")
+    }
+    for (indexA, (shapeA, frameA)) in drawn.enumerated() {
+        for (shapeB, frameB) in drawn.dropFirst(indexA + 1) {
+            #expect(frameA.elementsEqual(frameB, by: ==) == false,
+                    "\(shapeA) and \(shapeB) composed identical frames — one falls back to the other")
+        }
+    }
+    // And `.other`/unrecorded really are the arrow, which is the documented fallback rather
+    // than an oversight: a change that gave them art of their own reddens here.
+    let other = try frame(PointerShape.other)
+    let arrow = try #require(drawn.first { $0.0 == .arrow }?.1)
+    #expect(other.elementsEqual(arrow, by: ==), ".other stopped drawing the arrow")
+    #expect(blank.elementsEqual(arrow, by: ==), "an unrecorded shape stopped drawing the arrow")
+}
