@@ -106,6 +106,8 @@ import CoreVideo
 import Foundation
 import Geometry
 import Graph
+// § 18 reads `IOSurfaceGetID` — the identity a Swift recorder's frame dedup compares.
+import IOSurface
 import Project
 // `RenderPlan`, `StageRect`, `StageStyle` for § 10 — `Soredemo/Render/*.swift`
 // depends on this module and no package test can drive the real
@@ -407,6 +409,10 @@ enum CrossBoundaryProbe {
         print("17.1-17.5 the four persisted preferences: their defaults, their keys, and what a "
               + "stored value this build cannot read falls back to")
         recordingCoordinatorPreferences()
+
+        print("18. the idle-frame question — is a duplicate frame findable by IOSurface identity?")
+        print("18.1-18.3 a real SCStream over this process's own window, still, measured twice over")
+        try await duplicateFramesAreContentIdenticalNotSurfaceIdentical()
 
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
@@ -6231,5 +6237,185 @@ enum CrossBoundaryProbe {
             firstAttemptRefused: accepted.first == false,
             refusalIsDurable: accepted.allSatisfy { $0 == false },
             rawMessageForHumans: writer.errorDescription ?? "no error recorded")
+    }
+
+    // MARK: - § 18. the idle-frame question
+
+    /// **`capture-source`'s outstanding clause, answered by measurement rather than by copying.**
+    ///
+    /// ScreenCaptureKit emits a frame when the screen changes and not otherwise, and this project
+    /// measured `SCFrameStatusIdle` at 42–84% of callbacks. The roadmap left the question open
+    /// with a warning attached: `../opensource/a Swift recorder` shipped a constant-frame-rate writer
+    /// that repeated the last frame on idle, deprecated it, and replaced it with variable frame
+    /// rate plus **IOSurface-identity deduplication** — `surfaceID == lastIOSurfaceID`, skip.
+    /// an Electron recorder and an Electron recorder do what this app does and filter on `status == .complete`.
+    ///
+    /// So the question was whether to adopt a Swift recorder's dedup. This is the measurement that says
+    /// no, and it is kept as a check rather than written down because it is a claim about a
+    /// framework's behaviour that a macOS release could change.
+    ///
+    /// **What was measured, before this was written:** four runs, 875 complete frames across
+    /// window capture (still and moving) and display capture, and `surfaceID == lastSurfaceID`
+    /// was true **zero** times. ScreenCaptureKit cycles a pool of two surfaces, so consecutive
+    /// frames never carry the same id — not even when the picture has not changed at all. Over
+    /// the same still-window frames, 97–100% were byte-identical to the frame before them. The
+    /// duplicates are real and plentiful; a Swift recorder's predicate simply cannot see them, because a
+    /// one-frame memory is defeated by a two-deep pool.
+    ///
+    /// The conclusion carried into the roadmap: keep the `.complete` filter, do not repeat frames
+    /// (the one project that shipped that abandoned it, and `MP4Exporter` already resamples to a
+    /// constant rate with held frames, so a constant-rate master would do the work twice), and if
+    /// duplicate suppression is ever wanted, compare CONTENT — never surface identity.
+    ///
+    /// **Skips rather than fails without a Screen Recording grant.** Whether a stream over this
+    /// process's own window needs one was NOT established here: `CGPreflightScreenCaptureAccess()`
+    /// answered true on the machine this was written on, because a probe launched from a terminal
+    /// inherits that terminal's grant, so this run could not tell "no grant needed" from "a grant
+    /// was present". Recorded as unknown rather than guessed at.
+    @MainActor
+    static func duplicateFramesAreContentIdenticalNotSurfaceIdentical() async throws {
+        guard CGPreflightScreenCaptureAccess() else {
+            print("        SKIPPED — no Screen Recording grant for this binary, so no SCStream. "
+                  + "Whether a self-capture stream needs one is not settled; see this "
+                  + "function's header.")
+            return
+        }
+
+        let window = NSWindow(contentRect: NSRect(x: 140, y: 140, width: 480, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.title = "cross-boundary-digest-probe (idle frames)"
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(500))
+
+        let content = try await SCShareableContent.currentProcess
+        guard let scWindow = content.windows.first(where: { $0.title == window.title }) else {
+            print("        SKIPPED — the probe's own window did not appear in "
+                  + "SCShareableContent.currentProcess; there is nothing to capture.")
+            return
+        }
+
+        let configuration = SCStreamConfiguration()
+        configuration.width = 480
+        configuration.height = 300
+        // The same ceiling a real recording asks for, so the cadence being measured is the one
+        // the app actually sees.
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        configuration.showsCursor = false
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+
+        let collector = IdleFrameCollector()
+        let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: scWindow),
+                              configuration: configuration, delegate: collector)
+        try stream.addStreamOutput(collector, type: .screen,
+                                   sampleHandlerQueue: DispatchQueue(label: "probe.idle-frames"))
+        do { try await stream.startCapture() } catch {
+            print("        SKIPPED — startCapture refused: \(error)")
+            return
+        }
+        // Nothing touches the window for this stretch: the claim is about a STILL screen, and a
+        // probe that redrew it would be measuring its own animation.
+        try await Task.sleep(for: .seconds(2))
+        try? await stream.stopCapture()
+
+        let (surfaces, hashes, noSurface) = collector.snapshot()
+        print("        \(surfaces.count) complete frames, \(Set(surfaces).count) distinct "
+              + "IOSurface ids, \(Set(hashes).count) distinct pictures")
+
+        guard surfaces.count >= 10 else {
+            print("        SKIPPED — only \(surfaces.count) complete frames arrived in 2 s; "
+                  + "too few to say anything about duplicates.")
+            return
+        }
+        check(noSurface == 0,
+              "18.1 every complete frame carries an IOSurface — the thing a Swift recorder's dedup reads",
+              actual: "\(noSurface) without one", expected: "0")
+
+        let sameSurfaceAsPrevious = (1..<surfaces.count).count { surfaces[$0] == surfaces[$0 - 1] }
+        // **The load-bearing check.** If this ever stops being zero, ScreenCaptureKit has changed
+        // how it cycles its surface pool and the decision recorded above should be re-made.
+        check(sameSurfaceAsPrevious == 0, """
+              18.2 no two consecutive frames share an IOSurface id — so a Swift recorder's \
+              `surfaceID == lastIOSurfaceID` dedup would skip nothing
+              """,
+              actual: "\(sameSurfaceAsPrevious) of \(surfaces.count - 1)", expected: "0")
+
+        let sameContentAsPrevious = (1..<hashes.count).count { hashes[$0] == hashes[$0 - 1] }
+        // Conservative by a wide margin: measured at 97–100% over four runs of a still window.
+        // Half is enough to establish that the duplicates exist and are visible in the CONTENT,
+        // which is the half of the finding that survives a busier machine.
+        check(sameContentAsPrevious * 2 > hashes.count - 1, """
+              18.3 most of a still window's frames repeat the previous picture exactly — the \
+              duplicates are real, and content is the only place they show
+              """,
+              actual: "\(sameContentAsPrevious) of \(hashes.count - 1)",
+              expected: "more than half")
+    }
+}
+
+/// Collects the two facts § 18 compares: which IOSurface each complete frame arrived on, and a
+/// hash of what it looked like. Separate from the probe's own type because `SCStreamOutput`
+/// conformance has to be on a class ScreenCaptureKit can hold.
+///
+/// **`nonisolated`, and the first version was not — it crashed.** This file compiles with
+/// `-default-isolation MainActor`, mirroring the app target's `SWIFT_DEFAULT_ACTOR_ISOLATION`, so
+/// an unannotated method here is MainActor-isolated. ScreenCaptureKit calls
+/// `stream(_:didOutputSampleBuffer:of:)` on its own delivery queue, and the isolation check traps:
+/// `EXC_BREAKPOINT` inside `_checkExpectedExecutor`, read off the crash report rather than guessed
+/// at. `Sources/Capture/MasterWriter.swift`'s own header states this exact hazard — "every append
+/// happens on a ScreenCaptureKit delivery queue, where reaching a MainActor-isolated member traps
+/// at runtime" — which is why every type in that file is `nonisolated` too.
+///
+/// **It is also why a scratch build of this measurement was not enough.** The same code, compiled
+/// without `-default-isolation MainActor`, ran four times without complaint; the flag is the whole
+/// difference, and it is the flag the shipping app builds with. A measurement taken outside the
+/// app's language semantics is a measurement of something else.
+private nonisolated final class IdleFrameCollector: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var surfaces: [UInt32] = []
+    private var hashes: [UInt64] = []
+    private var completeWithoutSurface = 0
+
+    func snapshot() -> (surfaces: [UInt32], hashes: [UInt64], noSurface: Int) {
+        lock.withLock { (surfaces, hashes, completeWithoutSurface) }
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+                of type: SCStreamOutputType) {
+        guard type == .screen,
+              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer,
+                                                                        createIfNecessary: false)
+                as? [[SCStreamFrameInfo: Any]],
+              let first = attachments.first,
+              (first[.status] as? Int) == SCFrameStatus.complete.rawValue,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else { return }
+
+        guard let surface = CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue() else {
+            lock.withLock { completeWithoutSurface += 1 }
+            return
+        }
+        let id = IOSurfaceGetID(surface)
+        let hash = Self.contentHash(of: pixelBuffer)
+        lock.withLock { surfaces.append(id); hashes.append(hash) }
+    }
+
+    /// FNV-1a over every 64th byte. Not a checksum anybody trusts against an adversary — it is a
+    /// same-or-different answer about two pictures a sixteenth of a second apart, and sampling is
+    /// what keeps it cheap enough to run inside a 60 fps callback without changing what is being
+    /// measured.
+    private static func contentHash(of pixelBuffer: CVPixelBuffer) -> UInt64 {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return 0 }
+        let byteCount = CVPixelBufferGetBytesPerRow(pixelBuffer) * CVPixelBufferGetHeight(pixelBuffer)
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        var hash: UInt64 = 0xcbf29ce484222325
+        var index = 0
+        while index < byteCount {
+            hash = (hash ^ UInt64(bytes[index])) &* 0x100000001b3
+            index += 64
+        }
+        return hash
     }
 }

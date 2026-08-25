@@ -42,13 +42,46 @@ Goal: a build that records and plays back. Nothing derived yet. **This phase alo
 > space (fixed: `CaptureViewport`), and playback stuttered because video and audio PTS come
 > from two clocks and were written unrebased (fixed: `TrackRebase`, one per track).
 >
-> **What this row still owns**: the idle-frame question. `SCFrameStatusIdle` at 42–84% of
-> callbacks is measured and unaddressed. Note before choosing: `../opensource/a Swift recorder`
-> shipped a constant-frame-rate writer that repeated the last frame on idle and then
-> **deprecated it** in favour of variable frame rate with IOSurface-identity deduplication.
-> Repeating frames is the intuitive fix and the one they abandoned. Measure the rebased
-> output before deciding — the stutter that prompted this had a different cause, and the
-> frame model should not be changed on a symptom that is already explained.
+> **The idle-frame question is answered as of 2026-08-26, and the answer is that this row
+> changes nothing.** It was left open with a warning: `../opensource/a Swift recorder` shipped a
+> constant-frame-rate writer that repeated the last frame on idle, **deprecated it**, and
+> replaced it with variable frame rate plus IOSurface-identity deduplication
+> (`VFRRecordingManager.receiveFrame`: `surfaceID == lastIOSurfaceID`, skip). All five
+> reference projects were read. an Electron recorder (`ScreenCaptureKitRecorder.swift`) and an Electron recorder
+> (`isCompleteFrame`) filter on `status == .complete` and do nothing else — what this app
+> already does. a Swift recorder does not read `SCFrameStatus` at all and dedups by surface instead.
+> a Rust recorder has a `cadence.rs`, which turns out to be the opposite problem and a Windows one: high
+> refresh monitors delivering *more* frames than nominal. a native editor has no capture.
+>
+> **Three decisions, one of them measured against the reference rather than copied from it.**
+>
+> 1. **Do not repeat frames for a constant-rate master.** The only project that shipped it
+>    abandoned it, and there is an independent reason here: `MP4Exporter` already resamples to
+>    a constant rate and holds frames (`aHeldFrameRepeatsTheSourceImageRatherThanInventingOne`),
+>    so a constant-rate master would do that work twice and inflate a file whose whole job is to
+>    be unprocessed evidence.
+> 2. **Do not adopt a Swift recorder's IOSurface dedup — measured, it catches nothing.** Four runs,
+>    875 complete frames across window capture (still and moving) and display capture, and
+>    `surfaceID == lastSurfaceID` was true **zero times**. ScreenCaptureKit cycles a pool of
+>    two surfaces, so consecutive frames never carry the same id, *including when the picture
+>    has not changed at all*. A one-frame memory is defeated by a two-deep pool. Over the same
+>    still-window frames, 97–100% were byte-identical to the frame before. The negative control
+>    is the finding in one line: swap the predicate from surface to content on the identical
+>    frames and it goes from 0 of 76 to 76 of 76.
+> 3. **Keep `status == .complete`, which is what ships.** If duplicate suppression is ever
+>    wanted, compare CONTENT, never surface identity — and it is not free here: the master is
+>    evidence, so dropping frames from it needs a `GapSite` of its own, and `ObservationLogTrailer`
+>    refuses to decode a log missing one. That is a wire-format change, not a filter change.
+>
+> Kept as `scripts/cross-boundary-digest-probe.swift` § 18 rather than written down, because it
+> is a claim about a framework that a macOS release can change: if two consecutive frames ever
+> share a surface id, 18.2 goes red and decision 2 should be re-made. **What is NOT established:**
+> the duplicate FRACTION for a real screencast — the still-window figure is the ceiling and the
+> display run was contaminated by this machine's own animating tooling — and whether a
+> self-capture stream needs a Screen Recording grant, since `CGPreflightScreenCaptureAccess()`
+> answered true throughout (a probe launched from a terminal inherits that terminal's grant).
+> The original note's other half stands unchanged: the stutter that prompted all this had a
+> different cause and was fixed by `TrackRebase`.
 
 | ☑ | `capture-stream` | `SCStream` + `SCStreamConfiguration`, `showsCursor = false`, `capturesAudio`. **`SCRecordingOutput` is not usable for the master** — measured (Phase 2 F2-4): at our floor it mixes the microphone into the system-audio track, one track carrying both tones, and `mixesAudioWithMicrophone` is macOS 27 only. So `AVAssetWriter`, taking `SCStreamOutputTypeScreen` / `Audio` / `Microphone` as three streams. **`SCFrameStatusIdle` is 42–84% of callbacks** and the observed rate was 9–37 fps against a requested 60, so a callback is not a frame and `minimumFrameInterval` is a floor. **Register `CGDisplayRegisterReconfigurationCallback`** (D2-10): reconfiguration closes the current segment and opens the next — the same mechanism pause already needs, since ScreenCaptureKit has no pause — and it is what mints a new `geometryRevision`. Known unknown, settled while implementing: whether the stream stops cleanly and reports, or degrades silently **Done — the row was stale, not the code.** `CaptureSession` builds `SCStream` + `SCStreamConfiguration` with `showsCursor = false`, `capturesAudio`, `captureMicrophone`, an explicit `destinationRect` and a pinned `colorSpaceName`, and writes through `MasterWriting` rather than `SCRecordingOutput` for the measured reason the row gives. Window capture uses a display filter with `sourceRect`, followed live by `WindowFollower`. | `capture-source` |
 | ☑ | `capture-permissions` | Screen Recording, Microphone, Input Monitoring, Accessibility — each degrading precisely **Done — the row was stale.** `CapturePermissions` covers all four (`screenRecording`, `microphone`, `inputMonitoring`, `accessibility`), and each degrades to a named case rather than to silence: `PermissionStatus` distinguishes `notGrantedIndeterminate` from `denied` where the API genuinely cannot tell them apart, and `degradation(for:)` says what each loss costs. | `capture-stream` |
