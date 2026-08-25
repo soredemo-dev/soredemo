@@ -53,6 +53,11 @@ struct StageWindow: View {
     /// The output shape. Drives the preview as well as the export: a person choosing Portrait
     /// and then seeing a landscape preview has been shown the wrong thing.
     @State private var variant = AspectVariant.landscape
+    /// Whether the shape on screen is one a person picked or restored, rather than the
+    /// starting value. Nothing reads it yet — it is what a future default would have to
+    /// consult, and it is set at both the places that could make a choice, so adding that
+    /// default is a one-line change rather than an audit of who assigns `variant`.
+    @State private var chosenShapeDeliberately = false
     /// How loud each recorded source is in the export. Two sources, because the master keeps
     /// system audio and the microphone apart — see `AudioMix`.
     @State private var audioMix = AudioMix.unchanged
@@ -115,6 +120,11 @@ struct StageWindow: View {
     /// Read from the asset when it loads; 1080 until then, which is what the export used to be
     /// pinned to anyway.
     @State private var recordingShortSide = 1080
+    /// The recording's own pixel size. **Both dimensions, because a SHAPE needs both** — the
+    /// short side alone sizes an output but cannot say what shape the recording is, and
+    /// `AspectVariant.matching(width:height:)` is what removes the pillarbox a laptop
+    /// recording gets in every one of the three presets.
+    @State private var recordingSize = (width: 1920, height: 1080)
     /// How many frames a second the export writes, and what the recording itself has. Matching
     /// by default, because a capture's rate is a decision somebody already made.
     @State private var frameRate = ExportFrameRate.matchRecording
@@ -657,9 +667,15 @@ struct StageWindow: View {
     }
 
     @ViewBuilder private var outputControls: some View {
-        Picker("Shape", selection: $variant) {
-            ForEach(AspectVariant.all, id: \.self) { shape in
-                Text(shape.name).tag(shape)
+        // The recording's own shape first when it is not already one of the three — see
+        // `AspectVariant.available(recordingWidth:recordingHeight:)`.
+        Picker("Shape", selection: Binding(
+            get: { variant },
+            set: { variant = $0; chosenShapeDeliberately = true })) {
+            ForEach(AspectVariant.available(recordingWidth: recordingSize.width,
+                                            recordingHeight: recordingSize.height),
+                    id: \.self) { shape in
+                Text(LocalizedStringKey(shape.name)).tag(shape)
             }
         }
         let size = Self.size(for: variant, resolution: resolution,
@@ -1090,9 +1106,19 @@ struct StageWindow: View {
                 crop = saved
             }
         } catch { failures.append("the crop") }
-        if let name = edit.outputShapeName,
-           let shape = AspectVariant.all.first(where: { $0.name == name }) {
-            variant = shape
+        if let name = edit.outputShapeName {
+            // **The matching shape is rebuilt rather than looked up.** It is deliberately not
+            // in `all` — being in a list is exactly what would stop it depending on the
+            // recording's size, which is the thing that makes it match.
+            if name == AspectVariant.matchRecordingName,
+               let own = AspectVariant.matching(width: recordingSize.width,
+                                                height: recordingSize.height) {
+                variant = own
+                chosenShapeDeliberately = true
+            } else if let shape = AspectVariant.all.first(where: { $0.name == name }) {
+                variant = shape
+                chosenShapeDeliberately = true
+            }
         }
         do {
             // The style is restored even when the track failed to decode, so a person who
@@ -1150,6 +1176,16 @@ struct StageWindow: View {
             if let track = try await recording.loadTracks(withMediaType: .video).first {
                 let natural = try await track.load(.naturalSize)
                 recordingShortSide = Int(min(natural.width, natural.height).rounded())
+                recordingSize = (width: Int(natural.width.rounded()),
+                                 height: Int(natural.height.rounded()))
+                // **The shape is NOT set from here, and the reason is a hazard rather than a
+                // preference.** `.task(id: variant)` runs this function, so assigning `variant`
+                // inside it cancels the very run doing the assigning — and `restore(_:)`, which
+                // applies a saved shape, happens further down. A first draft did exactly that
+                // and would have dropped a saved Portrait on the first open of a project,
+                // silently, depending on where the cancellation landed. The recording's own
+                // shape is offered in the picker instead; making it the default belongs
+                // wherever a NEW recording is first handed to this window, not here.
                 // `nominalFrameRate` is a Float and a capture reports 59.999996; rounding is what
                 // makes "match the recording" mean 60 rather than a rate no container has.
                 let nominal = try await track.load(.nominalFrameRate)
