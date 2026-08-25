@@ -345,24 +345,90 @@ func manifestDependencyNames(of target: [String: Any]) -> [String] {
 }
 
 /// **The two test populations are kept apart by the build graph, not by a rule.** A deterministic
-/// target that cannot LINK `Headless` cannot host a GPU-dependent or time-sensitive test.
-@Test func noDeterministicTestTargetDependsOnHeadless() throws {
+/// target that cannot LINK the runnable tier cannot host a GPU-dependent or time-sensitive test.
+///
+/// **This scan was VACUOUS and passed for it.** It was written against a target named `Headless`
+/// and a test target named `HeadlessTests`, and Phase 3A-4 split both — into `Capture`/
+/// `Compositing` and `CaptureTests`/`CompositingTests`. Neither old name has existed since, so
+/// the `if` branch never ran and the `else` branch asked every test target whether it depended on
+/// a target the manifest does not contain. The answer was always no. A deterministic target that
+/// started linking `Compositing` would have sailed through, which is precisely the event this
+/// exists to report. Named here rather than quietly fixed: a guard that cannot fail is worse
+/// than no guard, because the green tick is read as evidence.
+///
+/// The populations are now the ones `scripts/count-tests.sh --split` actually reports, and both
+/// halves are asserted — the runnable test targets must link their own tier, or "the runnable
+/// population" is a filter over nothing.
+@Test func noDeterministicTestTargetDependsOnTheRunnableTier() throws {
+    let runnableTier = ["Capture", "Compositing"]
+    /// The runnable population, as `scripts/count-tests.sh --split` filters it. Kept as a
+    /// literal beside the script's own `--filter` arguments rather than derived: two places
+    /// naming the same two targets is the point at which a rename gets caught.
+    let runnableTestTargets = ["CaptureTests", "CompositingTests"]
+
     let targets = try resolvedManifestTargets()
     let testTargets = targets.filter { $0["type"] as? String == "test" }
     try #require(testTargets.count > 1, "expected several test targets, got \(testTargets.count)")
 
+    var runnableSeen: Set<String> = []
     for target in testTargets {
         let name = target["name"] as? String ?? "<unnamed>"
         let dependencies = manifestDependencyNames(of: target)
-        if name == "HeadlessTests" {
-            #expect(dependencies.contains("Headless"),
-                    "HeadlessTests must depend on Headless or the headless population is empty")
+        let linked = runnableTier.filter { dependencies.contains($0) }
+
+        if runnableTestTargets.contains(name) {
+            #expect(!linked.isEmpty, """
+                \(name) links no runnable target. It is one of the two the split counts as the \
+                runnable population, and a population whose members cannot link the tier they \
+                are named for is a filter over nothing.
+                """)
+            if !linked.isEmpty { runnableSeen.insert(name) }
         } else {
-            #expect(!dependencies.contains("Headless"), """
-                \(name) depends on Headless. The deterministic population is defined by NOT being \
-                able to link it; once one deterministic target can, `swift test --skip HeadlessTests` \
-                stops meaning "the deterministic tests" and the two counts become two numbers.
+            #expect(linked.isEmpty, """
+                \(name) depends on \(linked.joined(separator: " and ")). The deterministic \
+                population is defined by NOT being able to link the runnable tier; once one \
+                deterministic target can, `swift test --skip CaptureTests --skip CompositingTests` \
+                stops meaning "the deterministic tests" and the two counts become two numbers. \
+                If this target genuinely belongs to the runnable population, add it to \
+                `runnableTestTargets` here AND to the --filter arguments in \
+                scripts/count-tests.sh, which is the other half of the same claim.
                 """)
         }
     }
+    // The whole scan is vacuous if neither runnable test target is in the manifest under the
+    // name this test expects — the exact failure the version above shipped with.
+    #expect(runnableSeen == Set(runnableTestTargets), """
+        expected both runnable test targets to be present and linked, saw \
+        \(runnableSeen.sorted().joined(separator: ", ")). A renamed target makes every \
+        assertion in this scan pass without examining anything.
+        """)
+}
+
+/// **`CompositingTests` links `Capture` for exactly one file, and this is what holds it to one.**
+///
+/// The two runnable targets are siblings that reference each other zero times, and
+/// `theTwoRunnableTargetsDoNotDependOnEachOther` above keeps the PRODUCT that way. The smoke
+/// chain (`Tests/CompositingTests/SmokeTests.swift`, the ROADMAP's `smoke-tests` row) has to span
+/// both: it records with `Capture`'s writers and then reviews, cuts and exports what they wrote.
+/// That crossing is a file on disk rather than a call, which is why a test may make it and the
+/// product may not.
+///
+/// A manifest edge is all-or-nothing, though — it makes `import Capture` legal in every file of
+/// this target — so the edge is declared once and the reach is bounded here, the same shape
+/// `CheckerLexer`'s single-permitted-exemption check has in `Package.swift`. Read through the
+/// lexer's code view, so this doc comment naming `import Capture` does not fire.
+@Test func theSmokeTestIsTheOnlyCompositingTestThatImportsCapture() throws {
+    let importers = try codeLinesNaming("import Capture", in: try compositingTestFiles())
+        .map(\.location)
+    let files = Set(importers.map { $0.split(separator: ":").first.map(String.init) ?? $0 })
+
+    #expect(files == ["Tests/CompositingTests/SmokeTests.swift"], """
+        `import Capture` appears in \(files.sorted().joined(separator: ", ")). \
+        `CompositingTests` declares `Capture` as a dependency for the smoke chain alone — a \
+        record → review → edit → export pass that spans both runnable targets because the seam \
+        it checks is a file on disk. Every other test in this target belongs to one tier and \
+        must be reachable from it: a compositing test that reaches into `Capture` is testing the \
+        boundary the product is forbidden to cross, and the next reader cannot tell it from a \
+        crossing that was intended.
+        """)
 }

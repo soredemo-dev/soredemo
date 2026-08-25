@@ -233,9 +233,29 @@ let package = Package(
         .testTarget(name: "CaptureTests", dependencies: ["Capture", "Geometry", "Timeline", "Graph", "Project"],
                     swiftSettings: strict),
 
+        // **`Capture` is here for ONE file and the manifest is where that is declared.**
+        // `Tests/CompositingTests/SmokeTests.swift` is the `smoke-tests` row: it records with
+        // `LegacyMasterWriter` and `ObservationWriter`, then reviews, cuts and exports what they
+        // wrote. A chain that spans record → export spans both runnable targets by definition,
+        // and the seam it is checking is a FILE ON DISK rather than a call — which is exactly
+        // the crossing the product may not make and a smoke test exists to make.
+        //
+        // Two things keep this from being the hole it looks like. The product rule is untouched:
+        // `theTwoRunnableTargetsDoNotDependOnEachOther` asserts `Capture` and `Compositing`
+        // declare no edge on each other, and this is a TEST target. And the exemption is
+        // policed rather than promised — `theSmokeTestIsTheOnlyCompositingTestThatImportsCapture`
+        // (`Tests/AppSourceTests/HeadlessEntryRuleTests.swift`) fails if a second file in this
+        // target names `Capture` in an import, the same shape as `CheckerLexer`'s
+        // single-permitted-exemption check above.
+        //
+        // It is in this target rather than a `SmokeTests` target of its own because
+        // `StageCompositor`'s configuration is process-global and `swift test` runs every test
+        // target in one process: a smoke suite outside this module could not inherit
+        // `StageCompositorTests`' `.serialized` trait and would race `MP4ExporterTests` over
+        // `observationLogURL` and `editTimeline`. The file's own header carries that reasoning.
         .testTarget(name: "CompositingTests",
-                    dependencies: ["Compositing", "Geometry", "Timeline", "Project", "Render", "Framing",
-                                   "Overlays"],
+                    dependencies: ["Compositing", "Capture", "Geometry", "Timeline", "Project",
+                                   "Render", "Framing", "Overlays"],
                     resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")],
                     swiftSettings: strict),
     ]

@@ -71,8 +71,11 @@ if [ "${1:-}" = "--split" ]; then
                 *"--filter CaptureTests"*|*"--filter CompositingTests"*)
                     echo "" >&2
                     echo "This is a runnable-tier --filter run, so the likeliest cause is that the" >&2
-                    echo "second population is EMPTY: no test target named HeadlessTests, or no test" >&2
-                    echo "left inside it. That is not a partition into two — it is the old single" >&2
+                    echo "second population is EMPTY: no test target named CaptureTests or" >&2
+                    echo "CompositingTests any more, or no test left inside one. (The old name was" >&2
+                    echo "HeadlessTests; Phase 3A-4 split it, and a stale name here would print a" >&2
+                    echo "diagnostic pointing at a target nobody can find.) That is not a partition" >&2
+                    echo "into two — it is the old single" >&2
                     echo "population with a second number printed beside it, and an empty headless" >&2
                     echo "population means the tier has no executing instrument, which is the" >&2
                     echo "condition this entire phase exists to end." >&2
