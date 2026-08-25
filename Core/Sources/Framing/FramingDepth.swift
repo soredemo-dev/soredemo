@@ -66,6 +66,38 @@ public enum FramingDepth {
     /// (`theTargetAlwaysFitsInsideTheViewportItsDepthImplies`).
     private static let minimumContextMultiple: Double = 1.2
 
+    /// **A depth written for a person, and `%.1f` is wrong for it.** Depths land on multiples
+    /// of `quantisationStep` (0.25), so one decimal cannot represent half the values this
+    /// function produces — and the way it fails is worse than truncation: `String(format:
+    /// "%.1f", 2.25)` is "2.2" and 1.25 is "1.2", because the formatter rounds half to even.
+    /// The timeline's zoom lane was labelling a 2.25× block "2.2×" and a 1.25× block "1.2×",
+    /// neither of which is a depth the pipeline can produce, which reads as the numbers being
+    /// made up rather than as a rounding.
+    ///
+    /// Trailing zeros are trimmed, so a plain doubling reads "2×" rather than "2.00×".
+    ///
+    /// **Here rather than in the view** because the reason it is subtle is `quantisationStep`,
+    /// which lives here — and because a formatter in the app tier could not be tested.
+    ///
+    /// **Built from integers rather than `String(format:)`, and that is a build gate rather
+    /// than a preference.** `String(format:)` is a C-variadic call, which
+    /// `check-strict-memory-safety.sh` reports as an unmarked unsafe site; marking it would
+    /// be a marker on the very API whose rounding this function exists to avoid. Hundredths
+    /// are enough for any multiple of `quantisationStep`, and integer arithmetic cannot round
+    /// half to even behind anyone's back.
+    public static func label(for zoom: Double) -> String {
+        guard zoom.isFinite, zoom >= 0 else { return "—" }
+        let hundredths = Int((zoom * 100).rounded())
+        let whole = hundredths / 100
+        let fraction = hundredths % 100
+        let times = "\u{00D7}"
+        if fraction == 0 { return "\(whole)\(times)" }
+        if fraction % 10 == 0 { return "\(whole).\(fraction / 10)\(times)" }
+        // A fraction under ten needs its leading zero, or 2.05 would be written "2.5".
+        let padded = fraction < 10 ? "0\(fraction)" : "\(fraction)"
+        return "\(whole).\(padded)\(times)"
+    }
+
     public static func zoom(for target: FramingTarget) -> Double {
         // The LARGER dimension binds: zooming a wide, short field as if it were 24 px tall
         // would crop its ends.

@@ -163,3 +163,47 @@ private let realisticExtents: [(name: String, extent: Double)] = [
     #expect(FramingDepth.zoomCeiling(sourcePixels: 0, cardPixels: 100) == FramingDepth.minimumZoom)
     #expect(FramingDepth.zoomCeiling(sourcePixels: 100, cardPixels: .infinity) == FramingDepth.minimumZoom)
 }
+
+// MARK: - writing a depth down
+
+/// **Every depth the curve can produce writes itself back exactly.** This is the property
+/// `%.1f` broke: the timeline labelled a 2.25× zoom "2.2×" and a 1.25× zoom "1.2×", because
+/// `String(format:)` rounds half to even and one decimal cannot hold a quarter. The loop
+/// walks every quantised step from the floor to the ceiling, so a new step size is caught
+/// here rather than by someone reading a lane.
+@Test func everyQuantisedDepthWritesItselfBack() {
+    var value = FramingDepth.minimumZoom
+    var checked = 0
+    while value <= FramingDepth.maximumZoom + 1e-9 {
+        let label = FramingDepth.label(for: value)
+        let read = Double(label.replacingOccurrences(of: "\u{00D7}", with: ""))
+        #expect(read != nil, "\(value) produced \"\(label)\", which is not a number")
+        #expect(abs((read ?? .nan) - value) < 0.005, "\(value) was written as \"\(label)\"")
+        checked += 1
+        value += FramingDepth.quantisationStep
+    }
+    #expect(checked >= 8, "only \(checked) depths were checked; the walk covered almost nothing")
+}
+
+/// The calibration: the formatter this replaced really does get two of those steps wrong, so
+/// the test above is measuring a repair rather than restating an identity.
+@Test func oneDecimalPlaceMisreportsAQuarterStep() {
+    // `unsafe`, marked at the site as the gate requires: `String(format:)` is a C-variadic
+    // call, and calling it here is the whole point — this test exists to show what the
+    // formatter `FramingDepth.label(for:)` replaced actually does with a quarter step.
+    #expect(unsafe String(format: "%.1f", 2.25) == "2.2", "the premise of the fix no longer holds")
+    #expect(unsafe String(format: "%.1f", 1.25) == "1.2", "the premise of the fix no longer holds")
+    #expect(FramingDepth.label(for: 2.25) == "2.25\u{00D7}")
+    #expect(FramingDepth.label(for: 1.25) == "1.25\u{00D7}")
+}
+
+/// Trailing zeros are trimmed and a non-finite depth cannot reach a lane as "nan×".
+@Test func aWholeDepthLosesItsDecimalsAndANonFiniteOneIsRefused() {
+    #expect(FramingDepth.label(for: 2) == "2\u{00D7}")
+    #expect(FramingDepth.label(for: 1) == "1\u{00D7}")
+    #expect(FramingDepth.label(for: 1.5) == "1.5\u{00D7}")
+    #expect(FramingDepth.label(for: 2.05) == "2.05\u{00D7}", "a fraction under ten lost its zero")
+    #expect(FramingDepth.label(for: .nan) == "—")
+    #expect(FramingDepth.label(for: .infinity) == "—")
+    #expect(FramingDepth.label(for: -1) == "—", "a negative depth is not a depth")
+}

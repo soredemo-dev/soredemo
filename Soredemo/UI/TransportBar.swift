@@ -30,6 +30,18 @@ struct TransportBar: View {
 
     static let rates: [Double] = [0.25, 0.5, 1, 1.5, 2, 4]
 
+    /// How close to the end counts as the end. One frame at 24 fps is 42 ms, so 50 ms is
+    /// "the last frame or later" at every rate this app exports — and `AVPlayer` stops a hair
+    /// short of the exact duration often enough that comparing for equality would leave the
+    /// dead button in place for exactly the people who reported it.
+    private static let endTolerance: Double = 0.05
+
+    /// True when the preview has run out. `total` is the item's duration as the ticker last
+    /// read it; before it has been read at all there is no end to be at.
+    private var atEnd: Bool {
+        total > 0 && position >= total - Self.endTolerance
+    }
+
     /// 10 Hz. A timecode that updates faster than a person can read it is a timecode that
     /// flickers, and this is text rather than a bar — nothing here needs frame accuracy.
     private static let tick: Double = 0.1
@@ -39,6 +51,16 @@ struct TransportBar: View {
             Button {
                 if isPlaying {
                     player.pause()
+                } else if atEnd {
+                    // **Play at the end restarts, and it used to do nothing at all.** An
+                    // `AVPlayer` sitting at its item's duration ignores a rate change — there
+                    // is nowhere left to advance to — so the button was dead for every person
+                    // who watched their recording through and pressed play again. Seek first,
+                    // then start, in the completion so the rate is not applied to a player
+                    // that is still seeking.
+                    player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                        player.rate = Float(rate)
+                    }
                 } else {
                     // `rate =` rather than `play()`: `play()` always resumes at 1×, so a chosen
                     // speed would be silently discarded on every pause.

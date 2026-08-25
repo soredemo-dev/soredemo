@@ -131,35 +131,7 @@ struct MenuBarRecorderPanel: View {
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            settingsMenu
         }
-    }
-
-    /// Settings and Permissions, behind one glyph.
-    ///
-    /// **Because four links do not fit on one row.** The footer used to hold two — Open Project
-    /// and Quit — and grew to four as Settings and then the permission page were built. Measured
-    /// at the panel's own width: the four need 357pt of a 260pt row, so SwiftUI truncated them
-    /// into a jam of half-words. These two are the pair a person opens once and forgets, so they
-    /// are the pair that goes behind a gear.
-    @ViewBuilder private var settingsMenu: some View {
-        Menu {
-            Button("Settings\u{2026}") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            }
-            Button("Permissions\u{2026}") {
-                EditorWindowPresence.willOpen()
-                openWindow(id: SoredemoApp.permissionsWindowID)
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 16)
     }
 
     /// The two ways to start. **Cards rather than a segmented control**, because they are not two
@@ -485,13 +457,36 @@ struct MenuBarRecorderPanel: View {
         }
     }
 
+    /// **Four links on two rows, and the gear that used to hold two of them is gone.**
+    ///
+    /// The measurement that put Settings and Permissions behind a gear stands — the four need
+    /// 357pt of a 260pt row and SwiftUI truncated them into a jam of half-words — but it was a
+    /// measurement about ONE row, and the conclusion drawn from it was the wrong one of the two
+    /// available. A `Menu` inside a panel opens a system popup that AppKit positions itself: it
+    /// hangs outside the panel it belongs to, overlaps the controls beneath it, and near the
+    /// right edge of a display it is placed where there is room rather than where the gear is.
+    /// A second row costs 18 points of a panel that had them and puts every destination in the
+    /// panel, where a person can see all four without opening anything.
     @ViewBuilder private var footer: some View {
-        HStack(spacing: Space.regular) {
-            PanelLink(title: "Open Project\u{2026}", shortcut: "\u{2318}O") {
-                coordinator.openProject()
+        VStack(alignment: .leading, spacing: Space.tight) {
+            HStack(spacing: Space.regular) {
+                PanelLink(title: "Open Project\u{2026}", shortcut: "\u{2318}O") {
+                    coordinator.openProject()
+                }
+                Spacer()
+                PanelLink(title: "Quit", shortcut: "\u{2318}Q") { NSApp.terminate(nil) }
             }
-            Spacer()
-            PanelLink(title: "Quit", shortcut: "\u{2318}Q") { NSApp.terminate(nil) }
+            HStack(spacing: Space.regular) {
+                PanelLink(title: "Settings\u{2026}", shortcut: "\u{2318},") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+                Spacer()
+                PanelLink(title: "Permissions\u{2026}", shortcut: "") {
+                    EditorWindowPresence.willOpen()
+                    openWindow(id: SoredemoApp.permissionsWindowID)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
         }
         .font(.system(size: 12))
     }

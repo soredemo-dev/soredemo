@@ -391,16 +391,27 @@ struct StageWindow: View {
                 // for one, and a button that cannot be pressed cannot explain that either.
                 // The dirty state is still shown — in the title — rather than in whether the
                 // control works.
+                // **The menu carries the ALTERNATIVE, not a copy of the button.** It used to
+                // repeat "Save" as its first item, which is the action pressing the button
+                // already performs — the same command written twice, which reads as a control
+                // nobody finished. A split button's menu is for what the button does not do.
+                //
+                // **And the label is an action, not a status.** It read "Save…" whenever
+                // anything was unsaved and "Saved" otherwise: the ellipsis promised a dialog
+                // that a project with a home never shows, and "Saved" labelled a button that
+                // is deliberately still pressable (see above) with a statement rather than a
+                // verb. The ellipsis is now exactly the HIG's rule — present only while
+                // saving really would ask where — and the dirty state stays in the title,
+                // where this file already put it.
                 Menu {
-                    Button(savedPackage == nil ? "Save…" : "Save") { saveProject() }
-                        .keyboardShortcut("s", modifiers: .command)
                     Button("Save As…") { saveProject(askingForDestination: true) }
                         .keyboardShortcut("s", modifiers: [.command, .shift])
                 } label: {
-                    Text(hasUnsavedChanges ? "Save\u{2026}" : "Saved")
+                    Text(savedPackage == nil ? "Save\u{2026}" : "Save")
                 } primaryAction: {
                     saveProject()
                 }
+                .keyboardShortcut("s", modifiers: .command)
                 .disabled(player == nil)
             }
             // **Export stays pressable while one is running.** It used to be replaced by a

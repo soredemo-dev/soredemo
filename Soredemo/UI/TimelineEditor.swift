@@ -570,11 +570,17 @@ struct TimelineEditor: View {
     /// number every lane uses, so this cannot drift away from the strips it is measuring.
     @ViewBuilder private func playheadLine(duration: Nanoseconds) -> some View {
         GeometryReader { proxy in
-            let track = max(proxy.size.width - Self.headerWidth, 1)
+            // **The header AND the gap after it.** `lane` is `HStack(spacing: Space.snug)` with
+            // an 84-point header, so its content starts at 92 and is 92 narrower than the
+            // stack — not 84. Counting the header alone put this line 8 points left of the
+            // strip's own and stretched it across 8 points more, which is precisely how far
+            // apart the two playheads in the editor were.
+            let contentOrigin = Self.headerWidth + Space.snug
+            let track = max(proxy.size.width - contentOrigin, 1)
             Rectangle()
                 .fill(Theme.Ink.primary)
                 .frame(width: 1)
-                .offset(x: Self.headerWidth + fraction(model.playhead, of: duration) * track)
+                .offset(x: contentOrigin + fraction(model.playhead, of: duration) * track)
         }
         .allowsHitTesting(false)
     }
@@ -696,14 +702,23 @@ struct TimelineEditor: View {
             let stripWidth = height * 16 / 9
             let first = Double(start.rawValue) / 1_000_000_000
             let last = Double(end.rawValue) / 1_000_000_000
+            // **Each frame fills its own slot, so the strip has no gaps.** `Filmstrip.step`
+            // snaps UP to a ladder value (0.25, 0.5, 1, 2, …) so one decode serves several
+            // zoom levels; when it snaps, the spacing between frames grows past a thumbnail's
+            // natural width and the lane's own fill shows through as regular vertical bands —
+            // which is what the purple stripes down the video track were. A filmstrip is a
+            // continuous strip, so a frame is drawn at least as wide as the gap to the next
+            // one, `.fill` cropping it rather than stretching it.
             GeometryReader { _ in
                 ZStack(alignment: .topLeading) {
                     ForEach(filmstrip.framesIn(step: step, from: first, to: last), id: \.0) { key, image in
-                        let x = (key.seconds - first) / max(last - first, 0.000_001) * width
+                        let span = max(last - first, 0.000_001)
+                        let x = (key.seconds - first) / span * width
+                        let slot = max(stripWidth, step / span * width)
                         Image(decorative: image, scale: 1)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: stripWidth, height: height)
+                            .frame(width: slot, height: height)
                             .clipped()
                             .offset(x: x)
                     }
@@ -870,19 +885,18 @@ struct TimelineEditor: View {
                         .allowsHitTesting(false)
                 }
 
-                // Handles before the playhead so the playhead draws over them, and after the
-                // clips so they are not covered by the next clip's fill.
+                // After the clips so they are not covered by the next clip's fill. The
+                // playhead is an overlay over the whole stack and draws above either.
                 if let selected = model.selectedClip,
                    let clip = model.edit.clips.first(where: { $0.id == selected }) {
                     trimHandle(for: clip, edge: .start, duration: duration, width: width)
                     trimHandle(for: clip, edge: .end, duration: duration, width: width)
                 }
 
-                Rectangle()
-                    .fill(Theme.Ink.primary)
-                    .frame(width: 2)
-                    .offset(x: fraction(model.playhead, of: duration) * width - 1)
-                    .allowsHitTesting(false)
+                // **The strip's own playhead is gone, and its absence is the point.** The
+                // full-height line above was added because "the strip drew its own and no
+                // other lane did" — and then this was left in place, so the editor drew two,
+                // eight points apart, from two different origins. One line, over every lane.
             }
             .contentShape(Rectangle())
             // Pinch to zoom, anchored where the fingers are. `MagnifyGesture` reports a
@@ -1006,7 +1020,7 @@ struct TimelineEditor: View {
             // gentle and which is close. Hidden when the block is too narrow to hold it.
             .overlay {
                 if width > 30, !suppressed {
-                    Text(String(format: "%.1f\u{00D7}", zoom))
+                    Text(FramingDepth.label(for: zoom))
                         .font(.system(size: 9, weight: .semibold).monospacedDigit())
                         .foregroundStyle(.black.opacity(0.75))
                         .allowsHitTesting(false)
