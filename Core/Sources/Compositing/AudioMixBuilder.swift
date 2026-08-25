@@ -17,17 +17,42 @@ public enum AudioMixBuilder {
     /// The order the master writer lays the audio tracks down in.
     public static let trackOrder: [AudioMix.Source] = [.systemAudio, .microphone]
 
-    public nonisolated static func mix(_ settings: AudioMix,
-                                       over tracks: [AVAssetTrack]) -> AVAudioMix {
+    /// `measured` is each track's integrated loudness, by index, from `Loudness.measure` — the
+    /// recording's own level, which is a derived value and so is passed in rather than stored.
+    /// Empty means "not measured", which levelling treats as "leave it alone".
+    ///
+    /// **Levelling multiplies the person's gain rather than replacing it.** Someone who levels
+    /// and then pulls the microphone down means both: the target is what the source is brought
+    /// to, and the slider is where they want it relative to that. A muted source stays silent
+    /// whatever it measures — `effectiveGain` has already applied that, and multiplying zero
+    /// keeps it zero.
+    public nonisolated static func mix(_ settings: AudioMix, over tracks: [AVAssetTrack],
+                                       measured: [Int: Double] = [:]) -> AVAudioMix {
         let mix = AVMutableAudioMix()
         mix.inputParameters = tracks.enumerated().map { index, track in
             let parameters = AVMutableAudioMixInputParameters(track: track)
-            let gain = index < trackOrder.count
-                ? settings.effectiveGain(for: trackOrder[index]) : 1
-            parameters.setVolume(Float(gain), at: .zero)
+            let source = index < trackOrder.count ? trackOrder[index] : nil
+            parameters.setVolume(Float(volume(for: source, in: settings,
+                                              measured: measured[index])), at: .zero)
             return parameters
         }
         return mix
+    }
+
+    /// **The one volume rule, as a function, so it can be tested.** A track beyond the two this
+    /// recorder writes has no source and is left at unity — an asset with three audio tracks did
+    /// not come from here, and silencing something because it was unexpected is worse than
+    /// passing it through.
+    ///
+    /// Levelling MULTIPLIES the person's gain rather than replacing it: the target is what the
+    /// source is brought to, the slider is where they want it relative to that, and a muted
+    /// source stays silent because `effectiveGain` has already made it zero.
+    public nonisolated static func volume(for source: AudioMix.Source?, in settings: AudioMix,
+                                          measured: Double?) -> Double {
+        guard let source else { return 1 }
+        let gain = settings.effectiveGain(for: source)
+        let levelling = settings.targetLoudness.map { Loudness.gain(from: measured, to: $0) } ?? 1
+        return gain * levelling
     }
 
     /// Applies `settings` to a player item that is already playing.
@@ -46,9 +71,9 @@ public enum AudioMixBuilder {
     /// UNCUT asset's tracks would address tracks the item does not have.
     @MainActor
     public static func apply(_ settings: AudioMix, to item: AVPlayerItem,
-                             of asset: sending AVAsset) async {
+                             of asset: sending AVAsset, measured: [Int: Double] = [:]) async {
         guard let tracks = try? await asset.loadTracks(withMediaType: .audio),
               !tracks.isEmpty else { return }
-        item.audioMix = mix(settings, over: tracks)
+        item.audioMix = mix(settings, over: tracks, measured: measured)
     }
 }

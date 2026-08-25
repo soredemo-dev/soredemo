@@ -56,6 +56,10 @@ struct StageWindow: View {
     /// How loud each recorded source is in the export. Two sources, because the master keeps
     /// system audio and the microphone apart — see `AudioMix`.
     @State private var audioMix = AudioMix.unchanged
+    /// Each audio track's integrated loudness, by index — see `Loudness`. Measured lazily, the
+    /// first time levelling is asked for, because it decodes the whole audio track and most
+    /// recordings are never levelled. Cleared when a different recording is loaded.
+    @State private var measuredLoudness: [Int: Double] = [:]
     // MARK: - project
     /// Where this recording has been saved, if it has. `nil` is a scratch recording, which is
     /// what "Save" turns into a project and what makes closing worth asking about.
@@ -298,7 +302,13 @@ struct StageWindow: View {
         // is the whole reason this is a separate path from the export's.
         .task(id: audioMix) {
             guard let item = player?.currentItem, let asset = playingAsset else { return }
-            await AudioMixBuilder.apply(audioMix, to: item, of: asset)
+            // Measured from the recording's own file, once, and only when somebody asks for
+            // levelling — a full audio decode for a feature most projects never turn on would
+            // be a second of work on every open. See `Loudness.measure(contentsOf:)`.
+            if audioMix.targetLoudness != nil, measuredLoudness.isEmpty {
+                measuredLoudness = await Loudness.measure(contentsOf: mediaURL)
+            }
+            await AudioMixBuilder.apply(audioMix, to: item, of: asset, measured: measuredLoudness)
         }
         // **Registered on every change, not once.** The closure captures this view's current
         // state, so a stale one would save an older edit than the one being asked about.
@@ -804,8 +814,38 @@ struct StageWindow: View {
                     .disabled(audioMix.isMuted(source))
             }
         }
+        // **Levelling, which every comparable recorder ships and this had none of.** A demo's
+        // narration sits at whatever level the microphone happened to be at, and every platform
+        // it is posted to renormalises by loudness — so a file that ignores loudness is a file
+        // the platform will change. ScreenKite calls it broadcast levelling. The target is in
+        // LUFS because that is the unit the platforms publish theirs in; the measurement and
+        // the gain that follows are `Loudness`'s.
+        Divider()
+        Toggle(isOn: Binding(
+            get: { audioMix.targetLoudness != nil },
+            set: { audioMix = audioMix.settingTargetLoudness(
+                $0 ? Loudness.defaultTargetLUFS : nil) })
+        ) {
+            Text("Match a loudness target")
+        }
+        .toggleStyle(.checkbox)
+        .font(.caption)
+        if let target = audioMix.targetLoudness {
+            HStack {
+                Text("Target").font(.caption)
+                Spacer()
+                Text("\(Int(target.rounded())) LUFS")
+                    .monospacedDigit().foregroundStyle(.secondary).font(.caption)
+            }
+            Slider(value: Binding(get: { target },
+                                  set: { audioMix = audioMix.settingTargetLoudness($0.rounded()) }),
+                   in: AudioMix.quietestTarget...AudioMix.loudestTarget)
+            Text("YouTube and Spotify normalise to \u{2212}14; \u{2212}16 leaves a little headroom under it.")
+                .font(Type.detail).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         if audioMix.changesAnything {
-            Button("Reset audio") { audioMix = .unchanged }
+            Button("Reset audio") { audioMix = .unchanged; measuredLoudness = [:] }
                 .buttonStyle(.link).font(.caption)
         }
     }
@@ -1050,6 +1090,10 @@ struct StageWindow: View {
         let asset = playingAsset
         let edit = timeline.edit
         let mix = audioMix
+        // Captured with the rest of the job, for `runExport`'s reason: a queued export runs
+        // later than the view that asked for it, and reading this then would read whatever had
+        // been measured since.
+        let loudness = measuredLoudness
         let chosen = quality
         let chosenCodec = codec
         let frames = frameRate.frames(recording: recordingFrameRate)
@@ -1062,6 +1106,7 @@ struct StageWindow: View {
             StageCompositor.apply(settings)
             return await Self.runExport(asset: asset, to: destination, isGIF: isGIF,
                                         size: size, edit: edit, audioMix: mix,
+                                        measuredLoudness: loudness,
                                         quality: chosen, codec: chosenCodec,
                                         frameRate: frames, gifSettings: gif, report: report)
         }
@@ -1084,7 +1129,8 @@ struct StageWindow: View {
     /// has one. `StageCompositor.cameraTrackID` names a track in that composition too.
     static func runExport(asset: sending AVAsset, to destination: URL, isGIF: Bool,
                           size: (width: Int, height: Int), edit: EditTimeline,
-                          audioMix: AudioMix, quality: ExportQuality, codec: ExportCodec,
+                          audioMix: AudioMix, measuredLoudness: [Int: Double],
+                          quality: ExportQuality, codec: ExportCodec,
                           frameRate: Int, gifSettings: GIFSettings,
                           report: @escaping @MainActor (ExportProgress) -> Void) async -> String? {
         do {
@@ -1099,6 +1145,7 @@ struct StageWindow: View {
                     asset: asset, to: destination,
                     outputWidth: size.width, outputHeight: size.height,
                     edit: edit, assetIsAlreadyEdited: true, audioMix: audioMix,
+                    measuredLoudness: measuredLoudness,
                     frameRate: frameRate, quality: quality, codec: codec,
                     onProgress: { progress in Task { @MainActor in report(progress) } })
             }
