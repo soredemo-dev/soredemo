@@ -138,7 +138,7 @@ final class RecordingCoordinator {
     var frameRate: CaptureFrameRate {
         didSet { UserDefaults.standard.set(frameRate.rawValue, forKey: Self.frameRateKey) }
     }
-    private static let frameRateKey = "captureFrameRate"
+    static let frameRateKey = "captureFrameRate"
     private(set) var availableCameras: [CameraSource] = []
     private var cameraRecorder: CameraRecorder?
     /// Where the camera's file landed for the recording being previewed, or `nil`.
@@ -225,10 +225,19 @@ final class RecordingCoordinator {
     var countdownSeconds: Int {
         didSet { UserDefaults.standard.set(countdownSeconds, forKey: Self.countdownKey) }
     }
-    private static let countdownKey = "countdownSeconds"
+    static let countdownKey = "countdownSeconds"
     /// The choices offered. Zero is "off" and is a legitimate answer — a person recording a
     /// window they have already arranged is not waiting three seconds for it.
     static let countdownChoices = [0, 3, 5, 10]
+
+    // **All four preference keys are `internal`, not `private`, and the reason is compatibility
+    // rather than testing convenience.** A persisted key is part of what the app promises across
+    // versions: rename one and every existing user's preference silently reverts to its default
+    // on the next launch, with nothing to see and nothing to report. Two of the four were
+    // already internal and two were private, which was inconsistency rather than design —
+    // nothing outside this file named any of them. They are named now by
+    // `scripts/cross-boundary-digest-probe.swift` § 17, which asserts that setting each
+    // preference writes the string below, so a rename is a red check instead of a quiet reset.
 
     func refreshMicrophones() {
         availableMicrophones = MicrophoneInventory.available()

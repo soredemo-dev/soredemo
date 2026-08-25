@@ -71,11 +71,25 @@ trap 'rm -rf "$OUT"' EXIT
 # comment where this one used to be: `set -euo pipefail` made the truncated
 # `xcrun swiftc` (no input files) abort the script before the bogus second
 # command ever ran. Comments belong outside the continuation, as above.
-# **The recording surfaces are deliberately not in the list below** — RecordingBar,
-# MenuBarRecorder and SettingsWindow. They depend on RecordingCoordinator, which lives in
-# ContentView.swift with the app lifecycle this probe does not compile. They carry no
-# cross-boundary rule of their own, and Tests/AppSourceTests scans every app source whether
-# or not it appears here, so nothing goes unchecked by leaving them out.
+# **The list below is now EVERY app source but one, and it is checked.**
+#
+# It used to omit the recording surfaces — RecordingBar, MenuBarRecorder, SettingsWindow and
+# ContentView, where RecordingCoordinator lives — and the reason recorded here was the app
+# lifecycle: they were said to depend on a coordinator that "lives in ContentView.swift with
+# the app lifecycle this probe does not compile". That was wrong, and wrong in the direction
+# that keeps an omission alive: MenuBarRecorder named `SoredemoApp` for its two window ids and
+# NOTHING ELSE, RecordingBar names MenuBarRecorderPanel, ContentView names RecordingBarPresenter.
+# Four files transitively unreachable over two string constants. They live in `WindowID` now
+# (`Soredemo/App/WindowID.swift`, whose header carries the measurement), and the four compile
+# here like everything else — which is what § 17 of the probe needed to exist at all.
+#
+# `Soredemo/App/SoredemoApp.swift` is the one file that stays out, and structurally rather than
+# by judgement: it carries `@main` and this binary has its own entry point, so the two do not
+# link. That exemption is named in `Core/Tests/AppSourceTests/ProbeCoverageTests.swift`, which
+# fails if any OTHER app source is missing from the invocation below — so this list can no
+# longer drift the way it did, and a new app file is a red test rather than a silent gap. The
+# invocation stays the single authority on what is compiled; the test reads it, it does not
+# restate it.
 xcrun swiftc \
   -swift-version 6 \
   -default-isolation MainActor \
@@ -90,11 +104,20 @@ xcrun swiftc \
   -lSoredemoHeadless \
   -o "$OUT/probe" \
   Soredemo/App/BuildProvenance.swift \
+  Soredemo/App/WindowID.swift \
+  Soredemo/App/AppLanguage.swift \
   Soredemo/App/UnsavedWorkGuard.swift \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \
   Soredemo/UI/DesignTokens.swift \
+  Soredemo/UI/ContentView.swift \
+  Soredemo/UI/CameraSelfView.swift \
+  Soredemo/UI/SystemCursorShape.swift \
+  Soredemo/UI/CountdownPanel.swift \
+  Soredemo/UI/RecordingBar.swift \
+  Soredemo/UI/MenuBarRecorder.swift \
+  Soredemo/UI/SettingsWindow.swift \
   Soredemo/UI/ProjectDocument.swift \
   Soredemo/UI/PreviewView.swift \
   Soredemo/UI/StageWindow.swift \

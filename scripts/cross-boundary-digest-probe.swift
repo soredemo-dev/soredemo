@@ -403,6 +403,11 @@ enum CrossBoundaryProbe {
         print("16.1-16.3 both causes of a drop, driven directly, plus a clean run that drops nothing")
         try await theDropCounterIsDrivenByBothOfItsTwoCauses()
 
+        print("17. RecordingCoordinator — the app tier's first executing instrument (2026-08-26)")
+        print("17.1-17.5 the four persisted preferences: their defaults, their keys, and what a "
+              + "stored value this build cannot read falls back to")
+        recordingCoordinatorPreferences()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -410,6 +415,159 @@ enum CrossBoundaryProbe {
               ? "PROBE PASSED (\(checksRun) checks)"
               : "PROBE FAILED (\(failures) of \(checksRun) checks)")
         if failures != 0 { exit(1) }
+    }
+
+    // MARK: - § 17. RecordingCoordinator
+
+    /// **The app tier's first executing check, and what it took to reach it.**
+    ///
+    /// `RecordingCoordinator` lives in `Soredemo/UI/ContentView.swift`, in the Xcode app target,
+    /// which has no test target — `ROADMAP.md`'s `project-format` row has said so since Phase 1.
+    /// This probe was the app tier's only instrument and it could not reach the coordinator
+    /// either: its own header used to record the recording surfaces as unreachable because they
+    /// "depend on RecordingCoordinator, which lives in ContentView.swift with the app lifecycle
+    /// this probe does not compile". That turned out to be false. The lifecycle was never the
+    /// obstacle; two string constants were. `MenuBarRecorder` named `SoredemoApp` for its two
+    /// window ids, `RecordingBar` names `MenuBarRecorderPanel`, and `ContentView` names
+    /// `RecordingBarPresenter` — so four files were transitively out of reach over two lines that
+    /// had no business being on the `@main` struct. They live in `WindowID` now, and this binary
+    /// compiles every app source but `SoredemoApp.swift` itself, which it cannot: two `@main`
+    /// declarations do not link.
+    ///
+    /// **What is checked here is the persistence, because that is what is deterministic.** The
+    /// coordinator's interesting behaviour — a self-view that must disappear when the camera is
+    /// switched off mid-recording — needs a camera device, a TCC grant and a running capture, and
+    /// a check that needs those three is not a check. `init()` is the opposite: four preferences
+    /// read from `UserDefaults`, each with a defaulting rule whose own comment states the defect
+    /// it exists to prevent, and none of them had ever been executed by anything.
+    ///
+    /// **Two things about touching `UserDefaults` from a probe.** The domain is printed rather
+    /// than assumed — this is a bare executable with no bundle identifier, so its preferences do
+    /// not land in the shipping app's domain — and every key is snapshotted and restored anyway,
+    /// so the claim does not rest on that being true.
+    @MainActor
+    static func recordingCoordinatorPreferences() {
+        let defaults = UserDefaults.standard
+        let countdownKey = RecordingCoordinator.countdownKey
+        let frameRateKey = RecordingCoordinator.frameRateKey
+        let qualityKey = RecordingCoordinator.cameraQualityKey
+        let styleKey = RecordingCoordinator.cameraStyleKey
+        let keys = [countdownKey, frameRateKey, qualityKey, styleKey]
+
+        print("        preferences domain: "
+              + (Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName)
+              + " (not the app's — this binary has no bundle identifier)")
+
+        let saved = keys.map { (key: $0, value: defaults.object(forKey: $0)) }
+        defer {
+            for entry in saved {
+                if let value = entry.value { defaults.set(value, forKey: entry.key) }
+                else { defaults.removeObject(forKey: entry.key) }
+            }
+        }
+
+        // ---- 17.1 nothing stored: the stated defaults, not the zero values.
+        for key in keys { defaults.removeObject(forKey: key) }
+        let firstLaunch = RecordingCoordinator()
+        // The one `init()` names outright: `integer(forKey:)` answers 0 for a key never set, and
+        // 0 is a legitimate countdown meaning "off" — so the obvious spelling ships a first
+        // launch with the countdown silently disabled.
+        check(firstLaunch.countdownSeconds == 3,
+              "17.1 a first launch counts down 3 seconds, not 0",
+              actual: "\(firstLaunch.countdownSeconds)", expected: "3")
+        // Same trap, worse consequence: 0 is not a frame rate at all, and `CaptureFrameRate`'s
+        // own initialiser refuses it — so the fallback is what keeps a first launch from having
+        // no rate rather than a bad one.
+        check(firstLaunch.frameRate == .sixty,
+              "17.1 a first launch records at 60, not at a rate no initialiser would accept",
+              actual: "\(firstLaunch.frameRate.rawValue)", expected: "60")
+        check(firstLaunch.cameraQuality == .best,
+              "17.1 a first launch's camera quality is .best",
+              actual: "\(firstLaunch.cameraQuality.rawValue)", expected: "best")
+        check(firstLaunch.cameraStyle == .default,
+              "17.1 a first launch's camera sits where CameraOverlayStyle.default puts it")
+
+        // ---- 17.2 each preference reaches disk, under the key the app has always used.
+        //
+        // **The four literals below are spelled out HERE, and that is the whole check.** The
+        // first version of this section read each key through `RecordingCoordinator`'s own
+        // constant and asserted the value landed under it — which is self-referential: renaming
+        // the constant renames both sides at once. Measured, not reasoned about: renaming
+        // `frameRateKey` to `"captureFrameRateV2"` left all 371 checks green. A renamed key does
+        // not fail anywhere else either; it silently resets every existing user's preference to
+        // its default on the next launch. So the string is pinned on this side of the boundary,
+        // where changing the app cannot change the expectation.
+        let pinnedKeys = [("countdown", countdownKey, "countdownSeconds"),
+                          ("frame rate", frameRateKey, "captureFrameRate"),
+                          ("camera quality", qualityKey, "cameraQuality"),
+                          ("camera style", styleKey, "cameraOverlayStyle")]
+        for (what, declared, pinned) in pinnedKeys {
+            check(declared == pinned,
+                  "17.2 the \(what) is stored under the key it has always been stored under",
+                  actual: declared, expected: pinned)
+        }
+        firstLaunch.countdownSeconds = 5
+        firstLaunch.frameRate = .thirty
+        firstLaunch.cameraQuality = .hd720
+        let moved = CameraOverlayStyle(widthFraction: 0.25, x: 0.2, y: 0.8, shape: .square,
+                                       cornerFraction: 0.1, isMirrored: false,
+                                       borderOpacity: 0.1, shadowOpacity: 0.2)
+        firstLaunch.cameraStyle = moved
+
+        check(defaults.object(forKey: countdownKey) as? Int == 5,
+              "17.2 the countdown is written under '\(countdownKey)'",
+              actual: String(describing: defaults.object(forKey: countdownKey)), expected: "5")
+        check(defaults.object(forKey: frameRateKey) as? Int == 30,
+              "17.2 the frame rate is written under '\(frameRateKey)'",
+              actual: String(describing: defaults.object(forKey: frameRateKey)), expected: "30")
+        check(defaults.string(forKey: qualityKey) == "hd720",
+              "17.2 the camera quality is written under '\(qualityKey)'",
+              actual: String(describing: defaults.string(forKey: qualityKey)), expected: "hd720")
+        check(defaults.data(forKey: styleKey) != nil,
+              "17.2 the camera style is written under '\(styleKey)'")
+
+        // ---- 17.3 and a relaunch reads them back. A separate check from 17.2 on purpose: a
+        // preference that reaches disk and is not read on the way back up is still lost, and the
+        // two failures have different causes — a `didSet` that stopped firing, against an `init`
+        // that stopped looking.
+        let relaunched = RecordingCoordinator()
+        check(relaunched.countdownSeconds == 5, "17.3 a relaunch counts down 5",
+              actual: "\(relaunched.countdownSeconds)", expected: "5")
+        check(relaunched.frameRate == .thirty, "17.3 a relaunch records at 30",
+              actual: "\(relaunched.frameRate.rawValue)", expected: "30")
+        check(relaunched.cameraQuality == .hd720, "17.3 a relaunch keeps the camera quality",
+              actual: relaunched.cameraQuality.rawValue, expected: "hd720")
+        check(relaunched.cameraStyle == moved,
+              "17.3 a relaunch puts the camera back where it was dragged to")
+
+        // ---- 17.4 zero is a stored answer, not an absent key. This is the distinction 17.1's
+        // default rests on, from the other side: if the two collapsed, somebody who deliberately
+        // turned the countdown off would get three seconds back on every launch.
+        relaunched.countdownSeconds = 0
+        check(RecordingCoordinator().countdownSeconds == 0,
+              "17.4 a countdown deliberately set to off stays off across a relaunch",
+              actual: "\(RecordingCoordinator().countdownSeconds)", expected: "0")
+
+        // ---- 17.5 a stored value this build cannot read falls back rather than trapping.
+        // These are not hypothetical: a downgrade, a hand-edited plist, and a shape enum that
+        // gains a case all produce exactly this. `CaptureFrameRate.init(rawValue:)` refuses a
+        // non-positive rate, so a stored 0 must not become a `CMTime` timescale of zero.
+        defaults.set(0, forKey: frameRateKey)
+        defaults.set("a-quality-this-build-does-not-have", forKey: qualityKey)
+        defaults.set(Data("not JSON at all".utf8), forKey: styleKey)
+        defaults.set("three", forKey: countdownKey)
+        let recovered = RecordingCoordinator()
+        check(recovered.frameRate == .sixty,
+              "17.5 a stored frame rate of 0 falls back to 60 rather than becoming a timescale",
+              actual: "\(recovered.frameRate.rawValue)", expected: "60")
+        check(recovered.cameraQuality == .best,
+              "17.5 a camera quality this build does not know falls back to .best",
+              actual: recovered.cameraQuality.rawValue, expected: "best")
+        check(recovered.cameraStyle == .default,
+              "17.5 a camera style that will not decode falls back to the default")
+        check(recovered.countdownSeconds == 3,
+              "17.5 a countdown stored as text falls back to 3",
+              actual: "\(recovered.countdownSeconds)", expected: "3")
     }
 
     /// Saves a document that already has a media sidecar on disk, and asserts
