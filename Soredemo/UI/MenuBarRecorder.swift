@@ -57,7 +57,7 @@ struct MenuBarRecorderLabel: View {
         .onChange(of: coordinator.mediaURL) {
             guard coordinator.mediaURL != nil else { return }
             EditorWindowPresence.willOpen()
-            openWindow(id: SoredemoApp.editorWindowID)
+            openWindow(id: WindowID.editor)
             NSApp.activate(ignoringOtherApps: true)
         }
         // **First run opens the permission page.** Not every run: a person who has granted
@@ -67,7 +67,7 @@ struct MenuBarRecorderLabel: View {
         .task {
             guard !CapturePermissions.blockingFailures().isEmpty else { return }
             EditorWindowPresence.willOpen()
-            openWindow(id: SoredemoApp.permissionsWindowID)
+            openWindow(id: WindowID.permissions)
             NSApp.activate(ignoringOtherApps: true)
         }
     }
@@ -509,7 +509,7 @@ struct MenuBarRecorderPanel: View {
                 Spacer()
                 PanelLink(title: "Permissions\u{2026}", shortcut: "") {
                     EditorWindowPresence.willOpen()
-                    openWindow(id: SoredemoApp.permissionsWindowID)
+                    openWindow(id: WindowID.permissions)
                     NSApp.activate(ignoringOtherApps: true)
                 }
             }

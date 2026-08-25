@@ -31,9 +31,6 @@ struct SoredemoApp: App {
     /// persisted defaults and scanned the machine's cameras and microphones for a copy of the
     /// app nothing was pointing at.
     @State private var recordingCoordinator: RecordingCoordinator
-    /// The editor window's identity, so `openWindow(id:)` can reach it from the menu bar item.
-    static let editorWindowID = "editor"
-    static let permissionsWindowID = "permissions" 
     /// The one thing an app delegate is needed for: asking before the app quits over an edit
     /// nobody saved. See `UnsavedWorkGuard`.
     @NSApplicationDelegateAdaptor(SoredemoAppDelegate.self) private var appDelegate
@@ -106,7 +103,7 @@ struct SoredemoApp: App {
         // **Permissions, opened on first run and from the menu bar afterwards.** Suppressed at
         // launch like the editor: a person who has already granted everything should not be
         // greeted by a window telling them so.
-        Window("Permissions", id: Self.permissionsWindowID) {
+        Window("Permissions", id: WindowID.permissions) {
             PermissionsWindow()
         }
         .defaultLaunchBehavior(.suppressed)
@@ -124,7 +121,7 @@ struct SoredemoApp: App {
         // be a second set of models over the same `StageCompositor` statics — which are
         // process-global because AVFoundation owns compositor instances, and would therefore
         // disagree between the two windows.
-        Window("Soredemo", id: Self.editorWindowID) {
+        Window("Soredemo", id: WindowID.editor) {
             ContentView(coordinator: recordingCoordinator)
                 // `SCContentSharingPicker.present()` hands off to Control
                 // Center's UI and needs a running run loop to call back into,
