@@ -125,6 +125,12 @@ public struct CursorStyle: Hashable, Codable, Sendable {
     public let idleDelay: Double
     /// How much the cursor leans into its own motion, 0…1 — `CursorTilt` turns it into degrees.
     public let tilt: Double
+    /// **How much the drawn cursor glides**, as Screen Studio's own four choices plus off —
+    /// see `PointerPath.Tuning.Movement`, which carries the measurement that made this a
+    /// setting rather than a constant. The one place this file's header said would need "the
+    /// drift added first": the drift is there now, and the knob is the picker rather than a
+    /// number, for the same reason Screen Studio's is.
+    public let movement: PointerPath.Tuning.Movement
 
     public enum ClickEffect: String, Hashable, Codable, Sendable, CaseIterable {
         /// An expanding ring — what this app has always drawn.
@@ -155,7 +161,8 @@ public struct CursorStyle: Hashable, Codable, Sendable {
     public init(scale: Double, clickEffect: ClickEffect, clickOpacity: Double,
                 clickSize: Double, red: Double, green: Double, blue: Double,
                 hidesWhenIdle: Bool = false, idleDelay: Double = CursorStyle.defaultIdleDelay,
-                tilt: Double = 0) {
+                tilt: Double = 0,
+                movement: PointerPath.Tuning.Movement = .standard) {
         // Clamped rather than trapped: every one of these arrives from a slider AND from a
         // decoder, which is rule 8's case.
         self.scale = min(max(scale, 0.5), 3)
@@ -168,6 +175,7 @@ public struct CursorStyle: Hashable, Codable, Sendable {
         self.hidesWhenIdle = hidesWhenIdle
         self.idleDelay = idleDelay.isFinite ? min(max(idleDelay, 0.5), 10) : CursorStyle.defaultIdleDelay
         self.tilt = tilt.isFinite ? min(max(tilt, 0), 1) : 0
+        self.movement = movement
     }
 
     public init(from decoder: any Decoder) throws {
@@ -184,12 +192,20 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                   hidesWhenIdle: try container.decodeIfPresent(Bool.self, forKey: .hidesWhenIdle) ?? false,
                   idleDelay: try container.decodeIfPresent(Double.self, forKey: .idleDelay)
                       ?? CursorStyle.defaultIdleDelay,
-                  tilt: try container.decodeIfPresent(Double.self, forKey: .tilt) ?? 0)
+                  tilt: try container.decodeIfPresent(Double.self, forKey: .tilt) ?? 0,
+                  // Absent is "never chose", which is the current default — the same rule
+                  // every other field in this decoder follows. A first draft decoded it as
+                  // `rapid` to preserve how projects saved before the picker existed had
+                  // looked; that is the producer-value rule misapplied, because a field
+                  // nobody could set carries no authored value to protect, and it would
+                  // have made `CursorStyle.default` un-decodable from an empty object.
+                  movement: try container.decodeIfPresent(PointerPath.Tuning.Movement.self,
+                                                          forKey: .movement) ?? .standard)
     }
 
     private enum CodingKeys: String, CodingKey {
         case scale, clickEffect, clickOpacity, clickSize, red, green, blue
-        case hidesWhenIdle, idleDelay, tilt
+        case hidesWhenIdle, idleDelay, tilt, movement
     }
 
     /// The same style with one field changed — the shape `TextOverlayStyle.changing` uses, for
@@ -199,7 +215,8 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                          clickOpacity: Double? = nil, clickSize: Double? = nil,
                          red: Double? = nil, green: Double? = nil,
                          blue: Double? = nil, hidesWhenIdle: Bool? = nil,
-                         idleDelay: Double? = nil, tilt: Double? = nil) -> CursorStyle {
+                         idleDelay: Double? = nil, tilt: Double? = nil,
+                         movement: PointerPath.Tuning.Movement? = nil) -> CursorStyle {
         CursorStyle(scale: scale ?? self.scale,
                     clickEffect: clickEffect ?? self.clickEffect,
                     clickOpacity: clickOpacity ?? self.clickOpacity,
@@ -207,7 +224,8 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                     red: red ?? self.red, green: green ?? self.green, blue: blue ?? self.blue,
                     hidesWhenIdle: hidesWhenIdle ?? self.hidesWhenIdle,
                     idleDelay: idleDelay ?? self.idleDelay,
-                    tilt: tilt ?? self.tilt)
+                    tilt: tilt ?? self.tilt,
+                    movement: movement ?? self.movement)
     }
 }
 

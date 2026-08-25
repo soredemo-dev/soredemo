@@ -205,6 +205,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     private nonisolated(unsafe) var cameraCeiling: Double = .infinity
     /// The pressed shortcuts, from the same log.
     private nonisolated(unsafe) var keystrokes: KeystrokeTrack?
+    /// The movement the pointer path was baked under. A change re-bakes it, the way a change
+    /// of zoom ceiling re-bakes the camera: the spring is stateful, so its answer cannot be
+    /// adjusted per frame the way a colour or a size can.
+    private nonisolated(unsafe) var pathMovement: PointerPath.Tuning.Movement = .standard
     private nonisolated(unsafe) var tracksLoaded = false
 
     public func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
@@ -570,12 +574,18 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                    let built = try? unsafe Self.buildTracks(from: url, overrides: Self.overrides,
                                                             framingOverrides: Self.framingOverrides) {
                     unsafe pointerTrack = built.pointer
+                    unsafe pathMovement = built.movement
                     unsafe clickTrack = built.click
                     unsafe camera = built.camera
                     unsafe cameraCeiling = built.camera.zoomCeiling
                     unsafe keystrokes = built.keystrokes
                     unsafe logAnchor = built.anchor
                 }
+            }
+            let wanted = (unsafe Self.cursorStyle).movement
+            if unsafe pathMovement != wanted, let existing = unsafe pointerTrack {
+                unsafe pointerTrack = existing.moving(wanted)
+                unsafe pathMovement = wanted
             }
             if zoomCeiling.isFinite, let current = unsafe camera,
                unsafe cameraCeiling != max(zoomCeiling, 1.0) {
@@ -592,7 +602,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     private static func buildTracks(from url: URL, overrides: [CursorOverride],
                                     framingOverrides: [FramingOverride] = []) throws
         -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?, camera: CameraMotion,
-            keystrokes: KeystrokeTrack) {
+            keystrokes: KeystrokeTrack, movement: PointerPath.Tuning.Movement) {
         let lines = try JSONLReader.linesOfFile(at: url).lines
         var samples: [PointerSample] = []
         var blindIntervals: [BlindInterval] = []
@@ -637,10 +647,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         }
         // The button-down instants feed the presentation path, where the cursor's spring
         // stiffens into a click so it has arrived when the ripple starts — see `PointerPath`.
+        let movement = (unsafe cursorStyle).movement
         let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals,
                                    overrides: overrides,
                                    clickInstants: buttonEvents.filter { $0.phase == .down }
-                                       .map(\.instant))
+                                       .map(\.instant),
+                                   tuning: PointerPath.Tuning.default.moving(movement))
         let click = ClickTrack(events: buttonEvents)
         // Overrides first, the gate second — the resolution order IS the producer-value rule.
         let plan = FramingPlan(entries: planEntries)
@@ -664,6 +676,6 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             return nil
         })
         return (pointer: pointer, click: click, anchor: anchor, camera: camera,
-                keystrokes: KeystrokeTrack(presses: presses))
+                keystrokes: KeystrokeTrack(presses: presses), movement: movement)
     }
 }

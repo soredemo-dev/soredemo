@@ -204,6 +204,18 @@ struct StageStylePicker: View {
         slider("Cursor size", value: model.cursor.scale, range: 0.5...3) {
             model.setCursor(model.cursor.changing(scale: $0)); onChange()
         }
+        // **Screen Studio's own four, plus off.** One hard-coded response was the defect and it
+        // sat at the fastest value anybody ships — see `PointerPath.Tuning.Movement`, which
+        // carries the measurement against a Rust recorder's. Changing this re-bakes the cursor's path, so
+        // it takes effect on the next composition rather than on the next frame.
+        Picker("Cursor movement", selection: Binding(
+            get: { model.cursor.movement },
+            set: { model.setCursor(model.cursor.changing(movement: $0)); onChange() })
+        ) {
+            ForEach(PointerPath.Tuning.Movement.allCases, id: \.self) { style in
+                Text(LocalizedStringKey(style.displayName)).tag(style)
+            }
+        }
         Picker("Click effect", selection: Binding(
             get: { model.cursor.clickEffect },
             set: { model.setCursor(model.cursor.changing(clickEffect: $0)); onChange() })

@@ -76,20 +76,41 @@ extension StageCompositorTests {
                 "frame \(instant.frame): the log has no sample at or before this instant")
             let expectedX = card.x + reading.position.x * card.width
             let expectedY = card.y + reading.position.y * card.height
-            // Pixels per second across the bracket, from the bytes; zero at rest.
-            let speed = recordedSpeed(in: samples, atHostTime: instant.hostTime)
+            // **Inside the box the pointer actually occupied recently, not within a
+            // speed-derived tolerance.** Two earlier drafts bounded this by the spring's
+            // steady-state trail, `speed × lag` — first from the instant's own bracket,
+            // then from the peak over a settling window. Both are formulas for a target
+            // already moving at a constant speed, and a spring is also still catching up
+            // from whatever came before: measured on this fixture at frame 559, the
+            // second draft allowed 8.08 px and the real displacement was 8.66. Widening
+            // the multiplier until it fits is how a bound stops meaning anything.
+            //
+            // A spring's output is a weighted average of the targets it has chased, so it
+            // cannot leave the region the target occupied except by its overshoot — which
+            // at ζ = 0.9 is a couple of percent. So the invariant is: the drawn position
+            // lies inside the box the RECORDING's own samples covered over the settling
+            // window. That is speed-independent, collapses to a point when the cursor has
+            // been still, and is exactly what a wrong mapping in `StagePlanner.placement`
+            // — the thing this assertion exists to catch — would violate.
             let lag = PointerPath.Tuning.default.worstCaseLagSeconds
-            // Two lags, because the spring also has to ACCELERATE into a move and the
-            // steady-state figure is for a target already moving; plus one pixel of slack.
-            let bound = speed.x * card.width * lag * 2 + 1.0
-            let boundY = speed.y * card.height * lag * 2 + 1.0
-            #expect(abs(instant.placement.x - expectedX) <= bound
-                    && abs(instant.placement.y - expectedY) <= boundY, """
+            let settling = Nanoseconds(Int64(lag * 4 * 1e9))
+            let box = try #require(
+                recordedBox(in: samples, endingAt: instant.hostTime, window: settling),
+                "frame \(instant.frame): no samples in the settling window before it")
+            // The overshoot allowance, plus two pixels for the stroke and the rounding.
+            let slackX = (box.maxX - box.minX) * card.width * 0.05 + 2
+            let slackY = (box.maxY - box.minY) * card.height * 0.05 + 2
+            let lowX = card.x + box.minX * card.width - slackX
+            let highX = card.x + box.maxX * card.width + slackX
+            let lowY = card.y + box.minY * card.height - slackY
+            let highY = card.y + box.maxY * card.height + slackY
+            #expect(instant.placement.x >= lowX && instant.placement.x <= highX
+                    && instant.placement.y >= lowY && instant.placement.y <= highY, """
                 frame \(instant.frame) (\(reading.priorCount) of \(samples.count) samples lie at \
                 or before it): the compositor placed the pointer at (\(instant.placement.x), \
-                \(instant.placement.y)); the sample the log selects at this instant places it at \
-                (\(expectedX), \(expectedY)), and at \(speed) units/s the spring may trail by at \
-                most (\(bound), \(boundY)) px
+                \(instant.placement.y)), outside the box its own samples covered over the \
+                preceding \(lag * 4) s — x \(lowX)…\(highX), y \(lowY)…\(highY). The sample \
+                the log selects at this instant is at (\(expectedX), \(expectedY)).
                 """)
 
             // **Composed WITHOUT the smear, since 2026-08-25, and removing the confound is
@@ -197,6 +218,36 @@ extension StageCompositorTests {
             \(settleSeconds) s with a sighted placement — the test asserted nothing
             """)
     }
+}
+
+/// The box the recording's own pointer samples covered over `window` ending at `time`, in
+/// normalised coordinates — the region a spring chasing them cannot leave except by its
+/// own small overshoot. `nil` when no sample falls in the window.
+func recordedBox(in samples: [PointerSample], endingAt time: Nanoseconds,
+                 window: Nanoseconds) -> (minX: Double, maxX: Double,
+                                          minY: Double, maxY: Double)? {
+    let start = time.rawValue - window.rawValue
+    var inWindow = samples.filter {
+        $0.instant.hostTime.rawValue >= start && $0.instant.hostTime.rawValue <= time.rawValue
+    }
+    // **Plus the sample being HELD when the window opened, which is the target's value
+    // at that instant and not merely an older reading.** This fixture carries 149
+    // tap-disabled windows: across one the target holds its last sample, and a spring
+    // that set off when the gap closed is travelling from there. A box built only from
+    // samples INSIDE the window excludes where the cursor legitimately came from, which
+    // is how the first draft of this bound reported a placement 62 px outside a box it
+    // had drawn around the destination alone.
+    if let held = samples.last(where: { $0.instant.hostTime.rawValue <= start }) {
+        inWindow.append(held)
+    }
+    guard let first = inWindow.first else { return nil }
+    var box = (minX: first.position.x, maxX: first.position.x,
+               minY: first.position.y, maxY: first.position.y)
+    for sample in inWindow.dropFirst() {
+        box.minX = min(box.minX, sample.position.x); box.maxX = max(box.maxX, sample.position.x)
+        box.minY = min(box.minY, sample.position.y); box.maxY = max(box.maxY, sample.position.y)
+    }
+    return box
 }
 
 /// The recorded pointer's speed across the bracket at `time`, in normalised units per

@@ -145,9 +145,17 @@ private func lerped(_ track: PointerTrack, at seconds: Double) -> NormalizedPoin
                              blindIntervals: [blind], overrides: [])
     // 1.08 s is sighted (the blind window starts at 1.1) and lies between the brackets
     // 1.03 → 1.2, which the blindness sits inside.
+    //
+    // **Asserted as "did not cross", not as "is exactly at the held sample".** This used
+    // to demand the cursor be within 0.005 of (0.25, 0.2), which held only because the
+    // spring then settled in 40 ms. Under `Movement.standard` it is still gliding toward
+    // the held target at this instant, and it should be — the refusal is that the TARGET
+    // holds, not that the spring teleports. The old expectation encoded the old response
+    // rather than the property, so it went red on a change that broke nothing.
     let held = try #require(presented(track, at: 1.08))
-    #expect(abs(held.x - 0.25) < 0.005 && abs(held.y - 0.2) < 0.005,
-            "the presented cursor at \(held) crossed a blind interval")
+    #expect(held.x < 0.3 && held.y < 0.25,
+            "the presented cursor at \(held) set off toward the far side of a blind interval")
+    #expect(held.x >= 0.2 - 0.001, "the cursor went backwards past the sample it holds from")
     // And AT a blind instant the precedence is untouched.
     #expect(track.presentedPosition(at: at(seconds: 1.12)) == .blind(blind))
 }
@@ -251,4 +259,61 @@ private func lerped(_ track: PointerTrack, at seconds: Double) -> NormalizedPoin
     let path = PointerPath(samples: foreign, blindIntervals: [], clickInstants: [])
     #expect(path.position(at: at(seconds: 1.2)) == nil)
     #expect(!path.entries(in: other).isEmpty)
+}
+
+// MARK: - how much it glides (design audit: the smoothness gap)
+
+/// **A slower movement cuts a corner harder, and that IS the smoothness.** The reason the
+/// cursor did not look like Screen Studio's was one hard-coded 60 ms response — ω = 105 rad/s
+/// against a Rust recorder's shipped 12.5 — so the spring had reproduced the hand's own path within three
+/// frames. Measured as the closest the presented path comes to a right-angle corner: the
+/// slower the movement, the wider the arc.
+@Test func aSlowerMovementCutsTheCornerWider() throws {
+    let corner = NormalizedPoint(x: 0.6, y: 0.2)
+    func closestApproach(_ movement: PointerPath.Tuning.Movement) throws -> Double {
+        let leg1 = line(from: (0.2, 0.2), to: (0.6, 0.2), start: 1, duration: 0.4)
+        let leg2 = line(from: (0.6, 0.2), to: (0.6, 0.6), start: 1.4, duration: 0.4).dropFirst()
+        let track = PointerTrack(samples: leg1 + leg2, blindIntervals: [], overrides: [],
+                                 tuning: PointerPath.Tuning.default.moving(movement))
+        var closest = Double.infinity
+        for seconds in stride(from: 1.2, through: 1.7, by: 0.004) {
+            guard let point = presented(track, at: seconds) else { continue }
+            closest = min(closest, hypot(point.x - corner.x, point.y - corner.y))
+        }
+        return closest
+    }
+    let rapid = try closestApproach(.rapid)
+    let standard = try closestApproach(.standard)
+    let slow = try closestApproach(.slow)
+    #expect(standard > rapid, "Default (\(standard)) cut no wider than Rapid (\(rapid))")
+    #expect(slow > standard, "Slow (\(slow)) cut no wider than Default (\(standard))")
+}
+
+/// The ladder is ordered and its ends are anchored: `none` is effectively no spring, and
+/// `slow` is near a Rust recorder's shipped cursor spring, whose ω its own `sqrt(tension/mass)` puts at
+/// 12.5 rad/s for `tension 470, mass 3`.
+@Test func theMovementLadderIsOrderedAndAnchoredOnAShippedSpring() {
+    let ladder = PointerPath.Tuning.Movement.allCases
+    #expect(ladder.first == PointerPath.Tuning.Movement.none)
+    let responses = ladder.map(\.responseSeconds)
+    #expect(responses == responses.sorted(), "the ladder is not ordered: \(responses)")
+    let capOmega = (470.0 / 3.0).squareRoot()
+    #expect(abs(PointerPath.Tuning.Movement.slow.angularFrequency - capOmega) < 1.5, """
+        Slow is ω \(PointerPath.Tuning.Movement.slow.angularFrequency); a Rust recorder's shipped cursor \
+        spring is \(capOmega), and this end of the ladder is meant to sit on it
+        """)
+    #expect(Set(ladder.map(\.displayName)).count == ladder.count)
+}
+
+/// `none` is a spring so fast it has no memory, which is what "disable smooth mouse movement"
+/// means — the presented path lands on the observations. Screen Studio offers exactly this,
+/// per fragment, for recordings of dropdowns where the frame-by-frame truth is the point.
+@Test func noMovementFollowsTheObservationsThemselves() throws {
+    let samples = line(from: (0.2, 0.5), to: (0.8, 0.5), start: 1, duration: 0.6)
+    let track = PointerTrack(samples: samples, blindIntervals: [], overrides: [],
+                             tuning: PointerPath.Tuning.default.moving(.none))
+    let presentedPoint = try #require(presented(track, at: 1.3))
+    let exact = try #require(lerped(track, at: 1.3))
+    #expect(abs(presentedPoint.x - exact.x) < 0.002,
+            "with movement off the cursor was at \(presentedPoint.x), the observations say \(exact.x)")
 }

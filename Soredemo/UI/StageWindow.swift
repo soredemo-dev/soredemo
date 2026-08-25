@@ -582,51 +582,19 @@ struct StageWindow: View {
         }
     }
 
-    static let positionRows: [[CameraOverlayStyle.Position]] = [
-        [.topLeft, .topCenter, .topRight],
-        [.centerLeft, .center, .centerRight],
-        [.bottomLeft, .bottomCenter, .bottomRight],
-    ]
-
-    /// Whether the style is sitting exactly on a preset. Compared with a tolerance because a
-    /// drag writes a continuous position and would otherwise never light a cell again.
-    static func matches(_ style: CameraOverlayStyle, _ position: CameraOverlayStyle.Position)
-    -> Bool {
-        // **Identity, not proximity, now that the preset is stored.** It used to compare
-        // coordinates with a tolerance because a preset was baked into numbers and a drag wrote
-        // numbers that happened to be near them; `position` says which cell was pressed, so the
-        // highlight is exact and a hand-placed camera lights none of them — which is true.
-        style.position == position
-    }
-
     /// Where the camera sits. **Shown only when the recording HAS one** — controls for a track
     /// that does not exist are controls a person changes and sees nothing happen.
+    ///
+    /// **The nine-place grid is gone, because the camera can be dragged.** It was added when
+    /// the only alternative was two sliders, and that argument was sound then — almost every
+    /// camera goes in a corner, and finding a corner by aiming two sliders is a job. It stopped
+    /// being sound when the overlay became draggable: pointing at where the camera should go IS
+    /// the grid's whole justification, and dragging it there is the same gesture with none of
+    /// the chrome. Two controls for one decision is one more than the decision has.
     @ViewBuilder private var cameraControls: some View {
-        // **Nine places, as a grid of the frame.** Two sliders can express any position and are
-        // the wrong instrument for the position people actually want: almost every camera goes
-        // in a corner, and finding a corner by aiming two sliders is a job. an Electron recorder and
-        // an Electron recorder both ship the same nine presets beside the free position.
-        //
-        // A 3×3 grid rather than a menu, because the control's SHAPE is the frame — pressing the
-        // bottom-right cell is pointing at where the camera will be.
         Toggle("Show camera", isOn: Binding(
             get: { !cameraStyle.isHidden },
             set: { cameraStyle = cameraStyle.changing(isHidden: !$0); reviewRevision += 1 }))
-        Grid(horizontalSpacing: 2, verticalSpacing: 2) {
-            ForEach(Self.positionRows, id: \.first) { row in
-                GridRow {
-                    ForEach(row, id: \.self) { position in
-                        CameraPositionCell(
-                            position: position,
-                            isChosen: Self.matches(cameraStyle, position),
-                            choose: {
-                                cameraStyle = cameraStyle.placed(at: position)
-                                reviewRevision += 1
-                            })
-                    }
-                }
-            }
-        }
         Picker("Shape", selection: Binding(
             get: { cameraStyle.shape },
             set: { cameraStyle = cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
@@ -1168,32 +1136,3 @@ struct StageWindow: View {
 
 
 
-/// One cell of the camera's position grid.
-///
-/// **The control is a picture of the frame.** A dot in the corner of a small rectangle says
-/// where the camera goes without a word, and stays true in a language this app has not been
-/// translated into.
-private struct CameraPositionCell: View {
-    let position: CameraOverlayStyle.Position
-    let isChosen: Bool
-    let choose: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: choose) {
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(isChosen ? Theme.accent.opacity(0.28)
-                               : Theme.Fill.rest.opacity(isHovering ? 1 : 0.6))
-                .overlay {
-                    Circle()
-                        .fill(isChosen ? Theme.accent : Theme.Ink.tertiary)
-                        .frame(width: 5, height: 5)
-                }
-                .frame(width: 22, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help(LocalizedStringKey(position.displayName))
-    }
-}

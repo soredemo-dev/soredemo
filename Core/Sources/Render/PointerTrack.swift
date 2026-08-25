@@ -27,6 +27,10 @@ public struct PointerTrack: Sendable {
     /// `PointerSampler` stream of a resting pointer is not motion, and neither is a
     /// sub-pixel wobble.
     private let motionInstants: [BootEpoch: [Int64]]
+    /// Kept so the path can be re-baked under a different tuning without the caller having to
+    /// re-read the log — see `moving(_:)`.
+    private let clickInstants: [HostInstant]
+    private let tuning: PointerPath.Tuning
 
     /// `clickInstants` are button-DOWN instants and feed only the presentation path, where
     /// the spring stiffens into a click; neither review query reads them. Defaulted so the
@@ -39,6 +43,8 @@ public struct PointerTrack: Sendable {
         self.overrides = overrides
         self.path = PointerPath(samples: self.samples, blindIntervals: blindIntervals,
                                 clickInstants: clickInstants, tuning: tuning)
+        self.clickInstants = clickInstants
+        self.tuning = tuning
         var motion: [BootEpoch: [Int64]] = [:]
         var previous: [BootEpoch: NormalizedPoint] = [:]
         for sample in self.samples {
@@ -50,6 +56,17 @@ public struct PointerTrack: Sendable {
             }
         }
         self.motionInstants = motion
+    }
+
+    /// **The same track with the cursor gliding differently.** The spring is stateful, so its
+    /// answer at an instant depends on everything before it — a response cannot be applied per
+    /// frame the way a colour or a size can, and changing it means baking the path again. The
+    /// samples, the blindness, the overrides and the clicks are all already here, so this costs
+    /// one bake and no re-reading of the log. `CameraMotion.limited(toZoomCeiling:)` is the same
+    /// shape for the same reason.
+    public func moving(_ movement: PointerPath.Tuning.Movement) -> PointerTrack {
+        PointerTrack(samples: samples, blindIntervals: blindIntervals, overrides: overrides,
+                     clickInstants: clickInstants, tuning: tuning.moving(movement))
     }
 
     /// A move smaller than this is stillness for the idle fade: half a pixel of a 2160-tall

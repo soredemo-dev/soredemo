@@ -275,21 +275,9 @@ private final class ShapedCameraView: NSView {
             item.state = abs(style.widthFraction - fraction) < 0.01 ? .on : .off
             menu.addItem(item)
         }
-        menu.addItem(.separator())
-        // The same nine the editor's grid offers, so a person who arranges the camera here and
-        // a person who arranges it afterwards are using one vocabulary.
-        let positions = NSMenu()
-        for position in CameraOverlayStyle.Position.allCases {
-            let item = NSMenuItem(title: NSLocalizedString(position.displayName, comment: ""),
-                                  action: #selector(choosePosition(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = position.rawValue
-            positions.addItem(item)
-        }
-        let positionItem = NSMenuItem(title: NSLocalizedString("Position", comment: ""),
-                                      action: nil, keyEquivalent: "")
-        positionItem.submenu = positions
-        menu.addItem(positionItem)
+        // **No Position submenu.** This overlay is dragged, and a submenu naming nine places is
+        // the same decision offered a second way — see `StageWindow.cameraControls`, where the
+        // editor's matching grid came out for the same reason.
         menu.addItem(.separator())
         let mirror = NSMenuItem(title: NSLocalizedString("Mirror", comment: ""),
                                 action: #selector(toggleMirror), keyEquivalent: "")
@@ -310,12 +298,6 @@ private final class ShapedCameraView: NSView {
     @objc private func chooseSize(_ sender: NSMenuItem) {
         guard let fraction = sender.representedObject as? Double else { return }
         onStyleChosen?(style.changing(widthFraction: fraction))
-    }
-
-    @objc private func choosePosition(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let position = CameraOverlayStyle.Position(rawValue: raw) else { return }
-        onStyleChosen?(style.placed(at: position))
     }
 
     @objc private func toggleMirror() {

@@ -21,9 +21,12 @@ import Timeline
 ///    because the tap emits on motion and the sampler at 60 Hz, so consecutive samples are
 ///    never evenly spaced.
 /// 2. **A spring follows the spline.** Damping ratio 0.9 rather than 1.0 — the barest
-///    overshoot is what reads as weight; critically damped reads as a robot arm. Response
-///    60 ms, shortened toward 24 ms as the cursor speeds up (`adaptiveMinScale`), so a fast
-///    flick does not trail the recording by a visible distance.
+///    overshoot is what reads as weight; critically damped reads as a robot arm. The response
+///    is `Tuning.Movement`'s, shortened toward `adaptiveMinScale` of it as the cursor speeds
+///    up, so a fast flick does not trail the recording by a visible distance. **It was 60 ms
+///    and hard-coded, which was the reason this did not look like Screen Studio's**: 60 ms is
+///    ω = 105 rad/s and the spring had reproduced the hand's own path within three frames.
+///    See `Movement` for the measurement against a Rust recorder's shipped 12.5.
 /// 3. **Idle stabilisation.** When the target barely moves, the target is blended toward
 ///    where the spring already is, so a resting cursor rests — `PointerSampler`'s 60 Hz floor
 ///    emits a still pointer as a stream of positions a fraction of a pixel apart, and a spring
@@ -92,8 +95,60 @@ public struct PointerPath: Sendable {
         /// Normalised units; a Rust recorder's `SHAKE_THRESHOLD_UV`.
         public var shakeThreshold: Double
 
+        /// **How much the cursor glides, as the four Screen Studio offers plus off.**
+        ///
+        /// One hard-coded response was the defect, and the value it was hard-coded to was the
+        /// fastest one anybody ships. Measured against the references: this file's 60 ms is
+        /// ω = 2π/0.06 = 105 rad/s, while a Rust recorder's shipped cursor spring — `tension 470, mass 3,
+        /// friction 70`, converted by its own `omega0 = sqrt(k/m)` — is **12.5 rad/s**, eight
+        /// times slower. A spring that settles in 40 ms has reproduced the hand's own path by
+        /// the next frame, which is why the result looked like a hand and not like a glide.
+        /// Screen Studio ships `Rapid / Quick / Default / Slow` rather than one number, which
+        /// is the other half of the answer: how much glide somebody wants is a taste.
+        ///
+        /// `Default` sits near a Rust recorder's, because a Rust recorder's is the one that reads as a glide.
+        /// **Uncalibrated** in this project's sense — the ladder's shape is chosen, and only
+        /// its ends are anchored to something shipped.
+        public enum Movement: String, Hashable, Codable, Sendable, CaseIterable {
+            /// No spring at all: the presented path is the observations, as the lerp gave them.
+            case none
+            case rapid, quick, standard, slow
+
+            public var displayName: String {
+                switch self {
+                case .none: "None"
+                case .rapid: "Rapid"
+                case .quick: "Quick"
+                case .standard: "Default"
+                case .slow: "Slow"
+                }
+            }
+
+            /// Seconds for the spring to close on a step, before the adaptive shortening.
+            public var responseSeconds: Double {
+                switch self {
+                case .none: 0.001
+                case .rapid: 0.10
+                case .quick: 0.20
+                case .standard: 0.34
+                case .slow: 0.52
+                }
+            }
+
+            /// The angular frequency it works out to, for comparing with a reference that
+            /// publishes stiffness and mass instead.
+            public var angularFrequency: Double { 2 * Double.pi / responseSeconds }
+        }
+
+        /// This tuning at `movement`'s response, everything else unchanged.
+        public func moving(_ movement: Movement) -> Tuning {
+            var updated = self
+            updated.responseSeconds = movement.responseSeconds
+            return updated
+        }
+
         public static let `default` = Tuning(
-            dampingRatio: 0.9, responseSeconds: 0.06,
+            dampingRatio: 0.9, responseSeconds: Movement.standard.responseSeconds,
             adaptiveMaxSpeed: 4.0, adaptiveMinScale: 0.4,
             idleSpeed: 0.3, idleBlendRate: 3.0, idleBlendCap: 0.95,
             clickStiffenWindow: Nanoseconds(175_000_000), clickResponseSeconds: 0.035,
