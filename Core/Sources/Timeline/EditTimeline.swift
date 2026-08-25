@@ -351,6 +351,41 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         return nil
     }
 
+    /// How much of a span of the RECORDING is still in the edit.
+    ///
+    /// For a surface that addresses the recording by something other than the timeline — a
+    /// transcript, say — and has to say whether the thing it is naming is still in the video.
+    /// Three states rather than a `Bool`: a span can be half cut, by a trim that landed inside
+    /// it or by a neighbouring deletion, and a row that called that "removed" would be offering
+    /// to delete footage that is still there.
+    public enum Survival: Hashable, Sendable {
+        /// Every nanosecond of it plays.
+        case whole
+        /// Some of it plays and some was cut.
+        case partly
+        /// None of it plays.
+        case gone
+    }
+
+    /// **Measured against the clips rather than sampled**, because sampling three points inside
+    /// a span cannot tell `whole` from `partly` when the cut sits between two samples — and the
+    /// clips already say exactly which nanoseconds survive.
+    public func survival(ofSource range: Range<Int64>) -> Survival {
+        guard range.upperBound > range.lowerBound else { return .gone }
+        var kept: Int64 = 0
+        for clip in clips {
+            let low = max(clip.sourceStart.rawValue, range.lowerBound)
+            let high = min(clip.sourceEnd.rawValue, range.upperBound)
+            if high > low { kept += high - low }
+        }
+        if kept == 0 { return .gone }
+        // Clamped, because two clips CAN cover the same source range — nothing in this type
+        // forbids it and `moving(id:to:)` reorders freely — and an uncapped sum would report a
+        // span that survives twice over as `partly`, which is the opposite of true.
+        let length = range.upperBound - range.lowerBound
+        return min(kept, length) == length ? .whole : .partly
+    }
+
     // MARK: - Edits
 
     /// Everything outside `range` removed — a trim.

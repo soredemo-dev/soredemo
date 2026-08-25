@@ -334,6 +334,20 @@ final class TimelineEditorModel {
         self.selection = nil
     }
 
+    /// **Removes a span of the recording named by something other than the timeline.**
+    ///
+    /// The transcript panel's one way in. `name` is the caller's because it becomes the undo
+    /// title a person reads — "Delete \"So the first thing…\"" says what was deleted; a generic
+    /// "Remove Selection" would leave them guessing which of five deletions they are undoing.
+    ///
+    /// **Undo is the restore.** A deleted sentence is not tracked as deleted anywhere: it goes
+    /// through the same history every other edit does, so there is one way back and it is the
+    /// one already in the menu.
+    func removeSourceRange(_ range: Range<Int64>, named name: String) {
+        guard range.upperBound > range.lowerBound else { return }
+        apply(name, edit.removing(sourceRange: range))
+    }
+
     func keepOnlySelection() {
         guard let selection else { return }
         apply("Keep Only Selection", edit.trimmed(toSource: selection))

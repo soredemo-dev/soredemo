@@ -167,6 +167,54 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         let data = try JSONEncoder().encode(timeline)
         #expect(try JSONDecoder().decode(EditTimeline.self, from: data) == timeline)
     }
+
+    // MARK: - what a surface outside the timeline can still address
+
+    /// **Three states rather than a `Bool`, and a half-cut span is why.** A transcript row that
+    /// called a partly-cut sentence "removed" would disable the one control that could finish
+    /// removing it; one that called it "present" would offer to delete footage already gone.
+    @Test func aSpanReportsWhetherAllSomeOrNoneOfItSurvives() {
+        let timeline = EditTimeline.whole(duration: tenSeconds)
+        #expect(timeline.survival(ofSource: 2_000_000_000..<3_000_000_000) == .whole)
+
+        // A cut through the middle of the span.
+        let holed = timeline.removing(sourceRange: 2_400_000_000..<2_600_000_000)
+        #expect(holed.survival(ofSource: 2_000_000_000..<3_000_000_000) == .partly)
+        // …and the cut span itself is gone.
+        #expect(holed.survival(ofSource: 2_400_000_000..<2_600_000_000) == .gone)
+        // …while a span nowhere near it is untouched.
+        #expect(holed.survival(ofSource: 5_000_000_000..<6_000_000_000) == .whole)
+    }
+
+    /// A cut that takes a span's leading edge but not its tail is `partly` from either side —
+    /// the arithmetic must not depend on which end the survivor is at.
+    @Test func aSpanCutFromEitherEndIsPartlyGone() {
+        let timeline = EditTimeline.whole(duration: tenSeconds)
+        let span: Range<Int64> = 4_000_000_000..<5_000_000_000
+        #expect(timeline.removing(sourceRange: 3_500_000_000..<4_500_000_000)
+                    .survival(ofSource: span) == .partly)
+        #expect(timeline.removing(sourceRange: 4_500_000_000..<5_500_000_000)
+                    .survival(ofSource: span) == .partly)
+    }
+
+    /// **Two clips CAN cover the same source range** — nothing in this type forbids it — and an
+    /// uncapped sum of what survives would report a span that survives twice over as `partly`,
+    /// which is the opposite of true.
+    @Test func aSpanCoveredTwiceIsWholeAndNotPartly() {
+        let span = ns(1_000_000_000)
+        let doubled = EditTimeline(clips: [
+            EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: span),
+            EditClip(id: ClipID(rawValue: 1), sourceStart: ns(0), duration: span),
+        ])
+        #expect(doubled.survival(ofSource: 0..<1_000_000_000) == .whole)
+    }
+
+    /// An empty range names nothing, so nothing of it survives. Returning `whole` for it would
+    /// let a caller offer to delete a sentence with no duration.
+    @Test func anEmptyRangeSurvivesNothing() {
+        let timeline = EditTimeline.whole(duration: tenSeconds)
+        #expect(timeline.survival(ofSource: 3_000_000_000..<3_000_000_000) == .gone)
+    }
 }
 
 // MARK: - clips as objects

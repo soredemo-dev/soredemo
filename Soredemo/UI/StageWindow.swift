@@ -153,13 +153,14 @@ struct StageWindow: View {
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
-        case project, selection, captions, text, hide
+        case project, selection, captions, transcript, text, hide
 
         var title: String {
             switch self {
             case .project: "Project"
             case .selection: "Zooms"
             case .captions: "Overlays"
+            case .transcript: "Transcript"
             case .text: "Text"
             case .hide: "Hide"
             }
@@ -172,6 +173,7 @@ struct StageWindow: View {
             case .project: "slider.horizontal.3"
             case .selection: "plus.magnifyingglass"
             case .captions: "captions.bubble"
+            case .transcript: "text.quote"
             case .text: "textformat"
             case .hide: "eye.slash"
             }
@@ -182,6 +184,11 @@ struct StageWindow: View {
             case .project: Theme.accent
             case .selection: Theme.Lane.zoom
             case .captions: Theme.Lane.caption
+            // **No lane colour, because the transcript is not a lane.** It is a second way of
+            // addressing the clips — a sentence names a span of the recording the way a
+            // selection does — so it takes the app's own accent rather than borrowing the
+            // caption lane's and implying it edits captions.
+            case .transcript: Theme.accent
             case .text: Theme.Lane.text
             case .hide: Theme.Lane.hide
             }
@@ -615,6 +622,12 @@ struct StageWindow: View {
                 List { FramingReviewSections(model: review, onChange: { reviewRevision += 1 },
                                              playhead: timeline.playhead) }
                     .listStyle(.sidebar)
+            case .transcript:
+                TranscriptPanel(
+                    transcript: captions.transcript,
+                    edit: timeline.edit,
+                    onDelete: { range, name in timeline.removeSourceRange(range, named: name) },
+                    onSeek: { timeline.movePlayhead(to: $0) })
             case .captions:
                 let size = Self.size(for: variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)

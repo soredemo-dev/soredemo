@@ -139,6 +139,7 @@ xcrun swiftc \
   Soredemo/UI/TransportBar.swift \
   Soredemo/UI/ProjectStore.swift \
   Soredemo/UI/CaptionsPanel.swift \
+  Soredemo/UI/TranscriptPanel.swift \
   Soredemo/UI/TextPanel.swift \
   Soredemo/UI/RedactionPanel.swift \
   scripts/cross-boundary-digest-probe.swift
