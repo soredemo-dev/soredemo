@@ -37,36 +37,40 @@ import PackagePlugin
 /// `context.tool(named:).path` rather than `.url`, for the same reason
 /// `ArchitectureCheck` gives: `URL.path()` percent-encodes Xcode's `${BUILD_DIR}`
 /// placeholder and breaks the command under `xcodebuild`.
+/// **`URL`, with `path(percentEncoded: false)` where a string is needed** — see
+/// `ArchitectureCheck` for the reason the `Path` API was kept until now and why it no longer
+/// has to be.
 @main
 struct HeadlessCheck: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
         guard let target = target as? SourceModuleTarget else { return [] }
 
-        let stamp = context.pluginWorkDirectory.appending("\(target.name).headlesscheck")
+        let stamp = context.pluginWorkDirectoryURL.appending(
+            path: "\(target.name).headlesscheck")
 
         // Every Package*.swift is an input, as in ArchitectureCheck: rule 4 still runs
         // in this mode, and a manifest-only edit must re-run the checker or the rule
         // never fires on an incremental build.
         let manifests = (try? FileManager.default.contentsOfDirectory(
-            atPath: context.package.directory.string))?
+            atPath: context.package.directoryURL.path(percentEncoded: false)))?
             .filter { $0.hasPrefix("Package") && $0.hasSuffix(".swift") }
             .sorted()
-            .map { context.package.directory.appending($0) } ?? []
+            .map { context.package.directoryURL.appending(path: $0) } ?? []
 
         return [
             .buildCommand(
                 displayName: "HeadlessCheck: \(target.name)",
-                executable: try context.tool(named: "architecture-checker").path,
+                executable: try context.tool(named: "architecture-checker").url,
                 arguments: ["--target-name", target.name,
-                            "--sources", target.directory.string,
-                            "--manifests", context.package.directory.string,
+                            "--sources", target.directoryURL.path(percentEncoded: false),
+                            "--manifests", context.package.directoryURL.path(percentEncoded: false),
                             "--mode", "headless",
                             "--ban", "AppKit",
                             "--ban", "SwiftUI",
                             "--ban", "Cocoa",
                             "--ban", "Quartz",
-                            "--touch", stamp.string],
-                inputFiles: target.sourceFiles.map(\.path) + manifests,
+                            "--touch", stamp.path(percentEncoded: false)],
+                inputFiles: target.sourceFiles.map(\.url) + manifests,
                 outputFiles: [stamp]
             )
         ]

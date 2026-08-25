@@ -82,7 +82,57 @@ final class RecordingCoordinator {
     var microphone: MicrophoneSource = .systemDefault
     /// Which camera the next recording uses, or `.off`. Held across recordings for the reason
     /// `microphone` is.
-    var camera: CameraSource = .off
+    var camera: CameraSource = .off {
+        // **The self-view follows the choice, not the recording.** Choosing a camera and only
+        // seeing it once the countdown has begun is being asked to check your framing in the
+        // take. See `CameraSelfView` and `CameraRecorder.startPreview`.
+        didSet { showOrHideSelfView() }
+    }
+
+    /// The camera that is only being SHOWN — no file, no recording. Handed to
+    /// `CameraSelfView`, and handed on to the recording when one starts so the picture somebody
+    /// framed is the picture that records.
+    private var previewRecorder: CameraRecorder?
+
+    /// How much of the camera to record. Persisted like the frame rate, because it is a
+    /// preference rather than a per-recording decision.
+    var cameraQuality: CameraRecorder.Quality {
+        didSet {
+            UserDefaults.standard.set(cameraQuality.rawValue, forKey: Self.cameraQualityKey)
+            showOrHideSelfView()
+        }
+    }
+    static let cameraQualityKey = "cameraQuality"
+
+    /// **Asymmetric about a recording on purpose: showing is refused, hiding never is.**
+    /// A self-view that appeared once the countdown had begun would be a face arriving in the
+    /// middle of the take. But a self-view that stays on screen after something set `camera` to
+    /// `.off` is the app saying "No camera" while a camera is plainly on — which is what the
+    /// menu bar panel used to do, because this guard sat above both branches and returned
+    /// before the hide. The panel now refuses the change during a recording (`cameraRow`), and
+    /// this is the second lock on the same door.
+    private func showOrHideSelfView() {
+        guard case .device = camera else {
+            CameraSelfView.shared.hide()
+            // Only the preview session is released here. Once a recording has taken it over the
+            // property is `nil` and the file belongs to `stopRecording`, which has to await the
+            // writer rather than drop it.
+            previewRecorder?.stopPreview()
+            previewRecorder = nil
+            return
+        }
+        guard !isRecording else { return }
+        let recorder = previewRecorder ?? CameraRecorder()
+        do {
+            try recorder.startPreview(camera: camera, quality: cameraQuality)
+        } catch {
+            statusText = "The camera could not be shown: \(error)"
+            return
+        }
+        previewRecorder = recorder
+        CameraSelfView.shared.onStyleChange = { [weak self] style in self?.cameraStyle = style }
+        CameraSelfView.shared.show(recorder: recorder, style: cameraStyle)
+    }
     /// The ceiling on capture frame delivery. Persisted, like the countdown: a preference rather
     /// than a per-recording decision.
     var frameRate: CaptureFrameRate {
@@ -226,6 +276,8 @@ final class RecordingCoordinator {
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
             .flatMap(CaptureFrameRate.init(rawValue:)) ?? .sixty
         // A shape stored from a previous run, or the bottom-right circle `default` is.
+        cameraQuality = (UserDefaults.standard.string(forKey: Self.cameraQualityKey))
+            .flatMap(CameraRecorder.Quality.init(rawValue:)) ?? .best
         cameraStyle = (UserDefaults.standard.data(forKey: Self.cameraStyleKey))
             .flatMap { try? JSONDecoder().decode(CameraOverlayStyle.self, from: $0) }
             ?? .default
@@ -441,16 +493,19 @@ final class RecordingCoordinator {
         // The countdown is exactly the pause that hides it — which is a second reason to have
         // one beyond giving a person time to move the pointer.
         if case .device = camera, let packageURL = newSink.packageURL {
-            let recorder = CameraRecorder()
+            // The recorder that has been showing the preview, so the session already running the
+            // camera is the one that records it — one client on one device, and the framing a
+            // person set up is the framing that is captured.
+            let recorder = previewRecorder ?? CameraRecorder()
+            previewRecorder = nil
             let url = packageURL.appending(path: ProjectStore.mediaDirectory,
                                            directoryHint: .isDirectory)
                 .appending(path: "camera-00.mov")
             do {
-                try recorder.start(camera: camera, to: url)
+                try recorder.start(camera: camera, to: url, quality: cameraQuality)
                 cameraRecorder = recorder
-                // **Shown before the countdown, with the camera it is already warming.** The
-                // countdown exists partly to let the camera settle; a person watching it is
-                // exactly the person who wants to check their framing while it does.
+                // Already on screen since the camera was chosen — this only makes sure of it for
+                // the path where a recording starts without the panel having been opened.
                 CameraSelfView.shared.onStyleChange = { [weak self] style in
                     self?.cameraStyle = style
                 }
@@ -481,6 +536,15 @@ final class RecordingCoordinator {
         } catch {
             statusText = "Could not start recording: \(error)"
             session = nil
+            // **The camera was started before the countdown, so it is running by now.** Left
+            // alone it would hold the device open with its indicator lit for a recording that
+            // never began — the failure would be invisible except as a green dot nobody could
+            // account for.
+            if let cameraRecorder {
+                CameraSelfView.shared.hide()
+                self.cameraRecorder = nil
+                _ = await cameraRecorder.stop()
+            }
         }
     }
 

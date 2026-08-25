@@ -259,6 +259,35 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
                 == .systemDefault)
     }
 
+    /// **`Best available` is always offered and always means the device's own maximum.** A list
+    /// that dropped the top entry would leave somebody choosing 1080p on a 4K camera without
+    /// knowing there was more — which is the shape of the bug this replaced: a ceiling picked
+    /// here rather than read from the device.
+    @Test func everyCameraIsOfferedItsOwnBestWhateverItIs() {
+        // `.off` names no device, so the question cannot be asked of one — and the answer is
+        // still a list with a best in it rather than an empty menu.
+        #expect(CameraRecorder.qualities(for: .off) == [.best])
+        for camera in CameraRecorder.available() {
+            let offered = CameraRecorder.qualities(for: camera)
+            #expect(offered.first == .best, "\(camera.displayName) was not offered its best")
+            // Every rung below it is one the device answered to, in descending order.
+            let ladder = CameraRecorder.Quality.allCases
+            let ranks = offered.compactMap { ladder.firstIndex(of: $0) }
+            #expect(ranks == ranks.sorted(), "the qualities came back out of order")
+            #expect(Set(offered).count == offered.count)
+        }
+    }
+
+    /// Each rung says what it is and what it costs — a choice offered without a consequence is a
+    /// row of words to guess between.
+    @Test func everyCameraQualitySaysWhatItIsAndWhatItCosts() {
+        let names = CameraRecorder.Quality.allCases.map(\.displayName)
+        let details = CameraRecorder.Quality.allCases.map(\.detail)
+        #expect(Set(names).count == names.count)
+        #expect(Set(details).count == details.count)
+        #expect(details.allSatisfy { !$0.isEmpty })
+    }
+
     @Test func offAsksForNoDeviceAndSaysSo() {
         #expect(MicrophoneSource.off.deviceID == nil)
         #expect(MicrophoneSource.off.displayName == "No microphone")
@@ -374,6 +403,35 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
         #expect(CameraSource.resolve(present, against: [present]) == present)
         #expect(CameraSource.resolve(gone, against: [present]) == .off)
         #expect(CameraSource.resolve(.off, against: [present]) == .off)
+    }
+
+    /// **`Best available` is always offered and always means the device's own maximum.** A list
+    /// that dropped the top entry would leave somebody choosing 1080p on a 4K camera without
+    /// knowing there was more — which is the shape of the bug this replaced: a ceiling picked
+    /// here rather than read from the device.
+    @Test func everyCameraIsOfferedItsOwnBestWhateverItIs() {
+        // `.off` names no device, so the question cannot be asked of one — and the answer is
+        // still a list with a best in it rather than an empty menu.
+        #expect(CameraRecorder.qualities(for: .off) == [.best])
+        for camera in CameraRecorder.available() {
+            let offered = CameraRecorder.qualities(for: camera)
+            #expect(offered.first == .best, "\(camera.displayName) was not offered its best")
+            // Every rung below it is one the device answered to, in descending order.
+            let ladder = CameraRecorder.Quality.allCases
+            let ranks = offered.compactMap { ladder.firstIndex(of: $0) }
+            #expect(ranks == ranks.sorted(), "the qualities came back out of order")
+            #expect(Set(offered).count == offered.count)
+        }
+    }
+
+    /// Each rung says what it is and what it costs — a choice offered without a consequence is a
+    /// row of words to guess between.
+    @Test func everyCameraQualitySaysWhatItIsAndWhatItCosts() {
+        let names = CameraRecorder.Quality.allCases.map(\.displayName)
+        let details = CameraRecorder.Quality.allCases.map(\.detail)
+        #expect(Set(names).count == names.count)
+        #expect(Set(details).count == details.count)
+        #expect(details.allSatisfy { !$0.isEmpty })
     }
 
     @Test func offAsksForNoDeviceAndSaysSo() {

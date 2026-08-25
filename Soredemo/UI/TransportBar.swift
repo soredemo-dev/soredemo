@@ -56,9 +56,14 @@ struct TransportBar: View {
                     // `AVPlayer` sitting at its item's duration ignores a rate change — there
                     // is nowhere left to advance to — so the button was dead for every person
                     // who watched their recording through and pressed play again. Seek first,
-                    // then start, in the completion so the rate is not applied to a player
-                    // that is still seeking.
-                    player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                    // then start, so the rate is not applied to a player that is still seeking.
+                    //
+                    // The `async` seek rather than the completion-handler one: the handler is
+                    // `@Sendable`, so reading `rate` (this view's own state) inside it is a
+                    // main-actor value crossing into a nonisolated closure. `StageWindow` seeks
+                    // the same way for the same reason.
+                    Task { @MainActor in
+                        await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
                         player.rate = Float(rate)
                     }
                 } else {

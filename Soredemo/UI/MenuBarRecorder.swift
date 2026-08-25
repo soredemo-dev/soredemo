@@ -214,10 +214,10 @@ struct MenuBarRecorderPanel: View {
         // looking at these two rows would not be there until they closed the panel and opened it
         // again — and the natural reading of a device missing from a list is that the app cannot
         // see it. a Swift recorder's toolbar watches the same two notifications for the same reason.
-        .onReceive(NotificationCenter.default.publisher(for: .AVCaptureDeviceWasConnected)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             coordinator.refreshMicrophones(); coordinator.refreshCameras()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .AVCaptureDeviceWasDisconnected)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
             coordinator.refreshMicrophones(); coordinator.refreshCameras()
         }
     }
@@ -235,6 +235,20 @@ struct MenuBarRecorderPanel: View {
                 Divider()
                 ForEach(coordinator.availableCameras, id: \.self) { source in
                     Button(source.displayName) { coordinator.chooseCamera(source) }
+                }
+                Divider()
+                // **The quality is the camera's, read from the device.** It was capped at 1080p
+                // by a decision this app had no business making — a camera grows when the stage
+                // zooms, it can be made large, and a ProRes 4444 export of a large overlay wants
+                // every pixel the source has.
+                Menu("Camera Quality") {
+                    ForEach(CameraRecorder.qualities(for: coordinator.camera), id: \.self) { q in
+                        Button {
+                            coordinator.cameraQuality = q
+                        } label: {
+                            Text(LocalizedStringKey(q.displayName))
+                        }
+                    }
                 }
                 Divider()
                 Button("Video Effects\u{2026}") { CameraEffects.showVideoEffects() }
@@ -265,6 +279,18 @@ struct MenuBarRecorderPanel: View {
             // person who turned one on for a call months ago has it in this recording too. The
             // row that picks the camera is where that belongs; the effects panel itself is one
             // press away in the menu above.
+            // **What the chosen camera will actually record at.** Every camera used to be
+            // recorded at 480p whatever it could do, so an external one was throwing away most
+            // of itself and nothing said so. Shown rather than made a control: the camera is
+            // drawn a few hundred pixels across in the finished video, so the ceiling is 1080p
+            // and 4K would be disk and encode time for detail the export discards.
+            if case .device = coordinator.camera,
+               let size = CameraRecorder.recordingSize(of: coordinator.camera,
+                                                       quality: coordinator.cameraQuality) {
+                Text(size)
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
             if !coordinator.activeCameraEffects.isEmpty {
                 Button { CameraEffects.showVideoEffects() } label: {
                     HStack(spacing: Space.tight) {

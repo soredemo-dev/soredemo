@@ -97,9 +97,18 @@ struct SettingsWindow: View {
                     Text(source.displayName).tag(source)
                 }
             }
+            // **Through `chooseCamera`, not straight onto the property.** This picker used to
+            // assign `coordinator.camera` directly, which skipped the one thing that function
+            // exists for: asking this Mac for the camera. A camera chosen here on a fresh
+            // install was set without a TCC prompt ever being raised, and an unauthorised
+            // `AVCaptureDeviceInput` does not throw — it delivers black — so the self-view and
+            // the recorded camera track were both a black rectangle with nothing said.
+            //
+            // The selection does not move until permission comes back, which is the honest
+            // reading of it: refused, the camera was not chosen.
             Picker("Camera", selection: Binding(
                 get: { coordinator.camera },
-                set: { coordinator.camera = $0 })) {
+                set: { coordinator.chooseCamera($0) })) {
                 Text("No camera").tag(CameraSource.off)
                 ForEach(coordinator.availableCameras, id: \.self) { source in
                     Text(source.displayName).tag(source)
@@ -113,6 +122,15 @@ struct SettingsWindow: View {
                  + "when the writer can be told up front that a track will not exist.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
+        // **Locked for the length of a take, like the menu bar panel's whole source list.**
+        // The panel swaps these rows for the recording controls once a take begins; this window
+        // is a separate scene and kept showing them, so it was the one surface that could still
+        // write `camera` while `isRecording` was true — which is exactly the case
+        // `showOrHideSelfView` used to answer by returning before the hide, leaving the panel
+        // reading "No camera" over a self-view that was still on screen with the indicator lit.
+        // The microphone goes with it: the session already holds the one it was started with,
+        // so a change here during a take could only describe a recording that is not happening.
+        .disabled(coordinator.isRecording)
         .task {
             coordinator.refreshMicrophones()
             coordinator.refreshCameras()

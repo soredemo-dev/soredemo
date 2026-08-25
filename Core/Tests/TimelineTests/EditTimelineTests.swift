@@ -229,7 +229,8 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
     /// preparation for an edit, not an edit.
     @Test func aSplitLeavesTheOutputIdentical() {
         let timeline = whole(1_000)
-        let split = try? #require(timeline.split(atOutput: ns(400)))
+        // `split(atOutput:)` returns a non-optional here, so a `#require` is redundant.
+        let split = timeline.split(atOutput: ns(400))
         #expect(split?.clips.count == 2)
         #expect(split?.outputDuration == timeline.outputDuration)
         for probe: Int64 in [0, 399, 400, 999] {

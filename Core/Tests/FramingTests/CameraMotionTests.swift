@@ -207,7 +207,9 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
                 returned toward rest instead of panning
                 """)
         // …and it is on its way to the second target rather than sitting on the first.
-        let last = try? #require(inGap.last)
+        // No `#require`: `inGap` is non-empty by the assertion above, so the compiler knows
+        // `last` never equals nil and says the requirement is redundant.
+        let last = inGap.last
         #expect((last?.centre.x ?? 0) > 0.2, "the camera never started toward the second click")
     }
 

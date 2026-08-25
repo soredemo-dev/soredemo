@@ -103,7 +103,9 @@ private func anchor(_ epoch: BootEpoch = epochA) -> EpochAnchor {
 
 /// No shipped record type lacks an instant; this keeps `noEpoch` from being dead text.
 private struct RecordWithNoInstant: ObservationRecord {
-    let kind = "noInstant"
+    // `var`, because an immutable property with an initial value is never decoded into — the
+    // compiler warns, and a fixture that cannot round-trip is a fixture that proves nothing.
+    var kind = "noInstant"
     var epochs: [BootEpoch] { [] }
 }
 

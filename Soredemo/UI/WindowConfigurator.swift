@@ -13,18 +13,22 @@ import SwiftUI
 /// obvious suspicion when full screen does not appear is that they conflict, and they do not:
 /// setting both leaves `collectionBehavior.rawValue == 130`, which is `128 | 2`.
 ///
-/// **Applied on attach and re-applied on every update, which is the repair.** The first version
-/// read `view.window` once from a `DispatchQueue.main.async` in `makeNSView` and returned
-/// silently when it was `nil` — a one-shot with a `guard` and nothing to retry it. The editor's
-/// scene is `.defaultLaunchBehavior(.suppressed)` and comes up through `openWindow(id:)`, so the
-/// view can exist before its window does, and a miss was permanent and invisible. `NSView` has
-/// the exact hook for this — `viewDidMoveToWindow` fires when the view GETS a window, however
-/// late — and `updateNSView` re-asserts afterwards, so a later reset by anything else is undone
-/// on the next SwiftUI update rather than lasting for the session.
+/// **Applied on attach and re-applied on every update.** The first version read `view.window`
+/// once from a `DispatchQueue.main.async` in `makeNSView` and returned silently when it was
+/// `nil` — a one-shot with a `guard` and nothing to retry it. `NSView` has the exact hook for
+/// this: `viewDidMoveToWindow` fires when the view GETS a window, however late, and
+/// `updateNSView` re-asserts afterwards so a later reset is undone on the next SwiftUI update
+/// rather than lasting for the session.
 ///
-/// Measured while repairing it: the one-shot pattern works in an isolated SwiftUI `Window`
-/// scene and holds (`fullScreenPrimary=true` at 0 ms, 800 ms and 2 s), so the mechanism was
-/// never wrong — only its timing, and only in this app's shape.
+/// **What is measured and what is not, stated because the difference matters here.** Measured:
+/// the two collection-behaviour flags do not conflict; the one-shot pattern holds in an isolated
+/// SwiftUI `Window` scene (`fullScreenPrimary=true` at 0 ms, 800 ms and 2 s); this app sets no
+/// activation policy and has no `LSUIElement`, so it is not an accessory app, whose windows
+/// genuinely cannot go full screen. NOT isolated: why the green button was still showing "+" in
+/// a running build. `sizeGenerouslyOnFirstOpen` below runs from the same `async` the flags did
+/// and demonstrably reached its window, so "the window was nil" cannot be the whole story. The
+/// change here is correct under either cause and costs nothing under neither; it wants a person
+/// to confirm on a fresh build rather than a claim from me that it is fixed.
 struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> AttachedView { AttachedView() }
 
@@ -34,8 +38,6 @@ struct WindowConfigurator: NSViewRepresentable {
     /// `NSViewRepresentable`'s associated type is this type, and Swift will not let a
     /// public-facing conformance name a private one.
     final class AttachedView: NSView {
-        private var sized = false
-
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             configure()
@@ -53,34 +55,80 @@ struct WindowConfigurator: NSViewRepresentable {
             window.styleMask.insert(.resizable)
             window.collectionBehavior.insert(.fullScreenPrimary)
             window.collectionBehavior.insert(.moveToActiveSpace)
-
-            guard !sized else { return }
-            sized = true
-            Self.sizeToScreen(window)
-        }
-
-        /// **A share of whatever screen this window is on, never a fixed size.** Every display
-        /// is a different size and a number chosen on one machine is wrong on all the others: a
-        /// 1440×900 default is most of a 14" laptop and a postage stamp on a 6K display. The
-        /// fraction is of `visibleFrame`, which already excludes the menu bar and the Dock, so
-        /// "80%" means 80% of the room the person actually has.
-        ///
-        /// Only on the FIRST attach: a window a person has resized is theirs, and re-imposing a
-        /// size every time SwiftUI updates would undo their drag. Centred afterwards from the
-        /// frame the window settled at rather than the one asked for, because the content's own
-        /// minimum (`ContentView`'s 640 × 460) can push a small screen's 80% back up, and
-        /// centring the requested size would then sit it off-centre.
-        static let screenFraction: Double = 0.8
-
-        static func sizeToScreen(_ window: NSWindow) {
-            guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame,
-                  visible.width > 0, visible.height > 0 else { return }
-            let wanted = NSSize(width: visible.width * screenFraction,
-                                height: visible.height * screenFraction)
-            window.setContentSize(wanted)
-            let settled = window.frame.size
-            window.setFrameOrigin(NSPoint(x: visible.midX - settled.width / 2,
-                                          y: visible.midY - settled.height / 2))
+            sizeGenerouslyOnFirstOpen(window)
         }
     }
+}
+
+/// The editor's size the first time it is ever opened.
+///
+/// **An editor is a preview, a timeline and an inspector at once**, and SwiftUI's default for a
+/// `Window` scene is none of those three things' size — it is whatever the content asks for,
+/// which here is small enough that the timeline has no length and the inspector crowds the
+/// picture. Full screen is the other wrong answer: this is a window somebody moves between, and
+/// a recording is often of the thing beside it.
+///
+/// **A share of whatever screen it opens on, never a fixed size.** Every display is a different
+/// size and a number chosen on one machine is wrong on all the others. The fraction is of
+/// `visibleFrame`, which already excludes the menu bar and the Dock, so it is a share of the
+/// room the person actually has.
+///
+/// **Tracked by a key this app owns, because SwiftUI's is not guessable.** The first version
+/// guarded on `NSWindow Frame editor` — the scene's own identifier — and measured on a real
+/// install there are TWO keys: that one, and
+/// `NSWindow Frame SwiftUI.ModifiedContent<Soredemo.ContentView, SwiftUI._TaskModifier2>-1-AppWindow-1`,
+/// which is generated from the view's TYPE and is the one the window actually restores from. A
+/// guard on the wrong key is a guard that never fires, which is what happened. A name generated
+/// from a type is also one that changes when the view's modifiers change, so it is not something
+/// to hard-code either — this asks a question about our own state instead.
+///
+/// **Once ever, not once per launch.** Someone who sizes this window has decided, and
+/// overwriting that on every launch is the producer-value rule broken in the smallest possible
+/// way — which this project has already done once, with the status item's position. It is also
+/// why this is not `viewDidMoveToWindow`'s job: that fires on every open, and the guard rather
+/// than the hook is what makes the size a first-run courtesy instead of a policy.
+private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
+    // A floor regardless, so the editor cannot be restored or dragged into a size where the
+    // timeline has no length. AppKit enforces it from here on.
+    window.minSize = NSSize(width: 1000, height: 680)
+
+    let key = "editorHasBeenSizedGenerously"
+    guard !UserDefaults.standard.bool(forKey: key) else { return }
+    UserDefaults.standard.set(true, forKey: key)
+
+    // **After the window has become key, not here.** `makeNSView` runs while the hierarchy is
+    // still being assembled, and AppKit restores an autosaved frame somewhere after that — a
+    // frame set now is a frame the restore overwrites, silently, which looks exactly like the
+    // code never ran. A window is fully placed by the time it is key.
+    // **The token lives in a reference, not a `var` the closure captures.** A `@Sendable`
+    // closure may not mutate a local it has captured, and it is the closure that has to remove
+    // the observer — this is the smallest shape that lets a one-shot observer unregister
+    // itself. `@unchecked Sendable` is sound for the same reason `assumeIsolated` below is:
+    // written here on the main actor, read only from a closure the notification centre is told
+    // to deliver on `.main`, and never touched from anywhere else.
+    let holder = ObserverHolder()
+    holder.token = NotificationCenter.default.addObserver(
+        forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { _ in
+            // `queue: .main` is the guarantee this rests on: the notification centre delivers
+            // this block on the main queue, so it really is main-actor work. Unlike the reading
+            // that trapped in `SystemCursorShape`, nothing here asserts about an arbitrary
+            // caller's thread — the queue was named at registration.
+            MainActor.assumeIsolated {
+                if let token = holder.token { NotificationCenter.default.removeObserver(token) }
+                guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+                // Most of the screen, with enough left over that the window still reads as a
+                // window and whatever is behind it can still be grabbed.
+                let width = visible.width * 0.92
+                let height = visible.height * 0.92
+                window.setFrame(NSRect(x: visible.minX + (visible.width - width) / 2,
+                                       y: visible.minY + (visible.height - height) / 2,
+                                       width: width, height: height),
+                                display: true, animate: true)
+            }
+        }
+}
+
+/// See `sizeGenerouslyOnFirstOpen` for why this exists and why the unchecked conformance holds.
+private final class ObserverHolder: @unchecked Sendable {
+    var token: (any NSObjectProtocol)?
 }

@@ -8,24 +8,30 @@ import PackagePlugin
 /// on an executable built from source. `.buildCommand` can, and gets its
 /// up-to-date check from a stamp file the checker writes only on success.
 ///
-/// `context.tool(named:).path` rather than `.url`: `URL.path()` percent-encodes
-/// Xcode's `${BUILD_DIR}` placeholder, which breaks the command under
-/// `xcodebuild`. That keeps this file on the `Path`-based API throughout.
+/// **`URL`, with `path(percentEncoded: false)` everywhere a string is needed.** This file was
+/// held on the deprecated `Path` API by a real problem: `URL.path()` percent-encodes Xcode's
+/// `${BUILD_DIR}` placeholder, so `${BUILD_DIR}` became `$%7BBUILD_DIR%7D` and the command could
+/// not run under `xcodebuild`. `path(percentEncoded: false)` does not encode, which is the
+/// answer that was missing — and every `Path` member this used is deprecated, so the choice was
+/// between one honest conversion and a wall of warnings on every build.
+///
+/// The `xcodebuild` gate is what proves it: that placeholder is only expanded there, so a
+/// regression here fails the app build rather than hiding in a passing `swift build`.
 @main
 struct ArchitectureCheck: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
         guard let target = target as? SourceModuleTarget else { return [] }
 
-        let stamp = context.pluginWorkDirectory.appending("\(target.name).archcheck")
+        let stamp = context.pluginWorkDirectoryURL.appending(path: "\(target.name).archcheck")
 
         // EVERY Package*.swift is an input: a manifest-only edit — adding a
         // dependency edge, say — must re-run the checker, or the rule never
         // fires on an incremental build.
         let manifests = (try? FileManager.default.contentsOfDirectory(
-            atPath: context.package.directory.string))?
+            atPath: context.package.directoryURL.path(percentEncoded: false)))?
             .filter { $0.hasPrefix("Package") && $0.hasSuffix(".swift") }
             .sorted()
-            .map { context.package.directory.appending($0) } ?? []
+            .map { context.package.directoryURL.appending(path: $0) } ?? []
 
         // The allow-list IS the manifest: one `--allow` per DECLARED dependency,
         // read out of PluginContext rather than mirrored by hand in the checker.
@@ -46,13 +52,13 @@ struct ArchitectureCheck: BuildToolPlugin {
         return [
             .buildCommand(
                 displayName: "ArchitectureCheck: \(target.name)",
-                executable: try context.tool(named: "architecture-checker").path,
+                executable: try context.tool(named: "architecture-checker").url,
                 arguments: ["--target-name", target.name,
-                            "--sources", target.directory.string,
-                            "--manifests", context.package.directory.string,
+                            "--sources", target.directoryURL.path(percentEncoded: false),
+                            "--manifests", context.package.directoryURL.path(percentEncoded: false),
                             "--allow", "Foundation",
-                            "--touch", stamp.string] + declared,
-                inputFiles: target.sourceFiles.map(\.path) + manifests,
+                            "--touch", stamp.path(percentEncoded: false)] + declared,
+                inputFiles: target.sourceFiles.map(\.url) + manifests,
                 outputFiles: [stamp]
             )
         ]

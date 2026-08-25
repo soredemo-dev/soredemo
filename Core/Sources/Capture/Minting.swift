@@ -98,7 +98,10 @@ extension Minting {
         // `Create` function, so the CFUUID is released by ARC; `CFUUIDCreateString`'s nil
         // allocator is the documented default, and the result is bridged, not borrowed.
         guard let cfUUID = unsafe CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue(),
-              let string = unsafe CFUUIDCreateString(nil, cfUUID) as String? else { return nil }
+              // Not `unsafe`: a bridged `CFString` cast carries no pointer. The mark was here and
+              // the compiler says it is not needed — a marker on something safe is one readers
+              // learn to skim past, which costs the ones that mean something.
+              let string = CFUUIDCreateString(nil, cfUUID) as String? else { return nil }
         return UUID(uuidString: string)
     }
 
