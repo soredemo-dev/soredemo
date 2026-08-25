@@ -146,7 +146,7 @@ Items 1–4 are done. The remainder, re-ordered by what the two commercial recor
 | --- | --- | --- |
 | **5** | **Draw the four missing cursor shapes** | The #1 visible gap, and this reading shows it costs art, not a schema. Both competitors ship their own art for every shape. |
 | 6 | Cursor motion blur | ScreenKite ships it; `PointerPath` already carries the velocity, and `MotionBlur` already exists. |
-| 7 | Manual zoom + add-zoom on the lane | Both ship it; ours is the only recorder here where a zoom cannot be placed by hand. |
+| 7 | Manual zoom + add-zoom on the lane | Both ship it; ours is the only recorder here where a zoom cannot be placed by hand. **Its Core half already existed and is now verified** — see below. |
 | 8 | Audio: noise suppression, ducking | Both ship far more than the open-source four. `AVAudioEngine.isVoiceProcessingEnabled` is the platform's own. |
 | 9 | Instant zoom, loop cursor, stop-at-end, click sound | Small Screen Studio options, each an afternoon. |
 | 10 | Camera layouts timeline | Both ship it; the largest remaining structural difference. |
@@ -175,5 +175,11 @@ Items 1–4 are done. The remainder, re-ordered by what the two commercial recor
 | 7 | Voice processing behind a toggle | Capture, App | second track present | file inspection |
 
 Items 1–4 are implemented, in that order, one commit each with all four gates green (`2162706`, `2fd2225`, `f0da6b6`, and the shadow/dither commit that follows this doc). Items 5–7 are NOT implemented in this pass and are the next work: 5 (recorded cursor images) is the largest visible gap left and touches every tier plus the observation schema; 6 and 7 are app-tier and capture-tier changes with their own design questions (a draggable target in the preview; a second microphone track behind a toggle).
+
+### Item 7, scoped by reading rather than by guessing
+
+The Core half of "place a zoom by hand" turned out to be **already built**: `FramingPlan.resolved(with:)`'s orphan pass honours an override at an instant the gate never saw, and `FramingReviewModel.author(_:at:)` already mints one at any instant. What was missing was proof that such an override survives to the picture — an unverified capability claim in D6a-V's sense, and the whole basis of the editor work. `anAuthoredZoomWhereNoClickHappenedReachesTheCamera` now asserts it at the three points it could be dropped (the click, the block, the camera), with a negative twin so it cannot pass by zooming on every refusal; deleting the orphan pass reddens it at all three, verified by mutation.
+
+**What remains is the target picker, and that is the feature rather than a detail.** Screen Studio's own guide settles it: "if you add auto-zoom where no mouse click occurs, it will not zoom to any area… switch to manual zoom to select specific areas", and its manual zoom is a draggable purple dot in the preview. ScreenKite's equivalent is Option-click on the canvas with a minimap (1.9). A lane click that minted a zoom with a guessed target — the frame's centre, say — would be worse than not having it, because a zoom to nowhere is a zoom a person has to find and delete. So item 7 is: a lane click that mints the override, **plus** a draggable target in the preview that authors its rectangle. Not started; the Core it stands on is now proven rather than assumed.
 
 Two things this pass measured that the plan did not predict: the gradient dither took two wrong turns on Core Image's premultiplied alpha before `settingAlphaOne(in:)` gave the ±1.5-level grain that was asked for, and the cross-boundary probe's rounded-corner check assumed a shadow-free notch below the card — it now asserts what it was always for, a corner that is not the source and no lighter than the background.

@@ -266,3 +266,71 @@ private func rejected(_ ns: Int64, _ reason: FramingRejection) -> FramingPlan.En
         #expect(plan.framedClicks(with: [], pointerFallbackRevision: revision).count == 2)
     }
 }
+
+// MARK: - an authored zoom where no click happened, all the way to the camera
+
+/// **The capability the design audit's item 7 rests on, exercised end to end.**
+///
+/// `resolved(with:)`'s orphan pass — an override at an instant the gate never saw — has been
+/// covered since it was written (`anOverrideAtAnInstantWithNoDecisionIsStillHonoured`), but
+/// only as far as a `ResolvedFraming`. Whether such an override survives `framedClicks`,
+/// becomes a `ZoomBlock`, and actually moves the camera was an unverified capability claim in
+/// D6a-V's sense, and it is the whole basis of an editor that lets a person place a zoom on
+/// the timeline where they never clicked. Asserted here, at the three points where it could
+/// be dropped: the click, the block, and the picture.
+///
+/// **Screen Studio's own guide is why this matters and why the UI is more than a lane click:**
+/// "if you add auto-zoom where no mouse click occurs, it will not zoom to any area… switch to
+/// manual zoom to select specific areas". A target-less zoom does nothing there either. The
+/// authored rectangle IS the target, so the editor's remaining work is choosing it.
+@Test func anAuthoredZoomWhereNoClickHappenedReachesTheCamera() {
+    // A plan with one refused click at 1 s, and nothing at all at 5 s.
+    let plan = FramingPlan(entries: [rejected(1_000_000_000, .hitTestReturnedNothing)])
+    let authoredInstant = at(5_000_000_000)
+    let authoredFrame = frame(x: 0.70, y: 0.60, width: 0.06, height: 0.06)
+    let overrides = [FramingOverride(epoch: epoch, instant: authoredInstant.hostTime,
+                                     action: .frame(authoredFrame))]
+
+    // 1. It survives into a framed click, and the refusal beside it still frames nothing.
+    let clicks = plan.framedClicks(with: overrides, pointerFallbackRevision: nil)
+    #expect(clicks.count == 1, "expected the authored zoom alone, got \(clicks.count) clicks")
+    let authored = clicks.first
+    #expect(authored?.instant.hostTime == authoredInstant.hostTime)
+    #expect(authored?.target.frame == authoredFrame, "the authored rectangle was not carried through")
+    #expect(authored?.target.role == nil, "an authored frame names no role the gate identified")
+
+    // 2. It becomes a block, at a depth its own size earns.
+    let blocks = ZoomBlock.blocks(for: clicks)
+    let block = blocks.first
+    #expect(blocks.count == 1)
+    #expect(block?.origin.hostTime == authoredInstant.hostTime,
+            "the block's identity is the authored instant, so a lane drag can key on it")
+    #expect((block?.zoom ?? 1) > 1.5, """
+        a 0.06-wide target earned a depth of \(block?.zoom ?? 1); this test's premise is that an \
+        authored frame that small is worth magnifying, so a change here is a change to \
+        FramingDepth's curve
+        """)
+
+    // 3. And the camera actually goes there — the step every earlier assertion would pass
+    // without. Centred on the authored frame, which is at (0.73, 0.63), not at rest.
+    let camera = CameraMotion(blocks: blocks)
+    let atRest = camera.state(at: at(3_000_000_000))
+    #expect(atRest.zoom == 1.0, "the camera was already zoomed two seconds before the authored zoom")
+    let zoomed = camera.state(at: at(5_600_000_000))
+    #expect(zoomed.zoom > 1.5, "the camera reached only \(zoomed.zoom) inside the authored block")
+    #expect(zoomed.centre.x > 0.55 && zoomed.centre.y > 0.5, """
+        the camera settled on (\(zoomed.centre.x), \(zoomed.centre.y)); the authored frame's \
+        centre is (0.73, 0.63)
+        """)
+}
+
+/// And the twin that stops the test above passing for the wrong reason: with the override
+/// withdrawn, the same plan zooms nowhere at all. Without this, an implementation that zoomed
+/// on every refusal would satisfy every expectation above.
+@Test func withoutTheOverrideTheSamePlanZoomsNowhere() {
+    let plan = FramingPlan(entries: [rejected(1_000_000_000, .hitTestReturnedNothing)])
+    let clicks = plan.framedClicks(with: [], pointerFallbackRevision: nil)
+    #expect(clicks.isEmpty)
+    let camera = CameraMotion(blocks: ZoomBlock.blocks(for: clicks))
+    #expect(camera.state(at: at(5_600_000_000)).zoom == 1.0)
+}
