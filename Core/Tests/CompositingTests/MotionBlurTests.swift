@@ -290,3 +290,116 @@ private func luminance(of image: CIImage, width: Int, height: Int) throws -> [Do
     #expect(other.elementsEqual(arrow, by: ==), ".other stopped drawing the arrow")
     #expect(blank.elementsEqual(arrow, by: ==), "an unrecorded shape stopped drawing the arrow")
 }
+
+// MARK: - the cursor smears under the same shutter as the card (design audit item 6)
+
+/// The plan every cursor-smear case is measured against: a 1920×1080 stage over a 16:9
+/// source, so the card is 1690 × 950 after the pixel snap.
+private func smearPlan(contentZoom: Double = 1, cardBlur: MotionBlur? = nil) -> RenderPlan {
+    let base = StagePlanner.plan(outputWidth: 1920, outputHeight: 1080,
+                                 sourceWidth: 1920, sourceHeight: 1080, style: .default)
+    return RenderPlan(outputWidth: 1920, outputHeight: 1080, card: base.card,
+                      cornerRadius: base.cornerRadius, style: base.style, pointer: nil,
+                      contentZoom: contentZoom, motionBlur: cardBlur)
+}
+
+/// A still cursor over a still camera smears nothing, so a still frame costs no filter.
+@Test func aStillCursorSmearsNothing() {
+    #expect(StageCompositor.cursorSmear(velocity: (x: 0, y: 0), plan: smearPlan(),
+                                        frameSeconds: 1.0 / 60) == nil)
+}
+
+/// A cursor crossing the card at one width per second smears along +x by half its travel
+/// during the exposure: `1 × 1690 px/s × (1/60 × 0.5) s = 14.08 px`, radius 7.04.
+@Test func aMovingCursorSmearsAlongItsDirectionByHalfItsTravel() throws {
+    let plan = smearPlan()
+    let smear = try #require(StageCompositor.cursorSmear(velocity: (x: 1, y: 0), plan: plan,
+                                                          frameSeconds: 1.0 / 60))
+    let travel = 1.0 * plan.card.width * (1.0 / 60) * StageCompositor.shutterFraction
+    #expect(abs(smear.radius - travel / 2) < 0.01, "smeared \(smear.radius) for a travel of \(travel)")
+    #expect(abs(smear.angle) < 1e-9, "a +x move should smear along +x")
+}
+
+/// **Zoom is part of the travel.** The same source-space velocity crosses twice as many
+/// output pixels at zoom 2, so it smears twice as far — a smear computed from normalised
+/// units alone would draw a zoomed-in flick as gently as a zoomed-out one.
+///
+/// **Half a card-width per second, not a whole one**, and the first draft's choice of a whole
+/// one is why: at zoom 2 that travels 28 px in an exposure, past the 21.6 px cap, so the
+/// doubling this test is about was measured against a capped value and came out 3.28 short.
+/// A fixture that lands on a clamp cannot measure what happens before it.
+@Test func theCursorSmearScalesWithTheContentZoom() throws {
+    let atOne = try #require(StageCompositor.cursorSmear(velocity: (x: 0.5, y: 0),
+                                                          plan: smearPlan(contentZoom: 1),
+                                                          frameSeconds: 1.0 / 60))
+    let atTwo = try #require(StageCompositor.cursorSmear(velocity: (x: 0.5, y: 0),
+                                                          plan: smearPlan(contentZoom: 2),
+                                                          frameSeconds: 1.0 / 60))
+    let cap = 1080 * StageCompositor.maximumBlurFraction / 2
+    try #require(atTwo.radius < cap, "the deeper case is capped; this fixture measures the clamp")
+    #expect(abs(atTwo.radius - atOne.radius * 2) < 0.01)
+}
+
+/// **A cursor held still while the camera pans is still travelling across the frame**, and
+/// smears for it. Without the card's contribution a pan would blur the picture and leave a
+/// razor-sharp cursor sitting on top of it, which is the tell of a compositing mistake.
+@Test func aStillCursorOverAPanningCameraStillSmears() throws {
+    let pan = MotionBlur(panRadius: 10, panAngle: 0, zoomAmount: 0, centreX: 960, centreY: 540)
+    let smear = try #require(StageCompositor.cursorSmear(velocity: (x: 0, y: 0),
+                                                          plan: smearPlan(cardBlur: pan),
+                                                          frameSeconds: 1.0 / 60))
+    // The card's whole travel is twice its radius; the cursor's own is zero.
+    #expect(abs(smear.radius - pan.panRadius) < 0.01,
+            "a \(pan.panRadius * 2) px card pan smeared the cursor by \(smear.radius * 2)")
+}
+
+/// A drift under the threshold is not worth a filter, and a flick is capped, exactly as the
+/// card's blur is — the two share `motionBlurThreshold` and `maximumBlurFraction` because a
+/// second set of numbers for the same exposure would be a second answer to one question.
+@Test func theCursorSmearSharesTheCardsThresholdAndCap() throws {
+    #expect(StageCompositor.cursorSmear(velocity: (x: 0.01, y: 0), plan: smearPlan(),
+                                        frameSeconds: 1.0 / 60) == nil)
+    let flick = try #require(StageCompositor.cursorSmear(velocity: (x: 40, y: 0), plan: smearPlan(),
+                                                          frameSeconds: 1.0 / 60))
+    #expect(flick.radius <= 1080 * StageCompositor.maximumBlurFraction / 2 + 1e-9)
+}
+
+/// **The smear reaches the pixels, and it reaches along its own axis.** A cursor smeared
+/// horizontally spreads further in x than the same cursor unsmeared, and no further in y —
+/// which a radial blur, or a smear applied on the wrong axis, would fail.
+@Test func theCursorSmearIsDrawnAndIsDirectional() throws {
+    let width = 320, height = 200
+    let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: .default)
+    let renderer = try CoreImageFrameRenderer()
+    func drawnColumnsAndRows(smearRadius: Double, angle: Double) throws -> (x: Int, y: Int) {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let reference = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let pointer = NormalizedPointerPlacement(x: Double(width) / 2, y: Double(height) / 2,
+                                                 ripplePhase: nil, smearRadius: smearRadius,
+                                                 smearAngle: angle)
+        func render(_ placement: NormalizedPointerPlacement?, into buffer: CVPixelBuffer) throws {
+            let plan = RenderPlan(outputWidth: width, outputHeight: height, card: base.card,
+                                  cornerRadius: base.cornerRadius, style: base.style,
+                                  pointer: placement)
+            try renderer.render(plan, source: source, camera: nil, into: buffer)
+        }
+        try render(pointer, into: destination)
+        try render(nil, into: reference)
+        let changed = zip(try pixels(of: destination), try pixels(of: reference))
+            .enumerated().filter { $0.element.0 != $0.element.1 }.map(\.offset)
+        let columns = Set(changed.map { $0 % width }), rows = Set(changed.map { $0 / width })
+        return (x: columns.count, y: rows.count)
+    }
+    let sharp = try drawnColumnsAndRows(smearRadius: 0, angle: 0)
+    let smeared = try drawnColumnsAndRows(smearRadius: 12, angle: 0)
+    #expect(sharp.x > 0 && sharp.y > 0, "the unsmeared cursor drew nothing; the comparison is vacuous")
+    #expect(smeared.x > sharp.x + 8, """
+        a 12 px horizontal smear widened the cursor from \(sharp.x) to \(smeared.x) columns
+        """)
+    #expect(smeared.y <= sharp.y + 2, """
+        a horizontal smear grew the cursor's height from \(sharp.y) to \(smeared.y) rows — \
+        it is not directional
+        """)
+}

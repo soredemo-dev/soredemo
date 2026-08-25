@@ -339,14 +339,19 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             // zoomed-in card leans as much as the same flick across the whole recording.
             let opacity = style.hidesWhenIdle
                 ? pointer.idleOpacity(at: instant, hideAfter: style.idleDelay) : 1
-            let velocityX = pointer.presentedVelocity(at: instant)?.x ?? 0
+            let velocity = pointer.presentedVelocity(at: instant) ?? (x: 0, y: 0)
             let tilt = CursorTilt.degrees(
-                velocityXPixelsPerSecond: velocityX * plan.card.width * plan.contentZoom,
+                velocityXPixelsPerSecond: velocity.x * plan.card.width * plan.contentZoom,
                 amount: style.tilt)
+            let frameSeconds = (unsafe renderContext)?.videoComposition.frameDuration.seconds
+            let smear = Self.cursorSmear(velocity: velocity, plan: plan,
+                                         frameSeconds: frameSeconds ?? 1.0 / 60)
             return StagePlanner.placement(for: point, in: plan,
                                           ripplePhase: click?.ripplePhase(at: instant),
                                           shape: shape, hotspot: hotspot,
-                                          opacity: opacity, tiltDegrees: tilt)
+                                          opacity: opacity, tiltDegrees: tilt,
+                                          smearRadius: smear?.radius ?? 0,
+                                          smearAngle: smear?.angle ?? 0)
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }
@@ -402,6 +407,43 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                           motionBlur: Self.motionBlur(for: state, card: basePlan.card,
                                                       outputHeight: basePlan.outputHeight,
                                                       frameSeconds: frameSeconds ?? 1.0 / 60))
+    }
+
+    /// **The cursor's own smear for one frame, under the SAME shutter the card gets.**
+    ///
+    /// A frame is one exposure, so everything that moves across it smears — making the card's
+    /// blur automatic and the cursor's a knob would be two answers to one question. There is
+    /// no `CursorStyle` field here for that reason; `StageCompositor.shutterFraction` governs
+    /// both. ScreenKite ships this as an inspector slider and Screen Studio splits its blur
+    /// three ways (cursor / zooming / panning, guide/animations); the effect is theirs, the
+    /// derivation from an exposure is this project's.
+    ///
+    /// **The card's pan is added to the cursor's own travel**, because the cursor's smear is
+    /// its displacement across the FRAME and the frame is moving too: a cursor held still
+    /// while the camera pans is travelling across the picture just as fast as one moving over
+    /// a still camera. `plan.motionBlur.panRadius` is half the card's travel, so the whole of
+    /// it is twice that, taken at `panAngle`.
+    ///
+    /// **The zoom's radial term is left out**, and that is a real omission rather than an
+    /// oversight: it varies with distance from the card's centre, so a point sample would need
+    /// its own offset threaded through, and at the cursor it is a fraction of a pixel except
+    /// during a whip zoom with the cursor at the frame's edge. Named here so the day it
+    /// matters, it is a known gap and not a discovery.
+    nonisolated static func cursorSmear(velocity: (x: Double, y: Double), plan: RenderPlan,
+                                        frameSeconds: Double) -> (radius: Double, angle: Double)? {
+        guard frameSeconds > 0, frameSeconds.isFinite,
+              velocity.x.isFinite, velocity.y.isFinite else { return nil }
+        let exposure = frameSeconds * shutterFraction
+        var travelX = velocity.x * plan.card.width * plan.contentZoom * exposure
+        var travelY = velocity.y * plan.card.height * plan.contentZoom * exposure
+        if let card = plan.motionBlur, card.panRadius > 0 {
+            travelX += cos(card.panAngle) * card.panRadius * 2
+            travelY += sin(card.panAngle) * card.panRadius * 2
+        }
+        let length = hypot(travelX, travelY)
+        guard length >= motionBlurThreshold else { return nil }
+        let capped = min(length, Double(plan.outputHeight) * maximumBlurFraction)
+        return (radius: capped / 2, angle: atan2(travelY, travelX))
     }
 
     /// **A 180° shutter.** Film exposes each frame for half its duration, and that is the

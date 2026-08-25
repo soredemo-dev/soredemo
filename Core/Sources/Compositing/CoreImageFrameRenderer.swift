@@ -634,7 +634,21 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // `hotspot` is still RECORDED. It is the right value for a renderer that draws the
         // system image, which is what a real cursor-shape table would enable; it is simply
         // not the right value for this one.
-        return CIImage(cgImage: image)
+        var drawn = CIImage(cgImage: image)
+        // **Smeared unclamped, and cropped to nothing** — the opposite of the card's blur.
+        // The card is clamped and cropped because its edge must stay solid; a cursor's smear
+        // is meant to trail off into nothing at both ends, which is what reading transparent
+        // past the bitmap's edge gives. The extent grows past the canvas and the composite
+        // draws the overhang, so the trail is not clipped to the arrow's own box.
+        if placement.smearRadius > 0,
+           let filter = CIFilter(name: "CIMotionBlur", parameters: [
+               kCIInputImageKey: drawn,
+               kCIInputRadiusKey: placement.smearRadius,
+               kCIInputAngleKey: placement.smearAngle,
+           ]), let output = filter.outputImage {
+            drawn = output
+        }
+        return drawn
             .transformed(by: CGAffineTransform(translationX: placement.x - tip,
                                                y: placement.y - tip))
     }

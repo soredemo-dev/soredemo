@@ -59,6 +59,13 @@ extension StageCompositorTests {
         let card = stagePlan(pointer: nil).card
         // Composed once: the reference every tip below is measured against.
         let withoutPointer = try composedFrame(pointer: nil)
+        // **Counted across the whole set, not required of each instant** — the first draft
+        // asserted every one of the three smeared, and two of them do not: the search picks
+        // instants for sample history, not for speed, and at this fixture's 640-wide stage a
+        // cursor has to cross 0.32 of the recording per second to reach the smear threshold
+        // at all. One that does is enough to keep the case below covered; none would mean the
+        // smear had stopped being computed.
+        var smearedInstants = 0
 
         for instant in instants {
             // The recording's own answer, re-derived from the fixture's bytes: the latest sample
@@ -85,7 +92,28 @@ extension StageCompositorTests {
                 most (\(bound), \(boundY)) px
                 """)
 
-            let withPointer = try composedFrame(pointer: instant.placement)
+            // **Composed WITHOUT the smear, since 2026-08-25, and removing the confound is
+            // the fix rather than budgeting for it.** `drawnTip` reads the min-x/max-y of
+            // everything the pointer changed, which is the arrow's tip only while the arrow is
+            // the whole of what was drawn. A moving cursor now trails (`cursorSmear`), and
+            // `CIMotionBlur` spreads the drawing past the tip by more than its nominal radius
+            // — measured here at 8.2 px against a 3.1 px projected radius, so a tolerance
+            // derived from the radius does not bound it and one large enough to would stop
+            // discriminating a misplaced cursor.
+            //
+            // This test is about GEOMETRY: that the renderer draws at the placement the
+            // compositor returned. The smear is presentation, it is symmetric about that same
+            // placement, and it has its own test (`theCursorSmearIsDrawnAndIsDirectional`
+            // asserts it is drawn, and is directional). Taking it off the placement here
+            // isolates the question this test asks; it does not weaken it, because a cursor
+            // drawn in the wrong place is still wrong with the smear at zero.
+            let unsmeared = NormalizedPointerPlacement(
+                x: instant.placement.x, y: instant.placement.y,
+                ripplePhase: instant.placement.ripplePhase, shape: instant.placement.shape,
+                hotspot: instant.placement.hotspot, opacity: instant.placement.opacity,
+                tiltDegrees: instant.placement.tiltDegrees)
+            if instant.placement.smearRadius > 0 { smearedInstants += 1 }
+            let withPointer = try composedFrame(pointer: unsmeared)
             let tip = try #require(
                 drawnTip(of: withPointer, against: withoutPointer),
                 "frame \(instant.frame): nothing was drawn; aPointerIsDrawnAtAll covers that case")
@@ -101,6 +129,11 @@ extension StageCompositorTests {
                 recording places it at \(instant.placement.y)
                 """)
         }
+        #expect(smearedInstants > 0, """
+            none of the \(instants.count) asserted instants smeared, so taking the smear off \
+            the placement changed nothing and this test no longer covers the case it was \
+            rewritten for. Either the threshold moved or cursorSmear stopped being computed.
+            """)
     }
 }
 

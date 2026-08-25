@@ -359,13 +359,22 @@ public struct NormalizedPointerPlacement: Hashable, Sendable {
     public let opacity: Double
     /// The lean, degrees, positive to the right — see `CursorTilt`.
     public let tiltDegrees: Double
+    /// Half the cursor's own smear for this frame, in output pixels, and the direction it
+    /// travelled. **A frame is one exposure**: the card smears under `MotionBlur` when the
+    /// camera moves, and a cursor crossing that same frame smears under the same shutter.
+    /// Zero when it is not moving far enough to be worth a filter.
+    public let smearRadius: Double
+    public let smearAngle: Double
 
     public init(x: Double, y: Double, ripplePhase: Double?, shape: PointerShape? = nil,
-                hotspot: NormalizedPoint? = nil, opacity: Double = 1, tiltDegrees: Double = 0) {
+                hotspot: NormalizedPoint? = nil, opacity: Double = 1, tiltDegrees: Double = 0,
+                smearRadius: Double = 0, smearAngle: Double = 0) {
         self.x = x; self.y = y; self.ripplePhase = ripplePhase
         self.shape = shape; self.hotspot = hotspot
         self.opacity = opacity.isFinite ? min(max(opacity, 0), 1) : 1
         self.tiltDegrees = tiltDegrees.isFinite ? tiltDegrees : 0
+        self.smearRadius = smearRadius.isFinite ? max(smearRadius, 0) : 0
+        self.smearAngle = smearAngle.isFinite ? smearAngle : 0
     }
 }
 
