@@ -64,6 +64,9 @@ public struct EditState: Codable, Sendable, Equatable {
     /// Whether pressed shortcuts are NOT drawn as badges. Absent means they are — the default
     /// since the badges landed (2026-08-25) — so only turning them off is a decision to keep.
     public var hidesKeystrokes: Bool?
+    /// The music bed under the recording, as encoded bytes. Authored. Absent means none — a
+    /// project with no music has nothing to say about it.
+    public var musicData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -79,7 +82,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 cursorStyleData: Data? = nil,
                 cameraStyleData: Data? = nil,
                 cropData: Data? = nil,
-                hidesKeystrokes: Bool? = nil) {
+                hidesKeystrokes: Bool? = nil,
+                musicData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -95,6 +99,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.cameraStyleData = cameraStyleData
         self.cropData = cropData
         self.hidesKeystrokes = hidesKeystrokes
+        self.musicData = musicData
     }
 
     /// A recording nobody has edited.
@@ -110,7 +115,7 @@ public struct EditState: Codable, Sendable, Equatable {
             // `false` is not a change: it is the default, and a project that only ever had
             // captions turned off has nothing to save.
             || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil || cameraStyleData != nil || cropData != nil
-            || hidesKeystrokes == true
+            || hidesKeystrokes == true || musicData != nil
     }
 
     // MARK: - the tiers that own these values

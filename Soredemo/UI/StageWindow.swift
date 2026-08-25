@@ -60,6 +60,16 @@ struct StageWindow: View {
     /// first time levelling is asked for, because it decodes the whole audio track and most
     /// recordings are never levelled. Cleared when a different recording is loaded.
     @State private var measuredLoudness: [Int: Double] = [:]
+    /// The music bed under the recording — see `MusicBed`. Its file lives in the package, so
+    /// this is a filename and the URL is derived where it is needed.
+    @State private var music = MusicBed.none
+    /// The composition's music track, and the envelope it follows. Both are rebuilt with the
+    /// composition rather than per frame: the track is a track and the envelope is a volume
+    /// automation, and `AVAudioMix` takes them together.
+    @State private var musicTrackID: CMPersistentTrackID?
+    /// Why a chosen piece did not become the bed, or `nil`. Reported rather than swallowed: a
+    /// person who chose music and got silence is owed the reason.
+    @State private var musicFailure: String?
     // MARK: - project
     /// Where this recording has been saved, if it has. `nil` is a scratch recording, which is
     /// what "Save" turns into a project and what makes closing worth asking about.
@@ -308,7 +318,8 @@ struct StageWindow: View {
             if audioMix.targetLoudness != nil, measuredLoudness.isEmpty {
                 measuredLoudness = await Loudness.measure(contentsOf: mediaURL)
             }
-            await AudioMixBuilder.apply(audioMix, to: item, of: asset, measured: measuredLoudness)
+            await AudioMixBuilder.apply(audioMix, to: item, of: asset, measured: measuredLoudness,
+                                        musicTrackID: musicTrackID, musicRamps: musicRamps)
         }
         // **Registered on every change, not once.** The closure captures this view's current
         // state, so a stale one would save an older edit than the one being asked about.
@@ -327,6 +338,15 @@ struct StageWindow: View {
             cameraStyle = initialCameraStyle
         }
         .task(id: variant) { await load() }
+        // **The file, not the whole bed.** Changing the piece means a different track in the
+        // composition and a rebuild; changing its level or its ducking is a volume automation,
+        // which the sibling below re-applies without touching the asset.
+        .task(id: music.filename) { if music.filename != nil || musicTrackID != nil { await load() } }
+        .task(id: music) {
+            guard let item = player?.currentItem, let asset = playingAsset else { return }
+            await AudioMixBuilder.apply(audioMix, to: item, of: asset, measured: measuredLoudness,
+                                        musicTrackID: musicTrackID, musicRamps: musicRamps)
+        }
         // Rebuilding on a COMMITTED edit, not on every drag event: `load()` builds an
         // `AVVideoComposition` over a freshly cut asset, and doing that per pixel of a
         // selection drag would make the strip unusable.
@@ -816,6 +836,124 @@ struct StageWindow: View {
             Button("Reset audio") { audioMix = .unchanged; measuredLoudness = [:] }
                 .buttonStyle(.link).font(.caption)
         }
+        Divider()
+        musicControls
+    }
+
+    /// **A music bed, and how far out of the way it gets when somebody speaks.**
+    ///
+    /// Both commercial recorders ship this and none of the open-source four do: Screen Studio's
+    /// background audio "automatically lowers when you speak", ScreenKite calls it voice
+    /// ducking. The file is copied into the project — `MusicBed` says why — and the envelope
+    /// comes from the silences the timeline already found, so there is one answer to "where is
+    /// the voice" rather than two.
+    @ViewBuilder private var musicControls: some View {
+        HStack {
+            Text("Music").font(.caption)
+            Spacer()
+            if let name = music.filename {
+                Text(name).font(Type.detail).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Button(music.filename == nil ? "Choose\u{2026}" : "Replace\u{2026}") {
+                if let source = Self.chooseAudio() { adoptMusic(source) }
+            }
+            .buttonStyle(.link).font(.caption)
+        }
+        if let failure = musicFailure {
+            Text(failure).font(Type.detail).foregroundStyle(Signal.paused)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if music.filename != nil {
+            Toggle("Play the music", isOn: Binding(
+                get: { music.isEnabled },
+                set: { music = music.changing(isEnabled: $0) }))
+                .toggleStyle(.checkbox).font(.caption)
+            musicSlider("Music level", value: music.ducking.bedGain, upTo: 1) { value in
+                let settings = music.ducking
+                music = music.changing(ducking: MusicDucking.Settings(
+                    bedGain: value, duckedGain: min(settings.duckedGain, value),
+                    attack: settings.attack, release: settings.release, hold: settings.hold))
+            }
+            Toggle("Lower it while I speak", isOn: Binding(
+                get: { music.ducks },
+                set: { music = music.changing(ducks: $0) }))
+                .toggleStyle(.checkbox).font(.caption)
+            if music.ducks {
+                musicSlider("Level while speaking", value: music.ducking.duckedGain,
+                            upTo: music.ducking.bedGain) { value in
+                    let settings = music.ducking
+                    music = music.changing(ducking: MusicDucking.Settings(
+                        bedGain: settings.bedGain, duckedGain: value,
+                        attack: settings.attack, release: settings.release, hold: settings.hold))
+                }
+                if timeline.silences.isEmpty {
+                    Text("Nothing on the microphone track reads as speech yet, so the bed stays "
+                         + "at its own level.")
+                        .font(Type.detail).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Button("Remove the music") {
+                music = MusicBed.none
+                musicFailure = nil
+            }
+            .buttonStyle(.link).font(.caption)
+        }
+    }
+
+    /// A level slider with its value written beside it. `upTo` is clamped away from zero
+    /// because a `Slider` whose range is empty traps, and "level while speaking" has an upper
+    /// bound that is itself a slider somebody can drag to nothing.
+    @ViewBuilder private func musicSlider(_ title: String, value: Double, upTo: Double,
+                                          commit: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title).font(.caption)
+                Spacer()
+                Text("\(Int((value * 100).rounded()))%")
+                    .monospacedDigit().foregroundStyle(.secondary).font(.caption)
+            }
+            Slider(value: Binding(get: { min(value, max(upTo, 0.0001)) }, set: { commit($0) }),
+                   in: 0...max(upTo, 0.0001))
+        }
+    }
+
+    /// **Copied into the package, not referenced.** `StageStylePicker.useImageBackground`'s
+    /// argument exactly: a bed pointing at a file on the Desktop works until that file moves,
+    /// and music that silently becomes silence is worse than music never offered.
+    private func adoptMusic(_ source: URL) {
+        let packageURL = ProjectStore.packageURL(forMediaAt: mediaURL)
+        let directory = packageURL.appending(path: MusicBed.directory, directoryHint: .isDirectory)
+        let name = source.lastPathComponent
+        guard MusicBed.isSafeFilename(name) else {
+            musicFailure = "\(name) is not a name this can use."
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+            let destination = directory.appending(path: name)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: source, to: destination)
+        } catch {
+            musicFailure = "Could not copy \(name) into the project: \(error)"
+            return
+        }
+        musicFailure = nil
+        music = music.changing(filename: .some(name), isEnabled: true)
+    }
+
+    /// The open panel, audio only.
+    @MainActor
+    private static func chooseAudio() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     // MARK: - saving and opening
@@ -847,7 +985,35 @@ struct StageWindow: View {
             cameraStyleData: cameraURL == nil
                 ? nil : try? EditState.encoding(cameraStyle),
             cropData: crop.isWhole ? nil : try? EditState.encoding(crop),
-            hidesKeystrokes: stageStyle.showsKeystrokes ? nil : true)
+            hidesKeystrokes: stageStyle.showsKeystrokes ? nil : true,
+            musicData: music == .none ? nil : try? EditState.encoding(music))
+    }
+
+    /// The bed's file inside the project package, or `nil` when there is none to play.
+    private var musicFileURL: URL? {
+        guard music.isAudible, let filename = music.filename else { return nil }
+        return ProjectStore.packageURL(forMediaAt: mediaURL)
+            .appending(path: MusicBed.directory, directoryHint: .isDirectory)
+            .appending(path: filename)
+    }
+
+    /// **The envelope the bed follows, from the silences the timeline already found.** One
+    /// decision about where the voice is: `SilenceFinder` makes it for the Silence lane and for
+    /// auto-cutting, and `MusicDucking.speech(betweenSilences:over:)` turns the same answer
+    /// inside out. A second detector here would be a second answer a person could catch
+    /// disagreeing with the lane in front of them.
+    ///
+    /// Ducking off leaves the bed flat at its own level, which is what somebody laying music
+    /// under a demo with no narration wants; no file leaves it empty, and `AudioMixBuilder`
+    /// reads an empty envelope as silence rather than as unity.
+    private var musicRamps: [MusicDucking.Ramp] {
+        guard music.isAudible, let duration = timeline.duration else { return [] }
+        guard music.ducks else {
+            return MusicDucking.ramps(speech: [], over: duration, settings: music.ducking)
+        }
+        return MusicDucking.ramps(
+            speech: MusicDucking.speech(betweenSilences: timeline.silences, over: duration),
+            over: duration, settings: music.ducking)
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
@@ -908,6 +1074,11 @@ struct StageWindow: View {
             }
         } catch { failures.append("the cursor") }
         stageStyle.setShowsKeystrokes(edit.hidesKeystrokes != true)
+        do {
+            if let saved = try EditState.decoding(edit.musicData, as: MusicBed.self) {
+                music = saved
+            }
+        } catch { failures.append("the music") }
         do {
             if let camera = try EditState.decoding(edit.cameraStyleData,
                                                    as: CameraOverlayStyle.self) {
@@ -1005,8 +1176,10 @@ struct StageWindow: View {
             // the cut asset untouched when there is no camera, so the common path costs nothing.
             let combined = try await CameraComposition.combine(
                 screen: cut, cameraURL: cameraURL,
-                cameraStartOffset: CMTime(value: cameraStartOffsetNanos, timescale: 1_000_000_000))
+                cameraStartOffset: CMTime(value: cameraStartOffsetNanos, timescale: 1_000_000_000),
+                musicURL: musicFileURL)
             StageCompositor.cameraTrackID = combined.cameraTrackID
+            musicTrackID = combined.musicTrackID
             StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : cameraStyle
             let asset = combined.asset
             let composition = try await Self.configuredComposition(
@@ -1062,6 +1235,8 @@ struct StageWindow: View {
         // later than the view that asked for it, and reading this then would read whatever had
         // been measured since.
         let loudness = measuredLoudness
+        let bedTrack = musicTrackID
+        let bedRamps = musicRamps
         let chosen = quality
         let chosenCodec = codec
         let frames = frameRate.frames(recording: recordingFrameRate)
@@ -1075,6 +1250,7 @@ struct StageWindow: View {
             return await Self.runExport(asset: asset, to: destination, isGIF: isGIF,
                                         size: size, edit: edit, audioMix: mix,
                                         measuredLoudness: loudness,
+                                        musicTrackID: bedTrack, musicRamps: bedRamps,
                                         quality: chosen, codec: chosenCodec,
                                         frameRate: frames, gifSettings: gif, report: report)
         }
@@ -1098,6 +1274,7 @@ struct StageWindow: View {
     static func runExport(asset: sending AVAsset, to destination: URL, isGIF: Bool,
                           size: (width: Int, height: Int), edit: EditTimeline,
                           audioMix: AudioMix, measuredLoudness: [Int: Double],
+                          musicTrackID: CMPersistentTrackID?, musicRamps: [MusicDucking.Ramp],
                           quality: ExportQuality, codec: ExportCodec,
                           frameRate: Int, gifSettings: GIFSettings,
                           report: @escaping @MainActor (ExportProgress) -> Void) async -> String? {
@@ -1114,6 +1291,7 @@ struct StageWindow: View {
                     outputWidth: size.width, outputHeight: size.height,
                     edit: edit, assetIsAlreadyEdited: true, audioMix: audioMix,
                     measuredLoudness: measuredLoudness,
+                    musicTrackID: musicTrackID, musicRamps: musicRamps,
                     frameRate: frameRate, quality: quality, codec: codec,
                     onProgress: { progress in Task { @MainActor in report(progress) } })
             }

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Overlays
 import Project
 
 /// Turns an `AudioMix` into the `AVAudioMix` both the export and the PREVIEW apply.
@@ -27,16 +28,45 @@ public enum AudioMixBuilder {
     /// whatever it measures — `effectiveGain` has already applied that, and multiplying zero
     /// keeps it zero.
     public nonisolated static func mix(_ settings: AudioMix, over tracks: [AVAssetTrack],
-                                       measured: [Int: Double] = [:]) -> AVAudioMix {
+                                       measured: [Int: Double] = [:],
+                                       musicTrackID: CMPersistentTrackID? = nil,
+                                       musicRamps: [MusicDucking.Ramp] = []) -> AVAudioMix {
         let mix = AVMutableAudioMix()
         mix.inputParameters = tracks.enumerated().map { index, track in
             let parameters = AVMutableAudioMixInputParameters(track: track)
+            // **The music bed is found by track ID, never by index.** It is appended last, so
+            // an index would work today and stop working the moment a recording has no system
+            // audio — the tracks would shift under `trackOrder` and the microphone would be
+            // levelled as though it were the bed. The ID is the composition's own answer.
+            if let musicTrackID, track.trackID == musicTrackID {
+                applyRamps(musicRamps, to: parameters)
+                return parameters
+            }
             let source = index < trackOrder.count ? trackOrder[index] : nil
             parameters.setVolume(Float(volume(for: source, in: settings,
                                               measured: measured[index])), at: .zero)
             return parameters
         }
         return mix
+    }
+
+    /// **The ducking envelope, as the volume automation `AVAudioMix` reads.** Ramps arrive
+    /// ordered and abutting from `MusicDucking.ramps` — which is where that is asserted — so
+    /// this only has to convert the times. An empty envelope silences the bed rather than
+    /// leaving it at whatever `AVAudioMix` defaults to: no envelope means nothing asked for
+    /// music, and unity on a music track under narration is the worst available outcome.
+    nonisolated static func applyRamps(_ ramps: [MusicDucking.Ramp],
+                                       to parameters: AVMutableAudioMixInputParameters) {
+        guard !ramps.isEmpty else {
+            parameters.setVolume(0, at: .zero)
+            return
+        }
+        for ramp in ramps {
+            let start = CMTime(value: ramp.start.rawValue, timescale: 1_000_000_000)
+            let end = CMTime(value: ramp.end.rawValue, timescale: 1_000_000_000)
+            parameters.setVolumeRamp(fromStartVolume: Float(ramp.from), toEndVolume: Float(ramp.to),
+                                     timeRange: CMTimeRange(start: start, end: end))
+        }
     }
 
     /// **The one volume rule, as a function, so it can be tested.** A track beyond the two this
@@ -71,9 +101,12 @@ public enum AudioMixBuilder {
     /// UNCUT asset's tracks would address tracks the item does not have.
     @MainActor
     public static func apply(_ settings: AudioMix, to item: AVPlayerItem,
-                             of asset: sending AVAsset, measured: [Int: Double] = [:]) async {
+                             of asset: sending AVAsset, measured: [Int: Double] = [:],
+                             musicTrackID: CMPersistentTrackID? = nil,
+                             musicRamps: [MusicDucking.Ramp] = []) async {
         guard let tracks = try? await asset.loadTracks(withMediaType: .audio),
               !tracks.isEmpty else { return }
-        item.audioMix = mix(settings, over: tracks, measured: measured)
+        item.audioMix = mix(settings, over: tracks, measured: measured,
+                            musicTrackID: musicTrackID, musicRamps: musicRamps)
     }
 }

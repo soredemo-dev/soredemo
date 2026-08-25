@@ -1,4 +1,5 @@
 import AVFoundation
+import Overlays
 import Foundation
 import Project
 import Timeline
@@ -67,6 +68,8 @@ public enum MP4Exporter {
                                           assetIsAlreadyEdited: Bool = false,
                                           audioMix: AudioMix = .unchanged,
                                           measuredLoudness: [Int: Double] = [:],
+                                          musicTrackID: CMPersistentTrackID? = nil,
+                                          musicRamps: [MusicDucking.Ramp] = [],
                                           frameRate: Int = 60,
                                           quality: ExportQuality = .best,
                                           codec: ExportCodec = .h264,
@@ -160,7 +163,8 @@ public enum MP4Exporter {
             asset: asset, videoTracks: videoTracks, audioTracks: audioTracks,
             composition: composition, frameDuration: frameDuration, sessionStart: sessionStart,
             writer: writer, videoInput: videoInput, audioInput: audioInput,
-                audioMix: audioMix, measuredLoudness: measuredLoudness, onProgress: onProgress)
+                audioMix: audioMix, measuredLoudness: measuredLoudness,
+                musicTrackID: musicTrackID, musicRamps: musicRamps, onProgress: onProgress)
         } catch {
             discardPartialOutput(at: outputURL)
             throw error
@@ -210,6 +214,7 @@ public enum MP4Exporter {
         composition: AVVideoComposition, frameDuration: CMTime, sessionStart: CMTime,
         writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?,
         audioMix: AudioMix, measuredLoudness: [Int: Double],
+        musicTrackID: CMPersistentTrackID?, musicRamps: [MusicDucking.Ramp],
         onProgress: (@Sendable (ExportProgress) -> Void)?
     ) async throws -> (framesRead: Int, framesWritten: Int, audioWritten: Int) {
         // The output's own length, for the fraction. Read once: it cannot change while the
@@ -250,7 +255,8 @@ public enum MP4Exporter {
             // zero — and a boosted one is boosted before the sum rather than after, which is
             // the difference between raising a voice and raising the mix it is buried in.
             if audioMix.changesAnything {
-                output.audioMix = Self.mix(audioMix, over: audioTracks, measured: measuredLoudness)
+                output.audioMix = Self.mix(audioMix, over: audioTracks, measured: measuredLoudness,
+                                           musicTrackID: musicTrackID, musicRamps: musicRamps)
             }
             guard reader.canAdd(output) else { throw ExportError.readerRefusedOutput }
             reader.add(output)
@@ -410,8 +416,11 @@ public enum MP4Exporter {
     /// three audio tracks did not come from this recorder, and silencing something because it
     /// was not expected is worse than passing it through.
     nonisolated static func mix(_ settings: AudioMix, over tracks: [AVAssetTrack],
-                                measured: [Int: Double] = [:]) -> AVAudioMix {
-        AudioMixBuilder.mix(settings, over: tracks, measured: measured)
+                                measured: [Int: Double] = [:],
+                                musicTrackID: CMPersistentTrackID? = nil,
+                                musicRamps: [MusicDucking.Ramp] = []) -> AVAudioMix {
+        AudioMixBuilder.mix(settings, over: tracks, measured: measured,
+                            musicTrackID: musicTrackID, musicRamps: musicRamps)
     }
 
     /// The next audio buffer with actual samples. Marker-only buffers carry no audio and would
