@@ -301,13 +301,6 @@ struct MenuBarRecorderPanel: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
-            // **Locked for the length of a take.** The camera is started before the countdown
-            // and written to its own file; there is no honest way to answer "no camera" halfway
-            // through one — stopping the writer would leave a camera that vanishes partway and
-            // no way to undo it. Left enabled, this row set `camera` to `.off` and the panel
-            // read "No camera" over a self-view that was still on screen with the indicator
-            // lit. The choice belongs to the take, and the take has started.
-            .disabled(coordinator.isRecording)
 
             // **What the system is applying, said where the camera is chosen.** Portrait and
             // Studio Light are switched on in Control Center and stay on for every app, so a
