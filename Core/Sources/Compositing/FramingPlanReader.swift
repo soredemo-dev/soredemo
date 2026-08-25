@@ -54,6 +54,26 @@ public enum FramingPlanReader {
         return Nanoseconds(instant.hostTime.rawValue - anchor.hostTime.rawValue)
     }
 
+    /// **Every pointer sample in the log, oldest first.**
+    ///
+    /// For placing a zoom that a person adds where no click happened: the pointer is where
+    /// the action is during a demo, which is the same argument `pointerFallbackExtent` is
+    /// built on. Read here rather than in the app tier because `ObservationLog`'s decoding
+    /// belongs to one place, and read as a whole array rather than one query at a time
+    /// because the alternative is reopening the file per placement.
+    ///
+    /// Sorted on the way out: the writer appends in observation order, but a package with
+    /// several segments concatenates them, and a binary search over an unsorted array is a
+    /// wrong answer rather than a slow one.
+    public static func pointerSamples(fromObservationLogAt url: URL) throws -> [PointerSample] {
+        let lines = try JSONLReader.linesOfFile(at: url).lines
+        var samples: [PointerSample] = []
+        for line in lines where try ObservationLog.kind(of: line) == "pointer" {
+            samples.append(try ObservationLog.decode(line) as PointerSample)
+        }
+        return samples.sorted { $0.instant.hostTime.rawValue < $1.instant.hostTime.rawValue }
+    }
+
     /// The same, for every segment log in a recording package, merged in segment order.
     /// A recording paused and resumed has one log per segment and one timeline; a reviewer
     /// reads the timeline.

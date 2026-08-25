@@ -125,6 +125,20 @@ struct StageWindow: View {
     /// `AspectVariant.matching(width:height:)` is what removes the pillarbox a laptop
     /// recording gets in every one of the three presets.
     @State private var recordingSize = (width: 1920, height: 1080)
+
+    /// **The share of the output frame the recording occupies in the chosen shape**, which
+    /// is what `StageCompositor.outputCoverage` needs to decide zoom depth for the frame
+    /// being exported rather than for the recording's own shape.
+    ///
+    /// **Computed from the CROPPED size, not the recorded one.** Cropping changes the
+    /// source's aspect, so a crop re-frames every zoom exactly as a variant change does; a
+    /// coverage read off the recorded size would go stale the moment somebody cropped.
+    private var outputCoverage: Double {
+        let cropped = crop.size(ofSourceWidth: recordingSize.width,
+                                sourceHeight: recordingSize.height)
+        guard cropped.width > 0, cropped.height > 0 else { return 1 }
+        return variant.coverage(ofSourceAspect: Double(cropped.width) / Double(cropped.height))
+    }
     /// How many frames a second the export writes, and what the recording itself has. Matching
     /// by default, because a capture's rate is a decision somebody already made.
     @State private var frameRate = ExportFrameRate.matchRecording
@@ -402,7 +416,11 @@ struct StageWindow: View {
         // crop were the two whose changes waited for the next composition rebuild. A control
         // that takes effect on some later unrelated action is a control people learn not to
         // trust.
-        .task(id: crop) { StageCompositor.crop = crop }
+        .task(id: crop) {
+            StageCompositor.crop = crop
+            // Coverage depends on the cropped aspect, so it moves with the crop or it lies.
+            StageCompositor.outputCoverage = outputCoverage
+        }
         .task(id: cameraStyle) {
             guard StageCompositor.cameraTrackID != nil else { return }
             StageCompositor.cameraStyle = cameraStyle
@@ -594,7 +612,8 @@ struct StageWindow: View {
                 }
                 .listStyle(.sidebar)
             case .selection:
-                List { FramingReviewSections(model: review, onChange: { reviewRevision += 1 }) }
+                List { FramingReviewSections(model: review, onChange: { reviewRevision += 1 },
+                                             playhead: timeline.playhead) }
                     .listStyle(.sidebar)
             case .captions:
                 let size = Self.size(for: variant, resolution: resolution,
@@ -1158,21 +1177,20 @@ struct StageWindow: View {
             // `StageCompositor.framingOverrides`, which `FramingReviewModel.load` publishes.
             review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
                 .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
-            // The lane draws the same blocks the camera integrates, derived from the same
-            // plan — a second derivation would be a second answer.
-            // The anchor first: the lane converts every block's absolute instant through it, and
-            // blocks set before it would be drawn off the edge for one frame.
             // The crop before the composition: `StagePlanner` fits the card to the CROPPED
             // aspect, so a composition built while the static still said "whole" would size the
-            // card for a recording that is no longer what is being drawn.
+            // card for a recording that is no longer what is being drawn. It is also what
+            // `outputCoverage` below is computed from, which is the other reason it goes first.
             StageCompositor.crop = crop
-            timeline.setZoomAnchor(review.anchor)
-            timeline.setDerivedZooms(ZoomBlock.blocks(
-                for: review.plan.framedClicks(with: review.overrides,
-                                              pointerFallbackRevision: review.fallbackRevision)))
             let recording = AVURLAsset(url: mediaURL)
             // What `Match Recording` matches. Read once from the file, because it is a property
             // of the capture and no edit changes it.
+            //
+            // **Read before the zoom lane is built, and the order is load-bearing.** The lane's
+            // depths now come from `outputCoverage`, which is computed from this size; reading
+            // it afterwards meant the FIRST open of every project derived its zooms against the
+            // 1920x1080 placeholder these properties start at, so a 3024x1964 recording exported
+            // 9:16 showed one set of depths until something happened to rebuild.
             if let track = try await recording.loadTracks(withMediaType: .video).first {
                 let natural = try await track.load(.naturalSize)
                 recordingShortSide = Int(min(natural.width, natural.height).rounded())
@@ -1191,6 +1209,18 @@ struct StageWindow: View {
                 let nominal = try await track.load(.nominalFrameRate)
                 if nominal > 0 { recordingFrameRate = Int(nominal.rounded()) }
             }
+            // The lane draws the same blocks the camera integrates, derived from the same
+            // plan and now at the same coverage — a second derivation would be a second
+            // answer, and a second coverage would be a second answer that agreed in landscape
+            // and diverged in portrait, which is worse.
+            StageCompositor.outputCoverage = outputCoverage
+            // The anchor first: the lane converts every block's absolute instant through it,
+            // and blocks set before it would be drawn off the edge for one frame.
+            timeline.setZoomAnchor(review.anchor)
+            timeline.setDerivedZooms(ZoomBlock.blocks(
+                for: review.plan.framedClicks(with: review.overrides,
+                                              pointerFallbackRevision: review.fallbackRevision),
+                coverage: outputCoverage))
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)
                 // **After `load`, which resets the models.** Restoring first would be wiped by

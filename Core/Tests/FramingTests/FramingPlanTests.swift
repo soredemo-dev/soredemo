@@ -300,7 +300,7 @@ private func rejected(_ ns: Int64, _ reason: FramingRejection) -> FramingPlan.En
     #expect(authored?.target.role == nil, "an authored frame names no role the gate identified")
 
     // 2. It becomes a block, at a depth its own size earns.
-    let blocks = ZoomBlock.blocks(for: clicks)
+    let blocks = ZoomBlock.blocks(for: clicks, coverage: 1)
     let block = blocks.first
     #expect(blocks.count == 1)
     #expect(block?.origin.hostTime == authoredInstant.hostTime,
@@ -331,6 +331,46 @@ private func rejected(_ ns: Int64, _ reason: FramingRejection) -> FramingPlan.En
     let plan = FramingPlan(entries: [rejected(1_000_000_000, .hitTestReturnedNothing)])
     let clicks = plan.framedClicks(with: [], pointerFallbackRevision: nil)
     #expect(clicks.isEmpty)
-    let camera = CameraMotion(blocks: ZoomBlock.blocks(for: clicks))
+    let camera = CameraMotion(blocks: ZoomBlock.blocks(for: clicks, coverage: 1))
     #expect(camera.state(at: at(5_600_000_000)).zoom == 1.0)
+}
+
+// MARK: - the rectangle a zoom added by hand frames
+
+/// **One rule, two reasons.** A manual zoom and a pointer fallback are both "frame around
+/// this point because nothing identified an element here", so they get the same rectangle at
+/// the same extent — a hand-placed zoom that announced itself as a different size from the
+/// ones around it would read as a mistake. Asserted against the fallback's own output rather
+/// than against `pointerFallbackExtent`, so the two cannot drift apart while both stay
+/// individually correct.
+@Test func aManualZoomFramesTheSameRectangleAPointerFallbackWould() {
+    let point = NormalizedPoint(x: 0.4, y: 0.55)
+    #expect(FramingPlan.manualFrame(centredOn: point, revision: revision)
+            == FramingPlan.pointerTarget(at: point, revision: revision).frame)
+}
+
+/// **Clamped into the frame, which is the whole reason it goes through `pointerTarget`.**
+/// A person can put the playhead anywhere, and the pointer at that moment can be in a
+/// corner; a rectangle hanging off the edge would frame space the recording does not
+/// contain, which `FramingGate.partlyOffscreen` refuses for a derived target and a manual
+/// one must not sneak back in.
+@Test func aManualZoomInACornerIsClampedIntoTheFrame() {
+    for corner in [NormalizedPoint(x: 0, y: 0), NormalizedPoint(x: 1, y: 1),
+                   NormalizedPoint(x: 0, y: 1), NormalizedPoint(x: 1, y: 0)] {
+        let frame = FramingPlan.manualFrame(centredOn: corner, revision: revision)
+        #expect(frame.minX >= 0 && frame.minY >= 0 && frame.maxX <= 1 && frame.maxY <= 1,
+                "a zoom placed at \(corner) frames \(frame.minX)…\(frame.maxX) — outside the recording")
+        #expect(frame.size.width == FramingPlan.pointerFallbackExtent,
+                "the clamp shrank the rectangle instead of moving it")
+    }
+}
+
+/// The revision travels with the rectangle. A normalised frame means nothing without the
+/// coordinate system it was measured in — comparing one against another revision's is the
+/// `1a98402` family one domain over — so a manual zoom carries the revision of the
+/// observation it was placed from, not a fabricated one.
+@Test func aManualZoomCarriesTheRevisionItWasPlacedIn() {
+    let other = GeometryRevision(id: 77)
+    #expect(FramingPlan.manualFrame(centredOn: NormalizedPoint(x: 0.5, y: 0.5),
+                                    revision: other).revision == other)
 }

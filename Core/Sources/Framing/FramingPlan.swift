@@ -200,6 +200,25 @@ extension FramingPlan {
             role: nil)
     }
 
+    /// **The rectangle a zoom somebody adds by hand frames.**
+    ///
+    /// Deliberately `pointerTarget`'s rectangle, at `pointerFallbackExtent`, and that is the
+    /// decision rather than an implementation detail: a manual zoom and a fallback zoom are
+    /// both "frame around this point because nothing identified an element here", and giving
+    /// them two extents would make a hand-placed zoom announce itself as different from the
+    /// ones around it. One rule, two names, because the two have different reasons.
+    ///
+    /// The `revision` is the caller's to supply — a rectangle means nothing without the
+    /// coordinate system it was measured in, and this function has no way to know which one
+    /// a person was looking at.
+    /// Returns the FRAME rather than a `FramingTarget`, because that is what
+    /// `FramingOverride.Action.frame` stores — and because a manual target's role is always
+    /// `nil` anyway, so the target would be a wrapper around the only field that varies.
+    public static func manualFrame(centredOn point: NormalizedPoint,
+                                   revision: GeometryRevision) -> NormalizedFrame {
+        pointerTarget(at: point, revision: revision).frame
+    }
+
     /// `resolved`, plus a pointer-centred target wherever the gate refused and a click
     /// position was recorded.
     ///

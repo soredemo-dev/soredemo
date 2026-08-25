@@ -509,7 +509,7 @@ func recordedReading(in samples: [PointerSample],
         guard case .framed(let target) = FramingGate.decide(for: record) else { return nil }
         return FramedClick(instant: record.instant, target: target)
     }
-    let blocks = ZoomBlock.blocks(for: clicks)
+    let blocks = ZoomBlock.blocks(for: clicks, coverage: 1)
     let block = try #require(blocks.first, "the pipeline produced no block at all")
     #expect(block.zoom == 1.0, """
         the accepted target is \(block.target.frame.size.width) wide and got depth \

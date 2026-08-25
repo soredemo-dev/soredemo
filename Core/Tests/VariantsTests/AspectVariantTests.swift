@@ -1,4 +1,6 @@
 import Foundation
+import Framing
+import Geometry
 import Testing
 @testable import Variants
 
@@ -165,4 +167,76 @@ import Testing
         the matching shape is in `all`, so restoring it would find it there and stop depending \
         on the recording's size — which is the thing that makes it match
         """)
+}
+
+// MARK: - the clause the row has been carrying: re-framed, not inherited
+
+/// **`coverage(ofSourceAspect:)` had no production consumer until 2026-08-26, and the
+/// row said so.** The number is what the whole "re-framed against each variant's
+/// coverage, not cropped" claim rests on, and computing it while nothing read it meant a
+/// portrait export inherited landscape's zoom depths unchanged. This is the join: the
+/// variant's own coverage, fed to the depth curve, for one real control.
+///
+/// A 28 px toolbar button on a 1080-tall recording. In landscape it is what it is; in
+/// portrait the recording is a strip covering 0.316 of the frame and the button is
+/// 0.5625 of the length it had — so it needs a deeper zoom to read the same.
+@Test func aPortraitExportReFramesRatherThanInheritingLandscapesDepth() {
+    let sixteenNine = 16.0 / 9.0
+    let button = FramingTarget(
+        frame: NormalizedFrame(origin: NormalizedPoint(x: 0.4, y: 0.4),
+                               size: NormalizedSize(width: 28.0 / 1920, height: 28.0 / 1080),
+                               revision: GeometryRevision(id: 1)),
+        role: "AXButton")
+
+    let inLandscape = FramingDepth.zoom(
+        for: button, coverage: AspectVariant.landscape.coverage(ofSourceAspect: sixteenNine))
+    let inPortrait = FramingDepth.zoom(
+        for: button, coverage: AspectVariant.portrait.coverage(ofSourceAspect: sixteenNine))
+    let inSquare = FramingDepth.zoom(
+        for: button, coverage: AspectVariant.square.coverage(ofSourceAspect: sixteenNine))
+
+    #expect(inPortrait > inLandscape, """
+            the button got depth \(inPortrait) in portrait against \(inLandscape) in \
+            landscape — the variant is still being inherited rather than re-framed
+            """)
+    // Square loses less of the frame than portrait does, so it sits between them —
+    // **inclusively**, and that is worth stating because a strict ordering was the first
+    // draft and it was wrong. Two things deliberately collapse neighbouring depths:
+    // `quantisationStep` rounds to 0.25 so two similar controls give the camera nothing to
+    // animate between, and `maximumZoom` caps the curve. At 28 px both square and portrait
+    // are already AT the 3.0 ceiling — the ceiling doing its job, not the coverage failing
+    // to arrive.
+    #expect(inSquare >= inLandscape && inSquare <= inPortrait,
+            "square came out at \(inSquare), outside landscape \(inLandscape) and portrait \(inPortrait)")
+
+    // A control large enough that neither the ceiling nor a quantisation tie can explain
+    // the result, so the claim does not rest on a control pinned at the top of the curve.
+    let toolbar = FramingTarget(
+        frame: NormalizedFrame(origin: NormalizedPoint(x: 0.2, y: 0.4),
+                               size: NormalizedSize(width: 500.0 / 1920, height: 60.0 / 1080),
+                               revision: GeometryRevision(id: 1)),
+        role: "AXToolbar")
+    let wideLandscape = FramingDepth.zoom(
+        for: toolbar, coverage: AspectVariant.landscape.coverage(ofSourceAspect: sixteenNine))
+    let widePortrait = FramingDepth.zoom(
+        for: toolbar, coverage: AspectVariant.portrait.coverage(ofSourceAspect: sixteenNine))
+    #expect(wideLandscape < FramingDepth.maximumZoom, "this control is meant to sit off the ceiling")
+    #expect(widePortrait > wideLandscape,
+            "a 500 px toolbar got \(widePortrait) in portrait against \(wideLandscape) in landscape")
+}
+
+/// The recording's own shape is the identity, and that is what makes this change safe
+/// for every landscape export that already exists: `Match Recording` covers the frame
+/// completely, so its depth is the depth the app produced before coverage was a
+/// parameter.
+@Test func matchRecordingLeavesTheDepthWhereItWas() throws {
+    let own = try #require(AspectVariant.matching(width: 3024, height: 1964))
+    #expect(abs(own.coverage(ofSourceAspect: 3024.0 / 1964.0) - 1.0) < 1e-12)
+    let target = FramingTarget(
+        frame: NormalizedFrame(origin: NormalizedPoint(x: 0.3, y: 0.3),
+                               size: NormalizedSize(width: 0.05, height: 0.05),
+                               revision: GeometryRevision(id: 1)),
+        role: nil)
+    #expect(FramingDepth.zoom(for: target, coverage: own.coverage(ofSourceAspect: 3024.0 / 1964.0))
+            == FramingDepth.zoom(for: target, coverage: 1))
 }

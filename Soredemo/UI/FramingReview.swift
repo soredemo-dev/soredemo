@@ -3,6 +3,7 @@ import Foundation
 import Framing
 import Geometry
 import Observation
+import Project
 import SwiftUI
 import Timeline
 
@@ -35,6 +36,11 @@ final class FramingReviewModel {
     /// clicks at all means.
     private(set) var fallbackRevision: GeometryRevision?
 
+    /// **The pointer's recorded path, held only so a zoom added by hand can be placed on
+    /// it.** Nothing here draws it — `PointerTrack` inside the compositor is the one that
+    /// does — and it is deliberately not used to second-guess any decision the gate made.
+    private(set) var pointerSamples: [PointerSample] = []
+
     /// **What the camera will actually do**, fallback included. Not `plan.resolved(with:)`:
     /// a review surface showing "no zoom" beside a video that zooms would be worse than no
     /// surface at all.
@@ -57,11 +63,13 @@ final class FramingReviewModel {
             plan = try FramingPlanReader.plan(fromObservationLogAt: url)
             anchor = try FramingPlanReader.anchor(fromObservationLogAt: url)
             fallbackRevision = plan.fallbackRevision
+            pointerSamples = try FramingPlanReader.pointerSamples(fromObservationLogAt: url)
             failure = nil
         } catch {
             plan = FramingPlan(entries: [])
             anchor = nil
             fallbackRevision = nil
+            pointerSamples = []
             failure = "\(error)"
         }
         publish()
@@ -83,6 +91,46 @@ final class FramingReviewModel {
         overrides = saved
         publish()
     }
+
+    /// **Adds a zoom at a time into the recording where no click asked for one.**
+    ///
+    /// This is the whole of "manual zoom", and almost all of it already existed: an override
+    /// at an instant the gate never saw is honoured by `FramingPlan.resolved(with:)`'s orphan
+    /// pass, becomes a `FramedClick`, and becomes a `ZoomBlock` like any other. What was
+    /// missing was a way to make one — every override until now hung on a click.
+    ///
+    /// **Centred on the pointer**, because during a demo that is where the action is, and it
+    /// is the same argument `pointerFallbackExtent` rests on. The sample at or before the
+    /// instant, so the answer is a position the recording actually observed rather than one
+    /// interpolated between two; the first sample after it when the playhead sits before any
+    /// pointer was seen; and the middle of the frame when the log has no pointer at all,
+    /// which is a recording made without the input tap.
+    ///
+    /// Returns the instant it authored, so the caller can scroll to it — or `nil` when there
+    /// is no anchor, which means the log had no header and no offset can be turned into an
+    /// absolute instant. A `nil` here is "this recording cannot carry one", not a failure to
+    /// report as an error.
+    @discardableResult
+    func authorZoom(atOffset offset: Nanoseconds) -> HostInstant? {
+        guard let anchor else { return nil }
+        // `EpochAnchor.instant(atOffset:)` and not an addition here: its own header calls
+        // it THE composition-offset-to-host-instant conversion, and `1a98402` was a caller
+        // doing exactly this arithmetic by hand and dropping a term.
+        let instant = anchor.instant(atOffset: offset)
+        let sample = pointerSamples.last { $0.instant.hostTime.rawValue <= instant.hostTime.rawValue }
+            ?? pointerSamples.first
+        // The revision is the sample's own: a rectangle means nothing without the coordinate
+        // system it was measured in, and taking the fallback's would be asserting the two
+        // agree. Zero only when there is no observation at all to take one from.
+        let revision = sample?.revision ?? fallbackRevision ?? GeometryRevision(id: 0)
+        let centre = sample?.position ?? NormalizedPoint(x: 0.5, y: 0.5)
+        author(.frame(FramingPlan.manualFrame(centredOn: centre, revision: revision)), at: instant)
+        return instant
+    }
+
+    /// Whether `authorZoom(atOffset:)` would do anything — the anchor is the only thing it
+    /// needs, so a control can be disabled for the honest reason rather than doing nothing.
+    var canAuthorZoom: Bool { anchor != nil }
 
     /// Withdraws a reviewer's decision, returning the click to whatever the gate says. Not
     /// the same as suppressing it: this restores the derived answer rather than authoring a
@@ -124,8 +172,10 @@ struct FramingReviewInspector: View {
     /// pointing at when the gate refused.
     let authoredExtent = 0.25
 
+    /// Only used when this inspector is hosted on its own; the window builds
+    /// `FramingReviewSections` directly and supplies the playhead it is showing.
     var body: some View {
-        List { FramingReviewSections(model: model, onChange: onChange) }
+        List { FramingReviewSections(model: model, onChange: onChange, playhead: Nanoseconds(0)) }
             .listStyle(.sidebar)
     }
 
@@ -191,7 +241,12 @@ struct FramingReviewInspector: View {
                 }
             }
             if entry.wasOverridden {
-                Button("Use the automatic decision") {
+                // **Two different acts behind one call.** Withdrawing an override on a click
+                // hands the moment back to the gate; withdrawing one the gate never saw
+                // deletes the zoom outright, because there is nothing underneath it. Same
+                // call, and it must not claim to be the same act — "use the automatic
+                // decision" on a zoom nobody automated is a sentence that cannot be true.
+                Button(Self.isManual(entry) ? "Remove this zoom" : "Use the automatic decision") {
                     model.withdrawOverride(at: entry.instant)
                     onChange()
                 }
@@ -199,6 +254,14 @@ struct FramingReviewInspector: View {
         }
         .buttonStyle(.link)
         .font(Type.detail)
+    }
+
+    /// Whether this row is a zoom somebody added where the recorder saw no click — an
+    /// override with nothing underneath it. A function rather than an inline `if case`
+    /// because a `ViewBuilder` cannot hold a statement.
+    static func isManual(_ entry: ResolvedFraming) -> Bool {
+        if case .authored(let over) = entry.origin { return over == nil }
+        return false
     }
 
     /// A rectangle centred on the gate's own target if it had one, and on the middle of the
@@ -268,10 +331,27 @@ struct FramingReviewInspector: View {
 struct FramingReviewSections: View {
     let model: FramingReviewModel
     let onChange: () -> Void
+    /// Where a zoom added by hand goes. The playhead rather than a time typed into a field:
+    /// the person is looking at the frame they want zoomed, and asking them to name its
+    /// timestamp would be asking them to read it off the very thing they are pointing at.
+    let playhead: Nanoseconds
 
     var body: some View {
         let inspector = FramingReviewInspector(model: model, onChange: onChange)
         Section("Summary") { inspector.summary }
+        Section("Add a zoom") {
+            Button {
+                model.authorZoom(atOffset: playhead)
+                onChange()
+            } label: {
+                Label("Zoom at the playhead", systemImage: "plus.magnifyingglass")
+            }
+            .disabled(!model.canAuthorZoom)
+            Text(model.canAuthorZoom
+                 ? "Centred on the pointer, then adjustable on the timeline like any other zoom."
+                 : "This recording has no observation header, so a time in it cannot be named.")
+                .font(Type.detail).foregroundStyle(.secondary)
+        }
         if let failure = model.failure {
             Section("Could not read the decisions") {
                 Label(failure, systemImage: "exclamationmark.triangle").font(Type.label)

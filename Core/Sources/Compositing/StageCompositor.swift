@@ -91,6 +91,26 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     public nonisolated(unsafe) static var cameraStyle: CameraOverlayStyle?
     /// The part of the recording used at all. Set on the same terms as the seams above.
     public nonisolated(unsafe) static var crop: CropRect = .whole
+
+    /// **The share of the output frame the recording occupies, so zoom depth is decided for
+    /// the frame being exported rather than for the recording's shape.**
+    ///
+    /// `StagePlanner` fits and never crops, so a variant that is not the recording's own
+    /// shape leaves bars and shrinks everything in the picture — a 16:9 recording covers
+    /// about 0.32 of a 9:16 frame, and a control legible in landscape comes out a little
+    /// over half the length in portrait. Until this seam existed, a portrait export
+    /// inherited landscape's depths and looked it.
+    ///
+    /// **A plain `Double` rather than the `AspectVariant` it comes from, because the module
+    /// graph says so**: `Compositing` depends on `Framing`, and `Variants` depends on
+    /// `Framing` too — this target cannot name `AspectVariant`. The app tier computes
+    /// `variant.coverage(ofSourceAspect:)` and publishes the number, the same way it already
+    /// publishes `crop`.
+    ///
+    /// **1 is the recording's own shape, and it is the right value to start at** — not a
+    /// "safe default" standing in for a measurement. A composition nobody has told about a
+    /// variant is being asked to render the recording as recorded.
+    public nonisolated(unsafe) static var outputCoverage: Double = 1
     /// Which of the composition's video tracks is the camera. **Set by whoever built the
     /// composition** — `CameraComposition.combine` returns it — because nothing about a track
     /// says what it is, and picking "the last video track" would break the moment a composition
@@ -664,7 +684,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // and cannot silently ignore it either.
         let derived = ZoomBlock.blocks(
             for: plan.framedClicks(with: framingOverrides,
-                                   pointerFallbackRevision: plan.fallbackRevision))
+                                   pointerFallbackRevision: plan.fallbackRevision),
+            coverage: unsafe outputCoverage)
         // `unsafe`: `zoomAdjustments` is a `nonisolated(unsafe)` static, read here under the
         // same "published before playback starts" guarantee as every other seam on this type.
         // **The presented cursor is what the camera follows inside a zoom** — the same

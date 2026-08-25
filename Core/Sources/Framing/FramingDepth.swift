@@ -15,6 +15,14 @@ import Geometry
 ///
 /// Depth is a pure function of SIZE, per the row. Nothing here reads the target's position,
 /// its role, or anything about the click.
+///
+/// **Which frame's size, though — and that was a defect until 2026-08-26.** The size that
+/// matters is the one a viewer sees, and a variant that does not match the recording's shape
+/// shrinks it: `StagePlanner` fits and never crops, so a 16:9 recording covers about 0.32 of
+/// a 9:16 frame and every control in it is 0.56 of the length it had in landscape. Depth was
+/// computed from the extent WITHIN the recording, so a portrait export inherited landscape's
+/// depths unchanged and its controls came out a little over half the size. `coverage` is now
+/// a parameter of `zoom(for:coverage:)` with no default — see that function for why.
 public enum FramingDepth {
     /// Never zoom out. A depth below 1 would show more than the recording contains.
     public static let minimumZoom: Double = 1.0
@@ -98,12 +106,48 @@ public enum FramingDepth {
         return "\(whole).\(padded)\(times)"
     }
 
-    public static func zoom(for target: FramingTarget) -> Double {
+    /// **The linear share of the output frame a card occupies, from the AREA share
+    /// `AspectVariant.coverage(ofSourceAspect:)` reports.** Coverage is an area ratio; a
+    /// control's EXTENT is a length, so the two are related by a square root and not by
+    /// coverage itself. A 16:9 recording covers 0.32 of a 9:16 frame, and a control in it is
+    /// 0.56 of the length it had in landscape — which is the number this returns.
+    ///
+    /// Clamped at 1: a card never occupies more of the frame than the frame has, and a
+    /// coverage above 1 would otherwise make a zoom SHALLOWER than the recording's own
+    /// shape gives. Non-finite or non-positive coverage falls back to 1 rather than
+    /// trapping, because it arrives from a picker and from a decoder.
+    public static func linearShare(ofCoverage coverage: Double) -> Double {
+        guard coverage.isFinite, coverage > 0 else { return 1 }
+        return min(1, coverage).squareRoot()
+    }
+
+    /// **How far to zoom, for a target seen through a variant that covers `coverage` of the
+    /// output frame.**
+    ///
+    /// `coverage` is `AspectVariant.coverage(ofSourceAspect:)` — 1 when the output is the
+    /// recording's own shape, about 0.32 for a 16:9 recording exported 9:16. **It has no
+    /// default, deliberately.** The defect this parameter exists to fix was a portrait
+    /// export silently inheriting landscape's depths, and a defaulted `1` would be that same
+    /// silence spelled differently: every caller should have to say which frame it is
+    /// deciding for.
+    ///
+    /// **Only the curve's input moves; the context clamp keeps the raw extent.** The curve
+    /// asks "how big does this look", which is a question about the output frame. The clamp
+    /// below asks "does the target still fit inside the viewport this depth implies", which
+    /// is a question inside the recording's own coordinates — a target is cropped or not
+    /// cropped regardless of what shape it is being exported to. Feeding the shrunken extent
+    /// to the clamp would let a portrait zoom crop the very control it is framing, and the
+    /// clamp binds MORE often in portrait precisely because the depths are deeper there.
+    public static func zoom(for target: FramingTarget, coverage: Double) -> Double {
         // The LARGER dimension binds: zooming a wide, short field as if it were 24 px tall
         // would crop its ends.
         let extent = max(target.frame.size.width, target.frame.size.height)
+        // What the control's extent is worth in the OUTPUT frame. In the recording's own
+        // shape this is the extent itself, so a landscape export is bit-for-bit what it was
+        // before this parameter existed (`aVariantMatchingTheRecordingChangesNoDepth`).
+        let apparent = extent * linearShare(ofCoverage: coverage)
 
-        let clamped = min(max(extent, deepestAtExtent), shallowestAtExtent)
+        let clamped = min(max(apparent, deepestAtExtent), shallowestAtExtent)
         let position = log(clamped / deepestAtExtent) / log(shallowestAtExtent / deepestAtExtent)
         var candidate = maximumZoom - (maximumZoom - minimumZoom) * position
 

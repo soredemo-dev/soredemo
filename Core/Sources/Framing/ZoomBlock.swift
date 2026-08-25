@@ -90,17 +90,23 @@ extension ZoomBlock {
     /// **Epochs never share a block.** Two boot sessions produce overlapping host times, so
     /// a block spanning both would be a duration computed across two clocks — the
     /// `1a98402` family. Grouped, not interleaved.
-    public static func blocks(for clicks: [FramedClick]) -> [ZoomBlock] {
+    /// `coverage` is the share of the OUTPUT frame the recording occupies — 1 in the
+    /// recording's own shape — and it reaches `FramingDepth.zoom(for:coverage:)` unchanged.
+    /// Carried here rather than applied by a consumer because `ZoomBlock.zoom` exists so
+    /// that a consumer does NOT recompute the depth and risk disagreeing; a per-variant
+    /// correction applied downstream would reintroduce exactly that second answer.
+    public static func blocks(for clicks: [FramedClick], coverage: Double) -> [ZoomBlock] {
         let byEpoch = Dictionary(grouping: clicks) { $0.instant.epoch }
         // Epoch groups are emitted in a stable order — `BootEpoch` is a UUID and carries no
         // ordering of its own, so sorting by its string form is what makes the RESULT
         // deterministic rather than merely each group's contents.
         return byEpoch.keys.sorted { $0.id.uuidString < $1.id.uuidString }.flatMap { epoch in
-            merge(byEpoch[epoch] ?? [], in: epoch)
+            merge(byEpoch[epoch] ?? [], in: epoch, coverage: coverage)
         }
     }
 
-    private static func merge(_ clicks: [FramedClick], in epoch: BootEpoch) -> [ZoomBlock] {
+    private static func merge(_ clicks: [FramedClick], in epoch: BootEpoch,
+                              coverage: Double) -> [ZoomBlock] {
         let sorted = clicks.sorted { $0.instant.hostTime.rawValue < $1.instant.hostTime.rawValue }
         var groups: [[FramedClick]] = []
         var openEnd: Int64 = .min
@@ -130,7 +136,7 @@ extension ZoomBlock {
                                    hostTime: Nanoseconds(max(0, first - preRoll.rawValue))),
                 end: HostInstant(epoch: epoch, hostTime: Nanoseconds(last + hold.rawValue)),
                 target: union,
-                zoom: FramingDepth.zoom(for: union))
+                zoom: FramingDepth.zoom(for: union, coverage: coverage))
         }
     }
 

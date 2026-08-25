@@ -47,6 +47,12 @@ private let revision = GeometryRevision(id: 1)
         return String(decoding: try ObservationLog.encode(sample), as: UTF8.self)
     }
 
+    private func pointerLine(atNanos nanos: Int64, x: Double, y: Double) throws -> String {
+        let sample = PointerSample(instant: HostInstant(epoch: epoch, hostTime: Nanoseconds(nanos)),
+                                   position: NormalizedPoint(x: x, y: y), revision: revision)
+        return String(decoding: try ObservationLog.encode(sample), as: UTF8.self)
+    }
+
     @Test func aLogWithNoChainsYieldsAnEmptyPlan() throws {
         let url = try writeLog([try pointerLine(atNanos: 1_000)])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -108,5 +114,37 @@ private let revision = GeometryRevision(id: 1)
         #expect(plan.fallbackRevision == revision)
         #expect(plan.framedClicks(with: [], pointerFallbackRevision: plan.fallbackRevision).count == 1,
                 "a log of nothing but refusals must still frame something")
+    }
+
+    // MARK: - placing a zoom where nobody clicked
+
+    /// **Sorted on the way out, and a package is why.** The writer appends in observation
+    /// order, but a recording paused and resumed has one log per segment and a caller that
+    /// concatenates them gets two ascending runs, not one — and picking "the last sample at
+    /// or before this instant" over that is a wrong answer rather than a slow one.
+    @Test func pointerSamplesComeBackInTimeOrderWhateverOrderTheyWereWrittenIn() throws {
+        let url = try writeLog([
+            try pointerLine(atNanos: 3_000, x: 0.3, y: 0.3),
+            try pointerLine(atNanos: 1_000, x: 0.1, y: 0.1),
+            try emptyChainLine(atNanos: 2_500),
+            try pointerLine(atNanos: 2_000, x: 0.2, y: 0.2),
+        ])
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let samples = try FramingPlanReader.pointerSamples(fromObservationLogAt: url)
+        #expect(samples.map(\.instant.hostTime.rawValue) == [1_000, 2_000, 3_000])
+        // The chain record between them is not a pointer sample and must not arrive as one.
+        #expect(samples.count == 3)
+        #expect(samples.map(\.position.x) == [0.1, 0.2, 0.3],
+                "the positions did not travel with the instants they were sorted by")
+    }
+
+    /// A log with no pointer at all is a recording made without the input tap, and an empty
+    /// array is the honest answer — the placement falls back to the middle of the frame,
+    /// which is a decision the app makes and not one this reader should make for it.
+    @Test func aLogWithNoPointerYieldsNoSamplesRatherThanFailing() throws {
+        let url = try writeLog([try emptyChainLine(atNanos: 1_000)])
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        #expect(try FramingPlanReader.pointerSamples(fromObservationLogAt: url).isEmpty)
     }
 }
