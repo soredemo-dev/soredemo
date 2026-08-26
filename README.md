@@ -112,7 +112,7 @@ soredemo-main/            ← this repo
 **Two roots, and the tests know the difference.** `Core/` is the package root; the repository
 root is its parent. A scan of the package's own sources reports paths like
 `Sources/Capture/CaptureSession.swift` — the file's name *within its package* — while a scan
-of the app reports `Soredemo/UI/…`. `pathRelativeToRepositoryRoot` strips whichever root owns
+of the app reports `Soredemo/Editor/…`. `pathRelativeToRepositoryRoot` strips whichever root owns
 the file, which is why the sixty-odd path literals in those scans did not have to move.
 
 **`Capture` and `Compositing` do not depend on each other and may not.** They were one target through

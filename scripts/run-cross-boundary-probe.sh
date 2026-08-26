@@ -110,39 +110,39 @@ xcrun swiftc \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \
-  Soredemo/UI/DesignTokens.swift \
-  Soredemo/UI/ContentView.swift \
-  Soredemo/UI/CameraSelfView.swift \
-  Soredemo/UI/SystemCursorShape.swift \
-  Soredemo/UI/CountdownPanel.swift \
-  Soredemo/UI/RecordingBar.swift \
-  Soredemo/UI/MenuBarRecorder.swift \
-  Soredemo/UI/SettingsWindow.swift \
-  Soredemo/UI/ProjectDocument.swift \
-  Soredemo/UI/PreviewView.swift \
-  Soredemo/UI/StageWindow.swift \
-  Soredemo/UI/ExportQueue.swift \
-  Soredemo/UI/CodecVerdicts.swift \
-  Soredemo/UI/RegionPickerOverlay.swift \
-  Soredemo/UI/FramingReview.swift \
-  Soredemo/UI/StageStylePicker.swift \
-  Soredemo/UI/WallpaperGallery.swift \
-  Soredemo/UI/TimelineEditor.swift \
-  Soredemo/UI/EditorToolbar.swift \
-  Soredemo/UI/Theme.swift \
-  Soredemo/UI/WindowConfigurator.swift \
-  Soredemo/UI/TargetPickerOverlay.swift \
-  Soredemo/UI/PermissionsWindow.swift \
-  Soredemo/UI/Filmstrip.swift \
-  Soredemo/UI/PreviewOverlay.swift \
-  Soredemo/UI/CanvasBar.swift \
-  Soredemo/UI/TransportBar.swift \
-  Soredemo/UI/ProjectStore.swift \
-  Soredemo/UI/CaptionsPanel.swift \
-  Soredemo/UI/TranscriptPanel.swift \
-  Soredemo/UI/TextPanel.swift \
-  Soredemo/UI/RedactionPanel.swift \
-  Soredemo/UI/AnnotationPanel.swift \
+  Soredemo/DesignSystem/DesignTokens.swift \
+  Soredemo/Editor/ContentView.swift \
+  Soredemo/Recording/CameraSelfView.swift \
+  Soredemo/DesignSystem/SystemCursorShape.swift \
+  Soredemo/Recording/CountdownPanel.swift \
+  Soredemo/Recording/RecordingBar.swift \
+  Soredemo/Recording/MenuBarRecorder.swift \
+  Soredemo/Settings/SettingsWindow.swift \
+  Soredemo/Project/ProjectDocument.swift \
+  Soredemo/Editor/PreviewView.swift \
+  Soredemo/Editor/StageWindow.swift \
+  Soredemo/Export/ExportQueue.swift \
+  Soredemo/Export/CodecVerdicts.swift \
+  Soredemo/Recording/RegionPickerOverlay.swift \
+  Soredemo/Editor/FramingReview.swift \
+  Soredemo/Inspector/StageStylePicker.swift \
+  Soredemo/Inspector/WallpaperGallery.swift \
+  Soredemo/Editor/TimelineEditor.swift \
+  Soredemo/Editor/EditorToolbar.swift \
+  Soredemo/DesignSystem/Theme.swift \
+  Soredemo/App/WindowConfigurator.swift \
+  Soredemo/Recording/TargetPickerOverlay.swift \
+  Soredemo/Settings/PermissionsWindow.swift \
+  Soredemo/Editor/Filmstrip.swift \
+  Soredemo/Editor/PreviewOverlay.swift \
+  Soredemo/Editor/CanvasBar.swift \
+  Soredemo/Editor/TransportBar.swift \
+  Soredemo/Project/ProjectStore.swift \
+  Soredemo/Inspector/CaptionsPanel.swift \
+  Soredemo/Inspector/TranscriptPanel.swift \
+  Soredemo/Inspector/TextPanel.swift \
+  Soredemo/Inspector/RedactionPanel.swift \
+  Soredemo/Inspector/AnnotationPanel.swift \
   scripts/cross-boundary-digest-probe.swift
 
 "$OUT/probe" "$@"

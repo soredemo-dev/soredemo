@@ -122,6 +122,84 @@ a reader of this file needs in order to place a new file; it is not a restatemen
 
 ---
 
+## D1b — Inside the app tier: groups by feature, not by type
+
+D1a says which TIER a file belongs to. This says where it goes once the answer is
+"the app". Added 2026-08-27, when the app tier was one flat folder of 33 files and
+10,727 lines called `Soredemo/UI/`.
+
+### The groups
+
+```
+Soredemo/
+  App/           9   scenes, windows, hotkeys, permissions, launch (WindowConfigurator lives here)
+  Recording/     6   the menu-bar surface and everything that appears while recording
+  Editor/       10   the editor window: stage, timeline, transport, preview, filmstrip
+  Inspector/     7   one file per inspector panel
+  Export/        2   the export queue and the codec advice it shows
+  Project/       2   the document and the on-disk store
+  Settings/      2   settings and permissions windows
+  DesignSystem/  3   theme, tokens, cursor shapes — the vocabulary the rest speaks
+  Resources/     3   assets
+```
+
+A file goes in the group whose FEATURE it belongs to, not the layer it occupies.
+`TimelineEditor.swift` is `Editor/`, not `Views/`; `ExportQueue.swift` is `Export/`,
+not `Models/`.
+
+### Why feature groups rather than Views / ViewModels / Models
+
+Three reasons, in the order they mattered:
+
+1. **Both readable Swift references do it this way.** `a native editor` has 26 groups —
+   `Editor`, `Inspector`, `Timeline`, `Toolbar`, `Preview`, `Settings`, `Home`,
+   `MediaPanel`, `Export`, `Transcription`, `Audio` — over 534 files. `a Swift recorder`
+   groups by layer (`Views` 32, `ViewModels` 6, `Models` 8) and its `Views` folder is
+   its largest, which is the failure mode this is avoiding, one size down.
+2. **It is the published consensus.** Apple's own guidance and the 2026 SwiftUI
+   write-ups both recommend grouping by feature over grouping by type, precisely
+   because a type-named folder becomes a dumping ground as a project grows.
+   Swift by Sundell names the anti-pattern directly: folders called `Utilities`,
+   `Helpers` or `Library`, and "types, files or folders that contain a lot of
+   different unrelated functionality."
+3. **The layering is already enforced elsewhere and does not need repeating here.**
+   `Core/` is twelve real modules with real import boundaries, and D6 rule 5 is
+   checked by the build. A `Views/` folder inside the app would be a second, weaker
+   statement of a separation the package already makes for real.
+
+### The rule for a new file
+
+Put it in the group whose feature it serves. If it serves none of them, that is the
+signal — either it belongs in `Core/` (D1a decides), or it is a new feature and gets
+a new group.
+
+**Sundell's rule of threes applies to the groups too:** once three files in a group
+are about one narrower thing, that is a subgroup. `Inspector/` is at seven panels and
+flat; it does not need one yet.
+
+**No `Utilities/`, `Helpers/`, `Common/` or `Shared/`.** They are the named
+anti-pattern: a folder whose membership rule is "nowhere else fits" has no membership
+rule, and everything ends up there. `DesignSystem/` looks similar and is not — its
+rule is "the visual vocabulary every other group speaks", which excludes things.
+
+### What is still wrong, stated rather than hidden
+
+Grouping moved the files; it did not shrink them. `Editor/StageWindow.swift` is 1,528
+lines and `Editor/TimelineEditor.swift` is 1,295 — together a quarter of the app tier.
+Both are candidates for splitting along the same feature lines, and neither has been
+split, because moving 33 files and splitting two are separate changes and doing them
+together would make each impossible to review. The Scout rule applies: whoever next
+works inside those files splits the part they touched.
+
+### A literal path is a second place a location is written down
+
+The move broke exactly one test, and the way it broke is the lesson. It read
+`appSourceDirectory.appending(path: "UI/ContentView.swift")` — a path spelled out in a
+string, which no rename or move updates and no compiler checks. It now searches
+`appSourceFiles()` for the file by name. **Prefer locating a file to spelling its
+path**; the scans that name a path in an assertion message are fine, because those are
+prose for a human reading a failure, not a lookup.
+
 ## D2 — macOS 26, Apple Silicon, Swift 6.4, no fallbacks
 
 `platforms: [.macOS(.v26)]`. Strict concurrency. No availability branches.
@@ -298,7 +376,7 @@ the check would make the producer-value rule a convention on the exact code it e
 A versioned `Codable` document with a schema number and an explicit upgrade path. Atomic writes.
 Relative paths only, so a project folder can move. Media lives beside the project file as sidecars.
 
-**I/O:** a hand-written `NSDocument` coordinator — `Soredemo/UI/ProjectDocument.swift`.
+**I/O:** a hand-written `NSDocument` coordinator — `Soredemo/Project/ProjectDocument.swift`.
 `read(from:ofType:)` receives the package **directory** and decodes `project.json` alone, so opening
 a document is independent of how much footage it holds; `writeSafely(to:ofType:for:)` is overridden
 to bypass `NSDocument`'s whole-package copy and let `ProjectPackageIO` make the manifest alone

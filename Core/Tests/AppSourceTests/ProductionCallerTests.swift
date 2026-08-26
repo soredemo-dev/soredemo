@@ -216,7 +216,12 @@ func projectPbxprojText() throws -> String {
     // A RAW text scan, not `codeLinesNaming` — the needle names string-literal content, which
     // the code view blanks by design. Checked by hand: this substring occurs exactly twice,
     // both in TemporaryFileMediaSink's real code, never in prose.
-    let url = appSourceDirectory.appending(path: "UI/ContentView.swift")
+    // **Located rather than spelled.** The path was `UI/ContentView.swift` and survived the
+    // move to feature groups only because a test caught it — a literal path is a second place
+    // the file's location is written down, and the two drift silently. Searching by NAME under
+    // the app's own tree is what a reader would do, and it cannot go stale from a move.
+    let url = try #require(appSourceFiles().first { $0.lastPathComponent == "ContentView.swift" },
+                           "ContentView.swift is not under the app's sources")
     let text = try String(contentsOf: url, encoding: .utf8)
     let sites = text.components(separatedBy: .newlines).filter { $0.contains(#".appending(path: "media""#) }
     #expect(!sites.isEmpty, """

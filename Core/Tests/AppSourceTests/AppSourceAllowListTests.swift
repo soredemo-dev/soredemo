@@ -612,7 +612,7 @@ func lineNumber(of location: String) -> Int {
 /// one fails the moment a second use appears, which is when somebody should have to come here
 /// and say what it is for. Same shape as the accessibility-grant reader above, and the same
 /// reason `ProbeCoverageTests` names its single exemption in one place.
-private let theOnlyPasteboardUse = "Soredemo/UI/ExportQueue.swift"
+private let theOnlyPasteboardUse = "Soredemo/Export/ExportQueue.swift"
 
 @Test func theClipboardIsWrittenInExactlyOnePlaceAndNeverRead() throws {
     let uses = try violationsEverywhere(banned: ["NSPasteboard"], in: try firstPartySourceFiles())
@@ -850,7 +850,7 @@ func firstPartySourceFiles() throws -> [URL] {
         // also matched `SubtitleFile.Format.fileExtension`'s own declaration in another module —
         // a different API with the same word, which this table has no opinion about. The comma
         // is what distinguishes `addMedia(data, fileExtension: x)` from `var fileExtension:`.
-        (", fileExtension:", "Soredemo/UI/ProjectDocument.swift", 0,
+        (", fileExtension:", "Soredemo/Project/ProjectDocument.swift", 0,
          "media can be added under a minted name"),
         // The needle is the PROPERTY ACCESS, not the bare word. `CALayer` has a `shadowRadius`
         // too, and `CameraSelfView` sets it on the self-view panel's layer — a different API in
@@ -958,9 +958,9 @@ func firstPartySourceFiles() throws -> [URL] {
 /// not fire.
 @Test func theSettingsSceneDoesNotUseANavigationSplitView() throws {
     let settingsFiles = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/SettingsWindow.swift" }
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Settings/SettingsWindow.swift" }
     try #require(settingsFiles.count == 1, """
-        Soredemo/UI/SettingsWindow.swift is not where it was. This scan names it, so a rename \
+        Soredemo/Settings/SettingsWindow.swift is not where it was. This scan names it, so a rename \
         has to move the name with it rather than turning the check off.
         """)
     let found = try codeLinesNaming("NavigationSplitView", in: settingsFiles)
@@ -1034,7 +1034,7 @@ func firstPartySourceFiles() throws -> [URL] {
     // The FILE and the COUNT, not the line: a line number moves with every edit above it, and a
     // check that has to be renumbered is a check people renumber without reading.
     let files = Set(deferred.map { $0.location.split(separator: ":").first.map(String.init) ?? "" })
-    #expect(deferred.count == 1 && files == ["Soredemo/UI/StageWindow.swift"], """
+    #expect(deferred.count == 1 && files == ["Soredemo/Editor/StageWindow.swift"], """
         \(deferred.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
         A control that commits on release leaves a paused preview showing the old picture while \
         its own number moves. If this one genuinely needs to — because it re-derives something \
@@ -1055,7 +1055,7 @@ func firstPartySourceFiles() throws -> [URL] {
 /// too big for me" is to add one.
 @Test func theEditorsOpeningSizeIsNotGuardedByAFlag() throws {
     let files = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/WindowConfigurator.swift" }
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/App/WindowConfigurator.swift" }
     try #require(files.count == 1, "WindowConfigurator.swift is not where this scan names it")
     let found = try codeLinesNaming("UserDefaults", in: files)
     #expect(found.isEmpty, """
@@ -1078,7 +1078,7 @@ func firstPartySourceFiles() throws -> [URL] {
 /// second row that built its own popup would have to declare one.
 @Test func theMenuBarPanelHasOneSettingsRowShape() throws {
     let panel = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/MenuBarRecorder.swift" }
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
     try #require(panel.count == 1, "MenuBarRecorder.swift is not where this scan names it")
     let popups = try codeLinesNaming("pickerStyle(.menu)", in: panel)
     #expect(popups.count == 1, """
@@ -1096,7 +1096,7 @@ func firstPartySourceFiles() throws -> [URL] {
 /// The rule is documented and easy to half-remember, so it is checked rather than recalled.
 @Test func theFullScreenPresentationOptionsAreALegalCombination() throws {
     let files = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/WindowConfigurator.swift" }
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/App/WindowConfigurator.swift" }
     try #require(files.count == 1, "WindowConfigurator.swift is not where this scan names it")
     let text = try String(contentsOf: files[0], encoding: .utf8)
     let code = SwiftSourceLexer.codeViewLines(of: text).joined(separator: "\n")

@@ -15,11 +15,11 @@ Six things, and it is worth being precise because the inventory is a diff agains
 | | Where | What it does |
 | --- | --- | --- |
 | Cut / trim | `Core/Sources/Timeline/EditTimeline.swift` | Integer-nanosecond output↔source mapping. `removing(sourceRange:)`, `trimmed(toSource:)`, `merged()` |
-| Timeline strip | `Soredemo/UI/TimelineEditor.swift` | Kept spans filled, cut spans hollow, playhead, drag-to-select, "Remove selection" / "Keep only selection" / "Undo all edits" |
+| Timeline strip | `Soredemo/Editor/TimelineEditor.swift` | Kept spans filled, cut spans hollow, playhead, drag-to-select, "Remove selection" / "Keep only selection" / "Undo all edits" |
 | Snapping | `Core/Sources/Timeline/SnapEngine.swift` | Sticky snapping, ported from a native editor |
-| Framing review | `Soredemo/UI/FramingReview.swift` | Per-click origin / review state / gate reason, and first-class overrides |
-| Look | `Soredemo/UI/StageStylePicker.swift` | Background preset, padding, corner radius, shadow |
-| Output | `Soredemo/UI/StageWindow.swift` | 16:9 / 9:16 / 1:1, MP4 export |
+| Framing review | `Soredemo/Editor/FramingReview.swift` | Per-click origin / review state / gate reason, and first-class overrides |
+| Look | `Soredemo/Inspector/StageStylePicker.swift` | Background preset, padding, corner radius, shadow |
+| Output | `Soredemo/Editor/StageWindow.swift` | 16:9 / 9:16 / 1:1, MP4 export |
 
 **What that means concretely.** One video track. No clips as objects — the timeline is a list of
 kept spans, not a list of things a person can select, move, or reorder. No undo beyond "undo

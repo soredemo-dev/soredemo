@@ -42,7 +42,7 @@
 //     scripts/run-cross-boundary-probe.sh
 //
 // It compiles the REAL `Soredemo/Support/Minting.swift`,
-// `Soredemo/Capture/CGGeometryBridge.swift` and `Soredemo/UI/ProjectDocument.swift`
+// `Soredemo/Capture/CGGeometryBridge.swift` and `Soredemo/Project/ProjectDocument.swift`
 // — not copies — against the package's debug build products, so it cannot drift
 // away from what the app ships.
 //
@@ -464,7 +464,7 @@ enum CrossBoundaryProbe {
 
     /// **The app tier's first executing check, and what it took to reach it.**
     ///
-    /// `RecordingCoordinator` lives in `Soredemo/UI/ContentView.swift`, in the Xcode app target,
+    /// `RecordingCoordinator` lives in `Soredemo/Editor/ContentView.swift`, in the Xcode app target,
     /// which has no test target — `ROADMAP.md`'s `project-format` row has said so since Phase 1.
     /// This probe was the app tier's only instrument and it could not reach the coordinator
     /// either: its own header used to record the recording surfaces as unreachable because they
@@ -4812,7 +4812,7 @@ enum CrossBoundaryProbe {
     /// `CVPixelBuffer` pair — real, but it never proves `CompositionBuilder`, `StageCompositor`, or
     /// the `AVVideoComposition`/`AVAssetWriter`/`AVAssetImageGenerator` wiring between them, which
     /// is everything `StageWindow.load()` actually does. **Nobody has eyes on the app window this
-    /// task adds** (`Soredemo/UI/StageWindow.swift`), so this is the only mechanical check of that
+    /// task adds** (`Soredemo/Editor/StageWindow.swift`), so this is the only mechanical check of that
     /// wiring: it builds a real source movie, builds the real composition through
     /// `CompositionBuilder.composition(for:outputWidth:outputHeight:frameDuration:)`, applies it to
     /// the source through the real `StageCompositor` (`AVVideoComposition.customVideoCompositorClass`,
