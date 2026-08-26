@@ -87,7 +87,8 @@ struct WindowConfigurator: NSViewRepresentable {
             window.collectionBehavior.remove(.fullScreenNone)
             window.collectionBehavior.insert(.fullScreenPrimary)
             window.collectionBehavior.insert(.moveToActiveSpace)
-            sizeGenerouslyOnFirstOpen(window)
+            openFullScreen(window)
+            keepUsablyLarge(window)
             watchFullScreen(window)
         }
 
@@ -129,7 +130,44 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-/// The editor's size when it opens.
+/// Grows `window` to at least `openingFraction` of `visible`, never shrinking it.
+///
+/// **Per axis, and only upward.** A window somebody widened but left short gains the height and
+/// keeps the width. `display: false` because every caller either follows this with a transition
+/// that repaints anyway or is running inside one.
+private func growToFloor(_ window: NSWindow, within visible: NSRect) {
+    let wanted = NSSize(width: visible.width * WindowConfigurator.openingFraction,
+                        height: visible.height * WindowConfigurator.openingFraction)
+    let width = max(window.frame.width, wanted.width)
+    let height = max(window.frame.height, wanted.height)
+    guard width > window.frame.width || height > window.frame.height else { return }
+    window.setFrame(NSRect(x: visible.minX + (visible.width - width) / 2,
+                           y: visible.minY + (visible.height - height) / 2,
+                           width: width, height: height),
+                    display: false, animate: false)
+}
+
+/// Applies the floor whenever the window leaves full screen.
+///
+/// **This is where the floor lives now, and the reason is what opening looked like when it lived
+/// at the other end.** AppKit restores the frame the window had before it went full screen, which
+/// is whatever was autosaved — and that has already once been `900 × 512`, smaller than this
+/// window's own minimum, written under a scene identity that no longer exists. Leaving full
+/// screen would drop the editor straight back into it.
+///
+/// Applied on every exit rather than once, for the size floor's own reason: a flag is spent by
+/// things that are not a person's decision.
+private func keepUsablyLarge(_ window: NSWindow) {
+    NotificationCenter.default.addObserver(
+        forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+                growToFloor(window, within: visible)
+            }
+        }
+}
+
+/// The editor goes full screen when it opens.
 ///
 /// **A floor on every open, not a courtesy once ever** — and the change is the user's call,
 /// made after three separate attempts to keep it as a one-shot each left the editor opening
@@ -161,7 +199,7 @@ struct WindowConfigurator: NSViewRepresentable {
 /// **A share of whatever screen it opens on, never a fixed size.** Every display is a different
 /// size and a number chosen on one machine is wrong on all the others. The fraction is of
 /// `visibleFrame`, which already excludes the menu bar and the Dock.
-private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
+private func openFullScreen(_ window: NSWindow) {
     // A floor regardless, so the editor cannot be dragged into a size where the timeline has no
     // length. AppKit enforces it from here on — and note it did NOT stop a smaller frame being
     // restored from an autosave written under a different scene identity.
@@ -190,38 +228,23 @@ private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
                                     height: visible.height * WindowConfigurator.openingFraction)
                 // **Grows, never shrinks.** Each axis on its own: a window someone widened but
                 // left short should gain the height and keep the width.
-                let width = max(window.frame.width, wanted.width)
-                let height = max(window.frame.height, wanted.height)
-                // **The frame is set BEFORE full screen, and that ordering is the whole point.**
-                // AppKit remembers the frame a window had when it entered full screen and
-                // restores exactly that on the way out. Setting 92% first is therefore how
-                // "full screen, and 92% when you leave it" is expressed — there is no separate
-                // API for the restore size, and setting the frame afterwards would be setting
-                // the frame of a window that is currently the size of the screen.
-                if width > window.frame.width || height > window.frame.height {
-                    window.setFrame(NSRect(x: visible.minX + (visible.width - width) / 2,
-                                           y: visible.minY + (visible.height - height) / 2,
-                                           width: width, height: height),
-                                    display: true, animate: false)
-                }
-
-                // **The editor opens full screen.** An editor is the whole task while it is
-                // open — a timeline, a canvas and an inspector — and every reference recorder's
-                // editor is the front window with nothing to consult beside it.
+                // **Straight to full screen, with nothing painted on the way.** The first
+                // version grew the window to 92% here and toggled afterwards, on the reasoning
+                // that AppKit restores the pre-full-screen frame — which is true, and which
+                // made opening the editor show the window at its old size, then grow, then
+                // transition. Three visible states where a person wants one. Reported as
+                // "感覺很卡", and it was.
                 //
-                // `animate: false` above for this reason: two animations in the same runloop
-                // turn (the grow, then the full-screen transition) fight, and the window
-                // arrives at the wrong size often enough to see. The grow is invisible anyway
-                // because full screen covers it immediately; what it is FOR is the restore.
-                //
-                // **What this costs, stated rather than discovered:** full screen puts the
-                // editor on its own Space, so dragging a file in from a Finder window, or
-                // watching it beside a browser, now takes a ⌃⌘F first. Every open, not just the
-                // first — the same "property, not event" reasoning as the size floor, and the
-                // same cost: a person who leaves full screen and closes the window is put back
-                // in it next time. `opensFullScreen` below is the one place to change that.
+                // So the floor moved to the other end: it is applied when full screen is LEFT,
+                // in `keepUsablyLarge` below. Opening is now one transition, and the property
+                // is unchanged — the editor still never sits smaller than `openingFraction`.
                 guard WindowConfigurator.opensFullScreen,
-                      !window.styleMask.contains(.fullScreen) else { return }
+                      !window.styleMask.contains(.fullScreen) else {
+                    // Not going full screen — either it is off or the window is already there —
+                    // so this is the only moment the floor gets applied on the way in.
+                    growToFloor(window, within: visible)
+                    return
+                }
                 window.toggleFullScreen(nil)
             }
         }
