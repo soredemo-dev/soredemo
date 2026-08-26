@@ -8,27 +8,75 @@ reviewable by the person who made the recording.
 
 Every recorder zooms. This one can say why it did not, and let you disagree.
 
-macOS 26 · Swift 6.4 · Apple Silicon · local by default · MIT
+`macOS 26` · `Swift 6.4` · `Apple Silicon` · **local by default** · **zero dependencies** · MIT
 
-> **Status: the free recorder is feature-complete; the derivation pipeline is not.** The app lives
-> in the menu bar. A person can record a display, a window they point at, or a rectangle they drag
-> out, with system audio, a chosen microphone and a camera whose self-view is on screen before the
-> countdown starts. The preview draws the pointer from real observations and zooms the camera to
-> the control under each click; they can see why every click was or was not zoomed to and disagree
-> with any of it.
->
-> They can then choose the stage's look and background, cut and split and reorder and re-speed the
-> clips, remove dead air, crop, place a camera overlay by dragging it, add titles and redactions,
-> transcribe on-device and burn word-timed captions, pick 16:9 / 9:16 / 1:1, and export — MP4 in
-> H.264 or HEVC, MOV in ProRes 422 or 4444, or a GIF — at a chosen resolution, frame rate and
-> quality, with the file size estimated first and several exports queued at once. Projects save and
-> reopen. The interface is English and Traditional Chinese.
-> `scripts/build-release.sh` signs and notarises a Developer ID copy.
->
-> **What is not built:** the derivation graph, titles and transitions, and the CLI. Framing
-> decisions are made per click but are not yet graph-provenanced, and a portrait export still
-> inherits landscape's zoom decisions — both named in `ROADMAP.md` on rows that stay `◐` rather than
-> being rounded up.
+---
+
+## What it does
+
+Point at a display, a window, or a rectangle you drag out. Record it with system audio, a
+microphone you chose, and a camera whose self-view is on screen *before* the countdown starts.
+Then the editor opens with the work already done: the zooms placed on the things you clicked, the
+pointer redrawn smoothly from real observations, and a review panel that will tell you why each
+click was or was not zoomed to — so you can disagree with any of it.
+
+**Seven things here that no other recorder we have read does:**
+
+| | |
+| --- | --- |
+| **The camera gets out of the way** | Screen Studio shrinks the camera during a zoom. This one moves it to a different corner when the cursor comes near, waits, and comes back |
+| **Music ducks under speech** | Add a music bed and it drops itself when you talk |
+| **Dead air removes itself** | Silences found and cut, with the padding you choose |
+| **The cursor tilts as it moves** | A small thing that makes a pointer read as a hand rather than a sprite |
+| **Window-follow capture** | Record a window and it stays framed when you move or resize it |
+| **Speed changes the audio too** | Easy to ship as video-only. This calls `scaleTimeRange` on both tracks |
+| **Nothing leaves the machine** | No account, no upload, no queue that can fail. See *the publishing rule* below |
+
+Plus the things you would expect and should not have to check for: automatic and manual zoom,
+cursor size and smoothing, idle-hide and loop-to-start, click effects, motion blur, backgrounds
+and padding and shadow and rounded corners, crop, cut / split / reorder / re-speed, on-device
+transcription with word-timed burned-in captions, subtitle files, redactions, titles, arrows and
+shapes, keyboard-shortcut badges, desktop icons hidden for the take, 16:9 / 9:16 / 1:1, and
+export to H.264, HEVC, ProRes 422, ProRes
+4444 or GIF — with the file size estimated before you commit and several exports queued at once.
+
+[`docs/research/competitors.md`](docs/research/competitors.md) is the full matrix against Screen
+Studio, a Rust recorder, Motionik, Borumi and ScreenKite, verified file by file rather than remembered — and
+it is equally clear about what is *missing*.
+
+---
+
+## Status, honestly
+
+**The free recorder is feature-complete; the derivation pipeline is not.**
+
+Recording, editing and export all work end to end, and projects save and reopen. The interface is
+English and Traditional Chinese. `scripts/build-release.sh` signs and notarises a Developer ID
+copy.
+
+**What is not built:** the derivation graph, titles and transitions, and the CLI. Framing decisions
+are made per click but are not yet graph-provenanced, and a portrait export still inherits
+landscape's zoom decisions — both named in [`ROADMAP.md`](ROADMAP.md) on rows that stay `◐` rather
+than being rounded up.
+
+That distinction is the point of this repository. A row is not complete while the behaviour its
+name claims is not observable in the product, and nothing here is marked done because it nearly is.
+
+---
+
+## Try it
+
+```bash
+git clone https://github.com/soredemo-dev/soredemo.git
+cd soredemo
+open Soredemo.xcodeproj      # ⌘R
+```
+
+Xcode 27 and macOS 26. [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) explains why the floor is where it
+is — and why you do **not** need a macOS 27 volume.
+
+Want to contribute? [`CONTRIBUTING.md`](CONTRIBUTING.md) has the four gates and the handful of
+standards that will otherwise surprise you in review.
 
 ---
 
