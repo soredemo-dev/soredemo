@@ -167,6 +167,43 @@ func probeNormalised(globalTopLeftX: Double, globalTopLeftY: Double,
 }
 
 
+/// The viewport for the display `revision` names, or `nil` when no attached display carries it.
+///
+/// **The mirror of `probeNormalised`, and it has to be.** § 8 asks whether the reverse
+/// conversion undoes the forward one exactly; the forward one routes to the display containing
+/// the point and normalises within it, so the reverse has to reach the SAME display's viewport.
+/// Handing it `probeDisplayViewport`'s union would use `placements[0]`'s scale for a point on a
+/// scale-2 display, and the round trip would be off by exactly that factor — the defect this
+/// section exists to catch, reintroduced by the fixture.
+func probeViewport(revision: GeometryRevision, in arrangement: DisplayArrangement) -> CaptureViewport? {
+    guard let placement = arrangement.placements
+        .first(where: { $0.geometry.revision == revision }) else { return nil }
+    return CaptureViewport(
+        geometry: placement.geometry,
+        globalOriginX: placement.globalOriginX, globalOriginY: placement.globalOriginY,
+        widthInPoints: Double(placement.geometry.pixelWidth) / placement.geometry.scale,
+        heightInPoints: Double(placement.geometry.pixelHeight) / placement.geometry.scale)
+}
+
+/// `AXObserver.normalizedFrame` composed with the same routing, for the element side.
+func probeNormalizedFrame(globalTopLeftX: Double, globalTopLeftY: Double,
+                          width: Double, height: Double,
+                          in arrangement: DisplayArrangement) -> NormalizedFrame? {
+    guard let viewport = arrangement.viewport(forDisplayContaining: globalTopLeftX,
+                                              globalTopLeftY: globalTopLeftY) else { return nil }
+    return Capture.AXObserver.normalizedFrame(globalTopLeftX: globalTopLeftX,
+                                              globalTopLeftY: globalTopLeftY,
+                                              width: width, height: height, in: viewport)
+}
+
+/// `AXObserver.globalPoint` composed with the routing that used to be inside it — the reverse
+/// of `probeNormalised`, step for step.
+func probeGlobalPoint(of position: NormalizedPoint, revision: GeometryRevision,
+                      in arrangement: DisplayArrangement) -> (x: Double, y: Double)? {
+    guard let viewport = probeViewport(revision: revision, in: arrangement) else { return nil }
+    return Capture.AXObserver.globalPoint(of: position, revision: revision, in: viewport)
+}
+
 /// Builds a `.window` source the way `CaptureSource.init(pickerFilter:availableDisplays:)`
 /// does, so these checks keep exercising the production shape after the source-rect repair
 /// (2026-08-20) replaced `bufferSize`-on-the-case with a `WindowCapture`. Takes the display
@@ -2264,9 +2301,30 @@ enum CrossBoundaryProbe {
     /// function instead of a habit at nine call sites.
     @MainActor
     static func axObserver(_ arrangement: DisplayArrangement, _ epoch: BootEpoch,
+                           on revision: GeometryRevision? = nil,
                            accessibilityGranted: Bool = true) -> Capture.AXObserver {
-        Capture.AXObserver(arrangement: arrangement, epoch: epoch,
-                   accessibilityIsGranted: { accessibilityGranted })
+        // **The viewport of the display the CLICK is on, which is a parameter.** Since
+        // 2026-08-26 this observer normalises against what is being recorded rather than
+        // against an arrangement — the AX half of the window-capture repair. A click carries
+        // the revision it was normalised against and `globalPoint` refuses one from another
+        // rectangle, so an observer on the wrong display answers `nil` for every chain.
+        //
+        // **Measured, not assumed:** a first version defaulted to `placements[0]` on the
+        // reasoning that the checks click on the main display. They do not — § 8.3 and § 8.4
+        // click at global (2400, 270), which is on the scale-2 retina display at x = 1920 —
+        // and twelve checks went red saying "a hit element must produce a record". The default
+        // is still the main display, for the checks that genuinely use it; the ones that click
+        // elsewhere name their revision.
+        let placement = revision.flatMap { wanted in
+            arrangement.placements.first { $0.geometry.revision == wanted }
+        } ?? arrangement.placements[0]
+        let viewport = CaptureViewport(
+            geometry: placement.geometry,
+            globalOriginX: placement.globalOriginX, globalOriginY: placement.globalOriginY,
+            widthInPoints: Double(placement.geometry.pixelWidth) / placement.geometry.scale,
+            heightInPoints: Double(placement.geometry.pixelHeight) / placement.geometry.scale)
+        return Capture.AXObserver(viewport: viewport, epoch: epoch,
+                                  accessibilityIsGranted: { accessibilityGranted })
     }
 
     /// A `ButtonEvent` at a global point, converted by the REAL forward path.
@@ -2300,8 +2358,8 @@ enum CrossBoundaryProbe {
             check(false, "a point on the scale: 2 display must route somewhere")
             return
         }
-        guard let back = Capture.AXObserver.globalPoint(of: forward.position, revision: forward.revision,
-                                                in: arrangement) else {
+        guard let back = probeGlobalPoint(of: forward.position, revision: forward.revision,
+                                       in: arrangement) else {
             check(false, "the reverse conversion must find the display its own revision names")
             return
         }
@@ -2331,7 +2389,7 @@ enum CrossBoundaryProbe {
 
         // A revision this arrangement does not contain: no point, not a
         // nearest-display guess.
-        check(Capture.AXObserver.globalPoint(of: forward.position,
+        check(probeGlobalPoint(of: forward.position,
                                      revision: GeometryRevision(id: 0xdead_beef_dead_beef),
                                      in: arrangement) == nil,
               "a click whose revision names no attached display yields NO point — a guessed one "
@@ -2355,7 +2413,7 @@ enum CrossBoundaryProbe {
         check((0...1).contains(onLeft.position.x) && (0...1).contains(onLeft.position.y),
               "and normalises into [0, 1] like any other display",
               actual: "(\(onLeft.position.x), \(onLeft.position.y))")
-        guard let backOnLeft = Capture.AXObserver.globalPoint(of: onLeft.position,
+        guard let backOnLeft = probeGlobalPoint(of: onLeft.position,
                                                       revision: onLeft.revision,
                                                       in: arrangement) else {
             check(false, "the reverse conversion must find the negative-origin display")
@@ -2450,7 +2508,7 @@ enum CrossBoundaryProbe {
               + "the bottom-edge anchor distinguishable from the top-edge one",
               actual: "\(axH)")
 
-        guard let frame = Capture.AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
+        guard let frame = probeNormalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
                                                      width: axW, height: axH,
                                                      in: arrangement) else {
             check(false, "an AX frame on the scale: 2 display must route somewhere")
@@ -2477,11 +2535,11 @@ enum CrossBoundaryProbe {
               + "zoom on the wrong control",
               actual: "correct \(frame.origin.y) vs top-anchored \(topEdgeAnchored)")
 
-        check(Capture.AXObserver.normalizedFrame(globalTopLeftX: 9000, globalTopLeftY: 270,
+        check(probeNormalizedFrame(globalTopLeftX: 9000, globalTopLeftY: 270,
                                          width: axW, height: axH, in: arrangement) == nil,
               "a frame whose origin is on no attached display normalises to nothing, rather than "
               + "against whichever display happens to be first")
-        check(Capture.AXObserver.normalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
+        check(probeNormalizedFrame(globalTopLeftX: axX, globalTopLeftY: axY,
                                          width: axW, height: -1, in: arrangement) == nil,
               "a negative dimension from a misbehaving application yields nil — PointRect.init "
               + "would trap on it, and a trap in a walk that reads another process's UI is not a "
@@ -2491,7 +2549,7 @@ enum CrossBoundaryProbe {
         // frame is reported in NEGATIVE global points, which is what a window
         // on that display actually looks like to the accessibility API.
         let (_, _, _, left) = fixtureArrangement()
-        guard let onLeft = Capture.AXObserver.normalizedFrame(globalTopLeftX: -1000, globalTopLeftY: -500,
+        guard let onLeft = probeNormalizedFrame(globalTopLeftX: -1000, globalTopLeftY: -500,
                                                       width: 200, height: 100,
                                                       in: arrangement) else {
             check(false, "an AX frame with a negative origin must route to the display it is on")
@@ -2519,7 +2577,7 @@ enum CrossBoundaryProbe {
 
         // ---- a complete walk, and the call arithmetic.
         let plainSource = FakeAXSource(nodes: fakeTree(ancestorDepth: 3, children: 2), hitIndex: 0)
-        guard let complete = axObserver(arrangement, epoch)
+        guard let complete = axObserver(arrangement, epoch, on: click.revision)
             .chain(at: click, source: plainSource) else {
             check(false, "a hit element must produce a record"); return
         }
@@ -2553,7 +2611,7 @@ enum CrossBoundaryProbe {
               actual: "depth \(complete.depthCap), budget \(complete.walkBudgetNanos) ns")
 
         // ---- the depth cap.
-        let deep = axObserver(arrangement, epoch)
+        let deep = axObserver(arrangement, epoch, on: click.revision)
         guard let capped = deep.chain(at: click,
                                       source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 0),
                                                            hitIndex: 0)) else {
@@ -2573,7 +2631,7 @@ enum CrossBoundaryProbe {
         // ---- the wall-clock budget. 5 ms a call against a 35 ms budget, so
         // the walk is cut off after a handful of levels while the depth cap is
         // nowhere near — the two bounds catch different things (F2-2 § 4).
-        let slow = axObserver(arrangement, epoch)
+        let slow = axObserver(arrangement, epoch, on: click.revision)
         guard let starved = slow.chain(at: click,
                                        source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 0),
                                                             hitIndex: 0,
@@ -2593,7 +2651,7 @@ enum CrossBoundaryProbe {
               actual: starved.ancestors.last?.role ?? "nil")
 
         // ---- the hit-test returning nothing.
-        let empty = axObserver(arrangement, epoch)
+        let empty = axObserver(arrangement, epoch, on: click.revision)
         guard let nothing = empty.chain(at: click,
                                         source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
                                                              hitIndex: nil)) else {
@@ -2616,7 +2674,7 @@ enum CrossBoundaryProbe {
         // different attribution. Both directions, because a counter that only
         // ever goes up on one of them is indistinguishable from one that is
         // wired to a constant.
-        let blind = axObserver(arrangement, epoch, accessibilityGranted: false)
+        let blind = axObserver(arrangement, epoch, on: click.revision, accessibilityGranted: false)
         _ = blind.chain(at: click, source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
                                                         hitIndex: nil))
         check(blind.diagnostics.hitTestsReturnedNothing == 1
@@ -2631,7 +2689,7 @@ enum CrossBoundaryProbe {
         // ---- empty children versus absent children, the distinction the
         // record type exists for.
         let leafSource = FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0), hitIndex: 0)
-        let leafObserver = axObserver(arrangement, epoch)
+        let leafObserver = axObserver(arrangement, epoch, on: click.revision)
         let leaf = leafObserver.chain(at: click, source: leafSource)
         check(leaf?.children == [],
               "an element read and found to have no children records the EMPTY list",
@@ -2640,7 +2698,7 @@ enum CrossBoundaryProbe {
         let silentSource = FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0,
                                                         childrenAttributeAnswers: false),
                                         hitIndex: 0)
-        let silentObserver = axObserver(arrangement, epoch)
+        let silentObserver = axObserver(arrangement, epoch, on: click.revision)
         let silent = silentObserver.chain(at: click, source: silentSource)
         check(silent?.children == nil,
               "an element whose children attribute did not answer records NO list — on disk that is "
@@ -2669,7 +2727,7 @@ enum CrossBoundaryProbe {
         // (2400, 270); the click's position is whatever the REAL forward
         // conversion produced. Nothing here is hand-normalised, so the check
         // spans both conversions and the walk.
-        let containing = axObserver(arrangement, epoch)
+        let containing = axObserver(arrangement, epoch, on: click.revision)
         guard let record = containing.chain(at: click,
                                             source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1,
                                                                                  children: 0),
@@ -2694,7 +2752,7 @@ enum CrossBoundaryProbe {
         // outside the returned element's frame is a COORDINATE fault, and it
         // must not be attributable to AX staleness. The element below sits at
         // global (2000, 250) 50×50 pt — nowhere near the click.
-        let elsewhere = axObserver(arrangement, epoch)
+        let elsewhere = axObserver(arrangement, epoch, on: click.revision)
         guard let wrong = elsewhere.chain(
             at: click,
             source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0,
@@ -2712,23 +2770,47 @@ enum CrossBoundaryProbe {
               + "equals the click count, rather than disappearing into a boolean",
               actual: elsewhere.diagnostics.accounting)
 
-        // ---- neither fault: the element's origin is on the OTHER display, so
-        // the two normalised frames are not comparable at all. A window
-        // straddling two displays does this legitimately.
-        let straddling = axObserver(arrangement, epoch)
+        // ---- neither fault: the element's origin is OUTSIDE the rectangle being recorded.
+        //
+        // **This check asserted the opposite until 2026-08-26, and the change is the point of
+        // that repair.** While this observer took a `DisplayArrangement` it described the whole
+        // desktop: an element at global (100, 100) routed to the main display and came back
+        // stamped with that display's revision, so the record carried a frame from one display
+        // and a click from another and `clickContainment` answered `.notComparable`.
+        //
+        // It takes a `CaptureViewport` now, and describes what is being RECORDED. An element
+        // whose origin is outside that rectangle is not in the recording, so there is no frame
+        // for it — `nil`, counted as `elementFramesUnroutable`, which is the diagnostic that
+        // exists to say exactly this. `.noFrameRecorded` is the honest containment answer, and
+        // `FramingGate` already refuses on it by name.
+        //
+        // **`.notComparable` is therefore no longer reachable from this observer**, and that is
+        // worth writing down rather than discovering. Every frame it produces now carries the
+        // viewport's revision, and a click carrying a different one is refused earlier still —
+        // `globalPoint` returns nil and no record is made at all. The case stays in
+        // `ClickContainment` because a DECODED record from an older project can carry one, and
+        // `FramingGate` must keep an answer for it.
+        let straddling = axObserver(arrangement, epoch, on: click.revision)
         let acrossDisplays = straddling.chain(
             at: click,
             source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0,
                                                  hitPosition: (x: 100, y: 100),
                                                  hitSize: (width: 4000, height: 400)),
                                  hitIndex: 0))
-        check(acrossDisplays?.hit?.frame?.revision == main.revision,
-              "fixture sanity: that element's frame normalised against the OTHER display",
-              actual: "\(acrossDisplays?.hit?.frame?.revision as GeometryRevision??)")
-        check(acrossDisplays?.clickContainment == .notComparable,
-              "two frames from two displays are not comparable, and the record says so rather than "
-              + "trapping the way NormalizedFrame.contains would — this is neither a coordinate "
-              + "fault nor a timing one",
+        check(acrossDisplays?.hit != nil && acrossDisplays?.hit?.frame == nil,
+              "an element whose origin is outside the recorded rectangle is DESCRIBED but has no "
+              + "frame — the element was found, and where it is has no meaning in this recording",
+              actual: "hit \(acrossDisplays?.hit != nil), frame "
+                    + "\(acrossDisplays?.hit?.frame as NormalizedFrame??)")
+        check(straddling.diagnostics.elementFramesUnroutable >= 1,
+              "and it is counted as UNROUTABLE rather than disappearing — the counter that reads "
+              + "as 'this element is not in shot', distinct from the one for an element that "
+              + "misreported its own dimensions",
+              actual: straddling.diagnostics.accounting)
+        check(acrossDisplays?.clickContainment == .noFrameRecorded,
+              "so the containment answer is 'no frame', not 'not comparable' — since the repair "
+              + "every frame this observer produces carries the viewport's own revision, so two "
+              + "incomparable revisions can no longer reach a record made here",
               actual: "\(acrossDisplays?.clickContainment as ClickContainment??)")
 
         // ---- the timing half of the same split, from the same record.
@@ -2747,10 +2829,12 @@ enum CrossBoundaryProbe {
     static func theAXDiagnosticsBalance() {
         let (arrangement, _, _, _) = fixtureArrangement()
         let epoch = Minting.bootEpoch()
-        let observer = axObserver(arrangement, epoch)
+        // The click first: the observer is built on the display the click is on, so it cannot
+        // be constructed before there is a click to ask.
         guard let click = clickEvent(atGlobalX: 2400, y: 270, in: arrangement, epoch: epoch) else {
             check(false, "the fixture click must convert"); return
         }
+        let observer = axObserver(arrangement, epoch, on: click.revision)
 
         // Four clicks over three different outcomes, plus one that cannot be
         // converted back to a global point at all.
@@ -2822,7 +2906,7 @@ enum CrossBoundaryProbe {
         }
 
         // ---- elementsDescribed: exact, not merely non-zero.
-        let counted = axObserver(arrangement, epoch)
+        let counted = axObserver(arrangement, epoch, on: click.revision)
         _ = counted.chain(at: click,
                           source: FakeAXSource(nodes: fakeTree(ancestorDepth: 3, children: 2),
                                                hitIndex: 0))
@@ -2844,7 +2928,7 @@ enum CrossBoundaryProbe {
             return nodes
         }
 
-        let unavailable = axObserver(arrangement, epoch)
+        let unavailable = axObserver(arrangement, epoch, on: click.revision)
         let noFrame = unavailable.chain(at: click,
                                         source: FakeAXSource(nodes: hitElementFrame(position: nil,
                                                                                     size: (100, 100)),
@@ -2862,7 +2946,7 @@ enum CrossBoundaryProbe {
               + "element at the corner of the main display",
               actual: "\(noFrame?.clickContainment as ClickContainment??)")
 
-        let unusable = axObserver(arrangement, epoch)
+        let unusable = axObserver(arrangement, epoch, on: click.revision)
         _ = unusable.chain(at: click,
                            source: FakeAXSource(nodes: hitElementFrame(position: (2380, 250),
                                                                        size: (.nan, 100)),
@@ -2876,7 +2960,7 @@ enum CrossBoundaryProbe {
                     + "unusable \(unusable.diagnostics.elementFramesUnusable), "
                     + "unroutable \(unusable.diagnostics.elementFramesUnroutable)")
 
-        let unroutable = axObserver(arrangement, epoch)
+        let unroutable = axObserver(arrangement, epoch, on: click.revision)
         _ = unroutable.chain(at: click,
                              source: FakeAXSource(nodes: hitElementFrame(position: (9000, 9000),
                                                                          size: (100, 100)),
@@ -2892,7 +2976,7 @@ enum CrossBoundaryProbe {
 
         // ---- a click stamped in another boot session.
         let otherEpoch = BootEpoch(id: UUID(uuidString: "44444444-4444-4444-8444-444444444444")!)
-        let crossEpoch = axObserver(arrangement, epoch)
+        let crossEpoch = axObserver(arrangement, epoch, on: click.revision)
         let fromAnotherBoot = ButtonEvent(
             instant: HostInstant(epoch: otherEpoch, hostTime: Minting.hostNow()),
             position: click.position, revision: click.revision, button: .left, phase: .down)
@@ -2921,7 +3005,7 @@ enum CrossBoundaryProbe {
         //
         // 40 ancestors walked at full speed, then children at 5 ms a call:
         // children live from index 41 upward in `fakeTree`'s layout.
-        let both = axObserver(arrangement, epoch)
+        let both = axObserver(arrangement, epoch, on: click.revision)
         let cappedThenStarved = both.chain(
             at: click,
             source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 4),
@@ -2955,7 +3039,7 @@ enum CrossBoundaryProbe {
 
         // ---- the other nil-shaped absence: the budget gone before the
         // children attribute was even asked for.
-        let starvedBeforeChildren = axObserver(arrangement, epoch)
+        let starvedBeforeChildren = axObserver(arrangement, epoch, on: click.revision)
         let noAsk = starvedBeforeChildren.chain(
             at: click,
             source: FakeAXSource(nodes: fakeTree(ancestorDepth: 40, children: 4),
@@ -3301,7 +3385,7 @@ enum CrossBoundaryProbe {
         // if the launching shell happens to hold Accessibility, the probe
         // would walk a third-party application's tree, against the no-grant
         // premise this file states everywhere else.
-        let observer = axObserver(arrangement, epoch)
+        let observer = axObserver(arrangement, epoch, on: click.revision)
         let records = Collected()
         // 3 ms a call, so the AX half of the wait is measurably distinct from
         // the queue half rather than lost in scheduling noise.
@@ -3333,7 +3417,7 @@ enum CrossBoundaryProbe {
 
         // ---- the caller's thread is not where the AX work happened.
         let threads = MutableFlag(false)
-        let onMain = axObserver(arrangement, epoch)
+        let onMain = axObserver(arrangement, epoch, on: click.revision)
         onMain.enqueue(click,
                        source: FakeAXSource(nodes: fakeTree(ancestorDepth: 1, children: 0),
                                             hitIndex: 0)) { _ in
@@ -3351,7 +3435,7 @@ enum CrossBoundaryProbe {
         // One hung target: every AX call blocks for 40 ms, so the queue cannot
         // keep up with a burst of clicks and the ones past the cap must be
         // refused rather than accumulated.
-        let hung = axObserver(arrangement, epoch)
+        let hung = axObserver(arrangement, epoch, on: click.revision)
         let hungRecords = Collected()
         let burst = Capture.AXObserver.maximumQueuedClicks + 6
         // **The fixture the comment above always claimed and the code did not

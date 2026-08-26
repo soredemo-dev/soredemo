@@ -203,7 +203,7 @@ private func threeLevelTree(hit: Int?) -> FakeAXSource {
 /// `Capture.AXObserver`, qualified: ApplicationServices exports a C type of the same
 /// name, and an unqualified reference is ambiguous wherever both are in scope.
 private func observer() -> Capture.AXObserver {
-    Capture.AXObserver(arrangement: arrangement(), epoch: epoch,
+    Capture.AXObserver(viewport: viewport(), epoch: epoch,
                         accessibilityIsGranted: { true })
 }
 
@@ -442,4 +442,93 @@ private func observer() -> Capture.AXObserver {
     }
     #expect(observed.wasMain == false,
             "the reader ran on the main thread — the poll queue deliberately is not it")
+}
+
+// MARK: - the window viewport, which is what the two observers used to disagree about
+
+/// A window 400×300 points at (500, 200) on the fixture display — the shape a window capture
+/// records, and the one where a display-normalised hit-test lands somewhere else entirely.
+private func windowViewport() -> CaptureViewport {
+    CaptureViewport(geometry: DisplayGeometry(displayUUID: displayUUID,
+                                              pixelWidth: 2000, pixelHeight: 1000, scale: 2.0),
+                    globalOriginX: 500, globalOriginY: 200,
+                    widthInPoints: 400, heightInPoints: 300)
+}
+
+/// **The defect, stated as the round trip it broke.** A click is normalised by
+/// `InputObserver` against the viewport; `AXObserver` denormalises it to decide where to
+/// hit-test. The two are inverses, and while the AX side used a `DisplayArrangement` they were
+/// inverses only when the viewport WAS the display — so window and region recordings
+/// hit-tested a point the click was never at, every chain was refused, and neither mode ever
+/// zoomed.
+@Test func aClickNormalisedAgainstAWindowHitTestsWhereItActuallyHappened() throws {
+    let window = windowViewport()
+    // The middle of the window is global (700, 350): 500 + 400/2, 200 + 300/2.
+    let normalised = try #require(window.normalise(globalTopLeftX: 700, globalTopLeftY: 350))
+    let back = try #require(Capture.AXObserver.globalPoint(of: normalised,
+                                                           revision: window.revision,
+                                                           in: window))
+    #expect(abs(back.x - 700) < 0.001 && abs(back.y - 350) < 0.001, """
+        the round trip landed at (\(back.x), \(back.y)) rather than (700, 350) — the hit-test \
+        would ask accessibility about a place the click was not
+        """)
+}
+
+/// The same click against the whole display denormalises somewhere else entirely, which is
+/// what the old code did for a window recording. Kept as the negative control: without it the
+/// test above passes on any pair of functions that agree with each other, including two that
+/// are both wrong.
+@Test func theSameClickAgainstTheWholeDisplayLandsSomewhereElse() throws {
+    let window = windowViewport()
+    let normalised = try #require(window.normalise(globalTopLeftX: 700, globalTopLeftY: 350))
+    let asDisplay = try #require(Capture.AXObserver.globalPoint(of: normalised,
+                                                                revision: viewport().revision,
+                                                                in: viewport()))
+    let apart = ((asDisplay.x - 700) * (asDisplay.x - 700)
+                 + (asDisplay.y - 350) * (asDisplay.y - 350)).squareRoot()
+    #expect(apart > 100, """
+        denormalising a window-normalised click against the whole display landed \(apart) points \
+        from the truth; if that is small this fixture cannot show the defect
+        """)
+}
+
+/// An element's frame and the click that found it come back in the SAME space, so
+/// `AXChainRecord.clickContainment` can compare them at all. This is the half `FramingGate`
+/// reads, and the half that made every window-mode chain answer `doesNotContainTheClick`.
+@Test func anElementAroundTheClickContainsItInTheWindowsOwnSpace() throws {
+    let window = windowViewport()
+    let click = try #require(window.normalise(globalTopLeftX: 700, globalTopLeftY: 350))
+    // A 100×80 point element whose top-left is 20 points up and left of the click.
+    let frame = try #require(Capture.AXObserver.normalizedFrame(
+        globalTopLeftX: 680, globalTopLeftY: 330, width: 100, height: 80, in: window))
+    #expect(frame.minX <= click.x && click.x <= frame.maxX)
+    #expect(frame.minY <= click.y && click.y <= frame.maxY)
+    #expect(frame.revision == window.revision)
+}
+
+/// A viewport that has moved on — the window was followed onto another display — refuses an
+/// old click rather than hit-testing it against the new rectangle. `nil` is counted as
+/// `clicksWithNoGlobalPoint`; a guess would be a real-looking element from a place the click
+/// was never on.
+@Test func aClickFromAnotherRevisionHasNoGlobalPoint() {
+    let other = CaptureViewport(
+        geometry: DisplayGeometry(displayUUID: UUID(uuidString: "F1E2D3C4-B5A6-4978-8A9B-0C1D2E3F4A5B")!,
+                                  pixelWidth: 1000, pixelHeight: 800, scale: 1.0),
+        globalOriginX: 0, globalOriginY: 0, widthInPoints: 1000, heightInPoints: 800)
+    let point = Capture.AXObserver.globalPoint(of: NormalizedPoint(x: 0.5, y: 0.5),
+                                                revision: revision(), in: other)
+    #expect(point == nil)
+}
+
+/// The window observer follows its window, like the input observer does. A hit-test aimed at
+/// where the window WAS is the same defect one move later.
+@Test func theObserverFollowsItsWindow() {
+    let ax = Capture.AXObserver(viewport: windowViewport(), epoch: epoch,
+                                accessibilityIsGranted: { true })
+    #expect(ax.currentViewport.globalOriginX == 500)
+    let moved = CaptureViewport(geometry: windowViewport().geometry,
+                                globalOriginX: 900, globalOriginY: 400,
+                                widthInPoints: 400, heightInPoints: 300)
+    ax.updateViewport(moved)
+    #expect(ax.currentViewport.globalOriginX == 900)
 }

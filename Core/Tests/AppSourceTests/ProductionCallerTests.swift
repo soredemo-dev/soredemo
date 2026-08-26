@@ -146,15 +146,24 @@ func projectPbxprojText() throws -> String {
         // the observer normalises against WHAT IS RECORDED. The needle follows the
         // constructor rather than the constructor being kept still for the needle.
         "InputObserver(viewport:", in: files)
-        .filter { !$0.location.hasPrefix("Soredemo/Capture/InputObserver.swift:") }
+        // **`Sources/`, not `Soredemo/`.** These two paths moved into the package in Phase
+        // 3A-3 and the prefixes did not follow, so both filters had been matching nothing
+        // since. Harmless as it happens — neither file contains its own constructor's call
+        // spelling — but a filter that excludes nothing is a filter nobody can rely on.
+        .filter { !$0.location.hasPrefix("Sources/Capture/InputObserver.swift:") }
     #expect(!inputObserverConstructions.isEmpty, """
         InputObserver(arrangement: is never constructed outside InputObserver.swift — the brief's \
         own table measured zero executed production call sites for this type, and this scan finding \
         none means that is still true.
         """)
 
-    let axObserverConstructions = try codeLinesNaming("AXObserver(arrangement:", in: files)
-        .filter { !$0.location.hasPrefix("Soredemo/Capture/AXObserver.swift:") }
+    // `viewport:`, not `arrangement:`, since the AX half of the window-capture repair
+    // (2026-08-26). `InputObserver` moved to a viewport in 2026-08-20 and this observer was
+    // left behind, so the two normalised against different rectangles in every mode except
+    // whole-display capture — see `AXObserver.viewport`. The needle follows the constructor,
+    // the way its sibling above already does.
+    let axObserverConstructions = try codeLinesNaming("AXObserver(viewport:", in: files)
+        .filter { !$0.location.hasPrefix("Sources/Capture/AXObserver.swift:") }
     #expect(!axObserverConstructions.isEmpty, """
         AXObserver(arrangement: is never constructed outside AXObserver.swift.
         """)

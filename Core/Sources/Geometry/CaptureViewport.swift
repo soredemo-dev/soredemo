@@ -58,17 +58,90 @@ public struct CaptureViewport: Sendable, Hashable {
         guard localX >= 0, localX < widthInPoints,
               localY >= 0, localY < heightInPoints else { return nil }
 
-        // `NormalizationContext` divides by the geometry's PIXEL extent, so the local
-        // point is converted to this viewport's own pixels first — a window's pixel
-        // extent is its point extent times the display's scale, not the display's.
-        let context = NormalizationContext(
-            geometry: DisplayGeometry(displayUUID: geometry.displayUUID,
-                                      pixelWidth: max(1, Int((widthInPoints * geometry.scale).rounded())),
-                                      pixelHeight: max(1, Int((heightInPoints * geometry.scale).rounded())),
-                                      scale: geometry.scale))
         return context.normalize(topLeftX: localX * geometry.scale,
                                  topLeftY: localY * geometry.scale)
     }
+
+    /// A global, top-left-origin RECTANGLE in points, normalised the same way — or `nil` when
+    /// its origin is outside the recording.
+    ///
+    /// **`NormalizationContext`'s rect overload, not its point one applied twice.** That
+    /// overload anchors the Y flip on the rect's BOTTOM edge; the point formula on a rect is
+    /// off by the rect's own height, which is `AXObserver.normalizedFrame`'s own note and the
+    /// reason this is a second method rather than two calls at the call site.
+    ///
+    /// The rectangle may extend past the viewport — an AX element larger than the window being
+    /// recorded is normal — so only the ORIGIN is required to be inside, and a width past 1 is
+    /// recorded rather than clamped. `FramingGate.partlyOffscreen` is what decides whether that
+    /// disqualifies it, and it can only decide if the number reaches it.
+    public func normalise(globalTopLeftX: Double, globalTopLeftY: Double,
+                          width: Double, height: Double) -> NormalizedFrame? {
+        guard widthInPoints > 0, heightInPoints > 0,
+              globalTopLeftX.isFinite, globalTopLeftY.isFinite,
+              width.isFinite, height.isFinite, width >= 0, height >= 0 else { return nil }
+        let localX = globalTopLeftX - globalOriginX
+        let localY = globalTopLeftY - globalOriginY
+        guard localX >= 0, localX < widthInPoints,
+              localY >= 0, localY < heightInPoints else { return nil }
+        // Scalars rather than a `PointRect` round trip: the rect type is a unit marker for
+        // values that cross a boundary, and nothing crosses one here — this is the same
+        // points→pixels multiply `normalise` does one line at a time.
+        let raw = context.normalize(topLeftX: localX * geometry.scale,
+                                    topLeftY: localY * geometry.scale,
+                                    width: width * geometry.scale,
+                                    height: height * geometry.scale)
+        // **Restamped with THIS viewport's revision.** `NormalizationContext` stamps the
+        // geometry it was built from, and the one below is synthetic — it exists to carry the
+        // viewport's pixel extent, and `GeometryRevision` is derived from a geometry's
+        // contents, so it hashes to something no click will ever carry. A frame stamped with it
+        // makes `NormalizedFrame.contains` trap on a revision mismatch against the click it is
+        // meant to be compared with, which is how this was found.
+        return NormalizedFrame(origin: raw.origin, size: raw.size, revision: revision)
+    }
+
+    /// The global, top-left point in POINTS that `position` came from.
+    ///
+    /// **The exact inverse of `normalise(globalTopLeftX:globalTopLeftY:)`, step for step**, and
+    /// it must stay that way. This is the claim `AXObserver`'s own version of it used to make
+    /// about `InputObserver` and stopped being true the moment the pointer moved to a viewport
+    /// and the hit-test did not: a window-mode click was denormalised against the whole
+    /// display, so accessibility was asked what is at the middle of the SCREEN when the click
+    /// was at the middle of the WINDOW.
+    ///
+    /// Not failable: every normalised point has a global point, including one outside 0…1.
+    /// Whether it lands on anything is the hit-test's answer to give.
+    public func globalPoint(of position: NormalizedPoint) -> (x: Double, y: Double) {
+        // Step 4 in reverse — normalised, bottom-left → viewport-local pixels.
+        //
+        // Stamped with the SYNTHETIC geometry's revision, not the viewport's: `denormalize`
+        // preconditions that the frame it is given was normalised against the geometry it
+        // holds, and this frame is a vehicle for a point rather than a value anybody keeps.
+        // Handing it the viewport's revision trapped.
+        let carrier = pixelGeometry
+        let pixels = NormalizationContext(geometry: carrier).denormalize(
+            NormalizedFrame(origin: position, size: NormalizedSize(width: 0, height: 0),
+                            revision: carrier.revision))
+        // Step 3 in reverse — viewport-local pixels → viewport-local points.
+        // Step 2 in reverse — viewport-local points → global points.
+        return (globalOriginX + Double(pixels.x) / geometry.scale,
+                globalOriginY + Double(pixels.y) / geometry.scale)
+    }
+
+    /// **The viewport's own pixel extent as a `DisplayGeometry`.**
+    ///
+    /// `NormalizationContext` divides by the geometry's PIXEL extent, so a point local to this
+    /// viewport has to be measured against the viewport's pixels — a window's pixel extent is
+    /// its point extent times the display's scale, not the display's. Computed once here rather
+    /// than rebuilt in each conversion, so the three cannot disagree about what they divide by.
+    private var pixelGeometry: DisplayGeometry {
+        DisplayGeometry(
+            displayUUID: geometry.displayUUID,
+            pixelWidth: max(1, Int((widthInPoints * geometry.scale).rounded())),
+            pixelHeight: max(1, Int((heightInPoints * geometry.scale).rounded())),
+            scale: geometry.scale)
+    }
+
+    private var context: NormalizationContext { NormalizationContext(geometry: pixelGeometry) }
 }
 
 extension DisplayArrangement {

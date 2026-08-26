@@ -576,7 +576,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         let input = InputObserver(viewport: viewport, epoch: epoch,
                                   pointerShapeReader: pointerShapeReader,
                                   pointerHotspotReader: pointerHotspotReader)
-        let ax = AXObserver(arrangement: arrangement, epoch: epoch)
+        // **The same viewport the input observer gets, not the arrangement.** A hit-test aimed
+        // at one rectangle while the click that prompted it was normalised against another is
+        // the defect that made window and region recordings never zoom — see `AXObserver`'s
+        // `viewport` for the full account. Passing the same value here is what makes the two
+        // agree by construction rather than by both happening to be handed a display.
+        let ax = AXObserver(viewport: viewport, epoch: epoch)
 
         var blindness: [ObservationBlindness] = []
         if !accessibilityGranted { blindness.append(.accessibilityUnavailable) }
@@ -918,14 +923,24 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // The crop is in the display's own point space; the follower reports global points.
         let updatedRect = PointRect(x: frame.x - displayBounds.x, y: frame.y - displayBounds.y,
                                     width: frame.width, height: frame.height)
-        let observer = lock.withLock { () -> InputObserver? in
+        // Both observers and the followed source read in ONE critical section: they are all
+        // guarded by `lock`, and taking it twice would let a second `windowMoved` land between
+        // the two reads and leave the pair pointed at different rectangles — which is the exact
+        // disagreement this pairing exists to prevent.
+        let (input, ax, followed) = lock.withLock {
+            () -> (InputObserver?, AXObserver?, CaptureSource?) in
             let updated = unsafe (self.followedSource ?? self.source).following(sourceRect: updatedRect)
             unsafe self.followedSource = updated
             unsafe _diagnostics.windowFrameChanges += 1
-            return unsafe self.inputObserver
+            return unsafe (self.inputObserver, self.axObserver, updated)
         }
-        if let observer, let followed = lock.withLock({ unsafe self.followedSource }) {
-            observer.updateViewport(followed.viewport(scale: scale, displayUUID: displayUUID))
+        if let followed {
+            let updated = followed.viewport(scale: scale, displayUUID: displayUUID)
+            input?.updateViewport(updated)
+            // **Both observers, from one place.** The AX observer normalises against the same
+            // rectangle, so a window followed for one and not the other would put the two back
+            // into the disagreement they were just taken out of.
+            ax?.updateViewport(updated)
         }
         // **The stream is NOT reconfigured, and that is the point of the window filter.**
         // ScreenCaptureKit follows the window itself: a move changes nothing about what it

@@ -172,7 +172,26 @@ final class AXObserver: @unchecked Sendable {
     // MARK: - Stored state
 
     private let lock = NSLock()
-    private let arrangement: DisplayArrangement
+    /// **The rectangle actually being recorded, not the display.**
+    ///
+    /// This was a `DisplayArrangement` and that was the defect: `InputObserver` moved to a
+    /// `CaptureViewport` when a window recording was found to be normalising every pointer
+    /// sample against the wrong rectangle, and this observer was not moved with it. The two
+    /// then disagreed in every mode except whole-display capture, where the viewport IS the
+    /// display and the numbers coincide.
+    ///
+    /// What that cost, in a window or region recording: the click arrives normalised against
+    /// the WINDOW, `globalPoint` denormalised it against the DISPLAY, and accessibility was
+    /// asked what sits at the middle of the screen for a click at the middle of the window.
+    /// Whatever came back was then normalised against the display too, so
+    /// `AXChainRecord.clickContainment` compared two rectangles from two coordinate systems
+    /// and answered `doesNotContainTheClick`. `FramingGate` refused every chain, and the
+    /// symptom a person saw was that window and region recordings never zoom.
+    ///
+    /// A `var` for `InputObserver`'s reason: a followed window moves and resizes mid-recording,
+    /// and a viewport frozen at `start()` would put every later hit-test at a stale place.
+    private nonisolated(unsafe) var viewport: CaptureViewport
+    private let viewportLock = NSLock()
     private let epoch: BootEpoch
     private let accessibilityIsGranted: @Sendable () -> Bool
     /// The queue every AX call runs on — never the caller's, never the main one.
@@ -199,16 +218,31 @@ final class AXObserver: @unchecked Sendable {
     /// `accessibilityIsGranted` is injected because the real predicate,
     /// `AXIsProcessTrusted()`, answers about *this executable's* TCC grant and
     /// so cannot answer about the right subject outside the app bundle.
-    public init(arrangement: DisplayArrangement, epoch: BootEpoch,
+    public init(viewport: CaptureViewport, epoch: BootEpoch,
                 accessibilityIsGranted: @escaping @Sendable () -> Bool = {
                     CapturePermissions.status(of: .accessibility) == .granted
                 }) {
-        self.arrangement = arrangement
+        unsafe self.viewport = viewport
         self.epoch = epoch
         self.accessibilityIsGranted = accessibilityIsGranted
     }
 
     // MARK: - The conversion, in reverse
+
+    /// Points the observer at a new recorded rectangle — a window that moved or was resized
+    /// mid-recording. `CaptureSession` calls this and `InputObserver.updateViewport` from the
+    /// same place, with the same value, because a hit-test aimed at one rectangle while the
+    /// click that prompted it was normalised against another is the defect this whole type
+    /// moved to a viewport to fix.
+    public nonisolated func updateViewport(_ updated: CaptureViewport) {
+        viewportLock.withLock { unsafe viewport = updated }
+    }
+
+    /// The rectangle currently being hit-tested against. For tests and for the window
+    /// tracker's own check that its update landed.
+    public nonisolated var currentViewport: CaptureViewport {
+        viewportLock.withLock { unsafe viewport }
+    }
 
     /// The global, top-left, **points** coordinate a `NormalizedPoint` came
     /// from — the input `AXUIElementCopyElementAtPosition` needs.
@@ -225,20 +259,16 @@ final class AXObserver: @unchecked Sendable {
     /// is spelled for `denormalize`, which has no point overload.
     public nonisolated static func globalPoint(of position: NormalizedPoint,
                                                revision: GeometryRevision,
-                                               in arrangement: DisplayArrangement)
+                                               in viewport: CaptureViewport)
         -> (x: Double, y: Double)? {
-        guard let placement = arrangement.placements
-            .first(where: { $0.geometry.revision == revision }) else { return nil }
-        let geometry = placement.geometry
-        // Step 4 in reverse — normalised, bottom-left → display-local pixels.
-        let pixels = NormalizationContext(geometry: geometry).denormalize(
-            NormalizedFrame(origin: position,
-                            size: NormalizedSize(width: 0, height: 0),
-                            revision: revision))
-        // Step 3 in reverse — display-local pixels → display-local points.
-        let points = geometry.points(from: pixels)
-        // Step 2 in reverse — display-local points → global points.
-        return (placement.globalOriginX + points.x, placement.globalOriginY + points.y)
+        // **The revision still has to match**, and it is the one check that survives the move
+        // from an arrangement to a viewport. A click carries the revision it was normalised
+        // against; if the window has since been followed onto another display the viewport's
+        // revision has moved on, and denormalising an old point against a new rectangle would
+        // hit-test a place the click was never at. `nil` is the honest answer, counted as
+        // `clicksWithNoGlobalPoint`.
+        guard viewport.revision == revision else { return nil }
+        return viewport.globalPoint(of: position)
     }
 
     /// An AX element's frame — global, top-left, **points**, as
@@ -255,19 +285,9 @@ final class AXObserver: @unchecked Sendable {
     /// `PointRect.init` would trap on.
     public nonisolated static func normalizedFrame(globalTopLeftX: Double, globalTopLeftY: Double,
                                                    width: Double, height: Double,
-                                                   in arrangement: DisplayArrangement) -> NormalizedFrame? {
-        guard globalTopLeftX.isFinite, globalTopLeftY.isFinite,
-              width.isFinite, height.isFinite, width >= 0, height >= 0 else { return nil }
-        // Step 2 — global points → display-local points.
-        guard let hit = arrangement.route(globalTopLeftX: globalTopLeftX,
-                                          globalTopLeftY: globalTopLeftY) else { return nil }
-        // Step 3 — display-local points → display-local native pixels.
-        let pixels = hit.geometry.pixels(
-            from: PointRect(x: hit.localX, y: hit.localY, width: width, height: height))
-        // Step 4 — display-local pixels → normalised, bottom-left, 0…1.
-        return NormalizationContext(geometry: hit.geometry)
-            .normalize(topLeftX: pixels.x, topLeftY: pixels.y,
-                       width: pixels.width, height: pixels.height)
+                                                   in viewport: CaptureViewport) -> NormalizedFrame? {
+        viewport.normalise(globalTopLeftX: globalTopLeftX, globalTopLeftY: globalTopLeftY,
+                           width: width, height: height)
     }
 
     // MARK: - The walk
@@ -355,7 +375,7 @@ final class AXObserver: @unchecked Sendable {
         let epoch = click.instant.epoch
 
         guard let point = Self.globalPoint(of: click.position, revision: click.revision,
-                                           in: arrangement) else {
+                                           in: currentViewport) else {
             tally.clicksWithNoGlobalPoint = 1
             merge(tally)
             return nil
@@ -498,10 +518,11 @@ final class AXObserver: @unchecked Sendable {
         if let position, let size {
             frame = Self.normalizedFrame(globalTopLeftX: position.x, globalTopLeftY: position.y,
                                          width: size.width, height: size.height,
-                                         in: arrangement)
+                                         in: currentViewport)
             if frame == nil {
-                // Two different findings: the element misreported itself, or it
-                // is somewhere this arrangement does not cover.
+                // Two different findings: the element misreported itself, or its origin is
+                // outside the rectangle being recorded — an element on another part of the
+                // screen than the window in shot, which is normal and not a fault.
                 let usable = position.x.isFinite && position.y.isFinite
                     && size.width.isFinite && size.height.isFinite
                     && size.width >= 0 && size.height >= 0
