@@ -131,6 +131,11 @@ public struct CursorStyle: Hashable, Codable, Sendable {
     /// drift added first": the drift is there now, and the knob is the picker rather than a
     /// number, for the same reason Screen Studio's is.
     public let movement: PointerPath.Tuning.Movement
+    /// **Glide the cursor back to where it started over the video's last moments**, so a
+    /// looping embed does not jump at the seam — see `CursorLoop`, which owns the arithmetic.
+    /// Off by default like the two options above it, and for the same reason: a saved project
+    /// must look as it did.
+    public let loopsToStart: Bool
 
     public enum ClickEffect: String, Hashable, Codable, Sendable, CaseIterable {
         /// An expanding ring — what this app has always drawn.
@@ -162,7 +167,8 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                 clickSize: Double, red: Double, green: Double, blue: Double,
                 hidesWhenIdle: Bool = false, idleDelay: Double = CursorStyle.defaultIdleDelay,
                 tilt: Double = 0,
-                movement: PointerPath.Tuning.Movement = .standard) {
+                movement: PointerPath.Tuning.Movement = .standard,
+                loopsToStart: Bool = false) {
         // Clamped rather than trapped: every one of these arrives from a slider AND from a
         // decoder, which is rule 8's case.
         self.scale = min(max(scale, 0.5), 3)
@@ -176,6 +182,7 @@ public struct CursorStyle: Hashable, Codable, Sendable {
         self.idleDelay = idleDelay.isFinite ? min(max(idleDelay, 0.5), 10) : CursorStyle.defaultIdleDelay
         self.tilt = tilt.isFinite ? min(max(tilt, 0), 1) : 0
         self.movement = movement
+        self.loopsToStart = loopsToStart
     }
 
     public init(from decoder: any Decoder) throws {
@@ -200,12 +207,14 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                   // nobody could set carries no authored value to protect, and it would
                   // have made `CursorStyle.default` un-decodable from an empty object.
                   movement: try container.decodeIfPresent(PointerPath.Tuning.Movement.self,
-                                                          forKey: .movement) ?? .standard)
+                                                          forKey: .movement) ?? .standard,
+                  loopsToStart: try container.decodeIfPresent(Bool.self, forKey: .loopsToStart)
+                      ?? false)
     }
 
     private enum CodingKeys: String, CodingKey {
         case scale, clickEffect, clickOpacity, clickSize, red, green, blue
-        case hidesWhenIdle, idleDelay, tilt, movement
+        case hidesWhenIdle, idleDelay, tilt, movement, loopsToStart
     }
 
     /// The same style with one field changed — the shape `TextOverlayStyle.changing` uses, for
@@ -216,7 +225,8 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                          red: Double? = nil, green: Double? = nil,
                          blue: Double? = nil, hidesWhenIdle: Bool? = nil,
                          idleDelay: Double? = nil, tilt: Double? = nil,
-                         movement: PointerPath.Tuning.Movement? = nil) -> CursorStyle {
+                         movement: PointerPath.Tuning.Movement? = nil,
+                         loopsToStart: Bool? = nil) -> CursorStyle {
         CursorStyle(scale: scale ?? self.scale,
                     clickEffect: clickEffect ?? self.clickEffect,
                     clickOpacity: clickOpacity ?? self.clickOpacity,
@@ -225,7 +235,8 @@ public struct CursorStyle: Hashable, Codable, Sendable {
                     hidesWhenIdle: hidesWhenIdle ?? self.hidesWhenIdle,
                     idleDelay: idleDelay ?? self.idleDelay,
                     tilt: tilt ?? self.tilt,
-                    movement: movement ?? self.movement)
+                    movement: movement ?? self.movement,
+                    loopsToStart: loopsToStart ?? self.loopsToStart)
     }
 }
 

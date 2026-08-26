@@ -257,6 +257,13 @@ struct StageStylePicker: View {
         slider("Tilt while moving", value: model.cursor.tilt, range: 0...1) {
             model.setCursor(model.cursor.changing(tilt: $0)); onChange()
         }
+        // **For a video that plays on repeat.** The cursor glides back to where it began over
+        // the last moments, so the seam between the last frame and the first is not a jump —
+        // Screen Studio's "Loop cursor position". Off by default, like the two above it.
+        Toggle("Return cursor to start for looping", isOn: Binding(
+            get: { model.cursor.loopsToStart },
+            set: { model.setCursor(model.cursor.changing(loopsToStart: $0)); onChange() }))
+            .font(Type.detail)
         // **The badges the recorder has always captured for.** Only approved shortcuts are
         // ever recorded — never typing — so there is nothing here a person did not mean to show.
         Toggle("Show keyboard shortcuts", isOn: Binding(

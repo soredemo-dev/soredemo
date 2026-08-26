@@ -378,8 +378,29 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // design, 2026-08-19 — presentation and diagnosis are different outputs), and the
         // presented reading is the spring-followed cursor with the lerp as its floor.
         switch pointer.presentedPosition(at: instant) {
-        case .drawn(let point, let shape, let hotspot):
+        case .drawn(let drawnPoint, let shape, let hotspot):
             let style = unsafe Self.cursorStyle
+            // **The loop, before the placement and after the spring.** It reads the presented
+            // position — the spring-followed one — so the glide home starts from where the
+            // cursor is DRAWN, not from a recorded sample the spring has not reached yet;
+            // starting from the latter would make the cursor jump backward onto its own trail
+            // at the instant the glide began. Progress is in OUTPUT time, because the last
+            // frame that has to match the first is the export's last frame, not the take's.
+            let point: NormalizedPoint
+            if style.loopsToStart,
+               let duration = outputDuration(),
+               let progress = CursorLoop.progress(
+                   outputOffset: outputOffset, outputDuration: duration,
+                   // The same fallback the smear uses, for the same reason: a compositor
+                   // asked before AVFoundation has handed it a render context has no better
+                   // number, and 1/60 is what every export in this app asks for.
+                   frameDuration: (unsafe renderContext)?.videoComposition.frameDuration.seconds
+                       ?? 1.0 / 60),
+               let home = openingPosition(pointer: pointer, anchor: anchor) {
+                point = CursorLoop.position(actual: drawnPoint, home: home, progress: progress)
+            } else {
+                point = drawnPoint
+            }
             // The idle fade and the lean are presentation, computed here beside the
             // position they belong to. The lean reads the spring's own velocity in OUTPUT
             // pixels — the content's scale under the camera included — so a flick across a
@@ -402,6 +423,34 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }
+    }
+
+    /// Where the drawn cursor is at the video's FIRST frame — the place the loop glides back
+    /// to. `nil` when the pointer has no answer there (blind, suppressed, or not yet observed),
+    /// in which case there is nothing to loop to and the cursor is left alone; inventing a
+    /// home for it would send it gliding to a point nobody recorded.
+    private func openingPosition(pointer: PointerTrack, anchor: EpochAnchor) -> NormalizedPoint? {
+        guard let sourceStart = Self.sourceOffset(forOutput: Nanoseconds(0)) else { return nil }
+        guard case .drawn(let point, _, _) = pointer.presentedPosition(
+            at: anchor.instant(atOffset: sourceStart)) else { return nil }
+        return point
+    }
+
+    /// How long the OUTPUT is — the edit's length when there is an edit, otherwise the end of
+    /// the composition's last instruction. `nil` when neither is known, which is what a
+    /// compositor asked before AVFoundation has handed it a render context answers.
+    ///
+    /// **Not a third static seam.** The handoff warns that `outputCoverage` and `zoomIntensity`
+    /// lie unless the app publishes them; a duration static would be a third thing to forget.
+    /// Both sources here are already in the compositor's hands — `editTimeline` is checked
+    /// against every export, and the render context arrives before the first frame.
+    private func outputDuration() -> Nanoseconds? {
+        if let timeline = unsafe Self.editTimeline { return timeline.outputDuration }
+        guard let context = unsafe renderContext,
+              let last = context.videoComposition.instructions.last else { return nil }
+        let end = CMTimeRangeGetEnd(last.timeRange)
+        guard end.isValid, end.isNumeric else { return nil }
+        return Nanoseconds(rationalSeconds: end.value, timescale: end.timescale)
     }
 
     /// The shortcut badge on screen at an OUTPUT time, or `nil`. Converted to source time and
