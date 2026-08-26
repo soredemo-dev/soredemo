@@ -984,3 +984,31 @@ func firstPartySourceFiles() throws -> [URL] {
         and the container check above is about a view no scene presents.
         """)
 }
+
+/// **No app source reaches a private selector by name.**
+///
+/// `NSApp.sendAction(Selector("showSettingsWindow:"))` was how a `Settings` scene was opened
+/// before `SettingsLink` existed. Since macOS 14 it logs `Please use SettingsLink for opening
+/// the Settings scene` at runtime — observed on this app on 2026-08-26 — and is documented as
+/// no longer working. It is easy to reach for again, because it is what every older answer
+/// says and because it compiles and fails silently.
+///
+/// **The needle is the CALL SHAPE, not the selector name, and the first version of this check
+/// was vacuous because of it.** `violations` reads `SwiftSourceLexer`'s code view, which blanks
+/// string-literal CONTENT so that a banned name mentioned in prose does not fire — and a
+/// selector name lives inside a string literal by nature, so `"showSettingsWindow:"` was
+/// invisible to the scan. Measured: putting the old call back left the check green. Banning
+/// `sendAction(Selector(` bans the shape instead, which is code and which the code view sees.
+///
+/// Nothing legitimate in this app builds a selector at runtime; the one that did is gone. A
+/// future case that genuinely needs one names itself here.
+@Test func noAppSourceReachesAPrivateSelectorByName() throws {
+    let found = try violations(banned: ["sendAction(Selector("], permittedPaths: [],
+                               in: try appSourceFiles())
+    #expect(found.isEmpty, """
+        \(found.joined(separator: "\n"))
+        A selector built from a string is a private API reached by name: it compiles, it is not \
+        checked, and it fails silently when the framework moves. The Settings case is the one \
+        this app had — use `SettingsLink`, which is what the runtime warning names.
+        """)
+}

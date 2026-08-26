@@ -503,9 +503,7 @@ struct MenuBarRecorderPanel: View {
                 PanelLink(title: "Quit", shortcut: "\u{2318}Q") { NSApp.terminate(nil) }
             }
             HStack(spacing: Space.regular) {
-                PanelLink(title: "Settings\u{2026}", shortcut: "\u{2318},") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                }
+                SettingsPanelLink()
                 Spacer()
                 PanelLink(title: "Permissions\u{2026}", shortcut: "") {
                     EditorWindowPresence.willOpen()
@@ -585,11 +583,28 @@ private struct PanelLevel: View {
     }
 }
 
+/// What every footer row looks like. Split out of `PanelLink` so the Settings row can wear the
+/// same face while being a different KIND of control — see `SettingsPanelLink`.
+private struct PanelLinkLabel: View {
+    /// `LocalizedStringKey` for `TargetCard`'s reason — this is why Open Project and Quit
+    /// stayed English while everything written as a literal in this file was translated.
+    let title: LocalizedStringKey
+    let shortcut: String
+    let isHovering: Bool
+
+    var body: some View {
+        HStack(spacing: Space.tight + 2) {
+            Text(title)
+            Text(shortcut).foregroundStyle(.tertiary)
+        }
+        .foregroundStyle(isHovering ? .primary : .secondary)
+        .contentShape(Rectangle())
+    }
+}
+
 /// A footer action: a label and its shortcut, with no button chrome — the row is a list of
 /// places to go, and three bordered buttons would compete with the red one above them.
 private struct PanelLink: View {
-    /// `LocalizedStringKey` for `TargetCard`'s reason — this is why Open Project and Quit
-    /// stayed English while everything written as a literal in this file was translated.
     let title: LocalizedStringKey
     let shortcut: String
     let action: () -> Void
@@ -597,14 +612,45 @@ private struct PanelLink: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Space.tight + 2) {
-                Text(title)
-                Text(shortcut).foregroundStyle(.tertiary)
-            }
-            .foregroundStyle(isHovering ? .primary : .secondary)
-            .contentShape(Rectangle())
+            PanelLinkLabel(title: title, shortcut: shortcut, isHovering: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+    }
+}
+
+/// The Settings row, which is a `SettingsLink` rather than a `PanelLink` with an action.
+///
+/// **`NSApp.sendAction(Selector("showSettingsWindow:"))` is what this was, and it is broken.**
+/// That private selector has been the way to open a `Settings` scene since it existed; since
+/// macOS 14 it logs `Please use SettingsLink for opening the Settings scene` at runtime —
+/// observed on this app — and is documented as no longer working. `SettingsLink` is the
+/// sanctioned replacement and is what `../opensource/…/a Swift recorder` uses for the same job.
+///
+/// **The app is activated alongside it, and that is not decoration.** `SettingsLink` assumes
+/// the app is already active with a window-management context; a `MenuBarExtra` app has neither
+/// — it runs as an accessory, has no Dock icon, and is not "active" in the sense AppKit means.
+/// The `simultaneousGesture` runs on press, before the link's own action, so the assumption
+/// holds by the time it fires. The Permissions row beside this one has always activated for the
+/// same reason, written out because it opens its window itself.
+///
+/// **Not verified at runtime by the author of this change**, and worth saying: the menu bar
+/// panel is not reachable by accessibility — measured 2026-08-25, which is why an earlier bug
+/// in this file had to be found by reading — so there is no way to drive this row from a test
+/// or a probe. What is established is that the old call was logging a warning that says it does
+/// not work, and that this is the API Apple names in that warning.
+private struct SettingsPanelLink: View {
+    @State private var isHovering = false
+
+    var body: some View {
+        SettingsLink {
+            PanelLinkLabel(title: "Settings\u{2026}", shortcut: "\u{2318},",
+                           isHovering: isHovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .simultaneousGesture(TapGesture().onEnded {
+            NSApp.activate(ignoringOtherApps: true)
+        })
     }
 }
