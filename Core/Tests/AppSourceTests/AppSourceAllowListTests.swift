@@ -1122,3 +1122,30 @@ func firstPartySourceFiles() throws -> [URL] {
         nothing restores the presentation options when the window leaves full screen.
         """)
 }
+
+/// **The editor scene asks for no default size, because that disables full screen.**
+///
+/// Measured 2026-08-26 in an isolated SwiftUI `Window` scene, reading the window's own
+/// `collectionBehavior` back after it settled: with `.defaultSize` it is
+/// `primary | fullScreenNone | moveToActiveSpace`; without it, `primary | fullScreenPrimary |
+/// moveToActiveSpace`. `.fullScreenNone` is what makes the green button show a "+" and a tiling
+/// menu with no Full Screen row, and it is re-asserted after every SwiftUI update, so removing
+/// it from a view does not stick.
+///
+/// The editor's opening size comes from `sizeGenerouslyOnFirstOpen` instead, which gives it most
+/// of the screen without telling AppKit the window is fixed.
+///
+/// Scoped to the app's scene file and read through the code view, so this paragraph does not
+/// fire. The Permissions window is a different case — it is genuinely fixed-size and has no
+/// business going full screen — and it does not use this modifier either.
+@Test func noWindowSceneAsksForADefaultSize() throws {
+    let files = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/App/SoredemoApp.swift" }
+    try #require(files.count == 1, "SoredemoApp.swift is not where this scan names it")
+    let found = try codeLinesNaming(".defaultSize(", in: files)
+    #expect(found.isEmpty, """
+        \(found.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        A scene with a default size is marked `.fullScreenNone` by SwiftUI, and the green button \
+        then offers tiling and nothing else. Size the window from `WindowConfigurator` instead.
+        """)
+}

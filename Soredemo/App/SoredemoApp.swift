@@ -141,10 +141,29 @@ struct SoredemoApp: App {
                     }
                 }
         }
-        .defaultSize(width: 1400, height: 900)
-        // `.contentMinSize`: the floor comes from the content, the ceiling from nothing — so the
-        // editor resizes freely and can go full screen. `.contentSize`, which the Permissions
-        // window uses, would pin it to its content and make it neither.
+        // **No `.defaultSize`, and that is not an omission — it disables full screen.**
+        //
+        // Measured 2026-08-26 in an isolated SwiftUI `Window` scene, reading the window's own
+        // `collectionBehavior` back at 0.2 s, 1 s and 3 s:
+        //
+        //     with    .defaultSize  →  66050 = primary | fullScreenNone | moveToActiveSpace
+        //     without .defaultSize  →  65666 = primary | fullScreenPrimary | moveToActiveSpace
+        //
+        // `.fullScreenNone` is the flag that says a window cannot go full screen, and it is
+        // what makes the green button show a "+" with a tiling menu and no Full Screen row.
+        // SwiftUI sets it for a scene with a default size and re-asserts it after every update,
+        // so `WindowConfigurator`'s `insert(.fullScreenPrimary)` never survived — the two are
+        // mutually exclusive and `fullScreenNone` wins. Removing it first does not help either;
+        // SwiftUI puts it back.
+        //
+        // This modifier was added on the same day, to stop the editor opening at its content's
+        // size. It was the wrong tool for that: `sizeGenerouslyOnFirstOpen` already gives the
+        // editor most of the screen on first open, and unlike a default size it does not tell
+        // AppKit the window is fixed.
+        //
+        // `.contentMinSize` stays and is measured innocent — the run with it and without a
+        // default size is the one that reports `fullScreenPrimary=true`. The floor comes from
+        // the content, the ceiling from nothing, so the editor resizes freely.
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)

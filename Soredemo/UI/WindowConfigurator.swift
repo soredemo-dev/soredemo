@@ -69,6 +69,14 @@ struct WindowConfigurator: NSViewRepresentable {
             // Full screen additionally requires a resizable window; a green button on a fixed
             // window offers nothing whatever the collection behaviour says.
             window.styleMask.insert(.resizable)
+            // **`.fullScreenNone` removed first, because the two are mutually exclusive and it
+            // wins.** SwiftUI sets it on a `Window` scene that has a default size, and an
+            // `insert` beside it does nothing — measured, `collectionBehavior` read back as
+            // `primary | fullScreenNone | moveToActiveSpace` with the insert in place. The
+            // scene no longer asks for a default size, which is what actually fixed it (see
+            // `SoredemoApp`); this removal is the second lock on the same door, for a scene
+            // modifier added later that sets it again.
+            window.collectionBehavior.remove(.fullScreenNone)
             window.collectionBehavior.insert(.fullScreenPrimary)
             window.collectionBehavior.insert(.moveToActiveSpace)
             sizeGenerouslyOnFirstOpen(window)
