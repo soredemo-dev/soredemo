@@ -937,3 +937,50 @@ func firstPartySourceFiles() throws -> [URL] {
         same commit.
         """)
 }
+
+// MARK: - the Settings scene, which renders empty in the wrong container
+
+/// **A `Settings` scene's content must not be a `NavigationSplitView`.**
+///
+/// Measured on the shipping app 2026-08-26: the settings window opened and showed nothing at
+/// all. A `Settings` scene sizes itself to its content's ideal size; a `NavigationSplitView`
+/// has none of its own, and a `.frame` applied outside it does not give it one. Apple's own
+/// guidance is that a settings scene groups its panes with a `TabView`, which is also what
+/// supplies the centred tab bar every Mac settings window has.
+///
+/// **Scoped to the file the scene names**, not to the whole app: `StageWindow` is a
+/// `NavigationSplitView` and should be — it is a document window, which is the case the
+/// container is for. What is banned is that container in THIS window.
+///
+/// A scan rather than a test, because the app target has no test target and a SwiftUI `body`
+/// is not something the cross-boundary probe can run. It reads the code view, so a
+/// `NavigationSplitView` named in a comment — including the one in the paragraph above — does
+/// not fire.
+@Test func theSettingsSceneDoesNotUseANavigationSplitView() throws {
+    let settingsFiles = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/SettingsWindow.swift" }
+    try #require(settingsFiles.count == 1, """
+        Soredemo/UI/SettingsWindow.swift is not where it was. This scan names it, so a rename \
+        has to move the name with it rather than turning the check off.
+        """)
+    let found = try codeLinesNaming("NavigationSplitView", in: settingsFiles)
+    #expect(found.isEmpty, """
+        SettingsWindow builds a NavigationSplitView at \(found.map(\.location).joined(separator: ", ")).
+        A `Settings` scene sizes to its content's ideal size and a split view has none, so the \
+        window renders empty — measured on the shipping app. Group the panes with a `TabView`, \
+        which is what the scene styles as a settings window.
+        """)
+}
+
+/// And the scene really is built from `Settings`, so the check above is about the window a
+/// person opens with ⌘, rather than about a file nothing presents.
+@Test func theSettingsSceneIsAStandardSettingsScene() throws {
+    let appFiles = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/App/SoredemoApp.swift" }
+    try #require(appFiles.count == 1)
+    let scenes = try codeLinesNaming("SettingsWindow(", in: appFiles)
+    #expect(!scenes.isEmpty, """
+        SoredemoApp never constructs SettingsWindow, so ⌘, opens something else — or nothing — \
+        and the container check above is about a view no scene presents.
+        """)
+}

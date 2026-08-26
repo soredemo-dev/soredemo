@@ -37,26 +37,43 @@ struct SettingsWindow: View {
         }
     }
 
+    /// **A `TabView`, and it was a `NavigationSplitView` that showed nothing.**
+    ///
+    /// The split view was the wrong container twice over. Apple's own guidance is that a
+    /// `Settings` scene groups its panes with a `TabView` — the scene then supplies the centred
+    /// tab bar every Mac settings window has, which is why this now looks like one instead of
+    /// like a document window that happens to hold preferences. And a `NavigationSplitView`
+    /// inside a `Settings` scene renders empty: the scene sizes itself to its content's ideal
+    /// size, the split view has no ideal size of its own, and the `.frame` here was applied
+    /// outside it rather than to either column. What a person saw was an empty window.
+    ///
+    /// **A fixed height, and no `.frame` on the tabs themselves.** A settings window that
+    /// resizes as you switch panes is the thing the centred tab bar exists to avoid; the height
+    /// is the tallest pane's, so the shorter ones have room to spare rather than the taller one
+    /// scrolling.
     var body: some View {
-        NavigationSplitView {
-            List(Section.allCases, id: \.self, selection: $section) { item in
-                Label(item.title, systemImage: item.icon).tag(item)
-            }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
-        } detail: {
-            Form {
-                switch section {
-                case .recording: recording
-                case .export: export
-                case .privacy: privacy
-                }
-            }
-            .formStyle(.grouped)
-            .navigationTitle(section.title)
+        TabView(selection: $section) {
+            pane { recording }.tabItem { Label(Section.recording.title,
+                                               systemImage: Section.recording.icon) }
+                .tag(Section.recording)
+            pane { export }.tabItem { Label(Section.export.title,
+                                            systemImage: Section.export.icon) }
+                .tag(Section.export)
+            pane { privacy }.tabItem { Label(Section.privacy.title,
+                                             systemImage: Section.privacy.icon) }
+                .tag(Section.privacy)
         }
-        .frame(width: 640, height: 460)
+        .frame(width: 560, height: 460)
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
+    }
+
+    /// One pane. `Form` + `.grouped` is what gives a settings pane its inset boxes and its
+    /// label column; the `ScrollView` is what stops a pane taller than the window from being
+    /// cut off rather than scrolled — `.grouped` does not scroll on its own inside a fixed
+    /// frame.
+    @ViewBuilder private func pane(@ViewBuilder _ content: () -> some View) -> some View {
+        ScrollView { Form { content() }.formStyle(.grouped) }
     }
 
     @ViewBuilder private var recording: some View {
