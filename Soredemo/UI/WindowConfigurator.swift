@@ -44,6 +44,10 @@ struct WindowConfigurator: NSViewRepresentable {
     /// Most of the screen, with enough left over that the window still reads as a window and
     /// whatever is behind it can still be grabbed. **Uncalibrated.**
     static let openingFraction: Double = 0.92
+    /// Whether the editor enters full screen when it opens. See the `toggleFullScreen` call for
+    /// what it costs; this is the switch, so that turning it off is one word rather than an
+    /// excavation.
+    static let opensFullScreen = true
 
     func makeNSView(context: Context) -> AttachedView { AttachedView() }
 
@@ -188,11 +192,37 @@ private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
                 // left short should gain the height and keep the width.
                 let width = max(window.frame.width, wanted.width)
                 let height = max(window.frame.height, wanted.height)
-                guard width > window.frame.width || height > window.frame.height else { return }
-                window.setFrame(NSRect(x: visible.minX + (visible.width - width) / 2,
-                                       y: visible.minY + (visible.height - height) / 2,
-                                       width: width, height: height),
-                                display: true, animate: true)
+                // **The frame is set BEFORE full screen, and that ordering is the whole point.**
+                // AppKit remembers the frame a window had when it entered full screen and
+                // restores exactly that on the way out. Setting 92% first is therefore how
+                // "full screen, and 92% when you leave it" is expressed — there is no separate
+                // API for the restore size, and setting the frame afterwards would be setting
+                // the frame of a window that is currently the size of the screen.
+                if width > window.frame.width || height > window.frame.height {
+                    window.setFrame(NSRect(x: visible.minX + (visible.width - width) / 2,
+                                           y: visible.minY + (visible.height - height) / 2,
+                                           width: width, height: height),
+                                    display: true, animate: false)
+                }
+
+                // **The editor opens full screen.** An editor is the whole task while it is
+                // open — a timeline, a canvas and an inspector — and every reference recorder's
+                // editor is the front window with nothing to consult beside it.
+                //
+                // `animate: false` above for this reason: two animations in the same runloop
+                // turn (the grow, then the full-screen transition) fight, and the window
+                // arrives at the wrong size often enough to see. The grow is invisible anyway
+                // because full screen covers it immediately; what it is FOR is the restore.
+                //
+                // **What this costs, stated rather than discovered:** full screen puts the
+                // editor on its own Space, so dragging a file in from a Finder window, or
+                // watching it beside a browser, now takes a ⌃⌘F first. Every open, not just the
+                // first — the same "property, not event" reasoning as the size floor, and the
+                // same cost: a person who leaves full screen and closes the window is put back
+                // in it next time. `opensFullScreen` below is the one place to change that.
+                guard WindowConfigurator.opensFullScreen,
+                      !window.styleMask.contains(.fullScreen) else { return }
+                window.toggleFullScreen(nil)
             }
         }
 }
