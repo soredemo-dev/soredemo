@@ -1042,33 +1042,27 @@ func firstPartySourceFiles() throws -> [URL] {
         """)
 }
 
-/// **A one-shot courtesy records that it happened, not that it was attempted.**
+/// **The editor's opening size is a floor, not a one-shot.**
 ///
-/// `sizeGenerouslyOnFirstOpen` gives the editor most of the screen the first time it is ever
-/// opened. It marked the courtesy spent and THEN registered a notification observer to do the
-/// sizing later — so anything in between (no screen yet, the notification never arriving, a
-/// quit) burnt the flag with nothing to show for it, and "once ever" meant never. Measured on a
-/// real install on 2026-08-26: the flag read `1` while the editor still opened too small for
-/// its own timeline to have any length.
+/// It was a courtesy applied once ever, guarded by a `UserDefaults` flag, and it failed twice
+/// for two different reasons — the flag written before the frame was applied, and then the
+/// scene changing identity so AppKit restored a 900 × 512 frame from a new autosave key with
+/// the flag already spent. Both are in `sizeGenerouslyOnFirstOpen`'s header.
 ///
-/// The shape of the bug is general — write the receipt after the delivery — so what is checked
-/// is the order of the two statements rather than the fix's own words.
-@Test func theEditorsFirstOpenSizeIsRecordedAfterItIsApplied() throws {
+/// A flag is spent by things that are not a decision. The rule is a property now: the window
+/// never opens smaller than a share of its screen, growing what is under and leaving what is
+/// over. This checks that no flag has crept back in, because the obvious repair to "it opens
+/// too big for me" is to add one.
+@Test func theEditorsOpeningSizeIsNotGuardedByAFlag() throws {
     let files = try appSourceFiles()
         .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/WindowConfigurator.swift" }
     try #require(files.count == 1, "WindowConfigurator.swift is not where this scan names it")
-    let text = try String(contentsOf: files[0], encoding: .utf8)
-    let lines = SwiftSourceLexer.codeViewLines(of: text)
-
-    let writesFlag = lines.firstIndex { $0.contains("UserDefaults.standard.set(true, forKey: key)") }
-    let setsFrame = lines.firstIndex { $0.contains("window.setFrame(") }
-    let flagLine = try #require(writesFlag, "nothing writes the first-open flag any more")
-    let frameLine = try #require(setsFrame, "nothing sets the editor's first-open frame any more")
-    #expect(flagLine > frameLine, """
-        the first-open flag is written at line \(flagLine + 1), before the frame is set at line \
-        \(frameLine + 1). A receipt written before the delivery is a courtesy that can be spent \
-        without being given — which is what happened, and why the key had to be renamed to give \
-        it back.
+    let found = try codeLinesNaming("UserDefaults", in: files)
+    #expect(found.isEmpty, """
+        \(found.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        A one-shot flag is how this failed twice: it is spent by things that are not a person's \
+        decision, and there is no second chance in it. If the window should stop growing, change \
+        `openingFraction` or the comparison — do not add a flag.
         """)
 }
 

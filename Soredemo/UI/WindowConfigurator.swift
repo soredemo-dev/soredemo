@@ -41,6 +41,10 @@ import SwiftUI
 /// on the button. The flags here stay: they are what make the window full-screen-capable at
 /// all, which is the half `toggleFullScreen` needs.
 struct WindowConfigurator: NSViewRepresentable {
+    /// Most of the screen, with enough left over that the window still reads as a window and
+    /// whatever is behind it can still be grabbed. **Uncalibrated.**
+    static let openingFraction: Double = 0.92
+
     func makeNSView(context: Context) -> AttachedView { AttachedView() }
 
     func updateNSView(_ view: AttachedView, context: Context) { view.configure() }
@@ -121,59 +125,49 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-/// The editor's size the first time it is ever opened.
+/// The editor's size when it opens.
 ///
-/// **An editor is a preview, a timeline and an inspector at once**, and SwiftUI's default for a
-/// `Window` scene is none of those three things' size — it is whatever the content asks for,
-/// which here is small enough that the timeline has no length and the inspector crowds the
-/// picture. Full screen is the other wrong answer: this is a window somebody moves between, and
-/// a recording is often of the thing beside it.
+/// **A floor on every open, not a courtesy once ever** — and the change is the user's call,
+/// made after three separate attempts to keep it as a one-shot each left the editor opening
+/// too small to use.
+///
+/// The one-shot was right in principle: somebody who sizes this window has decided, and
+/// overwriting that on every launch is the producer-value rule broken. What it was wrong about
+/// is that "once ever" is one flag, and a flag is spent by things that are not a decision.
+/// Measured on a real install, in order:
+///
+///   * `editorHasBeenSizedGenerously` read `1` while the editor still opened at its content's
+///     size, because the flag was written BEFORE the frame was applied and anything in between
+///     burnt it.
+///   * `editorFirstOpenSizeApplied`, the key that replaced it, was spent correctly — and then
+///     the scene changed from `Window` to `WindowGroup` so that its window could go full
+///     screen, which gave AppKit a NEW autosave key (`…editor-AppWindow-1`) holding
+///     `900 × 512`. A frame smaller than this window's own minimum, restored on every open,
+///     with the flag already spent and no second chance in it.
+///
+/// So the rule is now a property rather than an event: the editor never OPENS smaller than
+/// `openingFraction` of the screen it opens on. It grows a window that is under that and never
+/// shrinks one that is over, so a person who has made theirs larger keeps it.
+///
+/// **What this costs, stated rather than discovered:** a person who deliberately makes the
+/// editor small and closes it gets it back at full size next time. That is a real loss of a
+/// real preference, and it is the trade that was chosen — an editor that opens unusably small
+/// is the failure people actually reported, twice.
 ///
 /// **A share of whatever screen it opens on, never a fixed size.** Every display is a different
 /// size and a number chosen on one machine is wrong on all the others. The fraction is of
-/// `visibleFrame`, which already excludes the menu bar and the Dock, so it is a share of the
-/// room the person actually has.
-///
-/// **Tracked by a key this app owns, because SwiftUI's is not guessable.** The first version
-/// guarded on `NSWindow Frame editor` — the scene's own identifier — and measured on a real
-/// install there are TWO keys: that one, and
-/// `NSWindow Frame SwiftUI.ModifiedContent<Soredemo.ContentView, SwiftUI._TaskModifier2>-1-AppWindow-1`,
-/// which is generated from the view's TYPE and is the one the window actually restores from. A
-/// guard on the wrong key is a guard that never fires, which is what happened. A name generated
-/// from a type is also one that changes when the view's modifiers change, so it is not something
-/// to hard-code either — this asks a question about our own state instead.
-///
-/// **Once ever, not once per launch.** Someone who sizes this window has decided, and
-/// overwriting that on every launch is the producer-value rule broken in the smallest possible
-/// way — which this project has already done once, with the status item's position. It is also
-/// why this is not `viewDidMoveToWindow`'s job: that fires on every open, and the guard rather
-/// than the hook is what makes the size a first-run courtesy instead of a policy.
-///
-/// **The flag is written AFTER the frame is set, and it was written before.** That ordering is
-/// the whole defect: the old code marked the courtesy spent, then registered a notification
-/// observer to do the sizing later. Anything between the two — the window having no screen yet,
-/// the notification not arriving, the app being quit — burnt the flag with nothing to show for
-/// it, and "once ever" then meant never. Measured on this machine on 2026-08-26:
-/// `editorHasBeenSizedGenerously` was `1` while the editor still opened small enough that its
-/// own timeline had no length, which is the state the flag exists to prevent.
-///
-/// **A new key, and that is the migration.** The old one recorded "we tried"; this one records
-/// "a frame was applied". Anyone whose flag was burnt by the old ordering gets the courtesy
-/// once, which is what they were supposed to get the first time. Anyone who has genuinely sized
-/// their editor keeps their size, because AppKit restores the autosaved frame and this only
-/// fires when the new key is absent — one open, not every open.
+/// `visibleFrame`, which already excludes the menu bar and the Dock.
 private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
-    // A floor regardless, so the editor cannot be restored or dragged into a size where the
-    // timeline has no length. AppKit enforces it from here on.
+    // A floor regardless, so the editor cannot be dragged into a size where the timeline has no
+    // length. AppKit enforces it from here on — and note it did NOT stop a smaller frame being
+    // restored from an autosave written under a different scene identity.
     window.minSize = NSSize(width: 1000, height: 680)
-
-    let key = "editorFirstOpenSizeApplied"
-    guard !UserDefaults.standard.bool(forKey: key) else { return }
 
     // **After the window has become key, not here.** `makeNSView` runs while the hierarchy is
     // still being assembled, and AppKit restores an autosaved frame somewhere after that — a
     // frame set now is a frame the restore overwrites, silently, which looks exactly like the
     // code never ran. A window is fully placed by the time it is key.
+    //
     // **The token lives in a reference, not a `var` the closure captures.** A `@Sendable`
     // closure may not mutate a local it has captured, and it is the closure that has to remove
     // the observer — this is the smallest shape that lets a one-shot observer unregister
@@ -184,30 +178,25 @@ private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
     holder.token = NotificationCenter.default.addObserver(
         forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { _ in
             // `queue: .main` is the guarantee this rests on: the notification centre delivers
-            // this block on the main queue, so it really is main-actor work. Unlike the reading
-            // that trapped in `SystemCursorShape`, nothing here asserts about an arbitrary
-            // caller's thread — the queue was named at registration.
+            // this block on the main queue, so it really is main-actor work.
             MainActor.assumeIsolated {
                 if let token = holder.token { NotificationCenter.default.removeObserver(token) }
-                // **Returning without setting the flag is deliberate.** No screen means no frame
-                // to compute, and the courtesy is still owed — burning it here is exactly the
-                // defect this ordering was changed to fix.
                 guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
-                // Most of the screen, with enough left over that the window still reads as a
-                // window and whatever is behind it can still be grabbed.
-                let width = visible.width * 0.92
-                let height = visible.height * 0.92
+                let wanted = NSSize(width: visible.width * WindowConfigurator.openingFraction,
+                                    height: visible.height * WindowConfigurator.openingFraction)
+                // **Grows, never shrinks.** Each axis on its own: a window someone widened but
+                // left short should gain the height and keep the width.
+                let width = max(window.frame.width, wanted.width)
+                let height = max(window.frame.height, wanted.height)
+                guard width > window.frame.width || height > window.frame.height else { return }
                 window.setFrame(NSRect(x: visible.minX + (visible.width - width) / 2,
                                        y: visible.minY + (visible.height - height) / 2,
                                        width: width, height: height),
                                 display: true, animate: true)
-                // Spent, now that it has actually been spent.
-                UserDefaults.standard.set(true, forKey: key)
             }
         }
 }
 
-/// See `sizeGenerouslyOnFirstOpen` for why this exists and why the unchecked conformance holds.
 private final class ObserverHolder: @unchecked Sendable {
     var token: (any NSObjectProtocol)?
 }
