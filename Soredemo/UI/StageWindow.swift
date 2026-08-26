@@ -155,10 +155,11 @@ struct StageWindow: View {
     @State private var texts = TextOverlaysModel()
     /// Parts of the recording a person has hidden.
     @State private var redactions = RedactionsModel()
+    @State private var annotations = AnnotationsModel()
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
-        case project, selection, captions, transcript, text, hide
+        case project, selection, captions, transcript, text, hide, mark
 
         var title: String {
             switch self {
@@ -168,6 +169,7 @@ struct StageWindow: View {
             case .transcript: "Transcript"
             case .text: "Text"
             case .hide: "Hide"
+            case .mark: "Mark"
             }
         }
 
@@ -181,6 +183,7 @@ struct StageWindow: View {
             case .transcript: "text.quote"
             case .text: "textformat"
             case .hide: "eye.slash"
+            case .mark: "arrow.up.right"
             }
         }
 
@@ -196,6 +199,7 @@ struct StageWindow: View {
             case .transcript: Theme.accent
             case .text: Theme.Lane.text
             case .hide: Theme.Lane.hide
+            case .mark: Theme.Lane.mark
             }
         }
     }
@@ -654,6 +658,9 @@ struct StageWindow: View {
             case .hide:
                 RedactionPanel(model: redactions, playhead: timeline.playhead,
                                onChange: { reviewRevision += 1 })
+            case .mark:
+                AnnotationPanel(model: annotations, playhead: timeline.playhead,
+                                onChange: { reviewRevision += 1 })
             }
         }
     }
@@ -1072,6 +1079,8 @@ struct StageWindow: View {
             textTrackData: texts.track.isEmpty ? nil : try? EditState.encoding(texts.track),
             redactionTrackData: redactions.track.isEmpty
                 ? nil : try? EditState.encoding(redactions.track),
+            annotationTrackData: annotations.track.isEmpty
+                ? nil : try? EditState.encoding(annotations.track),
             cursorStyleData: try? EditState.encoding(stageStyle.cursor),
             cameraStyleData: cameraURL == nil
                 ? nil : try? EditState.encoding(cameraStyle),
@@ -1227,6 +1236,12 @@ struct StageWindow: View {
             // published. The shared failure list is the mechanism; this is the case it was
             // most worth having.
         } catch { failures.append("the hidden regions") }
+        do {
+            if let track = try EditState.decoding(edit.annotationTrackData,
+                                                  as: AnnotationTrack.self) {
+                annotations.restore(track)
+            }
+        } catch { failures.append("the marks") }
         savedEdit = edit
         if !failures.isEmpty {
             projectStatus = "Opened, but could not read \(failures.joined(separator: ", "))."

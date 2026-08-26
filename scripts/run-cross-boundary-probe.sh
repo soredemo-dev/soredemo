@@ -142,6 +142,7 @@ xcrun swiftc \
   Soredemo/UI/TranscriptPanel.swift \
   Soredemo/UI/TextPanel.swift \
   Soredemo/UI/RedactionPanel.swift \
+  Soredemo/UI/AnnotationPanel.swift \
   scripts/cross-boundary-digest-probe.swift
 
 "$OUT/probe" "$@"

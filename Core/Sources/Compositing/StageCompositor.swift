@@ -76,6 +76,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     /// Parts of the recording to hide. Set on the same terms as the seams above.
     public nonisolated(unsafe) static var redactions = RedactionTrack()
+    /// The arrows, boxes and ellipses a person drew over the recording — see `AnnotationTrack`.
+    /// Anchored to the RECORDING, so they move with the camera rather than sitting still while
+    /// the thing they point at slides away underneath them.
+    public nonisolated(unsafe) static var annotations = AnnotationTrack()
 
     /// Whether pressed shortcuts are drawn as badges. **On by default**: the recorder writes
     /// `key` records for exactly this, the row has claimed the badges since Phase 3, and a
@@ -151,6 +155,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         var burnsInCaptions: Bool
         var texts: TextTrack
         var redactions: RedactionTrack
+        var annotations: AnnotationTrack
         var showsKeystrokes: Bool
         var cursorStyle: CursorStyle
         var cameraStyle: CameraOverlayStyle?
@@ -164,7 +169,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                         editTimeline: editTimeline, framingOverrides: framingOverrides,
                         zoomAdjustments: zoomAdjustments, captions: captions,
                         captionStyle: captionStyle, burnsInCaptions: burnsInCaptions,
-                        texts: texts, redactions: redactions, showsKeystrokes: showsKeystrokes,
+                        texts: texts, redactions: redactions, annotations: annotations,
+                        showsKeystrokes: showsKeystrokes,
                         cursorStyle: cursorStyle,
                         cameraStyle: cameraStyle, crop: crop, cameraTrackID: cameraTrackID)
     }
@@ -184,6 +190,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         unsafe burnsInCaptions = settings.burnsInCaptions
         unsafe texts = settings.texts
         unsafe redactions = settings.redactions
+        unsafe annotations = settings.annotations
         unsafe showsKeystrokes = settings.showsKeystrokes
         unsafe cursorStyle = settings.cursorStyle
         unsafe cameraStyle = settings.cameraStyle
@@ -299,7 +306,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               camera: (unsafe Self.cameraStyle)
                                   .flatMap { $0.isHidden ? nil : CameraOverlay(style: $0) },
                               crop: crop,
-                              keystroke: keystrokeBadge(at: request.compositionTime))
+                              keystroke: keystrokeBadge(at: request.compositionTime),
+                              // Computed against `aimed` — the plan the camera has already
+                              // moved — for the same reason the pointer is: an annotation
+                              // placed against the un-zoomed plan would sit where nobody drew
+                              // it on every frame the camera was in.
+                              annotations: annotationOverlays(at: request.compositionTime,
+                                                              in: aimed))
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             // The camera's buffer, when the composition carries one. Read inside the same
@@ -585,6 +598,38 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 .filter { $0.coversEverything && !$0.region.isEmpty }.map(\.region)
         }
         return unsafe Self.redactions.regions(at: source)
+    }
+
+    /// The annotations on screen at an OUTPUT time, with their points mapped into output pixels.
+    ///
+    /// **Two conversions, and they are different ones.** The TIME goes from output back to
+    /// source, for the reason `captionOverlay(at:)` gives — the track is stamped in source time
+    /// and a cut moves everything after it. The SPACE goes the other way, from the recording's
+    /// normalised coordinates into the frame, through `RenderPlan.contentX/contentY` — the same
+    /// mapping `StagePlanner.placement` puts the drawn cursor through. Doing the second one by
+    /// hand here is how a pointer and an arrow would come to disagree about where the same click
+    /// was, which is `1a98402`'s class of defect arriving through a different door.
+    ///
+    /// Returns none when the output time cannot be mapped, unlike `redactedRegions(at:)` which
+    /// falls back to hiding everything. The asymmetry is deliberate and it is about what each
+    /// failure costs: a missing arrow is a missing hint, and a missing redaction is a leak.
+    private func annotationOverlays(at compositionTime: CMTime,
+                                    in plan: RenderPlan) -> [AnnotationOverlay] {
+        guard !(unsafe Self.annotations.isEmpty) else { return [] }
+        let outputOffset = Nanoseconds(CMTimeConvertScale(
+            compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
+        guard let source = Self.sourceOffset(forOutput: outputOffset) else { return [] }
+        return unsafe Self.annotations.items(at: source).compactMap { item in
+            let state = item.animationState(at: source)
+            return AnnotationOverlay(
+                shape: item.shape,
+                startX: plan.contentX(ofNormalised: item.startX),
+                startY: plan.contentY(ofNormalised: item.startY),
+                endX: plan.contentX(ofNormalised: item.endX),
+                endY: plan.contentY(ofNormalised: item.endY),
+                style: item.style.clamped,
+                opacity: state.opacity, scale: state.scale)
+        }
     }
 
     /// Reads `Self.observationLogURL` at most once per instance, caching success or failure alike.

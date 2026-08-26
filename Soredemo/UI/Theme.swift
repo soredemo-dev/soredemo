@@ -75,6 +75,11 @@ enum Theme {
         static let textHue: Double = 38
         static let captionHue: Double = 190
         static let hideHue: Double = 320
+        /// **Between the text lane's amber and the hide lane's magenta, and away from both.**
+        /// An annotation is a mark a person made, like a title, but it is not text — and the two
+        /// tracks are read side by side on the timeline, so they have to be tellable apart at a
+        /// glance rather than by reading the label.
+        static let markHue: Double = 8
 
         static func colour(_ hue: Double) -> Color {
             Color(hue: hue / 360, saturation: saturation, brightness: brightness)
@@ -86,6 +91,7 @@ enum Theme {
         static var text: Color { colour(textHue) }
         static var caption: Color { colour(captionHue) }
         static var hide: Color { colour(hideHue) }
+        static var mark: Color { colour(markHue) }
     }
 }
 

@@ -63,6 +63,16 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let overlay = plan.camera, let camera {
             composed = cameraImage(overlay, buffer: camera, plan: plan).composited(over: composed)
         }
+        // **Annotations above the camera and below the titles.** Above the camera for the same
+        // reason a title is: both are things a person deliberately placed, and an arrow hidden
+        // behind a face is hidden exactly when someone is talking over the thing it points at.
+        // Below the titles because a title is about the whole frame and an annotation is about
+        // one part of it — when both are on, the one that names the scene should read first.
+        for annotation in plan.annotations {
+            guard let image = annotationImage(annotation, outputWidth: plan.outputWidth,
+                                              outputHeight: plan.outputHeight) else { continue }
+            composed = image.composited(over: composed)
+        }
         // Titles above the caption: a caption is a transcript of what is being said and belongs
         // under anything a person deliberately placed.
         for text in plan.texts {
@@ -444,6 +454,127 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     }
 
     // MARK: - the drawn pointer
+
+    /// One annotation, drawn into a bitmap its own size and placed in the frame.
+    ///
+    /// **A bitmap per annotation, not per frame of output.** A 1920×1080 canvas to draw one
+    /// arrow on is the allocation `RedactionArt.masked`'s header refuses; `AnnotationArt.canvas`
+    /// is what says how small it can be, and it is the same function the paths are built
+    /// against so the two cannot disagree about where the origin is.
+    ///
+    /// **Cached on everything except opacity.** `AnnotationOverlay` is `Hashable`, so the cache
+    /// key is the overlay itself with its opacity normalised away: the drawing happens at full
+    /// opacity and the fade is a colour matrix on the finished image, which costs nothing and
+    /// means a steady annotation is drawn once and reused for every frame it is on. `scale` is
+    /// deliberately left IN the key — it changes the geometry, not just the alpha — so the
+    /// 0.35 s an animated annotation spends arriving is redrawn per frame and the rest is not.
+    private func annotationImage(_ overlay: AnnotationOverlay,
+                                 outputWidth: Int, outputHeight: Int) -> CIImage? {
+        guard !overlay.isEmpty else { return nil }
+        let key = AnnotationOverlay(shape: overlay.shape, startX: overlay.startX,
+                                    startY: overlay.startY, endX: overlay.endX,
+                                    endY: overlay.endY, style: overlay.style,
+                                    opacity: 1, scale: overlay.scale)
+        let drawn = annotationCacheLock.withLock { () -> CIImage? in
+            if let hit = unsafe annotationCache[key] { return hit }
+            guard let made = drawAnnotation(key, outputWidth: outputWidth,
+                                            outputHeight: outputHeight) else { return nil }
+            // A hard cap rather than an eviction policy. Every annotation on screen at once is
+            // a handful; a cache that grew without bound would be a leak over a long export,
+            // and one that evicted cleverly would be a policy nobody has measured. Dropping the
+            // whole thing costs one redraw per annotation and cannot grow.
+            if unsafe annotationCache.count >= 64 { unsafe annotationCache.removeAll() }
+            unsafe annotationCache[key] = made
+            return made
+        }
+        guard let drawn else { return nil }
+        guard overlay.opacity < 1 else { return drawn }
+        // The fade, applied to the finished image. `CIColorMatrix`'s alpha vector scales the
+        // existing alpha rather than replacing it, so the antialiased edge fades with the rest
+        // instead of becoming a hard edge at partial opacity.
+        let fade = CIFilter.colorMatrix()
+        fade.inputImage = drawn
+        fade.aVector = CIVector(x: 0, y: 0, z: 0, w: overlay.opacity)
+        return fade.outputImage ?? drawn
+    }
+
+    /// The actual drawing. Split from the cache above so the cache has one job and this has one.
+    private func drawAnnotation(_ overlay: AnnotationOverlay,
+                                outputWidth: Int, outputHeight: Int) -> CIImage? {
+        let stroke = overlay.style.strokeWidth(forOutputWidth: outputWidth,
+                                               outputHeight: outputHeight)
+        let blur = overlay.style.shadowBlur(forOutputWidth: outputWidth,
+                                            outputHeight: outputHeight)
+        guard let canvas = AnnotationArt.canvas(for: overlay, strokeWidth: stroke,
+                                                shadowBlur: blur) else { return nil }
+        let width = Int(canvas.width.rounded(.up))
+        let height = Int(canvas.height.rounded(.up))
+        // **A ceiling, and it is not paranoia.** The canvas is derived from two points that a
+        // decoder could put anywhere; a corrupt annotation asking for a 200_000-pixel bitmap
+        // would be an allocation failure in the middle of an export rather than a missing arrow.
+        // `AnnotationItem` clamps its points, so reaching this is a bug elsewhere — which is
+        // exactly when a bound earns its place.
+        guard width > 0, height > 0, width <= 8192, height <= 8192 else { return nil }
+        guard let artwork = AnnotationArt.artwork(for: overlay, strokeWidth: stroke,
+                                                  originX: canvas.x, originY: canvas.y)
+        else { return nil }
+
+        // `data: nil`: CGContext owns its backing store and no raw pointer is read here.
+        guard let bitmap = unsafe CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+
+        let colour = CGColor(red: overlay.style.red, green: overlay.style.green,
+                             blue: overlay.style.blue, alpha: overlay.style.alpha)
+        bitmap.setLineWidth(stroke)
+        // Round joins and caps: a mitred join on a thick stroke at a sharp angle produces a
+        // spike far outside the path, which would be clipped by the canvas computed for it.
+        bitmap.setLineJoin(.round)
+        bitmap.setLineCap(.round)
+
+        // **The shadow first, and as a state rather than a second drawing pass.** Drawing the
+        // artwork twice — once blurred, once not — is the obvious implementation and it doubles
+        // the path work; `setShadow` makes Core Graphics do it in one.
+        //
+        // No offset. A drop shadow to one side helps a large filled shape and does nothing for a
+        // two-pixel line, which needs contrast on every side — so this is a halo, which is what
+        // keeps a red arrow legible over a red window.
+        if overlay.style.shadowOpacity > 0 && blur > 0 {
+            bitmap.setShadow(offset: HeadlessGeometryBridge.noOffset(), blur: blur,
+                             color: CGColor(red: 0, green: 0, blue: 0,
+                                            alpha: overlay.style.shadowOpacity))
+        }
+
+        if let interior = artwork.interior {
+            bitmap.setFillColor(CGColor(red: overlay.style.red, green: overlay.style.green,
+                                        blue: overlay.style.blue,
+                                        alpha: overlay.style.alpha * overlay.style.fillOpacity))
+            bitmap.addPath(interior)
+            bitmap.fillPath()
+        }
+        bitmap.setStrokeColor(colour)
+        bitmap.addPath(artwork.stroked)
+        bitmap.strokePath()
+        if let head = artwork.head {
+            bitmap.setFillColor(colour)
+            bitmap.addPath(head)
+            bitmap.fillPath()
+        }
+
+        guard let image = bitmap.makeImage() else { return nil }
+        return CIImage(cgImage: image)
+            .transformed(by: CGAffineTransform(translationX: canvas.x, y: canvas.y))
+    }
+
+    /// Guards `annotationCache` only; the cursor's canvases have their own lock because the two
+    /// are taken in different places and a shared one would serialise a cursor draw behind an
+    /// annotation draw for no reason.
+    private let annotationCacheLock = NSLock()
+    /// Every access runs inside `annotationCacheLock.withLock`, which the compiler cannot see —
+    /// which is what the `unsafe` marks at each access say.
+    private nonisolated(unsafe) var annotationCache: [AnnotationOverlay: CIImage] = [:]
 
     /// One `CGContext` bitmap per pixel size, reused across frames. The lock guards the dictionary
     /// and every draw into a bitmap it hands back, since same-size callers share one, so it is held

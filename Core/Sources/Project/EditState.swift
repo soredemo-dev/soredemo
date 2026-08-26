@@ -52,6 +52,13 @@ public struct EditState: Codable, Sendable, Equatable {
     public var textTrackData: Data?
     /// Parts of the recording to hide, as encoded bytes. Authored.
     public var redactionTrackData: Data?
+    /// Arrows, lines, boxes and ellipses drawn over the recording, as encoded bytes. Authored in
+    /// full: nothing here was derived from anything, so there is no producer for a re-derivation
+    /// to disagree with — unlike the framing overrides above, which sit beside a gate's opinion.
+    ///
+    /// `Data` for the reason the block below gives: `AnnotationTrack` lives in `Overlays` and
+    /// `Project` depends on neither `Overlays` nor `Render`.
+    public var annotationTrackData: Data?
     /// How the drawn cursor looks, as encoded bytes. Authored.
     public var cursorStyleData: Data?
     /// Where the camera sits on the stage, as encoded bytes. Authored. Absent for a recording
@@ -83,6 +90,7 @@ public struct EditState: Codable, Sendable, Equatable {
                 burnsInCaptions: Bool? = nil,
                 textTrackData: Data? = nil,
                 redactionTrackData: Data? = nil,
+                annotationTrackData: Data? = nil,
                 cursorStyleData: Data? = nil,
                 cameraStyleData: Data? = nil,
                 cropData: Data? = nil,
@@ -100,6 +108,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.burnsInCaptions = burnsInCaptions
         self.textTrackData = textTrackData
         self.redactionTrackData = redactionTrackData
+        self.annotationTrackData = annotationTrackData
         self.cursorStyleData = cursorStyleData
         self.cameraStyleData = cameraStyleData
         self.cropData = cropData
@@ -120,7 +129,7 @@ public struct EditState: Codable, Sendable, Equatable {
             || captionTrackData != nil || captionStyleData != nil
             // `false` is not a change: it is the default, and a project that only ever had
             // captions turned off has nothing to save.
-            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil || cameraStyleData != nil || cropData != nil
+            || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || annotationTrackData != nil || cursorStyleData != nil || cameraStyleData != nil || cropData != nil
             || hidesKeystrokes == true || musicData != nil
             // Neutral is not a change, the same way `burnsInCaptions == false` is not: a
             // person who moved the dial and moved it back has an untouched project.

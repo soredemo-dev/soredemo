@@ -334,6 +334,15 @@ public struct RenderPlan: Hashable, Sendable {
     /// The shortcut badge on this frame, or `nil` — see `KeystrokeBadge`. Drawn above the
     /// caption and below the titles, like the caption a viewer reads alongside.
     public let keystroke: KeystrokeBadge?
+    /// The arrows, lines, boxes and ellipses on this frame, with their points already mapped
+    /// into OUTPUT pixels — see `AnnotationOverlay`, which explains why that mapping happens
+    /// before the plan rather than inside the renderer.
+    ///
+    /// **Above the content and below the titles.** An annotation points at something in the
+    /// recording, so it must sit over the picture; a title is about the whole frame, so it sits
+    /// over everything. Drawing them the other way round hides an arrow under a lower third
+    /// exactly when both are on screen, which is the moment they are both being used.
+    public let annotations: [AnnotationOverlay]
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
@@ -346,7 +355,8 @@ public struct RenderPlan: Hashable, Sendable {
                 camera: CameraOverlay? = nil,
                 crop: CropRect = .whole,
                 motionBlur: MotionBlur? = nil,
-                keystroke: KeystrokeBadge? = nil) {
+                keystroke: KeystrokeBadge? = nil,
+                annotations: [AnnotationOverlay] = []) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -363,6 +373,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.crop = crop
         self.motionBlur = motionBlur
         self.keystroke = keystroke
+        self.annotations = annotations
     }
 }
 
