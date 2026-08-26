@@ -282,9 +282,7 @@ struct StageStylePicker: View {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    /// `onEditingChanged` rather than the binding's setter: recomposing on every intermediate
-    /// value of a drag would rebuild an `AVVideoComposition` per pixel of slider travel. The
-    /// value updates live so the number moves under the thumb; the preview rebuilds on release.
+    /// A labelled slider whose preview moves with the thumb — see `LiveSlider`.
     @ViewBuilder private func slider(_ title: String, value: Double,
                                      range: ClosedRange<Double>,
                                      commit: @escaping (Double) -> Void) -> some View {
@@ -297,24 +295,40 @@ struct StageStylePicker: View {
                     .foregroundStyle(.secondary)
             }
             .font(Type.detail)
-            SliderCommitOnRelease(value: value, range: range, commit: commit)
+            LiveSlider(value: value, range: range, commit: commit)
         }
     }
 }
 
-/// A slider that reports while dragging and commits once on release.
-private struct SliderCommitOnRelease: View {
+/// A slider that reports every value it passes through, so the preview moves with the thumb.
+///
+/// **It committed once on release, and the reason given for that was wrong.** The comment said
+/// recomposing on every intermediate value would rebuild an `AVVideoComposition` per pixel of
+/// slider travel. It would not: a style commit publishes `StageCompositor.style` and asks for a
+/// redraw, and `StageWindow`'s own redraw task says so in as many words — "a style change does
+/// not rebuild anything… what a PAUSED player needs is a reason to draw the frame it is already
+/// showing, which a zero-distance seek is". Two comments in one codebase disagreeing about the
+/// same cost, and the code was on the other one's side.
+///
+/// What it cost: dragging Padding or Corner radius on a paused preview moved the number and
+/// nothing else until you let go.
+///
+/// **Kept as a type rather than inlined as a plain `Slider`.** The `live` state is still
+/// carrying its weight — a slider bound straight through to a clamped model value fights the
+/// thumb, because the model rounds or clamps and the binding reads back a different number than
+/// the drag put in. This holds what the drag says and reports it onward.
+private struct LiveSlider: View {
     let value: Double
     let range: ClosedRange<Double>
     let commit: (Double) -> Void
     @State private var live: Double?
 
     var body: some View {
-        Slider(value: Binding(get: { live ?? value }, set: { live = $0 }), in: range) { editing in
-            if !editing, let settled = live {
-                commit(settled)
-                live = nil
-            }
+        Slider(value: Binding(get: { live ?? value },
+                              set: { live = $0; commit($0) }), in: range) { editing in
+            // Released: hand the model back the authority it lends this view for the drag, so
+            // the next `value` it publishes is what the slider shows.
+            if !editing { live = nil }
         }
     }
 }

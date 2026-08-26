@@ -247,6 +247,13 @@ extension PreviewOverlay {
                                 / height
                             style.wrappedValue = style.wrappedValue.changing(
                                 x: min(max(x, 0), 1), y: min(max(y, 0), 1))
+                            // **While dragging, not when the drag ends.** The style reaches
+                            // `StageCompositor` on every change already; what a PAUSED player
+                            // needs is a reason to redraw the frame it is showing, and that is
+                            // what `onChange` asks for. Deferring it to `onEnded` meant the
+                            // camera followed the pointer as a blue outline while the picture
+                            // underneath stayed where it was until you let go.
+                            onChange()
                         }
                         .onEnded { _ in onChange() }
                 )
@@ -263,6 +270,7 @@ extension PreviewOverlay {
                             let widened = box.width + Double(value.translation.width) / scale
                             style.wrappedValue = style.wrappedValue.changing(
                                 widthFraction: widened / Double(max(outputWidth, 1)))
+                            onChange()
                         }
                         .onEnded { _ in onChange() }
                 )

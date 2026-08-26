@@ -414,6 +414,18 @@ struct StageWindow: View {
         // player needs is a reason to draw the frame it is already showing, which a zero-distance
         // seek is. Rebuilding instead reloaded the asset, lost the position and stopped the
         // sound, which is why every slider used to interrupt playback.
+        // **Every control bumps this on EVERY change, not when a drag ends.** The statics
+        // reach the compositor immediately — `.task(id: cameraStyle)` and its siblings below —
+        // so a PLAYING preview already shows a change as it happens. A PAUSED one has no reason
+        // to redraw the frame it is holding, and this is that reason. Deferring the bump to
+        // `onEditingChanged`'s end-of-drag meant a paused preview did not move while a slider
+        // did, and the picture caught up only when the drag finished or playback resumed —
+        // which is a control people learn not to trust.
+        //
+        // **Seeking on every tick is safe, and it is AVPlayer that makes it so.** A seek issued
+        // while one is in progress supersedes it: the earlier completion handler is called with
+        // `finished: false` and only the last one lands. `.task(id:)` cancels the previous task
+        // on each new id as well, so nothing accumulates on either side.
         .task(id: reviewRevision) {
             guard reviewRevision > 0, let player else { return }
             // **Only when PAUSED, and that is the fix.** The seek is here to give a stopped
@@ -690,30 +702,30 @@ struct StageWindow: View {
         if cameraStyle.shape == .rounded {
             Slider(value: Binding(
                 get: { cameraStyle.cornerFraction },
-                set: { cameraStyle = cameraStyle.changing(cornerFraction: $0) }),
-                   in: 0...0.5,
-                   onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Corner") }
+                set: { cameraStyle = cameraStyle.changing(cornerFraction: $0)
+                       reviewRevision += 1 }),
+                   in: 0...0.5) { Text("Corner") }
         }
         Slider(value: Binding(get: { cameraStyle.widthFraction },
-                              set: { cameraStyle = cameraStyle.changing(widthFraction: $0) }),
-               in: 0.05...0.5,
-               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Size") }
+                              set: { cameraStyle = cameraStyle.changing(widthFraction: $0)
+                                     reviewRevision += 1 }),
+               in: 0.05...0.5) { Text("Size") }
         // **How much the camera shrinks while the stage is zoomed in.** A zoom makes the picture
         // bigger, and a camera that holds its width is covering a larger share of a smaller area
         // — which is exactly when it is most in the way. a Rust recorder models this as `scale_during_zoom`;
         // 1 holds the size, which is what this did before the control existed.
         Slider(value: Binding(get: { cameraStyle.scaleDuringZoom },
-                              set: { cameraStyle = cameraStyle.changing(scaleDuringZoom: $0) }),
-               in: 0.3...1,
-               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Shrink on zoom") }
+                              set: { cameraStyle = cameraStyle.changing(scaleDuringZoom: $0)
+                                     reviewRevision += 1 }),
+               in: 0.3...1) { Text("Shrink on zoom") }
         Slider(value: Binding(get: { cameraStyle.x },
-                              set: { cameraStyle = cameraStyle.changing(x: $0) }),
-               in: 0...1,
-               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Across") }
+                              set: { cameraStyle = cameraStyle.changing(x: $0)
+                                     reviewRevision += 1 }),
+               in: 0...1) { Text("Across") }
         Slider(value: Binding(get: { cameraStyle.y },
-                              set: { cameraStyle = cameraStyle.changing(y: $0) }),
-               in: 0...1,
-               onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Up from the bottom") }
+                              set: { cameraStyle = cameraStyle.changing(y: $0)
+                                     reviewRevision += 1 }),
+               in: 0...1) { Text("Up from the bottom") }
         // **Out of the cursor's way.** The classic flaw — a face over the thing being shown —
         // and Screen Studio's answer to it. The camera goes to a corner while the cursor is on
         // it and comes back once the cursor has been clear for a while; see `CameraDodge`.
@@ -1259,9 +1271,16 @@ struct StageWindow: View {
     /// were two callers: `load()` and the intensity dial. A second derivation with its own
     /// arguments is how a lane comes to disagree with the picture it is describing.
     @ViewBuilder private var zoomIntensityControl: some View {
-        // `onEditingChanged` rather than on every tick: re-deriving the blocks and rebuilding
-        // the composition on each pixel of a drag is the difference between a slider that
-        // works and one that stutters. The same rule the camera sliders already use.
+        // **The one control that still commits on release, and it is not the camera's rule.**
+        // Every other control in this window now refreshes on every change: publishing a static
+        // and asking a paused player to redraw costs a seek, which AVPlayer coalesces. This one
+        // is different in kind — `.task(id: zoomIntensity)` re-derives the zoom BLOCKS through
+        // `refreshDerivedZooms`, which walks the framing plan and rebuilds the camera's baked
+        // path, and doing that per pixel of slider travel is work rather than a redraw. The
+        // lane's blocks move on release; the number under the thumb moves live.
+        //
+        // The comment here used to say "the same rule the camera sliders already use". That
+        // stopped being true on 2026-08-26, when they stopped using it.
         Slider(value: $zoomIntensity, in: 0...FramingDepth.maximumIntensity, step: 0.1,
                onEditingChanged: { if !$0 { reviewRevision += 1 } }) {
             Text("Amount")

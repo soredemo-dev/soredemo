@@ -1012,3 +1012,32 @@ func firstPartySourceFiles() throws -> [URL] {
         this app had — use `SettingsLink`, which is what the runtime warning names.
         """)
 }
+
+/// **Exactly one control in this app defers its preview refresh to the end of a drag.**
+///
+/// Every other one publishes to `StageCompositor` and asks for a redraw on every change, so a
+/// paused preview moves with the thumb. That was not true until 2026-08-26: the camera's six
+/// sliders, the style sliders and the camera's two drag handles all committed on release, and
+/// what a person saw was a control whose number moved while the picture did not — until they
+/// let go, or pressed play. Both of the reasons written down for it were wrong by then. A style
+/// commit does not rebuild an `AVVideoComposition`, and `StageWindow`'s own redraw task says so;
+/// and a seek per drag tick is safe, because AVPlayer supersedes a seek that is already in
+/// flight rather than queueing it.
+///
+/// The exception is the zoom Amount slider, which is different in kind: it re-derives the zoom
+/// BLOCKS and rebuilds the camera's baked path, which is work rather than a redraw. It names
+/// itself here so a second exception has to be argued rather than added.
+///
+/// Read through the code view, so the paragraphs above naming the modifier do not fire.
+@Test func onlyTheZoomAmountSliderDefersItsPreviewRefresh() throws {
+    let deferred = try codeLinesNaming("onEditingChanged", in: try appSourceFiles())
+    // The FILE and the COUNT, not the line: a line number moves with every edit above it, and a
+    // check that has to be renumbered is a check people renumber without reading.
+    let files = Set(deferred.map { $0.location.split(separator: ":").first.map(String.init) ?? "" })
+    #expect(deferred.count == 1 && files == ["Soredemo/UI/StageWindow.swift"], """
+        \(deferred.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        A control that commits on release leaves a paused preview showing the old picture while \
+        its own number moves. If this one genuinely needs to — because it re-derives something \
+        rather than redrawing — say so beside the zoom Amount slider and name it here.
+        """)
+}
