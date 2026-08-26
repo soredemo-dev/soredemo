@@ -331,24 +331,48 @@ struct MenuBarRecorderPanel: View {
     /// **Only rates this display can produce.** `minimumFrameInterval` is a ceiling and the
     /// panel is the floor, so offering 120 on a 60 Hz display would be offering a control that
     /// changes no observable thing.
-    @ViewBuilder private var frameRateRow: some View {
-        Picker(selection: Binding(get: { coordinator.frameRate },
-                                  set: { coordinator.frameRate = $0 })) {
-            ForEach(CaptureFrameRate.available(forDisplayRates: Self.displayRefreshRates),
-                    id: \.self) {
-                Text($0.displayName).tag($0)
-            }
-        } label: {
-            HStack(spacing: Space.snug) {
-                Image(systemName: "speedometer").font(.system(size: 12)).frame(width: 14)
-                Text("Frame rate").font(.system(size: 12))
-            }
+    /// **How wide the popup on a settings row is.** One number for both rows, because the two
+    /// were built differently and did not line up: the countdown's was a `labelsHidden` picker
+    /// pinned to 76 points, and the frame rate's was a `Picker(label:)` whose popup sized itself
+    /// to its widest entry. Two shapes for one kind of row is how they came to be different
+    /// lengths, and matching the numbers would have left the shapes free to drift again.
+    ///
+    /// Wide enough for the longest value either row offers — `120 fps` — so neither truncates.
+    private static let settingRowPickerWidth: Double = 92
+
+    /// One settings row: an icon, a label, and a popup on the right. Both rows go through this,
+    /// so the padding, the height, the corner radius and the popup width cannot disagree.
+    @ViewBuilder private func settingRow<Value: Hashable>(
+        icon: String, iconIsMuted: Bool = false, title: LocalizedStringKey,
+        selection: Binding<Value>, @ViewBuilder options: () -> some View
+    ) -> some View {
+        HStack(spacing: Space.snug) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundStyle(iconIsMuted ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                .frame(width: 14)
+            Text(title).font(.system(size: 12))
+            Spacer(minLength: Space.tight)
+            Picker("", selection: selection) { options() }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: Self.settingRowPickerWidth)
         }
-        .pickerStyle(.menu)
         .padding(.horizontal, Space.regular)
         .frame(height: 30)
         .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
             .fill(.quaternary.opacity(0.5)))
+    }
+
+    @ViewBuilder private var frameRateRow: some View {
+        settingRow(icon: "speedometer", title: "Frame rate",
+                   selection: Binding(get: { coordinator.frameRate },
+                                      set: { coordinator.frameRate = $0 })) {
+            ForEach(CaptureFrameRate.available(forDisplayRates: Self.displayRefreshRates),
+                    id: \.self) {
+                Text($0.displayName).tag($0)
+            }
+        }
     }
 
     /// What every attached display can refresh at.
@@ -380,27 +404,16 @@ struct MenuBarRecorderPanel: View {
 
     /// How long to wait before the capture starts.
     @ViewBuilder private var countdownRow: some View {
-        HStack(spacing: Space.snug) {
-            Image(systemName: coordinator.countdownSeconds == 0 ? "timer.square" : "timer")
-                .font(.system(size: 12))
-                .foregroundStyle(coordinator.countdownSeconds == 0 ? .secondary : .primary)
-                .frame(width: 14)
-            Text("Countdown").font(.system(size: 12))
-            Spacer(minLength: Space.tight)
-            Picker("", selection: Binding(get: { coordinator.countdownSeconds },
-                                          set: { coordinator.countdownSeconds = $0 })) {
-                ForEach(RecordingCoordinator.countdownChoices, id: \.self) { value in
-                    Text(value == 0 ? "Off" : "\(value)s").tag(value)
-                }
+        settingRow(icon: coordinator.countdownSeconds == 0 ? "timer.square" : "timer",
+                   // Muted when it is off, so the row says so before the value is read.
+                   iconIsMuted: coordinator.countdownSeconds == 0,
+                   title: "Countdown",
+                   selection: Binding(get: { coordinator.countdownSeconds },
+                                      set: { coordinator.countdownSeconds = $0 })) {
+            ForEach(RecordingCoordinator.countdownChoices, id: \.self) { value in
+                Text(value == 0 ? "Off" : "\(value)s").tag(value)
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 76)
         }
-        .padding(.horizontal, Space.regular)
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-            .fill(.quaternary.opacity(0.5)))
     }
 
     @ViewBuilder private var startButton: some View {
@@ -493,22 +506,36 @@ struct MenuBarRecorderPanel: View {
     /// right edge of a display it is placed where there is room rather than where the gear is.
     /// A second row costs 18 points of a panel that had them and puts every destination in the
     /// panel, where a person can see all four without opening anything.
+    /// The four places this panel can send you.
+    ///
+    /// **Icons, and no ellipses.** The ellipsis is the macOS convention for "this asks you
+    /// something before it happens", and in a menu it is the only signal available. This is not
+    /// a menu: it is a custom panel whose every other row already leads with an icon, and four
+    /// rows of small grey text with three trailing dots among them read as noise rather than as
+    /// a distinction. The icon says what each one is faster than the punctuation said what it
+    /// would do.
+    ///
+    /// **Quit is bottom-right, which is the corner nothing is next to.** It used to sit beside
+    /// Open Project, at the top of the group, one slip away from the row a person actually came
+    /// for. Reading order puts the thing you most rarely want last.
     @ViewBuilder private var footer: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             HStack(spacing: Space.regular) {
-                PanelLink(title: "Open Project\u{2026}", shortcut: "\u{2318}O") {
+                PanelLink(icon: "folder", title: "Open Project", shortcut: "\u{2318}O") {
                     coordinator.openProject()
                 }
                 Spacer()
-                PanelLink(title: "Quit", shortcut: "\u{2318}Q") { NSApp.terminate(nil) }
+                SettingsPanelLink()
             }
             HStack(spacing: Space.regular) {
-                SettingsPanelLink()
-                Spacer()
-                PanelLink(title: "Permissions\u{2026}", shortcut: "") {
+                PanelLink(icon: "hand.raised", title: "Permissions", shortcut: "") {
                     EditorWindowPresence.willOpen()
                     openWindow(id: WindowID.permissions)
                     NSApp.activate(ignoringOtherApps: true)
+                }
+                Spacer()
+                PanelLink(icon: "power", title: "Quit", shortcut: "\u{2318}Q") {
+                    NSApp.terminate(nil)
                 }
             }
         }
@@ -586,6 +613,7 @@ private struct PanelLevel: View {
 /// What every footer row looks like. Split out of `PanelLink` so the Settings row can wear the
 /// same face while being a different KIND of control — see `SettingsPanelLink`.
 private struct PanelLinkLabel: View {
+    let icon: String
     /// `LocalizedStringKey` for `TargetCard`'s reason — this is why Open Project and Quit
     /// stayed English while everything written as a literal in this file was translated.
     let title: LocalizedStringKey
@@ -594,8 +622,13 @@ private struct PanelLinkLabel: View {
 
     var body: some View {
         HStack(spacing: Space.tight + 2) {
+            // The same 14-point column the settings rows above use, so the four footer icons
+            // and the two row icons form one vertical line rather than four.
+            Image(systemName: icon).font(.system(size: 11)).frame(width: 14)
             Text(title)
-            Text(shortcut).foregroundStyle(.tertiary)
+            // **Only when there is one.** An empty `Text` still takes the stack's spacing, which
+            // left Permissions sitting a few points off the alignment its neighbours kept.
+            if !shortcut.isEmpty { Text(shortcut).foregroundStyle(.tertiary) }
         }
         .foregroundStyle(isHovering ? .primary : .secondary)
         .contentShape(Rectangle())
@@ -605,6 +638,7 @@ private struct PanelLinkLabel: View {
 /// A footer action: a label and its shortcut, with no button chrome — the row is a list of
 /// places to go, and three bordered buttons would compete with the red one above them.
 private struct PanelLink: View {
+    let icon: String
     let title: LocalizedStringKey
     let shortcut: String
     let action: () -> Void
@@ -612,7 +646,7 @@ private struct PanelLink: View {
 
     var body: some View {
         Button(action: action) {
-            PanelLinkLabel(title: title, shortcut: shortcut, isHovering: isHovering)
+            PanelLinkLabel(icon: icon, title: title, shortcut: shortcut, isHovering: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -644,7 +678,7 @@ private struct SettingsPanelLink: View {
 
     var body: some View {
         SettingsLink {
-            PanelLinkLabel(title: "Settings\u{2026}", shortcut: "\u{2318},",
+            PanelLinkLabel(icon: "gearshape", title: "Settings", shortcut: "\u{2318},",
                            isHovering: isHovering)
         }
         .buttonStyle(.plain)

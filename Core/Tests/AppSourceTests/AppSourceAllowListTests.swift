@@ -1071,3 +1071,25 @@ func firstPartySourceFiles() throws -> [URL] {
         it back.
         """)
 }
+
+/// **The menu bar panel's two settings rows are built from one shape.**
+///
+/// Frame rate and Countdown are the same kind of row — an icon, a label, a popup — and they
+/// were built two different ways: one a `labelsHidden` picker pinned to 76 points, the other a
+/// `Picker(label:)` whose popup sized itself to its widest entry. They came out different
+/// lengths, which is what a person sees. Matching the two numbers would have left the two
+/// shapes free to drift apart again, so there is one row builder and both rows go through it.
+///
+/// Checked as "exactly one popup style in this file", which is the mechanical consequence: a
+/// second row that built its own popup would have to declare one.
+@Test func theMenuBarPanelHasOneSettingsRowShape() throws {
+    let panel = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/MenuBarRecorder.swift" }
+    try #require(panel.count == 1, "MenuBarRecorder.swift is not where this scan names it")
+    let popups = try codeLinesNaming("pickerStyle(.menu)", in: panel)
+    #expect(popups.count == 1, """
+        \(popups.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        Two rows declaring their own popup is how Frame rate and Countdown came to be different \
+        lengths. Route the new row through `settingRow(icon:title:selection:options:)`.
+        """)
+}
