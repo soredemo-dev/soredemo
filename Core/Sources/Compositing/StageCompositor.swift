@@ -303,8 +303,17 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               // switch for "not in this one" as distinct from "throw the footage
                               // away", and the cheapest place to honour it is before a plan
                               // carries it.
-                              camera: (unsafe Self.cameraStyle)
-                                  .flatMap { $0.isHidden ? nil : CameraOverlay(style: $0) },
+                              camera: cameraOverlay(
+                                  at: request.compositionTime, basePlan: basePlan,
+                                  sourcePixelWidth: cropped.width,
+                                  // The camera picture's own aspect, for the dodge's zone. Read
+                                  // off the buffer's size rather than assumed: a rounded camera
+                                  // is `width / aspect` tall and the zone must be the rectangle
+                                  // actually drawn.
+                                  cameraAspect: cameraTrackID
+                                      .flatMap { request.sourceReadOnlyPixelBuffer(byTrackID: $0) }
+                                      .map { Double($0.size.width) / Double(max($0.size.height, 1)) }
+                                      ?? 1),
                               crop: crop,
                               keystroke: keystrokeBadge(at: request.compositionTime),
                               // Computed against `aimed` — the plan the camera has already
@@ -424,6 +433,100 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             return nil
         }
     }
+
+    /// The camera on this frame, or `nil` when the recording has none or it is hidden.
+    ///
+    /// **A hidden camera produces no overlay at all**, rather than one the renderer then has to
+    /// know to skip. `Camera.hide` is a Rust recorder's switch for "not in this one" as distinct from "throw
+    /// the footage away", and the cheapest place to honour it is before a plan carries it.
+    ///
+    /// **With `avoidsCursor` on, the style's placement is replaced by the dodge schedule's.**
+    /// The schedule is baked on the first frame that asks and reused — see `dodgeSchedule` —
+    /// so preview, export and scrubbing all read the same moves. `public` for the reason
+    /// `cameraPlan` and `pointerPlacement` are: it is the seam a test can reach without
+    /// standing up AVFoundation.
+    public func cameraOverlay(at compositionTime: CMTime, basePlan: RenderPlan,
+                              sourcePixelWidth: Int?, cameraAspect: Double) -> CameraOverlay? {
+        guard let style = unsafe Self.cameraStyle, !style.isHidden else { return nil }
+        guard style.avoidsCursor,
+              compositionTime.isValid,
+              let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                             timescale: compositionTime.timescale),
+              let schedule = dodgeSchedule(style: style, basePlan: basePlan,
+                                           sourcePixelWidth: sourcePixelWidth,
+                                           cameraAspect: cameraAspect)
+        else { return CameraOverlay(style: style) }
+        guard !schedule.isStill else { return CameraOverlay(style: style) }
+        let placed = schedule.placement(at: outputOffset)
+        // `changing(x:y:)` clears the preset, which is right: while dodging the camera is not
+        // on one, and `rect` reads the coordinates when there is no preset.
+        return CameraOverlay(style: style.changing(x: placed.x, y: placed.y))
+    }
+
+    /// **The dodge schedule, baked once per (style, output, aspect, length) and reused.**
+    ///
+    /// Baking samples the presented cursor at 30 Hz across the whole output, through the same
+    /// `cameraPlan` → `pointerPlacement` path a frame takes, so the cursor's place in the frame
+    /// includes the zoom in force at each instant — a dodge computed against the un-zoomed frame
+    /// would react to where the cursor is NOT. Thirty samples a second over a ten-minute video
+    /// is eighteen thousand lookups, each a binary search or a spline evaluation; measured well
+    /// under the first frame's budget.
+    ///
+    /// **Computed outside the lock, stored inside it.** `cameraPlan` and `pointerPlacement`
+    /// each take `lock` themselves, so a bake under `dodgeLock` that called them would be fine —
+    /// but a bake under `lock` would deadlock. The two locks are separate for that reason, and
+    /// a race where two frames bake at once produces two identical schedules, the second of
+    /// which wins; that costs a bake and corrupts nothing.
+    private func dodgeSchedule(style: CameraOverlayStyle, basePlan: RenderPlan,
+                               sourcePixelWidth: Int?, cameraAspect: Double)
+    -> CameraDodge.Schedule? {
+        guard let duration = outputDuration() else { return nil }
+        let key = DodgeKey(style: style, outputWidth: basePlan.outputWidth,
+                           outputHeight: basePlan.outputHeight,
+                           aspectThousandths: Int((cameraAspect * 1000).rounded()),
+                           duration: duration)
+        if let cached = dodgeLock.withLock({ unsafe dodgeKey == key ? unsafe dodge : nil }) {
+            return cached
+        }
+
+        let perSecond = 30
+        let seconds = Double(duration.rawValue) / 1_000_000_000
+        let count = Int((seconds * Double(perSecond)).rounded(.down)) + 1
+        var samples: [CameraDodge.Sample] = []
+        samples.reserveCapacity(count)
+        // `i / 30`, not an accumulating `t += 1/30`: the accumulation drifts by a few
+        // ulps per step, and a sample that drifted across a 1/600 s tick would be a sample
+        // taken at a different frame from the one the schedule says it was.
+        for i in 0..<count {
+            let t = Double(i) / Double(perSecond)
+            let time = CMTime(seconds: t, preferredTimescale: 600)
+            let aimed = cameraPlan(basePlan, at: time, sourcePixelWidth: sourcePixelWidth)
+            let placement = pointerPlacement(at: time, in: aimed)
+            samples.append(CameraDodge.Sample(offset: Nanoseconds(Int64(t * 1e9)),
+                                              x: placement?.x, y: placement?.y))
+        }
+        let built = CameraDodge.schedule(samples: samples, style: style,
+                                         outputWidth: basePlan.outputWidth,
+                                         outputHeight: basePlan.outputHeight,
+                                         sourceAspect: cameraAspect)
+        dodgeLock.withLock {
+            unsafe dodge = built
+            unsafe dodgeKey = key
+        }
+        return built
+    }
+
+    private struct DodgeKey: Hashable {
+        let style: CameraOverlayStyle
+        let outputWidth: Int
+        let outputHeight: Int
+        let aspectThousandths: Int
+        let duration: Nanoseconds
+    }
+    private let dodgeLock = NSLock()
+    // Both guarded by `dodgeLock`; every access is inside `dodgeLock.withLock`.
+    private nonisolated(unsafe) var dodge: CameraDodge.Schedule?
+    private nonisolated(unsafe) var dodgeKey: DodgeKey?
 
     /// Where the drawn cursor is at the video's FIRST frame — the place the loop glides back
     /// to. `nil` when the pointer has no answer there (blind, suppressed, or not yet observed),

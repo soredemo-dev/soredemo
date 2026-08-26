@@ -51,6 +51,9 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     /// A ring around the camera, which is what separates it from a screenshot behind it.
     public let borderOpacity: Double
     public let shadowOpacity: Double
+    /// **Move out of the cursor's way** — see `CameraDodge`, which owns the rules. Off by
+    /// default for the reason every other option here is: a saved project must look as it did.
+    public let avoidsCursor: Bool
 
     public enum Shape: String, Hashable, Codable, Sendable, CaseIterable {
         case circle, rounded, square
@@ -77,7 +80,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                 position: Position? = nil, isHidden: Bool = false,
                 scaleDuringZoom: Double = 1, shape: Shape,
                 cornerFraction: Double, isMirrored: Bool,
-                borderOpacity: Double, shadowOpacity: Double) {
+                borderOpacity: Double, shadowOpacity: Double,
+                avoidsCursor: Bool = false) {
         self.position = position
         self.isHidden = isHidden
         // Clamped like every other field — rule 8's case, and a zoom scale of zero would be a
@@ -92,6 +96,7 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
         self.isMirrored = isMirrored
         self.borderOpacity = min(max(borderOpacity, 0), 1)
         self.shadowOpacity = min(max(shadowOpacity, 0), 1)
+        self.avoidsCursor = avoidsCursor
     }
 
     public init(from decoder: any Decoder) throws {
@@ -117,12 +122,13 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
             borderOpacity: try container.decodeIfPresent(Double.self,
                                                          forKey: .borderOpacity) ?? 0.35,
             shadowOpacity: try container.decodeIfPresent(Double.self,
-                                                         forKey: .shadowOpacity) ?? 0.45)
+                                                         forKey: .shadowOpacity) ?? 0.45,
+            avoidsCursor: try container.decodeIfPresent(Bool.self, forKey: .avoidsCursor) ?? false)
     }
 
     private enum CodingKeys: String, CodingKey {
         case widthFraction, x, y, position, isHidden, scaleDuringZoom, shape, cornerFraction
-        case isMirrored, borderOpacity, shadowOpacity
+        case isMirrored, borderOpacity, shadowOpacity, avoidsCursor
     }
 
     /// The same style with one field changed — the shape every style in this tier uses, for the
@@ -134,7 +140,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                          isHidden: Bool? = nil, scaleDuringZoom: Double? = nil,
                          shape: Shape? = nil, cornerFraction: Double? = nil,
                          isMirrored: Bool? = nil, borderOpacity: Double? = nil,
-                         shadowOpacity: Double? = nil) -> CameraOverlayStyle {
+                         shadowOpacity: Double? = nil,
+                         avoidsCursor: Bool? = nil) -> CameraOverlayStyle {
         CameraOverlayStyle(widthFraction: widthFraction ?? self.widthFraction,
                            x: x ?? self.x, y: y ?? self.y,
                            position: (x == nil && y == nil) ? self.position : nil,
@@ -144,7 +151,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                            cornerFraction: cornerFraction ?? self.cornerFraction,
                            isMirrored: isMirrored ?? self.isMirrored,
                            borderOpacity: borderOpacity ?? self.borderOpacity,
-                           shadowOpacity: shadowOpacity ?? self.shadowOpacity)
+                           shadowOpacity: shadowOpacity ?? self.shadowOpacity,
+                           avoidsCursor: avoidsCursor ?? self.avoidsCursor)
     }
 
     /// Nine places a camera is usually put, so a corner is one press rather than two sliders
@@ -203,7 +211,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                            position: position, isHidden: isHidden,
                            scaleDuringZoom: scaleDuringZoom, shape: shape,
                            cornerFraction: cornerFraction, isMirrored: isMirrored,
-                           borderOpacity: borderOpacity, shadowOpacity: shadowOpacity)
+                           borderOpacity: borderOpacity, shadowOpacity: shadowOpacity,
+                           avoidsCursor: avoidsCursor)
     }
 
     /// How far the camera is kept from the frame's edge, as a fraction of the output's WIDTH.

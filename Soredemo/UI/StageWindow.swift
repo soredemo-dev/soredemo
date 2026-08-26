@@ -714,6 +714,13 @@ struct StageWindow: View {
                               set: { cameraStyle = cameraStyle.changing(y: $0) }),
                in: 0...1,
                onEditingChanged: { if !$0 { reviewRevision += 1 } }) { Text("Up from the bottom") }
+        // **Out of the cursor's way.** The classic flaw — a face over the thing being shown —
+        // and Screen Studio's answer to it. The camera goes to a corner while the cursor is on
+        // it and comes back once the cursor has been clear for a while; see `CameraDodge`.
+        Toggle("Move out of the cursor's way", isOn: Binding(
+            get: { cameraStyle.avoidsCursor },
+            set: { cameraStyle = cameraStyle.changing(avoidsCursor: $0); reviewRevision += 1 }))
+            .font(Type.detail)
         Toggle("Mirror", isOn: Binding(
             get: { cameraStyle.isMirrored },
             set: { cameraStyle = cameraStyle.changing(isMirrored: $0); reviewRevision += 1 }))
