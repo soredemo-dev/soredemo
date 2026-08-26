@@ -1290,3 +1290,67 @@ private func desktopIconsFile() throws -> [URL] {
         records the hidden state as the state to restore to, and the icons never come back.
         """)
 }
+
+// MARK: - Exporting part of the video
+
+/// **The export reads `editForExport`, and the preview reads `edit`.** Getting that backwards is
+/// the whole feature failing silently in one direction or the other: an export that reads `edit`
+/// writes the entire video with no complaint, and a preview that reads `editForExport` hides the
+/// rest of the recording the moment somebody marks a section — which is exactly when they need
+/// to compare it against what surrounds it.
+///
+/// Neither mistake produces an error, a warning, or a wrong-looking frame. This is the only
+/// mechanical check of the distinction.
+@Test func theExportReadsTheRestrictedTimelineAndThePreviewDoesNot() throws {
+    let stage = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/StageWindow.swift" }
+    try #require(stage.count == 1, "StageWindow.swift is not where this scan names it")
+
+    let exportUses = try codeLinesNaming("timeline.editForExport", in: stage)
+    #expect(!exportUses.isEmpty, """
+        Nothing in StageWindow reads `timeline.editForExport`, so an export with a section \
+        marked writes the whole video and says nothing about it.
+        """)
+
+    // The three places that must see the restricted timeline: the job's edit, and both size
+    // estimates. A figure for the whole video beside a button that writes ten seconds of it is
+    // worse than no figure.
+    #expect(exportUses.count >= 3, """
+        Only \(exportUses.count) of the three places that must measure what will actually be \
+        written do: \(exportUses.map(\.location).joined(separator: ", ")).
+        """)
+
+    // And the preview still builds from the unrestricted edit.
+    let previewComposes = try codeLinesNaming("by: timeline.edit,", in: stage)
+    #expect(!previewComposes.isEmpty, """
+        The preview no longer composes from `timeline.edit`. If it now uses the restricted \
+        timeline, marking a section hides the rest of the recording — see this check's header \
+        for why that is the wrong direction.
+        """)
+}
+
+/// The in and out keys are unmodified `I` and `O`, which is what every editor that has these
+/// spells them and what a person coming from one will press without looking.
+@Test func theInAndOutPointsAreOnTheKeysEveryEditorUses() throws {
+    let editor = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/TimelineEditor.swift" }
+    try #require(editor.count == 1)
+    // **A RAW text scan, not `codeLinesNaming`.** The needle is string-literal CONTENT — the
+    // key letter itself — and the code view blanks that by design. A first version of this check
+    // used the code view and could not see either key, which is the same trap that produced two
+    // vacuous checks earlier in this project.
+    let lines = try String(contentsOf: editor[0], encoding: .utf8)
+        .components(separatedBy: .newlines)
+
+    for (key, action) in [("i", "markIn"), ("o", "markOut")] {
+        let actionLine = try #require(lines.firstIndex { $0.contains("model.\(action)()") },
+                                      "nothing calls model.\(action)()")
+        // The shortcut is attached to the same button, so it is within a line or two.
+        let nearby = lines[actionLine..<Swift.min(actionLine + 3, lines.count)]
+        #expect(nearby.contains { $0.contains("keyboardShortcut(\"\(key)\", modifiers: [])") }, """
+            \(action) is not on unmodified \(key.uppercased()). That is the key a person coming \
+            from any other editor will press, and a modifier on it means they press it and \
+            nothing happens.
+            """)
+    }
+}

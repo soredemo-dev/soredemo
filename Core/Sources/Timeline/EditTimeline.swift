@@ -256,6 +256,76 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         return nil
     }
 
+    /// The timeline restricted to one span of OUTPUT time — an in point and an out point.
+    ///
+    /// **This is how "export just this part" is expressed, and expressing it as an EDIT is the
+    /// whole design.** The alternative is a range parameter threaded through the exporter, the
+    /// compositor, the observation-log mapping and the caption track, each of which would then
+    /// have two notions of "where are we" to keep in step. A restricted timeline has one:
+    /// everything downstream already knows how to render a timeline, so a range costs nothing
+    /// new anywhere.
+    ///
+    /// ScreenKite ships this and writes a whole article about Screen Studio not having it; their
+    /// workaround there is to duplicate the project and trim the copy, once per section. The
+    /// coordinate transforms this needs — `sourceTime(atOutput:)` and the speed-aware `split`
+    /// below it — were already here for other reasons.
+    ///
+    /// **Output time, not source time.** A person setting an in point is pointing at the video
+    /// they are watching, which is the edited one; a cut earlier in the timeline has already
+    /// moved every later frame. Converting to source at the edges is this function's job, and
+    /// `split` does it speed-aware — a clip at 2× covers twice as much recording per second of
+    /// playback.
+    ///
+    /// Returns `nil` for a range that selects nothing: empty, or entirely outside the output. A
+    /// named refusal rather than an empty timeline, because an empty timeline exports a
+    /// zero-length file and looks like the export failing for some other reason.
+    ///
+    /// **Not "reversed", though the guard below would catch it.** `Range` traps at construction
+    /// on `lowerBound > upperBound`, so an out point before the in point cannot reach this
+    /// function at all — the type has already refused it, and a comment claiming this guard
+    /// handles a case the type forbids would be describing work nothing does.
+    public func restricted(toOutput range: Range<Int64>) -> EditTimeline? {
+        guard range.lowerBound < range.upperBound else { return nil }
+        let total = outputDuration.rawValue
+        // Clamped into the output. **The upper clamp is belt to a brace the loop already
+        // provides** — it cannot keep a clip that does not exist, so an out point past the end
+        // works either way; a mutation removing this line left every test green. It stays
+        // because `upper` is compared against `total` below and a reader should not have to
+        // work out that the comparison is safe with an unclamped value.
+        let lower = Swift.max(range.lowerBound, 0)
+        let upper = Swift.min(range.upperBound, total)
+        guard lower < upper else { return nil }
+
+        // Split at both edges so the range falls on clip boundaries.
+        //
+        // **The order does not matter, and the comment that used to be here said it did.** It
+        // argued that splitting at the out point first saved recomputing an offset. A mutation
+        // that swapped the two left every test green, and the reason is that a split preserves
+        // output duration exactly — it divides a clip without moving anything — so neither edge's
+        // output offset is disturbed by the other's split. Recorded rather than deleted, because
+        // the plausible-sounding version is the one somebody writes again.
+        var working = self
+        if upper < total, let split = working.split(atOutput: Nanoseconds(upper)) {
+            working = split
+        }
+        if lower > 0, let split = working.split(atOutput: Nanoseconds(lower)) {
+            working = split
+        }
+
+        // Everything that now begins at or after the in point and ends at or before the out
+        // point. After the splits those boundaries fall exactly on clip edges, so this is a
+        // whole number of clips and no clip is half in.
+        var kept: [EditClip] = []
+        var running: Int64 = 0
+        for clip in working.clips {
+            let next = running + clip.outputDuration.rawValue
+            if running >= lower && next <= upper { kept.append(clip) }
+            running = next
+        }
+        guard !kept.isEmpty else { return nil }
+        return EditTimeline(clips: kept, nextID: working.nextID)
+    }
+
     /// One clip's edges moved, in SOURCE time. Positive `startDelta` trims from the front,
     /// negative extends it; `endDelta` is the same at the other end.
     ///

@@ -859,10 +859,19 @@ struct StageWindow: View {
         // **The estimate is why the picker is usable.** a Rust recorder shows one and calibrated it to
         // within 3% against real recordings; a quality control with no consequence attached is
         // three words to guess between.
+        if let range = timeline.exportRange {
+            // **Named in the sheet, because the button says "Export" either way.** Somebody who
+            // marked a section an hour ago and came back to export has no other way to find out
+            // that the file will be ten seconds long.
+            let seconds = Double(range.upperBound - range.lowerBound) / 1_000_000_000
+            LabeledContent("Range", value: TransportBar.timecode(seconds) + " of "
+                           + TransportBar.timecode(Double(timeline.edit.outputDuration.rawValue) / 1e9))
+                .font(Type.detail).foregroundStyle(Theme.accent)
+        }
         LabeledContent("About", value: Self.fileSize(quality.estimatedBytes(
             outputWidth: size.width, outputHeight: size.height,
             frameRate: frameRate.frames(recording: recordingFrameRate),
-            seconds: Double(timeline.edit.outputDuration.rawValue) / 1_000_000_000,
+            seconds: Double(timeline.editForExport.outputDuration.rawValue) / 1_000_000_000,
             codec: codec)))
             .font(Type.detail).foregroundStyle(.secondary)
     }
@@ -903,7 +912,10 @@ struct StageWindow: View {
         // pixels and nothing else — a twenty-second 640-wide GIF is tens of megabytes, which is
         // past what most places accept. a Swift recorder warns for the same reason rather than letting
         // somebody find out from the upload.
-        let seconds = Double(timeline.edit.outputDuration.rawValue) / 1_000_000_000
+        // `editForExport`, not `edit`: with a section marked, the file being estimated is
+        // the section. A figure for the whole video beside a button that writes ten seconds of
+        // it is worse than no figure.
+        let seconds = Double(timeline.editForExport.outputDuration.rawValue) / 1_000_000_000
         let gifBytes = Int(Double(gif.width * gif.height) * 0.5 * 0.07
                            * Double(gifSettings.frameRate) * seconds)
         if gifBytes > 20_000_000 {
@@ -1559,7 +1571,11 @@ struct StageWindow: View {
         // whatever had been edited since.
         let settings = StageCompositor.settings()
         let asset = playingAsset
-        let edit = timeline.edit
+        // **The range is applied here, at the export, and nowhere else.** `timeline.edit` is
+        // still what the preview plays: a marked section is a choice about one export, not an
+        // edit to the project, and hiding the rest of the recording the moment somebody marks a
+        // section would make it impossible to check the section against what surrounds it.
+        let edit = timeline.editForExport
         let mix = audioMix
         // Captured with the rest of the job, for `runExport`'s reason: a queued export runs
         // later than the view that asked for it, and reading this then would read whatever had

@@ -536,3 +536,121 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(trimmed.clips[0].speed == 2)
     }
 }
+
+/// Restricting the timeline to an in/out range — the shape "export just this part" takes.
+///
+/// Every case here is arithmetic with a known answer, which is the point of expressing a range
+/// as an edit rather than as a parameter: the property being tested is a timeline's, and
+/// timelines are exactly testable.
+@Suite struct EditTimelineRangeTests {
+    private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64(seconds * 1e9)) }
+    private func whole(_ seconds: Double) -> EditTimeline {
+        EditTimeline.whole(duration: ns(seconds))
+    }
+
+    @Test func aRangeInTheMiddleKeepsExactlyThatMuch() throws {
+        let restricted = try #require(whole(10).restricted(
+            toOutput: Int64(2e9)..<Int64(6e9)))
+        #expect(restricted.outputDuration == ns(4))
+        // And it starts at the right frame of the RECORDING, not at zero.
+        let first = try #require(restricted.clips.first)
+        #expect(first.sourceStart == ns(2))
+    }
+
+    @Test func arangeFromTheStartDoesNotNeedALeadingSplit() throws {
+        let restricted = try #require(whole(10).restricted(toOutput: 0..<Int64(3e9)))
+        #expect(restricted.outputDuration == ns(3))
+        #expect(restricted.clips.count == 1)
+        #expect(restricted.clips[0].sourceStart == ns(0))
+    }
+
+    @Test func aRangeToTheEndDoesNotNeedATrailingSplit() throws {
+        let restricted = try #require(whole(10).restricted(
+            toOutput: Int64(7e9)..<Int64(10e9)))
+        #expect(restricted.outputDuration == ns(3))
+        #expect(restricted.clips.count == 1)
+        #expect(restricted.clips[0].sourceStart == ns(7))
+    }
+
+    @Test func theWholeRangeIsTheWholeTimeline() throws {
+        let restricted = try #require(whole(10).restricted(toOutput: 0..<Int64(10e9)))
+        #expect(restricted.outputDuration == ns(10))
+        #expect(restricted.clips.count == 1)
+    }
+
+    /// **Clamped, not refused.** A person dragging an out point past the end of the video has
+    /// asked for "to the end", and a `nil` there would look like the gesture failing.
+    @Test func arangeReachingPastTheEndIsClampedToIt() throws {
+        let restricted = try #require(whole(10).restricted(
+            toOutput: Int64(8e9)..<Int64(99e9)))
+        #expect(restricted.outputDuration == ns(2))
+    }
+
+    /// Every way of selecting nothing is a named refusal rather than an empty timeline, which
+    /// would export a zero-length file and look like the export failing for some other reason.
+    ///
+    /// **A reversed range is not among them, and cannot be.** `Range` traps at construction on
+    /// `lowerBound > upperBound`, so an out point before the in point is unrepresentable rather
+    /// than refused — the type has already done that work. A first draft of this test tried to
+    /// build one and took the whole suite down with a fatal error.
+    @Test func aRangeThatSelectsNothingIsRefused() {
+        #expect(whole(10).restricted(toOutput: Int64(5e9)..<Int64(5e9)) == nil, "empty")
+        #expect(whole(10).restricted(toOutput: Int64(20e9)..<Int64(30e9)) == nil, "past the end")
+        #expect(whole(10).restricted(toOutput: Int64(-9e9) ..< Int64(-1e9)) == nil, "before the start")
+    }
+
+    /// **The load-bearing one: output time is not source time once anything has been cut.**
+    ///
+    /// A ten-second recording with the middle four seconds removed plays as six. Asking for
+    /// output 1–5 must give the second of recording 1–2 and then 6–9 — not recording 1–5, which
+    /// is what a range applied to source time would give and which would include the cut.
+    @Test func theRangeIsInOutputTimeSoAnEarlierCutHasAlreadyMovedIt() throws {
+        var timeline = whole(10)
+        timeline = try #require(timeline.split(atOutput: ns(3)))
+        timeline = try #require(timeline.split(atOutput: ns(7)))
+        let middle = try #require(timeline.clips.first { $0.sourceStart == ns(3) })
+        timeline = timeline.removing(id: middle.id)
+        #expect(timeline.outputDuration == ns(6), "the fixture is not what this test describes")
+
+        let restricted = try #require(timeline.restricted(
+            toOutput: Int64(1e9)..<Int64(5e9)))
+        #expect(restricted.outputDuration == ns(4))
+        // Two clips: the tail of the first (1–3 of the recording) and the head of the last
+        // (7–9). If the range had been read as source time this would be one clip of 1–5,
+        // which is four seconds of a recording whose 3–7 was deleted.
+        #expect(restricted.clips.count == 2,
+                "\(restricted.clips.count) clips — the cut in the middle was not honoured")
+        #expect(restricted.clips[0].sourceStart == ns(1))
+        #expect(restricted.clips[1].sourceStart == ns(7))
+    }
+
+    /// **Speed too.** A clip at 2× covers two seconds of recording per second of playback, so
+    /// the source offsets a range converts to depend on it. `split` is speed-aware and this
+    /// inherits that; a version that did its own arithmetic would have to repeat it.
+    @Test func aSpedUpClipConvertsTheRangeAtItsOwnRate() throws {
+        // Ten seconds of recording at 2× plays as five.
+        let fast = EditTimeline(clips: [EditClip(id: ClipID(rawValue: 1), sourceStart: ns(0),
+                                                 duration: ns(10), speed: 2)],
+                                nextID: ClipID(rawValue: 2))
+        #expect(fast.outputDuration == ns(5), "the fixture is not what this test describes")
+
+        // Output seconds 1–3 are recording seconds 2–6.
+        let restricted = try #require(fast.restricted(toOutput: Int64(1e9)..<Int64(3e9)))
+        #expect(restricted.outputDuration == ns(2))
+        let clip = try #require(restricted.clips.first)
+        #expect(clip.sourceStart == ns(2), "converted at 1× — the speed was ignored")
+        #expect(clip.duration == ns(4))
+        #expect(clip.speed == 2, "the restricted clip lost its speed and would play at 1×")
+    }
+
+    /// The range does not disturb what it keeps: ids survive, so anything keyed on a clip —
+    /// a selection, a zoom adjustment — still matches.
+    @Test func restrictingDoesNotRenumberTheClipsItKeeps() throws {
+        var timeline = whole(10)
+        timeline = try #require(timeline.split(atOutput: ns(5)))
+        let secondID = timeline.clips[1].id
+        let restricted = try #require(timeline.restricted(
+            toOutput: Int64(5e9)..<Int64(10e9)))
+        #expect(restricted.clips.first?.id == secondID)
+    }
+}

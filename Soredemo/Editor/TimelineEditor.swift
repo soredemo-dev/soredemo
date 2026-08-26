@@ -35,6 +35,67 @@ final class TimelineEditorModel {
     /// Where the playhead sits, in SOURCE time.
     private(set) var playhead = Nanoseconds(0)
 
+    // MARK: - the export range
+
+    /// Where an export of part of the video begins and ends, in OUTPUT time. **Both `nil` is the
+    /// ordinary case** — most exports are the whole video, and a range that defaulted to
+    /// something would make every export a decision.
+    ///
+    /// ScreenKite's article about Screen Studio lacking this describes the workaround: duplicate
+    /// the project, trim the copy, export, repeat. Once per section, with a fresh chance to trim
+    /// the wrong edge each time.
+    private(set) var inPoint: Nanoseconds?
+    private(set) var outPoint: Nanoseconds?
+
+    /// The range an export should cover, or `nil` for the whole video.
+    ///
+    /// **One end is enough.** An in point alone means "from here to the end" and an out point
+    /// alone means "from the start to here", which is what those gestures mean in every editor
+    /// that has them — requiring both would make the first keystroke do nothing.
+    var exportRange: Range<Int64>? {
+        let total = edit.outputDuration.rawValue
+        guard total > 0, inPoint != nil || outPoint != nil else { return nil }
+        let lower = max(inPoint?.rawValue ?? 0, 0)
+        let upper = min(outPoint?.rawValue ?? total, total)
+        guard lower < upper else { return nil }
+        // The whole video is not a range: an in point dragged back to zero has been cancelled,
+        // and reporting a range there would put "1 of 1 sections" in the export sheet forever.
+        guard lower > 0 || upper < total else { return nil }
+        return lower..<upper
+    }
+
+    /// The timeline an export should render — the edit, restricted to the range if there is one.
+    ///
+    /// **The preview keeps playing the whole video.** A range is a choice about one export, not
+    /// an edit to the project: hiding the rest of the recording the moment somebody marks a
+    /// section would make it impossible to check the section against what surrounds it.
+    var editForExport: EditTimeline {
+        guard let range = exportRange else { return edit }
+        return edit.restricted(toOutput: range) ?? edit
+    }
+
+    /// Sets the in point to the playhead, or clears it if it is already there.
+    ///
+    /// **Pressing the key again cancels**, which is how a person undoes a mark without reaching
+    /// for a menu. Clearing an out point that now sits before the in point too: leaving a pair
+    /// that selects nothing would make the export silently fall back to the whole video.
+    func markIn() {
+        if inPoint == playhead { inPoint = nil; return }
+        inPoint = playhead
+        if let out = outPoint, out.rawValue <= playhead.rawValue { outPoint = nil }
+    }
+
+    func markOut() {
+        if outPoint == playhead { outPoint = nil; return }
+        outPoint = playhead
+        if let into = inPoint, into.rawValue >= playhead.rawValue { inPoint = nil }
+    }
+
+    func clearExportRange() {
+        inPoint = nil
+        outPoint = nil
+    }
+
     /// Bumped only when a PERSON moved the playhead, and what the preview seeks on.
     ///
     /// **Playback has to be able to move the playhead without moving the player.** The seek used
@@ -572,6 +633,8 @@ struct TimelineEditor: View {
             //
             // An overlay rather than a row in the stack: it has to cross the lane gaps, and it
             // must not take a hit test away from the strip underneath it.
+            // Under the playhead, which must stay readable over it.
+            .overlay(alignment: .topLeading) { exportRangeShade(duration: duration) }
             .overlay(alignment: .topLeading) { playheadLine(duration: duration) }
         } else {
             Text("Loading the recording…").foregroundStyle(.secondary).font(Type.detail)
@@ -582,6 +645,43 @@ struct TimelineEditor: View {
     ///
     /// Offset by the header column, because the lanes' content starts there — the same one
     /// number every lane uses, so this cannot drift away from the strips it is measuring.
+    /// The marked export range: the parts that will NOT be written, dimmed.
+    ///
+    /// **Dimming what is excluded rather than tinting what is included.** A tint over the
+    /// selection competes with the clips, the zoom blocks and the waveform, all of which are
+    /// already colour; taking light away from the rest says the same thing and reads instantly
+    /// even on a dense timeline. Screen recorders and NLEs alike settle on this.
+    @ViewBuilder private func exportRangeShade(duration: Nanoseconds) -> some View {
+        if let range = model.exportRange {
+            GeometryReader { proxy in
+                // The same origin arithmetic the playhead uses, and for the same reason — the
+                // header AND the gap after it, not the header alone.
+                let contentOrigin = Self.headerWidth + Space.snug
+                let track = max(proxy.size.width - contentOrigin, 1)
+                let start = fraction(Nanoseconds(range.lowerBound), of: duration) * track
+                let end = fraction(Nanoseconds(range.upperBound), of: duration) * track
+                ZStack(alignment: .topLeading) {
+                    // **Every offset starts at `contentOrigin`.** The lead-in shade had none in
+                    // its first version and covered the lane headers, which are outside the
+                    // strip and are not part of any range.
+                    Rectangle().fill(Theme.Ink.primary.opacity(0.45))
+                        .frame(width: max(start, 0))
+                        .offset(x: contentOrigin)
+                    Rectangle().fill(Theme.Ink.primary.opacity(0.45))
+                        .frame(width: max(track - end, 0))
+                        .offset(x: contentOrigin + end)
+                    // The edges themselves, so a range whose ends are near the strip's own is
+                    // still findable.
+                    Rectangle().fill(Theme.accent).frame(width: 2)
+                        .offset(x: contentOrigin + start)
+                    Rectangle().fill(Theme.accent).frame(width: 2)
+                        .offset(x: contentOrigin + end - 2)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
     @ViewBuilder private func playheadLine(duration: Nanoseconds) -> some View {
         GeometryReader { proxy in
             // **The header AND the gap after it.** `lane` is `HStack(spacing: Space.snug)` with
@@ -1189,6 +1289,16 @@ struct TimelineEditor: View {
             Button("Delete clip") { model.deleteSelectedClip(); onChange() }
                 .disabled(model.selectedClip == nil)
                 .keyboardShortcut(.delete, modifiers: [])
+            // `I` and `O` unmodified — the spelling every editor that has in and out points
+            // uses, and the one ScreenKite's own guide documents. No modifier for the same
+            // reason `S` has none: these are session keys, not commands.
+            Button("Mark in") { model.markIn() }
+                .keyboardShortcut("i", modifiers: [])
+            Button("Mark out") { model.markOut() }
+                .keyboardShortcut("o", modifiers: [])
+            Button("Clear range") { model.clearExportRange() }
+                .disabled(model.inPoint == nil && model.outPoint == nil)
+                .keyboardShortcut("i", modifiers: [.option])
             Button("Undo") { model.undo(); onChange() }
                 .disabled(!model.canUndo)
                 .keyboardShortcut("z", modifiers: .command)
