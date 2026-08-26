@@ -39,6 +39,9 @@ macOS 26 · Swift 6.4 · Apple Silicon · local by default · MIT
 **Person returning to this repo:** [`docs/PRODUCT.md`](docs/PRODUCT.md) for why, then
 [`ROADMAP.md`](ROADMAP.md) for what is next.
 
+**Person arriving for the first time, to contribute:** [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to
+build it, the four gates, and the handful of standards that will otherwise surprise you in review.
+
 ---
 
 ## The documents
@@ -51,6 +54,8 @@ macOS 26 · Swift 6.4 · Apple Silicon · local by default · MIT
 | [`docs/FEATURES.md`](docs/FEATURES.md) | **Every feature and the Apple framework behind it.** Four pillars: record, edit, launch video, CLI + agent |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Eight binding decisions (D1–D8) and the module map |
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **How to contribute.** Build, the four gates in order, the house standards, and what will be declined |
+| [`docs/research/competitors.md`](docs/research/competitors.md) | Every feature of Screen Studio, a Rust recorder, Motionik, Borumi and ScreenKite against this codebase, verified file by file — and the ranked gap list |
 
 `docs/design/` holds one document per phase — the questions asked, the alternatives rejected, and
 why. Those are the durable record of *why*; `git log` is the rest.
