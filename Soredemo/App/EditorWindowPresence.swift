@@ -8,6 +8,19 @@ import AppKit
 /// The policy is switched rather than chosen once, so each surface gets the one it needs.
 @MainActor
 enum EditorWindowPresence {
+    /// **`LSUIElement` stays, and an experiment is why.**
+    ///
+    /// It was removed on 2026-08-26 on the reasoning that a UIElement app's windows cannot go
+    /// full screen, which is what `WindowConfigurator`'s header claimed and what the folklore
+    /// says. Two measurements killed that. First, the app still reported
+    /// `type="UIElement"` to LaunchServices with the flag gone, because this very function
+    /// makes it one a moment later — the flag was not what decided the process's type. Second,
+    /// an isolated AppKit app entered full screen under EVERY policy, `.accessory` included.
+    /// So the flag was neither the cause nor a cost worth paying to remove, and putting it back
+    /// is cheaper than a launch that shows a Dock tile for a frame.
+    ///
+    /// What was actually missing is the row in the green button's menu, which no app controls.
+    /// `StageWindow` offers the command on ⌃⌘F instead.
     static func willOpen() {
         NSApp.setActivationPolicy(.regular)
     }

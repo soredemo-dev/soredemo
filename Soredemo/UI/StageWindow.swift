@@ -517,6 +517,27 @@ struct StageWindow: View {
                     .disabled(player == nil)
             }
             ToolbarItem { ExportQueueButton() }
+            // **Full screen, because the green button does not offer it here.**
+            //
+            // Measured in an isolated app on 2026-08-26: `toggleFullScreen(_:)` enters full
+            // screen under EVERY activation policy — `.regular`, `.accessory`, and accessory
+            // switched to regular — so the folklore that an accessory app cannot go full screen
+            // is wrong, at least on this system. What is genuinely missing is the row in the
+            // green button's own menu, which this app does not control.
+            //
+            // So the command is offered directly, which is what `../opensource/…/a native editor`
+            // does: its `MainMenu` adds an explicit "Enter Full Screen" wired to
+            // `NSWindow.toggleFullScreen(_:)` rather than relying on the button. ⌃⌘F is the
+            // system's own shortcut for it, so the keystroke a person already knows works.
+            ToolbarItem {
+                Button {
+                    (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
+                } label: {
+                    Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+                .keyboardShortcut("f", modifiers: [.control, .command])
+                .help("Enter Full Screen (\u{2303}\u{2318}F)")
+            }
             ToolbarItem {
                 Button {
                     isReviewShown.toggle()

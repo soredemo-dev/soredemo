@@ -20,15 +20,26 @@ import SwiftUI
 /// `updateNSView` re-asserts afterwards so a later reset is undone on the next SwiftUI update
 /// rather than lasting for the session.
 ///
-/// **What is measured and what is not, stated because the difference matters here.** Measured:
-/// the two collection-behaviour flags do not conflict; the one-shot pattern holds in an isolated
-/// SwiftUI `Window` scene (`fullScreenPrimary=true` at 0 ms, 800 ms and 2 s); this app sets no
-/// activation policy and has no `LSUIElement`, so it is not an accessory app, whose windows
-/// genuinely cannot go full screen. NOT isolated: why the green button was still showing "+" in
-/// a running build. `sizeGenerouslyOnFirstOpen` below runs from the same `async` the flags did
-/// and demonstrably reached its window, so "the window was nil" cannot be the whole story. The
-/// change here is correct under either cause and costs nothing under neither; it wants a person
-/// to confirm on a fresh build rather than a claim from me that it is fixed.
+/// **The green button still does not offer full screen, and 2026-08-26 established why not.**
+///
+/// This paragraph used to say: "this app sets no activation policy and has no `LSUIElement`, so
+/// it is not an accessory app, whose windows genuinely cannot go full screen." Both halves were
+/// false and neither had been checked. `INFOPLIST_KEY_LSUIElement = YES` sat in both build
+/// configurations of the pbxproj, and `EditorWindowPresence` has always switched the policy —
+/// `.regular` when an editor opens, `.accessory` when the last one closes.
+///
+/// The conclusion drawn from those false premises was false too, and an isolated experiment is
+/// what settled it: a bare AppKit app that calls `toggleFullScreen(_:)` on a window carrying
+/// `.fullScreenPrimary` ENTERS FULL SCREEN under every policy — `.regular`, `.accessory`, and
+/// accessory switched to regular — all three reporting `didEnterFullScreenNotification` and a
+/// `.fullScreen` style mask. So an accessory app's windows can go full screen; the folklore is
+/// wrong on this system, and the flags below are not the thing that was missing.
+///
+/// What remains missing is the ROW in the green button's own menu, which an app does not
+/// control. `StageWindow` offers the command directly instead — a toolbar button on ⌃⌘F, which
+/// is what `../opensource/…/a native editor` does with its own `MainMenu` item rather than relying
+/// on the button. The flags here stay: they are what make the window full-screen-capable at
+/// all, which is the half `toggleFullScreen` needs.
 struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> AttachedView { AttachedView() }
 
