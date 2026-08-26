@@ -103,6 +103,18 @@ struct SettingsWindow: View {
             Text("The pause before capture starts. It is also what hides a camera's first "
                  + "second, which is a dark frame settling.")
                 .font(Type.detail).foregroundStyle(.secondary)
+
+            Toggle("Hide desktop icons", isOn: Binding(
+                get: { coordinator.hidesDesktopIcons },
+                set: { coordinator.hidesDesktopIcons = $0 }))
+            // **The cost is on screen, not in a header nobody reads.** This is the only setting
+            // in the app that restarts another application, and somebody who has Finder windows
+            // open is owed that fact before they turn it on rather than after.
+            Text("Your files stay where they are — only the drawing stops. Turning this on "
+                 + "restarts Finder, which closes any Finder windows you have open. The icons "
+                 + "come back when the recording ends, and also if Soredemo is quit or crashes "
+                 + "while one is running.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("Sources") {
             Picker("Microphone", selection: Binding(

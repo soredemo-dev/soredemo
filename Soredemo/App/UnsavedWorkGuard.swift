@@ -79,6 +79,13 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
     /// Registers the global shortcut and takes the Dock icon away again once the last editor
     /// closes — see `GlobalHotkey` and `EditorWindowPresence`.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // **First, before anything else this app does.** If a previous run hid the desktop's
+        // icons and then died — crashed, was force-quit, lost power — the icons are still hidden
+        // and nothing else will ever put them back. `DesktopIcons.restore()` does nothing unless
+        // a debt was recorded, so this is free on every ordinary launch and is the only thing
+        // that pays for the one launch in a thousand where it is not.
+        DesktopIcons.restore()
+
         // No `MainActor.assumeIsolated` here. This target builds with
         // `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so this delegate method already IS
         // main-actor isolated and the assertion would be ceremony — and asserting isolation a
@@ -99,6 +106,16 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
                 // `NSApp.windows` while the notification is being delivered.
                 Task { @MainActor in EditorWindowPresence.windowClosed() }
             }
+    }
+
+    /// **The icons come back before the app goes away.** Quitting mid-recording is a normal
+    /// thing to do, and `stopRecording`'s restore never runs on that path.
+    ///
+    /// `applicationWillTerminate` rather than `applicationShouldTerminate`: the latter can return
+    /// `.terminateCancel`, and restoring the desktop for a quit that then does not happen would
+    /// un-hide the icons in the middle of the recording the person just decided to keep making.
+    func applicationWillTerminate(_ notification: Notification) {
+        DesktopIcons.restore()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

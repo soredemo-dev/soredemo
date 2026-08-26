@@ -6441,6 +6441,56 @@ enum CrossBoundaryProbe {
               """,
               actual: "\(sameContentAsPrevious) of \(hashes.count - 1)",
               expected: "more than half")
+
+        // MARK: - 19. hiding the desktop's icons, without hiding anybody's desktop
+
+        print("")
+        print("19. DesktopIcons — the read side, exercised; the write side, deliberately not")
+        print("19.1-19.3 the only app file a gate may not fully execute, and why")
+
+        // **This section runs no `hide()` and no `restore()` that does anything.** Both restart
+        // Finder, which closes the Finder windows of whoever is running the gates — every gate
+        // run, on a developer machine, for a check. That price is not worth paying, so the
+        // destructive half was verified once, by hand, against this same source file:
+        //
+        //     start    pref=absent  visible=true   owed=false  finder=14693
+        //     hidden   pref=0       visible=false  owed=true   finder=29860
+        //     hide x2  pref=0       owed=true          (the double-hide guard holds)
+        //     restored pref=absent  visible=true   owed=false  finder=29910
+        //     restore2 pref=absent  owed=false         (idempotent)
+        //
+        // What remains is everything checkable without touching anything: that the type reads
+        // the real preference rather than a cached idea of it, that a clean machine owes
+        // nothing, and — the one that matters — that `restore()` with no debt is genuinely
+        // inert. The ordering is covered by the scans in `AppSourceAllowListTests`.
+
+        let finderBefore = NSRunningApplication
+            .runningApplications(withBundleIdentifier: "com.apple.finder")
+            .map(\.processIdentifier).sorted()
+        let rawPreference = CFPreferencesCopyAppValue("CreateDesktop" as CFString,
+                                                      "com.apple.finder" as CFString)
+        let preferenceSaysVisible = (rawPreference as? NSNumber)?.boolValue ?? true
+        check(DesktopIcons.areVisible == preferenceSaysVisible,
+              "19.1 areVisible answers from Finder's own live preference, absent meaning visible",
+              actual: "\(DesktopIcons.areVisible)", expected: "\(preferenceSaysVisible)")
+
+        // A gate machine has never hidden anything through this app; a debt here means an
+        // earlier run hid the desktop and never put it back.
+        check(!DesktopIcons.restoreIsOwed,
+              "19.2 no restore is owed before anything asked for one",
+              actual: "\(DesktopIcons.restoreIsOwed)", expected: "false")
+
+        // **The inertness check.** `restore()` runs at launch on every single start of the app,
+        // so a version that acted unconditionally would restart the user's Finder every time
+        // they opened Soredemo. Finder's process ids are what prove it did nothing.
+        DesktopIcons.restore()
+        try await Task.sleep(for: .seconds(DesktopIcons.relaunchGrace + 1))
+        let finderAfter = NSRunningApplication
+            .runningApplications(withBundleIdentifier: "com.apple.finder")
+            .map(\.processIdentifier).sorted()
+        check(finderAfter == finderBefore,
+              "19.3 restore() with no debt restarts nothing, so launching the app is free",
+              actual: "\(finderAfter)", expected: "\(finderBefore)")
     }
 }
 

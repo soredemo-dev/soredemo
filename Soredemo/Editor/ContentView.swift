@@ -242,6 +242,17 @@ final class RecordingCoordinator {
     /// window they have already arranged is not waiting three seconds for it.
     static let countdownChoices = [0, 3, 5, 10]
 
+    /// Whether the desktop's icons are hidden for the duration of a recording.
+    ///
+    /// **Off by default, and it is the cost that decides that.** Restarting Finder closes the
+    /// Finder windows somebody has open, which is a real interruption to make on their behalf
+    /// without being asked. A person who wants a clean desktop in their demos asks once, in
+    /// Settings, and gets it every time — the same shape as the countdown.
+    var hidesDesktopIcons: Bool {
+        didSet { UserDefaults.standard.set(hidesDesktopIcons, forKey: Self.hidesDesktopIconsKey) }
+    }
+    static let hidesDesktopIconsKey = "hidesDesktopIcons"
+
     // **All four preference keys are `internal`, not `private`, and the reason is compatibility
     // rather than testing convenience.** A persisted key is part of what the app promises across
     // versions: rename one and every existing user's preference silently reverts to its default
@@ -292,6 +303,9 @@ final class RecordingCoordinator {
         // has never been set, and 0 means "off" here — so a first launch would silently ship
         // with no countdown, which is the opposite of the default this chose.
         countdownSeconds = UserDefaults.standard.object(forKey: Self.countdownKey) as? Int ?? 3
+        // Absent means off, which `bool(forKey:)` already answers — no `object(forKey:)` dance
+        // is needed for a preference whose default is the same as its zero value.
+        hidesDesktopIcons = UserDefaults.standard.bool(forKey: Self.hidesDesktopIconsKey)
         // Same reasoning as the countdown's default: `integer(forKey:)` answers 0 for a key
         // never set, and 0 is not a frame rate.
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
@@ -538,6 +552,12 @@ final class RecordingCoordinator {
             }
         }
 
+        // **Hidden before the countdown, not after it.** Finder takes a moment to come back
+        // and redraw, and a desktop whose icons vanish during the first second of the take is
+        // worse than one that never hid them. Counting down over an already-clean desktop also
+        // lets the person SEE that it worked before anything is recorded.
+        if hidesDesktopIcons { DesktopIcons.hide() }
+
         // **Counted before the session starts, not after.** A countdown that ran while the
         // capture was already recording would put itself in the first three seconds of the file.
         await CountdownPresenter.shared.run(seconds: countdownSeconds)
@@ -597,6 +617,11 @@ final class RecordingCoordinator {
                 statusText = "The camera could not be recorded. The screen recording is fine."
             }
         }
+        // **Restored unconditionally, not `if hidesDesktopIcons`.** The preference can be turned
+        // off DURING a recording that hid them, and reading it here would then strand the icons.
+        // `restore()` decides for itself, from the debt it recorded when it hid them.
+        DesktopIcons.restore()
+
         guard let session else { return }
         isRecording = false
         isPaused = false

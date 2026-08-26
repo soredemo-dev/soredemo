@@ -113,6 +113,7 @@ xcrun swiftc \
   Soredemo/DesignSystem/DesignTokens.swift \
   Soredemo/Editor/ContentView.swift \
   Soredemo/Recording/CameraSelfView.swift \
+  Soredemo/Recording/DesktopIcons.swift \
   Soredemo/DesignSystem/SystemCursorShape.swift \
   Soredemo/Recording/CountdownPanel.swift \
   Soredemo/Recording/RecordingBar.swift \

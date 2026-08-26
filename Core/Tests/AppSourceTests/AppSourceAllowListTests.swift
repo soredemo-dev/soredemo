@@ -1143,3 +1143,150 @@ func firstPartySourceFiles() throws -> [URL] {
         then offers tiling and nothing else. Size the window from `WindowConfigurator` instead.
         """)
 }
+
+// MARK: - Hiding the desktop's icons: the obligation, and the four ways it can be dropped
+
+/// The one file allowed to write another application's preferences and kill its process.
+private let theOnlyDesktopIconsFile = "Soredemo/Recording/DesktopIcons.swift"
+
+private func desktopIconsFile() throws -> [URL] {
+    let files = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == theOnlyDesktopIconsFile }
+    try #require(files.count == 1, """
+        \(theOnlyDesktopIconsFile) is not where these scans name it. A rename has to move the \
+        name with it rather than turning four checks off at once.
+        """)
+    return files
+}
+
+/// **The debt is recorded before the write that creates it, and cleared after the restore that
+/// pays it.** Both orderings are the same ordering, and this project has already shipped it
+/// backwards once: `editorFirstOpenSizeApplied` was written before the frame it was recording,
+/// so anything failing in between spent a courtesy that had never been given.
+///
+/// Backwards here is worse than a window opening small. Setting the flag after the preference
+/// write leaves a window in which the desktop is hidden and nothing knows a restore is owed;
+/// clearing it before the restore forgets an obligation that has not been met. Either way
+/// somebody is left with a Mac whose desktop icons are gone and no way to connect that to a
+/// screen recorder they used yesterday.
+@Test func theDesktopIconDebtIsRecordedBeforeTheWriteAndClearedAfterTheRestore() throws {
+    let files = try desktopIconsFile()
+    let text = try String(contentsOf: files[0], encoding: .utf8)
+    let lines = SwiftSourceLexer.codeViewLines(of: text)
+    func firstLine(containing needle: String, after start: Int = 0) throws -> Int {
+        let index = lines.dropFirst(start).firstIndex { $0.contains(needle) }
+        return try #require(index, "no code line contains \(needle) in \(theOnlyDesktopIconsFile)")
+    }
+    // hide(): the flag goes down before the preference is written.
+    let owedSet = try firstLine(containing: "set(true, forKey: owedKey)")
+    let hidWritten = try firstLine(containing: "false as CFBoolean")
+    #expect(owedSet < hidWritten, """
+        DesktopIcons writes CreateDesktop at line \(hidWritten + 1) before recording the debt at \
+        line \(owedSet + 1). A crash in between hides the desktop with nothing left that knows to \
+        put it back.
+        """)
+    // restore(): the flag is cleared after the restart, not before it.
+    let restart = try firstLine(containing: "restartFinder()", after: hidWritten + 1)
+    let owedCleared = try firstLine(containing: "removeObject(forKey: owedKey)")
+    #expect(restart < owedCleared, """
+        DesktopIcons clears the debt at line \(owedCleared + 1) before restoring at line \
+        \(restart + 1). A failure in between forgets an obligation that was never met, and the \
+        next launch will not retry it.
+        """)
+}
+
+/// **`SIGTERM`, never `terminate()` — and the wrong one leaves a Mac with no Finder.**
+///
+/// Measured 2026-08-27: `NSRunningApplication.terminate()` sends a polite `quit` Apple Event,
+/// Finder honours it as a genuine quit, and launchd does NOT bring it back — no Finder after
+/// six seconds. `kill(pid, SIGTERM)` is an unclean exit as far as launchd is concerned and
+/// Finder was back in 0.25 s.
+///
+/// This is banned rather than commented because `terminate()` is the tidier-looking call and
+/// "replace the raw `kill` with the Cocoa API" is exactly the change somebody makes while
+/// cleaning up, with no way to discover what it broke short of quitting their own Finder.
+@Test func theDesktopIconsRestartUsesASignalRatherThanAPoliteQuit() throws {
+    let files = try desktopIconsFile()
+    let polite = try codeLinesNaming(".terminate()", in: files)
+    #expect(polite.isEmpty, """
+        DesktopIcons calls terminate() at \(polite.map(\.location).joined(separator: ", ")). \
+        A polite quit is one launchd does not undo: measured, no Finder six seconds later. \
+        Use kill(pid, SIGTERM), which is what `killall Finder` sends and what launchd restarts.
+        """)
+    let signalled = try codeLinesNaming("SIGTERM", in: files)
+    #expect(!signalled.isEmpty, """
+        DesktopIcons no longer sends SIGTERM, so nothing restarts Finder and the preference it \
+        just wrote is one Finder will not read until the next time it happens to relaunch.
+        """)
+}
+
+/// **Three restores, because a recording ends in three different ways.** One when it stops, one
+/// when the app quits — quitting mid-recording is ordinary — and one at launch, which is the
+/// only thing that ever pays for a crash or a power cut.
+///
+/// Losing any one of them is invisible in every ordinary test: the icons come back, because one
+/// of the other two got there. It shows up only on the path that was dropped, on somebody's real
+/// machine, hours later.
+@Test func theDesktopIsRestoredWhenARecordingStopsAndWhenTheAppLaunchesAndQuits() throws {
+    let all = try appSourceFiles()
+    let calls = try codeLinesNaming("DesktopIcons.restore()", in: all)
+    let places = Set(calls.map { $0.location.split(separator: ":").first.map(String.init) ?? "" })
+    #expect(places.contains("Soredemo/Editor/ContentView.swift"), """
+        Nothing restores the desktop when a recording stops. Calls found: \(places.sorted()).
+        """)
+    #expect(places.contains("Soredemo/App/UnsavedWorkGuard.swift"), """
+        Nothing restores the desktop at launch or on quit — the launch call is the only thing \
+        that ever recovers from a crash mid-recording. Calls found: \(places.sorted()).
+        """)
+    let delegate = all.filter {
+        pathRelativeToRepositoryRoot($0) == "Soredemo/App/UnsavedWorkGuard.swift"
+    }
+    try #require(delegate.count == 1)
+    let launch = try codeLinesNaming("applicationDidFinishLaunching", in: delegate)
+    let quit = try codeLinesNaming("applicationWillTerminate", in: delegate)
+    #expect(!launch.isEmpty && !quit.isEmpty, """
+        The delegate has \(launch.count) launch hooks and \(quit.count) terminate hooks. Both are \
+        needed: launch pays for a crash, terminate pays for a quit taken mid-recording.
+        """)
+    // **`applicationWillTerminate`, not `applicationShouldTerminate`.** The latter can answer
+    // `.terminateCancel`, and restoring for a quit that is then cancelled un-hides the desktop
+    // in the middle of the recording the person just decided to keep.
+    //
+    // **The line numbers are only meaningful against the file they came from.** A first draft
+    // took every restore call across the app and indexed the delegate's lines with them, so a
+    // call in ContentView.swift was resolved against whatever happened to be at that line
+    // number here — which reported a violation that did not exist.
+    let delegateLines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: delegate[0], encoding: .utf8))
+    let shouldTerminateRestores = try codeLinesNaming("DesktopIcons.restore()", in: delegate)
+        .contains { call in
+            guard let line = Int(call.location.split(separator: ":").last ?? "") else { return false }
+            // The nearest enclosing func declaration above the call.
+            return delegateLines.prefix(line).reversed()
+                .first { $0.contains("func application") }?
+                .contains("applicationShouldTerminate") ?? false
+        }
+    #expect(!shouldTerminateRestores, """
+        The desktop is restored from applicationShouldTerminate, which can answer \
+        .terminateCancel — that un-hides the icons in the middle of a recording somebody just \
+        chose to keep making. Restore from applicationWillTerminate.
+        """)
+}
+
+/// **Hiding twice would overwrite the real prior value with this app's own.** `hide()` refuses
+/// when a restore is already owed, and without that refusal the second call records "the
+/// desktop was hidden" as the state to return to — which is a Mac whose icons never come back.
+@Test func hidingTheDesktopTwiceCannotOverwriteWhatItPromisedToRestore() throws {
+    let files = try desktopIconsFile()
+    let text = try String(contentsOf: files[0], encoding: .utf8)
+    let lines = SwiftSourceLexer.codeViewLines(of: text)
+    let hideStart = try #require(lines.firstIndex { $0.contains("static func hide()") },
+                                 "DesktopIcons.hide() is gone, and these scans are about it")
+    let guarded = lines.dropFirst(hideStart).prefix(4).contains {
+        $0.contains("restoreIsOwed") && ($0.contains("guard") || $0.contains("return"))
+    }
+    #expect(guarded, """
+        DesktopIcons.hide() no longer refuses when a restore is already owed. The second call \
+        records the hidden state as the state to restore to, and the icons never come back.
+        """)
+}
