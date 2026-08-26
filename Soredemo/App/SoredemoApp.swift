@@ -121,6 +121,11 @@ struct SoredemoApp: App {
         // be a second set of models over the same `StageCompositor` statics — which are
         // process-global because AVFoundation owns compositor instances, and would therefore
         // disagree between the two windows.
+        // **A default size, because a `Window` scene's default is the content's own.** An
+        // editor is a preview, a timeline and an inspector at once and none of those three is
+        // what SwiftUI sizes to; the result was a window whose timeline had no length. This is
+        // the size before `sizeGenerouslyOnFirstOpen` gets a screen to measure — a floor for
+        // the first frame rather than the answer, which is why it is not a share of anything.
         Window("Soredemo", id: WindowID.editor) {
             ContentView(coordinator: recordingCoordinator)
                 // `SCContentSharingPicker.present()` hands off to Control
@@ -136,6 +141,11 @@ struct SoredemoApp: App {
                     }
                 }
         }
+        .defaultSize(width: 1400, height: 900)
+        // `.contentMinSize`: the floor comes from the content, the ceiling from nothing — so the
+        // editor resizes freely and can go full screen. `.contentSize`, which the Permissions
+        // window uses, would pin it to its content and make it neither.
+        .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
         .commands {

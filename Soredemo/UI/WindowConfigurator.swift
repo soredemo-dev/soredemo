@@ -87,14 +87,27 @@ struct WindowConfigurator: NSViewRepresentable {
 /// way — which this project has already done once, with the status item's position. It is also
 /// why this is not `viewDidMoveToWindow`'s job: that fires on every open, and the guard rather
 /// than the hook is what makes the size a first-run courtesy instead of a policy.
+///
+/// **The flag is written AFTER the frame is set, and it was written before.** That ordering is
+/// the whole defect: the old code marked the courtesy spent, then registered a notification
+/// observer to do the sizing later. Anything between the two — the window having no screen yet,
+/// the notification not arriving, the app being quit — burnt the flag with nothing to show for
+/// it, and "once ever" then meant never. Measured on this machine on 2026-08-26:
+/// `editorHasBeenSizedGenerously` was `1` while the editor still opened small enough that its
+/// own timeline had no length, which is the state the flag exists to prevent.
+///
+/// **A new key, and that is the migration.** The old one recorded "we tried"; this one records
+/// "a frame was applied". Anyone whose flag was burnt by the old ordering gets the courtesy
+/// once, which is what they were supposed to get the first time. Anyone who has genuinely sized
+/// their editor keeps their size, because AppKit restores the autosaved frame and this only
+/// fires when the new key is absent — one open, not every open.
 private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
     // A floor regardless, so the editor cannot be restored or dragged into a size where the
     // timeline has no length. AppKit enforces it from here on.
     window.minSize = NSSize(width: 1000, height: 680)
 
-    let key = "editorHasBeenSizedGenerously"
+    let key = "editorFirstOpenSizeApplied"
     guard !UserDefaults.standard.bool(forKey: key) else { return }
-    UserDefaults.standard.set(true, forKey: key)
 
     // **After the window has become key, not here.** `makeNSView` runs while the hierarchy is
     // still being assembled, and AppKit restores an autosaved frame somewhere after that — a
@@ -115,6 +128,9 @@ private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
             // caller's thread — the queue was named at registration.
             MainActor.assumeIsolated {
                 if let token = holder.token { NotificationCenter.default.removeObserver(token) }
+                // **Returning without setting the flag is deliberate.** No screen means no frame
+                // to compute, and the courtesy is still owed — burning it here is exactly the
+                // defect this ordering was changed to fix.
                 guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
                 // Most of the screen, with enough left over that the window still reads as a
                 // window and whatever is behind it can still be grabbed.
@@ -124,6 +140,8 @@ private func sizeGenerouslyOnFirstOpen(_ window: NSWindow) {
                                        y: visible.minY + (visible.height - height) / 2,
                                        width: width, height: height),
                                 display: true, animate: true)
+                // Spent, now that it has actually been spent.
+                UserDefaults.standard.set(true, forKey: key)
             }
         }
 }
