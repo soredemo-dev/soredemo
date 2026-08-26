@@ -330,11 +330,6 @@ struct StageWindow: View {
             .animation(.easeOut(duration: 0.18), value: isTimelineCollapsed)
         }
         .background(Theme.Surface.base)
-        // **Full screen, which the green button was not offering.** An `NSWindow` only shows
-        // "Enter Full Screen" when its collection behaviour says it can be a full-screen
-        // primary; without it the button offers tiling and nothing else, which is the menu you
-        // saw. Applied from a view because the scene has no hook for it.
-        .background(WindowConfigurator())
         // **Pinned to dark.** Chrome around a picture shifts how its colours read: a light
         // surround makes a recording look darker and less saturated than it is, so a person
         // grading a background gradient in a light window is judging it wrong. Every editor in

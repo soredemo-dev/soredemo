@@ -126,7 +126,35 @@ struct SoredemoApp: App {
         // what SwiftUI sizes to; the result was a window whose timeline had no length. This is
         // the size before `sizeGenerouslyOnFirstOpen` gets a screen to measure — a floor for
         // the first frame rather than the answer, which is why it is not a share of anything.
-        Window("Soredemo", id: WindowID.editor) {
+        // **`WindowGroup`, not `Window`, and it is the green button that forced it.**
+        //
+        // Measured 2026-08-27 by logging the editor window's own `collectionBehavior` from
+        // inside a running build, at attach and three seconds later:
+        //
+        //     Window       131330 = auxiliary | fullScreenAuxiliary | moveToActiveSpace
+        //     WindowGroup   65666 = primary   | fullScreenPrimary   | moveToActiveSpace
+        //
+        // SwiftUI classifies a `Window` scene as AUXILIARY, and an auxiliary window gets
+        // `fullScreenAuxiliary` — "may join another app's full-screen space" — rather than
+        // `fullScreenPrimary`. The green button reads the latter, so it offered tiling and
+        // nothing else. `WindowConfigurator` inserted `fullScreenPrimary` and SwiftUI stripped
+        // it again within three seconds, which is why every earlier attempt looked like it had
+        // worked and had not.
+        //
+        // Both Swift reference projects land on a primary window for their editor:
+        // `../opensource/…/a Swift recorder` uses `WindowGroup`, and
+        // `../opensource/…/a native editor` manages its own `NSWindowController`. Neither
+        // uses a `Window` scene.
+        //
+        // **The single-window rule the old comment gave is kept, by hand.** It said: one
+        // recording is open at a time, so a second window would be a second set of models over
+        // the same `StageCompositor` statics — which are process-global because AVFoundation
+        // owns compositor instances, and would disagree between two windows. That is still
+        // true. `WindowGroup` permits a second window rather than requiring one, and
+        // `EditorWindowPresence.openEditor` refuses to make one: it brings the existing window
+        // forward instead. a native editor's `HomeWindowController.shared` is the same arrangement
+        // with AppKit's own vocabulary.
+        WindowGroup("Soredemo", id: WindowID.editor) {
             ContentView(coordinator: recordingCoordinator)
                 // `SCContentSharingPicker.present()` hands off to Control
                 // Center's UI and needs a running run loop to call back into,

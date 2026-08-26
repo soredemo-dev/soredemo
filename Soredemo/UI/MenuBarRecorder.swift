@@ -56,9 +56,7 @@ struct MenuBarRecorderLabel: View {
         // page. Both had been dead since the scene was removed.
         .onChange(of: coordinator.mediaURL) {
             guard coordinator.mediaURL != nil else { return }
-            EditorWindowPresence.willOpen()
-            openWindow(id: WindowID.editor)
-            NSApp.activate(ignoringOtherApps: true)
+            EditorWindowPresence.openEditor { openWindow(id: $0) }
         }
         // **First run opens the permission page.** Not every run: a person who has granted
         // everything is greeted by nothing, which is the correct amount of greeting. The check

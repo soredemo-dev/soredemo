@@ -21,6 +21,28 @@ enum EditorWindowPresence {
     ///
     /// What was actually missing is the row in the green button's menu, which no app controls.
     /// `StageWindow` offers the command on ⌃⌘F instead.
+    /// Opens the editor, or brings the one that exists forward.
+    ///
+    /// **`WindowGroup` permits a second window and this is what refuses one.** The scene had to
+    /// become a group so its window would be full-screen capable — see `SoredemoApp` for the
+    /// measurement — and a group's `openWindow(id:)` makes a NEW window every call. Two editors
+    /// would be two sets of models over one set of process-global `StageCompositor` statics,
+    /// which is the arrangement the scene was a `Window` to avoid.
+    ///
+    /// Matched on the window's `identifier`, which SwiftUI stamps from the scene's id, rather
+    /// than on the title: the title is the recording's name and changes with it.
+    static func openEditor(_ open: (String) -> Void) {
+        willOpen()
+        if let existing = NSApp.windows.first(where: {
+            $0.identifier?.rawValue.contains(WindowID.editor) == true && $0.isVisible
+        }) {
+            existing.makeKeyAndOrderFront(nil)
+        } else {
+            open(WindowID.editor)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     static func willOpen() {
         NSApp.setActivationPolicy(.regular)
     }

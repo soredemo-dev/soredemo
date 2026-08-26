@@ -48,6 +48,18 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 460)
+        // **The window's own configuration belongs at the window's root, not on `StageWindow`.**
+        //
+        // It was attached inside `StageWindow`, which this view only builds once a recording
+        // exists — so an editor opened with nothing in it never ran it at all, and one opened
+        // with a recording ran it whenever that branch appeared rather than when the window
+        // did. Measured 2026-08-27: a launch straight to an empty editor logged nothing from
+        // the configurator, because the view holding it was never in the hierarchy.
+        //
+        // What it sets — miniaturisable, resizable, full-screen capable, follows the active
+        // Space, sized generously on first open — are all properties of the WINDOW, true
+        // whether or not there is a recording in it.
+        .background(WindowConfigurator())
     }
 }
 
