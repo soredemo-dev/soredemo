@@ -138,7 +138,33 @@ public enum FramingDepth {
     /// cropped regardless of what shape it is being exported to. Feeding the shrunken extent
     /// to the clamp would let a portrait zoom crop the very control it is framing, and the
     /// clamp binds MORE often in portrait precisely because the depths are deeper there.
-    public static func zoom(for target: FramingTarget, coverage: Double) -> Double {
+    /// **How much of the derived zoom to use, as a multiplier on the AMOUNT rather than on
+    /// the depth.** 1 is what the curve decided; 0 is no zoom at all; 1.5 is half again as
+    /// much movement. `1 + (depth - 1) * intensity` rather than `depth * intensity`, because
+    /// depth 1 means "do not zoom" and multiplying it by 0.5 would give 0.5 — a zoom OUT,
+    /// showing more of the screen than the recording contains.
+    ///
+    /// ScreenKite ships exactly one dial for this ("increase zoom for detailed UI work,
+    /// decrease it where the full screen matters more") and it is the one control this
+    /// project's per-block adjustments could not stand in for: correcting forty blocks one at
+    /// a time to say "less, everywhere" is not the same act.
+    ///
+    /// **Uncalibrated**, like the rest of this file. The ceiling is 2 because past it the
+    /// curve's own `maximumZoom` binds for every realistic control and the dial stops doing
+    /// anything, which is worse than not going further.
+    public static let neutralIntensity: Double = 1
+    public static let maximumIntensity: Double = 2
+
+    public static func intensified(_ depth: Double, by intensity: Double) -> Double {
+        guard intensity.isFinite, intensity >= 0 else { return depth }
+        return 1 + (depth - 1) * min(intensity, maximumIntensity)
+    }
+
+    /// `intensity` scales the amount of zoom the curve asked for — see `intensified(_:by:)`.
+    /// **No default, for the same reason `coverage` has none**: a caller that did not think
+    /// about it is a caller whose zooms silently ignore a control a person moved.
+    public static func zoom(for target: FramingTarget, coverage: Double,
+                            intensity: Double) -> Double {
         // The LARGER dimension binds: zooming a wide, short field as if it were 24 px tall
         // would crop its ends.
         let extent = max(target.frame.size.width, target.frame.size.height)
@@ -150,6 +176,14 @@ public enum FramingDepth {
         let clamped = min(max(apparent, deepestAtExtent), shallowestAtExtent)
         let position = log(clamped / deepestAtExtent) / log(shallowestAtExtent / deepestAtExtent)
         var candidate = maximumZoom - (maximumZoom - minimumZoom) * position
+
+        // **Intensity BEFORE the context clamp and before quantisation.** Before the clamp so
+        // a dialled-up zoom still cannot crop the control it is framing — the safety bound is
+        // not a person's to turn off. Before quantisation so the result still lands on the
+        // 0.25 grid; applying it afterwards would put every depth between two steps and give
+        // the camera small pointless adjustments to animate, which is what quantising exists
+        // to prevent.
+        candidate = intensified(candidate, by: intensity)
 
         // A zero-sized target cannot arrive from `FramingGate`, which refuses one, but this
         // function is public and pure and must not hand a non-finite number to a camera.

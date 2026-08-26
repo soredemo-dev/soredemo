@@ -34,6 +34,10 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             composed = shadow.composited(over: composed)
         }
         composed = card.composited(over: composed)
+        // **After the card and before everything else.** The border belongs to the card's edge,
+        // so it must sit over the picture — but under the pointer, the captions and the camera,
+        // none of which are inside the card's frame in the sense the border describes.
+        composed = cardBorder(plan).composited(over: composed)
         // Whether to draw a pointer is `StageCompositor`'s decision, not this file's.
         if let pointer = plan.pointer {
             composed = cursorImage(for: pointer, outputHeight: plan.outputHeight,
@@ -388,6 +392,43 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return result.cropped(to: bounds)
     }
 
+    /// **A hairline light edge on the card, or nothing.**
+    ///
+    /// The ring is the difference between the card's shape and a slightly smaller one — the same
+    /// construction the camera overlay's border already uses, and for the same reason:
+    /// `CIRoundedRectangleGenerator` makes shapes rather than paths, so there is nothing for a
+    /// stroke filter to stroke.
+    ///
+    /// **Its width is a fraction of the card, floored at one pixel.** A border fixed in pixels is
+    /// invisible in a 4K export and heavy in a 720p one; a border fixed in fractions vanishes
+    /// entirely on a small card. The floor is what stops the second.
+    private func cardBorder(_ plan: RenderPlan) -> CIImage {
+        guard plan.style.borderOpacity > 0 else { return CIImage.empty() }
+        let width = max(plan.card.width * 0.0015, 1)
+        guard let outer = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+                  "inputExtent": CIVector(x: plan.card.x, y: plan.card.y,
+                                          z: plan.card.width, w: plan.card.height),
+                  "inputRadius": plan.cornerRadius,
+                  "inputColor": CIColor(red: 1, green: 1, blue: 1, alpha: plan.style.borderOpacity),
+              ])?.outputImage,
+              let inner = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+                  "inputExtent": CIVector(x: plan.card.x + width, y: plan.card.y + width,
+                                          z: plan.card.width - width * 2,
+                                          w: plan.card.height - width * 2),
+                  "inputRadius": max(plan.cornerRadius - width, 0),
+                  "inputColor": CIColor.white,
+              ])?.outputImage
+        else { return CIImage.empty() }
+        // **`CISourceOutCompositing`, and a first draft used `CIBlendWithMask` over
+        // `CIImage.empty()` and drew nothing at all** — measured, every probe across the edge
+        // identical with the border on and off. An empty image has ZERO extent, so the blend had
+        // nowhere to composite into and the whole pass evaporated silently. Source-out is the
+        // ring stated directly: the outer shape wherever the inner one is not.
+        return outer.applyingFilter("CISourceOutCompositing", parameters: [
+            kCIInputBackgroundImageKey: inner,
+        ])
+    }
+
     /// Rounded corners as a mask; a crop would give square corners.
     private func rounded(_ image: CIImage, plan: RenderPlan) -> CIImage {
         let mask = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
@@ -529,9 +570,14 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                   "inputColor": CIColor.white,
               ])?.outputImage
         else { return result }
-        let ring = outer.applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputMaskImageKey: inner.applyingFilter("CIColorInvert"),
-            kCIInputBackgroundImageKey: CIImage.empty(),
+        // **This drew nothing until 2026-08-26, and it was measured rather than noticed.** The
+        // construction was `CIBlendWithMask` over `CIImage.empty()`, which has ZERO extent: the
+        // blend had nowhere to composite into and the pass evaporated silently, so the camera's
+        // border has never appeared in any build. Found while giving the CARD the same edge and
+        // probing across it — every pixel identical with the border on and off. Source-out is
+        // the ring stated directly: the outer shape wherever the inner one is not.
+        let ring = outer.applyingFilter("CISourceOutCompositing", parameters: [
+            kCIInputBackgroundImageKey: inner,
         ])
         return ring.composited(over: result)
     }

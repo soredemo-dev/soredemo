@@ -39,7 +39,7 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
 /// chains. Overlap-only is what stops it.
 @Test func aRealisticDemoCadenceDoesNotCollapseIntoOneZoom() {
     let clicks = [1.0, 2.5, 4.2, 5.0, 5.4, 8.0].map { click($0) }
-    let blocks = ZoomBlock.blocks(for: clicks, coverage: 1)
+    let blocks = ZoomBlock.blocks(for: clicks, coverage: 1, intensity: 1)
     #expect(blocks.count == 4, """
         six clicks at a demo cadence produced \(blocks.count) block(s): \
         \(blocks.map { "[\(seconds($0.start.hostTime)), \(seconds($0.end.hostTime))]" }
@@ -52,7 +52,7 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
 /// enough that three separate zooms would be a camera twitching. This is the other half of
 /// the claim above — merging is not simply disabled.
 @Test func clicksInsideOneAnothersBlocksBecomeOneZoom() {
-    let blocks = ZoomBlock.blocks(for: [click(4.2), click(5.0), click(5.4)], coverage: 1)
+    let blocks = ZoomBlock.blocks(for: [click(4.2), click(5.0), click(5.4)], coverage: 1, intensity: 1)
     #expect(blocks.count == 1)
     #expect(abs(seconds(blocks[0].start.hostTime) - (4.2 - seconds(ZoomBlock.preRoll))) < 1e-6)
     #expect(abs(seconds(blocks[0].end.hostTime) - (5.4 + seconds(ZoomBlock.hold))) < 1e-6)
@@ -63,7 +63,7 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
 /// The camera has to ARRIVE before the thing it is showing happens: a zoom that begins at
 /// the click shows the aftermath, not the action.
 @Test func aBlockOpensBeforeItsClickAndClosesAfterIt() {
-    let blocks = ZoomBlock.blocks(for: [click(10.0)], coverage: 1)
+    let blocks = ZoomBlock.blocks(for: [click(10.0)], coverage: 1, intensity: 1)
     #expect(blocks.count == 1)
     #expect(seconds(blocks[0].start.hostTime) < 10.0)
     #expect(seconds(blocks[0].end.hostTime) > 10.0)
@@ -73,7 +73,7 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
 /// A click early enough that its pre-roll would start before the recording is clamped, not
 /// dropped and not left negative — a negative instant is not a time this project can hold.
 @Test func aClickAtTheVeryStartClampsItsPreRollRatherThanGoingNegative() {
-    let blocks = ZoomBlock.blocks(for: [click(0.1)], coverage: 1)
+    let blocks = ZoomBlock.blocks(for: [click(0.1)], coverage: 1, intensity: 1)
     #expect(blocks.count == 1)
     #expect(blocks[0].start.hostTime.rawValue >= 0)
 }
@@ -86,13 +86,13 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
 @Test func theMergeIsIndependentOfInputOrder() {
     let ascending = [click(1.0), click(4.2), click(5.0), click(8.0)]
     let shuffled = [click(5.0), click(1.0), click(8.0), click(4.2)]
-    let a = ZoomBlock.blocks(for: ascending, coverage: 1)
-    let b = ZoomBlock.blocks(for: shuffled, coverage: 1)
+    let a = ZoomBlock.blocks(for: ascending, coverage: 1, intensity: 1)
+    let b = ZoomBlock.blocks(for: shuffled, coverage: 1, intensity: 1)
     #expect(a == b)
 }
 
 @Test func noClicksProduceNoBlocks() {
-    #expect(ZoomBlock.blocks(for: [], coverage: 1).isEmpty)
+    #expect(ZoomBlock.blocks(for: [], coverage: 1, intensity: 1).isEmpty)
 }
 
 // MARK: - what a merged block frames
@@ -104,13 +104,13 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
 @Test func aMergedBlockFramesTheUnionOfItsTargetsAndPullsBack() {
     let left = target(x: 0.05, y: 0.5, extent: 0.05)
     let right = target(x: 0.80, y: 0.5, extent: 0.05)
-    let merged = ZoomBlock.blocks(for: [click(4.0, left), click(4.5, right)], coverage: 1)
+    let merged = ZoomBlock.blocks(for: [click(4.0, left), click(4.5, right)], coverage: 1, intensity: 1)
     #expect(merged.count == 1)
 
     let frame = merged[0].target.frame
     #expect(frame.minX <= 0.05 && frame.maxX >= 0.85,
             "the merged frame \(frame.minX)…\(frame.maxX) does not cover both targets")
-    #expect(merged[0].zoom < FramingDepth.zoom(for: left, coverage: 1),
+    #expect(merged[0].zoom < FramingDepth.zoom(for: left, coverage: 1, intensity: 1),
             "the merged block zooms deeper than one of its own targets would")
 }
 
@@ -118,9 +118,9 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
 /// changes them, so a lone click must be untouched by the union logic.
 @Test func aLoneBlockKeepsItsOwnTargetAndDepth() {
     let only = target(x: 0.3, y: 0.3, extent: 0.04)
-    let blocks = ZoomBlock.blocks(for: [click(2.0, only)], coverage: 1)
+    let blocks = ZoomBlock.blocks(for: [click(2.0, only)], coverage: 1, intensity: 1)
     #expect(blocks[0].target == only)
-    #expect(blocks[0].zoom == FramingDepth.zoom(for: only, coverage: 1))
+    #expect(blocks[0].zoom == FramingDepth.zoom(for: only, coverage: 1, intensity: 1))
 }
 
 // MARK: - epochs
@@ -133,7 +133,7 @@ private func seconds(_ n: Nanoseconds) -> Double { Double(n.rawValue) / 1_000_00
     let foreign = FramedClick(
         instant: HostInstant(epoch: other, hostTime: Nanoseconds(4_300_000_000)),
         target: target())
-    let blocks = ZoomBlock.blocks(for: [click(4.2), foreign], coverage: 1)
+    let blocks = ZoomBlock.blocks(for: [click(4.2), foreign], coverage: 1, intensity: 1)
     #expect(blocks.count == 2, "clicks from two boot sessions were merged into one block")
     #expect(Set(blocks.map(\.start.epoch)).count == 2)
 }

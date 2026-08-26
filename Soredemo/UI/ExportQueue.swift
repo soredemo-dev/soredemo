@@ -189,14 +189,33 @@ private struct ExportJobRow: View {
                 ExportQueue.shared.cancel(job.id)
             }
         case .finished:
-            // Reveals rather than opens: an export is usually one of several files a person is
-            // collecting, and the Finder window is what they want next.
-            Button("\(job.filename) \u{2014} Done") {
-                NSWorkspace.shared.activateFileViewerSelecting([job.destination])
+            // **A submenu, because there are now two things to do with a finished export and
+            // one of them must not be the accident.** Reveal is first and is what the row did
+            // before: an export is usually one of several files a person is collecting, and the
+            // Finder window is what they want next.
+            Menu("\(job.filename) \u{2014} Done") {
+                Button("Show in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([job.destination])
+                }
+                Button("Copy") { Self.copy(job.destination) }
             }
         case .failed, .cancelled:
             Text("\(job.filename) \u{2014} \(Self.label(job))")
         }
+    }
+
+    /// **Puts the FILE on the pasteboard, not its path.** Pasting into Mail, Slack or Messages
+    /// then attaches the video, which is what "copy" means for a thing somebody just exported.
+    /// A string of the path would paste as text everywhere and attach nowhere.
+    ///
+    /// `clearContents()` first, because `NSPasteboard` accumulates otherwise and a paste would
+    /// carry whatever was copied before this alongside it.
+    static func copy(_ url: URL) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        // `as NSURL`: `URL` is not an `NSPasteboardWriting`, and the bridged type is what
+        // carries the file-URL flavour a receiving app looks for.
+        pasteboard.writeObjects([url as NSURL])
     }
 
     static func label(_ job: ExportJob) -> String {

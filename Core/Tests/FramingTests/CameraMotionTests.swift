@@ -25,7 +25,7 @@ private func block(from: Double, to: Double, x: Double, y: Double,
     // The origin is the click these fixtures stand in for; `from` is the block's start, which
     // pre-roll has already moved, so the click itself is a little later.
     return ZoomBlock(origin: at(seconds: from), start: at(seconds: from), end: at(seconds: to),
-                     target: target, zoom: FramingDepth.zoom(for: target, coverage: 1))
+                     target: target, zoom: FramingDepth.zoom(for: target, coverage: 1, intensity: 1))
 }
 
 private func samples(_ camera: CameraMotion, from: Double, to: Double,
@@ -42,7 +42,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
 @Test func theZoomNeverOvershootsItsTargetDepth() {
     let camera = CameraMotion(blocks: [block(from: 1.0, to: 4.0, x: 0.4, y: 0.4)])
     let peak = samples(camera, from: 0.0, to: 4.0).map(\.zoom).max() ?? 0
-    #expect(peak <= FramingDepth.zoom(for: block(from: 1, to: 4, x: 0.4, y: 0.4).target, coverage: 1) + 1e-6,
+    #expect(peak <= FramingDepth.zoom(for: block(from: 1, to: 4, x: 0.4, y: 0.4).target, coverage: 1, intensity: 1) + 1e-6,
             "the zoom reached \(peak), past the depth it was aiming for")
 }
 
@@ -196,7 +196,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
         let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [
             click(10.0, x: 0.2, y: 0.2),
             click(12.5, x: 0.7, y: 0.7),
-        ], coverage: 1))
+        ], coverage: 1, intensity: 1))
         #expect(camera.blocksForTesting.count == 2, "the blocks merged; this tests the gap")
 
         // Sampled across the gap rather than at one instant: a single sample could catch the
@@ -219,7 +219,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
         let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [
             click(10.0, x: 0.2, y: 0.2),
             click(16.0, x: 0.7, y: 0.7),
-        ], coverage: 1))
+        ], coverage: 1, intensity: 1))
         // 1.4 s blocks 6 s apart → a 4.6 s gap. Sampled in the middle, well past settling.
         let middle = camera.state(at: instant(13.5))
         #expect(middle.zoom < 1.05, "the camera stayed zoomed across an unrelated \(4.6)s gap")
@@ -230,7 +230,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
     /// only moment it is free — and the camera then scales STRAIGHT toward the focus instead
     /// of drifting sideways on the way in. From a Rust recorder's `zoom_spring.rs`.
     @Test func theCentreIsAlreadyAimedWhenTheZoomBegins() {
-        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [click(10.0, x: 0.85, y: 0.15)], coverage: 1))
+        let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [click(10.0, x: 0.85, y: 0.15)], coverage: 1, intensity: 1))
         // Just after the block opens, while the spring has barely moved the zoom.
         let early = camera.state(at: instant(9.62))
         #expect(early.zoom < CameraMotion.identityZoomBound + 0.05,
@@ -263,7 +263,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
                                    size: NormalizedSize(width: 0.05, height: 0.05),
                                    revision: GeometryRevision(id: 1)), role: "AXButton")
         return ZoomBlock(origin: instant(from), start: instant(from), end: instant(to),
-                         target: target, zoom: FramingDepth.zoom(for: target, coverage: 1))
+                         target: target, zoom: FramingDepth.zoom(for: target, coverage: 1, intensity: 1))
     }
 
     @Test func tenMinutesOfFramesIsQueriedInSeconds() {
@@ -361,7 +361,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
                                    size: NormalizedSize(width: 0.02, height: 0.02),
                                    revision: GeometryRevision(id: 1)), role: "AXCheckBox")
         return ZoomBlock(origin: instant(2), start: instant(2), end: instant(6),
-                         target: target, zoom: FramingDepth.zoom(for: target, coverage: 1))
+                         target: target, zoom: FramingDepth.zoom(for: target, coverage: 1, intensity: 1))
     }
 
     @Test func theZoomStopsAtTheCeilingWithoutWindingUp() {
@@ -414,7 +414,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
                                    size: NormalizedSize(width: 0.02, height: 0.02),
                                    revision: GeometryRevision(id: 1)), role: "AXCheckBox")
         return ZoomBlock(origin: instant(2), start: instant(2), end: instant(8),
-                         target: target, zoom: FramingDepth.zoom(for: target, coverage: 1))
+                         target: target, zoom: FramingDepth.zoom(for: target, coverage: 1, intensity: 1))
     }
     private var reach: Double { (0.5 / block.zoom) * (1 - 2 * CameraMotion.followMargin) }
 

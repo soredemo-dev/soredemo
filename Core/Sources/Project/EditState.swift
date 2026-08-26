@@ -67,6 +67,10 @@ public struct EditState: Codable, Sendable, Equatable {
     /// The music bed under the recording, as encoded bytes. Authored. Absent means none — a
     /// project with no music has nothing to say about it.
     public var musicData: Data?
+    /// How much of the derived zoom to use, over the whole recording. Authored. **Absent means
+    /// neutral** — a project nobody dialled has nothing to say about it, and writing 1 would
+    /// make every untouched project claim a decision.
+    public var zoomIntensity: Double?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -83,7 +87,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 cameraStyleData: Data? = nil,
                 cropData: Data? = nil,
                 hidesKeystrokes: Bool? = nil,
-                musicData: Data? = nil) {
+                musicData: Data? = nil,
+                zoomIntensity: Double? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -100,6 +105,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.cropData = cropData
         self.hidesKeystrokes = hidesKeystrokes
         self.musicData = musicData
+        self.zoomIntensity = zoomIntensity
     }
 
     /// A recording nobody has edited.
@@ -116,6 +122,9 @@ public struct EditState: Codable, Sendable, Equatable {
             // captions turned off has nothing to save.
             || burnsInCaptions == true || textTrackData != nil || redactionTrackData != nil || cursorStyleData != nil || cameraStyleData != nil || cropData != nil
             || hidesKeystrokes == true || musicData != nil
+            // Neutral is not a change, the same way `burnsInCaptions == false` is not: a
+            // person who moved the dial and moved it back has an untouched project.
+            || (zoomIntensity.map { $0 != 1 } ?? false)
     }
 
     // MARK: - the tiers that own these values

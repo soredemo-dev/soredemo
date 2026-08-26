@@ -45,7 +45,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 /// the whole mapping degenerates to two values. Across seven realistic sizes this one must
 /// produce at least five distinct depths.
 @Test func depthVariesAcrossRealisticControlSizesRatherThanCollapsing() {
-    let depths = realisticExtents.map { FramingDepth.zoom(for: target(extent: $0.extent), coverage: 1) }
+    let depths = realisticExtents.map { FramingDepth.zoom(for: target(extent: $0.extent), coverage: 1, intensity: 1) }
     let distinct = Set(depths)
     #expect(distinct.count >= 5, """
         seven realistic control sizes produced only \(distinct.count) distinct depths \
@@ -59,7 +59,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 /// than a smaller one and look like a bug with no way to describe it.
 @Test func aLargerControlNeverZoomsDeeper() {
     let ascending = realisticExtents.sorted { $0.extent < $1.extent }
-    let depths = ascending.map { FramingDepth.zoom(for: target(extent: $0.extent), coverage: 1) }
+    let depths = ascending.map { FramingDepth.zoom(for: target(extent: $0.extent), coverage: 1, intensity: 1) }
     for (earlier, later) in zip(depths, depths.dropFirst()) {
         #expect(earlier >= later, "depth rose with size: \(depths)")
     }
@@ -69,7 +69,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 
 @Test func depthNeverZoomsOutAndNeverExceedsTheCeiling() {
     for extent in [0.001, 0.01, 0.05, 0.2, 0.5, 0.95] {
-        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1)
+        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1)
         #expect(zoom >= FramingDepth.minimumZoom, "\(extent) produced \(zoom), below the floor")
         #expect(zoom <= FramingDepth.maximumZoom, "\(extent) produced \(zoom), above the ceiling")
     }
@@ -80,7 +80,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 /// Asserted across the whole range including the degenerate large end.
 @Test func theTargetAlwaysFitsInsideTheViewportItsDepthImplies() {
     for extent in [0.001, 0.02, 0.104, 0.3, 0.5, 0.8, 0.95] {
-        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1)
+        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1)
         #expect(extent <= 1.0 / zoom, """
             a \(extent) target at depth \(zoom) needs a viewport of \(1.0 / zoom) — it would \
             be cropped by its own zoom
@@ -95,7 +95,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 /// every pixel of size difference becomes a distinct zoom level.
 @Test func depthIsQuantisedToTheStep() {
     for extent in stride(from: 0.02, through: 0.4, by: 0.011) {
-        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1)
+        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1)
         let steps = zoom / FramingDepth.quantisationStep
         #expect(abs(steps - steps.rounded()) < 1e-9, "\(zoom) is not a multiple of the step")
     }
@@ -104,8 +104,8 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 /// Two controls a few pixels apart land on one depth — the point of quantising, asserted
 /// as a behaviour rather than inferred from the constant.
 @Test func twoNearlyIdenticalControlsShareADepth() {
-    let a = FramingDepth.zoom(for: target(extent: 200.0 / 1920), coverage: 1)
-    let b = FramingDepth.zoom(for: target(extent: 206.0 / 1920), coverage: 1)
+    let a = FramingDepth.zoom(for: target(extent: 200.0 / 1920), coverage: 1, intensity: 1)
+    let b = FramingDepth.zoom(for: target(extent: 206.0 / 1920), coverage: 1, intensity: 1)
     #expect(a == b)
 }
 
@@ -123,8 +123,8 @@ private let realisticExtents: [(name: String, extent: Double)] = [
         frame: NormalizedFrame(origin: NormalizedPoint(x: 0.4, y: 0.1),
                                size: NormalizedSize(width: 0.02, height: 0.3),
                                revision: revision), role: "AXScrollBar")
-    #expect(FramingDepth.zoom(for: wide, coverage: 1) == FramingDepth.zoom(for: tall, coverage: 1))
-    #expect(FramingDepth.zoom(for: wide, coverage: 1) == FramingDepth.zoom(for: target(extent: 0.3), coverage: 1))
+    #expect(FramingDepth.zoom(for: wide, coverage: 1, intensity: 1) == FramingDepth.zoom(for: tall, coverage: 1, intensity: 1))
+    #expect(FramingDepth.zoom(for: wide, coverage: 1, intensity: 1) == FramingDepth.zoom(for: target(extent: 0.3), coverage: 1, intensity: 1))
 }
 
 /// A degenerate target cannot arrive from `FramingGate` — it refuses one — but this
@@ -135,7 +135,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
         frame: NormalizedFrame(origin: NormalizedPoint(x: 0.5, y: 0.5),
                                size: NormalizedSize(width: 0, height: 0),
                                revision: revision), role: nil)
-    let zoom = FramingDepth.zoom(for: flat, coverage: 1)
+    let zoom = FramingDepth.zoom(for: flat, coverage: 1, intensity: 1)
     #expect(zoom.isFinite)
     #expect(zoom <= FramingDepth.maximumZoom)
 }
@@ -235,7 +235,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 /// otherwise this change would have silently re-cut every landscape export ever made.
 @Test func aVariantMatchingTheRecordingChangesNoDepth() {
     for (name, extent) in realisticExtents {
-        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1)
+        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1)
         // The pre-coverage formula, restated rather than referenced, so this test would
         // catch the curve being changed as well as the parameter being misapplied.
         let clamped = min(max(extent, FramingDepth.deepestAtExtent), FramingDepth.shallowestAtExtent)
@@ -259,8 +259,8 @@ private let realisticExtents: [(name: String, extent: Double)] = [
     let portrait = 0.31640625
     var deeper = 0
     for (name, extent) in realisticExtents {
-        let landscape = FramingDepth.zoom(for: target(extent: extent), coverage: 1)
-        let tall = FramingDepth.zoom(for: target(extent: extent), coverage: portrait)
+        let landscape = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1)
+        let tall = FramingDepth.zoom(for: target(extent: extent), coverage: portrait, intensity: 1)
         #expect(tall >= landscape, "\(name) got a SHALLOWER zoom in portrait")
         if tall > landscape { deeper += 1 }
     }
@@ -279,7 +279,7 @@ private let realisticExtents: [(name: String, extent: Double)] = [
 @Test func aTargetStillFitsInsideTheViewportItsDepthImpliesAtEveryCoverage() {
     for coverage in [1.0, 0.5625, 0.31640625, 0.1] {
         for extent in stride(from: 0.02, through: 0.49, by: 0.01) {
-            let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: coverage)
+            let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: coverage, intensity: 1)
             // At depth `zoom` the viewport shows `1 / zoom` of the recording.
             #expect(extent <= 1.0 / zoom + 1e-9, """
                     at coverage \(coverage) a control of \(extent) got depth \(zoom), whose \
@@ -287,4 +287,85 @@ private let realisticExtents: [(name: String, extent: Double)] = [
                     """)
         }
     }
+}
+
+// MARK: - one dial over all of them
+
+/// **`1 + (depth - 1) × intensity`, not `depth × intensity`, and turning the dial to zero is
+/// the test that separates them.** Depth 1 means "do not zoom"; multiplying it by 0.5 gives
+/// 0.5, which is a zoom OUT — showing more of the screen than the recording contains. Every
+/// control must land on exactly 1 at intensity 0, and none may ever go below it.
+@Test func intensityZeroMeansNoZoomAndNeverAZoomOut() {
+    for (name, extent) in realisticExtents {
+        let zoom = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 0)
+        #expect(zoom == FramingDepth.minimumZoom, "\(name) came out at \(zoom) with the dial at zero")
+    }
+    // …and at a fraction of the way up it is between the two, never under.
+    for (name, extent) in realisticExtents {
+        let full = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1)
+        let half = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 0.5)
+        #expect(half >= FramingDepth.minimumZoom && half <= full,
+                "\(name) at half intensity is \(half), outside 1…\(full)")
+    }
+}
+
+/// Intensity 1 is the identity, so a project that never touches the dial renders exactly what
+/// it rendered before the dial existed.
+@Test func theNeutralIntensityChangesNothing() {
+    for (_, extent) in realisticExtents {
+        for coverage in [1.0, 0.31640625] {
+            #expect(FramingDepth.intensified(FramingDepth.zoom(for: target(extent: extent),
+                                                               coverage: coverage, intensity: 1),
+                                             by: FramingDepth.neutralIntensity)
+                    == FramingDepth.zoom(for: target(extent: extent), coverage: coverage, intensity: 1))
+        }
+    }
+}
+
+/// Turning it up deepens every control that has room, and turning it down shallows every one.
+/// Monotonic rather than strict at each step: `quantisationStep` deliberately collapses
+/// neighbours and `maximumZoom` caps the top, so equal is a legitimate answer at both ends.
+@Test func theDialMovesEveryControlInOneDirection() {
+    for (name, extent) in realisticExtents {
+        let quiet = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 0.5)
+        let normal = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1)
+        let loud = FramingDepth.zoom(for: target(extent: extent), coverage: 1, intensity: 1.5)
+        #expect(quiet <= normal && normal <= loud, "\(name): \(quiet) / \(normal) / \(loud)")
+    }
+    // And it is not a no-op: at least one realistic control actually moves in each direction.
+    let moved = realisticExtents.filter {
+        FramingDepth.zoom(for: target(extent: $0.extent), coverage: 1, intensity: 0.5)
+            < FramingDepth.zoom(for: target(extent: $0.extent), coverage: 1, intensity: 1)
+    }
+    #expect(!moved.isEmpty, "turning the dial down changed no realistic control at all")
+}
+
+/// **The safety bound is not a person's to turn off.** `minimumContextMultiple` exists so a
+/// depth cannot crop the very thing it frames, and intensity is applied BEFORE it — so a dial
+/// at the ceiling still cannot produce a zoom whose viewport is narrower than its target.
+@Test func theDialCannotDialPastTheClampThatStopsAZoomCroppingItsTarget() {
+    for intensity in [0.0, 1.0, 1.5, FramingDepth.maximumIntensity, 99.0] {
+        for coverage in [1.0, 0.31640625] {
+            for extent in stride(from: 0.02, through: 0.49, by: 0.01) {
+                let zoom = FramingDepth.zoom(for: target(extent: extent),
+                                             coverage: coverage, intensity: intensity)
+                #expect(extent <= 1.0 / zoom + 1e-9, """
+                        intensity \(intensity), coverage \(coverage): a control of \(extent) got \
+                        depth \(zoom), whose viewport is \(1.0 / zoom) — the zoom crops its own target
+                        """)
+                #expect(zoom <= FramingDepth.maximumZoom, "the dial pushed past the ceiling")
+            }
+        }
+    }
+}
+
+/// A nonsense intensity leaves the derived depth alone rather than trapping or zeroing it: it
+/// arrives from a slider and from a decoder, which is rule 8's case.
+@Test func aNonsenseIntensityLeavesTheDepthAlone() {
+    for bad in [-1.0, Double.nan] {
+        #expect(FramingDepth.intensified(2.5, by: bad) == 2.5, "\(bad) was not refused")
+    }
+    // Above the ceiling clamps to it rather than running away.
+    #expect(FramingDepth.intensified(2.0, by: 99)
+            == FramingDepth.intensified(2.0, by: FramingDepth.maximumIntensity))
 }

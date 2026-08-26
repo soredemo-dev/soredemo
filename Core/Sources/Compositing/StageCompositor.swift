@@ -111,6 +111,16 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// "safe default" standing in for a measurement. A composition nobody has told about a
     /// variant is being asked to render the recording as recorded.
     public nonisolated(unsafe) static var outputCoverage: Double = 1
+
+    /// **How much of the derived zoom to use, everywhere at once.** 1 is what the gates
+    /// decided; 0 is a recording that never zooms; 2 is the ceiling.
+    ///
+    /// The one control per-block adjustments could not stand in for — correcting forty blocks
+    /// one at a time to say "less, everywhere" is a different act from saying it once — and
+    /// the one ScreenKite ships. It is applied where the depth is DERIVED, so a person's own
+    /// per-block adjustment still lands on top of it: the producer-value rule puts authored
+    /// values after derived ones, and a dial that overrode them would have that backwards.
+    public nonisolated(unsafe) static var zoomIntensity: Double = FramingDepth.neutralIntensity
     /// Which of the composition's video tracks is the camera. **Set by whoever built the
     /// composition** — `CameraComposition.combine` returns it — because nothing about a track
     /// says what it is, and picking "the last video track" would break the moment a composition
@@ -685,7 +695,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         let derived = ZoomBlock.blocks(
             for: plan.framedClicks(with: framingOverrides,
                                    pointerFallbackRevision: plan.fallbackRevision),
-            coverage: unsafe outputCoverage)
+            coverage: unsafe outputCoverage, intensity: unsafe zoomIntensity)
         // `unsafe`: `zoomAdjustments` is a `nonisolated(unsafe)` static, read here under the
         // same "published before playback starts" guarantee as every other seam on this type.
         // **The presented cursor is what the camera follows inside a zoom** — the same

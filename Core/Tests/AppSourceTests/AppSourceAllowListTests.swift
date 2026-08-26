@@ -572,8 +572,15 @@ func lineNumber(of location: String) -> Int {
             "kAXValueDescriptionAttribute",
             "kAXSelectedTextAttribute",
             "kAXSelectedTextRangeAttribute",
-            // The clipboard.
-            "NSPasteboard",
+            // The clipboard's READERS. `NSPasteboard` itself is handled below, because
+            // writing to it and reading from it are different acts and only one of them is
+            // what this rule is about — but the readers stay banned everywhere, including
+            // inside the one place the type is allowed to appear.
+            ".readObjects(",
+            ".pasteboardItems",
+            ".string(forType:",
+            ".data(forType:",
+            ".propertyList(forType:",
             // Every window on the machine, including the unrecorded ones.
             "kCGWindowName",
             "CGWindowListCreateDescriptionFromArray",
@@ -589,6 +596,37 @@ func lineNumber(of location: String) -> Int {
             roles, AX titles, frames, and counts. It never carries what a person typed, the \
             contents of a control, the pasteboard, or an enumeration of other applications' \
             windows.
+            """)
+}
+
+/// **`NSPasteboard` appears exactly once, and it writes.**
+///
+/// The content rule above bans the APIs that READ user content, and the clipboard is one of
+/// them. Copying a finished export is the opposite act: it puts a file this app just wrote onto
+/// the pasteboard so that pasting into Mail or Slack attaches the video. Banning the type
+/// outright would forbid that too, and narrowing the ban to reading METHODS would leave the
+/// type reachable everywhere — so the type is allowed at exactly one line, named here, while
+/// every reading member stays banned everywhere including there.
+///
+/// **One line, not one file.** A file-shaped exemption is a hole the size of a file; a count of
+/// one fails the moment a second use appears, which is when somebody should have to come here
+/// and say what it is for. Same shape as the accessibility-grant reader above, and the same
+/// reason `ProbeCoverageTests` names its single exemption in one place.
+private let theOnlyPasteboardUse = "Soredemo/UI/ExportQueue.swift"
+
+@Test func theClipboardIsWrittenInExactlyOnePlaceAndNeverRead() throws {
+    let uses = try violationsEverywhere(banned: ["NSPasteboard"], in: try firstPartySourceFiles())
+    #expect(uses.count == 1, """
+            expected exactly one app source line naming NSPasteboard, found \(uses.count):
+            \(uses.joined(separator: "\n"))
+            The clipboard is on the content rule's banned list because it READS what a person \
+            has copied. One line writing a finished export to it is the exception; a second use \
+            is somebody adding a reason that has not been written down.
+            """)
+    guard let use = uses.first else { return }
+    #expect(use.hasPrefix("\(theOnlyPasteboardUse):"), """
+            NSPasteboard is named at \(use), not in the export queue where the one permitted \
+            use lives. If this moved, move the constant with it rather than widening the rule.
             """)
 }
 

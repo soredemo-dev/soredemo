@@ -530,3 +530,156 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
     #expect(distinct >= 8 && distinct <= 20, "\(distinct) distinct values in the row")
     #expect((row.max() ?? 0) - (row.min() ?? 0) <= 10 + 4, "the grain pushed the ramp past its range")
 }
+
+// MARK: - the card's own edge
+
+/// **The border lightens the card's outermost pixels and leaves everything else alone.**
+///
+/// A shadow separates the card from the background by darkening what is behind it, which works
+/// everywhere except at the corners where the card's edge meets the shadow's softest part. This
+/// is the edge itself, so the check is at the edge — and the interior must be untouched, or what
+/// was drawn is a tint rather than a border.
+@Test func theBorderLightensTheCardsEdgeAndNothingInside() throws {
+    let width = 640, height = 360
+    let background = StageBackground.solid(red: 0.1, green: 0.1, blue: 0.12)
+    let plain = StageStyle(insetFraction: 0.1, cornerRadius: 12, shadowRadius: 0,
+                           shadowOpacity: 0, background: background)
+    let bordered = StageStyle(insetFraction: 0.1, cornerRadius: 12, shadowRadius: 0,
+                              shadowOpacity: 0, background: background, borderOpacity: 1)
+
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    func rendered(_ style: StageStyle) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: style)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
+        return try pixels(of: destination)
+    }
+
+    let with = try rendered(bordered)
+    let without = try rendered(plain)
+    let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: bordered)
+
+    // `pixels(of:)` is row-major from the TOP; Core Image's origin is bottom-left, so the row
+    // index flips. Mid-height on the card's left edge — away from the corners, where the
+    // rounding makes "the edge" a curve rather than a column.
+    let midCIY = Int(plan.card.y + plan.card.height / 2)
+    let row = (height - 1 - midCIY) * width
+    let edge = row + Int(plan.card.x)
+    #expect(with[edge].r > without[edge].r && with[edge].g > without[edge].g
+            && with[edge].b > without[edge].b,
+            "the card's left edge is \(with[edge]) with the border and \(without[edge]) without")
+
+    // Well inside the card the two renders agree: a border that changed the picture would be a
+    // tint, and the whole claim is that it only draws an edge.
+    let inside = row + Int(plan.card.x + plan.card.width / 2)
+    #expect(with[inside] == without[inside],
+            "the middle of the card differs — \(with[inside]) against \(without[inside])")
+}
+
+/// Opacity zero draws nothing at all. The interior check above cannot make this claim for the
+/// bordered pair, and a stray fully-transparent pass could still perturb pixels through colour
+/// management.
+@Test func aZeroOpacityBorderChangesNothing() throws {
+    let width = 320, height = 180
+    let background = StageBackground.solid(red: 0.2, green: 0.2, blue: 0.25)
+    let off = StageStyle(insetFraction: 0.1, cornerRadius: 12, shadowRadius: 0,
+                         shadowOpacity: 0, background: background, borderOpacity: 0)
+
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    func rendered() throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let plan = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: off)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
+        return try pixels(of: destination)
+    }
+    let a = try rendered(), b = try rendered()
+    #expect(a.elementsEqual(b, by: ==), "two identical border-free renders disagreed")
+}
+
+/// **A project saved before the border existed decodes as border-free**, not as an error: a
+/// cosmetic addition must not be a file-format break. And a border that IS on survives the round
+/// trip, or turning it on would not stick.
+@Test func aStyleWithNoBorderKeyDecodesAsBorderless() throws {
+    let background = StageBackground.solid(red: 0.1, green: 0.1, blue: 0.12)
+    let old = StageStyle(insetFraction: 0.06, cornerRadius: 18, shadowRadius: 32,
+                         shadowOpacity: 0.35, background: background)
+    // Encoded with the border off, so the key is genuinely absent — which is exactly the shape
+    // of every file written before the field existed.
+    let data = try JSONEncoder().encode(old)
+    let text = try #require(String(data: data, encoding: .utf8))
+    #expect(!text.contains("borderOpacity"), "a border-free style wrote the key anyway: \(text)")
+    #expect(try JSONDecoder().decode(StageStyle.self, from: data).borderOpacity == 0)
+
+    let on = StageStyle(insetFraction: 0.06, cornerRadius: 18, shadowRadius: 32,
+                        shadowOpacity: 0.35, background: background, borderOpacity: 0.4)
+    #expect(try JSONDecoder().decode(StageStyle.self, from: JSONEncoder().encode(on)) == on)
+}
+
+/// **The camera's border drew nothing at all until 2026-08-26, and no test said so.**
+///
+/// `CameraOverlayStyle.borderOpacity` has existed since the camera did, and the ring was built
+/// with `CIBlendWithMask` over `CIImage.empty()` — an image of ZERO extent, so the blend had
+/// nowhere to composite into and the whole pass evaporated silently. It was found by giving the
+/// CARD the same edge, probing across it, and reading every pixel identical with the border on
+/// and off; the same construction was one function away.
+///
+/// This is the test that was missing, which is why it survived: a public option nothing
+/// exercised is a capability claim nothing checked.
+@Test func theCamerasBorderActuallyReachesThePicture() throws {
+    let width = 640, height = 360
+    let background = StageBackground.solid(red: 0.1, green: 0.1, blue: 0.12)
+    let style = StageStyle(insetFraction: 0.1, cornerRadius: 12, shadowRadius: 0,
+                           shadowOpacity: 0, background: background)
+    // Square rather than round, so the edge is a straight column and the sample does not have to
+    // reason about where a circle's outline falls.
+    func camera(borderOpacity: Double) -> CameraOverlay {
+        CameraOverlay(style: CameraOverlayStyle(
+            widthFraction: 0.3, x: 0.5, y: 0.5, shape: .square,
+            cornerFraction: 0, isMirrored: false,
+            borderOpacity: borderOpacity, shadowOpacity: 0))
+    }
+
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    func rendered(_ overlay: CameraOverlay) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let cameraBuffer = try makePixelBuffer(width: 160, height: 120, fill: (20, 20, 20))
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: style)
+        let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                              card: base.card, cornerRadius: base.cornerRadius,
+                              style: base.style, pointer: nil, camera: overlay)
+        try renderer.render(plan, source: source, camera: cameraBuffer, into: destination)
+        return try pixels(of: destination)
+    }
+
+    let with = try rendered(camera(borderOpacity: 1))
+    let without = try rendered(camera(borderOpacity: 0))
+    #expect(!with.elementsEqual(without, by: ==), """
+            the camera rendered identically with the border at full opacity and at zero — \
+            the border pass is reaching no pixel
+            """)
+
+    // …and it is an EDGE, not a tint: most of the frame is untouched.
+    let changed = zip(with, without).count { $0 != $1 }
+    #expect(changed * 20 < with.count, """
+            \(changed) of \(with.count) pixels changed — that is a fill or a tint, not a border
+            """)
+}

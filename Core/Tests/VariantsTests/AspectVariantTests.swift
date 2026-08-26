@@ -189,11 +189,11 @@ import Testing
         role: "AXButton")
 
     let inLandscape = FramingDepth.zoom(
-        for: button, coverage: AspectVariant.landscape.coverage(ofSourceAspect: sixteenNine))
+        for: button, coverage: AspectVariant.landscape.coverage(ofSourceAspect: sixteenNine), intensity: 1)
     let inPortrait = FramingDepth.zoom(
-        for: button, coverage: AspectVariant.portrait.coverage(ofSourceAspect: sixteenNine))
+        for: button, coverage: AspectVariant.portrait.coverage(ofSourceAspect: sixteenNine), intensity: 1)
     let inSquare = FramingDepth.zoom(
-        for: button, coverage: AspectVariant.square.coverage(ofSourceAspect: sixteenNine))
+        for: button, coverage: AspectVariant.square.coverage(ofSourceAspect: sixteenNine), intensity: 1)
 
     #expect(inPortrait > inLandscape, """
             the button got depth \(inPortrait) in portrait against \(inLandscape) in \
@@ -217,9 +217,9 @@ import Testing
                                revision: GeometryRevision(id: 1)),
         role: "AXToolbar")
     let wideLandscape = FramingDepth.zoom(
-        for: toolbar, coverage: AspectVariant.landscape.coverage(ofSourceAspect: sixteenNine))
+        for: toolbar, coverage: AspectVariant.landscape.coverage(ofSourceAspect: sixteenNine), intensity: 1)
     let widePortrait = FramingDepth.zoom(
-        for: toolbar, coverage: AspectVariant.portrait.coverage(ofSourceAspect: sixteenNine))
+        for: toolbar, coverage: AspectVariant.portrait.coverage(ofSourceAspect: sixteenNine), intensity: 1)
     #expect(wideLandscape < FramingDepth.maximumZoom, "this control is meant to sit off the ceiling")
     #expect(widePortrait > wideLandscape,
             "a 500 px toolbar got \(widePortrait) in portrait against \(wideLandscape) in landscape")
@@ -237,6 +237,6 @@ import Testing
                                size: NormalizedSize(width: 0.05, height: 0.05),
                                revision: GeometryRevision(id: 1)),
         role: nil)
-    #expect(FramingDepth.zoom(for: target, coverage: own.coverage(ofSourceAspect: 3024.0 / 1964.0))
-            == FramingDepth.zoom(for: target, coverage: 1))
+    #expect(FramingDepth.zoom(for: target, coverage: own.coverage(ofSourceAspect: 3024.0 / 1964.0), intensity: 1)
+            == FramingDepth.zoom(for: target, coverage: 1, intensity: 1))
 }

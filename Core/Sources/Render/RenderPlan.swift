@@ -171,13 +171,27 @@ public struct StageStyle: Hashable, Codable, Sendable {
     public let shadowRadius: Double
     public let shadowOpacity: Double
     public let background: StageBackground
+    /// **A hairline light edge around the card, off by default.**
+    ///
+    /// What it is for: a shadow separates the card from the background by darkening what is
+    /// behind it, which works everywhere except at the corners, where the card's own edge meets
+    /// the shadow's softest part. A one-pixel light edge is what interface chrome uses there,
+    /// and a Rust recorder offers it beside the shadow for the same reason.
+    ///
+    /// **Light, not a colour of its own.** A border that could be any colour is a second
+    /// background control, and the job here is edge definition rather than decoration — which a
+    /// light edge does over every background this app ships. Its honest limitation, said rather
+    /// than discovered: over a pale wallpaper it does nothing, and the shadow is the control
+    /// that works there.
+    public let borderOpacity: Double
 
     public static let `default` = StageStyle(
         insetFraction: 0.06, cornerRadius: 18, shadowRadius: 32, shadowOpacity: 0.35,
         background: .solid(red: 0.09, green: 0.09, blue: 0.11))
 
     public init(insetFraction: Double, cornerRadius: Double, shadowRadius: Double,
-                shadowOpacity: Double, background: StageBackground) {
+                shadowOpacity: Double, background: StageBackground,
+                borderOpacity: Double = 0) {
         precondition(insetFraction >= 0 && insetFraction < 0.5,
                      "insetFraction must be in [0, 0.5), got \(insetFraction)")
         self.insetFraction = insetFraction
@@ -185,6 +199,8 @@ public struct StageStyle: Hashable, Codable, Sendable {
         self.shadowRadius = shadowRadius
         self.shadowOpacity = shadowOpacity
         self.background = background
+        // Clamped rather than trapped: it arrives from a slider and from a decoder.
+        self.borderOpacity = min(max(borderOpacity, 0), 1)
     }
 }
 
@@ -195,6 +211,7 @@ extension StageStyle {
     /// `StageRect.init(from:)` above.
     private enum CodingKeys: String, CodingKey {
         case insetFraction, cornerRadius, shadowRadius, shadowOpacity, background
+        case borderOpacity
     }
 
     public init(from decoder: any Decoder) throws {
@@ -204,6 +221,9 @@ extension StageStyle {
         let shadowRadius = try container.decode(Double.self, forKey: .shadowRadius)
         let shadowOpacity = try container.decode(Double.self, forKey: .shadowOpacity)
         let background = try container.decode(StageBackground.self, forKey: .background)
+        // **Absent is zero, not an error.** Every project written before the border existed has
+        // no such key, and refusing them would make a cosmetic addition a file-format break.
+        let borderOpacity = try container.decodeIfPresent(Double.self, forKey: .borderOpacity) ?? 0
         guard insetFraction >= 0 && insetFraction < 0.5 else {
             throw DecodingError.dataCorrupted(DecodingError.Context(
                 codingPath: decoder.codingPath,
@@ -214,6 +234,7 @@ extension StageStyle {
         self.shadowRadius = shadowRadius
         self.shadowOpacity = shadowOpacity
         self.background = background
+        self.borderOpacity = min(max(borderOpacity, 0), 1)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -223,6 +244,9 @@ extension StageStyle {
         try container.encode(shadowRadius, forKey: .shadowRadius)
         try container.encode(shadowOpacity, forKey: .shadowOpacity)
         try container.encode(background, forKey: .background)
+        // Only when it is on: a zero written into every project would make the default look
+        // like a decision somebody made.
+        if borderOpacity > 0 { try container.encode(borderOpacity, forKey: .borderOpacity) }
     }
 }
 

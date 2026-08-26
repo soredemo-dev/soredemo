@@ -101,12 +101,14 @@ final class StageStyleModel {
     func setInset(_ value: Double) { apply(insetFraction: value) }
     func setCornerRadius(_ value: Double) { apply(cornerRadius: value) }
     func setShadowOpacity(_ value: Double) { apply(shadowOpacity: value) }
+    func setBorderOpacity(_ value: Double) { apply(borderOpacity: value) }
 
     /// One writer for the whole struct: `StageStyle` has a validating initialiser
     /// (`insetFraction` must be in [0, 0.5) or it traps), so every change goes through it
     /// exactly once rather than through four near-copies that each have to remember.
     private func apply(insetFraction: Double? = nil, cornerRadius: Double? = nil,
-                       shadowOpacity: Double? = nil, background: StageBackground? = nil) {
+                       shadowOpacity: Double? = nil, background: StageBackground? = nil,
+                       borderOpacity: Double? = nil) {
         style = StageStyle(
             // Clamped, not asserted: this comes from a slider, and a UI that can trap the
             // app by being dragged to its own maximum is a UI with a bug in it.
@@ -114,7 +116,8 @@ final class StageStyleModel {
             cornerRadius: max(cornerRadius ?? style.cornerRadius, 0),
             shadowRadius: style.shadowRadius,
             shadowOpacity: min(max(shadowOpacity ?? style.shadowOpacity, 0), 1),
-            background: background ?? style.background)
+            background: background ?? style.background,
+            borderOpacity: min(max(borderOpacity ?? style.borderOpacity, 0), 1))
         publish()
     }
 
@@ -192,6 +195,14 @@ struct StageStylePicker: View {
             }
             slider("Shadow", value: model.style.shadowOpacity, range: 0...1) {
                 model.setShadowOpacity($0); onChange()
+            }
+            // **Beside the shadow, because they do the same job at different places.** The
+            // shadow separates the card from the background by darkening what is behind it,
+            // which works everywhere except at the corners where the card's edge meets the
+            // shadow's softest part. Off by default; over a pale background it does nothing and
+            // the shadow is the control that works there.
+            slider("Edge", value: model.style.borderOpacity, range: 0...1) {
+                model.setBorderOpacity($0); onChange()
             }
         }
     }

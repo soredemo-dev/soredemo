@@ -300,7 +300,7 @@ private func rejected(_ ns: Int64, _ reason: FramingRejection) -> FramingPlan.En
     #expect(authored?.target.role == nil, "an authored frame names no role the gate identified")
 
     // 2. It becomes a block, at a depth its own size earns.
-    let blocks = ZoomBlock.blocks(for: clicks, coverage: 1)
+    let blocks = ZoomBlock.blocks(for: clicks, coverage: 1, intensity: 1)
     let block = blocks.first
     #expect(blocks.count == 1)
     #expect(block?.origin.hostTime == authoredInstant.hostTime,
@@ -331,7 +331,7 @@ private func rejected(_ ns: Int64, _ reason: FramingRejection) -> FramingPlan.En
     let plan = FramingPlan(entries: [rejected(1_000_000_000, .hitTestReturnedNothing)])
     let clicks = plan.framedClicks(with: [], pointerFallbackRevision: nil)
     #expect(clicks.isEmpty)
-    let camera = CameraMotion(blocks: ZoomBlock.blocks(for: clicks, coverage: 1))
+    let camera = CameraMotion(blocks: ZoomBlock.blocks(for: clicks, coverage: 1, intensity: 1))
     #expect(camera.state(at: at(5_600_000_000)).zoom == 1.0)
 }
 

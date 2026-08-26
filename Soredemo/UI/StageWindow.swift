@@ -125,6 +125,11 @@ struct StageWindow: View {
     /// `AspectVariant.matching(width:height:)` is what removes the pillarbox a laptop
     /// recording gets in every one of the three presets.
     @State private var recordingSize = (width: 1920, height: 1080)
+    /// How much of the derived zoom to use, over the whole recording. **One dial, because
+    /// correcting forty blocks one at a time to say "less, everywhere" is a different act from
+    /// saying it once** — and because per-block adjustments still land on top of it, so a person
+    /// who has tuned three zooms by hand does not lose them by moving this.
+    @State private var zoomIntensity = FramingDepth.neutralIntensity
 
     /// **The share of the output frame the recording occupies in the chosen shape**, which
     /// is what `StageCompositor.outputCoverage` needs to decide zoom depth for the frame
@@ -423,6 +428,12 @@ struct StageWindow: View {
         // crop were the two whose changes waited for the next composition rebuild. A control
         // that takes effect on some later unrelated action is a control people learn not to
         // trust.
+        .task(id: zoomIntensity) {
+            StageCompositor.zoomIntensity = zoomIntensity
+            // The lane and the camera read one derivation; without this the blocks a person
+            // sees would keep the depths the dial just changed.
+            refreshDerivedZooms()
+        }
         .task(id: crop) {
             StageCompositor.crop = crop
             // Coverage depends on the cropped aspect, so it moves with the crop or it lies.
@@ -619,9 +630,12 @@ struct StageWindow: View {
                 }
                 .listStyle(.sidebar)
             case .selection:
-                List { FramingReviewSections(model: review, onChange: { reviewRevision += 1 },
-                                             playhead: timeline.playhead) }
-                    .listStyle(.sidebar)
+                List {
+                    Section("Zoom amount") { zoomIntensityControl }
+                    FramingReviewSections(model: review, onChange: { reviewRevision += 1 },
+                                          playhead: timeline.playhead)
+                }
+                .listStyle(.sidebar)
             case .transcript:
                 TranscriptPanel(
                     transcript: captions.transcript,
@@ -714,6 +728,35 @@ struct StageWindow: View {
                                 recordingShortSide: recordingShortSide)
         LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
             .font(Type.detail).foregroundStyle(.secondary)
+
+        // **A destination, as the four settings below it.** Choosing one sets them and then gets
+        // out of the way — the four stay live, and changing any of them puts this back to
+        // Custom rather than silently claiming an export is still "Web" when it is not. See
+        // `ExportPreset`.
+        Picker("For", selection: Binding(
+            get: { ExportPreset.matching(resolution: resolution, codec: codec,
+                                         frameRate: frameRate, quality: quality) },
+            set: { chosen in
+                guard let chosen else { return }
+                resolution = chosen.resolution
+                codec = chosen.codec
+                frameRate = chosen.frameRate
+                quality = chosen.quality
+            })) {
+            // Not selectable: "Custom" is a description of where the four controls are, not a
+            // thing to choose. Choosing it would have to mean "put them back", and there is no
+            // back to put them to.
+            Text("Custom").tag(ExportPreset?.none)
+            ForEach(ExportPreset.all, id: \.self) { preset in
+                Text(LocalizedStringKey(preset.name)).tag(ExportPreset?.some(preset))
+            }
+        }
+        if let preset = ExportPreset.matching(resolution: resolution, codec: codec,
+                                              frameRate: frameRate, quality: quality) {
+            Text(LocalizedStringKey(preset.detail))
+                .font(Type.detail).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
 
         // **How large, by SHORT side.** A ladder written as 1920×1080 cannot describe a portrait
         // output, and this app exports portrait and square for the places people post them.
@@ -1034,7 +1077,9 @@ struct StageWindow: View {
                 ? nil : try? EditState.encoding(cameraStyle),
             cropData: crop.isWhole ? nil : try? EditState.encoding(crop),
             hidesKeystrokes: stageStyle.showsKeystrokes ? nil : true,
-            musicData: music == .none ? nil : try? EditState.encoding(music))
+            musicData: music == .none ? nil : try? EditState.encoding(music),
+            // Neutral is not a decision, so an untouched project stays untouched on disk.
+            zoomIntensity: zoomIntensity == FramingDepth.neutralIntensity ? nil : zoomIntensity)
     }
 
     /// The bed's file inside the project package, or `nil` when there is none to play.
@@ -1122,6 +1167,10 @@ struct StageWindow: View {
             }
         } catch { failures.append("the cursor") }
         stageStyle.setShowsKeystrokes(edit.hidesKeystrokes != true)
+        // Clamped on the way in: it arrives from a file, which is rule 8's case, and a saved
+        // negative would make every depth the ceiling rather than failing visibly.
+        zoomIntensity = min(max(edit.zoomIntensity ?? FramingDepth.neutralIntensity, 0),
+                            FramingDepth.maximumIntensity)
         do {
             if let saved = try EditState.decoding(edit.musicData, as: MusicBed.self) {
                 music = saved
@@ -1184,6 +1233,36 @@ struct StageWindow: View {
         }
     }
 
+    /// **The lane's blocks, from the same call the camera makes.** Extracted the moment there
+    /// were two callers: `load()` and the intensity dial. A second derivation with its own
+    /// arguments is how a lane comes to disagree with the picture it is describing.
+    @ViewBuilder private var zoomIntensityControl: some View {
+        // `onEditingChanged` rather than on every tick: re-deriving the blocks and rebuilding
+        // the composition on each pixel of a drag is the difference between a slider that
+        // works and one that stutters. The same rule the camera sliders already use.
+        Slider(value: $zoomIntensity, in: 0...FramingDepth.maximumIntensity, step: 0.1,
+               onEditingChanged: { if !$0 { reviewRevision += 1 } }) {
+            Text("Amount")
+        }
+        Text(zoomIntensityLabel)
+            .font(Type.detail).foregroundStyle(.secondary)
+    }
+
+    /// Says what the dial does at the ends, because "0.0" and "2.0" do not.
+    private var zoomIntensityLabel: String {
+        let percent = Int((zoomIntensity * 100).rounded())
+        if percent == 0 { return "No zoom anywhere. Every click is framed, none is magnified." }
+        if percent == 100 { return "As derived. Adjustments you have made to single zooms still apply on top." }
+        return "\(percent)% of the derived zoom. Adjustments to single zooms still apply on top."
+    }
+
+    private func refreshDerivedZooms() {
+        timeline.setDerivedZooms(ZoomBlock.blocks(
+            for: review.plan.framedClicks(with: review.overrides,
+                                          pointerFallbackRevision: review.fallbackRevision),
+            coverage: outputCoverage, intensity: zoomIntensity))
+    }
+
     private func load() async {
         do {
             // Before the composition: `configuredComposition` reads
@@ -1230,10 +1309,7 @@ struct StageWindow: View {
             // The anchor first: the lane converts every block's absolute instant through it,
             // and blocks set before it would be drawn off the edge for one frame.
             timeline.setZoomAnchor(review.anchor)
-            timeline.setDerivedZooms(ZoomBlock.blocks(
-                for: review.plan.framedClicks(with: review.overrides,
-                                              pointerFallbackRevision: review.fallbackRevision),
-                coverage: outputCoverage))
+            refreshDerivedZooms()
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)
                 // **After `load`, which resets the models.** Restoring first would be wiped by
