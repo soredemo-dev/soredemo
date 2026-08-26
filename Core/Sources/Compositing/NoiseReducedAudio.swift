@@ -55,15 +55,31 @@ public enum NoiseReducedAudio {
     /// speech or silence — for a profile to mean something.
     public static let minimumSeconds: Double = 1.0
 
-    /// Cleans `asset`'s audio and writes it to `destination`.
+    /// **Which track the microphone is, by the one named constant that answers that.**
+    ///
+    /// `AudioMixBuilder.trackOrder` is where the master writer's layout is written down, and
+    /// every part of the app that has to tell the two audio tracks apart reads it rather than
+    /// writing `1`. Noise removal must not touch system audio: a game's soundtrack is not a room
+    /// to be subtracted, and the hiss "removed" from it would be the music.
+    public static var microphoneTrackIndex: Int? {
+        AudioMixBuilder.trackOrder.firstIndex(of: .microphone)
+    }
+
+    /// Cleans one of `asset`'s audio tracks and writes it to `destination`.
+    ///
+    /// **One track, not the mix.** A Soredemo recording has system audio and a microphone as
+    /// separate tracks, and a person mixes them separately; reading them as one signal and
+    /// writing one back would collapse that and make both gain sliders meaningless. The default
+    /// is the microphone, because that is the only one a room is in.
     ///
     /// **The silence is found from the samples already in memory**, not by re-reading the file
     /// through `WaveformEnvelope`. Same arithmetic, same slice rate, one read.
     public nonisolated static func write(from asset: AVAsset, to destination: URL,
+                                         trackIndex: Int? = microphoneTrackIndex,
                                          settings: NoiseReduction.Settings = .default,
                                          silence: SilenceFinder.Settings = .default)
     async throws -> Outcome {
-        guard let track = try await AudioSamples.read(from: asset) else {
+        guard let track = try await AudioSamples.read(from: asset, trackIndex: trackIndex) else {
             return .refused(.noAudioTrack)
         }
         guard track.seconds >= minimumSeconds else {

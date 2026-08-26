@@ -61,6 +61,16 @@ struct StageWindow: View {
     /// How loud each recorded source is in the export. Two sources, because the master keeps
     /// system audio and the microphone apart — see `AudioMix`.
     @State private var audioMix = AudioMix.unchanged
+    /// Noise removal on the microphone track. **`nil` is off**, and off is the default: this
+    /// rewrites what a person hears, and a recorder that quietly processed everybody's voice
+    /// would be making a decision that is not its to make.
+    @State private var noiseReduction: NoiseReduction.Settings?
+    /// What the last attempt to clean the microphone did, or why it could not. Shown, never
+    /// swallowed — a person who turned this on and heard no difference is owed the reason.
+    @State private var noiseReductionNote: String?
+    /// The cleaned microphone, once it exists. Rebuilt when the settings change; cleared when
+    /// the feature is turned off.
+    @State private var cleanedMicrophone: URL?
     /// Each audio track's integrated loudness, by index — see `Loudness`. Measured lazily, the
     /// first time levelling is asked for, because it decodes the whole audio track and most
     /// recordings are never levelled. Cleared when a different recording is loaded.
@@ -373,6 +383,10 @@ struct StageWindow: View {
             cameraStyle = initialCameraStyle
         }
         .task(id: variant) { await load() }
+        // **A full rebuild, not a mix change.** Noise removal replaces a whole audio TRACK in
+        // the composition, which `audioMix`'s cheaper path above cannot do — that one only moves
+        // volume ramps on tracks that are already there.
+        .task(id: noiseReduction) { if noiseReduction != nil || cleanedMicrophone != nil { await load() } }
         // **The file, not the whole bed.** Changing the piece means a different track in the
         // composition and a rebuild; changing its level or its ducking is a volume automation,
         // which the sibling below re-applies without touching the asset.
@@ -910,6 +924,45 @@ struct StageWindow: View {
     /// `AudioMix` stores a linear gain, which is what `AVAudioMix` takes. The conversion is
     /// here, at the edge, rather than in the model.
     @ViewBuilder private var audioControls: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle(isOn: Binding(
+                get: { noiseReduction != nil },
+                set: { noiseReduction = $0 ? .default : nil })
+            ) {
+                Text("Remove background noise")
+            }
+            .toggleStyle(.checkbox)
+            .font(.caption)
+
+            if noiseReduction != nil {
+                HStack {
+                    Text("Strength").font(.caption).foregroundStyle(.secondary)
+                    LiveSlider(
+                        value: noiseReduction?.strength
+                            ?? NoiseReduction.Settings.default.strength,
+                        // **Not the type's full 0…4 range.** Zero removes nothing, and above
+                        // three the voice starts going with the room — a range whose ends are
+                        // both useless is a slider that spends most of its travel doing harm.
+                        range: 0.5...3.0,
+                        commit: { strength in
+                            noiseReduction = .init(
+                                strength: strength,
+                                floor: noiseReduction?.floor
+                                    ?? NoiseReduction.Settings.default.floor)
+                        })
+                }
+            }
+            // **What it can and cannot do, on screen.** It takes out a fan, a hum, a laptop under
+            // load — sound that is there the whole time. It does not take out a door, a keyboard
+            // or a dog, and somebody who expects it to will conclude the feature is broken.
+            Text(noiseReductionNote
+                 ?? "Removes steady sound — a fan, a hum, air conditioning — from the microphone "
+                    + "only. It cannot remove a one-off noise like a door or a keyboard.")
+                .font(Type.detail)
+                .foregroundStyle(noiseReductionNote == nil ? .secondary : Signal.paused)
+        }
+        .padding(.bottom, 2)
+
         ForEach(AudioMix.Source.allCases, id: \.self) { source in
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -1123,7 +1176,62 @@ struct StageWindow: View {
             hidesKeystrokes: stageStyle.showsKeystrokes ? nil : true,
             musicData: music == .none ? nil : try? EditState.encoding(music),
             // Neutral is not a decision, so an untouched project stays untouched on disk.
-            zoomIntensity: zoomIntensity == FramingDepth.neutralIntensity ? nil : zoomIntensity)
+            zoomIntensity: zoomIntensity == FramingDepth.neutralIntensity ? nil : zoomIntensity,
+            // Absent means off, so a project nobody asked has nothing to say about it.
+            noiseReductionData: noiseReduction.flatMap { try? EditState.encoding($0) })
+    }
+
+    /// The cleaned microphone track, made if it is asked for and does not exist yet.
+    ///
+    /// **Returns the map `EditedAsset.make` takes, keyed by track index**, because a Soredemo
+    /// recording has system audio and a microphone as separate tracks and only one of them is a
+    /// room. `NoiseReducedAudio.microphoneTrackIndex` is where that index is decided, from the
+    /// same named order the mix and the waveform read.
+    ///
+    /// **Cached on disk, keyed by the settings.** The pass is a full decode and re-encode of the
+    /// audio; doing it again on every preview rebuild would make the strength slider unusable.
+    /// A settings change makes a different filename rather than deleting the old one, so
+    /// switching back is instant.
+    ///
+    /// Every refusal is reported into `noiseReductionNote` rather than swallowed. A person who
+    /// turned this on and heard no difference is owed the reason, and "there is no measurable
+    /// silence in this recording" is a thing they can act on.
+    private func microphoneSubstitution(for recording: AVAsset) async -> [Int: AVAsset] {
+        guard let settings = noiseReduction,
+              let index = NoiseReducedAudio.microphoneTrackIndex
+        else { return [:] }
+
+        // Inside the recording's own package, beside `media/` and `observations/`. A cleaned
+        // track is derived from the recording and belongs with it: copying the project copies
+        // it, and deleting the project takes it too.
+        let destination = NoiseReducedAudio.destination(
+            for: mediaURL, settings: settings,
+            in: ProjectStore.packageURL(forMediaAt: mediaURL))
+        if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
+            cleanedMicrophone = destination
+            return [index: AVURLAsset(url: destination)]
+        }
+        do {
+            let outcome = try await NoiseReducedAudio.write(from: recording, to: destination,
+                                                            trackIndex: index, settings: settings)
+            switch outcome {
+            case .reduced(let url):
+                cleanedMicrophone = url
+                noiseReductionNote = nil
+                return [index: AVURLAsset(url: url)]
+            case .refused(let refusal):
+                // **Left ON in the interface.** Turning the switch back off here would look like
+                // the app disagreeing with the person; the note says what happened and the
+                // switch still says what they asked for.
+                cleanedMicrophone = nil
+                noiseReductionNote = "Noise removal did nothing: \(refusal)."
+                return [:]
+            }
+        } catch {
+            cleanedMicrophone = nil
+            noiseReductionNote = "Noise removal could not run: \(error)."
+            return [:]
+        }
     }
 
     /// The bed's file inside the project package, or `nil` when there is none to play.
@@ -1188,6 +1296,10 @@ struct StageWindow: View {
         var failures: [String] = []
         if let saved = edit.timeline { timeline.restoreSavedEdit(saved) }
         audioMix = edit.audioMix
+        do {
+            noiseReduction = try EditState.decoding(edit.noiseReductionData,
+                                                    as: NoiseReduction.Settings.self)
+        } catch { failures.append("noise removal") }
         do {
             if let adjustments = try EditState.decoding(edit.zoomAdjustmentData,
                                                         as: [ZoomAdjustment].self) {
@@ -1383,7 +1495,13 @@ struct StageWindow: View {
             // **The preview plays the EDITED asset, not the recording with an end time set.**
             // `EditedAsset` is what the export cuts with too, so the two cannot show different
             // videos — an edit a person can make but not see is a setting, not an edit.
-            let cut = try await EditedAsset.make(from: recording, by: timeline.edit)
+            // **The cleaned microphone is substituted into the cut, so preview and export
+            // cannot disagree.** Export is handed the asset the preview is playing — see
+            // `runExport`'s header — so wiring it here wires both, and there is no second place
+            // for the two to drift apart.
+            let cut = try await EditedAsset.make(
+                from: recording, by: timeline.edit,
+                substitutingAudio: await microphoneSubstitution(for: recording))
             // The camera laid alongside the cut recording, so one composition sees both. Returns
             // the cut asset untouched when there is no camera, so the common path costs nothing.
             let combined = try await CameraComposition.combine(

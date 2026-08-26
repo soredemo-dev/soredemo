@@ -22,12 +22,31 @@ public enum EditedAsset {
     /// One composition track per SOURCE audio track, not one mixed track: a master carries
     /// system sound and the microphone separately, and mixing is `AVAssetReaderAudioMixOutput`'s
     /// job further down. Doing it here would mix twice.
+    /// `substitutingAudio` replaces individual audio tracks with the first audio track of
+    /// another asset, keyed by index into the source's own audio tracks.
+    ///
+    /// **Per track, not for the whole asset, because the two tracks are not interchangeable.**
+    /// A Soredemo recording carries system audio and a microphone separately
+    /// (`AudioMixBuilder.trackOrder`) and a person mixes them separately. Noise removal produces
+    /// a cleaned MICROPHONE and must leave system audio exactly as recorded — so the shape of
+    /// this parameter is what stops a cleaned track being pasted over both.
+    ///
+    /// A substitute that cannot be read leaves the original in place rather than dropping the
+    /// track: losing the voice is a worse outcome than keeping its hiss, and a cache file that
+    /// has been deleted under the app is an ordinary thing.
     public nonisolated static func make(from asset: AVAsset,
-                                       by timeline: EditTimeline) async throws -> AVAsset {
+                                       by timeline: EditTimeline,
+                                       substitutingAudio: [Int: AVAsset] = [:])
+    async throws -> AVAsset {
         let composition = AVMutableComposition()
         let sourceVideo = try await asset.loadTracks(withMediaType: .video)
         guard let sourceVideoTrack = sourceVideo.first else { throw EditedAssetError.noVideoTrack }
-        let sourceAudio = try await asset.loadTracks(withMediaType: .audio)
+        var sourceAudio = try await asset.loadTracks(withMediaType: .audio)
+        for (index, replacement) in substitutingAudio where sourceAudio.indices.contains(index) {
+            guard let first = try? await replacement.loadTracks(withMediaType: .audio).first
+            else { continue }
+            sourceAudio[index] = first
+        }
 
         guard let videoTrack = composition.addMutableTrack(
             withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)

@@ -34,7 +34,31 @@ public enum AudioSamples {
     /// a `nil` rather than an empty `Track`: "there is no microphone here" and "the microphone
     /// recorded silence" are different facts and a caller must not confuse them.
     public nonisolated static func read(from asset: AVAsset) async throws -> Track? {
-        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        try await read(from: asset, trackIndex: nil)
+    }
+
+    /// Reads ONE of `asset`'s audio tracks.
+    ///
+    /// **This exists because a Soredemo recording has two, and they are not interchangeable.**
+    /// The master writer lays down system audio and then the microphone — `AudioMixBuilder`
+    /// .trackOrder is the named constant for that, and everything in the app that has to tell
+    /// them apart reads it rather than writing `1`. Mixing them and handing back one signal, as
+    /// the whole-asset read above does, is right for measuring a level and wrong for anything
+    /// that will be written back: it would collapse two sources a person mixes separately into
+    /// one, and their gain sliders would stop meaning anything.
+    ///
+    /// `nil` when the asset has no track at that index — a recording made with no microphone is
+    /// ordinary, not an error.
+    public nonisolated static func read(from asset: AVAsset, trackIndex: Int?)
+    async throws -> Track? {
+        let all = try await asset.loadTracks(withMediaType: .audio)
+        let tracks: [AVAssetTrack]
+        if let trackIndex {
+            guard all.indices.contains(trackIndex) else { return nil }
+            tracks = [all[trackIndex]]
+        } else {
+            tracks = all
+        }
         guard !tracks.isEmpty else { return nil }
 
         // The rate is taken from the first track rather than assumed. A Soredemo recording is

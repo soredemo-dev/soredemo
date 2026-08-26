@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Overlays
+import Timeline
 import Testing
 @testable import Compositing
 
@@ -160,8 +161,11 @@ import Testing
         try AudioSamples.write(track(hum + both), to: sourceURL)
 
         let outputURL = directory.appending(path: "quiet.caf")
+        // `trackIndex: 0` because these fixtures are single-track files. In a real recording
+        // the default — the microphone's index — is the right one, and
+        // `onlyTheMicrophoneTrackIsCleaned` is the test for that.
         let outcome = try await NoiseReducedAudio.write(from: AVURLAsset(url: sourceURL),
-                                                        to: outputURL)
+                                                        to: outputURL, trackIndex: 0)
         guard case .reduced(let written) = outcome else {
             Issue.record("the pass refused a file built to be processable: \(outcome)")
             return
@@ -196,6 +200,38 @@ import Testing
                 "the tone went from \(voiceBefore) to \(voiceAfter) — the voice is going too")
     }
 
+    /// **The default track is the microphone, and that is not an arbitrary choice.**
+    ///
+    /// System audio is a game's soundtrack, a video someone is demonstrating, a notification
+    /// chime. It is not a room, and subtracting an "estimated noise floor" from it removes the
+    /// quiet parts of the music. `AudioMixBuilder.trackOrder` is the one place the master
+    /// writer's layout is written down, and this reads it rather than writing `1`.
+    @Test func theTrackCleanedByDefaultIsTheMicrophoneOne() {
+        let index = NoiseReducedAudio.microphoneTrackIndex
+        #expect(index == AudioMixBuilder.trackOrder.firstIndex(of: .microphone))
+        #expect(index != AudioMixBuilder.trackOrder.firstIndex(of: .systemAudio), """
+            the microphone and system audio resolve to the same track index, so noise removal \
+            would be subtracting a room from whatever the machine was playing
+            """)
+    }
+
+    /// Asking for a track that is not there is a refusal, not a crash and not a silent fallback
+    /// to track 0 — which would denoise system audio on a recording made without a microphone.
+    @Test func aRecordingWithNoMicrophoneTrackIsRefusedRatherThanFallingBack() async throws {
+        let directory = try scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appending(path: "system-only.caf")
+        try AudioSamples.write(track(tone(440, seconds: 3, amplitude: 0.5)), to: sourceURL)
+
+        let outcome = try await NoiseReducedAudio.write(
+            from: AVURLAsset(url: sourceURL),
+            to: directory.appending(path: "out.caf"), trackIndex: 1)
+        guard case .refused(.noAudioTrack) = outcome else {
+            Issue.record("a one-track file was processed as though it had a microphone: \(outcome)")
+            return
+        }
+    }
+
     /// A recording with no silence anywhere is refused by name rather than returned unchanged,
     /// so the app can say why instead of appearing to have done nothing.
     @Test func aFileWithNoSilenceIsRefusedByName() async throws {
@@ -206,7 +242,7 @@ import Testing
 
         let outcome = try await NoiseReducedAudio.write(
             from: AVURLAsset(url: sourceURL),
-            to: directory.appending(path: "out.caf"))
+            to: directory.appending(path: "out.caf"), trackIndex: 0)
         guard case .refused(let refusal) = outcome else {
             Issue.record("an unbroken tone was processed: \(outcome)")
             return
@@ -222,7 +258,7 @@ import Testing
 
         let outcome = try await NoiseReducedAudio.write(
             from: AVURLAsset(url: sourceURL),
-            to: directory.appending(path: "out.caf"))
+            to: directory.appending(path: "out.caf"), trackIndex: 0)
         guard case .refused(let refusal) = outcome else {
             Issue.record("a 0.4 s file was processed: \(outcome)")
             return
@@ -231,5 +267,203 @@ import Testing
             Issue.record("refused as \(refusal) rather than as too short")
             return
         }
+    }
+}
+
+/// Substituting one audio track and leaving the other alone — the shape noise removal needs.
+@Suite struct EditedAssetAudioSubstitutionTests {
+    private let rate = 48_000.0
+
+    private func tone(_ hz: Double, seconds: Double, amplitude: Double) -> [Float] {
+        (0..<Int(seconds * rate)).map {
+            Float(amplitude * sin(2 * .pi * hz * Double($0) / rate))
+        }
+    }
+
+    private func scratch() throws -> URL {
+        let directory = URL.temporaryDirectory.appending(path: "soredemo-sub-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// Writes a movie with one video track and `audio.count` audio tracks.
+    ///
+    /// **Two audio tracks, because one would not test the thing.** The whole point of keying the
+    /// substitution by index is that a Soredemo recording has system audio AND a microphone, and
+    /// a cleaned microphone must not land on both.
+    /// **`async`, and every wait is a suspension rather than a block.**
+    ///
+    /// The first version blocked: `usleep` in the ready-for-more loop and a `DispatchSemaphore`
+    /// waiting on `finishWriting`. `swift test` runs every target in ONE process and Swift
+    /// Testing runs suites concurrently, so those blocked threads in the cooperative pool — and
+    /// 24 tests across four unrelated suites stopped at 0% CPU, none of them this one. A hang
+    /// that presents as somebody else's test is the reason this note is here.
+    private func movie(at url: URL, audio: [[Float]], seconds: Double) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 64, AVVideoHeightKey: 64,
+        ])
+        video.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: video,
+            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String:
+                                            kCVPixelFormatType_32BGRA])
+        writer.add(video)
+
+        let inputs = audio.map { _ -> AVAssetWriterInput in
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: rate, AVNumberOfChannelsKey: 1,
+            ])
+            input.expectsMediaDataInRealTime = false
+            writer.add(input)
+            return input
+        }
+
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+
+        var pixels: CVPixelBuffer?
+        // Safe here: `&pixels` is an out-parameter the framework fills, and the result is
+        // read only through the optional binding below.
+        unsafe CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixels)
+        for frame in 0..<Int(seconds * 30) {
+            while !video.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(1)) }
+            if let pixels {
+                adaptor.append(pixels, withPresentationTime:
+                                CMTime(value: CMTimeValue(frame), timescale: 30))
+            }
+        }
+        video.markAsFinished()
+
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else {
+            return
+        }
+        for (index, samples) in audio.enumerated() {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format,
+                                                frameCapacity: AVAudioFrameCount(samples.count)),
+                  // Safe here: the buffer owns this pointer for its own lifetime and outlives
+                  // every use below.
+                  let channel = unsafe buffer.floatChannelData else { continue }
+            buffer.frameLength = AVAudioFrameCount(samples.count)
+            // Safe here: `frameCapacity` and `frameLength` are both `samples.count`, so every
+            // index this loop produces is one the buffer owns.
+            for (i, sample) in samples.enumerated() { unsafe channel[0][i] = sample }
+            guard let sampleBuffer = buffer.asSampleBuffer() else { continue }
+            while !inputs[index].isReadyForMoreMediaData {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            inputs[index].append(sampleBuffer)
+            inputs[index].markAsFinished()
+        }
+
+        await withCheckedContinuation { continuation in
+            writer.finishWriting { continuation.resume() }
+        }
+    }
+
+    /// **The cleaned track lands on the microphone and system audio comes through untouched.**
+    ///
+    /// This is the whole reason the parameter is a map keyed by index rather than one replacement
+    /// asset. A version that swapped every audio track would put a denoised copy of the
+    /// microphone where the game soundtrack was, and the export would sound like the music had
+    /// been replaced by somebody talking over it.
+    @Test func onlyTheSubstitutedTrackChangesAndTheOtherIsUntouched() async throws {
+        let directory = try scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // Track 0 (system audio) is 300 Hz; track 1 (the microphone) is 900 Hz.
+        let sourceURL = directory.appending(path: "master.mov")
+        try await movie(at: sourceURL,
+                  audio: [tone(300, seconds: 1.0, amplitude: 0.5),
+                          tone(900, seconds: 1.0, amplitude: 0.5)],
+                  seconds: 1.0)
+
+        // The replacement is a THIRD frequency, so which track it landed on is unambiguous.
+        let replacementURL = directory.appending(path: "clean.caf")
+        try AudioSamples.write(
+            AudioSamples.Track(samples: tone(2000, seconds: 1.0, amplitude: 0.5),
+                               sampleRate: rate),
+            to: replacementURL)
+
+        let asset = AVURLAsset(url: sourceURL)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        try #require(tracks.count == 2, "the fixture wrote \(tracks.count) audio tracks, not 2")
+
+        let duration = try await asset.load(.duration)
+        let edited = try await EditedAsset.make(
+            from: asset,
+            by: EditTimeline.whole(duration: Nanoseconds(Int64(duration.seconds * 1e9))),
+            substitutingAudio: [1: AVURLAsset(url: replacementURL)])
+
+        let editedTracks = try await edited.loadTracks(withMediaType: .audio)
+        #expect(editedTracks.count == 2, "a track was dropped by the substitution")
+
+        func energy(_ samples: [Float], at hz: Double) -> Double {
+            var real = 0.0, imaginary = 0.0
+            for (i, sample) in samples.enumerated() {
+                let angle = 2 * Double.pi * hz * Double(i) / rate
+                real += Double(sample) * cos(angle)
+                imaginary += Double(sample) * sin(angle)
+            }
+            return (real * real + imaginary * imaginary).squareRoot() / Double(samples.count)
+        }
+        let zero = try #require(try await AudioSamples.read(from: edited, trackIndex: 0))
+        let one = try #require(try await AudioSamples.read(from: edited, trackIndex: 1))
+
+        #expect(energy(zero.samples, at: 300) > energy(zero.samples, at: 2000) * 4, """
+            system audio was overwritten: 300 Hz \(energy(zero.samples, at: 300)), \
+            2000 Hz \(energy(zero.samples, at: 2000))
+            """)
+        #expect(energy(one.samples, at: 2000) > energy(one.samples, at: 900) * 4, """
+            the microphone was not substituted: 2000 Hz \(energy(one.samples, at: 2000)), \
+            900 Hz \(energy(one.samples, at: 900))
+            """)
+    }
+
+
+    /// The parameter is keyed by index rather than applying to every track, and this is the test
+    /// of that shape: two entries with different assets cannot collapse into one.
+    @Test func substitutionIsKeyedPerTrackRatherThanForTheWholeAsset() {
+        let one = AVURLAsset(url: URL(filePath: "/tmp/a.caf"))
+        let two = AVURLAsset(url: URL(filePath: "/tmp/b.caf"))
+        let map: [Int: AVAsset] = [0: one, 1: two]
+        #expect(map.count == 2)
+        #expect((map[1] as? AVURLAsset)?.url.lastPathComponent == "b.caf", """
+            the microphone's index does not select the microphone's replacement, so a cleaned \
+            track could be pasted over system audio
+            """)
+    }
+}
+
+private extension AVAudioPCMBuffer {
+    /// A `CMSampleBuffer` over this buffer's samples, for handing to `AVAssetWriterInput`.
+    func asSampleBuffer() -> CMSampleBuffer? {
+        var format: CMFormatDescription?
+        // Safe here: `streamDescription` is a pointer the format owns and `self` outlives this
+        // call; `&format` is an out-parameter the framework fills.
+        guard unsafe CMAudioFormatDescriptionCreate(
+            allocator: nil, asbd: self.format.streamDescription,
+            layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil,
+            extensions: nil, formatDescriptionOut: &format) == noErr, let format else { return nil }
+        var sampleBuffer: CMSampleBuffer?
+        // Safe here: every pointer is either `nil` or an out-parameter the framework fills,
+        // and the timing array is a literal that outlives the call.
+        guard unsafe CMSampleBufferCreate(
+            allocator: nil, dataBuffer: nil, dataReady: false, makeDataReadyCallback: nil,
+            refcon: nil, formatDescription: format, sampleCount: CMItemCount(frameLength),
+            sampleTimingEntryCount: 1,
+            sampleTimingArray: [CMSampleTimingInfo(
+                duration: CMTime(value: 1, timescale: CMTimeScale(self.format.sampleRate)),
+                presentationTimeStamp: .zero, decodeTimeStamp: .invalid)],
+            sampleSizeEntryCount: 0, sampleSizeArray: nil,
+            sampleBufferOut: &sampleBuffer) == noErr, let sampleBuffer else { return nil }
+        // Safe here: `audioBufferList` belongs to the buffer this is called on, and the
+        // sample buffer is used only while that buffer is alive.
+        guard unsafe CMSampleBufferSetDataBufferFromAudioBufferList(
+            sampleBuffer, blockBufferAllocator: nil, blockBufferMemoryAllocator: nil,
+            flags: 0, bufferList: audioBufferList) == noErr else { return nil }
+        return sampleBuffer
     }
 }

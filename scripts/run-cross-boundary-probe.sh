@@ -111,6 +111,7 @@ xcrun swiftc \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \
   Soredemo/DesignSystem/DesignTokens.swift \
+  Soredemo/DesignSystem/LiveSlider.swift \
   Soredemo/Editor/ContentView.swift \
   Soredemo/Recording/CameraSelfView.swift \
   Soredemo/Recording/DesktopIcons.swift \

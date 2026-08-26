@@ -78,6 +78,17 @@ public struct EditState: Codable, Sendable, Equatable {
     /// neutral** — a project nobody dialled has nothing to say about it, and writing 1 would
     /// make every untouched project claim a decision.
     public var zoomIntensity: Double?
+    /// Noise removal on the microphone track — an encoded `NoiseReduction.Settings`. Authored.
+    ///
+    /// **`Data?`, following every other sub-object here, and that is the reason rather than
+    /// laziness.** `EditState` lives in `Project`, the settings type lives with the algorithm in
+    /// `Overlays`, and `Project` cannot see `Overlays` — nor should it: the document's job is to
+    /// remember what a person chose, not to know how noise is removed. Every other authored
+    /// sub-object in this type is stored the same way for the same reason.
+    ///
+    /// **Absent means off.** A project made before this feature existed, and a project by
+    /// somebody who never asked for it, are the same thing and decode to the same thing.
+    public var noiseReductionData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -96,7 +107,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 cropData: Data? = nil,
                 hidesKeystrokes: Bool? = nil,
                 musicData: Data? = nil,
-                zoomIntensity: Double? = nil) {
+                zoomIntensity: Double? = nil,
+                noiseReductionData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -115,6 +127,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.hidesKeystrokes = hidesKeystrokes
         self.musicData = musicData
         self.zoomIntensity = zoomIntensity
+        self.noiseReductionData = noiseReductionData
     }
 
     /// A recording nobody has edited.
@@ -134,6 +147,10 @@ public struct EditState: Codable, Sendable, Equatable {
             // Neutral is not a change, the same way `burnsInCaptions == false` is not: a
             // person who moved the dial and moved it back has an untouched project.
             || (zoomIntensity.map { $0 != 1 } ?? false)
+            // Present at all IS a change here, unlike `burnsInCaptions` above: absent means off,
+            // and the type has no "off" value of its own — turning the feature off removes the
+            // field rather than writing a disabled one.
+            || noiseReductionData != nil
     }
 
     // MARK: - the tiers that own these values

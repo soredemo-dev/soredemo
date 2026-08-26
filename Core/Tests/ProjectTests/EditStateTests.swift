@@ -156,3 +156,58 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
     #expect(!EditState(hidesKeystrokes: false).changesAnything)
     #expect(EditState(hidesKeystrokes: true).changesAnything)
 }
+
+/// The noise-removal setting, as the document sees it.
+///
+/// The document does not know what noise removal IS — the settings arrive already encoded,
+/// which is how every authored sub-object crosses this boundary. What it must get right is that
+/// absent means off, that a project written before the feature existed still opens, and that
+/// asking for it counts as having changed something.
+@Suite struct EditStateNoiseReductionTests {
+    @Test func absentMeansOffAndCountsAsNoChange() {
+        let untouched = EditState()
+        #expect(untouched.noiseReductionData == nil)
+        #expect(untouched.changesAnything == false)
+    }
+
+    /// **Present at all is a change**, which is not true of every field here — `burnsInCaptions`
+    /// is a `Bool?` where `false` is not a change. There is no "off" value to write: turning the
+    /// feature off removes the field.
+    @Test func askingForNoiseRemovalIsAChangeWorthSaving() {
+        var state = EditState()
+        state.noiseReductionData = Data("{}".utf8)
+        #expect(state.changesAnything, """
+            a project with noise removal asked for reports nothing to save, so closing it would \
+            not offer to save and the setting would be lost without a word
+            """)
+        state.noiseReductionData = nil
+        #expect(state.changesAnything == false, "turning it off left the project looking dirty")
+    }
+
+    /// A project file written before this field existed decodes, with the feature off — the
+    /// property every optional in this type is here to provide.
+    @Test func aProjectWrittenBeforeThisFieldExistedStillOpens() throws {
+        // **Built by encoding a state and deleting the key, not hand-written.** `audioMix` is
+        // required by this type's `Codable`, and a hand-written fixture missing it fails for that
+        // reason instead — which is a test of the fixture rather than of the field.
+        var recent = EditState()
+        recent.burnsInCaptions = true
+        let encoded = try JSONEncoder().encode(recent)
+        var object = try #require(try JSONSerialization.jsonObject(with: encoded)
+                                    as? [String: Any])
+        object.removeValue(forKey: "noiseReductionData")
+        let old = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(EditState.self, from: old)
+        #expect(decoded.noiseReductionData == nil)
+        #expect(decoded.burnsInCaptions == true, "the fixture decoded as empty, so this is vacuous")
+    }
+
+    @Test func theSettingSurvivesARoundTripThroughTheDocument() throws {
+        var state = EditState()
+        state.noiseReductionData = Data(#"{"strength":2.5,"floor":0.1}"#.utf8)
+        let round = try JSONDecoder().decode(
+            EditState.self, from: JSONEncoder().encode(state))
+        #expect(round.noiseReductionData == state.noiseReductionData)
+    }
+}
