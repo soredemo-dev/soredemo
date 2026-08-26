@@ -825,8 +825,22 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
            ]), let output = filter.outputImage {
             drawn = output
         }
-        return drawn
-            .transformed(by: CGAffineTransform(translationX: placement.x - tip,
-                                               y: placement.y - tip))
+        // **The press, applied to the finished image rather than to the art's own scale.**
+        // The bitmap is cached by pixel size (`cursorCanvas(size:)`); folding a per-frame
+        // multiplier into that size would mint a canvas per frame of every click and defeat
+        // the cache entirely. A transform on the CIImage costs nothing and composites the same.
+        //
+        // **About the HOTSPOT, which is why the translate below changes with it.** The art is
+        // built around its hotspot at the canvas's centre point `tip`, so after scaling by `p`
+        // about the origin that hotspot sits at `tip × p` — and it is the hotspot, not the
+        // bitmap's corner, that has to land on the recorded position. Scaling about the origin
+        // and translating by the unscaled `tip` would walk the cursor toward the frame's corner
+        // by a few points on every click.
+        let press = placement.pressScale
+        let scaled = press == 1 ? drawn
+                                : drawn.transformed(by: CGAffineTransform(scaleX: press, y: press))
+        return scaled
+            .transformed(by: CGAffineTransform(translationX: placement.x - tip * press,
+                                               y: placement.y - tip * press))
     }
 }

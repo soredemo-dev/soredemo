@@ -121,3 +121,119 @@ extension StageCompositorTests {
         #expect(!(last.x == first.x && last.y == first.y))
     }
 }
+
+// MARK: - the press reaches the pixels
+
+/// **A pressed cursor is drawn smaller, and this is measured off the frame.** `CursorPressTests`
+/// pins the curve; this pins that the curve reaches the picture — the failure
+/// `CameraOverlayStyle.borderOpacity` had, where a public option computed a value nothing drew.
+extension StageCompositorTests {
+    @Test func aPressedCursorCoversLessOfTheFrameThanAnUnpressedOne() throws {
+        let saved = StageCompositor.settings()
+        defer { StageCompositor.apply(saved) }
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.observationLogURL = nil
+        unsafe StageCompositor.overrides = []
+        unsafe StageCompositor.editTimeline = nil
+        // No ripple: the ring is drawn into the same bitmap, and a test that counted every
+        // non-background pixel would be measuring the ripple's growth rather than the press.
+        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(clickEffect: CursorStyle.ClickEffect.none)
+
+        let renderer: any FrameRendering
+        do { renderer = try CoreImageFrameRenderer() }
+        catch FrameRenderingError.noRenderDevice {
+            Issue.record("no Metal render device on this machine — a real answer, not a skip")
+            return
+        }
+
+        /// How many pixels the drawn cursor puts on the frame at `press`. The art is white with
+        /// a black stroke over a mid-blue source, so "near-white" is the cursor and nothing else.
+        func cursorPixels(press: Double) throws -> Int {
+            let source = try makePixelBuffer(width: 640, height: 360, fill: sourceFill)
+            let destination = try makePixelBuffer(width: 640, height: 360, fill: (0, 0, 0))
+            let base = StagePlanner.plan(outputWidth: 640, outputHeight: 360,
+                                         sourceWidth: 640, sourceHeight: 360, style: .default)
+            let placement = NormalizedPointerPlacement(x: 320, y: 180, ripplePhase: nil,
+                                                       pressScale: press)
+            let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                                  card: base.card, cornerRadius: base.cornerRadius,
+                                  style: base.style, pointer: placement,
+                                  cursorStyle: unsafe StageCompositor.cursorStyle)
+            try renderer.render(plan, source: source, camera: nil, into: destination)
+            return try pixels(of: destination)
+                .count { $0.r > 200 && $0.g > 200 && $0.b > 200 }
+        }
+
+        let full = try cursorPixels(press: 1)
+        #expect(full > 0, """
+            no cursor was drawn at all, so the comparison below would be between two zeroes
+            """)
+        let pressed = try cursorPixels(press: CursorPress.pressedScale)
+        #expect(pressed < full, """
+            a cursor pressed to \(CursorPress.pressedScale) covered \(pressed) pixels against an \
+            unpressed \(full). The press is computed and not drawn.
+            """)
+        // Roughly the square of the scale, since it is an area. Loose bounds: antialiasing and
+        // the black stroke's share both move with size, and the claim is "smaller", not "smaller
+        // by exactly this much".
+        let ratio = Double(pressed) / Double(full)
+        let expected = CursorPress.pressedScale * CursorPress.pressedScale
+        #expect(abs(ratio - expected) < 0.15, """
+            the pressed cursor covers \(ratio) of the full one; a scale of \
+            \(CursorPress.pressedScale) should be about \(expected) of the area
+            """)
+    }
+
+    /// The hotspot stays where the recording put it. Scaling the art about the bitmap's corner
+    /// instead of its hotspot walks the cursor a few points toward the frame's origin on every
+    /// click — visible as the pointer twitching away from what it is clicking.
+    @Test func aPressedCursorStaysOnItsOwnHotspot() throws {
+        let saved = StageCompositor.settings()
+        defer { StageCompositor.apply(saved) }
+        unsafe StageCompositor.style = .default
+        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(clickEffect: CursorStyle.ClickEffect.none)
+
+        let renderer: any FrameRendering
+        do { renderer = try CoreImageFrameRenderer() }
+        catch FrameRenderingError.noRenderDevice {
+            Issue.record("no Metal render device on this machine — a real answer, not a skip")
+            return
+        }
+
+        /// The tip of whatever the cursor drew: the arrow extends toward +x and −y from its
+        /// tip, so the minimum-x of the topmost white row IS the tip.
+        func tip(press: Double) throws -> (x: Int, y: Int)? {
+            let source = try makePixelBuffer(width: 640, height: 360, fill: sourceFill)
+            let destination = try makePixelBuffer(width: 640, height: 360, fill: (0, 0, 0))
+            let base = StagePlanner.plan(outputWidth: 640, outputHeight: 360,
+                                         sourceWidth: 640, sourceHeight: 360, style: .default)
+            let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                                  card: base.card, cornerRadius: base.cornerRadius,
+                                  style: base.style,
+                                  pointer: NormalizedPointerPlacement(x: 320, y: 180,
+                                                                      ripplePhase: nil,
+                                                                      pressScale: press),
+                                  cursorStyle: unsafe StageCompositor.cursorStyle)
+            try renderer.render(plan, source: source, camera: nil, into: destination)
+            let frame = try pixels(of: destination)
+            for row in 0..<360 {
+                for column in 0..<640 {
+                    let p = frame[row * 640 + column]
+                    if p.r > 200 && p.g > 200 && p.b > 200 { return (column, row) }
+                }
+            }
+            return nil
+        }
+
+        let unpressed = try #require(try tip(press: 1), "no cursor drawn unpressed")
+        let pressed = try #require(try tip(press: CursorPress.pressedScale),
+                                   "no cursor drawn pressed")
+        // Within two pixels: the art is antialiased and shrinking it moves which subpixel
+        // crosses the threshold, but the tip must not travel.
+        #expect(abs(pressed.x - unpressed.x) <= 2 && abs(pressed.y - unpressed.y) <= 2, """
+            the tip moved from (\(unpressed.x), \(unpressed.y)) to (\(pressed.x), \(pressed.y)) \
+            when the cursor was pressed — it is being scaled about the bitmap's corner rather \
+            than about its hotspot
+            """)
+    }
+}

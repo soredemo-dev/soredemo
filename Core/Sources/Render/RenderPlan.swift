@@ -383,6 +383,9 @@ public struct NormalizedPointerPlacement: Hashable, Sendable {
     public let y: Double
     /// 0 at the click instant, rising to 1 as the ripple finishes. `nil` when not clicking.
     public let ripplePhase: Double?
+    /// How much smaller to draw the cursor because a button is down or has just come up — see
+    /// `CursorPress`. `1` when nothing is pressed, so a caller multiplies unconditionally.
+    public let pressScale: Double
     /// The classified system-cursor shape at the sample being drawn; `nil` is
     /// "unrecorded" and renders as the arrow, same as `.other` — see `PointerShape`.
     public let shape: PointerShape?
@@ -403,8 +406,13 @@ public struct NormalizedPointerPlacement: Hashable, Sendable {
 
     public init(x: Double, y: Double, ripplePhase: Double?, shape: PointerShape? = nil,
                 hotspot: NormalizedPoint? = nil, opacity: Double = 1, tiltDegrees: Double = 0,
-                smearRadius: Double = 0, smearAngle: Double = 0) {
+                smearRadius: Double = 0, smearAngle: Double = 0,
+                pressScale: Double = 1) {
         self.x = x; self.y = y; self.ripplePhase = ripplePhase
+        // Clamped to something a cursor can still be seen at. A decoded or miscomputed zero
+        // would draw nothing and read as the cursor disappearing on click, which is worse than
+        // a press that is too small.
+        self.pressScale = pressScale.isFinite ? min(max(pressScale, 0.2), 2) : 1
         self.shape = shape; self.hotspot = hotspot
         self.opacity = opacity.isFinite ? min(max(opacity, 0), 1) : 1
         self.tiltDegrees = tiltDegrees.isFinite ? tiltDegrees : 0

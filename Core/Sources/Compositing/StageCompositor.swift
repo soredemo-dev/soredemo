@@ -428,7 +428,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                                           shape: shape, hotspot: hotspot,
                                           opacity: opacity, tiltDegrees: tilt,
                                           smearRadius: smear?.radius ?? 0,
-                                          smearAngle: smear?.angle ?? 0)
+                                          smearAngle: smear?.angle ?? 0,
+                                          // The press comes from the same track the ripple
+                                          // does, at the same instant, so the two cannot
+                                          // disagree about which click is current.
+                                          pressScale: click?.pressScale(at: instant) ?? 1)
         case .blind, .suppressedByReviewer, .noObservationYet:
             return nil
         }

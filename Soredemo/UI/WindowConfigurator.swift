@@ -38,6 +38,11 @@ struct WindowConfigurator: NSViewRepresentable {
     /// `NSViewRepresentable`'s associated type is this type, and Swift will not let a
     /// public-facing conformance name a private one.
     final class AttachedView: NSView {
+        /// Whether this view has already registered its full-screen observers for its window.
+        /// `configure()` runs on every SwiftUI update, and a second registration would set the
+        /// presentation options twice per transition.
+        private var watchesFullScreen = false
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             configure()
@@ -56,6 +61,43 @@ struct WindowConfigurator: NSViewRepresentable {
             window.collectionBehavior.insert(.fullScreenPrimary)
             window.collectionBehavior.insert(.moveToActiveSpace)
             sizeGenerouslyOnFirstOpen(window)
+            watchFullScreen(window)
+        }
+
+        /// **In full screen the toolbar gets out of the way and comes back when you reach for
+        /// it**, which is what every full-screen Mac app does and what this one did not: the
+        /// title bar and its buttons stayed drawn across the top of the picture the whole time.
+        ///
+        /// **Presentation options on the notification, not a window delegate.** The documented
+        /// route is `window(_:willUseFullScreenPresentationOptions:)`, and this window already
+        /// has a delegate — SwiftUI's own, which drives the scene. Replacing it breaks the
+        /// scene and proxying it means forwarding every selector SwiftUI might add. Setting
+        /// `NSApp.presentationOptions` on entry is the same setting by the other supported
+        /// route, and it is undone on exit rather than left applied to whatever window is
+        /// frontmost next.
+        ///
+        /// **All four options, because AppKit requires three of them together.**
+        /// `autoHideToolbar` must be accompanied by `autoHideMenuBar`, and `autoHideMenuBar` by
+        /// `autoHideDock` or `hideDock` — an incomplete set is an exception, not a partial
+        /// effect. `autoHideDock` rather than `hideDock`: the Dock should come back with the
+        /// menu bar when a person reaches for either, not be gone for the session.
+        private func watchFullScreen(_ window: NSWindow) {
+            guard !watchesFullScreen else { return }
+            watchesFullScreen = true
+            let centre = NotificationCenter.default
+            centre.addObserver(forName: NSWindow.didEnterFullScreenNotification,
+                               object: window, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    NSApp.presentationOptions = [.autoHideToolbar, .autoHideMenuBar,
+                                                 .autoHideDock, .fullScreen]
+                }
+            }
+            centre.addObserver(forName: NSWindow.didExitFullScreenNotification,
+                               object: window, queue: .main) { _ in
+                // Back to the system's own, so leaving full screen does not leave the menu bar
+                // hiding over an ordinary desktop.
+                MainActor.assumeIsolated { NSApp.presentationOptions = [] }
+            }
         }
     }
 }

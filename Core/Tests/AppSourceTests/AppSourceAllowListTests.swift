@@ -1093,3 +1093,32 @@ func firstPartySourceFiles() throws -> [URL] {
         lengths. Route the new row through `settingRow(icon:title:selection:options:)`.
         """)
 }
+
+/// **The full-screen presentation options are complete, or AppKit throws.**
+///
+/// `autoHideToolbar` must be accompanied by `autoHideMenuBar`, and `autoHideMenuBar` by
+/// `autoHideDock` or `hideDock`. An incomplete set is not a partial effect — it is an
+/// exception at the moment a person enters full screen, which is the worst place for one.
+/// The rule is documented and easy to half-remember, so it is checked rather than recalled.
+@Test func theFullScreenPresentationOptionsAreALegalCombination() throws {
+    let files = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/UI/WindowConfigurator.swift" }
+    try #require(files.count == 1, "WindowConfigurator.swift is not where this scan names it")
+    let text = try String(contentsOf: files[0], encoding: .utf8)
+    let code = SwiftSourceLexer.codeViewLines(of: text).joined(separator: "\n")
+
+    guard code.contains(".autoHideToolbar") else { return }   // nothing to check
+    #expect(code.contains(".autoHideMenuBar"), """
+        .autoHideToolbar is set without .autoHideMenuBar. AppKit requires the pair; the toolbar \
+        will not hide and entering full screen raises an exception.
+        """)
+    #expect(code.contains(".autoHideDock") || code.contains(".hideDock"), """
+        .autoHideMenuBar is set without a Dock option. AppKit requires one of .autoHideDock or \
+        .hideDock alongside it.
+        """)
+    // And they are undone on the way out, so leaving full screen does not leave the menu bar
+    // hiding over an ordinary desktop.
+    #expect(code.contains("didExitFullScreenNotification"), """
+        nothing restores the presentation options when the window leaves full screen.
+        """)
+}

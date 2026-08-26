@@ -16,17 +16,25 @@ import Timeline
 /// whether a ripple is in flight, and hands both into `StagePlanner.placement(for:in:ripplePhase:)`
 /// — which is exactly what that function's `ripplePhase` parameter was already shaped to take.
 public struct ClickTrack: Sendable {
-    /// Only `.down` instants — the moment of contact, which is when a ripple starts. `.up` events
-    /// are not read: `ButtonEvent.phase` also carries `.up`, but a ripple that started on release
-    /// rather than on press would visibly lag a fast click-and-release, and nothing about "the
-    /// ripple marks where a click happened" needs the release edge at all.
+    /// The moment of contact, which is when a ripple starts.
     private let downInstants: [HostInstant]      // sorted by hostTime
+    /// The moment of release.
+    ///
+    /// **Kept since 2026-08-26, and the paragraph that used to say why it was not is worth
+    /// keeping too.** It read: "`.up` events are not read… a ripple that started on release
+    /// rather than on press would visibly lag a fast click-and-release, and nothing about 'the
+    /// ripple marks where a click happened' needs the release edge at all." Every word of that
+    /// is still true OF THE RIPPLE. It stopped being a reason to discard the events when this
+    /// type was asked a second question: `pressScale(at:)` shrinks the cursor while a button is
+    /// HELD, and holding is precisely the state that cannot be known from the press alone — a
+    /// curve driven by the down edge would have to guess a duration, and a drag would spring
+    /// back mid-drag while the button was still down.
+    private let upInstants: [HostInstant]        // sorted by hostTime
 
     public init(events: [ButtonEvent]) {
-        self.downInstants = events
-            .filter { $0.phase == .down }
-            .map { $0.instant }
-            .sorted { $0.hostTime.rawValue < $1.hostTime.rawValue }
+        let sorted = events.sorted { $0.instant.hostTime.rawValue < $1.instant.hostTime.rawValue }
+        self.downInstants = sorted.filter { $0.phase == .down }.map(\.instant)
+        self.upInstants = sorted.filter { $0.phase == .up }.map(\.instant)
     }
 
     /// **A look-and-feel value, chosen by eye, not measured.** Unlike `NormalizedPoint` or
@@ -67,5 +75,29 @@ public struct ClickTrack: Sendable {
         let duration = Self.rippleDuration.rawValue
         guard elapsed < duration else { return nil }
         return Double(elapsed) / Double(duration)
+    }
+
+    /// How much smaller the drawn cursor is at `instant`, because a button is down or has just
+    /// come up — see `CursorPress`, which owns the curve.
+    ///
+    /// **`1` where there is nothing to say**, never `nil`: this multiplies a size, and every
+    /// frame has one. A `nil` would make every caller write the same `?? 1`.
+    ///
+    /// The epoch check is `ripplePhase`'s, for its reason: a click from another boot session's
+    /// overlapping host times must not press this one's cursor.
+    public func pressScale(at instant: HostInstant) -> Double {
+        CursorPress.scale(sincePress: seconds(since: downInstants, at: instant),
+                          sinceRelease: seconds(since: upInstants, at: instant))
+    }
+
+    /// Seconds from the latest instant at or before `instant`, or `nil` when there is none.
+    private func seconds(since instants: [HostInstant], at instant: HostInstant) -> Double? {
+        var latest: HostInstant?
+        for edge in instants
+        where edge.epoch == instant.epoch && edge.hostTime.rawValue <= instant.hostTime.rawValue {
+            latest = edge
+        }
+        guard let latest else { return nil }
+        return Double(instant.hostTime.rawValue - latest.hostTime.rawValue) / 1_000_000_000
     }
 }
