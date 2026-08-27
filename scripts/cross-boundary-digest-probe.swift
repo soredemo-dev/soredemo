@@ -6581,6 +6581,70 @@ enum CrossBoundaryProbe {
               "20.8 the waiting list is exactly the attached devices minus the ones offering",
               actual: "waiting=\(waiting.count) attached=\(attachedAll.count) offering=\(phones.count)",
               expected: "waiting=\(shouldBeWaiting)")
+        // MARK: - 21. bringing in a video this app did not record
+
+        print("")
+        print("21. ImportedRecording — a file staged into a package, not opened where it lies")
+
+        // **The reason this type exists at all**, and the reason it is checked here rather than
+        // in a unit test: it touches the filesystem, and what it must get right is a LAYOUT that
+        // every other path depends on. `ObservationWriter.expectedLogURL` looks for
+        // `<package>/observations/` beside `<package>/media/master-NN.<ext>`, and noise removal
+        // writes its cleaned audio into that package. Opening `~/Desktop/demo.mp4` in place makes
+        // the package `~`, and the first cleaned audio track lands in somebody's home folder.
+        let importScratch = FileManager.default.temporaryDirectory
+            .appending(path: "soredemo-probe-import", directoryHint: .isDirectory)
+        try? FileManager.default.removeItem(at: importScratch)
+        try FileManager.default.createDirectory(at: importScratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: importScratch) }
+
+        let sourceVideo = importScratch.appending(path: "someone-elses.mp4")
+        // A real file with a real video track — a zero-byte placeholder would be refused, which
+        // is correct and would test nothing about the layout.
+        let madeVideo = await probeWriteTinyMovie(to: sourceVideo)
+        check(madeVideo, "21.1 the fixture video was written", actual: "\(madeVideo)",
+              expected: "true")
+
+        if madeVideo {
+            do {
+                let staged = try await ImportedRecording.stage(sourceVideo)
+                let media = staged.mediaURL
+                let package = media.deletingLastPathComponent().deletingLastPathComponent()
+
+                check(media.lastPathComponent.hasPrefix("master-00"),
+                      "21.2 the staged file is named the way a recording's master is named",
+                      actual: media.lastPathComponent, expected: "master-00.*")
+                check(media.deletingLastPathComponent().lastPathComponent == "media",
+                      "21.3 it sits in the package's media/ directory",
+                      actual: media.deletingLastPathComponent().lastPathComponent,
+                      expected: "media")
+                check(package != sourceVideo.deletingLastPathComponent(),
+                      "21.4 the package is NOT the folder the original was in",
+                      actual: package.lastPathComponent,
+                      expected: "not \(sourceVideo.deletingLastPathComponent().lastPathComponent)")
+                check(FileManager.default.fileExists(atPath: sourceVideo.path(percentEncoded: false)),
+                      "21.5 the original file is still where its owner left it",
+                      actual: "present", expected: "present")
+                check(media.pathExtension == sourceVideo.pathExtension,
+                      "21.6 the extension is the source's own, so AVFoundation is not misled",
+                      actual: media.pathExtension, expected: sourceVideo.pathExtension)
+            } catch {
+                check(false, "21.2-21.6 staging a video with a video track", actual: "\(error)",
+                      expected: "staged")
+            }
+        }
+
+        // A file with no video in it is refused BY NAME rather than staged and then found empty
+        // in the editor — after a copy that may be gigabytes.
+        let audioOnly = importScratch.appending(path: "just-audio.m4a")
+        let madeAudio = await probeWriteTinyAudio(to: audioOnly)
+        if madeAudio {
+            var refused = false
+            do { _ = try await ImportedRecording.stage(audioOnly) } catch { refused = true }
+            check(refused, "21.7 a file with no video is refused before anything is copied",
+                  actual: "\(refused)", expected: "true")
+        }
+
 
 
 
@@ -6604,6 +6668,53 @@ enum CrossBoundaryProbe {
 /// without `-default-isolation MainActor`, ran four times without complaint; the flag is the whole
 /// difference, and it is the flag the shipping app builds with. A measurement taken outside the
 /// app's language semantics is a measurement of something else.
+/// Writes a two-frame 32×32 movie. Enough to have a video track, which is all
+/// `ImportedRecording.stage` asks about, and small enough to cost nothing.
+private func probeWriteTinyMovie(to url: URL) async -> Bool {
+    guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else { return false }
+    let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 32, AVVideoHeightKey: 32,
+    ])
+    input.expectsMediaDataInRealTime = false
+    let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+        assetWriterInput: input,
+        sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String:
+                                        kCVPixelFormatType_32BGRA])
+    writer.add(input)
+    writer.startWriting()
+    writer.startSession(atSourceTime: .zero)
+    var pixels: CVPixelBuffer?
+    unsafe CVPixelBufferCreate(nil, 32, 32, kCVPixelFormatType_32BGRA, nil, &pixels)
+    for frame in 0..<2 {
+        // Bounded: `isReadyForMoreMediaData` never returns to true once a writer has failed.
+        var waited = 0
+        while !input.isReadyForMoreMediaData, waited < 500 {
+            try? await Task.sleep(for: .milliseconds(2)); waited += 1
+        }
+        if let pixels {
+            adaptor.append(pixels, withPresentationTime:
+                            CMTime(value: CMTimeValue(frame), timescale: 30))
+        }
+    }
+    input.markAsFinished()
+    await withCheckedContinuation { c in writer.finishWriting { c.resume() } }
+    return FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+}
+
+/// Writes a short silent m4a — a file with sound and no picture, which is the case
+/// `ImportedRecording` must refuse before it copies anything.
+private func probeWriteTinyAudio(to url: URL) async -> Bool {
+    guard let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1),
+          let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800)
+    else { return false }
+    buffer.frameLength = 4800
+    guard let file = try? AVAudioFile(forWriting: url, settings: [
+        AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 1,
+    ]) else { return false }
+    try? file.write(from: buffer)
+    return FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+}
+
 private nonisolated final class IdleFrameCollector: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var surfaces: [UInt32] = []

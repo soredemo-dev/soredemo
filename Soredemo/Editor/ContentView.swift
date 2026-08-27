@@ -48,6 +48,21 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 460)
+        // **Dropping a video onto the window opens it**, which is the first thing anybody tries
+        // and which did nothing at all until now — `openVideo(at:)` existed and nothing could
+        // reach it.
+        //
+        // On the whole window rather than on the stage: an editor with nothing in it is exactly
+        // where somebody drops a file, and a target that only existed once a recording was open
+        // would be missing at the only moment it is wanted.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            // **One file.** Several videos are several recordings, and this window holds one —
+            // taking the first silently is better than opening the last, which is what an
+            // unordered `forEach` would do.
+            coordinator.openVideo(at: url)
+            return true
+        }
         // **The window's own configuration belongs at the window's root, not on `StageWindow`.**
         //
         // It was attached inside `StageWindow`, which this view only builds once a recording
@@ -359,12 +374,36 @@ final class RecordingCoordinator {
     /// camera: `StageCompositor` draws no cursor for a `nil` log, which is the honest result
     /// rather than a made-up one.
     func openVideo(at url: URL) {
-        mediaURL = nil
-        pendingEdit = nil
-        cameraURL = nil
-        mediaURL = url
-        statusText = "Opened \(url.lastPathComponent). It has no pointer track, so there is "
-            + "nothing for the camera to follow."
+        Task { await openVideoStaged(at: url) }
+    }
+
+    /// **Staged into a scratch package rather than opened where it lies.**
+    ///
+    /// This function existed and nothing could reach it — no drop target, no menu item — and it
+    /// opened the file in place. In place is wrong for every path that treats a recording's
+    /// grandparent as its package: `ObservationWriter.expectedLogURL` looks beside it, and noise
+    /// removal writes its cleaned audio there. Opening `~/Desktop/demo.mp4` made the package `~`
+    /// and would have put a cleaned audio track in somebody's home folder.
+    ///
+    /// The original is never moved. `ImportedRecording` links it when the volume allows and
+    /// copies it otherwise.
+    private func openVideoStaged(at url: URL) async {
+        do {
+            let staged = try await ImportedRecording.stage(url)
+            mediaURL = nil
+            pendingEdit = nil
+            cameraURL = nil
+            cameraStartOffsetNanos = 0
+            // Held so the scratch package outlives this call — the same ownership a recording's
+            // own sink has, and without it the directory is swept out from under the editor.
+            mediaSourceSink = staged.sink
+            sink = staged.sink
+            mediaURL = staged.mediaURL
+            statusText = "Opened \(url.lastPathComponent). Zooms will be found from what "
+                + "changes on screen \u{2014} there is no pointer track in an imported video."
+        } catch {
+            statusText = "Could not open that video: \(error)"
+        }
     }
 
     /// Taken once. A window that re-read it would re-apply a person's saved edit over changes

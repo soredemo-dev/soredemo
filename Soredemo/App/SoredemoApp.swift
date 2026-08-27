@@ -210,6 +210,20 @@ struct SoredemoApp: App {
                     recordingCoordinator.openProject()
                 }
                 .keyboardShortcut("o")
+                // **A separate item, not a broader file filter on the one above.** A project and
+                // a video are different things to open: one restores decisions somebody made,
+                // the other starts from nothing. One panel that accepted both would have to
+                // guess which had been handed to it, and the guess would be by file extension.
+                Button("Open Video…") {
+                    let panel = NSOpenPanel()
+                    panel.allowedContentTypes = ImportedRecording.readableTypes
+                    panel.allowsMultipleSelection = false
+                    panel.canChooseDirectories = false
+                    if panel.runModal() == .OK, let url = panel.url {
+                        recordingCoordinator.openVideo(at: url)
+                    }
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
                 Divider()
                 // Human step: record a few seconds and stop; ContentView then
                 // shows StageWindow once recordingCoordinator.mediaURL is set.

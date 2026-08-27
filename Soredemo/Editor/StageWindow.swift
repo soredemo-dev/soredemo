@@ -76,6 +76,13 @@ struct StageWindow: View {
     /// measured at roughly half real-time on a 4K recording, and the same however few frames
     /// are sampled — the cost is decoding, not deciding.
     @State private var motionProgress: Double = 0
+    /// The anchor the motion pass minted, kept so a reload can put it back.
+    ///
+    /// **Without it the zooms survive a reload and their place on the timeline does not.**
+    /// `load()` sets the anchor from `review.anchor`, which is `nil` for a recording with no
+    /// observation log; the analysis then declines to run again, because it already has its
+    /// clicks — so the blocks are still there and nothing can say where they go.
+    @State private var motionAnchor: EpochAnchor?
     /// What the last attempt to clean the microphone did, or why it could not. Shown, never
     /// swallowed — a person who turned this on and heard no difference is owed the reason.
     @State private var noiseReductionNote: String?
@@ -1509,8 +1516,10 @@ struct StageWindow: View {
             let clicks = MotionActivity.clicks(from: changes,
                                                revision: GeometryRevision(id: 1))
             motionClicks = clicks
-            timeline.setZoomAnchor(EpochAnchor(epoch: epoch, hostTime: Nanoseconds(0),
-                                               wallClockUnixNanos: 0))
+            let anchor = EpochAnchor(epoch: epoch, hostTime: Nanoseconds(0),
+                                     wallClockUnixNanos: 0)
+            motionAnchor = anchor
+            timeline.setZoomAnchor(anchor)
             refreshDerivedZooms()
         } catch {
             // Said, not swallowed: a person whose phone recording has no zooms is owed the
@@ -1564,7 +1573,10 @@ struct StageWindow: View {
             StageCompositor.outputCoverage = outputCoverage
             // The anchor first: the lane converts every block's absolute instant through it,
             // and blocks set before it would be drawn off the edge for one frame.
-            timeline.setZoomAnchor(review.anchor)
+            // **The motion anchor is the fallback, and a reload is why.** `review.anchor` is
+            // `nil` for a recording with no observation log, and the analysis below declines to
+            // run a second time — so without this the zooms are rebuilt and have nowhere to go.
+            timeline.setZoomAnchor(review.anchor ?? motionAnchor)
             refreshDerivedZooms()
             // **Started, not awaited.** Deriving zooms from the picture decodes the whole
             // recording; awaiting it here would hold the preview back behind an analysis that
