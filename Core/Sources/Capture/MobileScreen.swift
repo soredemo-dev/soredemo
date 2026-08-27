@@ -49,15 +49,20 @@ public enum MobileScreen {
 
         /// The name to put on a card.
         ///
-        /// **`localizedName` is not always usable, and a real iPad is how that was found.**
-        /// Measured over USB on 2026-08-27: AVFoundation reported this device's name as
-        /// `[226, 150, 161, 226, 150, 161]` — two U+25A1 WHITE SQUARE characters, and nothing
-        /// else. Not a rendering problem in the log; the string itself is two boxes. A card
-        /// saying "□□" tells somebody nothing about what they are about to record.
+        /// **The device's own name, whatever it looks like.** Measured over USB on 2026-08-27,
+        /// AVFoundation reported this iPad's name as `[226, 150, 161, 226, 150, 161]` — two
+        /// U+25A1 WHITE SQUARE characters and nothing else. I took that for a placeholder and
+        /// replaced it with a generic label. It is not a placeholder: the device's owner
+        /// confirmed it is the name they chose.
         ///
-        /// So a name has to earn being shown: at least one letter or digit. Anything else falls
-        /// back to what USB calls the device — "iPad" — which is short of ideal and is at least
-        /// true.
+        /// So the rule is the producer-value rule, which this project states plainly and which
+        /// I had just broken: an authored value wins over a derived one and is never silently
+        /// replaced. Somebody who names their iPad in boxes, in Chinese, in emoji or in nothing
+        /// legible at all has named it, and a recorder that decides their name carries no
+        /// information is a recorder deciding something that is not its to decide.
+        ///
+        /// The only fallback left is for a name with no characters in it at all — a card has to
+        /// say something, and there is nothing there to say.
         public var displayName: String {
             MobileScreen.isNameUsable(name) ? name : "Mobile device"
         }
@@ -297,17 +302,18 @@ public enum MobileScreen {
         return found
     }
 
-    /// Whether a device's reported name is worth showing to a person.
+    /// Whether a device reported any name at all.
     ///
-    /// **At least one letter or digit.** Measured: an iPad reported its name as two U+25A1
-    /// WHITE SQUARE characters and nothing else. `isEmpty` would not have caught it, nor would
-    /// trimming whitespace — the string is two real, non-blank characters that happen to carry
-    /// no information.
+    /// **Deliberately almost everything passes, and that is the correction.** An earlier version
+    /// required a letter or a digit, on the strength of an iPad reporting its name as two U+25A1
+    /// WHITE SQUARE characters — which looked like a placeholder and was the name its owner had
+    /// chosen. Replacing it was the producer-value rule broken: an authored value silently
+    /// swapped for a derived one.
     ///
-    /// Deliberately permissive about WHICH letters: a name in Chinese, Japanese, Arabic or
-    /// emoji-plus-a-word is a name somebody chose, and `isLetter` is true for all of them.
+    /// What is left refuses only a name with nothing in it. A card has to say something, and an
+    /// empty string is the one case where there is nothing to say.
     static func isNameUsable(_ name: String) -> Bool {
-        name.contains { $0.isLetter || $0.isNumber }
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Whether a USB product name is a phone or tablet.

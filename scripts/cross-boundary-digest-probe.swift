@@ -6562,13 +6562,14 @@ enum CrossBoundaryProbe {
         check(bothWays.isEmpty,
               "20.6 nothing is both offering its screen and waiting to be unlocked",
               actual: "\(bothWays)", expected: "[]")
-        // **Every device offered must be namable on a card**, which is not the same as having a
-        // name. Measured on a real iPad over USB: `localizedName` was two U+25A1 WHITE SQUARE
-        // characters and nothing else, so a card would have read "□□".
-        let unnamable = phones.filter { !MobileScreen.isNameUsable($0.displayName) }
-        check(unnamable.isEmpty,
-              "20.7 every phone offered has a name a person can read on a card",
-              actual: "\(unnamable.map(\.name))", expected: "[]")
+        // **Every device offered shows the name its owner gave it.** Measured on a real iPad
+        // over USB: `localizedName` was two U+25A1 WHITE SQUARE characters, which looked like a
+        // placeholder and was the name its owner had chosen. The check is that the name reaches
+        // the card unchanged — the opposite of what an earlier version of this line asserted.
+        let renamed = phones.filter { !$0.name.isEmpty && $0.displayName != $0.name }
+        check(renamed.isEmpty,
+              "20.7 every phone shows the name its owner gave it, unaltered",
+              actual: "\(renamed.map { "\($0.name) -> \($0.displayName)" })", expected: "[]")
 
         // **Nothing is both offering a screen and waiting to be unlocked.** 20.6 above checks
         // this by name and could not fire without a device attached; with one attached the first
