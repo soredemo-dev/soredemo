@@ -1468,3 +1468,36 @@ private func desktopIconsFile() throws -> [URL] {
         applicationDidFinishLaunching, which starts at line \(launch + 1).
         """)
 }
+
+/// **Observed clicks beat motion, and the fallback only fires when there is nothing observed.**
+///
+/// A Mac recording knows what was clicked and on which control; motion knows only that something
+/// changed. Running both would put a second set of zooms on top of ones derived from what was
+/// actually pressed, and nothing about the result would look wrong — there would simply be too
+/// many zooms, in roughly the right places, with no way to tell which came from where.
+@Test func motionDerivedZoomsAreOnlyUsedWhenNothingWasObserved() throws {
+    let stage = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/StageWindow.swift" }
+    try #require(stage.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: stage[0], encoding: .utf8))
+
+    let chooses = try #require(lines.firstIndex { $0.contains("observed.isEmpty ? motionClicks") },
+                               """
+                               Nothing chooses between observed clicks and motion-derived ones. \
+                               If both are used a Mac recording gets a second set of zooms on \
+                               top of the ones derived from what was actually pressed.
+                               """)
+    #expect(chooses > 0)
+
+    // And the analysis itself refuses to run when a plan exists.
+    let guardLine = try #require(
+        lines.firstIndex { $0.contains("review.plan.entries.isEmpty") },
+        "deriveZoomsFromMotion no longer checks for an existing plan before running")
+    let analysis = try #require(lines.firstIndex { $0.contains("func deriveZoomsFromMotion") })
+    #expect(guardLine > analysis && guardLine < analysis + 12, """
+        The plan check is at line \(guardLine + 1), outside deriveZoomsFromMotion, which starts \
+        at line \(analysis + 1) — so the pass runs on Mac recordings too and spends half their \
+        length decoding for an answer that is thrown away.
+        """)
+}

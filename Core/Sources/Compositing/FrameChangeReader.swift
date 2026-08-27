@@ -49,10 +49,19 @@ public enum FrameChangeReader {
     /// `epoch` stamps the instants. A phone recording has no observation log and therefore no
     /// boot epoch of its own; the caller mints one and uses it consistently, which is all the
     /// framing machinery needs from it.
+    /// **`onProgress` exists because this cannot be made fast, and measuring that is what
+    /// settled it.** On a real 4K phone recording — 10.34 seconds — reading takes 4.9 seconds,
+    /// and it takes the same 4.9 seconds whether 30, 10 or 5 frames a second are sampled. The
+    /// cost is decoding H.264 at full resolution; the tiles are free. Roughly half real-time, so
+    /// a five-minute recording is two and a half minutes of background work with nothing to show
+    /// for it until the end.
+    ///
+    /// Reported as a fraction of the recording's duration, on whatever actor the caller is on.
     public nonisolated static func changes(
         from asset: AVAsset, epoch: BootEpoch,
         columns: Int = defaultColumns, rows: Int = defaultRows,
-        samplesPerSecond: Double = defaultSamplesPerSecond
+        samplesPerSecond: Double = defaultSamplesPerSecond,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> [MotionActivity.Change] {
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw ReadError.noVideoTrack
@@ -71,6 +80,11 @@ public enum FrameChangeReader {
         }
 
         let minimumGap = samplesPerSecond > 0 ? 1 / samplesPerSecond : 0
+        // Zero when the duration is unknown or not finite, in which case no progress is
+        // reported rather than a made-up fraction — an indeterminate spinner is honest and a
+        // bar that jumps to 100% and stays there is not.
+        let totalSeconds = (try? await asset.load(.duration).seconds) ?? 0
+        var lastReported = -1.0
         var changes: [MotionActivity.Change] = []
         var previous: [Double]?
         var lastSampledSeconds = -Double.infinity
@@ -92,6 +106,16 @@ public enum FrameChangeReader {
                     columns: columns, rows: rows, tiles: difference))
             }
             previous = luminance
+
+            if let onProgress, totalSeconds > 0 {
+                let fraction = Swift.min(Swift.max(seconds / totalSeconds, 0), 1)
+                // Reported in percent steps: a callback per frame on a five-minute recording is
+                // nine thousand hops to the main actor to move a bar by nothing.
+                if fraction - lastReported >= 0.01 {
+                    lastReported = fraction
+                    onProgress(fraction)
+                }
+            }
         }
         if reader.status == .failed, let error = reader.error { throw error }
         return changes

@@ -168,12 +168,12 @@ struct MenuBarRecorderPanel: View {
                         coordinator.beginMobileRecording(device)
                     }
                 }
-                // **Said before the recording, not after it.** A phone has no cursor, no
-                // accessibility tree and no clicks this Mac can see, so the automatic framing
-                // this app is built around has nothing to derive from. Everything else works.
-                // Somebody who records a phone expecting the zoom they get on a Mac would
-                // otherwise conclude the feature is broken.
-                Text("Zooms are manual here \u{2014} there is no cursor to follow.")
+                // **Said before the recording, not after it.** A phone has no cursor and no
+                // clicks this Mac can see, so the zooms are derived from what CHANGES on screen
+                // instead — which finds a tap that opens a menu and does not know a control's
+                // name. Somebody expecting the same answer they get on a Mac is owed the
+                // difference in advance.
+                Text("Zooms come from what changes on screen \u{2014} there is no cursor here.")
                     .font(Type.detail).foregroundStyle(.secondary)
             }
             .padding(.top, Space.snug)
