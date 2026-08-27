@@ -215,13 +215,7 @@ struct SoredemoApp: App {
                 // the other starts from nothing. One panel that accepted both would have to
                 // guess which had been handed to it, and the guess would be by file extension.
                 Button("Open Video…") {
-                    let panel = NSOpenPanel()
-                    panel.allowedContentTypes = ImportedRecording.readableTypes
-                    panel.allowsMultipleSelection = false
-                    panel.canChooseDirectories = false
-                    if panel.runModal() == .OK, let url = panel.url {
-                        recordingCoordinator.openVideo(at: url)
-                    }
+                    recordingCoordinator.openVideoFromPanel()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
                 Divider()

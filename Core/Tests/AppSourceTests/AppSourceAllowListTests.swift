@@ -1501,3 +1501,38 @@ private func desktopIconsFile() throws -> [URL] {
         length decoding for an answer that is thrown away.
         """)
 }
+
+/// **Opening anything replaces what is open, so every way in asks first.**
+///
+/// `EditorWindowPresence` refuses a second editor window on purpose — two would be two sets of
+/// models over one set of process-global compositor statics — which makes every "open" a
+/// "replace". A replace that discarded somebody's edits without a word would be the worst
+/// possible reading of a drag they may have meant for the Finder.
+///
+/// This check exists because the guard was already there and almost nothing used it:
+/// `UnsavedWorkGuard.mayDiscard` had exactly one caller, quitting, so opening a project over
+/// unsaved edits threw them away in silence.
+@Test func everyWayOfOpeningARecordingAsksBeforeReplacingTheOpenOne() throws {
+    let content = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/ContentView.swift" }
+    try #require(content.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: content[0], encoding: .utf8))
+
+    for entry in ["func openProject()", "func openVideo(at url: URL)"] {
+        let at = try #require(lines.firstIndex { $0.contains(entry) },
+                              "\(entry) is gone, and this scan is about it")
+        let opening = lines[at..<Swift.min(at + 4, lines.count)]
+        #expect(opening.contains { $0.contains("mayReplaceWhatIsOpen()") }, """
+            \(entry) does not ask before replacing the open recording. A recording cannot be \
+            made again, and this app holds one editor — so opening is replacing.
+            """)
+    }
+
+    // And the guard actually consults `UnsavedWorkGuard` rather than answering `true`.
+    let guardAt = try #require(lines.firstIndex { $0.contains("func mayReplaceWhatIsOpen") })
+    let body = lines[guardAt..<Swift.min(guardAt + 6, lines.count)]
+    #expect(body.contains { $0.contains("UnsavedWorkGuard.shared.mayDiscard") }, """
+        mayReplaceWhatIsOpen no longer asks UnsavedWorkGuard, so it answers yes to everything.
+        """)
+}

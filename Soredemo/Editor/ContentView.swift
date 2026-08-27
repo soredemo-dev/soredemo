@@ -55,12 +55,22 @@ struct ContentView: View {
         // On the whole window rather than on the stage: an editor with nothing in it is exactly
         // where somebody drops a file, and a target that only existed once a recording was open
         // would be missing at the only moment it is wanted.
-        .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first else { return false }
-            // **One file.** Several videos are several recordings, and this window holds one —
-            // taking the first silently is better than opening the last, which is what an
-            // unordered `forEach` would do.
-            coordinator.openVideo(at: url)
+        //
+        // **`onDrop` with a file URL, not `dropDestination(for: URL.self)`.** The typed version
+        // is shorter and hands back a URL that may be SwiftUI's own copy of a Finder file
+        // PROMISE — a temporary the system is still writing. A ten-second recording arrived as
+        // roughly one second through that path while the same file opened through
+        // `openVideo(at:)` was whole, measured every step from the timeline model to the
+        // composed asset. Resolving the item provider's `public.file-url` gives the file where
+        // it actually lives.
+        .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
+            // **One file.** Several videos are several recordings and this window holds one;
+            // taking the first is better than opening whichever finished loading last.
+            guard let provider = providers.first else { return false }
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in coordinator.openVideo(at: url) }
+            }
             return true
         }
         // **The window's own configuration belongs at the window's root, not on `StageWindow`.**
@@ -351,6 +361,7 @@ final class RecordingCoordinator {
     /// will collect it on the next run — losing it now would be a decision this code is not
     /// entitled to make.
     func openProject() {
+        guard mayReplaceWhatIsOpen() else { return }
         guard let packageURL = ProjectStore.chooseProjectToOpen() else { return }
         do {
             let opened = try ProjectStore.open(packageURL)
@@ -373,8 +384,38 @@ final class RecordingCoordinator {
     /// elsewhere. There is no observation log beside it, so there is no pointer track and no
     /// camera: `StageCompositor` draws no cursor for a `nil` log, which is the honest result
     /// rather than a made-up one.
+    /// Asks for a video and opens it. **The panel lives here rather than at each call site**
+    /// — the menu-bar footer and the File menu both need it, and two panels configured
+    /// separately drift into accepting different things.
+    func openVideoFromPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = ImportedRecording.readableTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openVideo(at: url)
+    }
+
     func openVideo(at url: URL) {
+        guard mayReplaceWhatIsOpen() else { return }
         Task { await openVideoStaged(at: url) }
+    }
+
+    /// Whether a new recording may take the place of the one that is open.
+    ///
+    /// **One editor, so opening something is replacing something — and it asks first.**
+    /// `EditorWindowPresence` refuses a second editor window on purpose: two would be two sets
+    /// of models over one set of process-global compositor statics. That decision makes every
+    /// "open" into a "replace", and a replace that discarded somebody's edits without a word
+    /// would be the worst possible reading of a drag they may have meant for the Finder.
+    ///
+    /// **This was missing, and not only for drops.** `UnsavedWorkGuard.mayDiscard` existed and
+    /// quitting was its only caller — so opening a project over unsaved edits threw them away
+    /// silently, and had done since the guard was written. The dialogue offers Save first and
+    /// Cancel second, because a person who dragged the wrong file presses Return next.
+    private func mayReplaceWhatIsOpen() -> Bool {
+        guard mediaURL != nil else { return true }
+        return UnsavedWorkGuard.shared.mayDiscard(actionName: "opening another recording")
     }
 
     /// **Staged into a scratch package rather than opened where it lies.**

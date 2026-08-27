@@ -562,6 +562,13 @@ struct MenuBarRecorderPanel: View {
                 PanelLink(icon: "folder", title: "Open Project", shortcut: "\u{2318}O") {
                     coordinator.openProject()
                 }
+                // **Here and not only in the File menu, because the File menu is not there.**
+                // This app lives in the menu bar; with no editor window open there is no
+                // application menu to reach, so an Open Video… item that existed only in
+                // `.commands` was reachable exactly when somebody already had a video open.
+                PanelLink(icon: "film", title: "Open Video", shortcut: "\u{21E7}\u{2318}O") {
+                    coordinator.openVideoFromPanel()
+                }
                 Spacer()
                 SettingsPanelLink()
             }

@@ -30,6 +30,7 @@ enum ImportedRecording {
         case notAVideo(String)
         case noVideoTrack(String)
         case couldNotStage(String)
+        case truncated(name: String, expected: Double, got: Double)
 
         var description: String {
             switch self {
@@ -39,6 +40,13 @@ enum ImportedRecording {
                 "\(name) has no video in it"
             case .couldNotStage(let reason):
                 "the recording could not be prepared: \(reason)"
+            case .truncated(let name, let expected, let got):
+                """
+                \(name) arrived incomplete — \((got * 10).rounded() / 10) s of \
+                \((expected * 10).rounded() / 10) s. If it was dragged from another \
+                application it may still have been writing it; try again, or open it from \
+                the file itself.
+                """
             }
         }
     }
@@ -54,6 +62,8 @@ enum ImportedRecording {
         guard !tracks.isEmpty else {
             throw ImportError.noVideoTrack(url.lastPathComponent)
         }
+        // Read now, compared after the file lands. See `truncated` below for what this catches.
+        let sourceSeconds = (try? await asset.load(.duration).seconds) ?? 0
 
         let sink: TemporaryFileMediaSink
         do {
@@ -80,6 +90,25 @@ enum ImportedRecording {
             } catch {
                 throw ImportError.couldNotStage(String(describing: error))
             }
+        }
+        // **The staged file is checked against the original, and a drop is why.**
+        //
+        // A Finder drag can arrive as a file PROMISE, and a framework that resolves one into a
+        // temporary copy may hand it over before the system has finished writing it. A
+        // ten-second recording reached the editor as roughly one second that way — every layer
+        // downstream reported the truncated length perfectly consistently, because the file
+        // really was that long by the time anything looked.
+        //
+        // The drop path resolves the real file URL now, so this should never fire. It stays
+        // because "should never fire" is the claim, not the mechanism: a short recording is
+        // indistinguishable from a correct one once it is open, and finding out at export is too
+        // late.
+        let stagedSeconds = (try? await AVURLAsset(url: destination).load(.duration).seconds) ?? 0
+        // A tenth of a second of slack: re-reading a container can round the last sample.
+        if sourceSeconds > 0, stagedSeconds < sourceSeconds - 0.1 {
+            try? FileManager.default.removeItem(at: destination)
+            throw ImportError.truncated(name: url.lastPathComponent,
+                                        expected: sourceSeconds, got: stagedSeconds)
         }
         return (destination, sink)
     }
