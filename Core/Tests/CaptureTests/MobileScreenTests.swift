@@ -195,3 +195,43 @@ import Testing
         }
     }
 }
+
+/// Whether a device's reported name is worth showing.
+///
+/// **Every case here came from a real iPad over USB on 2026-08-27.** AVFoundation reported its
+/// name as `[226, 150, 161, 226, 150, 161]` — two U+25A1 WHITE SQUARE characters and nothing
+/// else. Not a rendering artefact in the log; the string itself is two boxes. The card would
+/// have said "□□", which tells somebody nothing about what they are about to record.
+@Suite struct MobileScreenNameTests {
+    /// The measured case. `isEmpty` would not have caught it and neither would trimming
+    /// whitespace — these are two real, non-blank characters carrying no information.
+    @Test func aNameOfNothingButBoxesIsNotUsable() {
+        #expect(!MobileScreen.isNameUsable("\u{25A1}\u{25A1}"))
+        let source = MobileScreen.Source(uniqueID: "x", name: "\u{25A1}\u{25A1}")
+        #expect(source.displayName == "Mobile device")
+        #expect(source.name == "\u{25A1}\u{25A1}", "the reported name must survive for diagnostics")
+    }
+
+    @Test func anEmptyOrBlankNameIsNotUsable() {
+        #expect(!MobileScreen.isNameUsable(""))
+        #expect(!MobileScreen.isNameUsable("   "))
+        #expect(!MobileScreen.isNameUsable("\u{2014}\u{2014}\u{2014}"))
+    }
+
+    /// **A name in any script counts, and this is the case a stricter rule would break.**
+    /// Somebody who named their iPad in Chinese, Japanese or Arabic named it; `isLetter` is
+    /// true for all of them, and an ASCII-only test would replace their name with a generic one.
+    @Test func aNameInAnyScriptIsUsable() {
+        for name in ["Jesse\u{2019}s iPad", "\u{5C0F}\u{660E}\u{7684} iPad", "\u{30A2}\u{30A4}\u{30D1}\u{30C3}\u{30C9}",
+                     "\u{0627}\u{0644}\u{0622}\u{064A}\u{0628}\u{0627}\u{062F}", "iPad 2", "\u{1F600} iPad"] {
+            #expect(MobileScreen.isNameUsable(name), "\(name) was rejected as unusable")
+            #expect(MobileScreen.Source(uniqueID: "x", name: name).displayName == name)
+        }
+    }
+
+    /// Emoji alone is not a name — `isLetter` is false for them, which is the behaviour that
+    /// makes the rule work rather than an accident to be worked around.
+    @Test func emojiAloneDoesNotCountAsAName() {
+        #expect(!MobileScreen.isNameUsable("\u{1F600}\u{1F4F1}"))
+    }
+}

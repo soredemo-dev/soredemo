@@ -6562,6 +6562,25 @@ enum CrossBoundaryProbe {
         check(bothWays.isEmpty,
               "20.6 nothing is both offering its screen and waiting to be unlocked",
               actual: "\(bothWays)", expected: "[]")
+        // **Every device offered must be namable on a card**, which is not the same as having a
+        // name. Measured on a real iPad over USB: `localizedName` was two U+25A1 WHITE SQUARE
+        // characters and nothing else, so a card would have read "□□".
+        let unnamable = phones.filter { !MobileScreen.isNameUsable($0.displayName) }
+        check(unnamable.isEmpty,
+              "20.7 every phone offered has a name a person can read on a card",
+              actual: "\(unnamable.map(\.name))", expected: "[]")
+
+        // **Nothing is both offering a screen and waiting to be unlocked.** 20.6 above checks
+        // this by name and could not fire without a device attached; with one attached the first
+        // version of `attachedButUnavailable` reported exactly this contradiction, because it
+        // matched the USB family string "iPad" against the device's own name. Counted now.
+        let attachedAll = MobileScreen.attachedMobileFamilyNames()
+        let shouldBeWaiting = max(0, attachedAll.count - phones.count)
+        check(waiting.count == shouldBeWaiting,
+              "20.8 the waiting list is exactly the attached devices minus the ones offering",
+              actual: "waiting=\(waiting.count) attached=\(attachedAll.count) offering=\(phones.count)",
+              expected: "waiting=\(shouldBeWaiting)")
+
 
 
     }

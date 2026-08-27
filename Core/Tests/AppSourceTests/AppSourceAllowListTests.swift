@@ -1403,11 +1403,11 @@ private func desktopIconsFile() throws -> [URL] {
     try #require(!cards.isEmpty, "there is no phone card, and this scan is about it")
     for (index, _) in cards {
         let call = lines[index..<Swift.min(index + 3, lines.count)].joined(separator: " ")
-        #expect(call.contains("verbatimTitle: device.name"), """
+        #expect(call.contains("verbatimTitle: device.displayName"), """
             The phone card at line \(index + 1) passes its name through `title`, which is a \
             LocalizedStringKey. A device's name must go through `verbatimTitle`.
             """)
-        #expect(!call.contains("title: device.name"), """
+        #expect(!call.contains("title: device.displayName"), """
             The phone card at line \(index + 1) passes the device name as a localizable title.
             """)
     }

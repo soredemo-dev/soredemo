@@ -162,7 +162,7 @@ struct MenuBarRecorderPanel: View {
         if !coordinator.availableMobileScreens.isEmpty {
             VStack(alignment: .leading, spacing: Space.snug) {
                 ForEach(coordinator.availableMobileScreens) { device in
-                    TargetCard(icon: "iphone", title: "", verbatimTitle: device.name,
+                    TargetCard(icon: "iphone", title: "", verbatimTitle: device.displayName,
                                detail: "Its screen", isBusy: false) {
                         coordinator.beginMobileRecording(device)
                     }

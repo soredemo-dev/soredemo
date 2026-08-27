@@ -47,6 +47,21 @@ public enum MobileScreen {
             self.name = name
         }
 
+        /// The name to put on a card.
+        ///
+        /// **`localizedName` is not always usable, and a real iPad is how that was found.**
+        /// Measured over USB on 2026-08-27: AVFoundation reported this device's name as
+        /// `[226, 150, 161, 226, 150, 161]` — two U+25A1 WHITE SQUARE characters, and nothing
+        /// else. Not a rendering problem in the log; the string itself is two boxes. A card
+        /// saying "□□" tells somebody nothing about what they are about to record.
+        ///
+        /// So a name has to earn being shown: at least one letter or digit. Anything else falls
+        /// back to what USB calls the device — "iPad" — which is short of ideal and is at least
+        /// true.
+        public var displayName: String {
+            MobileScreen.isNameUsable(name) ? name : "Mobile device"
+        }
+
         /// What `CameraRecorder` takes. The two types are deliberately distinct even though this
         /// converts freely: a phone is a capture SOURCE and a webcam is an overlay, and letting
         /// one value stand for both is how a phone ends up offered as a face in the corner.
@@ -227,7 +242,34 @@ public enum MobileScreen {
     /// **Names, not a count.** "Unlock iPad" is a sentence somebody can act on; "1 device
     /// unavailable" is not.
     public nonisolated static func attachedButUnavailable() -> [String] {
-        let offering = Set(available().map(\.name))
+        // **Counted, not name-matched, and a real iPad is why.** The first version compared the
+        // USB product string against the capture device's `localizedName` and asked whether one
+        // contained the other. Measured with an iPad attached and working:
+        //
+        //     available=["<the iPad's own name>"]  waiting=["iPad"]
+        //
+        // USB reports the family — "iPad" — and AVFoundation reports what the person called
+        // their device, which in this case shared not one character with it. So a device that
+        // was recording perfectly well was also reported as needing to be unlocked, and the menu
+        // would have shown a working card beside "unlock it".
+        //
+        // There is no reliable mapping between the two names, and inventing one would be
+        // guessing at what somebody names their iPad. Counting needs no mapping: if three Apple
+        // mobile devices are on the bus and two are offering screens, one is waiting.
+        //
+        // **Dropping from the front is arbitrary and has to be.** Without a name mapping there
+        // is no way to say WHICH of three iPads is the locked one, only how many are.
+        Array(attachedMobileFamilyNames().dropFirst(available().count))
+    }
+
+    /// Every Apple phone or tablet on the USB bus, by the family name USB reports, before any
+    /// subtraction.
+    ///
+    /// **Split from `attachedButUnavailable` so the relationship between the two is checkable.**
+    /// With them fused, the only property a test could state was one that is true by
+    /// construction — and a check that cannot fail is what this project spends its time
+    /// removing. Now: `attachedButUnavailable().count == max(0, attached - offering)`.
+    static func attachedMobileFamilyNames() -> [String] {
         var iterator: io_iterator_t = 0
         // Safe here: `&iterator` is an out-parameter IOKit fills with a handle this function
         // owns and releases, and the matching dictionary is consumed by the call.
@@ -236,7 +278,7 @@ public enum MobileScreen {
                                                   &iterator) == KERN_SUCCESS else { return [] }
         defer { IOObjectRelease(iterator) }
 
-        var waiting: [String] = []
+        var found: [String] = []
         while case let service = IOIteratorNext(iterator), service != 0 {
             defer { IOObjectRelease(service) }
             // Safe here: `takeRetainedValue` is the correct ownership for a `Create` function,
@@ -247,19 +289,25 @@ public enum MobileScreen {
                     .takeRetainedValue() as? String
             }
             guard string("USB Vendor Name") == "Apple Inc." else { continue }
-            guard let product = string("USB Product Name") else { continue }
-            // **By what USB calls it, not by a model table.** The USB product string for these
-            // is the plain family name; matching a list of model numbers would go stale every
-            // September.
-            guard isMobileFamily(product) else { continue }
-            // Already offering its screen under some name — nothing to prompt about. Compared
-            // loosely because the capture device's name is the device's own ("Jesse's iPad")
-            // while USB reports the family ("iPad").
-            guard !offering.contains(where: { $0.localizedCaseInsensitiveContains(product) })
-            else { continue }
-            waiting.append(product)
+            guard let product = string("USB Product Name"), isMobileFamily(product) else {
+                continue
+            }
+            found.append(product)
         }
-        return waiting
+        return found
+    }
+
+    /// Whether a device's reported name is worth showing to a person.
+    ///
+    /// **At least one letter or digit.** Measured: an iPad reported its name as two U+25A1
+    /// WHITE SQUARE characters and nothing else. `isEmpty` would not have caught it, nor would
+    /// trimming whitespace — the string is two real, non-blank characters that happen to carry
+    /// no information.
+    ///
+    /// Deliberately permissive about WHICH letters: a name in Chinese, Japanese, Arabic or
+    /// emoji-plus-a-word is a name somebody chose, and `isLetter` is true for all of them.
+    static func isNameUsable(_ name: String) -> Bool {
+        name.contains { $0.isLetter || $0.isNumber }
     }
 
     /// Whether a USB product name is a phone or tablet.
