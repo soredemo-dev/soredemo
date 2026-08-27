@@ -36,15 +36,83 @@ import IOKit.usb
 /// automatic zoom they get on a Mac recording will not get it, and that is a property of there
 /// being no observations to derive it from rather than a feature that was skipped.
 public enum MobileScreen {
+    /// Which kind of device this is.
+    ///
+    /// **From USB, because the capture device does not say.** `AVCaptureDevice` reports
+    /// `modelID` as the flat string "iOS Device" for every one of these — measured — and
+    /// `localizedName` is whatever its owner called it, which on the machine this was written
+    /// for is two box characters. Neither tells a phone from a tablet. The USB product string
+    /// does: it is the plain family name, "iPad" or "iPhone".
+    public enum Family: String, Hashable, Sendable, Codable, CaseIterable {
+        case iPhone, iPad, iPod
+
+        /// The SF Symbol for a card. Getting this wrong is small and visible: an iPhone glyph
+        /// over an iPad is the first thing somebody notices and the last thing they trust.
+        public var symbolName: String {
+            switch self {
+            case .iPhone: "iphone"
+            case .iPad: "ipad"
+            case .iPod: "ipodtouch"
+            }
+        }
+
+        /// Matches the USB product string, which is the family name and nothing else.
+        public init?(usbProductName: String) {
+            let lowered = usbProductName.lowercased()
+            // **iPod before iPhone**: "iPod touch" contains neither of the others, but ordering
+            // the checks by specificity is what keeps a future "iPhone Pod" from mis-sorting.
+            if lowered.contains("ipad") { self = .iPad }
+            else if lowered.contains("ipod") { self = .iPod }
+            else if lowered.contains("iphone") { self = .iPhone }
+            else { return nil }
+        }
+
+        /// **Validated on decode** (D6 rule 8), and the reason is forward compatibility rather
+        /// than ceremony. The synthesised `Decodable` for a raw-value enum throws on a value it
+        /// does not know — so a project written by a future version that has learned about, say,
+        /// a Vision device would fail to OPEN here, over an icon. `Source` decodes this with
+        /// `try?` so an unrecognised family becomes `nil`, which is exactly what `nil` already
+        /// means: could not be told apart. This initialiser is what makes that shape possible.
+        public init(from decoder: any Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            guard let known = Family(rawValue: raw) else {
+                throw DecodingError.dataCorruptedError(
+                    in: try decoder.singleValueContainer(),
+                    debugDescription: "unknown device family \(raw)")
+            }
+            self = known
+        }
+    }
+
     /// A connected device's screen.
     public struct Source: Hashable, Sendable, Codable, Identifiable {
         public let uniqueID: String
         public let name: String
+        /// `nil` when it could not be told apart — several devices attached at once, and no way
+        /// to say which capture device is which. Named rather than guessed: a card showing an
+        /// iPhone glyph over somebody's iPad is small, visible, and the kind of wrongness that
+        /// makes everything beside it look unreliable.
+        public let family: Family?
         public var id: String { uniqueID }
 
-        public init(uniqueID: String, name: String) {
+        public init(uniqueID: String, name: String, family: Family? = nil) {
             self.uniqueID = uniqueID
             self.name = name
+            self.family = family
+        }
+
+        /// The SF Symbol for a card, falling back to a generic one when the family is unknown.
+        public var symbolName: String { family?.symbolName ?? "ipad.and.iphone" }
+
+        /// **A family this build does not recognise decodes as `nil`, not as a failure.** A
+        /// project written by a later version that knows about a device kind this one does not
+        /// must still open; the icon is the only thing lost, and `nil` already means "could not
+        /// be told apart".
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.uniqueID = try container.decode(String.self, forKey: .uniqueID)
+            self.name = try container.decode(String.self, forKey: .name)
+            self.family = try? container.decodeIfPresent(Family.self, forKey: .family)
         }
 
         /// The name to put on a card.
@@ -193,9 +261,15 @@ public enum MobileScreen {
             forName: AVCaptureDevice.wasConnectedNotification, object: nil, queue: .main) { note in
                 guard let device = note.object as? AVCaptureDevice,
                       isMobileScreen(device) else { return }
+                // **Resolved only when there is exactly one.** With two iPads attached there
+                // is no mapping between a USB product string and a capture device's unique id,
+                // and picking one would be a coin toss shown as an icon.
+                let families = attachedMobileFamilyNames().compactMap(Family.init(usbProductName:))
+                let family = families.count == 1 ? families[0] : nil
                 lock.lock()
                 unsafe announced[device.uniqueID] = Source(uniqueID: device.uniqueID,
-                                                           name: device.localizedName)
+                                                           name: device.localizedName,
+                                                           family: family)
                 lock.unlock()
             }
         NotificationCenter.default.addObserver(
@@ -222,8 +296,10 @@ public enum MobileScreen {
         for device in AVCaptureDevice.DiscoverySession(deviceTypes: [.external],
                                                        mediaType: .video, position: .unspecified)
             .devices where isMobileScreen(device) {
+            let families = attachedMobileFamilyNames().compactMap(Family.init(usbProductName:))
             found[device.uniqueID] = Source(uniqueID: device.uniqueID,
-                                            name: device.localizedName)
+                                            name: device.localizedName,
+                                            family: families.count == 1 ? families[0] : nil)
         }
         return found.values.sorted { $0.name < $1.name }
     }

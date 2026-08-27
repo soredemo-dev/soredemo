@@ -1399,7 +1399,7 @@ private func desktopIconsFile() throws -> [URL] {
     let lines = try String(contentsOf: menu[0], encoding: .utf8)
         .components(separatedBy: .newlines)
 
-    let cards = lines.enumerated().filter { $0.element.contains("TargetCard(icon: \"iphone\"") }
+    let cards = lines.enumerated().filter { $0.element.contains("TargetCard(icon: device.symbolName") }
     try #require(!cards.isEmpty, "there is no phone card, and this scan is about it")
     for (index, _) in cards {
         let call = lines[index..<Swift.min(index + 3, lines.count)].joined(separator: " ")

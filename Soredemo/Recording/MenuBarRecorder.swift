@@ -162,7 +162,8 @@ struct MenuBarRecorderPanel: View {
         if !coordinator.availableMobileScreens.isEmpty {
             VStack(alignment: .leading, spacing: Space.snug) {
                 ForEach(coordinator.availableMobileScreens) { device in
-                    TargetCard(icon: "iphone", title: "", verbatimTitle: device.displayName,
+                    TargetCard(icon: device.symbolName, title: "",
+                               verbatimTitle: device.displayName,
                                detail: "Its screen", isBusy: false) {
                         coordinator.beginMobileRecording(device)
                     }
@@ -172,7 +173,7 @@ struct MenuBarRecorderPanel: View {
                 // this app is built around has nothing to derive from. Everything else works.
                 // Somebody who records a phone expecting the zoom they get on a Mac would
                 // otherwise conclude the feature is broken.
-                Text("Zooms are manual for a phone \u{2014} there is no cursor to follow.")
+                Text("Zooms are manual here \u{2014} there is no cursor to follow.")
                     .font(Type.detail).foregroundStyle(.secondary)
             }
             .padding(.top, Space.snug)

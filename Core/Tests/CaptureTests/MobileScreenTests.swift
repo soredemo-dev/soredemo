@@ -239,3 +239,62 @@ import Testing
         }
     }
 }
+
+/// Telling an iPad from an iPhone.
+///
+/// **Neither thing AVFoundation reports can do this.** `modelID` is the flat string "iOS Device"
+/// for every one of them — measured — and `localizedName` is whatever its owner called it, which
+/// on the machine this was written for was two box characters. The USB product string is the
+/// only place the family appears, and it appears there plainly.
+@Suite struct MobileScreenFamilyTests {
+    @Test func theUSBProductStringNamesTheFamily() {
+        #expect(MobileScreen.Family(usbProductName: "iPad") == .iPad)
+        #expect(MobileScreen.Family(usbProductName: "iPhone") == .iPhone)
+        #expect(MobileScreen.Family(usbProductName: "iPod touch") == .iPod)
+    }
+
+    @Test func theMatchIsCaseInsensitiveAndToleratesALongerName() {
+        #expect(MobileScreen.Family(usbProductName: "IPAD") == .iPad)
+        #expect(MobileScreen.Family(usbProductName: "Apple iPhone 17 Pro") == .iPhone)
+    }
+
+    @Test func anythingElseIsNoFamilyRatherThanAGuess() {
+        for name in ["Magic Keyboard", "Studio Display", "", "Apple Watch"] {
+            #expect(MobileScreen.Family(usbProductName: name) == nil, "\(name) matched a family")
+        }
+    }
+
+    /// **Each family has its own glyph, and an unknown one has a glyph too.** An iPhone icon
+    /// over somebody's iPad is small, visible, and the kind of wrongness that makes everything
+    /// beside it look unreliable — which is what the screenshot that prompted this showed.
+    @Test func everyFamilyHasItsOwnSymbolAndTheUnknownCaseHasOneToo() {
+        let symbols = MobileScreen.Family.allCases.map(\.symbolName)
+        #expect(Set(symbols).count == symbols.count, "two families share a glyph: \(symbols)")
+        #expect(MobileScreen.Family.iPad.symbolName == "ipad")
+        #expect(MobileScreen.Family.iPhone.symbolName == "iphone")
+        let unknown = MobileScreen.Source(uniqueID: "x", name: "n", family: nil)
+        #expect(!unknown.symbolName.isEmpty)
+        #expect(!symbols.contains(unknown.symbolName), """
+            The unknown case borrows a family's glyph, so a device that could not be identified \
+            is drawn as though it had been.
+            """)
+    }
+
+    /// **A family this build does not know decodes as `nil`, not as a failure.** A project
+    /// written by a later version that has learned about another device kind must still open;
+    /// the icon is the only thing lost.
+    @Test func aProjectNamingAnUnknownFamilyStillOpens() throws {
+        let future = Data(#"{"uniqueID":"x","name":"n","family":"visionPro"}"#.utf8)
+        let decoded = try JSONDecoder().decode(MobileScreen.Source.self, from: future)
+        #expect(decoded.family == nil)
+        #expect(decoded.name == "n", "the fixture decoded as empty, so this is vacuous")
+    }
+
+    @Test func aKnownFamilySurvivesARoundTrip() throws {
+        let source = MobileScreen.Source(uniqueID: "x", name: "n", family: .iPad)
+        let round = try JSONDecoder().decode(
+            MobileScreen.Source.self, from: JSONEncoder().encode(source))
+        #expect(round == source)
+        #expect(round.family == .iPad)
+    }
+}
