@@ -154,6 +154,45 @@ struct MenuBarRecorderPanel: View {
                 coordinator.beginRegionRecording()
             }
         }
+        // **The fourth card exists only while a device does.** A card that is always there and
+        // usually disabled is a permanent reminder of a thing somebody is not doing; this row
+        // appears when a phone is plugged in and disappears when it is unplugged, which is the
+        // same moment they stop caring about it. Screen Studio, Motionik and ScreenKite all ship
+        // phone recording; none of the seven open-source projects beside this repo does.
+        if !coordinator.availableMobileScreens.isEmpty {
+            VStack(alignment: .leading, spacing: Space.snug) {
+                ForEach(coordinator.availableMobileScreens) { device in
+                    TargetCard(icon: "iphone", title: "", verbatimTitle: device.name,
+                               detail: "Its screen", isBusy: false) {
+                        coordinator.beginMobileRecording(device)
+                    }
+                }
+                // **Said before the recording, not after it.** A phone has no cursor, no
+                // accessibility tree and no clicks this Mac can see, so the automatic framing
+                // this app is built around has nothing to derive from. Everything else works.
+                // Somebody who records a phone expecting the zoom they get on a Mac would
+                // otherwise conclude the feature is broken.
+                Text("Zooms are manual for a phone \u{2014} there is no cursor to follow.")
+                    .font(Type.detail).foregroundStyle(.secondary)
+            }
+            .padding(.top, Space.snug)
+        } else if !coordinator.mobileScreensWaiting.isEmpty {
+            // **What to do, not what is wrong.** A device on the bus that is not offering its
+            // screen is almost always locked; trust is asked once and remembered, so a person
+            // who has plugged this iPad in before will never see that prompt again and has no
+            // way to guess. Developer Mode has nothing to do with it — that is for running your
+            // own builds from Xcode — and saying so here saves the search.
+            Label {
+                Text(verbatim: coordinator.mobileScreensWaiting.joined(separator: ", "))
+                    + Text(" is connected. Unlock it \u{2014} and tap Trust if it asks \u{2014} "
+                           + "to record its screen.")
+            } icon: {
+                Image(systemName: "lock.iphone")
+            }
+            .font(Type.detail)
+            .foregroundStyle(Signal.paused)
+            .padding(.top, Space.snug)
+        }
     }
 
     /// Which microphone, including none.
@@ -206,7 +245,7 @@ struct MenuBarRecorderPanel: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .task { coordinator.refreshMicrophones(); coordinator.refreshCameras() }
+        .task { coordinator.refreshMicrophones(); coordinator.refreshCameras(); coordinator.refreshMobileScreens() }
         // **Plugged in while the panel is open, and it is in the list.** The `.task` above only
         // runs when the panel appears, so a camera or an interface connected while a person was
         // looking at these two rows would not be there until they closed the panel and opened it
@@ -551,6 +590,13 @@ private struct TargetCard: View {
     // panel showed 開始錄製 and 倒數, which are literals in this file, beside Screen and Window,
     // which are not — and it read as a half-finished translation rather than a type mistake.
     let title: LocalizedStringKey
+    /// A name that came from the machine rather than from this file — a connected device's own
+    /// name. **It must not be looked up in the string table**, for the exact reason `title` must
+    /// be: SwiftUI translates a `LocalizedStringKey`, and translating "iPhone 15 Pro" would
+    /// either miss (drawing it verbatim anyway) or, on the day somebody adds a key that happens
+    /// to match a device name, silently rename the device. Two parameters because they are two
+    /// different kinds of string, not one parameter with a flag.
+    var verbatimTitle: String? = nil
     let detail: LocalizedStringKey
     /// True while the system picker this card opened is up, so the card reads as the thing that
     /// is happening rather than staying inert behind a picker a person may not connect to it.
@@ -565,7 +611,8 @@ private struct TargetCard: View {
                     .font(.system(size: 17, weight: .regular))
                     .foregroundStyle(isBusy ? Signal.record : .primary)
                     .frame(height: 20)
-                Text(title).font(.system(size: 13, weight: .medium))
+                (verbatimTitle.map(Text.init(verbatim:)) ?? Text(title))
+                    .font(.system(size: 13, weight: .medium))
                 Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -1,4 +1,5 @@
 import AppKit
+import Capture
 import SwiftUI
 
 /// Stops the app closing over an edit nobody has saved.
@@ -85,6 +86,14 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
         // a debt was recorded, so this is free on every ordinary launch and is the only thing
         // that pays for the one launch in a thousand where it is not.
         DesktopIcons.restore()
+
+        // **Watching from launch, not from when the menu opens, and that ordering is measured.**
+        // A phone announces itself ONCE, through `AVCaptureDeviceWasConnected`, seconds after
+        // the CoreMediaIO switch is thrown — and `DiscoverySession` does not list it at all, so
+        // there is no way to catch up on an announcement that was missed. An app that started
+        // listening when somebody opened the menu would see nothing until they unplugged the
+        // device and plugged it back in.
+        MobileScreen.startWatching()
 
         // No `MainActor.assumeIsolated` here. This target builds with
         // `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so this delegate method already IS

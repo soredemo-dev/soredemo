@@ -278,6 +278,16 @@ final class RecordingCoordinator {
     private var picker: CaptureSourcePicker?
     private var session: CaptureSession?
     private var sink: TemporaryFileMediaSink?
+    /// The recorder writing a connected phone or tablet's screen, while one is being recorded.
+    /// **Separate from `cameraRecorder`** — a phone is the subject, not a face in the corner,
+    /// and one field holding either would make "is there a camera in this recording?" ambiguous.
+    private var mobileRecorder: CameraRecorder?
+    /// Connected phones and tablets, refreshed when the menu opens.
+    private(set) var availableMobileScreens: [MobileScreen.Source] = []
+    /// Phones and tablets that are plugged in but not offering their screens — locked, or not
+    /// yet trusting this Mac. Named, because "unlock iPad and tap Trust" is a sentence somebody
+    /// can act on and "no devices" is not.
+    private(set) var mobileScreensWaiting: [String] = []
 
     /// Which sink produced the current `mediaURL` — the file a live `AVPlayer` may have open.
     /// Compared by reference identity (`===` in `sourceSelected`), not `mediaURL` equality.
@@ -589,7 +599,103 @@ final class RecordingCoordinator {
         }
     }
 
+    /// Re-reads which phones and tablets are plugged in.
+    ///
+    /// **Called when the menu opens rather than watched.** Device arrival has no notification
+    /// this app can use without a `CMIO` listener, and a phone is plugged in seconds before
+    /// somebody records it — the menu opening is exactly that moment.
+    func refreshMobileScreens() {
+        availableMobileScreens = MobileScreen.available()
+        // **The empty list has a knowable cause, and saying nothing about it is the worst
+        // answer.** Measured with an iPad plugged in and locked: the device is on the USB bus
+        // and exposes PTP, Apple's multiplexor and network-over-USB — but not its screen. So the
+        // capture list is correctly empty and a person is looking at a cable in their hand,
+        // wondering what they did wrong.
+        mobileScreensWaiting = availableMobileScreens.isEmpty
+            ? MobileScreen.attachedButUnavailable() : []
+    }
+
+    /// Records a connected phone or tablet's screen.
+    ///
+    /// **A separate, shorter path than `beginRecording`, and it is shorter because there is less
+    /// to record.** A Mac recording carries an observation log — the cursor, the clicks, the
+    /// accessibility chain — which is what the automatic framing is derived from. A phone has
+    /// none of that: no pointer, no AX tree, no clicks visible to this Mac. So there is no
+    /// `CaptureSession`, no `ObservationWriter`, and no observation log; there is a device, a
+    /// file, and the editor.
+    ///
+    /// Everything downstream still works — the look, the background, cutting, speed, captions,
+    /// export — because all of those read the recording rather than the log. Automatic zoom does
+    /// not, and cannot, and that is said in the interface rather than left to be noticed.
+    func beginMobileRecording(_ source: MobileScreen.Source) {
+        guard !isRecording else { return }
+        let newSink: TemporaryFileMediaSink
+        do {
+            newSink = try TemporaryFileMediaSink()
+        } catch {
+            statusText = "Could not create a scratch location for the recording: \(error)"
+            return
+        }
+        guard let package = newSink.packageURL else {
+            statusText = "Could not create a scratch location for the recording."
+            return
+        }
+        // The same name and place a Mac recording's master takes, so the editor, the project
+        // store and `ObservationWriter.expectedLogURL` all see the shape they expect — the log
+        // simply is not there, which every reader of it already treats as "no observations".
+        let destination = package.appending(path: "media", directoryHint: .isDirectory)
+            .appending(path: "master-00.mov")
+
+        let recorder = CameraRecorder()
+        do {
+            try recorder.start(camera: source.asCaptureDevice, to: destination)
+        } catch {
+            statusText = "Could not record \(source.name): \(error)"
+            return
+        }
+        sink = newSink
+        mobileRecorder = recorder
+        isRecording = true
+        isPaused = false
+        elapsed = 0
+        pendingMode = nil
+        RecordingBarPresenter.shared.show(coordinator: self)
+        statusText = "Recording \(source.name)\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."
+    }
+
+    /// Finishes a phone recording and opens it. Returns `false` when there was not one.
+    ///
+    /// **Checked before `stopRecording`'s own work**, because that path reads `session`, which a
+    /// phone recording never had.
+    private func stopMobileRecording() async -> Bool {
+        guard let recorder = mobileRecorder else { return false }
+        mobileRecorder = nil
+        isRecording = false
+        isPaused = false
+        pendingMode = nil
+        RecordingBarPresenter.shared.hide()
+        statusText = "Finishing\u{2026}"
+        DesktopIcons.restore()
+
+        let written = await recorder.stop()
+        guard let written else {
+            statusText = "The recording could not be written."
+            return true
+        }
+        mediaSourceSink = sink
+        mediaURL = written
+        // **No camera offset and no camera.** A phone recording has one video track; setting a
+        // stale offset from a previous take would place a camera that is not there.
+        cameraURL = nil
+        cameraStartOffsetNanos = 0
+        statusText = "Recorded \(written.lastPathComponent)."
+        return true
+    }
+
     private func stopRecording() async {
+        // A phone recording has no `CaptureSession` and no camera; it finishes on its own path
+        // and this one would read a `session` that never existed.
+        if await stopMobileRecording() { return }
         // The camera is stopped first and awaited: `AVCaptureMovieFileOutput` finishes writing
         // on its own queue, and a composition built before that read a partial file.
         if let cameraRecorder {

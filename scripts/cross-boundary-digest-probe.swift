@@ -6491,6 +6491,79 @@ enum CrossBoundaryProbe {
         check(finderAfter == finderBefore,
               "19.3 restore() with no debt restarts nothing, so launching the app is free",
               actual: "\(finderAfter)", expected: "\(finderBefore)")
+        // MARK: - 20. phones and tablets, and the switch that makes them visible
+
+        print("")
+        print("20. MobileScreen — the CoreMediaIO switch, thrown in a process that can afford it")
+        print("20.1-20.4 why this is here and not in the test suite")
+
+        // **This section exists because `swift test` cannot run it.**
+        // `MobileScreen.allowDevices()` sets `kCMIOHardwarePropertyAllowScreenCaptureDevices`,
+        // which starts the CoreMediaIO plug-in host — a process-global side effect on the same
+        // subsystem AVFoundation and ScreenCaptureKit use. Thrown alongside the capture and
+        // compositing suites in the shared test process it hung 71 tests at 0% CPU, none of them
+        // its own, which passed in 0.16 s when run alone. Here it is one process doing one thing.
+        //
+        // **With no phone plugged in, most of what follows is a shape check.** That is stated
+        // rather than dressed up: the claim "a real iPhone appears in this list" needs a cable
+        // and cannot be made by any gate. What CAN be established without one is that the switch
+        // succeeds, that nothing already attached is mistaken for a phone, and that the two lists
+        // this feature splits devices into never overlap.
+
+        let allowed = MobileScreen.allowDevices()
+        check(allowed, "20.1 the CoreMediaIO screen-capture switch can be set on this Mac",
+              actual: "\(allowed)", expected: "true")
+
+        let phones = MobileScreen.available()
+        let cameras = CameraRecorder.available()
+        let phoneIDs = Set(phones.map(\.uniqueID))
+        let cameraIDs = Set(cameras.compactMap(\.uniqueID))
+        print("      (\(phones.count) phone(s), \(cameras.count) camera(s) attached)")
+
+        // **The load-bearing one.** A device in both lists would be offered as the recording
+        // source AND as the face in the corner, and choosing it twice is two clients on one
+        // device. `CameraRecorder.available()` asks for `.external`, so without its filter a
+        // phone lands in both the moment the switch above is thrown.
+        check(phoneIDs.intersection(cameraIDs).isEmpty,
+              "20.2 no device is in both the phone list and the camera list",
+              actual: "\(phoneIDs.intersection(cameraIDs))", expected: "[]")
+
+        let builtIn = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .continuityCamera],
+            mediaType: .video, position: .unspecified).devices
+        let misread = builtIn.filter { MobileScreen.isMobileScreen($0) }
+        check(misread.isEmpty,
+              "20.3 no built-in or Continuity camera is read as a phone",
+              actual: "\(misread.map(\.localizedName))", expected: "[]")
+
+        // Every phone offered must be namable and recordable — a source with no name cannot be
+        // put on a card, and one with no id cannot be opened.
+        let unusable = phones.filter { $0.name.isEmpty || $0.uniqueID.isEmpty }
+        check(unusable.isEmpty,
+              "20.4 every phone offered has both a name to show and an id to open",
+              actual: "\(unusable.count) unusable", expected: "0")
+        // **The failure mode this feature actually has**, measured on this machine with an iPad
+        // plugged in: the device is on the USB bus — `ioreg` shows `iPad@00100000`, vendor
+        // "Apple Inc." — and exposes PTP, Apple's USB multiplexor and two network-over-USB
+        // interfaces. It does NOT expose the screen-capture interface, which appears only once
+        // the device is unlocked. So `available()` is correctly empty, and without 20.5 a person
+        // sees nothing at all with a cable in their hand.
+        let waiting = MobileScreen.attachedButUnavailable()
+        print("      (\(waiting.count) attached but not offering a screen: \(waiting))")
+        check(waiting.allSatisfy { MobileScreen.isMobileFamily($0) },
+              "20.5 everything reported as waiting really is a phone or tablet",
+              actual: "\(waiting)", expected: "all phones or tablets")
+
+        // The two lists are alternatives, never both: a device offering its screen is not
+        // waiting for anything, and a prompt beside a working card would be nonsense.
+        let bothWays = waiting.filter { name in
+            phones.contains { $0.name.localizedCaseInsensitiveContains(name) }
+        }
+        check(bothWays.isEmpty,
+              "20.6 nothing is both offering its screen and waiting to be unlocked",
+              actual: "\(bothWays)", expected: "[]")
+
+
     }
 }
 

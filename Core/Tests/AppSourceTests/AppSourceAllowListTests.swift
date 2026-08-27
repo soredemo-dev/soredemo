@@ -1354,3 +1354,117 @@ private func desktopIconsFile() throws -> [URL] {
             """)
     }
 }
+
+// MARK: - Phones are a source, never a camera
+
+/// **`CameraRecorder.available()` must filter phones out, and no runtime test can see that on a
+/// machine with nothing plugged in.**
+///
+/// The discovery session there asks for `.external`, and the moment `MobileScreen.allowDevices()`
+/// throws the CoreMediaIO switch a connected iPhone becomes an `.external` video device. Without
+/// the filter it appears in the camera picker and can be chosen as a face in the corner — while
+/// also appearing in the phone list, so choosing it twice would be two clients on one device.
+///
+/// `theCameraListAndThePhoneListAreDisjoint` is the runtime check of this and it is vacuous
+/// without hardware: both lists are empty on a laptop with no phone. Removing the filter was
+/// mutation-tested and left every runtime check green. This is the one that goes red.
+@Test func theCameraListFiltersOutPhones() throws {
+    let recorder = packageRoot.appending(path: "Sources/Capture/CameraRecorder.swift")
+    let text = try String(contentsOf: recorder, encoding: .utf8)
+    let lines = SwiftSourceLexer.codeViewLines(of: text)
+
+    let available = try #require(lines.firstIndex { $0.contains("static func available()") },
+                                 "CameraRecorder.available() is gone, and this scan is about it")
+    // The filter is applied inside that function — within a few lines of its declaration.
+    let body = lines[available..<Swift.min(available + 14, lines.count)]
+    #expect(body.contains { $0.contains("MobileScreen.camerasAmong") }, """
+        CameraRecorder.available() no longer filters phones out. Its discovery session asks for \
+        .external, so a connected iPhone appears in the camera picker as soon as anything throws \
+        the CoreMediaIO switch — and it is simultaneously in MobileScreen.available(), so it can \
+        be chosen as both the recording source and the face in the corner.
+        """)
+}
+
+/// **A device's own name is drawn verbatim, never looked up in the string table.**
+///
+/// `TargetCard.title` is a `LocalizedStringKey`, which is the whole point of that type and was
+/// itself a translation bug once — a `String` passed through it is drawn without being looked
+/// up. A connected phone's name has the opposite requirement: it came from the machine, and
+/// translating it would either miss or, on the day somebody adds a key matching a device name,
+/// silently rename the device.
+@Test func aConnectedDevicesNameIsNotPutThroughTheStringTable() throws {
+    let menu = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
+    try #require(menu.count == 1)
+    let lines = try String(contentsOf: menu[0], encoding: .utf8)
+        .components(separatedBy: .newlines)
+
+    let cards = lines.enumerated().filter { $0.element.contains("TargetCard(icon: \"iphone\"") }
+    try #require(!cards.isEmpty, "there is no phone card, and this scan is about it")
+    for (index, _) in cards {
+        let call = lines[index..<Swift.min(index + 3, lines.count)].joined(separator: " ")
+        #expect(call.contains("verbatimTitle: device.name"), """
+            The phone card at line \(index + 1) passes its name through `title`, which is a \
+            LocalizedStringKey. A device's name must go through `verbatimTitle`.
+            """)
+        #expect(!call.contains("title: device.name"), """
+            The phone card at line \(index + 1) passes the device name as a localizable title.
+            """)
+    }
+}
+
+/// **The arrival notification is filtered, and no runtime test can see that without hardware.**
+///
+/// `MobileScreen.startWatching()` observes `AVCaptureDevice.wasConnectedNotification`, which
+/// fires for EVERY capture device — a webcam, a capture card, a Continuity camera. Without the
+/// `isMobileScreen` filter, plugging in a USB microphone would put it in the phone list and
+/// offer to record its screen.
+///
+/// The runtime check of this needs a webcam and a phone attached at once. This does not.
+@Test func theDeviceArrivalNotificationIsFilteredToPhones() throws {
+    let file = packageRoot.appending(path: "Sources/Capture/MobileScreen.swift")
+    let lines = SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
+
+    let observer = try #require(
+        lines.firstIndex { $0.contains("wasConnectedNotification") },
+        "MobileScreen no longer observes device arrival, and this scan is about that observer")
+    // The filter is in the closure that follows, within a handful of lines.
+    let body = lines[observer..<Swift.min(observer + 8, lines.count)]
+    #expect(body.contains { $0.contains("isMobileScreen(device)") }, """
+        The arrival observer no longer filters with isMobileScreen. That notification fires for \
+        every capture device, so a webcam or a USB microphone would be listed as a phone and \
+        offered as a recording source.
+        """)
+}
+
+/// **A phone announces itself once, so the app has to be listening before it does.**
+///
+/// Measured on macOS 26 with an iPad over USB: the device arrives through
+/// `AVCaptureDeviceWasConnected` a few seconds after the CoreMediaIO switch is thrown, and
+/// `DiscoverySession(deviceTypes: [.external])` does not list it — before, during or twenty-five
+/// seconds after. There is no way to catch up on an announcement that was missed.
+///
+/// So `startWatching()` belongs at launch. Moving it to the menu — the obvious place, next to
+/// the other device refreshes — means a person plugs their iPad in, opens the menu, and sees
+/// nothing until they unplug it and plug it back in.
+@Test func thePhoneWatcherStartsAtLaunchRatherThanWhenTheMenuOpens() throws {
+    let delegate = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/App/UnsavedWorkGuard.swift" }
+    try #require(delegate.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: delegate[0], encoding: .utf8))
+
+    let launch = try #require(lines.firstIndex { $0.contains("applicationDidFinishLaunching") },
+                              "the launch hook is gone")
+    let watching = try #require(lines.firstIndex { $0.contains("MobileScreen.startWatching()") },
+                                """
+                                Nothing starts watching for phones at launch. The arrival \
+                                notification fires once and cannot be replayed, so a device \
+                                plugged in before the menu is opened is invisible until it is \
+                                unplugged and plugged back in.
+                                """)
+    #expect(watching > launch && watching < launch + 20, """
+        MobileScreen.startWatching() is at line \(watching + 1), outside \
+        applicationDidFinishLaunching, which starts at line \(launch + 1).
+        """)
+}

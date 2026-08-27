@@ -20,10 +20,16 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     /// USB camera or a capture card is exactly what someone recording a demo with a real setup
     /// is using, and a built-in-only query would not list it.
     public nonisolated static func available() -> [CameraSource] {
-        AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
-            mediaType: .video, position: .unspecified)
-            .devices
+        // **Phones filtered out, and this is not a hypothetical tidiness.** This session asks
+        // for `.external`, and the moment `MobileScreen.allowDevices()` throws the CoreMediaIO
+        // switch a connected iPhone becomes an `.external` video device — so without this it
+        // appears in the camera picker and can be chosen as a face in the corner. A phone is a
+        // capture SOURCE; `MobileScreen.available()` is where it belongs.
+        MobileScreen.camerasAmong(
+            AVCaptureDevice.DiscoverySession(
+                deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
+                mediaType: .video, position: .unspecified)
+                .devices)
             .map { CameraSource(uniqueID: $0.uniqueID, name: $0.localizedName) }
     }
 
