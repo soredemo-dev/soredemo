@@ -1536,3 +1536,72 @@ private func desktopIconsFile() throws -> [URL] {
         mayReplaceWhatIsOpen no longer asks UnsavedWorkGuard, so it answers yes to everything.
         """)
 }
+
+// MARK: - The menu-bar panel's own two rules
+
+/// **macOS's video effects are only named when a camera is being recorded.**
+///
+/// Reactions, Portrait and Studio Light apply to a camera. Shown beside "No camera" they name a
+/// thing that is not happening — and somebody reads "Reactions" there as "this recording will
+/// have Reactions in it", which is worse than saying nothing at all. Seen in a screenshot with
+/// the camera off.
+@Test func cameraEffectsAreOnlyNamedWhenACameraIsBeingRecorded() throws {
+    let menu = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
+    try #require(menu.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: menu[0], encoding: .utf8))
+
+    let shown = try #require(lines.firstIndex { $0.contains("activeCameraEffects.isEmpty") },
+                             "the camera-effects row is gone, and this scan is about it")
+    #expect(lines[shown].contains("camera != .off"), """
+        The effects row at line \(shown + 1) is not gated on a camera being selected, so it \
+        names macOS's video effects beside "No camera".
+        """)
+}
+
+/// **Two footer items per row, because a third truncates all of them.**
+///
+/// The panel is 292 points wide. Three links in one row rendered as "Op…", "O…", "Set…" — not
+/// shorter labels but unreadable ones, and the row is the only place Open Project, Open Video
+/// and Settings can be reached when no window is open. Reported from a screenshot.
+///
+/// Counted rather than measured: nothing here can lay out text, but a row's item count is the
+/// thing that went wrong and it is right there in the source.
+@Test func theMenuBarFooterPutsAtMostTwoLinksInARow() throws {
+    let menu = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
+    try #require(menu.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: menu[0], encoding: .utf8))
+
+    let start = try #require(lines.firstIndex { $0.contains("private var footer: some View") },
+                             "the footer is gone")
+    // The footer ends at the `.font` modifier that closes it.
+    let end = try #require(lines[start...].firstIndex { $0.contains(".font(.system(size: 12))") })
+
+    // **Segmented between one `HStack` and the next, not by brace matching.** A first version
+    // closed the row on the first line that was only `}` — which is the closing brace of a
+    // PanelLink's own trailing closure, not the row's. It counted one link per row however many
+    // there were, and a mutation putting three in a row left it green.
+    var rowCounts: [Int] = []
+    var current: Int?
+    for index in start...end {
+        let line = lines[index]
+        if line.contains("HStack(spacing:") {
+            if let count = current { rowCounts.append(count) }
+            current = 0
+        }
+        if line.contains("PanelLink(") || line.contains("SettingsPanelLink(") {
+            current = (current ?? 0) + 1
+        }
+    }
+    if let count = current { rowCounts.append(count) }
+    let worst = rowCounts.max() ?? 0
+
+    #expect(worst > 0, "no footer links were found at all, so this scan decided nothing")
+    #expect(worst <= 2, """
+        A footer row holds \(worst) links. The panel is 292 points wide and a third makes every \
+        title in the row truncate — "Op…", "O…", "Set…" — which is the state a screenshot caught.
+        """)
+}

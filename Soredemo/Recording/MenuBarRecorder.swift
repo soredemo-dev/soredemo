@@ -329,7 +329,11 @@ struct MenuBarRecorderPanel: View {
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
-            if !coordinator.activeCameraEffects.isEmpty {
+            // **Only when a camera is actually being recorded.** These are macOS's own video
+            // effects — Reactions, Portrait, Studio Light — and they apply to a camera. Shown
+            // beside "No camera" they name a thing that is not happening, which is worse than
+            // saying nothing: somebody reads it as "this recording will have Reactions in it".
+            if coordinator.camera != .off, !coordinator.activeCameraEffects.isEmpty {
                 Button { CameraEffects.showVideoEffects() } label: {
                     HStack(spacing: Space.tight) {
                         Image(systemName: "sparkles").font(.system(size: 9))
@@ -558,26 +562,22 @@ struct MenuBarRecorderPanel: View {
     /// for. Reading order puts the thing you most rarely want last.
     @ViewBuilder private var footer: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
+            // **Two per row, and that is the whole of this layout.** A third item made every
+            // title in the row truncate — "Op…", "O…", "Set…" — which is not a shorter label but
+            // an unreadable one. The panel is 292 points wide and two labels with their
+            // shortcuts is what fits at the longest translation.
             HStack(spacing: Space.regular) {
                 PanelLink(icon: "folder", title: "Open Project", shortcut: "\u{2318}O") {
                     coordinator.openProject()
                 }
-                // **Here and not only in the File menu, because the File menu is not there.**
-                // This app lives in the menu bar; with no editor window open there is no
-                // application menu to reach, so an Open Video… item that existed only in
-                // `.commands` was reachable exactly when somebody already had a video open.
-                PanelLink(icon: "film", title: "Open Video", shortcut: "\u{21E7}\u{2318}O") {
+                Spacer()
+                PanelLink(icon: "film", title: "Open Video",
+                          shortcut: "\u{21E7}\u{2318}O") {
                     coordinator.openVideoFromPanel()
                 }
-                Spacer()
-                SettingsPanelLink()
             }
             HStack(spacing: Space.regular) {
-                PanelLink(icon: "hand.raised", title: "Permissions", shortcut: "") {
-                    EditorWindowPresence.willOpen()
-                    openWindow(id: WindowID.permissions)
-                    NSApp.activate(ignoringOtherApps: true)
-                }
+                SettingsPanelLink()
                 Spacer()
                 PanelLink(icon: "power", title: "Quit", shortcut: "\u{2318}Q") {
                     NSApp.terminate(nil)

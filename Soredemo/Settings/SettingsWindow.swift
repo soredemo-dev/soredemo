@@ -13,6 +13,7 @@ import SwiftUI
 /// to that recording and are saved with it; what belongs here is what a person decides once and
 /// expects to hold: which microphone, whether to count down, what an export defaults to.
 struct SettingsWindow: View {
+    @Environment(\.openWindow) private var openWindow
     @State private var section = Section.recording
     @State private var languageChanged = false
     let coordinator: RecordingCoordinator
@@ -215,6 +216,27 @@ struct SettingsWindow: View {
             LabeledContent("Recordings are written to",
                            value: "a scratch folder until you save them")
                 .font(Type.detail)
+        }
+        // **Permissions live here now, and this is where they belonged.** They were a fourth
+        // item in the menu-bar footer, which fits two per row — the third made every title in
+        // the row truncate to "Op…", "O…", "Set…". A permission IS a setting, and the pane it
+        // belongs in is the one about what this app can see.
+        //
+        // Nothing is lost by moving it: the permissions page opens by itself whenever something
+        // it needs is missing, checked on what is ABSENT rather than on a "have we shown this"
+        // flag — so somebody who revokes one later gets the page again. This is the way in for
+        // way in for looking when nothing is wrong.
+        SwiftUI.Section("Permissions") {
+            LabeledContent("Screen recording, microphone and camera") {
+                Button("Review\u{2026}") {
+                    EditorWindowPresence.willOpen()
+                    openWindow(id: WindowID.permissions)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
+            Text("This page opens on its own whenever something Soredemo needs has not been "
+                 + "granted, or is taken away later.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
     }
 }
