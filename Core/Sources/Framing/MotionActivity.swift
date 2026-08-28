@@ -68,8 +68,18 @@ public enum MotionActivity {
         /// range. Without it, a perfectly still recording turns its own sensor noise into taps —
         /// any noise is infinitely louder than a baseline of zero.
         public var floor: Double
-        /// How long after one event before another may be recognised. A tap produces change over
-        /// several frames; without this, one tap becomes a burst of five.
+        /// How long after one event before another may be recognised.
+        ///
+        /// **Longer than a zoom block, and that is what sets it.** A tap produces change over
+        /// several frames, so some quiet period is needed at all — but `ZoomBlock` spans
+        /// `[t-0.4, t+1.0]` and merges any two blocks that overlap, so two events closer than
+        /// 1.4 s become one block whose target is the UNION of both. Measured: three taps spread
+        /// across an iPad screen merged into a union covering 0.83 x 0.86 of the frame, and the
+        /// depth for that is 1.0 — no zoom.
+        ///
+        /// Which is the right answer for the union and the wrong answer for the recording. A
+        /// camera cannot usefully follow taps a third of a second apart anyway; it would never
+        /// settle. So events are spaced beyond the merge window and each one gets its own block.
         public var quietSeconds: Double
         /// How many frames the baseline averages over.
         public var baselineFrames: Int
@@ -78,7 +88,7 @@ public enum MotionActivity {
         /// measured against anyone: three times the recent average, a floor of 1% of a tile's
         /// range, and a third of a second between events.
         public static let `default` = Settings(burstRatio: 3, floor: 0.01,
-                                               quietSeconds: 0.34, baselineFrames: 30)
+                                               quietSeconds: 1.5, baselineFrames: 30)
 
         public init(burstRatio: Double, floor: Double, quietSeconds: Double,
                     baselineFrames: Int) {
@@ -86,7 +96,7 @@ public enum MotionActivity {
             // D6 rule 8 forbids trapping on an untrusted input.
             self.burstRatio = Swift.min(Swift.max(burstRatio.isFinite ? burstRatio : 3, 1.1), 20)
             self.floor = Swift.min(Swift.max(floor.isFinite ? floor : 0.01, 0.0001), 1)
-            self.quietSeconds = Swift.min(Swift.max(quietSeconds.isFinite ? quietSeconds : 0.34,
+            self.quietSeconds = Swift.min(Swift.max(quietSeconds.isFinite ? quietSeconds : 1.5,
                                                     0.05), 5)
             self.baselineFrames = Swift.min(Swift.max(baselineFrames, 2), 600)
         }
@@ -98,7 +108,7 @@ public enum MotionActivity {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             self.init(burstRatio: try c.decodeIfPresent(Double.self, forKey: .burstRatio) ?? 3,
                       floor: try c.decodeIfPresent(Double.self, forKey: .floor) ?? 0.01,
-                      quietSeconds: try c.decodeIfPresent(Double.self, forKey: .quietSeconds) ?? 0.34,
+                      quietSeconds: try c.decodeIfPresent(Double.self, forKey: .quietSeconds) ?? 1.5,
                       baselineFrames: try c.decodeIfPresent(Int.self, forKey: .baselineFrames) ?? 30)
         }
     }
@@ -107,6 +117,18 @@ public enum MotionActivity {
     /// target that small would be a zoom nobody can follow, so the frame is grown around the
     /// centroid to at least this fraction of the shorter edge. **Uncalibrated.**
     public static let minimumTargetFraction: Double = 0.28
+
+    /// How much of the frame an event may cover and still be treated as a place to zoom to.
+    ///
+    /// **A change across most of the screen is a transition, not a tap — and zooming to
+    /// everything is not zooming.** Measured on a 4K iPad demo: five events, and the one at
+    /// 3.93 s covered 0.688 of the frame. It was a page changing. Merged with the tap beside it
+    /// its union was the whole picture, and `FramingDepth` correctly answered 1.000 — so the
+    /// timeline drew two blocks reading "1×" over a video that never zoomed.
+    ///
+    /// Dropping it is not a loss: there was nothing to zoom to. Half the frame, **uncalibrated**,
+    /// and it keeps the 0.26 event beside it.
+    public static let maximumTargetArea: Double = 0.5
 
     /// Turns per-frame change into the same value a click produces.
     ///
@@ -148,30 +170,88 @@ public enum MotionActivity {
             }
             lastEventTime = change.instant.hostTime.rawValue
 
+            // **A frame-wide change is a scene change, and it is dropped rather than framed.**
+            // `lastEventTime` is still advanced above, so a transition also holds off the quiet
+            // period — the frames right after a page turn are the page settling, not taps.
+            //
+            // **Measured on the SPREAD, not on the target.** The target is a fixed size now, so
+            // its area is a constant and a check against it would pass everything — which is
+            // exactly what happened when the target stopped being the bounding box, and what
+            // `aChangeCoveringMostOfTheScreenIsNotATap` caught.
+            guard spread(of: change) <= maximumTargetArea else { continue }
             let target = target(of: change, revision: revision, baseline: baseline)
             found.append(FramedClick(instant: change.instant, target: target))
         }
         return found
     }
 
+    /// How loud a tile has to be, as a fraction of the loudest tile in the frame, to count as
+    /// part of where the action is.
+    ///
+    /// **This number is the difference between a zoom and no zoom, and a real recording is how
+    /// that was found.** The first version took every tile above the frame's average. Measured
+    /// on a 4K iPad demo, that produced targets covering the whole picture:
+    ///
+    ///     click 3.09s  frame(0.104, 0.000, 0.875 x 0.917)  area=0.802
+    ///     click 3.93s  frame(0.000, 0.000, 1.000 x 1.000)  area=1.000
+    ///
+    /// — and `FramingDepth` then correctly answered 1.000, no magnification, for every one of
+    /// them. The timeline showed zoom blocks reading "1×" over a video that never zoomed.
+    ///
+    /// The average is the wrong bar because a real screen is never still: scrolling, animation
+    /// and compression noise put a little change in almost every tile, so "above average" is
+    /// almost every tile and its bounding box is the frame. Half the LOUDEST tile asks the
+    /// question that was meant: where is this concentrated. **Uncalibrated** beyond that.
+    public static let peakFraction: Double = 0.5
+
+    /// How much of the frame the change is spread over, 0…1 by area.
+    ///
+    /// **Separate from `target(of:)` because they answer different questions.** The spread
+    /// decides whether this is a tap at all; the centroid decides where it is. They were one
+    /// function while the target WAS the bounding box, and separating them is what the change to
+    /// a fixed target size required — not a tidy-up.
+    static func spread(of change: Change) -> Double {
+        let loudest = change.tiles.max() ?? 0
+        guard loudest > 0 else { return 0 }
+        let bar = loudest * peakFraction
+        var minX = Int.max, maxX = Int.min, minY = Int.max, maxY = Int.min
+        for (index, value) in change.tiles.enumerated() where value > bar {
+            let column = index % change.columns, row = index / change.columns
+            minX = Swift.min(minX, column); maxX = Swift.max(maxX, column)
+            minY = Swift.min(minY, row); maxY = Swift.max(maxY, row)
+        }
+        guard minX <= maxX, minY <= maxY else { return 0 }
+        let width = Double(maxX - minX + 1) / Double(change.columns)
+        let height = Double(maxY - minY + 1) / Double(change.rows)
+        return width * height
+    }
+
     /// Where in the frame the change was, and how big to make the target.
     ///
-    /// **The centroid of the tiles that exceeded the baseline, weighted by how much they did.**
-    /// A plain centroid over every tile drifts to the middle of the picture whenever anything at
-    /// all is moving elsewhere — which on a phone is a status-bar clock, every minute.
+    /// **Weighted by how far each tile exceeds the peak bar, not by its raw value.** A tile that
+    /// only just clears the bar should barely move the centre; weighting by the raw value gives
+    /// every qualifying tile most of a vote, because they are all loud by definition.
     static func target(of change: Change, revision: GeometryRevision,
                        baseline: Double) -> FramingTarget {
-        let perTileBaseline = baseline / Double(change.tiles.count)
+        let loudest = change.tiles.max() ?? 0
+        // A frame where nothing changed at all: the middle is the honest answer to "where", and
+        // the caller gets a target it can delete.
+        guard loudest > 0 else {
+            return FramingTarget(frame: frame(centreX: 0.5, centreY: 0.5,
+                                              width: minimumTargetFraction,
+                                              height: minimumTargetFraction, revision: revision),
+                                 role: nil)
+        }
+        let bar = loudest * peakFraction
         var weightSum = 0.0, x = 0.0, y = 0.0
         var minX = Double.infinity, maxX = -Double.infinity
         var minY = Double.infinity, maxY = -Double.infinity
 
         for (index, value) in change.tiles.enumerated() {
-            let excess = value - perTileBaseline
+            let excess = value - bar
             guard excess > 0 else { continue }
             let column = Double(index % change.columns)
             let row = Double(index / change.columns)
-            // Tile centres, in 0…1.
             let cx = (column + 0.5) / Double(change.columns)
             let cy = (row + 0.5) / Double(change.rows)
             weightSum += excess
@@ -182,21 +262,41 @@ public enum MotionActivity {
             minY = Swift.min(minY, row / Double(change.rows))
             maxY = Swift.max(maxY, (row + 1) / Double(change.rows))
         }
-        // Nothing exceeded the baseline — possible when the total cleared the floor through many
-        // tiny tiles. The middle of the picture is the honest answer to "where", and the caller
-        // gets a target it can delete.
+        // Only the loudest tile itself cleared the bar, and it cleared it by nothing. Its
+        // position is still known — `loudest` is somewhere — so the extent falls back to the
+        // minimum around that tile rather than to the middle of the picture.
         guard weightSum > 0 else {
-            return FramingTarget(frame: frame(centreX: 0.5, centreY: 0.5,
+            let index = change.tiles.firstIndex(of: loudest) ?? 0
+            let cx = (Double(index % change.columns) + 0.5) / Double(change.columns)
+            let cy = (Double(index / change.columns) + 0.5) / Double(change.rows)
+            return FramingTarget(frame: frame(centreX: cx, centreY: cy,
                                               width: minimumTargetFraction,
                                               height: minimumTargetFraction, revision: revision),
                                  role: nil)
         }
+        // **A fixed size around the centroid, NOT the bounding box — motion says where, not how
+        // big.** The bounding box was the first design and it is a claim this signal cannot
+        // support. Measured on a 4K iPad demo, the qualifying tiles spanned half the picture at
+        // every grid resolution tried:
+        //
+        //     8x12   extents [0.50, 0.62, 0.28, 0.50]
+        //     16x24  extents [0.62, 0.56, 0.46, 0.50]
+        //     24x32  extents [0.62, 0.54, 0.50, 0.50]
+        //
+        // A finer grid changed nothing, because the change really does span that much: tapping
+        // a folder highlights it and reflows the grid around it. `FramingDepth` then answers 1.0
+        // — correctly, since zooming to a target half the frame tall would crop it — and the
+        // timeline showed blocks reading "1x" over a video that never zoomed.
+        //
+        // What a viewer wants is the place, with some of the surrounding change left outside the
+        // frame. That is what a fixed extent gives, and it is honest about what was measured:
+        // a centre, and no opinion about size.
         let centreX = x / weightSum
         let centreY = y / weightSum
-        let width = Swift.max(maxX - minX, minimumTargetFraction)
-        let height = Swift.max(maxY - minY, minimumTargetFraction)
+        _ = (minX, maxX, minY, maxY)
         return FramingTarget(frame: frame(centreX: centreX, centreY: centreY,
-                                          width: width, height: height, revision: revision),
+                                          width: minimumTargetFraction,
+                                          height: minimumTargetFraction, revision: revision),
                              role: nil)
     }
 

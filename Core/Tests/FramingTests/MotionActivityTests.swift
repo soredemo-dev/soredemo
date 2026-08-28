@@ -270,3 +270,163 @@ import Timeline
         #expect(old == MotionActivity.Settings.default)
     }
 }
+
+/// The four rules a real recording taught, each of which produced zoom blocks reading "1×" over
+/// a video that never zoomed.
+///
+/// **All four were found the same way**: the timeline drew blocks, `FramingDepth` answered 1.000
+/// for every one of them, and nothing was wrong anywhere in the pipeline. The blocks were
+/// honestly derived from targets that honestly covered the whole picture.
+@Suite struct MotionActivityDepthTests {
+    private let epoch = BootEpoch(id: UUID(uuidString: "7B3D2E60-11C4-4A9F-8E07-55AB1C2D3E4F")!)
+    private let revision = GeometryRevision(id: 4)
+    private let columns = 8
+    private let rows = 12
+
+    private func instant(_ seconds: Double) -> HostInstant {
+        HostInstant(epoch: epoch, hostTime: Nanoseconds(Int64(seconds * 1e9)))
+    }
+
+    private func change(_ seconds: Double, level: Double = 0.002,
+                        hot: [Int] = [], spike: Double = 0) -> MotionActivity.Change {
+        var tiles = [Double](repeating: level, count: columns * rows)
+        for index in hot where tiles.indices.contains(index) { tiles[index] = spike }
+        return MotionActivity.Change(instant: instant(seconds), columns: columns, rows: rows,
+                                     tiles: tiles)
+    }
+
+    private func quiet(_ count: Int, from: Double = 0) -> [MotionActivity.Change] {
+        (0..<count).map { change(from + Double($0) / 60) }
+    }
+
+    private var settle: Int { MotionActivity.Settings.default.baselineFrames }
+
+    /// **The target is a fixed size around the centre, not the extent of everything that moved.**
+    ///
+    /// The first version used the bounding box of every qualifying tile. Measured on a 4K iPad
+    /// demo, that box spanned half the picture at 8×12, 16×24 and 24×32 alike — a finer grid
+    /// changed nothing, because the change really does span that much when tapping a folder
+    /// reflows the grid around it. `FramingDepth.shallowestAtExtent` is 0.5, so every one of
+    /// those targets was worth no magnification at all.
+    ///
+    /// Motion says WHERE. It has no opinion about size, and claiming one from a bounding box was
+    /// claiming precision the signal does not have.
+    @Test func everyTargetIsTheSameSizeHoweverWidelyTheChangeIsSpread() throws {
+        // Four adjacent tiles, and then four spread over a quarter of the frame.
+        //
+        // **The wide one stays under `maximumTargetArea`, and a first draft did not.** It smeared
+        // across the whole picture, which this correctly refuses as a scene change — so the test
+        // compared one target against nothing and failed for a reason that was not the rule it
+        // is about. Columns 0–3 by rows 0–5 is half the width by half the height: 0.25.
+        var tight = quiet(settle + 1)
+        tight.append(change(2.0, hot: [30, 31, 38, 39], spike: 0.6))
+        var wide = quiet(settle + 1)
+        wide.append(change(2.0, hot: [0, 3, 40, 43], spike: 0.6))
+
+        let tightFrame = try #require(
+            MotionActivity.clicks(from: tight, revision: revision).first?.target.frame)
+        let wideFrame = try #require(
+            MotionActivity.clicks(from: wide, revision: revision).first?.target.frame)
+
+        #expect(tightFrame.size.width == wideFrame.size.width)
+        #expect(tightFrame.size.height == wideFrame.size.height)
+        #expect(tightFrame.size.width == MotionActivity.minimumTargetFraction)
+    }
+
+    /// **And that size earns a real zoom.** The whole point: a target this size is worth more
+    /// than 1.0, which is what every bounding-box target was worth.
+    @Test func aMotionTargetIsWorthAnActualMagnification() throws {
+        var frames = quiet(settle + 1)
+        frames.append(change(2.0, hot: [30, 31, 38, 39], spike: 0.6))
+        let clicks = MotionActivity.clicks(from: frames, revision: revision)
+        let blocks = ZoomBlock.blocks(for: clicks, coverage: 1, intensity: 1)
+        let block = try #require(blocks.first)
+        #expect(block.zoom > 1.0, """
+            a motion zoom is worth \(block.zoom)× — the timeline would draw a block reading "1×" \
+            over a video that does not zoom, which is the state this suite exists to prevent
+            """)
+    }
+
+    /// **Events are spaced beyond the window `ZoomBlock` merges within.**
+    ///
+    /// Blocks span `[t − 0.4, t + 1.0]` and any two that overlap become one whose target is the
+    /// UNION. Three taps spread across an iPad screen merged into a union covering 0.83 × 0.86 —
+    /// worth no zoom, correctly. A camera cannot follow taps a third of a second apart anyway.
+    @Test func twoEventsAreNeverCloserThanTheBlockMergeWindow() throws {
+        var frames = quiet(settle + 1)
+        // Taps every 0.5 s for four seconds — far closer than a block is wide.
+        for i in 0..<8 {
+            frames.append(change(2.0 + Double(i) * 0.5, hot: [30 + i, 38 + i], spike: 0.7))
+            frames += quiet(28, from: 2.0 + Double(i) * 0.5 + 0.02)
+        }
+        let clicks = MotionActivity.clicks(from: frames, revision: revision)
+        try #require(clicks.count > 1, "only \(clicks.count) event found, so spacing is untested")
+
+        let gaps = zip(clicks, clicks.dropFirst()).map {
+            Double($1.instant.hostTime.rawValue - $0.instant.hostTime.rawValue) / 1e9
+        }
+        let mergeWindow = 1.4
+        #expect(gaps.allSatisfy { $0 >= mergeWindow }, """
+            events \(gaps.map { ($0 * 100).rounded() / 100 }) s apart — anything under \
+            \(mergeWindow) s merges into one block whose target is the union of both, which is \
+            worth no zoom.
+            """)
+        // And the blocks really do stay separate.
+        let blocks = ZoomBlock.blocks(for: clicks, coverage: 1, intensity: 1)
+        #expect(blocks.count == clicks.count, """
+            \(clicks.count) events became \(blocks.count) blocks — they are still merging.
+            """)
+    }
+
+    /// **A change across most of the screen is a transition, and it is dropped.**
+    ///
+    /// Measured: an event covering 0.688 of the frame was a page changing. Merged with the tap
+    /// beside it, the union was the whole picture. Zooming to everything is not zooming, so
+    /// there was nothing to lose by dropping it.
+    @Test func aChangeCoveringMostOfTheScreenIsNotATap() {
+        var frames = quiet(settle + 1)
+        // Every tile loud at once — a page turn.
+        frames.append(MotionActivity.Change(
+            instant: instant(2.0), columns: columns, rows: rows,
+            tiles: [Double](repeating: 0.8, count: columns * rows)))
+        frames += quiet(40, from: 2.1)
+
+        #expect(MotionActivity.clicks(from: frames, revision: revision).isEmpty, """
+            a frame where everything changed was framed as a tap. Its target is the whole \
+            picture and zooming to the whole picture is not zooming.
+            """)
+    }
+
+    /// **The target comes from the loudest tiles, not from everything above average.**
+    ///
+    /// A real screen is never still — scrolling, animation and compression noise put a little
+    /// change in almost every tile — so "above the frame's average" is almost every tile, and
+    /// its centre is the middle of the picture whatever actually happened.
+    @Test func aQuietBackgroundEverywhereDoesNotDragTheTargetToTheMiddle() throws {
+        var frames = quiet(settle + 1)
+        // A loud corner over a noisy background: every tile busy, one region far busier.
+        var tiles = [Double](repeating: 0.05, count: columns * rows)
+        for index in [93, 94, 85, 86] { tiles[index] = 0.9 }
+        frames.append(MotionActivity.Change(instant: instant(2.0), columns: columns, rows: rows,
+                                            tiles: tiles))
+        frames += quiet(40, from: 2.1)
+
+        let frame = try #require(
+            MotionActivity.clicks(from: frames, revision: revision).first?.target.frame)
+        // **The thresholds are where the two rules differ, and 0.55 was not.** The loud tiles
+        // sit at (0.75, 0.92); weighting every tile above the frame's average instead puts the
+        // centre near (0.60, 0.66), because ninety-two quiet tiles outweigh four loud ones. A
+        // first draft asked for more than 0.55 and both rules cleared it, so the mutation that
+        // swapped them left this green.
+        let centreX = frame.origin.x + frame.size.width / 2
+        let centreY = frame.origin.y + frame.size.height / 2
+        #expect(centreX > 0.70, """
+            centre x \(centreX) — the loud tiles are at 0.75, and weighting everything above \
+            the frame's average pulls the centre left of them
+            """)
+        #expect(centreY > 0.75, """
+            centre y \(centreY) — the loud tiles are at 0.92, and the quiet background pulls \
+            the centre up towards the middle
+            """)
+    }
+}
