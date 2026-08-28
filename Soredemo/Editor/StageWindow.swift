@@ -1519,6 +1519,12 @@ struct StageWindow: View {
             let anchor = EpochAnchor(epoch: epoch, hostTime: Nanoseconds(0),
                                      wallClockUnixNanos: 0)
             motionAnchor = anchor
+            // **The compositor has to be told too, and this was the whole reported bug.** The
+            // timeline drew blocks the editor had computed while `StageCompositor` built its
+            // camera from the observation log alone — which a phone recording does not have.
+            // Zooms on the lane, none in the picture, and nothing broken at either end.
+            StageCompositor.motionClicks = clicks
+            StageCompositor.motionAnchor = anchor
             timeline.setZoomAnchor(anchor)
             refreshDerivedZooms()
         } catch {
@@ -1577,6 +1583,11 @@ struct StageWindow: View {
             // `nil` for a recording with no observation log, and the analysis below declines to
             // run a second time — so without this the zooms are rebuilt and have nowhere to go.
             timeline.setZoomAnchor(review.anchor ?? motionAnchor)
+            // Re-published on every load for the same reason the anchor is: `load()` runs more
+            // than once, `configuredComposition` reads these statics as it builds, and the
+            // analysis declines to run again once it has its clicks.
+            StageCompositor.motionClicks = motionClicks
+            StageCompositor.motionAnchor = motionAnchor
             refreshDerivedZooms()
             // **Started, not awaited.** Deriving zooms from the picture decodes the whole
             // recording; awaiting it here would hold the preview back behind an analysis that

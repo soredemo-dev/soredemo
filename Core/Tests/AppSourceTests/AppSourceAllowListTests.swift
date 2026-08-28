@@ -1672,3 +1672,34 @@ private func desktopIconsFile() throws -> [URL] {
         \(missing.joined(separator: "\n"))
         """)
 }
+
+/// **The editor publishes motion clicks to the compositor, not only to the timeline.**
+///
+/// These were two derivations of the same thing from two different places: the timeline drew
+/// blocks the editor had computed, and `StageCompositor` built its camera from the observation
+/// log alone. A phone recording has no log, so the lane showed zooms and the picture never moved
+/// — with nothing wrong at either end, each being correct about its own inputs.
+///
+/// The compositor half is covered by `theCameraZoomsFromMotionClicksWhenThereIsNoObservationLog`.
+/// This is the other half: that the app actually hands them over, on the analysis AND on every
+/// later load, because `load()` runs more than once and the analysis declines to run again.
+@Test func theEditorPublishesMotionClicksToTheCompositor() throws {
+    let stage = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/StageWindow.swift" }
+    try #require(stage.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: stage[0], encoding: .utf8))
+
+    let publishes = lines.indices.filter { lines[$0].contains("StageCompositor.motionClicks =") }
+    #expect(publishes.count >= 2, """
+        `StageCompositor.motionClicks` is set \(publishes.count) time(s). It needs setting when \
+        the analysis finishes AND on every load: load() runs more than once, the composition \
+        reads the statics as it builds, and the analysis will not run again once it has clicks.
+        """)
+    let anchors = lines.indices.filter { lines[$0].contains("StageCompositor.motionAnchor =") }
+    #expect(anchors.count == publishes.count, """
+        The clicks and their anchor are published a different number of times \
+        (\(publishes.count) vs \(anchors.count)). An instant without the anchor that gives it \
+        meaning is a number.
+        """)
+}
