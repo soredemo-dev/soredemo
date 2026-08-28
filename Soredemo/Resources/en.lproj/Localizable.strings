@@ -261,3 +261,16 @@
 "Slow" = "Slow";
 "Target" = "Target";
 "Tilt while moving" = "Tilt while moving";
+
+/* Added 2026-08-28. These are `title:` arguments, which SwiftUI looks up as
+   `LocalizedStringKey`s — the table already held "Open Project…" and "Settings…" WITH
+   an ellipsis, which the code does not pass, so the lookup missed and the English key
+   was drawn beside a translated "Quit". `everyTitleLiteralIsInBothStringTables` is the
+   check that stops that happening silently again. */
+"Never what you type" = "Never what you type";
+"Where you clicked, and what shape it was" = "Where you clicked, and what shape it was";
+"No window titles" = "No window titles";
+"Nothing leaves this Mac" = "Nothing leaves this Mac";
+"Open Project" = "Open Project";
+"Open Video" = "Open Video";
+"Settings" = "Settings";

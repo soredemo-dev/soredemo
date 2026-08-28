@@ -183,13 +183,13 @@ struct MenuBarRecorderPanel: View {
             // who has plugged this iPad in before will never see that prompt again and has no
             // way to guess. Developer Mode has nothing to do with it — that is for running your
             // own builds from Xcode — and saying so here saves the search.
-            Label {
-                Text(verbatim: coordinator.mobileScreensWaiting.joined(separator: ", "))
-                    + Text(" is connected. Unlock it \u{2014} and tap Trust if it asks \u{2014} "
-                           + "to record its screen.")
-            } icon: {
-                Image(systemName: "lock.iphone")
-            }
+            // **One interpolated sentence, not two `Text`s added together.** `Text + Text` is
+            // deprecated, and it was also the wrong shape: a translator handed a fragment
+            // beginning " is connected." cannot move the device's name to where their language
+            // puts it.
+            Label("\(coordinator.mobileScreensWaiting.joined(separator: ", ")) is connected. "
+                  + "Unlock it \u{2014} and tap Trust if it asks \u{2014} to record its screen.",
+                  systemImage: "lock.iphone")
             .font(Type.detail)
             .foregroundStyle(Signal.paused)
             .padding(.top, Space.snug)
@@ -560,31 +560,37 @@ struct MenuBarRecorderPanel: View {
     /// **Quit is bottom-right, which is the corner nothing is next to.** It used to sit beside
     /// Open Project, at the top of the group, one slip away from the row a person actually came
     /// for. Reading order puts the thing you most rarely want last.
+    /// The four places to go from here.
+    ///
+    /// **Icons, and the reason is that words truncate and icons cannot.** These were labelled
+    /// links: three to a row rendered as "Op…", "O…", "Set…", and two to a row still rendered as
+    /// "Open Proj… ⌘O" and "Open Vi… ⇧⌘O" — the panel is 292 points wide and English labels with
+    /// their shortcuts do not fit at any arrangement of rows. A shorter label was not available
+    /// either: these are the names of the things they open.
+    ///
+    /// So the words move to where there is room for them. Every button carries `.help` for the
+    /// pointer and an accessibility label for VoiceOver, both the full name, and the keyboard
+    /// shortcut still works from the panel. Nothing here can truncate in any language, which the
+    /// labelled version could not promise for the next translation either.
+    ///
+    /// **Not an overflow menu**, which was the other candidate and would also never truncate: it
+    /// puts every one of these two clicks away, and Settings and Open Video are things somebody
+    /// reaches for while the panel is already open.
     @ViewBuilder private var footer: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            // **Two per row, and that is the whole of this layout.** A third item made every
-            // title in the row truncate — "Op…", "O…", "Set…" — which is not a shorter label but
-            // an unreadable one. The panel is 292 points wide and two labels with their
-            // shortcuts is what fits at the longest translation.
-            HStack(spacing: Space.regular) {
-                PanelLink(icon: "folder", title: "Open Project", shortcut: "\u{2318}O") {
-                    coordinator.openProject()
-                }
-                Spacer()
-                PanelLink(icon: "film", title: "Open Video",
-                          shortcut: "\u{21E7}\u{2318}O") {
-                    coordinator.openVideoFromPanel()
-                }
+        HStack(spacing: Space.snug) {
+            FooterButton(icon: "folder", title: "Open Project", shortcut: "\u{2318}O") {
+                coordinator.openProject()
             }
-            HStack(spacing: Space.regular) {
-                SettingsPanelLink()
-                Spacer()
-                PanelLink(icon: "power", title: "Quit", shortcut: "\u{2318}Q") {
-                    NSApp.terminate(nil)
-                }
+            FooterButton(icon: "film", title: "Open Video",
+                         shortcut: "\u{21E7}\u{2318}O") {
+                coordinator.openVideoFromPanel()
+            }
+            Spacer()
+            SettingsPanelLink()
+            FooterButton(icon: "power", title: "Quit", shortcut: "\u{2318}Q") {
+                NSApp.terminate(nil)
             }
         }
-        .font(.system(size: 12))
     }
 }
 
@@ -726,13 +732,65 @@ private struct PanelLink: View {
 /// in this file had to be found by reading — so there is no way to drive this row from a test
 /// or a probe. What is established is that the old call was logging a warning that says it does
 /// not work, and that this is the API Apple names in that warning.
+/// One footer action, drawn as its symbol.
+///
+/// **The name is not dropped, it is moved.** `.help` puts it under the pointer and
+/// `accessibilityLabel` puts it in VoiceOver; both carry the shortcut too, because a person
+/// hovering to find out what a button does is exactly the person who would like to stop hovering.
+private struct FooterIcon: View {
+    let icon: String
+    /// **A `LocalizedStringResource`, not a `LocalizedStringKey`.** The tooltip is the name AND
+    /// the shortcut in one string, and a key cannot be resolved back into text to join to
+    /// anything — `Text + Text` would do it and is deprecated. A resource goes to `Text` for the
+    /// label and through `String(localized:)` for the tooltip, from one translated source.
+    let title: LocalizedStringResource
+    let shortcut: String
+    let isHovering: Bool
+
+    private var tooltip: String {
+        let name = String(localized: title)
+        return shortcut.isEmpty ? name : "\(name)  \(shortcut)"
+    }
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 13))
+            .frame(width: 26, height: 22)
+            .foregroundStyle(isHovering ? .primary : .secondary)
+            .background(isHovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: 5))
+            .contentShape(Rectangle())
+            .help(tooltip)
+            .accessibilityLabel(Text(title))
+    }
+}
+
+private struct FooterButton: View {
+    let icon: String
+    let title: LocalizedStringResource
+    let shortcut: String
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            FooterIcon(icon: icon, title: title, shortcut: shortcut, isHovering: isHovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+}
+
+/// **`SettingsLink`, not a `Button`.** macOS 14 stopped honouring the
+/// `showSettingsWindow:` selector this used to send, and SwiftUI logs
+/// "Please use SettingsLink for opening the Settings scene" when anything else tries.
 private struct SettingsPanelLink: View {
     @State private var isHovering = false
 
     var body: some View {
         SettingsLink {
-            PanelLinkLabel(icon: "gearshape", title: "Settings", shortcut: "\u{2318},",
-                           isHovering: isHovering)
+            FooterIcon(icon: "gearshape", title: "Settings", shortcut: "\u{2318},",
+                       isHovering: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }

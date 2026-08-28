@@ -1605,3 +1605,70 @@ private func desktopIconsFile() throws -> [URL] {
         title in the row truncate — "Op…", "O…", "Set…" — which is the state a screenshot caught.
         """)
 }
+
+/// **Every `title:` the app passes as a localizable key has an entry in both string tables.**
+///
+/// SwiftUI looks a `LocalizedStringKey` up by its exact text and draws the key itself when the
+/// lookup misses. There is no warning, no crash, and no missing-glyph box — just an English word
+/// sitting in a translated panel, which is what a screenshot caught: "Open Project ⌘O",
+/// "Open Video ⇧⌘O" and "Settings ⌘," in English beside "結束".
+///
+/// The table was not incomplete. It held `"Open Project…"` and `"Settings…"` WITH an ellipsis,
+/// from an earlier version of those labels, and the code passes them without. Two nearly
+/// identical strings, one of which works.
+///
+/// **Scoped to `title:`, deliberately.** Most other literals in this app are long sentences
+/// assembled with `+`, which SwiftUI cannot look up at all — they arrive as a computed `String`
+/// rather than a key. Checking those would be checking a rule the code does not follow. A
+/// `title:` is a word somebody reads on a control, and it is the set that broke.
+@Test func everyTitleLiteralIsInBothStringTables() throws {
+    let resources = repositoryRoot.appending(path: "Soredemo/Resources")
+    func keys(of language: String) throws -> Set<String> {
+        let url = resources.appending(path: "\(language).lproj/Localizable.strings")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        var found: Set<String> = []
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("\"") else { continue }
+            // Up to the closing quote of the key, which is the one before ` = `.
+            guard let range = trimmed.range(of: "\" = \"") else { continue }
+            found.insert(String(trimmed[trimmed.index(after: trimmed.startIndex)..<range.lowerBound]))
+        }
+        return found
+    }
+    let english = try keys(of: "en")
+    let chinese = try keys(of: "zh-Hant")
+    try #require(english.count > 100, "the English table read as \(english.count) keys — parsed wrong")
+    #expect(english == chinese, """
+        The two tables have drifted apart. Only in English: \
+        \(english.subtracting(chinese).sorted().prefix(6)). Only in Chinese: \
+        \(chinese.subtracting(english).sorted().prefix(6)).
+        """)
+
+    // **A RAW scan.** The needle is string-literal CONTENT, which the code view blanks.
+    var missing: [String] = []
+    var scanned = 0
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for (index, line) in text.components(separatedBy: .newlines).enumerated() {
+            guard line.contains("title: \""), !line.contains("verbatim") else { continue }
+            guard let start = line.range(of: "title: \"") else { continue }
+            let rest = line[start.upperBound...]
+            guard let end = rest.firstIndex(of: "\"") else { continue }
+            let key = String(rest[..<end])
+            // Interpolated titles are not keys, and an empty one is the placeholder beside a
+            // `verbatimTitle`.
+            guard !key.isEmpty, !key.contains("\\(") else { continue }
+            scanned += 1
+            if !english.contains(key) {
+                missing.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1) \"\(key)\"")
+            }
+        }
+    }
+    #expect(scanned > 5, "only \(scanned) title literals were found — this scan decided nothing")
+    #expect(missing.isEmpty, """
+        These titles have no entry in the string tables, so they draw in English whatever \
+        language the app is in:
+        \(missing.joined(separator: "\n"))
+        """)
+}

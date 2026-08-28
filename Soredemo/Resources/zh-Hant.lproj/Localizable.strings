@@ -261,3 +261,16 @@
 "Slow" = "慢";
 "Target" = "目標";
 "Tilt while moving" = "移動時傾斜";
+
+/* Added 2026-08-28. These are `title:` arguments, which SwiftUI looks up as
+   `LocalizedStringKey`s — the table already held "Open Project…" and "Settings…" WITH
+   an ellipsis, which the code does not pass, so the lookup missed and the English key
+   was drawn beside a translated "Quit". `everyTitleLiteralIsInBothStringTables` is the
+   check that stops that happening silently again. */
+"Never what you type" = "永遠不記錄你打的字";
+"Where you clicked, and what shape it was" = "你點了哪裡,以及那是什麼形狀";
+"No window titles" = "不記錄視窗標題";
+"Nothing leaves this Mac" = "沒有東西離開這台 Mac";
+"Open Project" = "開啟專案";
+"Open Video" = "開啟影片";
+"Settings" = "設定";
