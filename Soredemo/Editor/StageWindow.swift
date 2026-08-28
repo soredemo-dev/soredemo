@@ -299,10 +299,23 @@ struct StageWindow: View {
                                                systemImage: "exclamationmark.triangle",
                                                description: Text(failure))
                     } else {
-                        ProgressView()
+                        // **Named, not a bare spinner.** The wait here is a decode: the first
+                        // frame of a 4K recording, and then the motion pass behind it. A
+                        // spinner alone in a black rectangle reads as something having gone
+                        // wrong.
+                        VStack(spacing: Space.snug) {
+                            ProgressView()
+                            Text("Loading the recording\u{2026}")
+                                .font(Type.detail).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .frame(maxHeight: .infinity)
+                // **Both axes, and only one of them was here.** With `maxHeight` alone this
+                // container took the width of whatever was inside it — a `ProgressView` is a few
+                // points across — and `Theme.Surface.preview` painted that: a tall black sliver
+                // down the middle of the editor while a recording loaded. The player branch hid
+                // it, because an `NSViewRepresentable` expands on its own.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.Surface.preview)
                 // Handles for whatever the inspector is editing — see `PreviewOverlay`.
                 .overlay {

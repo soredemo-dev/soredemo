@@ -47,9 +47,9 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Microphone | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** `MicrophoneSource` |
 | System audio | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** ScreenCaptureKit |
 | Per-app system audio | ✓ | · | · | · | · | **·** |
-| **iPhone / iPad over USB** | ✓ | · | ✓ | · | ✓ | **·** ← planned |
+| **iPhone / iPad over USB** | ✓ | · | ✓ | · | ✓ | **✓** `MobileScreen` |
 | 4K / 60 fps | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** |
-| **Hide desktop icons** | ✓ | · | · | · | · | **·** ← planned |
+| **Hide desktop icons** | ✓ | · | · | · | · | **✓** `DesktopIcons` |
 | Screenshot mode | · | ✓ | ✓ | · | ✓ | **·** |
 | Scene-by-scene record + retakes | · | · | · | ✓ | · | **·** |
 | Teleprompter / script on screen | · | · | · | ✓ | · | **·** |
@@ -59,6 +59,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Capability | Screen Studio | a Rust recorder | Motionik | Borumi | ScreenKite | **Soredemo** |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Automatic zoom on activity | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** `Framing` |
+| **Automatic zoom on a PHONE recording** | **·** | · | · | · | · | **✓** `MotionActivity` *(nobody else)* |
 | Manual zoom blocks on timeline | ✓ | ✓ | ✓ | · | ✓ | **✓** |
 | Zoom re-fit for vertical export | ✓ | · | ✓ | ✓ | · | **✓** |
 | Smooth cursor movement | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** `PointerPath` |
@@ -126,7 +127,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Capability | Screen Studio | a Rust recorder | Motionik | Borumi | ScreenKite | **Soredemo** |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Voice volume normalisation | ✓ | · | · | · | · | **·** |
-| **Background noise removal** | ✓ | · | ✓ | ✓ | · | **·** ← planned |
+| **Background noise removal** | ✓ | · | ✓ | ✓ | · | **✓** `NoiseReduction` |
 | Transcript generation | ✓ *(on-device)* | ✓ *(cloud)* | ✓ | ✓ | ✓ *(WhisperKit on-device; ElevenLabs cloud on Intel)* | **✓** `Transcript` |
 | Burned-in captions | ✓ | ✓ | ✓ | ✓ | ✓ word-level | **✓** `CaptionStyle` |
 | Subtitle file export | ? | ✓ | · | · | ✓ | **✓** `SubtitleFile` |
@@ -141,7 +142,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | GIF | ✓ | · | ✓ | · | · | **✓** `GIFExporter` |
 | Export presets (web / social / editor) | ✓ | · | ✓ | · | ✓ | **✓** `.web` `.message` `.editing` |
 | Copy video to clipboard | ✓ | · | · | · | · | **✓** `ExportQueue` |
-| **Export an in/out range only** | **·** | · | · | · | ✓ | **·** ← cheapest real gap |
+| **Export an in/out range only** | **·** | · | · | · | ✓ | **✓** `EditTimeline.restricted` |
 | FCPXML / hand-off to a real NLE | · | · | · | · | ✓ | **·** |
 | Share link / cloud | ✓ | ✓ | ✓ | ✓ | ✓ | **↺ declined** |
 | Password-protected / private shares | · | ✓ | ✓ | · | ✓ | **↺ declined** |
@@ -172,6 +173,33 @@ zsh expanded the unquoted `--include=*.swift`; the numbers above are from the
 quoted re-run. Recorded because the failure mode is invisible.)
 
 ---
+
+## 3a. What a phone recording can and cannot carry, measured
+
+Added 2026-08-29, because it decided a feature and contradicts a guess made earlier in this file.
+
+**There is no touch data. Not for anyone.** Screen Studio's own guide says it plainly:
+
+> Due to privacy limitations, Screen Studio cannot record your finger taps the same way it can
+> record your mouse clicks and movement in desktop recordings — **automatic zooms are not
+> supported** for iOS/iPadOS recordings.
+
+iOS does not send touch coordinates over the CoreMediaIO screen-capture interface, and no
+application on the Mac side can obtain them. Measured here too: a connected iPad exposes PTP,
+Apple's USB multiplexor and two network-over-USB interfaces, and the capture device it becomes
+carries video and audio.
+
+So the field is: **nobody has automatic zoom on a phone recording.** Screen Studio, which ships
+the most complete iOS support of the five, offers device frames, audio, and manual zoom, and
+tells its users why the automatic kind is missing.
+
+This project derives zooms from what CHANGES on screen instead (`MotionActivity`), which needs no
+touch data. It is a weaker signal than a click — it knows something moved, not what was pressed —
+and it is the only automatic answer any of these tools has for a phone.
+
+**Screen Studio's own workaround is worth knowing**: connect a Bluetooth mouse to the iPad. A
+cursor then appears in the recording, and everything that follows a cursor has something to
+follow.
 
 ## 4. Where this project already leads
 

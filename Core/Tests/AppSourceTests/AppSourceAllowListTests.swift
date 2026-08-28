@@ -1703,3 +1703,36 @@ private func desktopIconsFile() throws -> [URL] {
         meaning is a number.
         """)
 }
+
+/// **A container that paints a background constrains both axes.**
+///
+/// The preview's loading branch had `.frame(maxHeight: .infinity)` and no `maxWidth`, so it took
+/// the width of a `ProgressView` — a few points — and `Theme.Surface.preview` painted exactly
+/// that: a tall black sliver down the middle of the editor whenever a recording was loading. The
+/// player branch hid it, because an `NSViewRepresentable` expands on its own, so it only ever
+/// showed during the wait.
+///
+/// Nothing here can lay out a view. What it can see is the shape of the mistake: a `.background`
+/// on a container told to fill one axis and not the other.
+@Test func aPaintedPreviewContainerFillsBothAxesRatherThanOne() throws {
+    let stage = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/StageWindow.swift" }
+    try #require(stage.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: stage[0], encoding: .utf8))
+
+    let painted = try #require(
+        lines.firstIndex { $0.contains("Theme.Surface.preview") },
+        "the preview surface is gone, and this scan is about the container that paints it")
+    // The frame that sizes it is the line or two above the background.
+    let sizing = lines[Swift.max(painted - 3, 0)..<painted]
+    let frames = sizing.filter { $0.contains(".frame(") }
+    try #require(!frames.isEmpty, "no frame above the painted background — the shape has changed")
+    #expect(frames.contains { $0.contains("maxWidth: .infinity") && $0.contains("maxHeight: .infinity") },
+            """
+            The preview's painted container is sized on one axis only: \
+            \(frames.map { $0.trimmingCharacters(in: .whitespaces) }). It then takes the width \
+            of whatever is inside it, and paints that — which for a ProgressView is a black \
+            sliver down the middle of the editor.
+            """)
+}
