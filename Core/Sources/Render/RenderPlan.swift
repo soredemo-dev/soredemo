@@ -184,6 +184,14 @@ public struct StageStyle: Hashable, Codable, Sendable {
     /// than discovered: over a pale wallpaper it does nothing, and the shadow is the control
     /// that works there.
     public let borderOpacity: Double
+    /// The device body drawn around the recording, or `nil` for none.
+    ///
+    /// **Absent by default and for every recording made on a Mac.** A Mac screen inside an iPad
+    /// is nonsense; this is offered for a phone recording and chosen by a person, never assumed.
+    public let deviceModel: DeviceFrame.Model?
+    /// The body's finish. Kept even while `deviceModel` is `nil`, so turning a frame off and on
+    /// again returns the one somebody picked rather than the default.
+    public let deviceFinish: DeviceFrame.Finish
 
     public static let `default` = StageStyle(
         insetFraction: 0.06, cornerRadius: 18, shadowRadius: 32, shadowOpacity: 0.35,
@@ -191,7 +199,9 @@ public struct StageStyle: Hashable, Codable, Sendable {
 
     public init(insetFraction: Double, cornerRadius: Double, shadowRadius: Double,
                 shadowOpacity: Double, background: StageBackground,
-                borderOpacity: Double = 0) {
+                borderOpacity: Double = 0,
+                deviceModel: DeviceFrame.Model? = nil,
+                deviceFinish: DeviceFrame.Finish = .graphite) {
         precondition(insetFraction >= 0 && insetFraction < 0.5,
                      "insetFraction must be in [0, 0.5), got \(insetFraction)")
         self.insetFraction = insetFraction
@@ -201,6 +211,8 @@ public struct StageStyle: Hashable, Codable, Sendable {
         self.background = background
         // Clamped rather than trapped: it arrives from a slider and from a decoder.
         self.borderOpacity = min(max(borderOpacity, 0), 1)
+        self.deviceModel = deviceModel
+        self.deviceFinish = deviceFinish
     }
 }
 
@@ -212,6 +224,7 @@ extension StageStyle {
     private enum CodingKeys: String, CodingKey {
         case insetFraction, cornerRadius, shadowRadius, shadowOpacity, background
         case borderOpacity
+        case deviceModel, deviceFinish
     }
 
     public init(from decoder: any Decoder) throws {
@@ -235,6 +248,15 @@ extension StageStyle {
         self.shadowOpacity = shadowOpacity
         self.background = background
         self.borderOpacity = min(max(borderOpacity, 0), 1)
+        // **A model this build does not know decodes as no frame, not as a failure.** A project
+        // written by a later version that has learned about another device must still open; the
+        // body is the only thing lost. Same shape as `MobileScreen.Source`'s family, for the
+        // same reason — the synthesised decoder for a raw-value enum throws on a value it does
+        // not recognise.
+        self.deviceModel = try? container.decodeIfPresent(DeviceFrame.Model.self,
+                                                          forKey: .deviceModel)
+        self.deviceFinish = (try? container.decodeIfPresent(DeviceFrame.Finish.self,
+                                                            forKey: .deviceFinish)) ?? .graphite
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -247,6 +269,12 @@ extension StageStyle {
         // Only when it is on: a zero written into every project would make the default look
         // like a decision somebody made.
         if borderOpacity > 0 { try container.encode(borderOpacity, forKey: .borderOpacity) }
+        // The finish only when there is a body to finish, for the same reason: a project with no
+        // device frame has nothing to say about what colour it is not.
+        if let deviceModel {
+            try container.encode(deviceModel, forKey: .deviceModel)
+            try container.encode(deviceFinish, forKey: .deviceFinish)
+        }
     }
 }
 
@@ -343,6 +371,13 @@ public struct RenderPlan: Hashable, Sendable {
     /// over everything. Drawing them the other way round hides an arrow under a lower third
     /// exactly when both are on screen, which is the moment they are both being used.
     public let annotations: [AnnotationOverlay]
+    /// The device body drawn behind the card, when the style asks for one.
+    ///
+    /// **Carried as a placement rather than as a model.** Where the body goes depends on the
+    /// output size, the inset and the recording's aspect — all of which `StagePlanner` already
+    /// has and no renderer should have to re-derive. Two renderers computing it separately would
+    /// be two chances to disagree about where a screen sits inside its bezel.
+    public let deviceFrame: DeviceFrame.Placement?
 
     public init(outputWidth: Int, outputHeight: Int, card: StageRect, cornerRadius: Double,
                 style: StageStyle, pointer: NormalizedPointerPlacement?,
@@ -356,7 +391,8 @@ public struct RenderPlan: Hashable, Sendable {
                 crop: CropRect = .whole,
                 motionBlur: MotionBlur? = nil,
                 keystroke: KeystrokeBadge? = nil,
-                annotations: [AnnotationOverlay] = []) {
+                annotations: [AnnotationOverlay] = [],
+                deviceFrame: DeviceFrame.Placement? = nil) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -374,6 +410,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.motionBlur = motionBlur
         self.keystroke = keystroke
         self.annotations = annotations
+        self.deviceFrame = deviceFrame
     }
 }
 

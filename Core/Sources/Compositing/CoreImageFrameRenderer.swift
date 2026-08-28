@@ -33,6 +33,12 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let shadow = shadowImage(plan) {
             composed = shadow.composited(over: composed)
         }
+        // **The body goes under the card and over the shadow.** The recording draws into
+        // `plan.card`, which IS the screen when there is a frame — so the body is the ring of
+        // hardware around it, and anything drawn after the card would cover the picture.
+        if let device = plan.deviceFrame {
+            composed = deviceBody(device).composited(over: composed)
+        }
         composed = card.composited(over: composed)
         // **After the card and before everything else.** The border belongs to the card's edge,
         // so it must sit over the picture — but under the pointer, the captions and the camera,
@@ -271,11 +277,16 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         let opacity = plan.style.shadowOpacity
         let radius = plan.style.shadowRadius
         guard opacity > 0, radius > 0 else { return nil }
+        // **The shadow is cast by whatever the viewer sees, which is the body when there is
+        // one.** A shadow the shape of the screen under a device draws a rectangle floating
+        // inside the bezel, which reads as a compositing mistake rather than as a device.
+        let silhouetteRect = plan.deviceFrame?.body ?? plan.card
+        let silhouetteRadius = plan.deviceFrame?.bodyCornerRadius ?? plan.cornerRadius
         func silhouette(alpha: Double) -> CIImage? {
             CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
-                "inputExtent": CIVector(x: plan.card.x, y: plan.card.y,
-                                        z: plan.card.width, w: plan.card.height),
-                "inputRadius": plan.cornerRadius,
+                "inputExtent": CIVector(x: silhouetteRect.x, y: silhouetteRect.y,
+                                        z: silhouetteRect.width, w: silhouetteRect.height),
+                "inputRadius": silhouetteRadius,
                 "inputColor": CIColor(red: 0, green: 0, blue: 0, alpha: alpha),
             ])?.outputImage
         }
@@ -412,6 +423,40 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// **Its width is a fraction of the card, floored at one pixel.** A border fixed in pixels is
     /// invisible in a 4K export and heavy in a 720p one; a border fixed in fractions vanishes
     /// entirely on a small card. The floor is what stops the second.
+    /// The device's body: a rounded rectangle filled with a vertical gradient.
+    ///
+    /// **A gradient, not a fill.** A device is lit from above in every product photograph
+    /// anybody has seen; a flat rectangle behind a screen reads as a coloured border rather than
+    /// as hardware. Two tones is the smallest thing that reads as a lit surface.
+    ///
+    /// The gradient is generated over the whole canvas and then masked to the body's shape,
+    /// because `CILinearGradient` has infinite extent and `CIRoundedRectangleGenerator` is the
+    /// only thing here that knows about corners.
+    private func deviceBody(_ device: DeviceFrame.Placement) -> CIImage {
+        let top = device.finish.top, bottom = device.finish.bottom
+        guard let gradient = CIFilter(name: "CILinearGradient", parameters: [
+                  // Bottom-left origin, so `point1` is the top.
+                  "inputPoint0": CIVector(x: device.body.x, y: device.body.y),
+                  "inputPoint1": CIVector(x: device.body.x,
+                                          y: device.body.y + device.body.height),
+                  "inputColor0": CIColor(red: bottom.r, green: bottom.g, blue: bottom.b),
+                  "inputColor1": CIColor(red: top.r, green: top.g, blue: top.b),
+              ])?.outputImage,
+              let shape = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+                  "inputExtent": CIVector(x: device.body.x, y: device.body.y,
+                                          z: device.body.width, w: device.body.height),
+                  "inputRadius": device.bodyCornerRadius,
+                  "inputColor": CIColor.white,
+              ])?.outputImage
+        else { return CIImage.empty() }
+        // **Masked, not cropped.** A crop would give the body square corners, which is the one
+        // thing a device body must not have.
+        return gradient.applyingFilter("CIBlendWithAlphaMask", parameters: [
+            kCIInputBackgroundImageKey: CIImage.empty(),
+            kCIInputMaskImageKey: shape,
+        ])
+    }
+
     private func cardBorder(_ plan: RenderPlan) -> CIImage {
         guard plan.style.borderOpacity > 0 else { return CIImage.empty() }
         let width = max(plan.card.width * 0.0015, 1)

@@ -41,6 +41,22 @@ public enum StagePlanner {
         // A radius larger than half the shorter side is not a rounder rectangle, it is an
         // undefined one. Clamped here so no renderer has to decide.
         let radius = min(style.cornerRadius, min(cardWidth, cardHeight) / 2)
+
+        // **A device frame replaces the card rather than surrounding it.** The recording draws
+        // into `card`, so with a body around it the card must BE the screen — otherwise the
+        // picture would fill the whole device including its bezel. The body is fitted into the
+        // same space the plain card would have had, so a stage does not grow when a frame is
+        // turned on, and the screen's own corner radius replaces the style's: a device's corners
+        // are the device's, not a slider's.
+        if let model = style.deviceModel,
+           let placed = DeviceFrame.placement(
+               model: model, finish: style.deviceFinish,
+               availableWidth: available.w, availableHeight: available.h,
+               centreX: output.w / 2, centreY: output.h / 2, sourceAspect: sourceAspect) {
+            return RenderPlan(outputWidth: outputWidth, outputHeight: outputHeight,
+                              card: placed.screen, cornerRadius: placed.screenCornerRadius,
+                              style: style, pointer: pointer, deviceFrame: placed)
+        }
         return RenderPlan(outputWidth: outputWidth, outputHeight: outputHeight,
                           card: card, cornerRadius: radius, style: style, pointer: pointer)
     }

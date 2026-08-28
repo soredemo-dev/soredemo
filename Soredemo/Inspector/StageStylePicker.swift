@@ -108,7 +108,9 @@ final class StageStyleModel {
     /// exactly once rather than through four near-copies that each have to remember.
     private func apply(insetFraction: Double? = nil, cornerRadius: Double? = nil,
                        shadowOpacity: Double? = nil, background: StageBackground? = nil,
-                       borderOpacity: Double? = nil) {
+                       borderOpacity: Double? = nil,
+                       deviceModel: DeviceFrame.Model?? = nil,
+                       deviceFinish: DeviceFrame.Finish? = nil) {
         style = StageStyle(
             // Clamped, not asserted: this comes from a slider, and a UI that can trap the
             // app by being dragged to its own maximum is a UI with a bug in it.
@@ -117,9 +119,22 @@ final class StageStyleModel {
             shadowRadius: style.shadowRadius,
             shadowOpacity: min(max(shadowOpacity ?? style.shadowOpacity, 0), 1),
             background: background ?? style.background,
-            borderOpacity: min(max(borderOpacity ?? style.borderOpacity, 0), 1))
+            borderOpacity: min(max(borderOpacity ?? style.borderOpacity, 0), 1),
+            // **Carried through, and every field added to `StageStyle` has to be.** This
+            // function rebuilds the whole struct, so a field it does not mention is reset to a
+            // default every time any slider moves — silently, and only for the person who had
+            // set it. `everyStageStyleFieldSurvivesAChangeToAnother` is the check.
+            //
+            // A double optional: `nil` means "leave it", `.some(nil)` means "turn the frame
+            // off". One optional could not say the second thing.
+            deviceModel: deviceModel ?? style.deviceModel,
+            deviceFinish: deviceFinish ?? style.deviceFinish)
         publish()
     }
+
+    /// Which device body to draw, or `nil` for none.
+    func setDeviceModel(_ value: DeviceFrame.Model?) { apply(deviceModel: .some(value)) }
+    func setDeviceFinish(_ value: DeviceFrame.Finish) { apply(deviceFinish: value) }
 
     /// Applies a saved look. The preset name is recovered by matching the background against
     /// the shipped presets, so a project saved with one still shows it selected — and one saved
@@ -187,11 +202,38 @@ struct StageStylePicker: View {
                 }
             }
 
+            // **Above the padding, because it changes what everything below it applies to.**
+            // With a body around the recording the corner radius belongs to the device rather
+            // than to a slider, and the slider is hidden rather than left there doing nothing.
+            Picker("Device", selection: Binding(
+                get: { model.style.deviceModel },
+                set: { model.setDeviceModel($0); onChange() })) {
+                Text("None").tag(DeviceFrame.Model?.none)
+                ForEach(DeviceFrame.Model.allCases, id: \.self) { device in
+                    Text(device.displayName).tag(DeviceFrame.Model?.some(device))
+                }
+            }
+            .font(Type.detail)
+            if model.style.deviceModel != nil {
+                Picker("Finish", selection: Binding(
+                    get: { model.style.deviceFinish },
+                    set: { model.setDeviceFinish($0); onChange() })) {
+                    ForEach(DeviceFrame.Finish.allCases, id: \.self) { finish in
+                        Text(finish.displayName).tag(finish)
+                    }
+                }
+                .font(Type.detail)
+            }
             slider("Padding", value: model.style.insetFraction, range: 0...0.3) {
                 model.setInset($0); onChange()
             }
-            slider("Corner radius", value: model.style.cornerRadius, range: 0...48) {
-                model.setCornerRadius($0); onChange()
+            // **Hidden while a device is drawn.** The screen's corners are the device's own
+            // — `StagePlanner` uses the model's radius and ignores this one — so leaving the
+            // slider there would be a control that moves and changes nothing.
+            if model.style.deviceModel == nil {
+                slider("Corner radius", value: model.style.cornerRadius, range: 0...48) {
+                    model.setCornerRadius($0); onChange()
+                }
             }
             slider("Shadow", value: model.style.shadowOpacity, range: 0...1) {
                 model.setShadowOpacity($0); onChange()

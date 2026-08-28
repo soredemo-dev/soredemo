@@ -1736,3 +1736,44 @@ private func desktopIconsFile() throws -> [URL] {
             sliver down the middle of the editor.
             """)
 }
+
+/// **The editor's own rebuild carries every `StageStyle` field.**
+///
+/// `StageStylePicker`'s `apply` reconstructs the whole struct on every slider move, so a field it
+/// does not mention is reset to a default — silently, for the person who had set it, and only
+/// for them. `StageStyleCompletenessTests` states the property; this checks the one place that
+/// actually does the rebuilding, which no unit test can see.
+@Test func theStylePickerRebuildCarriesEveryStageStyleField() throws {
+    let picker = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Inspector/StageStylePicker.swift" }
+    try #require(picker.count == 1)
+    let lines = SwiftSourceLexer.codeViewLines(
+        of: try String(contentsOf: picker[0], encoding: .utf8))
+
+    let start = try #require(lines.firstIndex { $0.contains("private func apply(") },
+                             "StageStylePicker.apply is gone, and this scan is about it")
+    // **From the `StageStyle(` call, not from the function's first line.** A first version
+    // searched the whole function and a field's name is in its PARAMETER list as well as in the
+    // construction — so removing the assignment and keeping the parameter left this green, which
+    // is exactly the shape of the mistake it is for.
+    let construction = try #require(
+        lines[start...].firstIndex { $0.contains("style = StageStyle(") },
+        "apply no longer builds a StageStyle, and this scan is about that construction")
+    // **Ends at `publish()`, which is the statement after the construction.** A fixed window of
+    // twenty-four lines reached past it into `setDeviceModel`, where the field's name appears
+    // again — so the mutation that removed the assignment left this green a second time. The
+    // construction's own extent is the only correct scope.
+    let end = try #require(lines[construction...].firstIndex { $0.contains("publish()") },
+                           "no publish() after the construction — the shape has changed")
+    let body = lines[construction..<end].joined(separator: "\n")
+
+    // Every stored property of `StageStyle`, by name. Adding one to the type without adding it
+    // here is exactly the mistake this catches.
+    for field in ["insetFraction", "cornerRadius", "shadowRadius", "shadowOpacity",
+                  "background", "borderOpacity", "deviceModel", "deviceFinish"] {
+        #expect(body.contains(field), """
+            `apply` does not mention `\(field)`, so every slider move resets it. The rebuild has \
+            to name every stored property of StageStyle.
+            """)
+    }
+}

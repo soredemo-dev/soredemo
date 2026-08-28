@@ -118,7 +118,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Inset | ✓ | · | ✓ | · | · | **·** |
 | Rounded corners | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** |
 | Horizontal / vertical / square output | ✓ | · | ✓ | ✓ | · | **✓** |
-| **Device frames (iPhone/iPad bezels)** | ✓ | · | ✓ | · | ✓ | **·** |
+| **Device frames (iPhone/iPad bezels)** | ✓ | · | ✓ | · | ✓ | **✓** `DeviceFrame` |
 | Layout presets | · | · | · | ✓ | · | **·** |
 | Saveable / shareable style presets | ✓ | · | · | · | · | **·** |
 
@@ -232,7 +232,7 @@ be argued with.
 | 3 | **Saveable style presets** | `ProjectSnapshot` already encodes the whole style. Screen Studio sells this. | Low |
 | 4 | **Noise suppression** | Every competitor but a Rust recorder and ScreenKite has it. Genuinely a capture-architecture decision: `AVAudioUnitEQ`/`AUVoiceProcessing` at capture time changes what is recorded; an offline pass keeps the master clean. | Medium |
 | 5 | **iPhone / iPad capture** | Screen Studio, Motionik and ScreenKite all ship it, and it opens mobile-app demos as a use case. No reference to read. | Medium–High |
-| 6 | **Device frames** | Pairs with #5 and is close to worthless without it. | Medium |
+| ~~6~~ | ~~**Device frames**~~ | **Done 2026-08-29.** Drawn as proportions rather than artwork: a rounded body a known fraction larger than the screen, with the screen's own corner radius — no bundled images and nothing to go stale in September. No notch or island, because an iOS recording already contains whatever the system drew there. | ~~Medium~~ |
 | 7 | **Transcript-based editing** | The transcript exists; deleting a line does not yet cut the video. Borumi and ScreenKite both lead with it. | Medium |
 | 8 | **FCPXML export** | a native editor has a readable implementation. Turns this from a closed tool into one that hands off. | Medium |
 | 9 | **Screenshot mode** | a Rust recorder and Motionik both treat it as a third pillar. It is a second product inside the app. | High |
