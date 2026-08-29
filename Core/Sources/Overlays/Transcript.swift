@@ -95,6 +95,82 @@ public struct Transcript: Sendable, Equatable, Codable {
         return start..<end
     }
 
+    /// Which of `words` were said inside the segment at `index`.
+    ///
+    /// The two arrays are timed against the same recording and are otherwise unrelated — the
+    /// recogniser reports sentences and words separately — so the only honest way to pair them is
+    /// by time. A word belongs to a segment when it lies inside it; a word that straddles the
+    /// join belongs to neither, which is the right answer rather than a rounding: cutting it as
+    /// part of a sentence it is only half inside would take a syllable of the next one.
+    ///
+    /// **A range rather than a list, because `words` is in time order** and a segment's words are
+    /// therefore contiguous in it. Empty when the recogniser gave sentences but no word times,
+    /// which happens and is not an error — the caller offers no word controls rather than
+    /// pretending to.
+    public func wordIndices(inSegmentAt index: Int) -> Range<Int> {
+        guard segments.indices.contains(index) else { return 0..<0 }
+        let segment = segments[index]
+        let inside = words.indices.filter {
+            words[$0].start.rawValue >= segment.start.rawValue
+                && words[$0].end.rawValue <= segment.end.rawValue
+        }
+        guard let first = inside.first, let last = inside.last else { return 0..<0 }
+        return first..<(last + 1)
+    }
+
+    /// **The span a "delete this word" removes: the word, and only the word.**
+    ///
+    /// The same rule `removalRange(ofSegmentAt:)` states, at the smaller scale, and for the same
+    /// reasons: the pause on either side belongs to whoever owns pauses, which here is
+    /// `SilenceFinder` and the Silence lane.
+    ///
+    /// `nil` for an index outside `words`, or for a word whose own times are degenerate.
+    public func removalRange(ofWordAt index: Int) -> Range<Int64>? {
+        guard words.indices.contains(index) else { return nil }
+        let word = words[index]
+        let start = word.start.rawValue, end = word.end.rawValue
+        guard end > start else { return nil }
+        return start..<end
+    }
+
+    /// The spans a set of chosen words removes, with adjacent choices merged into one.
+    ///
+    /// **Adjacent words are merged, and the gap between them goes with them.** Two words chosen
+    /// side by side are one thing a person is deleting; cutting them as two ranges leaves the
+    /// pause between them behind, which is a fragment of somebody's breath sitting where a phrase
+    /// used to be. Merging from the first word's start to the last one's end takes it.
+    ///
+    /// **Non-adjacent choices stay separate**, because the words between them are being kept and
+    /// merging across would delete them without being asked.
+    ///
+    /// Returned in source time and in order, so the caller can hand each to
+    /// `EditTimeline.removing(sourceRange:)` in any order and get the same edit — the property
+    /// `removalRange(ofSegmentAt:)` relies on for repeated sentence deletions.
+    ///
+    /// Words with degenerate times are dropped rather than refused: one unusable word in a
+    /// chosen run is not a reason to refuse the run, and a zero-length cut would do nothing while
+    /// claiming to have done something.
+    public func removalRanges(ofWordsAt indices: some Sequence<Int>) -> [Range<Int64>] {
+        let usable = Set(indices).filter { removalRange(ofWordAt: $0) != nil }.sorted()
+        guard !usable.isEmpty else { return [] }
+
+        var runs: [[Int]] = []
+        for index in usable {
+            if let last = runs.last?.last, index == last + 1 {
+                runs[runs.count - 1].append(index)
+            } else {
+                runs.append([index])
+            }
+        }
+        return runs.compactMap { run in
+            guard let first = run.first, let last = run.last else { return nil }
+            let start = words[first].start.rawValue
+            let end = words[last].end.rawValue
+            guard end > start else { return nil }
+            return start..<end
+        }
+    }
+
     /// Every timestamp shifted, for a transcript taken from an extracted span of a longer
     /// recording. a native editor's `offsetting(by:)`, in nanoseconds — transcribing a selection is
     /// how a long recording stays affordable, and the result is useless if it is not put back

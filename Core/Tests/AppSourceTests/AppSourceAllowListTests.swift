@@ -1635,7 +1635,15 @@ private func desktopIconsFile() throws -> [URL] {
     // which drew in English inside a Chinese interface — the same silent failure the ellipsis
     // mismatch produced, in twenty-five more places.
     let openers = ["title: \"", "Picker(\"", "Toggle(\"", "Button(\"", "Section(\"",
-                   "LabeledContent(\""]
+                   "LabeledContent(\"",
+                   // **`Label("…")`, added 2026-08-29 and it let six through.** A `Label` inside
+                   // a `Button`'s `label:` closure IS the button's title as far as anybody
+                   // reading the screen is concerned — "Full Screen", "Zoom at the playhead",
+                   // "Resize the timeline", "removed", "partly cut" and a whole sentence about
+                   // restarting were all drawing in English inside a Chinese interface, for the
+                   // same reason the twenty-five before them were: nothing looked in this
+                   // position.
+                   "Label(\""]
     var missing: [String] = []
     var scanned = 0
     for file in try appSourceFiles() {

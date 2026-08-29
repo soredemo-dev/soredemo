@@ -6838,6 +6838,55 @@ enum CrossBoundaryProbe {
         check(PersonMask.quality(forCardWidthInPixels: 513) == .accurate,
               "22.5 a card wider than the balanced mask earns the accurate one")
 
+        print("")
+        print("23. TranscriptPanel.wrappedLines — the one piece of arithmetic in a SwiftUI view")
+
+        // **Here because the app target has no test target**, which is the same reason § 17
+        // checks `RecordingCoordinator`'s preferences here. What is checked is not the layout —
+        // nothing in this process can lay out a view — but the rule that decides which words
+        // share a line.
+        //
+        // The rule counts characters rather than measuring text, and that is D6 rule 5 rather
+        // than laziness: a real flow container means conforming to `Layout`, whose entire
+        // signature is `CGSize` and `CGRect`, and the app target may not name those.
+        do {
+            func line(_ texts: [String], perLine: Int = 34) -> [[Int]] {
+                TranscriptPanel.wrappedLines(Array(texts.enumerated())
+                    .map { (index: $0.offset, text: $0.element) },
+                                             charactersPerLine: perLine)
+            }
+
+            check(line([]).isEmpty, "23.1 no words make no lines")
+
+            check(line(["It", "is", "like", "useful."]) == [[0, 1, 2, 3]],
+                  "23.2 a short sentence stays on one line",
+                  actual: "\(line(["It", "is", "like", "useful."]))", expected: "[[0, 1, 2, 3]]")
+
+            let long = ["Recognising", "a", "sentence", "is", "shaped", "by", "settings",
+                        "that", "belong", "to", "captions"]
+            let wrappedLong = line(long)
+            check(wrappedLong.count > 1, "23.3 a long sentence wraps",
+                  actual: "\(wrappedLong.count) lines", expected: "more than 1")
+
+            // **Nothing dropped, nothing duplicated, order kept.** The invariant that matters:
+            // these indices address `transcript.words`, and a wrap that lost one would hide a
+            // word somebody cannot then choose to cut — silently, and only for long sentences.
+            let flattened = wrappedLong.flatMap { $0 }
+            check(flattened == Array(long.indices),
+                  "23.3 every word appears exactly once, in order",
+                  actual: "\(flattened)", expected: "\(Array(long.indices))")
+
+            // **A word longer than the whole line still gets a line**, rather than being dropped
+            // or starting an empty one — the case a naive accumulator loses.
+            let huge = line(["short", String(repeating: "x", count: 80), "after"], perLine: 10)
+            check(huge.flatMap { $0 } == [0, 1, 2],
+                  "23.4 a word longer than the line is kept rather than dropped",
+                  actual: "\(huge)", expected: "all three indices")
+            check(huge.contains([1]),
+                  "23.4 an over-long word gets a line to itself",
+                  actual: "\(huge)", expected: "a line containing only [1]")
+        }
+
 
 
 

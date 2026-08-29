@@ -315,3 +315,13 @@
 "Hide the menu bar" = "隱藏選單列";
 "Screen recording, microphone and camera" = "螢幕錄製、麥克風與相機";
 "Review…" = "檢視…";
+"Resize the timeline" = "調整時間軸大小";
+"Zoom at the playhead" = "在播放頭處加入縮放";
+"Full Screen" = "全螢幕";
+"Cut 1 word" = "剪掉 1 個字";
+"Cut these words" = "剪掉這些字";
+"Choose words" = "選擇字詞";
+"Hide words" = "隱藏字詞";
+"partly cut" = "部分被剪掉";
+"removed" = "已移除";
+"Takes effect the next time Soredemo starts." = "下次啟動 Soredemo 時生效。";

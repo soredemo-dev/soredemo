@@ -299,3 +299,13 @@
 "Hide the menu bar" = "메뉴 막대 숨기기";
 "Screen recording, microphone and camera" = "화면 기록, 마이크, 카메라";
 "Review…" = "검토…";
+"Resize the timeline" = "타임라인 크기 조절";
+"Zoom at the playhead" = "재생 헤드 위치에서 확대";
+"Full Screen" = "전체 화면";
+"Cut 1 word" = "단어 1개 잘라내기";
+"Cut these words" = "선택한 단어 잘라내기";
+"Choose words" = "단어 선택";
+"Hide words" = "단어 숨기기";
+"partly cut" = "일부 잘림";
+"removed" = "제거됨";
+"Takes effect the next time Soredemo starts." = "다음에 Soredemo를 실행할 때 적용됩니다.";

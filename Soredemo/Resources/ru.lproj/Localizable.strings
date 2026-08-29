@@ -299,3 +299,13 @@
 "Hide the menu bar" = "Скрыть строку меню";
 "Screen recording, microphone and camera" = "Запись экрана, микрофон и камера";
 "Review…" = "Проверить…";
+"Resize the timeline" = "Изменить размер шкалы времени";
+"Zoom at the playhead" = "Приблизить в позиции курсора";
+"Full Screen" = "Во весь экран";
+"Cut 1 word" = "Вырезать 1 слово";
+"Cut these words" = "Вырезать эти слова";
+"Choose words" = "Выбрать слова";
+"Hide words" = "Скрыть слова";
+"partly cut" = "частично вырезано";
+"removed" = "удалено";
+"Takes effect the next time Soredemo starts." = "Вступит в силу при следующем запуске Soredemo.";

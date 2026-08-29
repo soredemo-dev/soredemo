@@ -301,3 +301,13 @@
 "Hide the menu bar" = "隐藏菜单栏";
 "Screen recording, microphone and camera" = "屏幕录制、麦克风与摄像头";
 "Review…" = "检视…";
+"Resize the timeline" = "调整时间轴大小";
+"Zoom at the playhead" = "在播放头处加入缩放";
+"Full Screen" = "全屏";
+"Cut 1 word" = "剪掉 1 个字";
+"Cut these words" = "剪掉这些字";
+"Choose words" = "选择字词";
+"Hide words" = "隐藏字词";
+"partly cut" = "部分被剪掉";
+"removed" = "已移除";
+"Takes effect the next time Soredemo starts." = "下次启动 Soredemo 时生效。";

@@ -201,6 +201,42 @@ and it is the only automatic answer any of these tools has for a phone.
 cursor then appears in the recording, and everything that follows a cursor has something to
 follow.
 
+### Filler-word removal: refused, and the SDK says why
+
+**2026-08-29.** ScreenKite ships "filler-word cleanup"; the research into what users ask for names
+"removing filler words and silence" as a headline want. It is not built here, and the reason is a
+hard fact rather than a judgement.
+
+**macOS 26's `SpeechTranscriber.TranscriptionOption` has exactly one case:**
+`.etiquetteReplacements`. There is no verbatim mode, no disfluency option, nothing to ask. The
+recogniser's whole design is to produce clean readable text, and `etiquetteReplacements` and
+automatic punctuation are what that intent looks like in an API.
+
+Measured against synthesised speech saying *"So um I was uh thinking about this, er, feature. Hmm.
+It is, like, useful."*:
+
+    um    ->  transcribed as "am"     a real word
+    uh    ->  no token at all
+    er    ->  kept
+    Hmm.  ->  no token at all
+    like  ->  kept
+
+So the fillers a word list could safely match are the ones the recogniser drops, and the one it
+kept a token for came back as a **legitimate English word**. A dictionary approach would miss most
+of them and would put "am" on a delete list.
+
+The other half is worse and needs no measurement: the interesting fillers — *like*, *so*,
+*actually*, *right*, *basically* — are real words. No list can tell "I like this" from "it is,
+like, useful". That needs discourse analysis, not a lookup.
+
+**What shipped instead: word-level cutting.** The transcript already carried per-word timings and
+had never used them for anything. A sentence can now be opened into its words, any of them chosen,
+and cut — adjacent choices merged so the breath between them goes too. The person decides which
+word is a filler, which they can do at a glance and no dictionary can do at all.
+
+The asymmetry that settled it is the same one that removed the phone auto-zoom: a missed "um"
+costs nothing, and a deleted "am" is somebody's sentence changed without being asked.
+
 ### Transparent export: two codecs carry it, and they are 107x apart
 
 **2026-08-29.** Found by researching complaints rather than feature pages. Screen Studio's
@@ -419,7 +455,7 @@ be argued with.
 | 4 | **Noise suppression** | Every competitor but a Rust recorder and ScreenKite has it. Genuinely a capture-architecture decision: `AVAudioUnitEQ`/`AUVoiceProcessing` at capture time changes what is recorded; an offline pass keeps the master clean. | Medium |
 | 5 | **iPhone / iPad capture** | Screen Studio, Motionik and ScreenKite all ship it, and it opens mobile-app demos as a use case. No reference to read. | Medium–High |
 | ~~6~~ | ~~**Device frames**~~ | **Done 2026-08-29.** Drawn as proportions rather than artwork: a rounded body a known fraction larger than the screen, with the screen's own corner radius — no bundled images and nothing to go stale in September. No notch or island, because an iOS recording already contains whatever the system drew there. | ~~Medium~~ |
-| 7 | **Transcript-based editing** | The transcript exists; deleting a line does not yet cut the video. Borumi and ScreenKite both lead with it. | Medium |
+| ~~7~~ | ~~**Transcript-based editing**~~ | **Done.** Deleting a sentence cuts its span; as of 2026-08-29 individual words can be chosen and cut too. The row above was stale — it described the state before `TranscriptPanel` shipped, which is what a gap list does when it is not re-read. | ~~Medium~~ |
 | 8 | **FCPXML export** | a native editor has a readable implementation. Turns this from a closed tool into one that hands off. | Medium |
 | 9 | **Screenshot mode** | a Rust recorder and Motionik both treat it as a third pillar. It is a second product inside the app. | High |
 | 10 | **Scene-based recording + retakes** | Borumi's entire thesis. Would restructure the capture tier. | High |

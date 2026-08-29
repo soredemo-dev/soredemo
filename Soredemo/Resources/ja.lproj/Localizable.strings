@@ -301,3 +301,13 @@
 "Hide the menu bar" = "メニューバーを隠す";
 "Screen recording, microphone and camera" = "画面収録・マイク・カメラ";
 "Review…" = "確認…";
+"Resize the timeline" = "タイムラインのサイズを変更";
+"Zoom at the playhead" = "再生ヘッドの位置でズーム";
+"Full Screen" = "フルスクリーン";
+"Cut 1 word" = "1 語を削除";
+"Cut these words" = "これらの語を削除";
+"Choose words" = "語を選ぶ";
+"Hide words" = "語を隠す";
+"partly cut" = "一部が削除済み";
+"removed" = "削除済み";
+"Takes effect the next time Soredemo starts." = "次回 Soredemo を起動したときに反映されます。";
