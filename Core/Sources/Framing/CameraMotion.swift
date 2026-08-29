@@ -60,13 +60,13 @@ public struct CameraState: Hashable, Sendable {
 /// pushes the aim along with it only once it crosses into `followMargin`'s band, and only
 /// by the excess — so the camera holds still while a person reads and moves when they
 /// leave. The complaint this answers is a menu opening beside a button and leaving the
-/// frame; the rule is an Electron recorder's `cursorFollowCamera.ts`, the motion is this spring's.
+/// frame; the rule is a dead-zone follow, and the motion is this spring's.
 ///
 /// **The target is eased before the spring sees it.** A block's aim is a step function —
 /// one centre and depth until the next block, then another — and a spring fed a step has a
 /// discontinuous acceleration at the step: a jerk, which the eye reads as a lurch even when
 /// the position curve looks fine. `targetTimeConstant` low-passes the aim first, so the
-/// spring's input is C1 and its output C2. Screen Studio's transitions read as one motion
+/// spring's input is C1 and its output C2. Good transitions read as one motion
 /// rather than a start and a stop for this reason.
 public struct CameraMotion: Sendable {
     /// Where the presented cursor is at an instant, or `nil` where it is not drawn. The
@@ -84,7 +84,7 @@ public struct CameraMotion: Sendable {
     /// a camera that tracked the cursor's every move would never let a viewer read what
     /// it framed; at the band the aim shifts by exactly enough to bring the cursor back
     /// to the band's edge, so the picture pans no further than the cursor pushed it.
-    /// `../opensource/Screen Record Opensource/an Electron recorder-main`'s `cursorFollowCamera.ts`
+    /// The dead-zone follow
     /// calls this `snapToEdgesRatio` and ships 0.25 for both auto and manual zooms; the
     /// value is theirs. **Uncalibrated** here, like every constant in this module.
     public static let followMargin: Double = 0.25
@@ -112,7 +112,7 @@ public struct CameraMotion: Sendable {
 
     /// The zoom at or below which the centre is free to move instantly. At 1.002 the viewport
     /// is 99.8% of the frame, so any centre jump displaces the card by at most 0.2% of it —
-    /// sub-pixel on any real output. a Rust recorder's `zoom_spring.rs` uses the same bound for the same
+    /// sub-pixel on any real output. The same bound is the standard one, for the same
     /// reason.
     public static let identityZoomBound: Double = 1.002
 
@@ -283,7 +283,7 @@ public struct CameraMotion: Sendable {
                     // At zoom 1 the centre changes nothing that is visible, so springing it
                     // wastes the only moment it is free: the camera arrives at the next
                     // zoom's focus already aimed, and scales STRAIGHT toward it instead of
-                    // drifting sideways as it goes in. Taken from a Rust recorder's `zoom_spring.rs`,
+                    // drifting sideways as it goes in.
                     // whose bound is chosen on the same argument.
                     centre = CameraMotion.confine(NormalizedPoint(x: targetX, y: targetY),
                                                   zoom: zoom)
@@ -328,7 +328,7 @@ public struct CameraMotion: Sendable {
                 // gives — so two clicks 2.5 s apart leave a 1.1 s gap, which at ω = 10 is
                 // long enough to make most of the way back to zoom 1 and then go out again.
                 // Every block is individually correct and the result still reads as a
-                // mistake. `../opensource/.../an Electron recorder-main` calls this a chained zoom.
+                // mistake. Sometimes called a chained zoom.
                 proposed = aim(of: chained)
             } else {
                 proposed = .rest

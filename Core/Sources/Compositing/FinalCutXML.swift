@@ -4,7 +4,7 @@ import Timeline
 /// **The cut, in a format a real editing application reads.**
 ///
 /// The one thing on the gap list that turns this from a closed tool into one that hands off.
-/// ScreenKite is the only recorder in the comparison set that does it; a native editor has an
+/// It is rare among recorders, and an
 /// implementation worth reading, at a thousand lines, and reading it is where most of what
 /// follows comes from.
 ///
@@ -188,7 +188,7 @@ public enum FinalCutXML {
 
                 """
             if clip.speed != 1 {
-                // **The ramp covers the WHOLE media, not the clip.** a native editor's note, taken at
+                // **The ramp covers the WHOLE media, not the clip.** Taken at
                 // face value and worth keeping: a time map that only spans the clip blacks the
                 // tail on import. So the map runs from zero to the media's full length, and the
                 // clip's own `start` windows into it.

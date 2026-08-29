@@ -16,8 +16,8 @@ private func at(_ seconds: Double) -> HostInstant {
 
 /// **What makes a zoom an object on a timeline rather than a decision in a panel.** A review
 /// panel that only offers "don't zoom" can reject a zoom but cannot fix one that is a quarter
-/// of a second late. Screen Studio shows each click as a keyframe with an adjustable duration;
-/// ScreenKite gives zooms a lane of their own.
+/// of a second late. A click can be shown as a keyframe with an adjustable duration, or
+/// zooms can be given a lane of their own.
 @Suite struct ZoomAdjustmentTests {
     private func block(originSeconds: Double, start: Double, end: Double) -> ZoomBlock {
         ZoomBlock(

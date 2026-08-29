@@ -97,7 +97,7 @@ private func ns(_ seconds: Double) -> Nanoseconds {
 
     /// **A Gaussian blur is not one of the choices, and the enum is where that is enforced.**
     /// A blur is invertible enough that text under a light one has been recovered from published
-    /// video; an Electron recorder's `normalizeBlurType` returns "mosaic" whatever it is given, for this
+    /// video; a normaliser that returns "mosaic" whatever it is given exists for this
     /// reason. If a `.blur` case ever appears here, this test is what should have stopped it.
     @Test func theOnlyWaysToHideSomethingAreDestructiveOnes() {
         let styles: [RedactionStyle] = [.defaultMosaic, .black]

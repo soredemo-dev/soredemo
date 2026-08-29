@@ -4,7 +4,7 @@ import Foundation
 /// What an export is written as.
 ///
 /// **H.264 was the only option and it is the oldest one here.** Every Mac this app runs on
-/// encodes HEVC in hardware and has since 2017; a native editor offers H.264, H.265, ProRes and
+/// encodes HEVC in hardware and has since 2017. The useful set is H.264, HEVC, ProRes and
 /// HEVC 10-bit HDR, and the reason to offer more than one is that they are not ranked — HEVC is
 /// the same picture at roughly half the size, ProRes is enormous and lossless enough to hand to
 /// an editor, and H.264 is the one that plays everywhere without a question.
@@ -173,7 +173,7 @@ public enum ExportCodec: String, Hashable, Sendable, Codable, CaseIterable {
 
 /// How large the exported picture is.
 ///
-/// **By SHORT side, which is a native editor's choice and the right one.** A ladder written as
+/// **By SHORT side.** A ladder written as
 /// "1920×1080" cannot describe a portrait output, and this app exports portrait and square
 /// variants for the places people post them. The short side is the same number in every shape.
 public enum ExportResolution: String, Hashable, Sendable, Codable, CaseIterable {
@@ -253,7 +253,7 @@ public enum ExportResolution: String, Hashable, Sendable, Codable, CaseIterable 
 /// **The export was writing 60 whatever the recording was.** Measured: the recorder offers 30,
 /// 60 and 120, and every export resampled to 60 — so a 30 fps capture had every frame written
 /// twice, at twice the bit rate the estimate then quoted, and a 120 fps capture lost half of
-/// what it had. a Swift recorder's export sheet has this picker for the same reason, with a custom
+/// what it had. An export sheet needs this picker, with a custom
 /// field beside it.
 public enum ExportFrameRate: String, Hashable, Sendable, Codable, CaseIterable {
     case matchRecording, fps24, fps30, fps60, fps120

@@ -89,11 +89,40 @@ the test fail, put it back. Three checks written on this project passed while te
 one read the app's own constants instead of pinning literals, one scanned string content that the
 source lexer blanks by design, and one compared whole segments where it meant to compare places.
 
-### Comments say *why*, and what was rejected
+### Comments say *why*, and there are fewer of them than you think
 
-Long comments are wanted. The useful ones record the alternative that was tried and what it cost —
-"`terminate()` looks tidier and leaves the machine with no Finder" is worth more than a paragraph
-describing what the code plainly does.
+A comment that says *what* the code does is a sign the code should be rewritten. Name things well
+and the reader needs no help; the only thing a reader cannot recover from the source is **why it
+is this way and not the obvious way**.
+
+So there are two kinds of comment here and they have different jobs.
+
+**A doc comment** on a type or a function says what it is, how to use it and how it behaves. It is
+for somebody deciding whether to call it. Keep it to a few lines.
+
+**An inline comment** exists only where the code cannot speak: a constant that came from a
+measurement, a constraint the compiler cannot express, or an alternative that will otherwise be
+"fixed" back in six months. Those are worth their space —
+
+    // `terminate()` sends a quit the system honours; measured, Finder did not come back.
+    kill(application.processIdentifier, SIGTERM)
+
+— because the next person deletes the line without them.
+
+**Everything longer belongs in `docs/`.** A paragraph of reasoning is not less valuable there; it
+is more findable, it can be read without a compiler, and it stops the file it came from being 40%
+prose. Leave one line pointing at it. If the reasoning is worth 300 words, it is worth a heading.
+
+**No competitor is named in the source.** Not as evidence, not as attribution. State the technical
+fact — the fact is what the reader needs, it survives the other product changing, and a repository
+does not audit its own reasoning by pointing at somebody else's. Comparisons live in
+`docs/research/`.
+
+### Comment budget
+
+Roughly **one line of comment to five of code** across a file, and a file well past that is telling
+you its reasoning wants to be a document. This is a smell to check, not a limit to enforce: a
+tricky 40-line algorithm may be half comment and be right.
 
 ### Named values, never a silent default
 

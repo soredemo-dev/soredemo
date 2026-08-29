@@ -5,10 +5,8 @@ import Vision
 
 /// **Cuts the room out from behind a camera, leaving the person over the screen recording.**
 ///
-/// The one thing in the comparison set that this app did not have and that people ask for by
-/// name: a webcam bubble shows the wall, the bookshelf and whoever walks past, and every one of
-/// those is a reason not to record at all. Motionik ships it; Screen Studio does not; none of the
-/// five open-source recorders beside this repo do.
+/// A webcam bubble shows the wall, the bookshelf and whoever walks past, and every one of those
+/// is a reason not to record at all.
 ///
 /// ### What macOS already gives, and why that is not this
 ///
@@ -80,42 +78,30 @@ import Vision
 /// Nothing here can tell that apart from a real person, and a camera producing noise has a bigger
 /// problem than its background.
 ///
-/// ### What a Rust recorder does, and why neither half of it is copied
+/// ### Two refinements considered and rejected, both by measurement
 ///
-/// `../opensource/Screen Record Opensource/a Rust recorder/crates/camera-effects` is the only project in
-/// the comparison set that ships this, so it was read line by line before any of the above was
-/// settled. a Rust recorder bundles MediaPipe's `selfie_segmentation.onnx` and runs it through ONNX Runtime
-/// with the CoreML execution provider, hunting `libonnxruntime.dylib` at three paths on start-up.
-/// Its model input is **256x256** — lower than `balanced`'s 512x384 — for the price of a
-/// third-party runtime, a bundled model file and a per-platform dynamic library. On this platform
-/// Vision is both the only option D6 rule 4 leaves open and, measured, the better one.
+///  1. **A sigmoid on the raw mask**, to harden a mushy boundary. Plotted against a 0-to-255
+///     ramp, a contrast-4 sigmoid gives `0 -> 30` and `255 -> 225`: it never saturates, so it
+///     COMPRESSES the mask rather than sharpening it, leaving background 12% opaque and the
+///     person 12% transparent. The idea is sound for a soft low-resolution mask; this one does
+///     not need it. Measured: a frame with nobody in it peaks at 2 to 5 out of 255, which is a
+///     decisive answer rather than a probability field. Hardening a decisive mask would only
+///     alias the handful of genuinely anti-aliased pixels along the silhouette — the exact
+///     pixels the feather above exists to keep smooth.
+///  2. **A temporal average across frames**, which kills the edge shimmer an
+///     independently-computed mask has. Right for a live camera, where frames arrive in order
+///     and each has a previous one, and wrong here — and not by a little. This renders a timeline
+///     that is scrubbed, seeked and exported out of order, so a running average would make a
+///     frame's appearance depend on how somebody arrived at it: the same frame different in the
+///     preview and in the export, and different again on a second export.
+///     `theExportPreservesTheSourcesPixelValues` and its neighbours exist because that is not
+///     acceptable.
 ///
-/// Two techniques there were genuinely worth taking, and measuring killed both:
-///
-///  1. **`refine_mask_value` — a sigmoid at contrast 4** applied to the raw mask, to harden a
-///     mushy boundary. Plotted against a 0-to-255 ramp, a Rust recorder's own curve gives `0 -> 30` and
-///     `255 -> 225`: it never saturates, so it COMPRESSES the mask rather than sharpening it,
-///     leaving background 12% opaque and the person 12% transparent. The idea is sound for
-///     MediaPipe's soft 256x256 output; Vision's mask does not need it. Measured here: a frame
-///     with nobody in it peaks at 2 to 5 out of 255, which is a decisive answer rather than a
-///     probability field. Hardening a mask that is already decisive would only alias the handful
-///     of genuinely anti-aliased pixels along the silhouette — the exact pixels the feather above
-///     exists to keep smooth.
-///  2. **`smooth_mask_value` — a temporal EMA** across frames, growing at 0.25 and shrinking at
-///     0.12 with a 0.025 stability band, which kills the edge shimmer an independently-computed
-///     mask has. Right for a Rust recorder and wrong here, and not by a little: a Rust recorder segments a LIVE camera,
-///     where frames arrive in order and each one has a previous one. This renders a timeline that
-///     is scrubbed, seeked and exported out of order, so an EMA would make a frame's appearance
-///     depend on how somebody arrived at it — the same frame different in the preview and in the
-///     export, and different again on a second export. `theExportPreservesTheSourcesPixelValues`
-///     and its neighbours exist because that is not acceptable here.
-///
-///     **What it costs to refuse it, stated rather than hidden:** without temporal smoothing the
-///     silhouette can shimmer slightly between frames. The deterministic fix, if that ever proves
-///     visible, is a fixed window around the frame's own position — frames N-1, N and N+1, which
-///     depends only on where the frame is and not on how it was reached. That is three
-///     segmentations per output frame, 63 ms, and it is not paid until somebody can show the
-///     shimmer is worth it.
+///     **What refusing it costs, stated rather than hidden:** the silhouette can shimmer slightly
+///     between frames. The deterministic fix, if that ever proves visible, is a fixed window
+///     around the frame's own position — N-1, N and N+1, which depends only on where the frame is
+///     and not on how it was reached. That is three segmentations per output frame, 63 ms, and it
+///     is not paid until somebody can show the shimmer is worth it.
 public enum PersonMask {
     /// How finely the person is cut out. The two levels the measurement above left standing.
     public enum Quality: String, Sendable, Equatable, Hashable, CaseIterable {

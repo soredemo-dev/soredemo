@@ -6,7 +6,7 @@ import Timeline
 /// A bed of music under a demo is one of the few things that separates a recording from a
 /// video, and it is also the one that ruins a recording fastest: at a fixed level it either
 /// buries the narration or is inaudible. Every tool that offers music therefore ducks it —
-/// Screen Studio's background audio "automatically lowers when you speak", ScreenKite calls
+/// Background music that lowers itself when somebody speaks; sold elsewhere as voice
 /// the same thing voice ducking. This is the envelope that does it: a level for when nobody
 /// is speaking, a lower one for when somebody is, and the shape of the move between them.
 ///

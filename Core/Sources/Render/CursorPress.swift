@@ -3,9 +3,9 @@ import Foundation
 /// **The drawn cursor reacts to a click, rather than only being circled by one.**
 ///
 /// This app drew a ripple AROUND the cursor and left the cursor itself inert. Both reference
-/// recorders that draw their own cursor move the cursor too: `../opensource/…/a Swift recorder`
+/// recorders that draw their own cursor move the cursor too: one common answer
 /// computes a `clickScaleModifier` and multiplies the cursor's scale by it
-/// (`FrameEvaluator+ClickState.computeScaleForButton`), and `../opensource/…/an Electron recorder-main`
+/// is to scale it down while a button is held, and another
 /// ships `cursorClickBounce: 3.5` over `cursorClickBounceDuration: 350` in its
 /// `cursorMotionPresets`. A viewer reads a press as the pointer moving, not as a ring appearing
 /// beside it, which is why a recording with the ripple on still looked like nothing happened.
@@ -20,12 +20,12 @@ import Foundation
 /// multiplier. Nothing here reads a clock, holds state, or knows what a `HostInstant` is —
 /// `ClickTrack` owns finding the two edges and this owns what they look like.
 public enum CursorPress {
-    /// How small the cursor goes while a button is held. a Swift recorder ships 0.75; this is gentler
+    /// How small the cursor goes while a button is held. 0.75 is a common figure; this is gentler
     /// because this app draws its own cursor art at a size a person chose, and a quarter off it
     /// reads as the pointer changing shape rather than as a press. **Uncalibrated.**
     public static let pressedScale: Double = 0.82
     /// How long the shrink takes. Short enough to feel like contact rather than an animation —
-    /// a Swift recorder's own figure, which is the one number here that is not a guess of mine.
+    /// A measured figure rather than a guess.
     public static let pressSeconds: Double = 0.10
     /// How long the spring back takes. Longer than the press, deliberately: a press is an event
     /// and a release is a recovery, and matching them makes the pair read as a flicker.

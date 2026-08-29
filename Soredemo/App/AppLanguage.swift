@@ -7,8 +7,7 @@ import Foundation
 /// of the person's FORMATTING, and on a Mac set to English with Traditional Chinese second it
 /// returns `en` while the person reads Chinese first among what an app offers. Apple's matcher
 /// takes the app's own list and the person's ordered preferences and does the work that makes
-/// `zh-Hant` match `zh-Hant-TW`, `zh-TW` and `zh-Hant-HK`, and `pt` match `pt-BR`. a native editor
-/// and a Swift recorder both use exactly this call; it is the answer.
+/// `zh-Hant` match `zh-Hant-TW`, `zh-TW` and `zh-Hant-HK`, and `pt` match `pt-BR`.
 ///
 /// **An override, because a match is not always what someone wants.** A person whose Mac is in
 /// English but who would rather read the app in Chinese — or the reverse, which is common among
@@ -74,7 +73,7 @@ enum AppLanguage: Hashable, Sendable {
     /// **Takes effect on the next launch, and the UI says so rather than pretending.**
     /// `AppleLanguages` is read once when the process starts and the whole bundle's string
     /// tables are resolved from it; swapping them under a running app would leave every view
-    /// that had already been built in the old language. a native editor carries a `requiresRestart`
+    /// that had already been built in the old language. Carrying a restart flag
     /// for the same reason.
     static func choose(_ language: AppLanguage) {
         let defaults = UserDefaults.standard

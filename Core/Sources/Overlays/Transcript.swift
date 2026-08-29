@@ -172,7 +172,7 @@ public struct Transcript: Sendable, Equatable, Codable {
     }
 
     /// Every timestamp shifted, for a transcript taken from an extracted span of a longer
-    /// recording. a native editor's `offsetting(by:)`, in nanoseconds — transcribing a selection is
+    /// recording, in nanoseconds. Transcribing a selection is
     /// how a long recording stays affordable, and the result is useless if it is not put back
     /// where it came from.
     public func offset(by delta: Int64) -> Transcript {

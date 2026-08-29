@@ -555,7 +555,7 @@ private final class PhaseLog: @unchecked Sendable {
 
 /// What an export is allowed to spend.
 @Suite struct ExportQualityTests {
-    /// **The number three screen recorders agree on.** an Electron recorder and an Electron recorder both step by pixel
+    /// **A number two independent methods agree on.** One steps by pixel
     /// count and both put 1080p at 20 Mbps; a Rust recorder computes bits-per-pixel and lands at 18.7 for
     /// 1080p30. Pinned because it is the whole reason this type exists — AVFoundation's own
     /// default, measured through `AVOutputSettingsAssistant`, is 10.5 Mbps for the same frame.
@@ -579,7 +579,7 @@ private final class PhaseLog: @unchecked Sendable {
     }
 
     /// **A small output still has to be legible.** Bits-per-pixel alone gives a 640-wide frame
-    /// almost nothing, and a 640-wide recording of a terminal is entirely text. an Electron recorder's floor
+    /// almost nothing, and a 640-wide recording of a terminal is entirely text. The usual floor
     /// is the same 2 Mbps for the same reason.
     @Test func asmallFrameGetsAFloorRatherThanItsShareOfPixels() {
         let byPixels = 640.0 * 360 * ExportQuality.small.bitsPerPixel * 30
@@ -615,7 +615,7 @@ private final class PhaseLog: @unchecked Sendable {
     }
 
     /// The estimate has to be in the right order of magnitude or it is worse than no estimate.
-    /// a Rust recorder's calibration puts its own within 3%; this only claims the arithmetic.
+    /// A calibrated estimate lands within 3%; this only claims the arithmetic.
     @Test func theEstimateFollowsTheRateAndTheLength() {
         let ten = ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
                                                     frameRate: 30, seconds: 10)

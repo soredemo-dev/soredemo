@@ -9,7 +9,7 @@ import Foundation
 /// means the expensive part happens once, off the main thread, and the view has an array it
 /// can index.
 ///
-/// `../opensource/Screen Record Opensource/a native editor`'s `WaveformExtractor` is the
+/// The shape below is the
 /// shape this follows: mono float32, a fixed sample rate with a total cap, `vDSP_maxmgv` for
 /// the peak magnitude of each hop, and a dB floor so quiet passages are visible rather than
 /// flat. The one deliberate difference is the ORIENTATION — theirs returns 1 for silence and 0
@@ -41,7 +41,7 @@ public struct WaveformEnvelope: Hashable, Sendable {
 
     // MARK: - reading
 
-    /// 200 slices a second. a native editor's rate, kept rather than re-guessed: fine enough that
+    /// 200 slices a second: fine enough that
     /// a syllable is visible at a normal timeline zoom, coarse enough that a ten-minute
     /// recording is 120,000 floats rather than 28 million.
     public static let slicesPerSecond: Double = 200

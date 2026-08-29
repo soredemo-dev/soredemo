@@ -4,7 +4,7 @@ import Foundation
 /// **Hides the icons on the desktop while a recording is running, and puts them back.**
 ///
 /// The classic thing that ruins a demo: a clean product walkthrough with somebody's
-/// `tax-return-final-2.pdf` sitting behind it. Screen Studio ships this; none of the five
+/// `tax-return-final-2.pdf` sitting behind it. It is rare enough that there was nothing
 /// open-source recorders beside this repo do, so there was nothing to read and this is designed
 /// from the one mechanism macOS offers.
 ///

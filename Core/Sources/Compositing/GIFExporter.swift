@@ -12,10 +12,9 @@ import UniformTypeIdentifiers
 /// Control Extension gives each frame a delay in an unsigned 16-bit field counted in
 /// hundredths of a second, and that is the only timing the format has. So a rate that does not
 /// divide 100 cannot be written: 15 fps is 6.67 cs and becomes 7, which plays 4.7% slow; 30 fps
-/// is 3.33 cs and becomes 3, which plays 11% FAST. All three reference recorders ship a default
-/// with this drift — `../opensource/Screen Record Opensource/a Swift recorder` defaults to 15,
-/// `a Rust recorder` to 30, `an Electron recorder-main` offers 15/20/25/30 — because each treats the rate as a
-/// sampling choice and lets ImageIO round the delay afterwards.
+/// is 3.33 cs and becomes 3, which plays 11% FAST. The common defaults — 15, 30, or a menu of
+/// 15/20/25/30 — all carry this drift, because each treats the rate as a sampling choice and
+/// lets ImageIO round the delay afterwards.
 ///
 /// Ours derives BOTH from the delay: `frameDuration` samples the composition at exactly the
 /// interval the file will play back at, so any rate a person picks produces a GIF whose length
@@ -99,7 +98,7 @@ public struct GIFSettings: Sendable, Equatable, Codable {
 /// One GIF export of a recorded master, through the same `AVVideoComposition` the preview and
 /// the MP4 export use.
 ///
-/// **Composed at the GIF's own size, not scaled afterwards.** a Swift recorder does the same thing and
+/// **Composed at the GIF's own size, not scaled afterwards.** The reason is that
 /// the reason is worth saying: a GIF has 256 colours per frame, so every pixel is already a
 /// compromise, and scaling after quantisation averages colours that were themselves chosen
 /// from a palette — the result is dirtier than quantising an image that was scaled first. It
@@ -198,7 +197,7 @@ public enum GIFExporter {
             ],
         ] as CFDictionary)
 
-        // Both keys, as a Swift recorder writes them. The unclamped one is what a decoder that honours
+        // Both keys. The unclamped one is what a decoder that honours
         // sub-2-centisecond delays reads; the clamped one is what everything else reads. Written
         // to the same value here because `delayCentiseconds` has already applied the clamp — so
         // the two cannot disagree about how fast this GIF is.

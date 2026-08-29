@@ -5,7 +5,7 @@ import SwiftUI
 /// **Named steps rather than numbers at each call site.** Every panel in this app had its own
 /// spacing — 2, 4, 6, 8 — chosen while writing that panel and never compared against the one
 /// beside it, which is how a window ends up looking assembled rather than designed.
-/// `../opensource/Screen Record Opensource/a Swift recorder` has the same scale for the same
+/// The scale below is the usual one for the same
 /// reason, and its values are carried over rather than re-invented.
 ///
 /// **Not a `CGFloat` extension.** Rule 5 forbids this tier from naming a CoreGraphics geometry
@@ -53,7 +53,7 @@ enum Radius {
 
 /// The one place that decides how wide the inspector may be.
 ///
-/// a Swift recorder pins its inspector to `minWidth: 260, ideal: 280, max: 320` — narrow enough to
+/// An inspector wants `minWidth: 260, ideal: 280, max: 320` — narrow enough to
 /// leave the preview room, wide enough that a slider and its readout fit on one line. Carried
 /// over rather than re-guessed, since it is a measured answer to the same question.
 enum InspectorWidth {
@@ -73,8 +73,7 @@ enum InspectorWidth {
 /// What is left is what a pane floating over a person's SCREEN needs: a dark blurred surface, a
 /// radius large enough to read as an object rather than a window, a hairline light edge so it
 /// separates from a bright desktop, and a shadow.
-/// `../opensource/Screen Record Opensource/a Swift recorder`'s `CaptureToolbarPanel` builds exactly
-/// this by hand; here it is one modifier.
+/// Built by hand everywhere else; here it is one modifier.
 enum Glass {
     /// The recording bar: a pill, because it is a control strip and not a container.
     static let barRadius: Double = 16

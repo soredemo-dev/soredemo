@@ -151,7 +151,7 @@ not `Models/`.
 
 Three reasons, in the order they mattered:
 
-1. **Both readable Swift references do it this way.** `a native editor` has 26 groups —
+1. **It is what comparable Swift applications do.** One has 26 groups —
    `Editor`, `Inspector`, `Timeline`, `Toolbar`, `Preview`, `Settings`, `Home`,
    `MediaPanel`, `Export`, `Transcription`, `Audio` — over 534 files. `a Swift recorder`
    groups by layer (`Views` 32, `ViewModels` 6, `Models` 8) and its `Views` folder is

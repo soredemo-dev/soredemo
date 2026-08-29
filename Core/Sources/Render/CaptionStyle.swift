@@ -11,11 +11,11 @@ import Foundation
 /// taller when a landscape recording is exported as portrait, which is backwards.
 public struct CaptionStyle: Hashable, Codable, Sendable {
     /// Cap height of the type as a fraction of the frame's height. 0.045 is roughly what a
-    /// broadcast caption occupies and what Screen Studio's default sits near.
+    /// broadcast caption occupies.
     public let heightFraction: Double
     /// The gap between the caption's baseline box and the bottom of the frame.
     public let bottomInsetFraction: Double
-    /// The widest a line may be before `CaptionBuilder` breaks it. 0.9 is a native editor's ratio.
+    /// The widest a line may be before `CaptionBuilder` breaks it.
     public let maximumWidthFraction: Double
     /// The plate behind the text. 0 draws none — legible over a dark recording, unreadable over
     /// a white one, which is why the default is not 0.
@@ -27,7 +27,7 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     public let blue: Double
     /// **Highlight the word being said.** The recogniser gives a time for every word and until
     /// now nothing read them — `TranscribedWord.start`/`.end` were stored, retimed through cuts,
-    /// clipped at cut boundaries, and never drawn. an Electron recorder, an Electron recorder and a native editor all
+    /// clipped at cut boundaries, and never drawn. Comparable editors all
     /// animate captions word by word; it is the single thing that makes a burnt-in caption look
     /// authored rather than pasted on.
     public let highlightsSpokenWord: Bool

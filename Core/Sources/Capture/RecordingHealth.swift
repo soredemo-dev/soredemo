@@ -9,10 +9,8 @@ import Foundation
 /// publish — that the file is four seconds long or will not open. A crash costs a restart;
 /// this costs the eleven minutes, and they cannot be recorded again.
 ///
-/// Nothing here checked for it. a Rust recorder does, in `crates/recording/src/output_validation.rs`
-/// (AGPLv3, read for approach, nothing copied), and finding that during a systematic read of
-/// the reference projects is what prompted this. Their sequence is the right one and is
-/// followed: does the file exist, is it non-empty, does the container open, does the video
+/// Nothing here checked for it. The sequence below is the one that makes each check mean
+/// something: does the file exist, is it non-empty, does the container open, does the video
 /// actually decode, and is it as long as the recording was.
 ///
 /// ### Each check catches something the one before it cannot
@@ -38,7 +36,7 @@ import Foundation
 ///
 /// `shortnessThreshold` is therefore set where only a catastrophe reaches it: **half**. A file
 /// that is 49% of the length of the session it recorded did not lose a frame at the end; it
-/// stopped writing. a Rust recorder chose the same number independently.
+/// stopped writing.
 ///
 /// And nothing is checked at all below `shortestWorthChecking`. A one-second recording is
 /// within rounding of every threshold, and the ratio is meaningless there.

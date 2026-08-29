@@ -171,7 +171,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
 /// makes most of its way back to zoom 1 in that time and then goes out again. Every block is
 /// individually correct and the result still reads as a mistake.
 ///
-/// `../opensource/Screen Record Opensource/an Electron recorder-main` calls this a chained zoom and pans
+/// Sometimes called a chained zoom: pan
 /// between the two instead, at a 1350 ms threshold. This checks the behaviour, not the
 /// constant: the camera must stay meaningfully zoomed THROUGHOUT the gap.
 @Suite struct ChainedZoomTests {
@@ -228,7 +228,7 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
     /// **While the viewport still covers the whole frame the centre snaps rather than
     /// springing.** At zoom 1 the centre changes nothing visible, so springing it wastes the
     /// only moment it is free — and the camera then scales STRAIGHT toward the focus instead
-    /// of drifting sideways on the way in. From a Rust recorder's `zoom_spring.rs`.
+    /// of drifting sideways on the way in.
     @Test func theCentreIsAlreadyAimedWhenTheZoomBegins() {
         let camera = CameraMotion(blocks: ZoomBlock.blocks(for: [click(10.0, x: 0.85, y: 0.15)], coverage: 1, intensity: 1))
         // Just after the block opens, while the spring has barely moved the zoom.

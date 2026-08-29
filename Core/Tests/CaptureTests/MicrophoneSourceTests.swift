@@ -10,7 +10,7 @@ import Testing
 /// what the machine plays and either works or is denied; a microphone can be absent, chosen
 /// wrongly, muted at the OS, or held by another application.
 ///
-/// Every comparable recorder names the device. `a Swift recorder` does not use ScreenCaptureKit for
+/// A recorder has to name the device. It is common advice not to use ScreenCaptureKit for
 /// the microphone at all, on the stated grounds that "SCK does not support microphone device
 /// selection" — measured on this machine that is no longer true, which is why this stays one
 /// capture rather than a second `AVCaptureSession`.

@@ -5,10 +5,10 @@ import SwiftUI
 /// **The default SwiftUI palette is why this window looked like a settings pane.** `.tint`,
 /// `.quaternary`, `.orange`, `.teal` — every one of those is Apple's, and a video editor built
 /// out of them is a form with a picture in it. The brand already had a palette;
-/// `../opensource/Screen Record Opensource/a native editor`'s `AppTheme` is the shape for using
+/// The shape below is the one for using
 /// one, and this is that shape with our values in it.
 ///
-/// **Dark, and not adaptive.** Every editor in the reference set is dark by default, and the
+/// **Dark, and not adaptive.** A video editor is dark by default, and the
 /// reason is not fashion: chrome around a picture shifts how its colours read, and a light
 /// surround makes a recording look darker and less saturated than it is. A person grading a
 /// background gradient in a light window is judging it wrong. The menu bar panel stays adaptive

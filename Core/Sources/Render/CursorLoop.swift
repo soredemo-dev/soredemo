@@ -4,7 +4,7 @@ import Timeline
 
 /// **The cursor ends where it began, so a looping video does not jump.**
 ///
-/// Screen Studio's "Loop cursor position". A demo embedded in a README or a landing page plays
+/// A demo embedded in a README or a landing page plays
 /// on repeat, and at the seam the cursor teleports from wherever the recording left it back to
 /// wherever it started — the one frame in the whole loop where the viewer's eye is yanked. The
 /// fix is to spend the final stretch of the video gliding the cursor back to its opening
@@ -23,7 +23,7 @@ import Timeline
 public enum CursorLoop {
     /// How long the glide back takes. **Uncalibrated.** Long enough that the return reads as a
     /// deliberate movement rather than a snap; short enough that it does not eat the end of a
-    /// demo, where the last click is usually the payoff. Screen Studio does not publish its
+    /// demo, where the last click is usually the payoff. There is no published
     /// figure.
     public static let leadSeconds: Double = 0.8
 

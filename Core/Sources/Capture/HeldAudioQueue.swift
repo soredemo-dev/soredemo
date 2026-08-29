@@ -11,7 +11,7 @@ import Foundation
 /// about four buffers each, which is the writer's initial allowance before it first needs the
 /// others to catch up.
 ///
-/// `../opensource/a Swift recorder` never meets this because it gives each audio source its own
+/// Giving each audio source its own writer avoids this entirely, at the cost of its own
 /// `AVAssetWriter` and its own sidecar file — one input per writer has nothing to interleave
 /// against. A master with three tracks in one `.mov` is the right container for evidence, and
 /// it is what makes holding mandatory rather than optional.

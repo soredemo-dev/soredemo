@@ -277,7 +277,7 @@ import Render
 /// `placement.hotspot`, which is the hotspot of the SYSTEM cursor's IMAGE: a different
 /// picture with different padding, measured once as (0.52, 0.50) — its centre — and
 /// generalised. Applied to art whose origin is already the hotspot, it moved a correct
-/// placement by half a cursor on every frame. `../opensource/a Swift recorder` (Apache 2.0)
+/// placement by half a cursor on every frame. Anything that draws its own cursor art
 /// draws its own cursor art too and derives each hotspot from its OWN design coordinates,
 /// never from the system image, for exactly this reason.
 ///

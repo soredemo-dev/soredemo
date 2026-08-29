@@ -6,7 +6,7 @@ import IOKit.usb
 
 /// **An iPhone or iPad on the end of a cable, as something this app can record.**
 ///
-/// Screen Studio, Motionik and ScreenKite all ship this and it opens mobile-app demos as a use
+/// This opens mobile-app demos as a use
 /// case. None of the seven open-source projects beside this repo implements it — searched for
 /// `AllowScreenCaptureDevices` and `DeviceTypeExternal` across all of them and got nothing — so
 /// there was no design to read and this is built from what macOS actually offers.

@@ -107,9 +107,9 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     ///
     /// **Two captures started one after the other do not start at the same instant**, and until
     /// this existed the composition assumed they did. `CameraComposition` said so in its own
-    /// doc comment and called it an approximation; a Rust recorder does not approximate it — every track in
+    /// doc comment and called it an approximation. It need not be approximate — every track in
     /// its recording carries a `start_time`, and `calculate_audio_offsets` aligns them all to
-    /// whichever began LAST. an Electron recorder carries the same thing as `timeOffsetMs`.
+    /// whichever began LAST.
     ///
     /// **`didStartRecordingTo`, which is when the OUTPUT began writing** — a frame or two before
     /// the first sample it actually wrote. That residual is stated rather than hidden: closing
@@ -140,7 +140,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     ///
     /// **`.medium` rather than the camera's best.** The overlay is drawn a few hundred pixels
     /// across in the finished video; recording 4K to shrink it costs disk and encode time for
-    /// detail the export throws away. a native editor and a Rust recorder both cap their camera capture for the
+    /// detail the export throws away. Capping the camera capture is right for the
     /// same reason.
     /// Which camera this session is already showing or recording, so a second request for the
     /// same one reuses it rather than opening a second client on one device.

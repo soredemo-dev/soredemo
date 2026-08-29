@@ -884,7 +884,7 @@ final class RecordingCoordinator {
                 // for eleven minutes, presses stop, and finds out in the editor — or on the day
                 // they meant to publish — that the file is four seconds long or will not open.
                 // A crash costs a restart; that costs the eleven minutes, and they cannot be
-                // recorded again. a Rust recorder validates its output for this reason and nothing here did.
+                // recorded again, and nothing here checked.
                 //
                 // **Said in the status line rather than in a dialog**, because there is nothing
                 // to decide: the recording is already over and the only useful thing is knowing

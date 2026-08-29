@@ -60,7 +60,7 @@ extension ZoomBlock {
     /// then go out again. That reads as a mistake even though every block is individually
     /// correct: the viewer sees the frame lurch out and back for no reason.
     ///
-    /// `../opensource/Screen Record Opensource/an Electron recorder-main` calls the same thing a chained
+    /// The same thing is sometimes called a chained
     /// zoom and uses 1350 ms (`CHAINED_ZOOM_PAN_GAP_MS`); the value is theirs and is carried
     /// over rather than re-guessed. **It is not a merge**: the blocks stay separate, keep
     /// their own targets and their own depths, and only the camera's behaviour in the gap

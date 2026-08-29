@@ -37,7 +37,7 @@ import SwiftUI
 ///
 /// What remains missing is the ROW in the green button's own menu, which an app does not
 /// control. `StageWindow` offers the command directly instead — a toolbar button on ⌃⌘F, which
-/// is what `../opensource/…/a native editor` does with its own `MainMenu` item rather than relying
+/// is why the command is added to the menu explicitly rather than relying
 /// on the button. The flags here stay: they are what make the window full-screen-capable at
 /// all, which is the half `toggleFullScreen` needs.
 struct WindowConfigurator: NSViewRepresentable {

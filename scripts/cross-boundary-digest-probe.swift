@@ -109,7 +109,7 @@ import CoreVideo
 import Foundation
 import Geometry
 import Graph
-// § 18 reads `IOSurfaceGetID` — the identity a Swift recorder's frame dedup compares.
+// § 18 reads `IOSurfaceGetID` — the identity a frame dedup would compare.
 import IOSurface
 import Project
 // `RenderPlan`, `StageRect`, `StageStyle` for § 10 — `Soredemo/Render/*.swift`
@@ -1130,7 +1130,7 @@ enum CrossBoundaryProbe {
             // place that can check the filter's type at all — a package test cannot construct
             // an `SCWindow`. It asserted `.display` for one phase, which is exactly how long
             // a window recording captured whatever overlapped the window: the Dock, in a
-            // user's recording. a Rust recorder, an Electron recorder and an Electron recorder all use this filter; the
+            // user's recording. This filter is what comparable recorders use; the
             // arguments for the display one are answered in `CaptureSource.filter()`.
             check(derivedWindowSource.filter().style == .window,
                   "a window source captures through a WINDOW filter, so nothing overlapping "
@@ -6403,12 +6403,12 @@ enum CrossBoundaryProbe {
     ///
     /// ScreenCaptureKit emits a frame when the screen changes and not otherwise, and this project
     /// measured `SCFrameStatusIdle` at 42–84% of callbacks. The roadmap left the question open
-    /// with a warning attached: `../opensource/a Swift recorder` shipped a constant-frame-rate writer
+    /// with a warning attached: a constant-frame-rate writer
     /// that repeated the last frame on idle, deprecated it, and replaced it with variable frame
     /// rate plus **IOSurface-identity deduplication** — `surfaceID == lastIOSurfaceID`, skip.
-    /// an Electron recorder and an Electron recorder do what this app does and filter on `status == .complete`.
+    /// Filtering on `status == .complete` is what this app does.
     ///
-    /// So the question was whether to adopt a Swift recorder's dedup. This is the measurement that says
+    /// So the question was whether to adopt an IOSurface-identity dedup. This is the measurement that says
     /// no, and it is kept as a check rather than written down because it is a claim about a
     /// framework's behaviour that a macOS release could change.
     ///
@@ -6417,7 +6417,7 @@ enum CrossBoundaryProbe {
     /// was true **zero** times. ScreenCaptureKit cycles a pool of two surfaces, so consecutive
     /// frames never carry the same id — not even when the picture has not changed at all. Over
     /// the same still-window frames, 97–100% were byte-identical to the frame before them. The
-    /// duplicates are real and plentiful; a Swift recorder's predicate simply cannot see them, because a
+    /// duplicates are real and plentiful; that predicate simply cannot see them, because a
     /// one-frame memory is defeated by a two-deep pool.
     ///
     /// The conclusion carried into the roadmap: keep the `.complete` filter, do not repeat frames
@@ -6486,14 +6486,14 @@ enum CrossBoundaryProbe {
             return
         }
         check(noSurface == 0,
-              "18.1 every complete frame carries an IOSurface — the thing a Swift recorder's dedup reads",
+              "18.1 every complete frame carries an IOSurface — the thing such a dedup reads",
               actual: "\(noSurface) without one", expected: "0")
 
         let sameSurfaceAsPrevious = (1..<surfaces.count).count { surfaces[$0] == surfaces[$0 - 1] }
         // **The load-bearing check.** If this ever stops being zero, ScreenCaptureKit has changed
         // how it cycles its surface pool and the decision recorded above should be re-made.
         check(sameSurfaceAsPrevious == 0, """
-              18.2 no two consecutive frames share an IOSurface id — so a Swift recorder's \
+              18.2 no two consecutive frames share an IOSurface id — so an identity \
               `surfaceID == lastIOSurfaceID` dedup would skip nothing
               """,
               actual: "\(sameSurfaceAsPrevious) of \(surfaces.count - 1)", expected: "0")
@@ -6899,11 +6899,11 @@ enum CrossBoundaryProbe {
         // classifier ever stops forcing AppKit awake, this goes red rather than a recording
         // quietly going back to drawing every cursor as an arrow.
         //
-        // Screen Studio's own demo videos are what surfaced it: their rendered cursor becomes a
+        // Comparing against published demo footage is what surfaced it: a rendered cursor becomes a
         // pointing hand over a menu item and a crosshair over a spreadsheet cell, and this app's
         // did not — despite recording a shape per sample and drawing six of them.
         //
-        // The table is built from the RUNNING system rather than from literal digests. a Rust recorder keeps
+        // The table is built from the RUNNING system rather than from literal digests. Keeping
         // two literal tables, one for macOS 26 and one for everything before, because the
         // artwork changed; a literal table is a fact about an OS version pinned inside an
         // application, and it goes stale silently.

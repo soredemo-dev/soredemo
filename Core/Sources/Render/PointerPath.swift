@@ -12,31 +12,24 @@ import Timeline
 /// reads as "a person operating a mouse" rather than as a demo. This type is the third query:
 /// the presentation path, and the only one allowed to be gentle about the shape of the motion.
 ///
-/// **The pipeline is `../opensource/Screen Record Opensource/a Swift recorder`'s
-/// (`MousePositionInterpolator` → `SpringCursorSimulator`, Apache 2.0) with two of a Rust recorder's
-/// additions (`cursor_interpolation.rs`); the approach is theirs, the code is not.**
+/// Five stages, each answering a way the raw path looks wrong:
 ///
-/// 1. **Resample the samples onto a fixed grid through a cardinal spline.** C1 continuity is
-///    what turns a corner into an arc. The spline is parameterised by TIME, not by index,
-///    because the tap emits on motion and the sampler at 60 Hz, so consecutive samples are
-///    never evenly spaced.
-/// 2. **A spring follows the spline.** Damping ratio 0.9 rather than 1.0 — the barest
-///    overshoot is what reads as weight; critically damped reads as a robot arm. The response
-///    is `Tuning.Movement`'s, shortened toward `adaptiveMinScale` of it as the cursor speeds
-///    up, so a fast flick does not trail the recording by a visible distance. **It was 60 ms
-///    and hard-coded, which was the reason this did not look like Screen Studio's**: 60 ms is
-///    ω = 105 rad/s and the spring had reproduced the hand's own path within three frames.
-///    See `Movement` for the measurement against a Rust recorder's shipped 12.5.
-/// 3. **Idle stabilisation.** When the target barely moves, the target is blended toward
-///    where the spring already is, so a resting cursor rests — `PointerSampler`'s 60 Hz floor
-///    emits a still pointer as a stream of positions a fraction of a pixel apart, and a spring
-///    chasing those shimmers.
-/// 4. **Phase lead** (a Rust recorder). A spring chasing a moving target trails it by `2ζ/ω` seconds at
-///    steady state; sampling the target that far AHEAD cancels the trail, so the drawn cursor
-///    sits where the real one was at render time instead of visibly behind the video.
-/// 5. **A stiffer spring into a click** (a Rust recorder). 175 ms before every button-down the response
-///    drops to `clickResponseSeconds`, so the cursor has arrived when the ripple starts —
-///    without it a ripple draws at a point the cursor reaches a few frames later.
+/// 1. **Resample onto a fixed grid through a cardinal spline.** C1 continuity is what turns a
+///    corner into an arc. Parameterised by TIME, not by index: the tap emits on motion and the
+///    sampler at 60 Hz, so consecutive samples are never evenly spaced.
+/// 2. **A spring follows the spline.** Damping ratio 0.9 rather than 1.0 — the barest overshoot
+///    is what reads as weight, and critically damped reads as a robot arm. The response is
+///    `Tuning.Movement`'s, shortened toward `adaptiveMinScale` as the cursor speeds up so a fast
+///    flick does not trail the recording visibly.
+/// 3. **Idle stabilisation.** When the target barely moves it is blended toward where the spring
+///    already is. `PointerSampler`'s 60 Hz floor emits a still pointer as positions a fraction of
+///    a pixel apart, and a spring chasing those shimmers.
+/// 4. **Phase lead.** A spring chasing a moving target trails it by `2ζ/ω` seconds at steady
+///    state; sampling the target that far ahead cancels the trail, so the drawn cursor sits where
+///    the real one was at render time rather than visibly behind it.
+/// 5. **A stiffer spring into a click.** 175 ms before every button-down the response drops to
+///    `clickResponseSeconds`, so the cursor has arrived when the ripple starts. Without it the
+///    ripple draws at a point the cursor reaches a few frames later.
 ///
 /// **What it refuses, in the same terms `PointerTrack.smoothedPosition` refuses.** The spline
 /// never crosses a gap wider than `PointerTrack.maxInterpolationGap` and never crosses a
@@ -64,7 +57,7 @@ public struct PointerPath: Sendable {
 
     /// The knobs. **Uncalibrated in this project's sense** — no measurement chose them —
     /// but not arbitrary either: `dampingRatio`, `responseSeconds`, the adaptive pair and the
-    /// idle rule are a Swift recorder's shipped defaults; `clickStiffenWindow` is a Rust recorder's
+    /// idle rule are the measured defaults; `clickStiffenWindow` is
     /// `CLICK_SPRING_WINDOW_MS`.
     public struct Tuning: Hashable, Sendable {
         /// ζ. Below 1 overshoots by a hair; 1 never overshoots and looks mechanical.
@@ -86,29 +79,29 @@ public struct PointerPath: Sendable {
         public var clickResponseSeconds: Double
         /// Cardinal-spline tension, 0 = Catmull-Rom, 1 = straight lines.
         public var splineTension: Double
-        /// **Drop a reversal inside a short window** — a Rust recorder's `filter_cursor_shake`: three
+        /// **Drop a reversal inside a short window.** Three
         /// samples inside `shakeWindow` where the middle one reverses direction and both
         /// legs are under `shakeThreshold` are a hand tremor, not a move, and the middle
-        /// sample goes. Screen Studio calls the same thing "Remove cursor shakes".
+        /// sample goes. Sold elsewhere as "remove cursor shakes".
         public var removesShakes: Bool
         public var shakeWindow: Nanoseconds
-        /// Normalised units; a Rust recorder's `SHAKE_THRESHOLD_UV`.
+        /// Normalised units.
         public var shakeThreshold: Double
 
-        /// **How much the cursor glides, as the four Screen Studio offers plus off.**
+        /// **How much the cursor glides: four named amounts, plus off.**
         ///
         /// One hard-coded response was the defect, and the value it was hard-coded to was the
         /// fastest one anybody ships. Measured against the references: this file's 60 ms is
-        /// ω = 2π/0.06 = 105 rad/s, while a Rust recorder's shipped cursor spring — `tension 470, mass 3,
+        /// ω = 2π/0.06 = 105 rad/s, while a shipped cursor spring at `tension 470, mass 3,
         /// friction 70`, converted by its own `omega0 = sqrt(k/m)` — is **12.5 rad/s**, eight
         /// times slower. A spring that settles in 40 ms has reproduced the hand's own path by
         /// the next frame, which is why the result looked like a hand and not like a glide.
-        /// Screen Studio ships `Rapid / Quick / Default / Slow` rather than one number, which
-        /// is the other half of the answer: how much glide somebody wants is a taste.
+        /// A ladder of four named amounts rather than one number, which is the other half of
+        /// the answer: how much glide somebody wants is a taste.
         ///
-        /// `Default` sits near a Rust recorder's, because a Rust recorder's is the one that reads as a glide.
+        /// `Default` sits at the value that reads as a glide rather than as a follow.
         /// **Uncalibrated** in this project's sense — the ladder's shape is chosen, and only
-        /// its ends are anchored to something shipped.
+        /// its ends are anchored to a measurement.
         public enum Movement: String, Hashable, Codable, Sendable, CaseIterable {
             /// No spring at all: the presented path is the observations, as the lerp gave them.
             case none
@@ -355,7 +348,7 @@ public struct PointerPath: Sendable {
 }
 
 extension PointerPath {
-    /// a Rust recorder's `filter_cursor_shake`, sample for sample: walk the samples keeping the last
+    /// Walk the samples keeping the last
     /// KEPT one as `prev`; a middle sample whose legs to `prev` and to `next` reverse
     /// direction (negative dot product), both shorter than `threshold`, inside `window`
     /// from `prev` to `next`, is dropped. First and last samples always survive. Blind
@@ -512,7 +505,7 @@ private struct SplineTarget {
 
 /// One analytic step of a damped harmonic oscillator with the target held constant across the
 /// step. **Analytic, not Euler**, because the closed form is exact at any `dt` and cannot
-/// blow up when a stiff click profile meets a coarse step — a Swift recorder's `springStep`.
+/// blow up when a stiff click profile meets a coarse step.
 enum Spring {
     // Removed from the published history: this step followed another program's code line for
     // line. The present one was written from the differential equation.

@@ -9,7 +9,7 @@ import Timeline
 /// **`AVPlayerView`'s inline controls were doing this and doing it as a video player.** They
 /// fade out, they float over the picture, and their scrubber is a second timeline that knows
 /// nothing about the edit — three properties that are right for watching a film and wrong for
-/// cutting one. a Swift recorder and a native editor both put a transport row under the preview, always
+/// cutting one. A transport row belongs under the preview, always
 /// visible, with the timecode as text rather than as a bar.
 ///
 /// **The timecode is the output's, not the source's.** A person watching the preview is watching
@@ -23,7 +23,7 @@ struct TransportBar: View {
     @State private var position: Double = 0
     @State private var total: Double = 0
     /// Playback speed. **A review control, not an edit** — it changes how fast the preview
-    /// plays and nothing about the file. a native editor separates the two the same way
+    /// plays and nothing about the file. The two are separate readings
     /// (`PreviewPlaybackRate`); a speed that silently became an export setting would be the
     /// worst kind of surprise.
     @State private var rate: Double = 1

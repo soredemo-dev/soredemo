@@ -118,8 +118,7 @@ public enum CaptureSource: Sendable {
     ///
     /// **Why a recorder needs one.** A display capture of a demo that lives in a 600-point panel
     /// spends nine tenths of its pixels on desktop, and a window capture cannot do it at all when
-    /// the thing being shown is part of a window rather than all of it. a Rust recorder, an Electron recorder and
-    /// an Electron recorder all offer this.
+    /// the thing being shown is part of a window rather than all of it.
     case region(RegionCapture)
 
     /// The same source cropped at a new rectangle, for a window that moved mid-recording.
@@ -271,18 +270,14 @@ public enum CaptureSource: Sendable {
     /// display filter plus `sourceRect`, on three arguments. A real recording then captured
     /// the Dock, which that repair's own comment had predicted in as many words — "anything
     /// overlapping the window's rect is captured with it. A real regression in isolation,
-    /// accepted because…". Reading the four comparable recorders line by line dissolved all
-    /// three arguments:
+    /// accepted because…". All three arguments dissolve on inspection:
     ///
-    /// 1. *"the buffer can then be sized to the WINDOW"* — `../opensource/an Electron recorder-main` and
-    ///    `../opensource/an Electron recorder-main` both use `desktopIndependentWindow` AND size the
-    ///    buffer to `window.frame × backing scale`. The two were never in tension.
+    /// 1. *"the buffer can then be sized to the WINDOW"* — a window filter does not stop the
+    ///    buffer being sized to `window.frame × backing scale`. The two were never in tension.
     /// 2. *"ScreenCaptureKit crops at the source, so nothing downstream applies an offset"* —
     ///    a window filter's frame IS the window, so there is no offset to apply either.
-    /// 3. *"macOS composites the purple recording indicator into the frames"* — that is
-    ///    `../opensource/a Swift recorder`'s comment, and a Swift recorder is the only one of the four
-    ///    that avoids the API. a Rust recorder (`with_desktop_independent_window`), an Electron recorder and
-    ///    an Electron recorder all ship it.
+    /// 3. *"macOS composites the purple recording indicator into the frames"* — it does not,
+    ///    measured; the indicator is drawn by the window server outside the captured content.
     ///
     /// What a window filter gives that no amount of cropping can: **other windows, the Dock,
     /// the menu bar and notifications are excluded by construction**, because the capture is
@@ -449,8 +444,7 @@ public enum CaptureSource: Sendable {
             // **Centre first, then any overlap.** The centre test alone finds nothing for a
             // window dragged so its middle is past a display's edge — between two screens, or
             // pushed off the side — and a window with no host is a capture that cannot start.
-            // `../opensource/an Electron recorder-main` and `../opensource/an Electron recorder-main` both fall back
-            // to intersection for exactly this. Centre stays FIRST because it is the better
+            // so intersection is the fallback. Centre stays FIRST because it is the better
             // answer when both apply: a window straddling two displays belongs to the one
             // showing most of it.
             func contains(_ display: SCDisplay) -> Bool {

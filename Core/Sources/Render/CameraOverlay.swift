@@ -20,25 +20,24 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     public let y: Double
     /// The preset this camera sits on, or `nil` when it was placed by hand.
     ///
-    /// **a Rust recorder's arrangement, and it is the right one.** Its `Camera` carries a `position` enum
-    /// AND an `Option<XY<f64>> manual_position` that overrides it when set. Baking a preset into
-    /// coordinates — which is what this did — means "bottom right" stops being bottom right the
+    /// **A preset AND coordinates, with the preset winning until somebody drags.** Baking a
+    /// preset into coordinates — which is what this did — means "bottom right" stops being bottom
+    /// right the
     /// moment the size changes, and the control that set it stops looking chosen. A preset that
     /// stays a preset is re-evaluated against whatever the camera's size is now.
     public let position: Position?
     /// Whether the camera is drawn at all.
     ///
-    /// **Off, not deleted.** a Rust recorder's `Camera.hide` exists because "I do not want my face in this
-    /// one" and "throw away the footage of my face" are different decisions, and only one of them
-    /// is reversible. Turning the track off leaves the file in the package and the switch where
+    /// **Off, not deleted.** "I do not want my face in this one" and "throw away the footage of
+    /// my face" are different decisions, and only one of them is reversible. Turning the track
+    /// off leaves the file in the package and the switch where
     /// somebody can change their mind.
     public let isHidden: Bool
     /// How much of its size the camera keeps while the stage is zoomed in, 0…1.
     ///
     /// **A zoom makes the picture bigger and the camera should not stay put.** The stage zooms
     /// into a click; a camera that holds its full width is covering a larger share of a smaller
-    /// area, which is exactly when it is most in the way. a Rust recorder models this as `scale_during_zoom`
-    /// and defaults it to 0.7, which is carried over rather than re-guessed. `1` holds the size,
+    /// area, which is exactly when it is most in the way. 0.7 by default; `1` holds the size,
     /// which is what this did before the field existed.
     public let scaleDuringZoom: Double
     public let shape: Shape
@@ -200,10 +199,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     /// Nine places a camera is usually put, so a corner is one press rather than two sliders
     /// aimed by eye.
     ///
-    /// **Both reference recorders with a webcam offer these.** an Electron recorder's
-    /// `getWebcamPositionForPreset` is the same nine and an Electron recorder carries the same list; a
-    /// person putting a camera in the bottom-right — which is where almost every camera goes —
-    /// should not have to find 0.87 and 0.16 by dragging.
+    /// A person putting a camera in the bottom-right — which is where almost every camera goes
+    /// — should not have to find 0.87 and 0.16 by dragging.
     public enum Position: String, Hashable, Codable, Sendable, CaseIterable {
         case topLeft, topCenter, topRight
         case centerLeft, center, centerRight
@@ -272,9 +269,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     /// **Held inside the frame, which it was not.** `x` and `y` place the camera's CENTRE and
     /// are clamped to 0…1, so `x = 1` hung half a face off the right edge of the export — and
     /// the self-view writes exactly that value when somebody drags into a corner, which is where
-    /// people put cameras. an Electron recorder places its overlay inside `container − overlay − margin × 2`
-    /// for this reason and an Electron recorder does the same; neither can produce a half-cropped camera
-    /// at any setting.
+    /// people put cameras. Placing the overlay inside `container − overlay − margin × 2` makes
+    /// a half-cropped camera unreachable at any setting.
     ///
     /// Clamped rather than remapped, deliberately. Remapping would change what a stored `x`
     /// MEANS, and a project saved before this would open with its camera somewhere else — the
@@ -290,7 +286,7 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     public func rect(inOutputWidth outputWidth: Int, outputHeight: Int,
                      sourceAspect: Double, contentZoom: Double = 1)
     -> (x: Double, y: Double, width: Double, height: Double) {
-        // a Rust recorder's own default is 0.7 AT the zoom; between 1× and the zoom in force the camera
+        // The setting is the size AT the zoom; between 1× and the zoom in force the camera
         // walks down to it, so a gentle zoom moves the camera a little and a hard one moves it
         // a lot. A snap at the first frame of a zoom would read as a glitch.
         let zoomed = max(contentZoom, 1)

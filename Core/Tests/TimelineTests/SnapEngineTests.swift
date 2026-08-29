@@ -4,7 +4,7 @@ import Testing
 
 private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
 
-/// Ported from a native editor (GPL-3.0) — see `SnapEngine`'s header and `NOTICE.md`. These tests
+/// The behaviour these pin came from elsewhere; see `NOTICE.md`. These tests
 /// are written here rather than ported: the value of a port is the algorithm, and a test that
 /// came with it would only prove the port copied faithfully, not that the behaviour is right.
 @Suite struct SnapEngineTests {

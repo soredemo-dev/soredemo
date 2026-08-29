@@ -39,7 +39,7 @@ import Foundation
     }
 }
 
-/// The cursor's own look — the two things every reference recorder makes a choice and this one
+/// The cursor's own look — the two things every recorder makes a choice and this one
 /// had as constants.
 @Suite struct CursorStyleTests {
     /// Rule 8: these arrive from sliders AND from a decoder, and neither may trap.

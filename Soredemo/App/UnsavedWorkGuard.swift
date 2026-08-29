@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// **A recording is not reproducible, and that is the whole argument.** Nobody can perform the
 /// same demo twice: an edit lost is a demo re-recorded, not a file re-generated. Every editor in
-/// `../opensource/Screen Record Opensource/` asks before discarding one, and this app did not —
+/// Every editor asks before discarding one, and this app did not —
 /// it had a Save button and a window that closed without mentioning it.
 ///
 /// **A shared object rather than a document architecture.** `ProjectDocument` exists and nothing

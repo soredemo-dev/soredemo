@@ -41,9 +41,9 @@ public enum CameraComposition {
     /// `CaptureSession.Diagnostics.firstFrameHostTimeNanos` — which is the same anchor
     /// `openObservationLog(atFirstFrame:)` takes for the pointer.
     ///
-    /// a Rust recorder does not approximate this either: every track in one of its recordings carries a
+    /// It need not be approximate: a recording can carry a
     /// `start_time`, and `calculate_audio_offsets` aligns them all to whichever began LAST.
-    /// an Electron recorder carries the same number as `timeOffsetMs` and seeks its webcam element by it.
+    /// The same number, applied as a seek on the camera element.
     ///
     /// **Positive means the camera started LATER**, so its picture belongs that far into the
     /// recording and the overlay is simply absent before then — which is true, and is what the

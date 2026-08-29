@@ -8,9 +8,9 @@ import Timeline
 /// **Every action here already existed and was reachable only by keyboard.** Splitting, ripple
 /// delete, keep-only-selection, revert, zoom — all of them shipped as shortcuts with nothing on
 /// screen to say so, which is the same as not shipping them for anyone who has not read the
-/// source. `../opensource/Screen Record Opensource/a native editor`'s `ToolbarView` puts undo,
+/// source. A toolbar wants undo,
 /// the tool modes, split, the two trim-to-playhead brackets and the zoom control in one row above
-/// its timeline for exactly this reason, and a Swift recorder does the same above its preview.
+/// its timeline for exactly this reason.
 ///
 /// **The shortcut is in the tooltip, not on the button.** A label beside every icon would double
 /// the strip's width for information a person needs once; a tooltip is where macOS puts it, and
@@ -78,7 +78,7 @@ struct EditorToolbar: View {
         }
         // The two selection operations, which are the ones nothing on screen mentioned. "Remove"
         // is a ripple delete and "Keep" is its complement; naming them by what SURVIVES is how
-        // every editor in the reference set labels the pair.
+        // the pair is always labelled.
         ToolbarAction(icon: "rectangle.badge.minus", help: "Remove the selected span",
                       isEnabled: model.selection != nil) {
             model.removeSelection()
@@ -231,12 +231,12 @@ private struct ToolbarAction: View {
 /// The draggable line between the preview and the timeline.
 ///
 /// **Hand-rolled because `VSplitView` cannot do the two things that matter**: it cannot be
-/// collapsed from code, and it forgets where it was left. a native editor gives every one of its
+/// collapsed from code, and it forgets where it was left. Giving every one of the
 /// five panels an `autosaveName` and a collapse; a timeline you have to re-drag every launch is
 /// one you stop dragging.
 ///
 /// The hit area is taller than the line. A one-pixel target is a target people miss, and
-/// a native editor widens its own divider hit rect for the same reason
+/// a divider's hit rect has to be wider than its line for the same reason
 /// (`PaddedDividerSplitViewController`).
 struct SplitHandle: View {
     /// The INCREMENT since the last callback, in points, positive downward.

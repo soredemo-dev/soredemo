@@ -23,7 +23,7 @@ public enum TextAnchor: String, Hashable, Codable, Sendable, CaseIterable {
 /// wrong puts a title on the wrong half of the frame, which is the sort of thing that survives
 /// review because it looks deliberate.
 ///
-/// **A subset of a native editor's `TextStyle`, and the omissions are on purpose.** Its version has
+/// **A deliberate subset of what a text style could carry.** A fuller version has
 /// width/height axis scaling, tracking, line spacing, underline, strikethrough, overline, a
 /// separate glyph outline with its own colour, a background with independent x/y padding and its
 /// own outline, and a font-name field. Every one of those is a control a person has to
@@ -126,8 +126,8 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
 
 /// How a piece of text arrives and leaves.
 ///
-/// **A title that is simply there is a title nobody notices arriving.** Every reference recorder
-/// animates them — an Electron recorder offers fade, rise, pop, slide and typewriter; a native editor has a
+/// **A title that is simply there is a title nobody notices arriving.** Comparable tools
+/// animate them — fade, rise, pop, slide, typewriter — and the reason is that a
 /// whole `TextAnimator`. What is here is the four that read at a glance; a typewriter is the one
 /// people ask for and the one that makes a two-second title take two seconds to become readable.
 ///

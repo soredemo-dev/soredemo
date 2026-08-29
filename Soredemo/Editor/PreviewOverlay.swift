@@ -7,7 +7,7 @@ import Timeline
 ///
 /// **Two sliders is not how anyone places a title.** Positioning a caption or a redaction by
 /// dragging numbers means looking away from the thing being positioned, moving a value, looking
-/// back, and repeating. a native editor has a `TransformOverlayView` and a `CropOverlayView` for
+/// back, and repeating. A transform overlay and a crop overlay exist for
 /// exactly this; every editor worth copying lets you grab the thing itself.
 ///
 /// **The video's rectangle is computed, not asked for.** `AVPlayerView` letterboxes with

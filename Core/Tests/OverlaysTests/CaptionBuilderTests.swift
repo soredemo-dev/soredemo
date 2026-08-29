@@ -120,7 +120,7 @@ private func fitting(_ limit: Int) -> (String) -> Bool {
         #expect(uncapped.count == 1)
 
         // Three EVEN pairs, not one/two-three/four/five-six — see `split`'s comment on why
-        // this file chunks where a native editor halves.
+        // this file chunks rather than halving.
         let capped = CaptionBuilder.cues(for: segment, fits: fitting(100), maximumWords: 2)
         #expect(capped.map(\.text) == ["one two", "three four", "five six"])
     }

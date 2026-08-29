@@ -346,7 +346,7 @@ private func observer() -> Capture.AXObserver {
 /// becomes a `tapDisabled` blind interval, which draws no pointer at all. The reported
 /// symptom was the cursor flickering when moved quickly.
 ///
-/// The fix is the one `../opensource/a Swift recorder` (Apache 2.0) uses for the same problem:
+/// The fix is the standard one for this problem:
 /// the shape is SAMPLED on its own cadence and the callback reads a cached value. This test
 /// pins the property that matters — **the callback does not call the reader** — by counting
 /// reads against samples.

@@ -11,7 +11,7 @@ import Timeline
 /// **One export at a time was also one export at all.** Pressing Export replaced the button with
 /// a progress readout and a Cancel, so a person who wanted a 4K master and a small copy to send
 /// had to sit through the first, then set the second up by hand — and a person who wanted both
-/// plus a GIF had to do it three times. a native editor's `ExportQueue` is the answer and this
+/// plus a GIF had to do it three times. A queue is the answer and this
 /// follows its shape: FIFO, one running, cancel per job, finished jobs cleared.
 ///
 /// **The compositor's statics are why each job carries a `Settings`.** They are process-global,
@@ -38,7 +38,7 @@ final class ExportQueue {
     /// Whether an export to this path is already waiting or running.
     ///
     /// **Two exports to one path is a race for one file**, and the second one's first act is to
-    /// delete the file the first is still writing. a native editor refuses the enqueue for this
+    /// delete the file the first is still writing. The enqueue is refused for this
     /// reason and names the file in the refusal, which is the only way somebody works out which
     /// of their jobs they collided with.
     func isReserved(_ url: URL) -> Bool {
@@ -78,7 +78,7 @@ final class ExportQueue {
         return id
     }
 
-    /// **Cancelling depends on which state the job is in**, as a native editor's does. A waiting job
+    /// **Cancelling depends on which state the job is in.** A waiting job
     /// is simply dropped; a running one has its task cancelled and reports itself cancelled when
     /// the export notices — the exporter's own cooperative cancellation deletes its partial file,
     /// so nothing here has to.

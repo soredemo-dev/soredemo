@@ -7,8 +7,8 @@ import SwiftUI
 ///
 /// **Without it the first second of every recording is a hand moving away from the mouse.** The
 /// picker closes and the capture is already running; there is nowhere to put the pointer and no
-/// moment to compose. a Rust recorder models this as a `countdown` variant of its recording state and
-/// a Swift recorder ships a whole `CountdownPanel`; both default it on.
+/// moment to compose. It is a variant of the recording state rather than a separate mode, and
+/// it is on by default.
 ///
 /// **It counts on the screen being recorded, and it is excluded from the recording** — the
 /// capture filter leaves this process out, which is what `CaptureSource.filter(excluding:)` is

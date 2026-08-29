@@ -19,7 +19,7 @@ import Timeline
 /// * the tap delivers on the main run loop, so a busy main thread delays every sample.
 ///
 /// A cadence fixes all three the same way: there is always a sample no older than one
-/// interval, whatever the pointer and the tap are doing. `../opensource/a Swift recorder`
+/// interval, whatever the pointer and the tap are doing. Sampling on a timer
 /// (Apache 2.0) samples this way rather than from a tap, and its position track is uniform
 /// as a result — the approach is theirs, the code below is not.
 ///

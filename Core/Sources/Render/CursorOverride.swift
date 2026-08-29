@@ -85,23 +85,19 @@ extension CursorOverride: Codable {
 
 /// How the drawn cursor looks: how big, and what a click does.
 ///
-/// **Every reference recorder makes both of these a choice, and we made neither.** a Swift recorder has
-/// a `Cursor Scale` and a smoothing preset; an Electron recorder has a click effect with a style, a colour,
-/// a size, a duration and an opacity. A cursor drawn at one fixed size is right for one export
-/// size and one screen density, and a ripple nobody can turn off is a ripple in the way of
-/// anyone recording a drawing app.
+/// **Both are choices, and neither used to be.** A cursor drawn at one fixed size is right for
+/// exactly one export size and one screen density, and a ripple nobody can turn off is a ripple
+/// in the way of anyone recording a drawing app.
 ///
 /// **Still not a smoothing control, and the reason changed on 2026-08-25.** This paragraph
 /// used to say the pointer was a lerp with no drift to tune. It is a spring now
 /// (`PointerPath`), with a phase lead that cancels the steady-state trail — so the drift the
 /// knob would tune is compensated by construction, and the tuning lives in
 /// `PointerPath.Tuning` beside the mechanism it tunes rather than in a style a person edits
-/// per project. Screen Studio ships its equivalent as four presets ("Smooth / Medium / Rapid /
-/// None", guide/animations); if a knob ever comes here, it is that picker, not a number.
+/// per project. If a knob ever comes here it is a picker of named amounts, not a number: how
+/// much glide somebody wants is a taste, and a millisecond figure asks them to guess.
 ///
-/// **What did come: idle hiding and tilt**, the two Screen Studio cursor options every
-/// reference recorder also has ("Auto-hide idle cursor", "Rotate cursor while moving";
-/// a Rust recorder's `hide_when_idle`/`rotation_amount`, an Electron recorder's `cursorSway`). Both default OFF: a
+/// **What did come: idle hiding and tilt.** Both default OFF: a
 /// cursor that vanishes or leans is a choice a person makes about their video, not a
 /// default that changes what an existing project looks like when it is reopened.
 public struct CursorStyle: Hashable, Codable, Sendable {
@@ -125,11 +121,10 @@ public struct CursorStyle: Hashable, Codable, Sendable {
     public let idleDelay: Double
     /// How much the cursor leans into its own motion, 0…1 — `CursorTilt` turns it into degrees.
     public let tilt: Double
-    /// **How much the drawn cursor glides**, as Screen Studio's own four choices plus off —
-    /// see `PointerPath.Tuning.Movement`, which carries the measurement that made this a
-    /// setting rather than a constant. The one place this file's header said would need "the
-    /// drift added first": the drift is there now, and the knob is the picker rather than a
-    /// number, for the same reason Screen Studio's is.
+    /// **How much the drawn cursor glides**: four named amounts plus off — see
+    /// `PointerPath.Tuning.Movement`, which carries the measurement that made this a setting
+    /// rather than a constant. A picker rather than a number, because how much glide somebody
+    /// wants is a taste and a millisecond figure asks them to guess.
     public let movement: PointerPath.Tuning.Movement
     /// **Glide the cursor back to where it started over the video's last moments**, so a
     /// looping embed does not jump at the seam — see `CursorLoop`, which owns the arithmetic.
@@ -159,8 +154,8 @@ public struct CursorStyle: Hashable, Codable, Sendable {
         red: 1, green: 1, blue: 1)
 
     /// Two seconds: long enough that a pause to read does not blink the cursor away, short
-    /// enough that a cursor parked while someone talks is gone before it distracts. a Rust recorder's
-    /// default is the same order. **Uncalibrated.**
+    /// enough that a cursor parked while someone talks is gone before it distracts.
+    /// **Uncalibrated.**
     public static let defaultIdleDelay: Double = 2.0
 
     public init(scale: Double, clickEffect: ClickEffect, clickOpacity: Double,
@@ -241,16 +236,15 @@ public struct CursorStyle: Hashable, Codable, Sendable {
 }
 
 
-/// **How far the cursor leans into its motion.** Screen Studio's "Rotate cursor while
-/// moving"; an Electron recorder's `cursorSway.ts` is the formulation borrowed: the lean is the
-/// horizontal speed as a share of a reference speed, clamped, times a maximum angle, so
-/// a slow drift does not tilt and a flick tilts fully. a Rust recorder does the same from the
-/// displacement over the last 0.4 s (`rendering/src/lib.rs:3234`), clamped at ±20°.
+/// **How far the cursor leans into its motion.** The lean is the horizontal speed as a share of
+/// a reference speed, clamped, times a maximum angle — so a slow drift does not tilt and a flick
+/// tilts fully. Speed rather than displacement over a window: a window has to be tuned to the
+/// motion it measures, and a cursor that flicks and stops would keep leaning after it stopped.
 public enum CursorTilt {
-    /// an Electron recorder's `CURSOR_SWAY_MAX_ROTATION`, π/18. **Uncalibrated.**
+    /// π/18. **Uncalibrated.**
     public static let maximumDegrees: Double = 10
-    /// an Electron recorder's `CURSOR_SWAY_SPEED_REFERENCE`: the horizontal speed, in output pixels per
-    /// second, at which the lean is fully applied. **Uncalibrated.**
+    /// The horizontal speed, in output pixels per second, at which the lean is fully applied.
+    /// **Uncalibrated.**
     public static let speedReferencePixelsPerSecond: Double = 1400
 
     /// Degrees, positive leaning to the right — the way a moving cursor's tip trails its

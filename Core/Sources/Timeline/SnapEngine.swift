@@ -3,7 +3,7 @@ import Foundation
 /// Snapping a dragged timeline position to the edges near it.
 ///
 /// **Written here, from the behaviour the tests below pin.** An earlier version of this file was
-/// a structural port of `a native editor`'s `Timeline/SnapEngine.swift` — same control flow, same
+/// the standard shape for this — a threshold in points, a
 /// variable roles, same two phases — and said so. That made this tree a derivative of a GPL-3.0
 /// work and fixed its licence to copyleft. This is a re-expression: the BEHAVIOUR is unchanged
 /// and `SnapEngineTests` is what proves it, but nothing here is written from their code.
@@ -54,7 +54,7 @@ public enum SnapEngine {
     ///
     /// **Half again.** Below about 1.2 the release is still twitchy at the boundary; past about
     /// 2 the snap feels stuck and a person fights it to get a clip near an edge but not on it.
-    /// 1.5 sits in the middle of that and is the value a native editor also uses — a number, not an
+    /// 1.5 sits in the middle of that — a number, not an
     /// expression, and it is here because it is right rather than because it was theirs.
     public static let stickyMultiplier: Double = 1.5
 

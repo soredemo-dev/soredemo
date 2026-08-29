@@ -8,9 +8,8 @@ import Foundation
 /// A clip's identity, stable across every edit that does not destroy the clip.
 ///
 /// **Why identity and not the array index.** A person selects a clip, then deletes an earlier
-/// one; by index the selection silently becomes a different clip. Every editor in
-/// `../opensource/Screen Record Opensource/` keys selection on an identity for this reason —
-/// a native editor's `clip.id`, an Electron recorder's clip ids, a Rust recorder's.
+/// one; by index the selection silently becomes a different clip. Keying selection on an
+/// identity is what every editor does, and this is the reason.
 ///
 /// **A counter, not a UUID.** `Timeline` is a deterministic target: the architecture plugin
 /// forbids it from reaching ambient randomness, and `Minting` — the one place allowed to —
@@ -209,7 +208,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// **The ripple is free, and that is a property of the model rather than a feature.**
     /// A clip's output position is the sum of the durations before it, never a stored value,
     /// so removing one cannot leave a gap and cannot leave two clips claiming the same
-    /// moment. a native editor needs a `RippleEngine` because its clips carry `startFrame`.
+    /// moment. A model whose clips carry an absolute start needs a ripple engine; this does not.
     public func removing(id: ClipID) -> EditTimeline {
         EditTimeline(clips: clips.filter { $0.id != id }, nextID: nextID)
     }
@@ -265,8 +264,8 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// everything downstream already knows how to render a timeline, so a range costs nothing
     /// new anywhere.
     ///
-    /// ScreenKite ships this and writes a whole article about Screen Studio not having it; their
-    /// workaround there is to duplicate the project and trim the copy, once per section. The
+    /// Without it the workaround is to duplicate the project and trim the copy, once per
+    /// section. The
     /// coordinate transforms this needs — `sourceTime(atOutput:)` and the speed-aware `split`
     /// below it — were already here for other reasons.
     ///

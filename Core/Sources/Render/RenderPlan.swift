@@ -67,8 +67,8 @@ extension StageRect {
 ///
 /// **The gradient case is why this is an enum and not three colour fields.** A solid
 /// background is what the first renderer could draw, and it is what makes a recording look
-/// like a screenshot on a coloured rectangle. Every comparable tool — Screen Studio, a Rust recorder,
-/// `../opensource/a Swift recorder` — defaults to a gradient, because the card's shadow has
+/// like a screenshot on a coloured rectangle. Every comparable tool
+/// defaults to a gradient, because the card's shadow has
 /// nothing to fall across on a flat fill and the frame reads as unfinished. Adding the case
 /// here rather than a `isGradient` flag beside the colours keeps a solid background costing
 /// no gradient filter at all, which `aSolidBackgroundDrawsNoGradient` pins.
@@ -221,7 +221,7 @@ public struct StageStyle: Hashable, Codable, Sendable {
     /// **For a wallpaper, which is what makes it worth having.** Somebody's desktop picture is a
     /// photograph: it has a horizon, a face, a logo, and all of that competes with the recording
     /// sitting on top of it. Blurred, the same picture keeps its colours and its light and stops
-    /// being a picture — which is the whole reason Screen Studio puts this slider directly under
+    /// being a picture — which is why this slider belongs directly under
     /// its wallpaper grid rather than in a settings panel.
     ///
     /// **A blur here is nothing like the one `Redaction` refuses.** That refusal is a security

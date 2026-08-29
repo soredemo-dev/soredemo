@@ -122,7 +122,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     ///
     /// The one control per-block adjustments could not stand in for — correcting forty blocks
     /// one at a time to say "less, everywhere" is a different act from saying it once — and
-    /// the one ScreenKite ships. It is applied where the depth is DERIVED, so a person's own
+    /// a sensible ceiling. It is applied where the depth is DERIVED, so a person's own
     /// per-block adjustment still lands on top of it: the producer-value rule puts authored
     /// values after derived ones, and a dial that overrode them would have that backwards.
     public nonisolated(unsafe) static var zoomIntensity: Double = FramingDepth.neutralIntensity
@@ -442,7 +442,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// The camera on this frame, or `nil` when the recording has none or it is hidden.
     ///
     /// **A hidden camera produces no overlay at all**, rather than one the renderer then has to
-    /// know to skip. `Camera.hide` is a Rust recorder's switch for "not in this one" as distinct from "throw
+    /// know to skip. Hiding is the switch for "not in this one" as distinct from "throw
     /// the footage away", and the cheapest place to honour it is before a plan carries it.
     ///
     /// **With `avoidsCursor` on, the style's placement is replaced by the dodge schedule's.**
@@ -618,7 +618,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// A frame is one exposure, so everything that moves across it smears — making the card's
     /// blur automatic and the cursor's a knob would be two answers to one question. There is
     /// no `CursorStyle` field here for that reason; `StageCompositor.shutterFraction` governs
-    /// both. ScreenKite ships this as an inspector slider and Screen Studio splits its blur
+    /// both. Offered as an inspector slider; some tools split the blur
     /// three ways (cursor / zooming / panning, guide/animations); the effect is theirs, the
     /// derivation from an exposure is this project's.
     ///
@@ -652,7 +652,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     /// **A 180° shutter.** Film exposes each frame for half its duration, and that is the
     /// smear an audience has learned to read as motion rather than as blur; a full-frame
-    /// smear reads as a defocus and none reads as judder. a Swift recorder's `MotionBlurSettings`
+    /// smear reads as a defocus and none reads as judder. A motion-blur setting
     /// arrives at an intensity in the same range by eye.
     static let shutterFraction: Double = 0.5
     /// The smear below which the filter is not worth its cost — under a pixel and a half a

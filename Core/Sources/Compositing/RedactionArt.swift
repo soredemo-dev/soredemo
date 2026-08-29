@@ -64,7 +64,7 @@ public enum RedactionArt {
     /// that IS a real pixel value is a weaker promise than it looks. A Lanczos downscale
     /// averages over a neighbourhood, and the nearest-neighbour scale back up is what makes the
     /// result blocky rather than merely soft — which matters too, because a reviewer trusts a
-    /// mosaic they can see working. an Electron recorder averages for the same reason; its
+    /// mosaic they can see working. Averaging is what makes it irreversible; the
     /// `applyMosaicToImageData` sums each block and divides.
     ///
     /// **Scalars in, not a rect.** Rule 5 confines `CGRect` to `HeadlessGeometryBridge`, and a

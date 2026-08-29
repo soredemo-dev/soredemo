@@ -63,7 +63,7 @@ final class TextOverlaysModel {
 
 /// The text tab: a list of what is on screen, and the controls for whichever one is selected.
 ///
-/// **A list plus an editor for the selection**, which is a native editor's inspector shape — its
+/// **A list plus an editor for the selection**, which is the inspector shape that works — the
 /// tabs change with what is selected rather than showing every control for every object at once.
 struct TextPanel: View {
     let model: TextOverlaysModel

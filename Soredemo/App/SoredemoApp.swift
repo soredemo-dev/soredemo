@@ -146,8 +146,8 @@ struct SoredemoApp: App {
         // worked and had not.
         //
         // Both Swift reference projects land on a primary window for their editor:
-        // `../opensource/…/a Swift recorder` uses `WindowGroup`, and
-        // `../opensource/…/a native editor` manages its own `NSWindowController`. Neither
+        // The alternatives are a `WindowGroup`, or
+        // an `NSWindowController` managed by hand. Neither
         // uses a `Window` scene.
         //
         // **The single-window rule the old comment gave is kept, by hand.** It said: one
@@ -156,7 +156,7 @@ struct SoredemoApp: App {
         // owns compositor instances, and would disagree between two windows. That is still
         // true. `WindowGroup` permits a second window rather than requiring one, and
         // `EditorWindowPresence.openEditor` refuses to make one: it brings the existing window
-        // forward instead. a native editor's `HomeWindowController.shared` is the same arrangement
+        // forward instead. A shared window controller is the same arrangement
         // with AppKit's own vocabulary.
         WindowGroup("Soredemo", id: WindowID.editor) {
             ContentView(coordinator: recordingCoordinator)

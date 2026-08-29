@@ -16,7 +16,7 @@ import Timeline
 /// frames must check `CMSampleBufferGetNumSamples`.
 /// Where an export has got to.
 ///
-/// **Phases, not one percentage**, and `../opensource/Screen Record Opensource/an Electron recorder-main`'s
+/// **Phases, not one percentage**, and the
 /// export status model is why: the last step is `AVAssetWriter.finishWriting`, which takes
 /// seconds on a long recording and reports nothing. A bar that reached 100% and then sat there
 /// looks stopped, and a person cancels a job that was about to finish. Naming the phase is

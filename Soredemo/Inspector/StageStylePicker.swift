@@ -10,7 +10,7 @@ import SwiftUI
 ///
 /// **Why this exists.** `StageCompositor.style` was internal, with a comment saying no caller
 /// outside that file set it — accurate, and the reason every recording came out the same
-/// charcoal rectangle. A recorder that competes with Screen Studio or a Rust recorder on output is
+/// charcoal rectangle. A recorder judged on its output is
 /// judged on the frame around the capture as much as on the capture, and a fixed background
 /// is the one part a person notices immediately.
 ///
@@ -289,14 +289,14 @@ struct StageStylePicker: View {
     }
 
     /// The cursor's own controls. **Both of these were fixed constants**, and every reference
-    /// recorder makes them a choice: a Swift recorder has a `Cursor Scale`, an Electron recorder a click effect
+    /// recorder makes them a choice — a cursor scale, a click effect
     /// with a style, a size and an opacity. A cursor drawn at one size is right for one export
     /// size, and a ripple nobody can turn off is in the way of anyone recording a drawing app.
     @ViewBuilder var cursorControls: some View {
         slider("Cursor size", value: model.cursor.scale, range: 0.5...3) {
             model.setCursor(model.cursor.changing(scale: $0)); onChange()
         }
-        // **Screen Studio's own four, plus off.** One hard-coded response was the defect and it
+        // **Four named amounts, plus off.** One hard-coded response was the defect and it
         // sat at the fastest value anybody ships — see `PointerPath.Tuning.Movement`, which
         // carries the measurement against a Rust recorder's. Changing this re-bakes the cursor's path, so
         // it takes effect on the next composition rather than on the next frame.
@@ -324,7 +324,7 @@ struct StageStylePicker: View {
                 model.setCursor(model.cursor.changing(clickOpacity: $0)); onChange()
             }
         }
-        // **Screen Studio's two cursor options every reference recorder also has.** Both
+        // **The two cursor options worth having.** Both
         // off by default — see `CursorStyle` — so a saved project looks as it did.
         Toggle("Hide cursor when idle", isOn: Binding(
             get: { model.cursor.hidesWhenIdle },
@@ -340,7 +340,7 @@ struct StageStylePicker: View {
         }
         // **For a video that plays on repeat.** The cursor glides back to where it began over
         // the last moments, so the seam between the last frame and the first is not a jump —
-        // Screen Studio's "Loop cursor position". Off by default, like the two above it.
+        // Loops the cursor back to where it started. Off by default, like the two above it.
         Toggle("Return cursor to start for looping", isOn: Binding(
             get: { model.cursor.loopsToStart },
             set: { model.setCursor(model.cursor.changing(loopsToStart: $0)); onChange() }))

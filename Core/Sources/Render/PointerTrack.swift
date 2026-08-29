@@ -79,7 +79,7 @@ public struct PointerTrack: Sendable {
 
     /// **The cursor's opacity under the idle rule: 1 while it has moved within `hideAfter`,
     /// fading to 0 over `idleFadeSeconds` after that, and back to 1 over the same span BEFORE
-    /// the next move** — the look-ahead is a Rust recorder's `CURSOR_IDLE_RESUME_LOOKAHEAD`, and it is
+    /// the next move** — the look-ahead is what makes that possible, and it is
     /// what stops a hidden cursor popping into existence already moving. A track with no
     /// motion at all is drawn: a pointer that never moved is not idle, it is where it is.
     public func idleOpacity(at instant: HostInstant, hideAfter delay: Double) -> Double {

@@ -217,7 +217,7 @@ final class InputObserver: @unchecked Sendable {
     /// interval, a blind interval draws no pointer, and that is the flicker. The callback
     /// reads `cachedPointerShape` instead; `refreshPointerShape()` is what runs the reader,
     /// on the poll timer that already exists for the tap's own health.
-    /// `../opensource/a Swift recorder` (Apache 2.0) samples the pointer on a timer for the same
+    /// Sampling the pointer on a timer is the standard answer, for the same
     /// reason.
     private let pointerShapeReader: @Sendable () -> PointerShape?
     /// Reads where inside the cursor's image the pointer actually is — see

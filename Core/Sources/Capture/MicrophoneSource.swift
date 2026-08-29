@@ -11,15 +11,14 @@ import ScreenCaptureKit
 /// works or is denied; a microphone is a physical device that can be absent, chosen wrongly,
 /// muted at the OS, or held exclusively by another application.
 ///
-/// **Every comparable recorder names the device, and two of them probe for the capability
-/// first.** `../opensource/Screen Record Opensource/an Electron recorder-main` and `an Electron recorder-main` both
-/// set `microphoneCaptureDeviceID`; an Electron recorder checks `responds(to:)` for the two selectors
-/// and emits a `microphone-unavailable` warning rather than failing the recording.
-/// `a Swift recorder` does not use ScreenCaptureKit for the microphone at all, and says why:
-/// *"Uses AVCaptureSession instead of ScreenCaptureKit because SCK does not support
-/// microphone device selection."* That was true when written and is not now — measured on
-/// this machine, `SCStreamConfiguration` responds to both selectors — which is why this uses
-/// ScreenCaptureKit and keeps one capture rather than running a second session.
+/// **The device is named and the capability is probed**, rather than either being assumed.
+/// Probing means `responds(to:)` for the two selectors and a named refusal instead of a failed
+/// recording; naming means somebody with two microphones gets the one they chose rather than
+/// whichever the system preferred.
+///
+/// It is common advice that ScreenCaptureKit cannot select a microphone device, and that a
+/// second `AVCaptureSession` is therefore needed. Measured on this machine that is no longer
+/// true: `SCStreamConfiguration` responds to both selectors. So this keeps one capture.
 public enum MicrophoneSource: Hashable, Sendable {
     /// **No microphone at all — a choice, not a failure.** Until this case existed the type
     /// could say "we could not capture one" and could not say "you asked us not to", and the
@@ -74,7 +73,7 @@ public enum MicrophoneInventory {
     ///
     /// Probed rather than gated on an OS version: the two setters and the third output type
     /// are what the capture actually needs, and asking for them directly answers the question
-    /// a version check only approximates. an Electron recorder probes the same three.
+    /// a version check only approximates.
     ///
     /// **A `false` here is not an error.** It means system audio still records and the
     /// microphone does not, which the caller reports as blindness rather than a failure —

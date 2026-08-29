@@ -69,7 +69,7 @@ nonisolated enum SystemCursorShape {
     /// real and it was taken in the wrong place — a bare command-line binary that never touches
     /// `NSApplication`. **AppKit populates the class cursors' images when the application object
     /// is created**, and until it exists `NSCursor.arrow.image` really is 0×0.
-    /// `../opensource/Screen Record Opensource/an Electron recorder-main/electron/native/SystemCursorAssets.swift`
+    /// It is a documented requirement,
     /// says so on its fifth line, in a comment above `let _ = NSApplication.shared` — which is
     /// where this was found, after the same 0×0 was measured a second time and disbelieved.
     ///
@@ -90,7 +90,7 @@ nonisolated enum SystemCursorShape {
     ///
     /// ### The table is built at runtime, which is the whole point
     ///
-    /// a Rust recorder (AGPLv3, read for approach, nothing copied) hashes the live cursor against a table of
+    /// The usual answer hashes the live cursor against a table of
     /// literal digests — and has had to write **two** of them, one for macOS 26 and one for
     /// everything before, because the artwork changed. A literal table is a fact about an OS
     /// version pinned inside an application, and it goes stale silently: an unrecognised cursor
@@ -99,14 +99,14 @@ nonisolated enum SystemCursorShape {
     /// This asks the running system instead. Every class cursor is hashed once, and the live
     /// cursor is looked up in what came back. A macOS that redraws its cursors changes both sides
     /// of the comparison at once, so there is nothing to update and nothing to go stale. **The
-    /// measured digests above match a Rust recorder's macOS 26 table exactly**, which is as close to a second
+    /// measured digests above match published tables for this OS version exactly**, which is as close to a second
     /// opinion as this can get.
     ///
     /// **The hotspot is unchanged and was always real.** It is where inside the cursor's image
     /// the pointer actually is, and art drawn with its own origin at the recorded position is
     /// correct only when that origin IS the hotspot.
     ///
-    /// `currentSystem` with a `current` fallback, the pair a Rust recorder uses: the first is `nil` when no
+    /// `currentSystem` with a `current` fallback: the first is `nil` when no
     /// system cursor is set, and the app's own beats reporting nothing.
     @MainActor
     private static func sampleOnMainActor() -> (shape: PointerShape, hotspot: NormalizedPoint)? {

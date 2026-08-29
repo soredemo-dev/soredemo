@@ -3,7 +3,7 @@ import Foundation
 /// Undo and redo for a value.
 ///
 /// **Why a stack of values rather than a stack of inverse operations.**
-/// `../opensource/Screen Record Opensource/a native editor`'s `EditorUndo` wraps
+/// The standard shape wraps
 /// `UndoManager` and registers a closure per mutation that undoes it. That is the right design
 /// for what it edits: a mutable object graph where a change touches one clip in place, and
 /// snapshotting the graph per keystroke would be expensive.

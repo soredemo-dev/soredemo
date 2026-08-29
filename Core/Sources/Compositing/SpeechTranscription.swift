@@ -11,7 +11,7 @@ import Timeline
 /// is more accurate — measurably so for accented speech and for Chinese — and it is the right
 /// thing to offer. What it cannot be is the DEFAULT: transcribing in the cloud means uploading
 /// the audio of whatever a person was demonstrating, which may be a bug report containing their
-/// own customer's data. `../opensource/Screen Record Opensource/a native editor` models exactly
+/// own customer's data. The shape below models exactly
 /// this as `TranscriptionProvider { local, cloud }` and this type is the `local` half; the seam
 /// is `TranscriptionSource` below, so adding a cloud backend later adds an implementation rather
 /// than rewriting the caption path.
@@ -178,7 +178,7 @@ public struct OnDeviceTranscription: TranscriptionSource {
     // MARK: - locale
 
     /// The recogniser's own matcher first, then the system's preferred languages, then the
-    /// current locale. a native editor hand-rolls this walk because it predates
+    /// current locale. Hand-rolling the walk is only necessary before
     /// `supportedLocale(equivalentTo:)`; that call handles the BCP 47 subtleties its comment
     /// describes — stripping `-u-` extension tags, falling back from a region to its language —
     /// so it is used instead of a second copy of the logic.
@@ -199,7 +199,7 @@ public struct OnDeviceTranscription: TranscriptionSource {
 
     /// The recording's audio as an m4a `AVAudioFile` can open.
     ///
-    /// **An export rather than a hand-rolled PCM extraction.** a native editor decodes to 16 kHz
+    /// **An export rather than a hand-rolled PCM extraction.** Decoding to 16 kHz
     /// mono PCM itself through an `AVAssetReader`, which means walking `AudioBufferList`s
     /// through raw pointers; under `.strictMemorySafety()` that is a page of `unsafe` marks
     /// buying a re-encode we do not need to avoid, since a speech model resamples to 16 kHz

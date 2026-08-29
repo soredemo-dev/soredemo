@@ -2,8 +2,8 @@
    The KEY is the English string, which is what SwiftUI passes for a `Text("…")`
    literal: no call site had to change to make this file work, and a key with no
    entry falls back to readable English rather than to a dotted identifier.
-   a native editor and a Swift recorder both reach the same shape from the other direction, by
-   giving every `L10n.string` call a `defaultValue`. */
+   The alternative shape — a dotted identifier with a `defaultValue` at every call site —
+   reaches the same place from the other direction and costs a change at every call. */
 
 "Across" = "水平位置";
 "Add text at the playhead" = "在播放頭加入文字";

@@ -246,8 +246,8 @@ struct StageWindow: View {
     /// **The export size, which used to be the constant 1920.** Measured on a real recording:
     /// the capture was 3024×1964 and every export came out 1920×1080, so six pixels in ten were
     /// thrown away and there was no control that could ask for them back. `ExportResolution`
-    /// picks by short side — a native editor's choice, and the only one that describes a portrait
-    /// output as well as a landscape one.
+    /// picks by short side, which is the only ladder that describes a portrait output as well
+    /// as a landscape one.
     static func size(for variant: AspectVariant, resolution: ExportResolution,
                      recordingShortSide: Int) -> (width: Int, height: Int) {
         let shape = variant.dimensions(longestEdge: 1920)
@@ -259,11 +259,8 @@ struct StageWindow: View {
         // **No sidebar.** It held one row — the recording's filename — which is a whole column
         // spent on a label. The filename is the window's TITLE now, with `navigationDocument`
         // giving it the proxy icon and path popup every document window on this system has.
-        // a Swift recorder's editor is `HSplitView { preview + timeline | inspector }` and a native editor's
-        // left column is a media browser with content in it; neither spends a column on a name.
         //
-        // **The timeline sits under the preview**, where every editor in
-        // `../opensource/Screen Record Opensource/` puts it: a timeline is read along its length
+        // **The timeline sits under the preview**, because a timeline is read along its length
         // while watching the picture above it, and an inspector is read down a column.
         VStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -328,9 +325,8 @@ struct StageWindow: View {
 
             // **A divider this file owns, not `VSplitView`'s.** SwiftUI's split views cannot be
             // collapsed programmatically and do not remember where they were left, and both are
-            // things a person expects of an editor: a native editor gives every one of its five
-            // panels an `autosaveName` and a collapse, and the reason is that a timeline you
-            // have to re-drag every launch is one you stop dragging.
+            // things a person expects of an editor. A timeline you have to re-drag every
+            // launch is one you stop dragging.
             SplitHandle { delta in
                 timelineHeight = min(max(timelineHeight - delta, Self.minimumTimelineHeight),
                                      Self.maximumTimelineHeight)
@@ -357,7 +353,7 @@ struct StageWindow: View {
         // **Pinned to dark.** Chrome around a picture shifts how its colours read: a light
         // surround makes a recording look darker and less saturated than it is, so a person
         // grading a background gradient in a light window is judging it wrong. Every editor in
-        // the reference set is dark by default for this reason. The menu bar panel is NOT — it
+        // an editor is dark by default for this reason. The menu bar panel is NOT — it
         // lives in the system's menu bar, where a dark panel in a light system looks broken.
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
@@ -483,9 +479,8 @@ struct StageWindow: View {
             StageCompositor.cameraStyle = cameraStyle
         }
         .inspector(isPresented: $isReviewShown) {
-            // **A vertical rail, not a row of tabs across the top.** ScreenKite and a native editor
-            // both put the section switcher on the panel's edge as a column of icons, and the
-            // reason shows as soon as there are more than three: a horizontal strip competes
+            // **A vertical rail, not a row of tabs across the top.** The reason shows as soon
+            // as there are more than three sections: a horizontal strip competes
             // with the panel's own width, which is the dimension a 300-point inspector has none
             // of to spare. A rail costs 40 points of width once and nothing per section.
             HStack(spacing: 0) {
@@ -548,8 +543,7 @@ struct StageWindow: View {
             // is wrong, at least on this system. What is genuinely missing is the row in the
             // green button's own menu, which this app does not control.
             //
-            // So the command is offered directly, which is what `../opensource/…/a native editor`
-            // does: its `MainMenu` adds an explicit "Enter Full Screen" wired to
+            // So the command is offered directly: an explicit "Enter Full Screen" wired to
             // `NSWindow.toggleFullScreen(_:)` rather than relying on the button. ⌃⌘F is the
             // system's own shortcut for it, so the keystroke a person already knows works.
             ToolbarItem {
@@ -631,17 +625,15 @@ struct StageWindow: View {
 
     /// **Two tabs: what the whole export is, and what is selected.**
     ///
-    /// Both Swift editors in the reference set organise an inspector this way — a Swift recorder has
-    /// exactly Settings and Segment, a native editor switches its tab set on what kind of thing is
-    /// selected. The reason is that the two answer different questions: "how should this video
-    /// look" is asked once, and "what is this thing I just clicked" is asked constantly. A flat
+    /// The two answer different questions: "how should this video look" is asked once, and
+    /// "what is this thing I just clicked" is asked constantly. A flat
     /// list mixes them, so the answer to the second is always somewhere below the answer to the
     /// first.
     /// The inspector's section rail — a column of icons on the panel's edge.
     ///
-    /// **A rail, not a row of tabs across the top.** ScreenKite and a native editor both put the
-    /// section switcher on the edge, and the reason shows as soon as there are more than three:
-    /// a horizontal strip competes with the panel's own width, which is the dimension a
+    /// **A rail, not a row of tabs across the top.** The reason shows as soon as there are more
+    /// than three sections: a horizontal strip competes with the panel's own width, which is the
+    /// dimension a
     /// 300-point inspector has none of to spare. A rail costs 40 points once and nothing per
     /// section added after.
     @ViewBuilder var inspectorRail: some View {
@@ -794,8 +786,8 @@ struct StageWindow: View {
                in: 0.05...0.5) { Text("Size") }
         // **How much the camera shrinks while the stage is zoomed in.** A zoom makes the picture
         // bigger, and a camera that holds its width is covering a larger share of a smaller area
-        // — which is exactly when it is most in the way. a Rust recorder models this as `scale_during_zoom`;
-        // 1 holds the size, which is what this did before the control existed.
+        // — which is exactly when it is most in the way. 1 holds the size, which is what this
+        // did before the control existed.
         Slider(value: Binding(get: { cameraStyle.scaleDuringZoom },
                               set: { cameraStyle = cameraStyle.changing(scaleDuringZoom: $0)
                                      reviewRevision += 1 }),
@@ -808,9 +800,9 @@ struct StageWindow: View {
                               set: { cameraStyle = cameraStyle.changing(y: $0)
                                      reviewRevision += 1 }),
                in: 0...1) { Text("Up from the bottom") }
-        // **Out of the cursor's way.** The classic flaw — a face over the thing being shown —
-        // and Screen Studio's answer to it. The camera goes to a corner while the cursor is on
-        // it and comes back once the cursor has been clear for a while; see `CameraDodge`.
+        // **Out of the cursor's way.** The classic flaw is a face over the thing being shown.
+        // The camera goes to a corner while the cursor is on it and comes back once the cursor
+        // has been clear for a while; see `CameraDodge`.
         Toggle("Move out of the cursor's way", isOn: Binding(
             get: { cameraStyle.avoidsCursor },
             set: { cameraStyle = cameraStyle.changing(avoidsCursor: $0); reviewRevision += 1 }))
@@ -933,9 +925,8 @@ struct StageWindow: View {
                 }
             }
         }
-        // **The estimate is why the picker is usable.** a Rust recorder shows one and calibrated it to
-        // within 3% against real recordings; a quality control with no consequence attached is
-        // three words to guess between.
+        // **The estimate is why the picker is usable.** A quality control with no consequence
+        // attached is three words to guess between.
         if let range = timeline.exportRange {
             // **Named in the sheet, because the button says "Export" either way.** Somebody who
             // marked a section an hour ago and came back to export has no other way to find out
@@ -1070,8 +1061,8 @@ struct StageWindow: View {
             .font(Type.detail).foregroundStyle(.secondary)
         // **A GIF has no inter-frame compression worth the name**, so its size is frames times
         // pixels and nothing else — a twenty-second 640-wide GIF is tens of megabytes, which is
-        // past what most places accept. a Swift recorder warns for the same reason rather than letting
-        // somebody find out from the upload.
+        // past what most places accept. Warned about here rather than letting somebody find
+        // out from the upload.
         // `editForExport`, not `edit`: with a section marked, the file being estimated is
         // the section. A figure for the whole video beside a button that writes ten seconds of
         // it is worse than no figure.
@@ -1163,7 +1154,7 @@ struct StageWindow: View {
         // **Levelling, which every comparable recorder ships and this had none of.** A demo's
         // narration sits at whatever level the microphone happened to be at, and every platform
         // it is posted to renormalises by loudness — so a file that ignores loudness is a file
-        // the platform will change. ScreenKite calls it broadcast levelling. The target is in
+        // the platform will change. The target is in
         // LUFS because that is the unit the platforms publish theirs in; the measurement and
         // the gain that follows are `Loudness`'s.
         Divider()
@@ -1200,9 +1191,7 @@ struct StageWindow: View {
 
     /// **A music bed, and how far out of the way it gets when somebody speaks.**
     ///
-    /// Both commercial recorders ship this and none of the open-source four do: Screen Studio's
-    /// background audio "automatically lowers when you speak", ScreenKite calls it voice
-    /// ducking. The file is copied into the project — `MusicBed` says why — and the envelope
+    /// The file is copied into the project — `MusicBed` says why — and the envelope
     /// comes from the silences the timeline already found, so there is one answer to "where is
     /// the voice" rather than two.
     @ViewBuilder private var musicControls: some View {
@@ -1710,10 +1699,9 @@ struct StageWindow: View {
     /// macOS puts the format chooser.
     private func startExport() {
         let panel = NSSavePanel()
-        // **Two types, so the panel's own format popup is the format chooser.** an Electron recorder and
-        // an Electron recorder both build a FormatSelector into the editor; on macOS that control already
-        // exists and lives in the save panel, and a second one in the window would be a second
-        // place to look for the same answer.
+        // **Two types, so the panel's own format popup is the format chooser.** On macOS that
+        // control already exists and lives in the save panel; a second one in the window would
+        // be a second place to look for the same answer.
         // The chosen codec's container first, so the panel opens on it — ProRes is a `.mov`
         // and offering an `.mp4` for it would be offering a file other editors refuse.
         panel.allowedContentTypes = codec.fileExtension == "mov" ? [.quickTimeMovie, .gif]
@@ -1763,7 +1751,7 @@ struct StageWindow: View {
         }
         if queued == nil {
             // Named, because the only way somebody works out which of their jobs they collided
-            // with is being told the filename. a native editor's `destinationInUse` says the same.
+            // with is being told the filename.
             exportStatus = "An export to \(destination.lastPathComponent) is already waiting."
         }
     }

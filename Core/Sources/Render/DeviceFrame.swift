@@ -2,8 +2,8 @@ import Foundation
 
 /// **A phone or tablet's body drawn around its screen.**
 ///
-/// A demo of an iPad app reads as an iPad app when it is inside an iPad. Screen Studio and
-/// Motionik both ship this and it is the one thing they offer for a phone recording that this
+/// A demo of an iPad app reads as an iPad app when it is inside an iPad. It is the one thing
+/// worth offering for a phone recording that this
 /// app did not.
 ///
 /// **Proportions, not artwork.** The body is a rounded rectangle a known fraction larger than

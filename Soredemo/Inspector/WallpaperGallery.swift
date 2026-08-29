@@ -6,7 +6,7 @@ import SwiftUI
 /// The pictures a person can put behind their recording without going to find one.
 ///
 /// **"Choose image…" is a file panel, and a file panel is a place you have to already know the
-/// answer.** ScreenKite ships a wallpaper grid with a download button on each; the point is that
+/// answer.** A wallpaper grid with a download button on each is one form of it; the point is that
 /// a background is a look, and looks are chosen by seeing them. This is the same idea from what
 /// is already on the machine, which needs no download at all.
 ///
@@ -129,7 +129,7 @@ struct WallpaperPicker: View {
             // **This is what makes somebody's own wallpaper usable as a background.** A desktop
             // picture has a horizon, a face, a logo — all of it competing with the recording on
             // top. Blurred, the same picture keeps its colours and its light and stops being a
-            // picture. Screen Studio puts the same control directly under its wallpaper grid.
+            // picture, which is why the control belongs directly under the wallpaper grid.
             if source == .desktop || source == .system {
                 VStack(alignment: .leading, spacing: Space.hairline) {
                     Slider(value: Binding(get: { model.style.backgroundBlur },

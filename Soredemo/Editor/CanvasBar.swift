@@ -5,7 +5,7 @@ import Variants
 
 /// The strip above the preview: what shape the export is, and what part of the recording it uses.
 ///
-/// **These two were in the inspector, three tabs deep.** ScreenKite puts its canvas preset and
+/// **These two were in the inspector, three tabs deep.** A canvas preset and
 /// its crop button directly over the picture — "YouTube / 桌面 16:9" and a crop icon — and the
 /// reason is that both are decisions about the frame you are looking at. A control that changes
 /// what is on screen belongs beside what is on screen.

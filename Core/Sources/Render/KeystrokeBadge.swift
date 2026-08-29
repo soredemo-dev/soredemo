@@ -14,7 +14,7 @@ public struct KeystrokeBadge: Hashable, Sendable {
 }
 
 /// How a badge looks. **Fixed, not a per-project style**, at least until somebody asks: a
-/// badge is a small bold plate at the bottom of the frame in every reference recorder, and a
+/// badge is a small bold plate at the bottom of the frame, and a
 /// style a person cannot see the need for is a style they have to skip past. Everything here
 /// is a fraction of the output height, so a 4K export and a 720p one draw the same badge.
 public enum KeystrokeBadgeStyle {

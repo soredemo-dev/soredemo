@@ -46,7 +46,7 @@ public enum FramingDepth {
     /// and at 1.32× at zoom 1.5 — invisible — while zoom 3 is 2.64×, and a 1920 px capture
     /// on the same card is past 1.5× at zoom 1.08. So the ceiling is a function of PIXEL
     /// DENSITY, not a constant: the same control on a 1x display gets a shallower zoom than
-    /// on a Retina one, which is what Screen Studio's depth visibly does. **Uncalibrated**,
+    /// on a Retina one. **Uncalibrated**,
     /// like the rest of this file.
     public static let maximumMagnification: Double = 1.5
 
@@ -144,7 +144,7 @@ public enum FramingDepth {
     /// depth 1 means "do not zoom" and multiplying it by 0.5 would give 0.5 — a zoom OUT,
     /// showing more of the screen than the recording contains.
     ///
-    /// ScreenKite ships exactly one dial for this ("increase zoom for detailed UI work,
+    /// One dial is enough for this ("increase zoom for detailed UI work,
     /// decrease it where the full screen matters more") and it is the one control this
     /// project's per-block adjustments could not stand in for: correcting forty blocks one at
     /// a time to say "less, everywhere" is not the same act.

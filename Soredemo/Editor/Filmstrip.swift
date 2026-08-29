@@ -8,8 +8,8 @@ import SwiftUI
 /// **A flat rectangle tells you a clip exists; a filmstrip tells you what is in it.** Finding the
 /// moment a dialog opened means scrubbing until you see it, and scrubbing is the slow way to do
 /// a thing the timeline could have shown. Every editor in
-/// `../opensource/Screen Record Opensource/` draws thumbnails on its video track;
-/// a native editor's `MediaVisualCache` is the shape this follows.
+/// Every editor draws thumbnails on its video track;
+/// a cache keyed on the media is the shape this follows.
 ///
 /// **Cached on a quantised time, so zooming reuses what is already drawn.** A cache keyed on the
 /// exact time a column happens to land on would miss on every pixel of a zoom drag and generate
@@ -19,7 +19,7 @@ import SwiftUI
 @Observable
 final class Filmstrip {
     /// Ready frames, keyed by `Key`. Published, so a view redraws as they arrive rather than
-    /// waiting for the whole strip — a native editor publishes progressively for the same reason.
+    /// waiting for the whole strip.
     private(set) var frames: [Key: CGImage] = [:]
 
     private var loadedURL: URL?

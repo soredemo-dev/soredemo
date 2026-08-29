@@ -6,7 +6,7 @@ import Timeline
 ///
 /// Both halves of this existed for a long time before it did and nothing joined them: a
 /// transcript with per-word and per-sentence timings on one side, `EditTimeline` with
-/// `removing(sourceRange:)` on the other. ScreenKite ships the join as its headline editing
+/// `removing(sourceRange:)` on the other. The join is the headline editing
 /// idea — "deleting a sentence removes the video segment" — and it is the cheapest large
 /// feature this project had left, because the join is the only new part.
 ///

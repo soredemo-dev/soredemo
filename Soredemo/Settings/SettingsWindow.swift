@@ -4,8 +4,8 @@ import SwiftUI
 
 /// The preferences this app keeps between recordings.
 ///
-/// **Every reference recorder has one and this had none**, which meant every choice a person
-/// made lived for exactly as long as the window it was made in. ScreenKite's has twelve panes;
+/// **This had none**, which meant every choice a person made lived for exactly as long as the
+/// window it was made in. A settings window can grow to a dozen panes;
 /// this has three, because three is how many groups of settings actually exist here — a sidebar
 /// of empty rooms is worse than a short list.
 ///
@@ -211,7 +211,7 @@ struct SettingsWindow: View {
 
     /// **What this app reads, and what it refuses to.**
     ///
-    /// The ScreenKite thread has a user asking, in as many words, whether an unknown app
+    /// Somebody will ask, in as many words, whether an unknown app
     /// recording every action and gesture is safe. It is a fair question and this project has an
     /// unusually good answer that was written only in the source: the APIs that read a
     /// keystroke's text cannot be NAMED anywhere in this app, enforced by a test, and every

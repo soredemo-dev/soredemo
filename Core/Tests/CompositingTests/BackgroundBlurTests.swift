@@ -9,7 +9,7 @@ import Render
 ///
 /// A desktop picture has a horizon, a face, a logo — all of it competing with the recording
 /// sitting on top of it. Blurred, the same picture keeps its colours and its light and stops
-/// being a picture. Screen Studio puts this control directly under its wallpaper grid, which is
+/// being a picture, which is why the control belongs directly under the wallpaper grid and
 /// where it belongs and where this app now has it.
 ///
 /// **`.serialized`, because the renderer's image base is a process-global static.** Setting it is

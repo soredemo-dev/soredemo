@@ -6,7 +6,7 @@ import Timeline
 ///
 /// **This is what makes a zoom an object on a timeline rather than a decision in a panel.**
 /// Every comparable recorder puts zooms on their own lane and lets a person drag them —
-/// Screen Studio shows each click as a keyframe with an adjustable duration, ScreenKite gives
+/// A click can be shown as a keyframe with an adjustable duration, or a zoom can be given
 /// zooms a lane of their own beside speed and annotations. A review panel that only offers
 /// "don't zoom" can reject a zoom but cannot fix one that is a quarter of a second late.
 ///

@@ -4,7 +4,7 @@ import Testing
 @testable import Compositing
 
 /// Audio is invisible on a timeline strip without this, and a person cannot tell a silent
-/// stretch from a spoken one. Follows a native editor's `WaveformExtractor` in shape — mono
+/// stretch from a spoken one. The shape is mono
 /// float32, a fixed slice rate with a total cap, `vDSP_maxmgv` per hop, a dB floor.
 extension StageCompositorTests {
     private static func fixtureWithAudio() -> AVURLAsset {
@@ -52,7 +52,7 @@ extension StageCompositorTests {
         let covered = Double(envelope.peaks.count) * envelope.sliceDuration
         #expect(abs(covered - duration) < 0.2,
                 "the envelope covers \(covered)s of a \(duration)s recording")
-        // ~200 slices a second, the rate a native editor uses.
+        // ~200 slices a second.
         #expect(abs(1 / envelope.sliceDuration - WaveformEnvelope.slicesPerSecond) < 5)
     }
 

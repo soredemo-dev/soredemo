@@ -148,7 +148,7 @@ struct MenuBarRecorderPanel: View {
             // **The third thing a recorder has to be able to point at.** A display capture of a
             // demo living in a small panel spends most of its pixels on desktop, and a window
             // capture cannot do it at all when the subject is part of a window rather than all
-            // of it. a Rust recorder, an Electron recorder and an Electron recorder all offer this.
+            // of it.
             TargetCard(icon: "rectangle.dashed", title: "Area", detail: "Drag it out",
                        isBusy: coordinator.pendingMode == .region) {
                 coordinator.beginRegionRecording()
@@ -157,7 +157,7 @@ struct MenuBarRecorderPanel: View {
         // **The fourth card exists only while a device does.** A card that is always there and
         // usually disabled is a permanent reminder of a thing somebody is not doing; this row
         // appears when a phone is plugged in and disappears when it is unplugged, which is the
-        // same moment they stop caring about it. Screen Studio, Motionik and ScreenKite all ship
+        // same moment they stop caring about it. It is worth shipping
         // phone recording; none of the seven open-source projects beside this repo does.
         if !coordinator.availableMobileScreens.isEmpty {
             VStack(alignment: .leading, spacing: Space.snug) {
@@ -169,7 +169,7 @@ struct MenuBarRecorderPanel: View {
                     }
                 }
                 // **Said before the recording, not after it.** iOS does not send touch
-                // coordinates to a Mac — measured, and Screen Studio's own guide says the same —
+                // coordinates to a Mac — measured, and documented by others —
                 // so there is nothing to derive an automatic zoom from. Somebody expecting the
                 // zooms they get on a Mac is owed that in advance, along with the one thing that
                 // does work: a Bluetooth mouse paired to the device puts a real cursor in the
@@ -200,7 +200,7 @@ struct MenuBarRecorderPanel: View {
 
     /// Which microphone, including none.
     ///
-    /// **System audio is not offered beside it, and the asymmetry is deliberate.** a Swift recorder's
+    /// **System audio is not offered beside it, and the asymmetry is deliberate.** The
     /// toolbar has both toggles. Ours records system audio always, because turning it off leaves
     /// an `AVAssetWriter` input that nothing ever feeds — the exact condition that produced the
     /// export deadlock this project spent two commits on. `closeAudioTracksNothingIsFeeding`
@@ -253,7 +253,7 @@ struct MenuBarRecorderPanel: View {
         // runs when the panel appears, so a camera or an interface connected while a person was
         // looking at these two rows would not be there until they closed the panel and opened it
         // again — and the natural reading of a device missing from a list is that the app cannot
-        // see it. a Swift recorder's toolbar watches the same two notifications for the same reason.
+        // see it.
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             coordinator.refreshMicrophones(); coordinator.refreshCameras()
         }
@@ -720,7 +720,7 @@ private struct PanelLink: View {
 /// That private selector has been the way to open a `Settings` scene since it existed; since
 /// macOS 14 it logs `Please use SettingsLink for opening the Settings scene` at runtime —
 /// observed on this app — and is documented as no longer working. `SettingsLink` is the
-/// sanctioned replacement and is what `../opensource/…/a Swift recorder` uses for the same job.
+/// sanctioned replacement for the same job.
 ///
 /// **The app is activated alongside it, and that is not decoration.** `SettingsLink` assumes
 /// the app is already active with a window-management context; a `MenuBarExtra` app has neither

@@ -279,7 +279,7 @@ private func rejected(_ ns: Int64, _ reason: FramingRejection) -> FramingPlan.En
 /// the timeline where they never clicked. Asserted here, at the three points where it could
 /// be dropped: the click, the block, and the picture.
 ///
-/// **Screen Studio's own guide is why this matters and why the UI is more than a lane click:**
+/// **Why this matters, and why the UI is more than a lane click:**
 /// "if you add auto-zoom where no mouse click occurs, it will not zoom to any area… switch to
 /// manual zoom to select specific areas". A target-less zoom does nothing there either. The
 /// authored rectangle IS the target, so the editor's remaining work is choosing it.

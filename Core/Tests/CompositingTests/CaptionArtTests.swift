@@ -101,7 +101,7 @@ import Timeline
     /// **The camera is never half off the frame, at any setting.** `x` and `y` place the
     /// CENTRE and are clamped to 0…1, so `x = 1` used to hang half a face off the right edge of
     /// the export — and the self-view writes exactly that when somebody drags into a corner,
-    /// which is where cameras go. an Electron recorder and an Electron recorder both place the overlay inside
+    /// which is where cameras go. Placing the overlay inside
     /// `container − overlay − margin × 2` and neither can produce a cropped camera.
     @Test func aCameraDraggedIntoACornerStaysWhollyInsideTheFrame() {
         for position in CameraOverlayStyle.Position.allCases {
@@ -172,7 +172,7 @@ import Timeline
         #expect(dragged.position == nil)
     }
 
-    /// **A hidden camera is off, not deleted.** a Rust recorder's `Camera.hide` is the same switch: "not in
+    /// **A hidden camera is off, not deleted.** The switch means "not in
     /// this one" and "throw the footage away" are different decisions and only one is reversible.
     @Test func hidingTheCameraIsAStyleAndNotALostRecording() {
         let hidden = CameraOverlayStyle.default.changing(isHidden: true)
@@ -455,7 +455,7 @@ import Timeline
     /// **The camera is never half off the frame, at any setting.** `x` and `y` place the
     /// CENTRE and are clamped to 0…1, so `x = 1` used to hang half a face off the right edge of
     /// the export — and the self-view writes exactly that when somebody drags into a corner,
-    /// which is where cameras go. an Electron recorder and an Electron recorder both place the overlay inside
+    /// which is where cameras go. Placing the overlay inside
     /// `container − overlay − margin × 2` and neither can produce a cropped camera.
     @Test func aCameraDraggedIntoACornerStaysWhollyInsideTheFrame() {
         for position in CameraOverlayStyle.Position.allCases {
@@ -526,7 +526,7 @@ import Timeline
         #expect(dragged.position == nil)
     }
 
-    /// **A hidden camera is off, not deleted.** a Rust recorder's `Camera.hide` is the same switch: "not in
+    /// **A hidden camera is off, not deleted.** The switch means "not in
     /// this one" and "throw the footage away" are different decisions and only one is reversible.
     @Test func hidingTheCameraIsAStyleAndNotALostRecording() {
         let hidden = CameraOverlayStyle.default.changing(isHidden: true)

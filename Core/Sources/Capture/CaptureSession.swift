@@ -755,15 +755,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // is fixed for the life of a track (D2-13), so a window RESIZED mid-recording delivers
         // content of a different size into it: `false` crops that content to the buffer, which
         // silently loses whatever the window grew by. `true` fits it, which costs sharpness and
-        // shows the whole window. `../opensource/a Swift recorder` sets it unconditionally true;
-        // a display capture cannot resize, so leaving it false there keeps that path exactly
-        // as measured.
+        // shows the whole window. A display capture cannot resize, so leaving it false there
+        // keeps that path exactly as measured.
         configuration.scalesToFit = source.window != nil
         configuration.preservesAspectRatio = true           // D2-13a
         if source.window != nil {
             // The window's own drop shadow is not the window. A window filter includes it by
             // default, which puts a soft dark border on every frame and a transparent one
-            // around it — `../opensource/an Electron recorder-main` turns it off for the same reason.
+            // around it.
             configuration.ignoreShadowsSingleWindow = true
         }
         // Set explicitly: unset, where ScreenCaptureKit places content that does
@@ -780,8 +779,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // **The microphone is requested only when this system can serve one, and it is named.**
         // Setting `captureMicrophone` unconditionally and naming no device meant a machine
         // without the capability got a silent no, and a person with two microphones got
-        // whichever one the system preferred. an Electron recorder probes the same three things and
-        // degrades with a warning; an Electron recorder names the device the same way.
+        // whichever one the system preferred. So the capability is probed, the failure is
+        // named, and the device is chosen rather than inferred.
         if case .off = microphone {
             // **Asked not to, which is not the same as could not.** No `.microphoneUnavailable`
             // in the blindness record: that list is what this module failed to observe, and a
@@ -808,9 +807,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         // **Do not record ourselves.** Without this, any sound this app makes — an alert, a
         // preview playing back — is captured into the system-audio track, and a preview
-        // playing while recording is a feedback loop. Both `../opensource/an Electron recorder-main` and
-        // `../opensource/an Electron recorder-main` set it; neither explains why, and the reason is
-        // worth writing down once.
+        // playing while recording is a feedback loop.
         configuration.excludesCurrentProcessAudio = true
         // Stated rather than inherited: the default sample rate and channel count are not
         // documented, and the master's two audio tracks must agree with each other and with
@@ -818,8 +815,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // pin.
         configuration.sampleRate = 48_000
         configuration.channelCount = 2
-        // The default is 3. `../opensource/an Electron recorder-main` uses 6, and the deeper queue is
-        // what absorbs a slow frame without ScreenCaptureKit dropping the next one — the
+        // The default is 3; 6 is what absorbs a slow frame without ScreenCaptureKit dropping
+        // the next one — the
         // `SCFrameStatus` counters this session already keeps are how a change here is judged.
         configuration.queueDepth = 6
         configuration.pixelFormat = kCVPixelFormatType_32BGRA

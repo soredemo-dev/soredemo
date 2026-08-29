@@ -8,8 +8,7 @@ import Foundation
 /// at, and a peak meter cannot tell a quiet voice from a loud one — peaks are set by the
 /// loudest consonant, not by how loud the speech reads. Every platform a demo is posted to
 /// normalises by *loudness* instead (YouTube to −14 LUFS, Spotify to −14, Apple Podcasts to
-/// −16), so a file that ignores loudness is a file the platform will change. ScreenKite ships
-/// this as "broadcast leveling" and Screen Studio as part of its microphone enhancement.
+/// −16), so a file that ignores loudness is a file the platform will change.
 ///
 /// **Measured here and applied as a gain, so the master is never touched.** The recording is
 /// evidence in this project; normalisation is a decision about the export. The measurement

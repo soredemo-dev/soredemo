@@ -5,8 +5,8 @@ import Foundation
 /// **Not the camera's zoom, and the difference is what each one is for.** `RenderPlan.contentZoom`
 /// moves a window over the recording while it plays, and every frame still has the whole
 /// recording behind it. A crop decides what the recording IS: the parts outside it are gone from
-/// the output, the card is fitted to what remains, and nothing can pan back to them. an Electron recorder and
-/// an Electron recorder both ship one, and the case it exists for is a person who recorded a 16:9 display
+/// the output, the card is fitted to what remains, and nothing can pan back to them. The case
+/// it exists for is a person who recorded a 16:9 display
 /// to show one panel of an application.
 ///
 /// **Normalised source coordinates with `y` from the TOP**, matching `RedactionRegion` and for

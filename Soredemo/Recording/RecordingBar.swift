@@ -10,8 +10,8 @@ import SwiftUI
 /// clicking Stop does not pull focus away from whatever is being demonstrated — a bar that stole
 /// focus would change the thing it is recording. `.canJoinAllSpaces` so it survives a Space
 /// switch mid-recording. `.floating` so it stays above the app being shown.
-/// `../opensource/Screen Record Opensource/a Swift recorder`'s `CaptureToolbarPanel` sets the same
-/// five, and a Rust recorder's in-progress window is the same object in Tauri's vocabulary.
+/// A capture toolbar wants the same
+/// five controls and nothing else.
 ///
 /// **It is excluded from the capture, and that took a real recording to notice.** A 22-second
 /// screen recording came back with this bar sitting across the bottom of the picture for its

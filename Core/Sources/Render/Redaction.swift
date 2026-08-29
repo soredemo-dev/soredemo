@@ -3,7 +3,7 @@ import Foundation
 /// How a region of the recording is hidden.
 ///
 /// **A Gaussian blur is not offered, and that is a security decision.**
-/// `../opensource/Screen Record Opensource/an Electron recorder-main` ships a `normalizeBlurType` that
+/// A normaliser that
 /// takes a value and unconditionally returns `"mosaic"` — its blur type is a field nothing can
 /// set. The reason it is right: a blur is a convolution, and a convolution with a known kernel
 /// is invertible enough that text under a light one has been recovered from published video more

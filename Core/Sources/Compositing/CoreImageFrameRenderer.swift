@@ -290,9 +290,9 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// silhouette this used to draw is a halo: the same darkness on every side, which is what
     /// a rectangle glowing looks like and not what a window on a surface looks like. A real
     /// shadow has two parts — a wide, faint ambient one from light everywhere, and a tighter,
-    /// darker key one displaced away from the light — and every reference recorder that reads
-    /// as "a window sitting there" draws both (a Rust recorder's `ShadowConfiguration` {size, opacity,
-    /// blur}; Screen Studio's frame shadow visibly hangs below the card). Both here are
+    /// darker key one displaced away from the light. Anything that reads as "a window sitting
+    /// there" draws both, and a card whose shadow visibly hangs below it is the tell. Both here
+    /// are
     /// derived from the style's two knobs, so nothing a person saved changes meaning:
     ///
     /// * ambient — the silhouette at `opacity × ambientShare`, sigma `radius / 2`, centred;
@@ -914,7 +914,7 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // the SYSTEM cursor's IMAGE — a different picture with different padding. That
         // measurement was taken from one live cursor reading of (0.52, 0.50), its image's
         // centre, and generalised. Applied to art whose origin is already the hotspot it
-        // moved a correct placement by half a cursor, every frame. `../opensource/a Swift recorder`
+        // moved a correct placement by half a cursor, every frame. Anything that draws art
         // (Apache 2.0) draws its own cursor art too and derives each hotspot from its own
         // design coordinates — the arrow's tip at (1.5, 1.0) in a 17×25 space — never from
         // the system image, for exactly this reason.

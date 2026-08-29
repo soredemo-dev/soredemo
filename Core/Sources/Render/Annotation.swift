@@ -5,7 +5,7 @@ import Foundation
 /// **Four, and every one of them is a drag from one point to another.** That is the whole
 /// interaction model: press where it starts, release where it ends. A shape needing a third
 /// point — a curve's control handle, a polygon's next vertex — is a second interaction to
-/// explain and a second thing to get wrong on a touchpad, and a Rust recorder's own annotation set stops at
+/// explain and a second thing to get wrong on a touchpad; a useful annotation set stops at
 /// the same place for what looks like the same reason.
 ///
 /// **A freehand pen is deliberately absent.** It is the one shape whose data is not two points
@@ -76,7 +76,7 @@ public struct AnnotationStyle: Hashable, Codable, Sendable {
     public let shadowBlurFraction: Double
 
     /// **Red at a weight that reads at 1080p without covering what it points at.** Measured
-    /// against the reference recorders rather than picked: a Rust recorder's default annotation stroke is
+    /// measured rather than picked: a default annotation stroke is
     /// in the same place relative to the frame, and a stroke at half this is invisible in a
     /// GIF export downscaled to 640.
     public static let `default` = AnnotationStyle(

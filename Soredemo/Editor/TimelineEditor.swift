@@ -41,9 +41,8 @@ final class TimelineEditorModel {
     /// ordinary case** — most exports are the whole video, and a range that defaulted to
     /// something would make every export a decision.
     ///
-    /// ScreenKite's article about Screen Studio lacking this describes the workaround: duplicate
-    /// the project, trim the copy, export, repeat. Once per section, with a fresh chance to trim
-    /// the wrong edge each time.
+    /// Without it the workaround is: duplicate the project, trim the copy, export, repeat. Once
+    /// per section, with a fresh chance to trim the wrong edge each time.
     private(set) var inPoint: Nanoseconds?
     private(set) var outPoint: Nanoseconds?
 
@@ -138,8 +137,8 @@ final class TimelineEditorModel {
 
     /// **Where a snap has taken hold, or `nil`.** A snap nobody can see is a snap nobody
     /// trusts: an edge that jumps a few pixels reads as the drag being imprecise rather than as
-    /// the editor helping. a native editor draws a `SnapIndicatorOverlay` for this, and it is the
-    /// difference between a feature and an unexplained twitch.
+    /// the editor helping. Drawing the line it snapped to is the difference between a feature
+    /// and an unexplained twitch.
     private(set) var snapIndicator: Nanoseconds?
     /// The recording's audio, for drawing. `nil` until it has been read, and empty when the
     /// recording has no audio — two different things, and the strip shows nothing for both.
@@ -550,8 +549,8 @@ struct TimelineEditor: View {
     /// recording length rather than the same number of nanoseconds.
     private let snapPoints: Double = 8
 
-    /// Below this, a clip's label would be truncated to nothing. a native editor's
-    /// `timelineClipLabelMinWidth` is 56 for the same purpose; a duration stamp is narrower.
+    /// Below this, a clip's label would be truncated to nothing. A duration stamp is narrow, so
+    /// this sits under the ~56 points a name would need.
     static let clipLabelMinimumWidth: Double = 44
 
     /// The header column's width. One number, because every lane's header and every lane's
@@ -569,15 +568,13 @@ struct TimelineEditor: View {
                         snapLine(height: 44)
                     }
                 }
-                // **Zooms get their own lane.** Screen Studio shows each click as a keyframe
-                // with an adjustable duration; ScreenKite gives zooms a lane beside speed and
-                // annotations. A review panel can reject a zoom but cannot fix one that is a
-                // quarter of a second late, which is the thing a person actually wants to do.
+                // **Zooms get their own lane.** A review panel can reject a zoom but cannot
+                // move one that is a quarter of a second late, which is the thing a person
+                // actually wants to do — and moving it needs somewhere to drag it.
                 // **Audio has its own lane now, and until it did the waveform was invisible.**
                 // It was drawn inside the video strip, underneath the clip rectangles — which
-                // are opaque, so it was covered on every frame it existed. a native editor and
-                // a Swift recorder both give audio a track of its own; a waveform behind the picture
-                // track is a waveform nobody sees.
+                // are opaque, so it was covered on every frame it existed. A waveform behind
+                // the picture track is a waveform nobody sees.
                 // One lane per recorded track, named for the source it came from. A single
                 // "Audio" lane over both answered "is there sound here" and could not answer
                 // "is that me or the machine" — which is the question someone deciding whether
@@ -628,8 +625,8 @@ struct TimelineEditor: View {
             // **One line down the whole stack, not a mark inside the picture track.** The strip
             // drew its own and no other lane did, so a zoom block, a caption and the waveform
             // could not be read against the position the preview was at — which is the entire
-            // reason those lanes are stacked and aligned in the first place. Every editor in
-            // `../opensource/Screen Record Opensource/` runs it from the ruler to the bottom.
+            // reason those lanes are stacked and aligned in the first place, and why the line
+            // runs from the ruler to the bottom rather than sitting inside one lane.
             //
             // An overlay rather than a row in the stack: it has to cross the lane gaps, and it
             // must not take a hit test away from the strip underneath it.
@@ -733,7 +730,7 @@ struct TimelineEditor: View {
     /// **The tick interval is chosen from the visible span, not fixed.** A ruler with a tick
     /// every second is unreadable at a twenty-minute zoom and useless at a half-second one; the
     /// interval is the smallest step from a human list — 0.1s up to 10 minutes — that leaves at
-    /// least 64 points between labels. Every editor in the reference set does this; a fixed
+    /// least 64 points between labels. A fixed
     /// interval is what makes a timeline look like a progress bar.
     @ViewBuilder private func ruler(duration: Nanoseconds) -> some View {
         GeometryReader { geometry in
@@ -964,9 +961,7 @@ struct TimelineEditor: View {
                             RoundedRectangle(cornerRadius: Radius.strip)
                                 .strokeBorder(Theme.Ink.primary, lineWidth: isSelected ? 2 : 0)
                         }
-                        // **A label inside the clip, when it fits.** ScreenKite writes a name
-                        // and a duration into every clip and a native editor has a
-                        // `timelineClipLabelMinWidth` for the same reason: a strip of unlabelled
+                        // **A label inside the clip, when it fits.** A strip of unlabelled
                         // rectangles says how many clips there are and nothing else. Hidden
                         // below the width where it would be truncated to nothing, rather than
                         // squeezed — a clipped label is worse than none.
@@ -1129,9 +1124,9 @@ struct TimelineEditor: View {
                     .strokeBorder(Theme.Lane.zoom, style: StrokeStyle(lineWidth: 1,
                                                             dash: suppressed ? [3, 2] : []))
             }
-            // **How far it zooms, written on it.** ScreenKite labels its zoom blocks "1.5×",
-            // and without a number a lane of identical rectangles cannot say which zoom is
-            // gentle and which is close. Hidden when the block is too narrow to hold it.
+            // **How far it zooms, written on it.** Without a number a lane of identical
+            // rectangles cannot say which zoom is gentle and which is close. Hidden when the
+            // block is too narrow to hold it.
             .overlay {
                 if width > 30, !suppressed {
                     Text(FramingDepth.label(for: zoom))
@@ -1171,9 +1166,9 @@ struct TimelineEditor: View {
 
     /// One edge of the selected clip, draggable.
     ///
-    /// **Wider than it looks.** The visible line is 2 points; the hit area is 12, which is
-    /// a Swift recorder's `handleWidth` and roughly the smallest target a person hits reliably with a
-    /// trackpad. A handle you can see but not grab is worse than no handle.
+    /// **Wider than it looks.** The visible line is 2 points; the hit area is 12, roughly the
+    /// smallest target a person hits reliably with a trackpad. A handle you can see but cannot
+    /// grab is worse than no handle.
     @ViewBuilder private func trimHandle(for clip: EditClip, edge: TimelineEditorModel.TrimEdge,
                                          duration: Nanoseconds, width: Double) -> some View {
         let at = edge == .start ? clip.sourceStart : clip.sourceEnd
@@ -1198,12 +1193,12 @@ struct TimelineEditor: View {
             )
             .onHover { inside in
                 // The cursor is the only thing that says a 2-point line is draggable before a
-                // person tries it. a Swift recorder pushes the same one.
+                // person tries it.
                 if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
             }
     }
 
-    /// a Swift recorder's `handleWidth`. Carried over rather than re-guessed.
+    /// Roughly the smallest target a trackpad hits reliably; see `trimHandle`.
     private let handleHitWidth: Double = 12
 
     /// The last cumulative magnification a pinch reported, so each change advances the window
@@ -1283,15 +1278,15 @@ struct TimelineEditor: View {
         Group {
             Button("Split at playhead") { model.splitAtPlayhead(); onChange() }
                 .disabled(!model.canSplitAtPlayhead)
-                // `S` unmodified, the spelling every editor in the reference set uses for a cut
+                // `S` unmodified, the spelling every editor uses for a cut
                 // at the playhead. No modifier: it is the most-used key in an editing session.
                 .keyboardShortcut("s", modifiers: [])
             Button("Delete clip") { model.deleteSelectedClip(); onChange() }
                 .disabled(model.selectedClip == nil)
                 .keyboardShortcut(.delete, modifiers: [])
             // `I` and `O` unmodified — the spelling every editor that has in and out points
-            // uses, and the one ScreenKite's own guide documents. No modifier for the same
-            // reason `S` has none: these are session keys, not commands.
+            // uses. No modifier for the same reason `S` has none: these are session keys, not
+            // commands.
             Button("Mark in") { model.markIn() }
                 .keyboardShortcut("i", modifiers: [])
             Button("Mark out") { model.markOut() }

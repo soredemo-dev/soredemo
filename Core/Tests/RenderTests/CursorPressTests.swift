@@ -6,7 +6,7 @@ import Timeline
 @testable import Render
 
 /// The press curve, and the track edge it reads. Both references that draw their own cursor move
-/// it on click — a Swift recorder multiplies its scale by a `clickScaleModifier`, an Electron recorder ships a
+/// it on click — a scale modifier applied while the button is down, or a
 /// `cursorClickBounce` — and this app drew a ring beside an inert arrow.
 @Suite struct CursorPressTests {
     private let epoch = BootEpoch(id: UUID(uuidString: "3C7A1E90-55B2-4D6F-9A08-11FE2D3C4B5A")!)

@@ -4,7 +4,7 @@ import Timeline
 /// **The camera moves out of the cursor's way.**
 ///
 /// The classic screen-recording flaw: a face in the corner, and the thing being demonstrated
-/// is under it. Screen Studio moves the camera; none of the five reference recorders do, so
+/// is under it. Moving the camera is the answer, and it is rare enough that
 /// there is nothing to copy and this is designed from the codebase's own pattern instead.
 ///
 /// **A schedule baked once, not a decision made per frame.** AVFoundation composes frames out

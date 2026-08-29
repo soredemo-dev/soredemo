@@ -7,11 +7,11 @@ import SwiftUI
 ///
 /// **Apple's picker tells you the least a picker can.** `SCContentSharingPicker` lists windows
 /// by name in a popover: to find the one you mean you read a list, and to know how big the
-/// recording will be you find out afterwards. ScreenKite dims the desktop, highlights whatever
+/// recording will be you find out afterwards. Dimming the desktop and highlighting whatever
 /// is under the pointer, and puts a card on it with the application's name and the size — you
 /// point at the thing itself. That is the picker this is.
 ///
-/// **What is NOT on the card: the window's title.** ScreenKite's shows it — "Spotify" over
+/// **What is NOT on the card: the window's title.** A picker could show it — "Spotify" over
 /// "Spotify Premium". A window title carries whatever is open in it: a document name, a
 /// customer's name, a URL with a token in it. This app's rule is that it does not read ambient
 /// user content, and `noAppSourceReadsUserContent` names `SCWindow.title` as a gap its scan

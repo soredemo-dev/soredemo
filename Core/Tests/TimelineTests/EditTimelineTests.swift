@@ -221,7 +221,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
 
 /// **A clip a person can point at has to survive edits to other clips.** Selection keyed on an
 /// array index silently becomes a different clip the moment an earlier one is deleted; every
-/// editor in `../opensource/Screen Record Opensource/` keys it on an identity instead.
+/// editor keys it on an identity instead.
 @Suite struct ClipIdentityTests {
     private func whole(_ length: Int64) -> EditTimeline {
         EditTimeline.whole(duration: ns(length))
@@ -246,7 +246,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
 
     /// **The ripple is free, and that is a property of the model.** A clip's output position is
     /// the sum of the durations before it and never a stored value, so removing one cannot
-    /// leave a gap. a native editor needs a `RippleEngine` because its clips carry `startFrame`.
+    /// leave a gap. A model whose clips carry an absolute start needs a ripple engine.
     @Test func removingAClipPullsTheRestEarlierWithNoGap() {
         let timeline = whole(1_000).removing(sourceRange: 200..<500)
         let second = timeline.clips[1].id

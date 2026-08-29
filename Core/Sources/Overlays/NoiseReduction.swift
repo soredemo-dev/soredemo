@@ -19,7 +19,7 @@ import Foundation
 ///   * `AVCaptureDevice`'s `voiceIsolation` microphone mode is a **system** setting. An app may
 ///     read it and may ask macOS to show the picker; it may not set it.
 ///
-/// The obvious package — `soniqo/speech-swift`, which is what `a native editor` uses — was resolved
+/// The obvious package — `soniqo/speech-swift` — was resolved
 /// and measured rather than trusted. Its own page says the CoreML backend needs no MLX; its
 /// manifest says `SpeechEnhancement` depends on `MLX` and `MLXNN` unconditionally, and resolving
 /// it pulled **39 transitive packages** including an HTTP server framework, the whole NIO stack,

@@ -7,7 +7,7 @@ import SwiftUI
 /// The camera, on screen, while the recording is running.
 ///
 /// **A recorder that records your face and does not show it to you is asking you to perform
-/// blind.** Every reference recorder that offers a camera puts a self-view on the screen —
+/// blind.** Anything that offers a camera has to put a self-view on the screen —
 /// you are looking at your own framing the whole time, not finding out afterwards that you
 /// were off-centre for four minutes.
 ///
@@ -214,12 +214,12 @@ private final class ShapedCameraView: NSView {
     ///
     /// **A threshold before anything moves.** Without one, a press that wandered a point — which
     /// most presses do — nudged the camera, and since the position is persisted, the nudge was
-    /// permanent. an Electron recorder's overlay uses a 6px threshold for the same reason; this is the same
+    /// permanent. A 6px threshold is the usual figure; this is the same
     /// number because the reason is the same and the hand is the same.
     ///
     /// **Clamped to the screen on every frame, not only when the panel is placed.** Dragging
     /// past an edge otherwise walks the camera off the display, where it cannot be grabbed back
-    /// — and the position it writes is what the export composites with. an Electron recorder clamps inside
+    /// — and the position it writes is what the export composites with. Clamping inside
     /// its `requestAnimationFrame` for this; here every drag event does it.
     override func mouseDragged(with event: NSEvent) {
         guard let start = dragOrigin, let press = pressOrigin, let window else { return }

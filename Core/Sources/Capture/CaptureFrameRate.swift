@@ -9,7 +9,7 @@ import Foundation
 /// The name is what a person means by "60 fps" even though the file is variable until it is
 /// exported.
 ///
-/// **Why it is worth choosing.** ScreenKite's picker card shows `1512×982 · 120FPS` with the
+/// **Why it is worth choosing.** A picker card that reads `1512×982 · 120FPS` puts the
 /// recorded rate beside it, and the two ends of the range are genuinely different products: 30
 /// halves the file and the encode cost of a long tutorial where nothing moves fast, and the
 /// panel's own rate is what makes a scroll or a drag look like the machine rather than like a

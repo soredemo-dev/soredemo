@@ -264,8 +264,8 @@ private func lerped(_ track: PointerTrack, at seconds: Double) -> NormalizedPoin
 // MARK: - how much it glides (design audit: the smoothness gap)
 
 /// **A slower movement cuts a corner harder, and that IS the smoothness.** The reason the
-/// cursor did not look like Screen Studio's was one hard-coded 60 ms response — ω = 105 rad/s
-/// against a Rust recorder's shipped 12.5 — so the spring had reproduced the hand's own path within three
+/// cursor did not glide was one hard-coded 60 ms response — ω = 105 rad/s
+/// against a glide's 12.5 — so the spring had reproduced the hand's own path within three
 /// frames. Measured as the closest the presented path comes to a right-angle corner: the
 /// slower the movement, the wider the arc.
 @Test func aSlowerMovementCutsTheCornerWider() throws {
@@ -290,7 +290,7 @@ private func lerped(_ track: PointerTrack, at seconds: Double) -> NormalizedPoin
 }
 
 /// The ladder is ordered and its ends are anchored: `none` is effectively no spring, and
-/// `slow` is near a Rust recorder's shipped cursor spring, whose ω its own `sqrt(tension/mass)` puts at
+/// `slow` is near a shipped cursor spring whose `sqrt(tension/mass)` puts ω at
 /// 12.5 rad/s for `tension 470, mass 3`.
 @Test func theMovementLadderIsOrderedAndAnchoredOnAShippedSpring() {
     let ladder = PointerPath.Tuning.Movement.allCases
@@ -299,14 +299,14 @@ private func lerped(_ track: PointerTrack, at seconds: Double) -> NormalizedPoin
     #expect(responses == responses.sorted(), "the ladder is not ordered: \(responses)")
     let capOmega = (470.0 / 3.0).squareRoot()
     #expect(abs(PointerPath.Tuning.Movement.slow.angularFrequency - capOmega) < 1.5, """
-        Slow is ω \(PointerPath.Tuning.Movement.slow.angularFrequency); a Rust recorder's shipped cursor \
+        Slow is ω \(PointerPath.Tuning.Movement.slow.angularFrequency); a shipped cursor \
         spring is \(capOmega), and this end of the ladder is meant to sit on it
         """)
     #expect(Set(ladder.map(\.displayName)).count == ladder.count)
 }
 
 /// `none` is a spring so fast it has no memory, which is what "disable smooth mouse movement"
-/// means — the presented path lands on the observations. Screen Studio offers exactly this,
+/// means — the presented path lands on the observations. Offering it is right,
 /// per fragment, for recordings of dropdowns where the frame-by-frame truth is the point.
 @Test func noMovementFollowsTheObservationsThemselves() throws {
     let samples = line(from: (0.2, 0.5), to: (0.8, 0.5), start: 1, duration: 0.6)

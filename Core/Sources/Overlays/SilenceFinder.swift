@@ -5,8 +5,8 @@ import Timeline
 ///
 /// **The single edit that makes a demo watchable.** A recorded walkthrough is mostly pauses —
 /// waiting for a page, finding a menu, thinking of the next sentence — and cutting them by hand
-/// means scrubbing the whole thing. an Electron recorder and a native editor both ship this; a native editor calls the
-/// result a `WordCutPlanner`, an Electron recorder a dead-air removal.
+/// means scrubbing the whole thing. Sold elsewhere as dead-air removal or word-cut planning;
+/// the name varies and the job does not.
 ///
 /// **It reads the envelope the waveform is drawn from.** No second analysis: the numbers on
 /// screen and the numbers this cuts by are the same numbers, so a person looking at the strip

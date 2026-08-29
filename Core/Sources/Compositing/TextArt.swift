@@ -25,7 +25,7 @@ public enum TextArt {
     ///
     /// `CTFontCreateUIFontForLanguage` rather than a font named as a string: a name that is not
     /// installed silently falls back to Helvetica, which is a different width, and the text then
-    /// overflows on exactly the machines that lack the font. a native editor carries a `fontName`
+    /// overflows on exactly the machines that lack the font. Carrying a font name
     /// field and a cache keyed on it; that is the right shape once a font PICKER exists, and a
     /// wrong-width fallback with no picker to explain it until then.
     static func font(pointSize: Double, bold: Bool) -> CTFont {

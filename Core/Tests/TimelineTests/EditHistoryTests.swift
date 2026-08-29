@@ -5,7 +5,7 @@ import Testing
 private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
 
 /// **A stack of values, not of inverse operations**, because `EditTimeline` is a value and
-/// every edit already produces a whole new one. a native editor's `EditorUndo` registers a closure
+/// every edit already produces a whole new one. The usual shape registers a closure
 /// per mutation, which is right for the mutable object graph it edits and wrong here: an
 /// inverse is a second implementation of an edit, and two implementations of one rule is the
 /// shape this project keeps finding bugs in.

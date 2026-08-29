@@ -8,8 +8,8 @@ import SwiftUI
 ///
 /// **A first run that fails silently is the commonest way a recorder gets deleted.** Without a
 /// grant, `SCStream` reports that the user declined — from an API that never asked them — and a
-/// person's first recording is a black rectangle. ScreenKite opens with a permission page for
-/// this reason and so does an Electron recorder; it is the one screen every one of these applications has.
+/// person's first recording is a black rectangle. Opening with a permission page is right for
+/// this reason: it is the one screen an application like this cannot do without.
 ///
 /// **Required and optional are separated, and the optional ones say what they cost.** Screen
 /// Recording and Accessibility are what the product is; a microphone and a camera are choices,
@@ -56,7 +56,7 @@ struct PermissionsWindow: View {
             // **The accessibility helper, and only when it is needed.** macOS cannot be told to
             // grant Accessibility; the API opens System Settings and the person does the rest —
             // and if this app is not already listed there, the only way to add it is to drag it
-            // in. ScreenKite ships a floating panel that does exactly this, and it is the one
+            // in. A floating panel that does exactly this is the one
             // step of the whole flow nobody works out unaided.
             if statuses[.accessibility] != .granted {
                 AccessibilityDragHelper()
@@ -301,8 +301,8 @@ private struct CameraRow: View {
 ///
 /// **Accessibility cannot be granted by an API.** `AXIsProcessTrustedWithOptions` opens System
 /// Settings and stops there; if this app is not already listed in the Accessibility pane, the
-/// only way to add it is to drag it in from the Finder. ScreenKite ships a floating panel that
-/// says "Drag ScreenKite to the list above" with the app sitting in it, and that is the whole
+/// only way to add it is to drag it in from the Finder. A floating panel that
+/// says "drag this app to the list above" with the app sitting in it is the whole
 /// idea: put the thing to be dragged in front of the person, next to the list it goes in.
 private struct AccessibilityDragHelper: View {
     var body: some View {

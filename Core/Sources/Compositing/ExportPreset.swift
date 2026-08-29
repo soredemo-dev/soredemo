@@ -6,7 +6,7 @@ import Foundation
 /// small research project: a person who wants to put a demo in a Slack thread should not have
 /// to know that H.264 is the one every client decodes, that 720p is what keeps a two-minute
 /// recording under an attachment limit, or that ProRes is the thing an editor actually wants.
-/// Screen Studio offers the same three destinations for the same reason.
+/// Three destinations, because a file goes to a page, to a person, or to another editor.
 ///
 /// **Three, and they have to be genuinely different.** Offering a list whose entries produce
 /// nearly the same file is worse than offering none: it asks a person to choose between things

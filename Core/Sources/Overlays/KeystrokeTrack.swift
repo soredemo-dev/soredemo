@@ -10,8 +10,8 @@ import Timeline
 ///
 /// **A press replaces the badge, it does not stack.** Two shortcuts a second apart are two
 /// badges in turn; a second press inside the first's hold restarts the hold with the new
-/// text. a Swift recorder keeps a list of concurrent `KeystrokeSegment`s and fades each; a single
-/// badge is what Screen Studio's and ScreenKite's footage shows, and one thing to read at a
+/// text. A list of concurrent segments, each fading, is the alternative; a single
+/// badge is what published footage shows, and one thing to read at a
 /// time is the point of a badge.
 ///
 /// **Absolute host time, like every observation.** A press is stamped by the recorder's clock
@@ -30,7 +30,7 @@ public struct KeystrokeTrack: Sendable, Equatable {
 
     /// How long a badge stays fully visible after the press. Long enough to read a
     /// three-glyph shortcut twice; a viewer who missed it the first time has a second look.
-    /// **Uncalibrated** — a Swift recorder holds for a similar span, Screen Studio's is not published.
+    /// **Uncalibrated.**
     public static let hold = Nanoseconds(900_000_000)
     /// The rise and the fall. Short in, so a badge lands with the press; longer out, so it
     /// leaves rather than blinks. **Uncalibrated.**

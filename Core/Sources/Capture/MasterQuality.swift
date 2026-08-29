@@ -12,7 +12,7 @@ import Foundation
 /// setting alone.
 ///
 /// **The same arithmetic as `ExportQuality.best`, restated here because `Capture` cannot
-/// import `Compositing`.** a Rust recorder's 0.3 bits per pixel per frame, tapered above 30 fps by 0.6
+/// import `Compositing`.** 0.3 bits per pixel per frame, tapered above 30 fps by 0.6
 /// since a doubled frame rate does not need doubled bits, with a 2 Mbps floor for a small
 /// window. `theMasterSpendsWhatTheBestExportSpends` in `CaptureTests` pins the 1080p60
 /// figure to the number `ExportQuality.best` produces, so the two cannot drift apart
@@ -22,7 +22,7 @@ import Foundation
 /// gives; the codec itself stays H.264 because the master is read by every tool this
 /// project tests with and hardware encodes it in real time at any size a display has.
 public enum MasterQuality {
-    /// a Rust recorder's `Maximum`, and `ExportQuality.best`'s.
+    /// The same figure `ExportQuality.best` uses.
     public static let bitsPerPixel: Double = 0.3
     /// `ExportQuality.effectiveFrameRate`'s taper, verbatim.
     public static func effectiveFrameRate(_ frameRate: Int) -> Double {

@@ -8,7 +8,7 @@ import Geometry
 
 /// A window a person could point at, described without reading anything private about it.
 ///
-/// **The application's name, never the window's title.** ScreenKite's picker shows both — its
+/// **The application's name, never the window's title.** A picker can show both — the
 /// card reads "Spotify" over "Spotify Premium". The second line is the window title, and a
 /// window title carries whatever is open in it: a document name, a customer's name, a URL with a
 /// token in it. `ObservationLog`'s rule is that this app does not read ambient user content, and

@@ -147,7 +147,7 @@ private func probeShapedCapture(windowPoints: (Double, Double),
 /// `sourceRect`, writing "anything overlapping the window's rect is captured with it. A real
 /// regression in isolation, accepted because…". A user then recorded a window and got the
 /// Dock. Reading the four comparable recorders dissolved all three reasons for accepting it:
-/// a Rust recorder, an Electron recorder and an Electron recorder all ship `desktopIndependentWindow`, and both of the two that
+/// `desktopIndependentWindow` is what comparable recorders use, and the two that
 /// are Swift size the buffer to the window at the same time — the pair was never in tension.
 ///
 /// Asserted through `sourceRect`, which is the observable consequence: a window filter's

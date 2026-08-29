@@ -24,7 +24,7 @@ click was or was not zoomed to — so you can disagree with any of it.
 
 | | |
 | --- | --- |
-| **The camera gets out of the way** | Screen Studio shrinks the camera during a zoom. This one moves it to a different corner when the cursor comes near, waits, and comes back |
+| **The camera gets out of the way** | Shrinking it during a zoom is the usual answer. This one moves it to a different corner when the cursor comes near, waits, and comes back |
 | **Music ducks under speech** | Add a music bed and it drops itself when you talk |
 | **Dead air removes itself** | Silences found and cut, with the padding you choose |
 | **The cursor tilts as it moves** | A small thing that makes a pointer read as a hand rather than a sprite |
@@ -41,7 +41,7 @@ export to H.264, HEVC, ProRes 422, ProRes
 4444 or GIF — with the file size estimated before you commit and several exports queued at once.
 
 [`docs/research/competitors.md`](docs/research/competitors.md) is the full matrix against Screen
-Studio, a Rust recorder, Motionik, Borumi and ScreenKite, verified file by file rather than remembered — and
+the leading commercial and open-source recorders, verified file by file rather than remembered — and
 it is equally clear about what is *missing*.
 
 ---
@@ -103,7 +103,7 @@ build it, the four gates, and the handful of standards that will otherwise surpr
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Eight binding decisions (D1–D8) and the module map |
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | **How to contribute.** Build, the four gates in order, the house standards, and what will be declined |
-| [`docs/research/competitors.md`](docs/research/competitors.md) | Every feature of Screen Studio, a Rust recorder, Motionik, Borumi and ScreenKite against this codebase, verified file by file — and the ranked gap list |
+| [`docs/research/competitors.md`](docs/research/competitors.md) | Every feature of the leading recorders against this codebase, verified file by file — and the ranked gap list |
 
 `docs/design/` holds one document per phase — the questions asked, the alternatives rejected, and
 why. Those are the durable record of *why*; `git log` is the rest.

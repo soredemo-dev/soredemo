@@ -7,10 +7,10 @@ import SwiftUI
 ///
 /// **The third thing a recorder has to be able to point at.** A display capture of a demo living
 /// in a 600-point panel spends nine tenths of its pixels on desktop, and a window capture cannot
-/// do it at all when the subject is part of a window rather than all of it. a Rust recorder, an Electron recorder and
-/// an Electron recorder all offer this.
+/// do it at all when the subject is part of a window rather than all of it.
 ///
-/// **The rectangle is remembered, which is a Rust recorder's idea and the one that matters.** Its
+///
+/// **The rectangle is remembered, and that is the part that matters.** A
 /// `AreaSelectionPreferences` carry `bounds` and a `screenId`, and `getLockedAreaBounds` hands
 /// them back only when the same display is still attached and the rectangle is still big enough
 /// to record. Somebody recording six takes of the same panel wants the same rectangle six times,
@@ -108,7 +108,7 @@ final class RegionState {
 enum RememberedRegion {
     private static let key = "lastRecordedRegion"
 
-    /// **Validated on the way out, not trusted.** a Rust recorder's `getLockedAreaBounds` refuses a
+    /// **Validated on the way out, not trusted.** A remembered rectangle must be refused when
     /// remembered rectangle whose display is gone or whose size is below a floor; the same two
     /// checks, plus finiteness, because this arrives from `UserDefaults` where anything can be.
     static func load() -> PointRect? {

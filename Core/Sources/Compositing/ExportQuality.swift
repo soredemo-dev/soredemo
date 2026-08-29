@@ -12,20 +12,20 @@ import VideoToolbox
 /// screen recording is hard edges and text, which is exactly what H.264 spends its bits worst on,
 /// and at half the rate it needs the text is the first thing to go.
 ///
-/// **Three projects, three methods, one answer.** an Electron recorder's `getMp4ExportBitrate` and
-/// an Electron recorder's `calculateBitrate` both step by pixel count — 10 Mbps to 720p, 20 to 1080p, 30
-/// above — having arrived there separately. a Rust recorder computes bits-per-pixel instead, and its
-/// `Maximum` preset works out at 18.7 Mbps for 1080p30. Two independent tables and one formula
-/// agreeing within a tenth is the strongest evidence available for a number nobody can derive.
+/// **Bits per pixel, not a table of resolutions.** The two ways to answer this converge: a
+/// ladder stepping by pixel count gives 10 Mbps at 720p, 20 at 1080p and 30 above, and a
+/// bits-per-pixel figure at the top preset works out at 18.7 Mbps for 1080p30. Independent
+/// methods agreeing within a tenth is the strongest evidence available for a number nobody can
+/// derive from first principles.
 ///
-/// a Rust recorder's shape is the one carried over, because a table has to be re-guessed at every new
-/// resolution and a bits-per-pixel figure does not.
+/// The formula is what ships, because a table has to be re-guessed at every new resolution and a
+/// bits-per-pixel figure does not.
 public struct ExportQuality: Hashable, Sendable, Codable {
-    /// Bits per pixel per frame. a Rust recorder's own values, unchanged — its `Maximum` 0.3, `Social` 0.15
-    /// and `Web` 0.08, renamed here for what they are rather than for where they are posted.
+    /// Bits per pixel per frame: 0.3, 0.15 and 0.08. Named for what they are rather than for
+    /// where a file is going to be posted.
     public let bitsPerPixel: Double
-    /// The audio track's rate. 192 kbps is a Rust recorder's; 128 was here, which is a rate chosen for music,
-    /// where a listener is not trying to make out consonants.
+    /// The audio track's rate. 192 kbps; 128 was here, which is a rate chosen for music, where a
+    /// listener is not trying to make out consonants.
     public let audioBitRate: Int
 
     public init(bitsPerPixel: Double, audioBitRate: Int) {
@@ -53,8 +53,8 @@ public struct ExportQuality: Hashable, Sendable, Codable {
 
     /// **A doubled frame rate does not need doubled bits.** Consecutive frames at 60 fps differ
     /// by half as much as at 30, so the second half of the frames cost the encoder far less than
-    /// the first. a Rust recorder's H.264 encoder tapers everything above 30 by 0.6 and its size estimates
-    /// come within 3% of the files it writes; that is the whole argument for the number.
+    /// the first. Tapering everything above 30 by 0.6 brings size estimates within 3% of the
+    /// files actually written, which is the whole argument for the number.
     public static func effectiveFrameRate(_ frameRate: Int) -> Double {
         min(Double(frameRate), 30) + max(Double(frameRate) - 30, 0) * 0.6
     }
@@ -65,9 +65,8 @@ public struct ExportQuality: Hashable, Sendable, Codable {
         let pixels = Double(outputWidth * outputHeight)
         let rate = pixels * bitsPerPixel * Self.effectiveFrameRate(frameRate)
             * codec.bitRateFactor
-        // **A floor, because a small output still has to be legible.** an Electron recorder's is 2 Mbps and
-        // it is there for the same reason: a 640-wide MP4 of a terminal is text, and
-        // bits-per-pixel alone would give it almost nothing.
+        // **A floor, because a small output still has to be legible.** A 640-wide MP4 of a
+        // terminal is text, and bits-per-pixel alone would give it almost nothing.
         return max(Int(rate.rounded()), 2_000_000)
     }
 
@@ -153,9 +152,9 @@ public struct ExportQuality: Hashable, Sendable, Codable {
 
     /// Roughly how large the file will be, in bytes, before it is written.
     ///
-    /// **Said before the export, because the answer changes what somebody picks.** a Rust recorder shows this
-    /// and calibrated it against real recordings to an average error of 3%; `encoderEfficiency`
-    /// below is that calibration — H.264 beats the theoretical bits-per-pixel figure by about
+    /// **Said before the export, because the answer changes what somebody picks.**
+    /// `encoderEfficiency` below is the calibration against real recordings, to an average error
+    /// of 3% — H.264 beats the theoretical bits-per-pixel figure by about
     /// half on screen content, which is flat colour and repeated frames far more than detail.
     ///
     /// An estimate, and named as one. The true size depends on what is on the screen, and a

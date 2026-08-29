@@ -19,16 +19,16 @@ import Timeline
         }
     }
 
-    /// The two defaults the reference recorders ship, measured. This is the finding the header
+    /// The two rates most recorders default to, measured. This is the finding the header
     /// cites, so it is checked rather than asserted in prose.
     @Test func theRatesTheOtherRecordersDefaultToDoNotSurviveTheFormatsGrid() {
-        // a Swift recorder's default: 15 fps is 6.67 cs, written as 7.
-        let a Swift recorder = GIFSettings(frameRate: 15)
-        #expect(a Swift recorder.delayCentiseconds == 7)
-        #expect(!a Swift recorder.isExact)
-        #expect(abs(a Swift recorder.playbackRate - 14.2857) < 0.001)
+        // 15 fps is 6.67 cs, written as 7.
+        let fifteen = GIFSettings(frameRate: 15)
+        #expect(fifteen.delayCentiseconds == 7)
+        #expect(!fifteen.isExact)
+        #expect(abs(fifteen.playbackRate - 14.2857) < 0.001)
 
-        // a Rust recorder's default: 30 fps is 3.33 cs, written as 3 — which plays FASTER than asked.
+        // 30 fps is 3.33 cs, written as 3 — which plays FASTER than asked.
         let cap = GIFSettings(frameRate: 30)
         #expect(cap.delayCentiseconds == 3)
         #expect(cap.playbackRate > 30)
