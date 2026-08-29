@@ -31,22 +31,6 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// The observation log the pointer track is read from; `nil` draws no pointer.
     public nonisolated(unsafe) static var observationLogURL: URL?
 
-    /// Clicks derived from the picture, for a recording with no observations of its own.
-    ///
-    /// **The compositor and the timeline were deriving zooms from two different places, and only
-    /// one of them was this file.** The timeline drew blocks the app had computed from motion;
-    /// this built its camera from `observationLogURL`, which a phone recording does not have —
-    /// so the lane showed zooms and the picture never moved. Nothing was broken at either end.
-    ///
-    /// Given as CLICKS rather than as blocks so the whole path downstream is the same one a
-    /// mouse recording takes: `ZoomBlock.blocks` merges them, `zoomIntensity` scales them,
-    /// `zoomAdjustments` applies a person's corrections, and `CameraMotion` moves the camera. A
-    /// second path taking finished blocks would have to re-implement all four and would drift.
-    public nonisolated(unsafe) static var motionClicks: [FramedClick] = []
-
-    /// The anchor `motionClicks`' instants are measured from. Both or neither: an instant
-    /// without the anchor that gives it meaning is a number.
-    public nonisolated(unsafe) static var motionAnchor: EpochAnchor?
     /// A reviewer's decisions to suppress the pointer, set before playback starts and never read
     /// from the observation log.
     public nonisolated(unsafe) static var overrides: [CursorOverride] = []
@@ -163,8 +147,6 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     public struct Settings: Sendable {
         var style: StageStyle
         var observationLogURL: URL?
-        var motionClicks: [FramedClick]
-        var motionAnchor: EpochAnchor?
         var overrides: [CursorOverride]
         var editTimeline: EditTimeline?
         var framingOverrides: [FramingOverride]
@@ -184,9 +166,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     /// What the compositor would draw right now.
     public nonisolated static func settings() -> Settings {
-        unsafe Settings(style: style, observationLogURL: observationLogURL,
-                        motionClicks: motionClicks, motionAnchor: motionAnchor,
-                        overrides: overrides,
+        unsafe Settings(style: style, observationLogURL: observationLogURL, overrides: overrides,
                         editTimeline: editTimeline, framingOverrides: framingOverrides,
                         zoomAdjustments: zoomAdjustments, captions: captions,
                         captionStyle: captionStyle, burnsInCaptions: burnsInCaptions,
@@ -202,8 +182,6 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     public nonisolated static func apply(_ settings: Settings) {
         unsafe style = settings.style
         unsafe observationLogURL = settings.observationLogURL
-        unsafe motionClicks = settings.motionClicks
-        unsafe motionAnchor = settings.motionAnchor
         unsafe overrides = settings.overrides
         unsafe editTimeline = settings.editTimeline
         unsafe framingOverrides = settings.framingOverrides
@@ -834,29 +812,6 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                     unsafe cameraCeiling = built.camera.zoomCeiling
                     unsafe keystrokes = built.keystrokes
                     unsafe logAnchor = built.anchor
-                }
-                // **The fallback for a recording with no observations.** A phone gives this Mac
-                // no cursor, no accessibility chain and no clicks; `MotionActivity` derives them
-                // from the picture instead, and from here on the path is identical to a mouse
-                // recording's — the same merge, the same intensity, the same adjustments, the
-                // same camera.
-                //
-                // Only when the log produced nothing. A recording that has observations has
-                // better ones: motion knows something changed, and a click knows what was
-                // pressed.
-                if unsafe camera == nil, !(unsafe Self.motionClicks).isEmpty,
-                   let anchor = unsafe Self.motionAnchor {
-                    let blocks = ZoomBlock.blocks(for: unsafe Self.motionClicks,
-                                                  coverage: unsafe Self.outputCoverage,
-                                                  intensity: unsafe Self.zoomIntensity)
-                    let motion = CameraMotion(blocks: unsafe Self.zoomAdjustments.applied(to: blocks),
-                                              // No pointer to follow: a phone recording draws
-                                              // none, so the camera holds the block's own centre
-                                              // rather than tracking a cursor that is not there.
-                                              cursor: { _ in nil })
-                    unsafe camera = motion
-                    unsafe cameraCeiling = motion.zoomCeiling
-                    unsafe logAnchor = anchor
                 }
             }
             let wanted = (unsafe Self.cursorStyle).movement

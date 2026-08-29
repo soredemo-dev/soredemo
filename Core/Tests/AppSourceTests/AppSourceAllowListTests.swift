@@ -1469,38 +1469,6 @@ private func desktopIconsFile() throws -> [URL] {
         """)
 }
 
-/// **Observed clicks beat motion, and the fallback only fires when there is nothing observed.**
-///
-/// A Mac recording knows what was clicked and on which control; motion knows only that something
-/// changed. Running both would put a second set of zooms on top of ones derived from what was
-/// actually pressed, and nothing about the result would look wrong — there would simply be too
-/// many zooms, in roughly the right places, with no way to tell which came from where.
-@Test func motionDerivedZoomsAreOnlyUsedWhenNothingWasObserved() throws {
-    let stage = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/StageWindow.swift" }
-    try #require(stage.count == 1)
-    let lines = SwiftSourceLexer.codeViewLines(
-        of: try String(contentsOf: stage[0], encoding: .utf8))
-
-    let chooses = try #require(lines.firstIndex { $0.contains("observed.isEmpty ? motionClicks") },
-                               """
-                               Nothing chooses between observed clicks and motion-derived ones. \
-                               If both are used a Mac recording gets a second set of zooms on \
-                               top of the ones derived from what was actually pressed.
-                               """)
-    #expect(chooses > 0)
-
-    // And the analysis itself refuses to run when a plan exists.
-    let guardLine = try #require(
-        lines.firstIndex { $0.contains("review.plan.entries.isEmpty") },
-        "deriveZoomsFromMotion no longer checks for an existing plan before running")
-    let analysis = try #require(lines.firstIndex { $0.contains("func deriveZoomsFromMotion") })
-    #expect(guardLine > analysis && guardLine < analysis + 12, """
-        The plan check is at line \(guardLine + 1), outside deriveZoomsFromMotion, which starts \
-        at line \(analysis + 1) — so the pass runs on Mac recordings too and spends half their \
-        length decoding for an answer that is thrown away.
-        """)
-}
 
 /// **Opening anything replaces what is open, so every way in asks first.**
 ///
@@ -1699,36 +1667,6 @@ private func desktopIconsFile() throws -> [URL] {
         """)
 }
 
-/// **The editor publishes motion clicks to the compositor, not only to the timeline.**
-///
-/// These were two derivations of the same thing from two different places: the timeline drew
-/// blocks the editor had computed, and `StageCompositor` built its camera from the observation
-/// log alone. A phone recording has no log, so the lane showed zooms and the picture never moved
-/// — with nothing wrong at either end, each being correct about its own inputs.
-///
-/// The compositor half is covered by `theCameraZoomsFromMotionClicksWhenThereIsNoObservationLog`.
-/// This is the other half: that the app actually hands them over, on the analysis AND on every
-/// later load, because `load()` runs more than once and the analysis declines to run again.
-@Test func theEditorPublishesMotionClicksToTheCompositor() throws {
-    let stage = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/StageWindow.swift" }
-    try #require(stage.count == 1)
-    let lines = SwiftSourceLexer.codeViewLines(
-        of: try String(contentsOf: stage[0], encoding: .utf8))
-
-    let publishes = lines.indices.filter { lines[$0].contains("StageCompositor.motionClicks =") }
-    #expect(publishes.count >= 2, """
-        `StageCompositor.motionClicks` is set \(publishes.count) time(s). It needs setting when \
-        the analysis finishes AND on every load: load() runs more than once, the composition \
-        reads the statics as it builds, and the analysis will not run again once it has clicks.
-        """)
-    let anchors = lines.indices.filter { lines[$0].contains("StageCompositor.motionAnchor =") }
-    #expect(anchors.count == publishes.count, """
-        The clicks and their anchor are published a different number of times \
-        (\(publishes.count) vs \(anchors.count)). An instant without the anchor that gives it \
-        meaning is a number.
-        """)
-}
 
 /// **A container that paints a background constrains both axes.**
 ///

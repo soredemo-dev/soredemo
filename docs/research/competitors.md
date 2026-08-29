@@ -59,7 +59,6 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Capability | Screen Studio | a Rust recorder | Motionik | Borumi | ScreenKite | **Soredemo** |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Automatic zoom on activity | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** `Framing` |
-| **Automatic zoom on a PHONE recording** | **·** | · | · | · | · | **✓** `MotionActivity` *(nobody else)* |
 | Manual zoom blocks on timeline | ✓ | ✓ | ✓ | · | ✓ | **✓** |
 | Zoom re-fit for vertical export | ✓ | · | ✓ | ✓ | · | **✓** |
 | Smooth cursor movement | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** `PointerPath` |
@@ -200,6 +199,42 @@ and it is the only automatic answer any of these tools has for a phone.
 **Screen Studio's own workaround is worth knowing**: connect a Bluetooth mouse to the iPad. A
 cursor then appears in the recording, and everything that follows a cursor has something to
 follow.
+
+### Automatic zoom on a phone: built, measured, removed
+
+**2026-08-29.** A pass that derived zooms from what CHANGES on screen shipped and was taken out
+again the same day. The reason is worth more than the code was.
+
+The method rests on "change means intent". On a phone that is false, and three frames from a real
+iPad recording show how:
+
+    3.09s   the target landed on a music widget on the home screen — animating by itself
+    6.07s   on a promotional banner, mid-transition into another app
+    8.42s   on empty space, while a sidebar slid in from the left
+
+Three detections, three wrong. And wrong structurally rather than by a margin a threshold could
+close:
+
+  * **Transitions dominate.** Every navigation animates the whole screen, and the animation is
+    always a larger change than the tap that caused it.
+  * **The UI animates on its own.** Widgets, banners, badges, sidebars.
+  * **The tap comes BEFORE the change.** By the time the change is at its largest, the finger has
+    moved on and the screen is showing somewhere else.
+
+Several honest attempts were made first — a peak-relative threshold instead of an average, a
+fixed target instead of a bounding box, rejecting frame-wide changes as transitions, grouping
+frames into bursts and framing from the clearest one. Each was a real improvement to a method
+that cannot work.
+
+Screen Studio, with far more resources, reached the same conclusion and says so publicly:
+"automatic zooms are not supported" for iOS recordings. **Nobody has this feature**, and the
+reason is not that nobody tried.
+
+**What does work is their suggestion**: pair a Bluetooth mouse to the iPad. A real cursor then
+appears in the recording, and everything that follows a cursor has something to follow.
+
+A wrong zoom costs somebody a deletion; a missing zoom costs nothing. That asymmetry is what
+settled it.
 
 ## 4. Where this project already leads
 

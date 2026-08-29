@@ -168,12 +168,14 @@ struct MenuBarRecorderPanel: View {
                         coordinator.beginMobileRecording(device)
                     }
                 }
-                // **Said before the recording, not after it.** A phone has no cursor and no
-                // clicks this Mac can see, so the zooms are derived from what CHANGES on screen
-                // instead — which finds a tap that opens a menu and does not know a control's
-                // name. Somebody expecting the same answer they get on a Mac is owed the
-                // difference in advance.
-                Text("Zooms come from what changes on screen \u{2014} there is no cursor here.")
+                // **Said before the recording, not after it.** iOS does not send touch
+                // coordinates to a Mac — measured, and Screen Studio's own guide says the same —
+                // so there is nothing to derive an automatic zoom from. Somebody expecting the
+                // zooms they get on a Mac is owed that in advance, along with the one thing that
+                // does work: a Bluetooth mouse paired to the device puts a real cursor in the
+                // recording, and everything that follows a cursor then has one to follow.
+                Text("Zooms are manual here \u{2014} iOS does not share where you tap. "
+                     + "A Bluetooth mouse paired to the device gives it a cursor to follow.")
                     .font(Type.detail).foregroundStyle(.secondary)
             }
             .padding(.top, Space.snug)

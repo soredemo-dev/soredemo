@@ -66,23 +66,6 @@ struct StageWindow: View {
     /// rewrites what a person hears, and a recorder that quietly processed everybody's voice
     /// would be making a decision that is not its to make.
     @State private var noiseReduction: NoiseReduction.Settings?
-    /// Zooms derived from what changed on screen, for a recording with no observations to
-    /// derive them from — a phone. Empty for everything else.
-    @State private var motionClicks: [FramedClick] = []
-    /// Whether the motion pass is running, so the interface can say why the zoom lane is empty
-    /// for a moment rather than looking like it found nothing.
-    @State private var motionIsAnalysing = false
-    /// How far the motion pass has read, 0…1. Shown because the pass cannot be made fast:
-    /// measured at roughly half real-time on a 4K recording, and the same however few frames
-    /// are sampled — the cost is decoding, not deciding.
-    @State private var motionProgress: Double = 0
-    /// The anchor the motion pass minted, kept so a reload can put it back.
-    ///
-    /// **Without it the zooms survive a reload and their place on the timeline does not.**
-    /// `load()` sets the anchor from `review.anchor`, which is `nil` for a recording with no
-    /// observation log; the analysis then declines to run again, because it already has its
-    /// clicks — so the blocks are still there and nothing can say where they go.
-    @State private var motionAnchor: EpochAnchor?
     /// What the last attempt to clean the microphone did, or why it could not. Shown, never
     /// swallowed — a person who turned this on and heard no difference is owed the reason.
     @State private var noiseReductionNote: String?
@@ -366,26 +349,6 @@ struct StageWindow: View {
                                    redactions: redactions.track)
                         .padding(Space.regular)
                         .frame(height: timelineHeight - EditorToolbar.height)
-                        // **Said while it happens, not explained afterwards.** Deriving zooms
-                        // from the picture is roughly half real-time — measured, and it does not
-                        // get faster with fewer samples because the cost is decoding — so a
-                        // person watching an empty zoom lane for two minutes would reasonably
-                        // conclude it found nothing.
-                        .overlay(alignment: .topTrailing) {
-                            if motionIsAnalysing {
-                                HStack(spacing: Space.snug) {
-                                    ProgressView(value: motionProgress)
-                                        .progressViewStyle(.linear)
-                                        .frame(width: 90)
-                                    Text("Finding zooms\u{2026}")
-                                        .font(Type.detail).foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, Space.regular)
-                                .padding(.vertical, Space.snug)
-                                .background(.regularMaterial, in: Capsule())
-                                .padding(Space.regular)
-                            }
-                        }
                 }
             }
             .animation(.easeOut(duration: 0.18), value: isTimelineCollapsed)
@@ -1489,63 +1452,12 @@ struct StageWindow: View {
     }
 
     private func refreshDerivedZooms() {
-        // **Observations first, motion only when there are none.** A Mac recording knows what
-        // was clicked and on which control; motion knows only that something changed. Where
-        // both exist the observed answer is better in every case, and preferring it needs no
-        // switch — a recording with a log has clicks, and a phone recording has none.
-        let observed = review.plan.framedClicks(with: review.overrides,
-                                                pointerFallbackRevision: review.fallbackRevision)
-        // **Authored overrides still win.** A person who added or moved a zoom on a phone
-        // recording did so against the motion-derived ones, and `framedClicks` has already
-        // folded their overrides in — so an empty plan with overrides is not an empty answer.
-        let clicks = observed.isEmpty ? motionClicks : observed
         timeline.setDerivedZooms(ZoomBlock.blocks(
-            for: clicks, coverage: outputCoverage, intensity: zoomIntensity))
+            for: review.plan.framedClicks(with: review.overrides,
+                                          pointerFallbackRevision: review.fallbackRevision),
+            coverage: outputCoverage, intensity: zoomIntensity))
     }
 
-    /// Derives zooms from the picture, for a recording that has no observations.
-    ///
-    /// **Only when there is no log.** Running this beside a Mac recording's own clicks would
-    /// produce a second set of zooms nobody asked for, on top of ones derived from what was
-    /// actually pressed.
-    ///
-    /// The epoch is minted here and used for nothing else. A phone recording has no boot
-    /// session of this Mac's to belong to; what the framing machinery needs from an epoch is
-    /// that every instant in one recording shares it, and that instants from two recordings
-    /// never compare equal. A fresh UUID per analysis gives both.
-    private func deriveZoomsFromMotion(of recording: AVAsset) async {
-        guard review.plan.entries.isEmpty, motionClicks.isEmpty else { return }
-        motionIsAnalysing = true
-        defer { motionIsAnalysing = false }
-
-        let epoch = BootEpoch(id: Minting.newIdentifier())
-        do {
-            let changes = try await FrameChangeReader.changes(
-                from: recording, epoch: epoch,
-                onProgress: { fraction in Task { @MainActor in motionProgress = fraction } })
-            // The recording's own revision, so the frames these produce can be compared with
-            // anything else derived from the same recording. Nothing else in a phone recording
-            // stamps one, so this is where it is decided.
-            let clicks = MotionActivity.clicks(from: changes,
-                                               revision: GeometryRevision(id: 1))
-            motionClicks = clicks
-            let anchor = EpochAnchor(epoch: epoch, hostTime: Nanoseconds(0),
-                                     wallClockUnixNanos: 0)
-            motionAnchor = anchor
-            // **The compositor has to be told too, and this was the whole reported bug.** The
-            // timeline drew blocks the editor had computed while `StageCompositor` built its
-            // camera from the observation log alone — which a phone recording does not have.
-            // Zooms on the lane, none in the picture, and nothing broken at either end.
-            StageCompositor.motionClicks = clicks
-            StageCompositor.motionAnchor = anchor
-            timeline.setZoomAnchor(anchor)
-            refreshDerivedZooms()
-        } catch {
-            // Said, not swallowed: a person whose phone recording has no zooms is owed the
-            // reason, and "there is no video in this file" is one they can act on.
-            exportStatus = "Zooms could not be derived from the picture: \(error)"
-        }
-    }
 
     private func load() async {
         do {
@@ -1592,21 +1504,8 @@ struct StageWindow: View {
             StageCompositor.outputCoverage = outputCoverage
             // The anchor first: the lane converts every block's absolute instant through it,
             // and blocks set before it would be drawn off the edge for one frame.
-            // **The motion anchor is the fallback, and a reload is why.** `review.anchor` is
-            // `nil` for a recording with no observation log, and the analysis below declines to
-            // run a second time — so without this the zooms are rebuilt and have nowhere to go.
-            timeline.setZoomAnchor(review.anchor ?? motionAnchor)
-            // Re-published on every load for the same reason the anchor is: `load()` runs more
-            // than once, `configuredComposition` reads these statics as it builds, and the
-            // analysis declines to run again once it has its clicks.
-            StageCompositor.motionClicks = motionClicks
-            StageCompositor.motionAnchor = motionAnchor
+            timeline.setZoomAnchor(review.anchor)
             refreshDerivedZooms()
-            // **Started, not awaited.** Deriving zooms from the picture decodes the whole
-            // recording; awaiting it here would hold the preview back behind an analysis that
-            // has nothing to do with showing the first frame. It returns immediately for every
-            // recording that has observations of its own, so the common path costs one guard.
-            Task { await deriveZoomsFromMotion(of: recording) }
             if timeline.duration == nil {
                 timeline.load(duration: try await recording.load(.duration).seconds)
                 // **After `load`, which resets the models.** Restoring first would be wiped by
