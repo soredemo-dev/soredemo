@@ -67,13 +67,14 @@ struct WallpaperPicker: View {
     @State private var failure: String?
 
     private enum Source: String, CaseIterable, Hashable {
-        case desktop, system, gradient
+        case desktop, system, gradient, none
 
         var title: String {
             switch self {
             case .desktop: "Desktop"
             case .system: "System"
             case .gradient: "Gradients"
+            case .none: "None"
             }
         }
     }
@@ -82,7 +83,7 @@ struct WallpaperPicker: View {
         switch source {
         case .desktop: WallpaperGallery.currentDesktops()
         case .system: WallpaperGallery.systemPictures()
-        case .gradient: []
+        case .gradient, .none: []
         }
     }
 
@@ -94,7 +95,9 @@ struct WallpaperPicker: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            if source == .gradient {
+            if source == .none {
+                transparent
+            } else if source == .gradient {
                 gradients
             } else if urls.isEmpty {
                 Text(source == .desktop
@@ -116,6 +119,65 @@ struct WallpaperPicker: View {
 
             if let failure {
                 Text(failure).font(Type.detail).foregroundStyle(Signal.paused)
+            }
+        }
+    }
+
+    /// **No background at all — the export carries a hole where the colour was.**
+    ///
+    /// Drawn as the checkerboard every image editor uses for transparency rather than as an
+    /// empty square, because an empty square is what a black background looks like too, and the
+    /// difference between those two is the entire feature.
+    ///
+    /// The note under it is not decoration. Only two of the five codecs can carry transparency,
+    /// and the export refuses the others by name rather than handing back a black rectangle —
+    /// but somebody is better told here, while they are choosing, than at the moment they press
+    /// Export.
+    @ViewBuilder private var transparent: some View {
+        VStack(alignment: .leading, spacing: Space.snug) {
+            Button {
+                model.useTransparentBackground()
+                onChange()
+            } label: {
+                Self.checkerboard
+                    .frame(height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(model.isTransparent ? Theme.accent : Theme.Line.hairline,
+                                          lineWidth: model.isTransparent ? 2 : 1)
+                    }
+            }
+            .buttonStyle(.plain)
+
+            Text("Nothing behind the card, so the recording can be dropped onto a page or over "
+                 + "another clip. Export as HEVC with Alpha — it is the smallest of the two "
+                 + "formats that keep transparency, and ProRes 4444 is around a hundred times "
+                 + "larger for the same picture.")
+                .font(Type.detail).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The checkerboard that means "nothing here" in every image editor ever made.
+    ///
+    /// **Rectangles rather than a drawn image, and that is D6 rule 5 rather than taste.** The
+    /// obvious spelling is `Image(size:)` with a `GraphicsContext` filling four `CGRect`s — which
+    /// names two CoreGraphics geometry types in the app target, and the allow-list scan caught it
+    /// the moment it was written. A grid of `Rectangle`s says the same thing in the app's own
+    /// vocabulary and needs no bridge.
+    ///
+    /// Twelve by four at a 42-point height gives squares of about ten points, which reads as a
+    /// checkerboard rather than as noise or as two grey halves.
+    private static var checkerboard: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<4, id: \.self) { row in
+                HStack(spacing: 0) {
+                    ForEach(0..<12, id: \.self) { column in
+                        Rectangle()
+                            .fill(Color(white: (row + column).isMultiple(of: 2) ? 0.87 : 0.72))
+                    }
+                }
             }
         }
     }
@@ -160,6 +222,14 @@ struct WallpaperPicker: View {
                 endPoint: Self.unitPoint(atDegrees: angle)))
         case .image:
             AnyShapeStyle(Color.gray)
+        case .transparent:
+            // **A flat grey, and the None tab draws the real checkerboard.** This function
+            // returns a `ShapeStyle` for the preset swatches, and no preset is transparent —
+            // deliberately, because a swatch of nothing is a swatch of black. The case exists
+            // because the switch must be exhaustive, and answering it with a colour is honest;
+            // answering it with something that looked like a checkerboard would suggest this
+            // path draws one, which it does not.
+            AnyShapeStyle(Color(white: 0.8))
         }
     }
 

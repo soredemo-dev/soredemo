@@ -99,6 +99,24 @@ public enum StageBackground: Hashable, Codable, Sendable {
     /// what was written, so the decoder rejects it — rule 8's case.
     case image(filename: String)
 
+    /// **Nothing behind the card at all, so the export carries a hole rather than a colour.**
+    ///
+    /// The one thing the competitor everybody compares this app to is publicly criticised for
+    /// lacking, alongside device frames — both named in the same sentence, about product demos
+    /// and app showcases. A transparent export is what lets a rounded, shadowed recording be
+    /// dropped onto a landing page, into Final Cut over a brand colour, or over another clip,
+    /// without anybody keying out a background that was never wanted.
+    ///
+    /// **It is a property of the picture, not of the export**, which is why it lives here beside
+    /// the colours rather than in `ExportPreset`. Somebody choosing it sees the checkerboard in
+    /// the preview immediately, and the shadow they have set falls on nothing — which is worth
+    /// seeing before an export rather than after one.
+    ///
+    /// **Only two codecs can carry it**, and choosing one that cannot does not fail: it hands
+    /// back a black rectangle with nothing reported. `TransparentExport` turns that into a
+    /// refusal with a name; `ExportCodec.carriesTransparency` is the property it reads.
+    case transparent
+
     /// The presets the picker offers. Named rather than anonymous tuples because a project
     /// records which one was chosen and a name survives a value being retuned.
     public static let presets: [(name: String, background: StageBackground)] = [
@@ -135,7 +153,12 @@ public enum StageBackground: Hashable, Codable, Sendable {
         // Hand-written so the image case can be validated. The other two are value-only and
         // decode exactly as the synthesised conformance would.
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let solid = try container.decodeIfPresent(Solid.self, forKey: .solid) {
+        // **Checked by presence, because this case carries nothing to decode.** The synthesised
+        // encoder writes an empty nested container under the key, so `contains` is the whole
+        // question — `decodeIfPresent` would need a payload type that does not exist.
+        if container.contains(.transparent) {
+            self = .transparent
+        } else if let solid = try container.decodeIfPresent(Solid.self, forKey: .solid) {
             self = .solid(red: solid.red, green: solid.green, blue: solid.blue)
         } else if let gradient = try container.decodeIfPresent(Gradient.self,
                                                                forKey: .linearGradient) {
@@ -157,7 +180,7 @@ public enum StageBackground: Hashable, Codable, Sendable {
         }
     }
 
-    private enum CodingKeys: String, CodingKey { case solid, linearGradient, image }
+    private enum CodingKeys: String, CodingKey { case solid, linearGradient, image, transparent }
     private struct Solid: Codable { let red, green, blue: Double }
     private struct Gradient: Codable {
         let startRed, startGreen, startBlue, endRed, endGreen, endBlue, angleDegrees: Double

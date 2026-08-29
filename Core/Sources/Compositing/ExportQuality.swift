@@ -108,6 +108,13 @@ public struct ExportQuality: Hashable, Sendable, Codable {
             properties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
         case .hevc:
             properties[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main_AutoLevel as String
+        case .hevcWithAlpha:
+            // **No profile is named, and that is deliberate rather than an omission.** HEVC with
+            // Alpha encodes the alpha as a second layer, and pinning `Main` — the profile plain
+            // HEVC uses above — describes only the first. VideoToolbox picks a profile that can
+            // carry both when it is not told otherwise; naming the wrong one is how a codec that
+            // works becomes a codec that silently drops the layer this whole case exists for.
+            break
         case .proRes, .proRes4444:
             break
         }

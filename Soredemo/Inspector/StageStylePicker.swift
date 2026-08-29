@@ -91,6 +91,20 @@ final class StageStyleModel {
         return nil
     }
 
+    /// Nothing behind the card, so the export carries a hole rather than a colour.
+    ///
+    /// **Clears `presetName`**, like every other background that is not a shipped preset: the
+    /// gallery shows a selection by name, and leaving a stale name on would draw a ring around
+    /// a gradient nobody is looking at.
+    func useTransparentBackground() {
+        presetName = nil
+        apply(background: .transparent)
+    }
+
+    /// Whether the stage currently has nothing behind it. Read by the export sheet, which has to
+    /// narrow its codec list to the two that can carry it.
+    var isTransparent: Bool { style.background == .transparent }
+
     func selectBackground(named name: String) {
         guard let preset = StageBackground.presets.first(where: { $0.name == name })
         else { return }

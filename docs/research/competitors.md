@@ -82,7 +82,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Shrinks during zoom | ✓ | · | ✓ | · | · | **✓** `scaleDuringZoom` |
 | **Moves out of the cursor's way** | · | · | · | · | · | **✓** `CameraDodge` *(nobody else)* |
 | Show / hide on a timeline | · | · | ✓ | ✓ | · | **·** |
-| Background removal | · | · | ✓ | · | · | **·** |
+| Background removal | · | · | ✓ | · | · | **✓** `PersonMask` |
 | Zoom / crop / mirror the camera | · | · | ✓ | · | · | **·** |
 | Full-screen camera moments | · | · | ✓ | ✓ | · | **·** |
 
@@ -137,6 +137,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 
 | Capability | Screen Studio | a Rust recorder | Motionik | Borumi | ScreenKite | **Soredemo** |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
+| **Transparent export (alpha channel)** | · | · | · | · | · | **✓** `StageBackground.transparent` *(nobody else)* |
 | MP4 up to 4K 60 | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** |
 | GIF | ✓ | · | ✓ | · | · | **✓** `GIFExporter` |
 | Export presets (web / social / editor) | ✓ | · | ✓ | · | ✓ | **✓** `.web` `.message` `.editing` |
@@ -199,6 +200,51 @@ and it is the only automatic answer any of these tools has for a phone.
 **Screen Studio's own workaround is worth knowing**: connect a Bluetooth mouse to the iPad. A
 cursor then appears in the recording, and everything that follows a cursor has something to
 follow.
+
+### Transparent export: two codecs carry it, and they are 107x apart
+
+**2026-08-29.** Found by researching complaints rather than feature pages. Screen Studio's
+reviewers name three gaps for product demos and app showcases — "device frames, transparent
+export, and Simulator recording" — and two of the three are now closed here.
+
+A transparent background is a property of the picture; whether it survives is a property of the
+codec, and **nothing connects the two**. That is what makes this feature dangerous rather than
+merely missing: `AVAssetWriter` accepts a transparent frame for H.264 without a word, encodes the
+alpha away, and returns a file with a black rectangle where somebody asked for nothing. They find
+out when they drop it onto a landing page.
+
+Measured, one codec at a time, by writing a frame that is opaque on one half and fully transparent
+on the other and reading the alpha back out of the file:
+
+    ProRes 4444        left 255  right   0    carries it
+    HEVC with Alpha    left 255  right   0    carries it
+    ProRes 422         left 255  right 255    silently opaque
+    HEVC               left 255  right 255    silently opaque
+
+And the size, on sixty frames of 640x360 with a detailed card and a transparent margin:
+
+    HEVC                    130,405 bytes   (no transparency)
+    HEVC with Alpha         135,432 bytes   transparency for +3.9%
+    ProRes 422            8,633,497 bytes   (no transparency)
+    ProRes 4444          14,563,749 bytes   107x the HEVC-with-alpha file
+
+**Every article on transparent video names ProRes 4444.** It is 107 times larger for the same
+picture. HEVC with Alpha is offered first for that reason, and ProRes 4444 stays on the list
+because an editor asking for ProRes is asking for ProRes.
+
+Two more things that only measuring shows:
+
+  * **HEVC with Alpha is `.mov` only.** `AVAssetWriter.canAdd(_:)` returns false for it in an MP4
+    container — not a preference, the one container that works.
+  * **It must not be given a profile.** The alpha is a second layer and `Main` describes only the
+    first; the codec-probe helper keyed its profile on "takes a bit rate", which is true here, and
+    would have handed an HEVC-alpha encoder an H.264 profile.
+
+`ExportCodec.carriesTransparency` is a table because the export sheet has to narrow its format
+list the instant somebody picks a transparent background. A table is a claim about hardware
+written down somewhere else, so `CodecSupport.keepsTransparency` asks this machine and a test
+compares the two — the day an OS changes what a codec carries, it is a red check rather than
+somebody's landing page.
 
 ### Camera background removal: Vision beats the model everyone bundles
 
@@ -377,6 +423,14 @@ be argued with.
 | 8 | **FCPXML export** | a native editor has a readable implementation. Turns this from a closed tool into one that hands off. | Medium |
 | 9 | **Screenshot mode** | a Rust recorder and Motionik both treat it as a third pillar. It is a second product inside the app. | High |
 | 10 | **Scene-based recording + retakes** | Borumi's entire thesis. Would restructure the capture tier. | High |
+
+**Added 2026-08-29, from user research rather than from this list.** Reading what people
+actually complain about turned up one named Screen Studio gap that this app did not fill —
+"missing device frames, transparent export, and Simulator recording", written about product demos
+and app showcases. Device frames shipped the same day; **transparent export** is now here, and it
+was not on the ranked list at all because the list was built from competitors' feature pages
+rather than from their reviews. Worth remembering: a gap list assembled from what rivals *sell*
+misses what their users say is *missing*.
 
 **Declined, on purpose:** share links, cloud storage, viewer analytics, team
 workspaces, AI titles/summaries. All require sending a recording to a server.

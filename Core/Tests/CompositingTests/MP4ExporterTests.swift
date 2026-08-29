@@ -715,7 +715,14 @@ private final class PhaseLog: @unchecked Sendable {
             ExportQuality.best.estimatedBytes(outputWidth: 1920, outputHeight: 1080,
                                               frameRate: 30, seconds: 10, codec: $0)
         }
-        #expect(sizes.max() == sizes.last, "4444 must be the largest, and it is last in the list")
+        // **Named, not positional.** This read `sizes.last` and passed for as long as ProRes 4444
+        // happened to be the final case; adding `hevcWithAlpha` after it turned a claim about the
+        // codec into a claim about the enum's declaration order, and the test went red for the
+        // right reason and the wrong subject. Asked by codec now, so the next case added anywhere
+        // in the list changes nothing here.
+        let largest = ExportQuality.best.estimatedBytes(
+            outputWidth: 1920, outputHeight: 1080, frameRate: 30, seconds: 10, codec: .proRes4444)
+        #expect(sizes.max() == largest, "4444 must be the largest estimate of any codec")
         let fourFour = ExportQuality.best.estimatedBytes(
             outputWidth: 1920, outputHeight: 1080, frameRate: 30, seconds: 60, codec: .proRes4444)
         let fourTwoTwo = ExportQuality.best.estimatedBytes(
@@ -844,7 +851,16 @@ private final class PhaseLog: @unchecked Sendable {
 }
 
 /// What this machine's encoders actually do, asked rather than tabulated.
-@Suite struct CodecSupportTests {
+///
+/// **`.serialized`, because every test in here writes real video files.** There are two probes
+/// now, `everyCodecAnswersAndProRes4444IsNeverTheWorseOne` and the transparency one beside it,
+/// and each walks all five codecs — so run concurrently they put ten `AVAssetWriter`s in flight
+/// at once. Five concurrent writers stalled thirty-one tests in this target once before.
+///
+/// **This was not measured to deadlock here**, and the honest reason for the trait is caution
+/// rather than a stall: serialising costs under a second across the whole suite, and the failure
+/// it avoids costs ten minutes of not knowing what is wrong.
+@Suite(.serialized) struct CodecSupportTests {
     /// **The reading of a perfect frame is zero, and of a smeared one is large.** Pinned because
     /// the whole probe rests on this arithmetic: a bar's edge columns are 0 and 7 of each eight,
     /// and the expected value alternates with the bar.
@@ -888,6 +904,31 @@ private final class PhaseLog: @unchecked Sendable {
         #expect(verdicts.count == ExportCodec.allCases.count)
         if let best = verdicts[.proRes4444] ?? nil, let baseline = verdicts[.h264] ?? nil {
             #expect(best || !baseline, "4444 lost an edge that H.264 kept")
+        }
+    }
+
+    /// **The table is a claim; this asks the machine.**
+    ///
+    /// `ExportCodec.carriesTransparency` is a hard-coded answer, and it has to be — the export
+    /// sheet narrows its format list from it the moment somebody chooses a transparent
+    /// background, which cannot wait on four files being written. But a table is a claim about
+    /// hardware written down somewhere else, and the one thing worse than not offering
+    /// transparency is offering it and silently not delivering it: the export succeeds, the file
+    /// looks fine in QuickTime, and the black rectangle appears when it is dropped onto a page.
+    ///
+    /// So the table is compared against what this Mac actually does. Measured here on 2026-08-29:
+    /// ProRes 4444 and HEVC with Alpha came back with the hole intact, ProRes 422 and HEVC came
+    /// back opaque, and nothing was reported by either of the last two.
+    ///
+    /// **A `nil` is not a failure.** `keepsTransparency` answers `nil` when the probe could not
+    /// run at all, and a machine with no encoder for a format is not a machine where the table is
+    /// wrong — it is one that could not be asked.
+    @Test func theTransparencyTableMatchesWhatThisMachineActuallyDoes() async {
+        for codec in ExportCodec.allCases {
+            guard let measured = await CodecSupport.keepsTransparency(codec) else { continue }
+            let note = "\(codec.displayName): the table says \(codec.carriesTransparency) "
+                + "and this machine does \(measured)"
+            #expect(measured == codec.carriesTransparency, Comment(rawValue: note))
         }
     }
 }

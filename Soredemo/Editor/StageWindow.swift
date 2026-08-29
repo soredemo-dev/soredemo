@@ -882,13 +882,38 @@ struct StageWindow: View {
                 Text(LocalizedStringKey(choice.displayName)).tag(choice)
             }
         }
-        // **Three codecs that are not ranked.** HEVC is the same picture at about half the file
-        // and every Mac this runs on encodes it in hardware; ProRes is enormous and meant for
-        // handing to an editor; H.264 plays everywhere without a question being asked.
+        // **Codecs that are not ranked.** HEVC is the same picture at about half the file and
+        // every Mac this runs on encodes it in hardware; ProRes is enormous and meant for handing
+        // to an editor; H.264 plays everywhere without a question being asked.
+        //
+        // **Narrowed to two when the stage has no background**, because only two of them carry an
+        // alpha channel and the other three do not fail when handed one — they encode the
+        // transparency away and hand back a black rectangle. `MP4Exporter` refuses that pairing
+        // by name, but a list somebody cannot choose wrongly from is better than a refusal they
+        // have to read. See `TransparentExport`.
         Picker("Format", selection: Binding(get: { codec }, set: { codec = $0 })) {
-            ForEach(ExportCodec.allCases, id: \.self) { choice in
+            ForEach(stageStyle.isTransparent
+                    ? TransparentExport.codecsThatCarryIt
+                    : ExportCodec.allCases, id: \.self) { choice in
                 Text(choice.displayName).tag(choice)
             }
+        }
+        // **Snapped rather than left dangling.** Somebody who had chosen H.264 and then made the
+        // background transparent has a selection that is no longer in the list; SwiftUI would
+        // show an empty picker and the export would refuse. Moving it to the smallest format that
+        // works is visible — the picker changes in front of them — which is the difference
+        // between this and a silent correction at export time.
+        .task(id: stageStyle.isTransparent) {
+            if stageStyle.isTransparent, !codec.carriesTransparency {
+                codec = TransparentExport.codecsThatCarryIt[0]
+            }
+        }
+        if stageStyle.isTransparent {
+            Text("The background is transparent, so only formats that keep an alpha channel are "
+                 + "offered. HEVC with Alpha is around a hundred times smaller than ProRes 4444 "
+                 + "for the same picture.")
+                .font(Type.detail).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         // **What this Mac's encoder actually does with a coloured edge**, asked rather than
         // tabulated — see `CodecVerdicts`. Silent when the probe could not run: "we could not

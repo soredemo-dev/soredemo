@@ -158,3 +158,54 @@ import Foundation
         #expect(CursorStyle.default.changing(idleDelay: .nan).idleDelay == CursorStyle.defaultIdleDelay)
     }
 }
+
+// MARK: - A background that is no background
+
+/// **The case with nothing in it, which is the one a hand-written decoder gets wrong.**
+///
+/// `StageBackground`'s decoder reads each case by asking for its payload. `.transparent` has no
+/// payload, so it is found by presence instead — and a decoder that reached for a payload type
+/// that does not exist would either not compile or, worse, fall through to the
+/// "no known background case" error and refuse every project that used it.
+@Suite("A transparent stage background")
+struct TransparentStageBackgroundTests {
+    @Test("it survives being written and read back")
+    func itRoundTrips() throws {
+        let data = try JSONEncoder().encode(StageBackground.transparent)
+        #expect(try JSONDecoder().decode(StageBackground.self, from: data) == .transparent)
+    }
+
+    /// Every case round-trips, not just the new one: the decoder was edited to add a branch, and
+    /// the way that goes wrong is by shadowing a branch that used to work.
+    @Test("adding it did not break the three cases that were already there")
+    func theOtherCasesStillRoundTrip() throws {
+        let cases: [StageBackground] = [
+            .solid(red: 0.1, green: 0.2, blue: 0.3),
+            .linearGradient(startRed: 0.1, startGreen: 0.2, startBlue: 0.3,
+                            endRed: 0.4, endGreen: 0.5, endBlue: 0.6, angleDegrees: 42),
+            .image(filename: "wall.jpg"),
+            .transparent,
+        ]
+        for background in cases {
+            let data = try JSONEncoder().encode(background)
+            #expect(try JSONDecoder().decode(StageBackground.self, from: data) == background)
+        }
+    }
+
+    /// A stored document naming no case at all is still refused. The new branch is checked first,
+    /// so a `contains` that answered true for an empty object would turn every corrupt background
+    /// into a transparent one — silently, and only in somebody's saved project.
+    @Test("a document with no background case is still refused")
+    func anEmptyDocumentIsStillRefused() {
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(StageBackground.self, from: Data("{}".utf8))
+        }
+    }
+
+    /// It is deliberately not among the colour presets: the gallery draws those as swatches and
+    /// a swatch of nothing is a swatch of black. It has its own tab, with a checkerboard.
+    @Test("it is not offered as a colour preset")
+    func itIsNotAColourPreset() {
+        #expect(!StageBackground.presets.contains { $0.background == .transparent })
+    }
+}

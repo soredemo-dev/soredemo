@@ -115,6 +115,13 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             guard let image = imageBackground(filename) else { return Self.missingImageFallback }
             return covering(image, width: Double(plan.outputWidth),
                             height: Double(plan.outputHeight))
+        case .transparent:
+            // **`CIImage(color: .clear)`, which has infinite extent like every other case here.**
+            // Not `CIImage.empty()`: that has ZERO extent, and compositing over it drops the
+            // pass entirely — the defect that left the camera overlay's border invisible in every
+            // build until 2026-08-26. Everything the frame is made of composites over this, so a
+            // base with no extent is a frame with nothing in it.
+            return CIImage(color: .clear)
         case let .solid(red, green, blue):
             return CIImage(color: CIColor(red: red, green: green, blue: blue))
         case let .linearGradient(startRed, startGreen, startBlue,

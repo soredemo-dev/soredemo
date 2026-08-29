@@ -51,6 +51,57 @@ public enum CodecSupport {
         return worstEdgeError(decoded) <= edgeTolerance
     }
 
+    /// Whether `codec` keeps a transparent pixel transparent **on this machine**.
+    ///
+    /// The same rule as `keepsColourEdges`, applied to the other thing a codec can silently throw
+    /// away. `ExportCodec.carriesTransparency` is a table, and a table is a claim about hardware
+    /// written down somewhere else; this asks. `theTableMatchesWhatThisMachineActuallyDoes`
+    /// compares the two, so the day an OS changes what a codec carries, the answer is a red check
+    /// rather than somebody's landing page with a black rectangle on it.
+    ///
+    /// `nil` when the probe could not run at all. **Not `false`** — "we could not ask" and "the
+    /// answer is no" would lead to opposite promises, and only one of them is safe to make.
+    public nonisolated static func keepsTransparency(_ codec: ExportCodec) async -> Bool? {
+        guard let source = holedFrame() else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("soredemo-alpha-probe-\(codec.rawValue).mov")
+        defer { try? FileManager.default.removeItem(at: url) }
+        guard await write(source, codec: codec, to: url),
+              let alphas = await firstFrameAlphaRow(of: url),
+              alphas.count == probeWidth else { return nil }
+        // **Both halves, not just the hole.** A decode that came back entirely transparent would
+        // satisfy "the hole is a hole" while having lost the picture, and the two failures look
+        // nothing alike from a person's side.
+        return alphas[probeWidth / 4] > 200 && alphas[probeWidth * 3 / 4] < 32
+    }
+
+    /// Opaque red on the left half, fully transparent on the right — the shape a stage with no
+    /// background actually has, reduced to the smallest frame that can show it.
+    static func holedFrame() -> CVPixelBuffer? {
+        var buffer: CVPixelBuffer?
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey as String: [:]] as CFDictionary
+        guard unsafe CVPixelBufferCreate(nil, probeWidth, probeHeight,
+                                         kCVPixelFormatType_32BGRA, attributes,
+                                         &buffer) == kCVReturnSuccess,
+              let buffer else { return nil }
+        unsafe CVPixelBufferLockBaseAddress(buffer, [])
+        defer { unsafe CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let base = unsafe CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let stride = unsafe CVPixelBufferGetBytesPerRow(buffer)
+        for y in 0..<probeHeight {
+            let row = unsafe base.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)
+            for x in 0..<probeWidth {
+                let pixel = unsafe row.advanced(by: x * 4)
+                let isOpaque = x < probeWidth / 2
+                unsafe pixel[0] = 0
+                unsafe pixel[1] = 0
+                unsafe pixel[2] = isOpaque ? 255 : 0
+                unsafe pixel[3] = isOpaque ? 255 : 0
+            }
+        }
+        return buffer
+    }
+
     /// Eight-pixel red bars on black, in BGRA — the format the renderer produces.
     static func barsFrame() -> CVPixelBuffer? {
         var buffer: CVPixelBuffer?
@@ -93,7 +144,14 @@ public enum CodecSupport {
             // different file from the one a person gets — see `ExportQuality.colourProperties`.
             AVVideoColorPropertiesKey: ExportQuality.colourProperties,
         ]
-        if codec.takesBitRate {
+        // **`hevcWithAlpha` is excluded here as well as in `ExportQuality`, and leaving it in was
+        // a real defect for the few minutes it existed.** This branch keyed on `takesBitRate`,
+        // which is true for HEVC with Alpha, and the `else` hands out an H.264 profile — so the
+        // probe would have configured an HEVC-alpha encoder with `AVVideoProfileLevelH264High`.
+        // The rule is the one `ExportQuality` states: the alpha layer is a second layer, `Main`
+        // describes only the first, and VideoToolbox chooses correctly when it is not told
+        // wrongly.
+        if codec.takesBitRate, codec != .hevcWithAlpha {
             settings[AVVideoCompressionPropertiesKey] = [
                 AVVideoProfileLevelKey: codec == .hevc
                     ? kVTProfileLevel_HEVC_Main_AutoLevel as String
@@ -150,6 +208,36 @@ public enum CodecSupport {
         let row = unsafe base.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)
         return (0..<min(probeWidth, CVPixelBufferGetWidth(buffer))).map {
             Int(unsafe row.advanced(by: $0 * 4)[2])
+        }
+    }
+
+    /// The alpha channel of the decoded middle row.
+    ///
+    /// A near-copy of `firstFrame(of:)`, which reads the RED channel, and kept separate rather
+    /// than generalised over a channel index: the two are read for different reasons, and a
+    /// shared function taking `channel: Int` would make both call sites say less than they do.
+    private nonisolated static func firstFrameAlphaRow(of url: URL) async -> [Int]? {
+        let asset = AVURLAsset(url: url)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let reader = try? AVAssetReader(asset: asset) else { return nil }
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        guard reader.canAdd(output) else { return nil }
+        reader.add(output)
+        guard reader.startReading(),
+              let sample = output.copyNextSampleBuffer(),
+              let buffer = CMSampleBufferGetImageBuffer(sample) else { return nil }
+        defer { reader.cancelReading() }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        // `unsafe`: the base address of a decoded buffer held locked for reading, and only
+        // within the width and stride it reports.
+        guard let base = unsafe CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let stride = CVPixelBufferGetBytesPerRow(buffer)
+        let row = unsafe base.advanced(by: (probeHeight / 2) * stride)
+            .assumingMemoryBound(to: UInt8.self)
+        return (0..<min(probeWidth, CVPixelBufferGetWidth(buffer))).map {
+            Int(unsafe row.advanced(by: $0 * 4)[3])
         }
     }
 

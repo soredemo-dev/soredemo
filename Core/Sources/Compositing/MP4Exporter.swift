@@ -91,6 +91,15 @@ public enum MP4Exporter {
         if unsafe StageCompositor.editTimeline != edit {
             throw ExportError.editTimelineMismatch
         }
+        // **The same shape of check, for the same reason.** The stage's background is
+        // process-global state on the compositor, the codec is an argument here, and nothing
+        // else in the export ever compares them — so a transparent stage written as H.264 would
+        // be accepted, encoded opaque, and discovered by whoever opened the file. See
+        // `TransparentExport`, which measured all four codecs to establish which two can carry it.
+        if case .refused(let refusal) = TransparentExport.outcome(
+            background: unsafe StageCompositor.style.background, codec: codec) {
+            throw ExportError.transparencyWouldBeLost(refusal, codec: codec)
+        }
 
         // Cutting happens here, not in the reader. `AVAssetReader.timeRange` selects ONE span,
         // which is a trim; a timeline with a cut in the middle has two or more, and an
@@ -564,6 +573,13 @@ public enum MP4Exporter {
 
     public nonisolated enum ExportError: Error, CustomStringConvertible, Sendable {
         case noVideoTrack
+        /// A transparent stage asked of a codec that would encode the transparency away.
+        ///
+        /// **Refused rather than silently corrected.** Switching the codec would trade one
+        /// surprise for another — somebody who chose H.264 chose it because of where the file is
+        /// going — so both halves of the mismatch are named and they change whichever one they
+        /// meant.
+        case transparencyWouldBeLost(TransparentExport.Refusal, codec: ExportCodec)
         /// An edit that keeps nothing. Refused rather than clamped: a caller that asked for
         /// nothing has a bug, and a zero-length MP4 would hide it.
         case emptyTrim
@@ -589,6 +605,12 @@ public enum MP4Exporter {
 
         public var description: String {
             switch self {
+            case .transparencyWouldBeLost(_, let codec):
+                "the background is transparent and \(codec.displayName) cannot carry "
+                    + "transparency — choose "
+                    + TransparentExport.codecsThatCarryIt.map(\.displayName)
+                        .joined(separator: " or ")
+                    + ", or give the stage a background"
             case .noVideoTrack: "the asset has no video track to export"
             case .emptyTrim:
                 "the requested edit keeps nothing — an export of nothing is not a file"
