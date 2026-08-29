@@ -111,6 +111,7 @@ import Geometry
 import Graph
 // § 18 reads `IOSurfaceGetID` — the identity a frame dedup would compare.
 import IOSurface
+import Overlays
 import Project
 // `RenderPlan`, `StageRect`, `StageStyle` for § 10 — `Soredemo/Render/*.swift`
 // depends on this module and no package test can drive the real
@@ -7005,6 +7006,72 @@ enum CrossBoundaryProbe {
         }
 
         print("")
+        print("27. StillnessReader — a recording built to be still, then not")
+
+        // **Here because decoding a whole recording beside the audio and codec suites stalled
+        // the CompositingTests target**, exactly as Vision did for § 22 and CoreMediaIO for
+        // § 20: ten unfinished tests, only one of them the new file's. The rule itself is pure
+        // and is tested in `StillnessFinderTests`; what needs a real file is the half that turns
+        // a video into a series, and that is this.
+        do {
+            let scratch = FileManager.default.temporaryDirectory
+                .appending(path: "soredemo-probe-stillness", directoryHint: .isDirectory)
+            try? FileManager.default.removeItem(at: scratch)
+            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: scratch) }
+            let url = scratch.appending(path: "still-move-still.mov")
+
+            // Twelve seconds: four holding one frame, four with a block sliding across, four
+            // holding again. The block is 60 of 320 pixels wide, so a step changes about a fifth
+            // of the frame — far above anything a threshold sits at.
+            let made = await probeWriteStillMoveStill(to: url)
+            check(made, "27.1 the fixture recording was written", actual: "\(made)",
+                  expected: "true")
+
+            if made {
+                let outcome = await StillnessReader.changes(contentsOf: url, sliceSeconds: 0.25)
+                guard case .changes(let changes) = outcome else {
+                    check(false, "27.2 a well-formed recording is measured rather than refused")
+                    return
+                }
+                check(changes.count > 40, "27.2 the whole recording was walked",
+                      actual: "\(changes.count) slices", expected: "more than 40")
+
+                func at(_ seconds: Double) -> Double {
+                    let index = min(max(Int(seconds / 0.25) - 1, 0), changes.count - 1)
+                    return changes.isEmpty ? 1 : changes[index]
+                }
+                let threshold = StillnessFinder.Settings.default.changeThreshold
+                check(at(2) <= threshold,
+                      "27.3 the first still stretch measures still",
+                      actual: "\(at(2))", expected: "at most \(threshold)")
+                check(at(10) <= threshold,
+                      "27.3 the last still stretch measures still",
+                      actual: "\(at(10))", expected: "at most \(threshold)")
+                check(at(6) > 0.05,
+                      "27.3 the moving stretch measures moving",
+                      actual: "\(at(6))", expected: "more than 0.05")
+                print(String(format: "        still %.5f   moving %.5f   still %.5f",
+                             at(2), at(6), at(10)))
+
+                // **The whole feature, end to end**: the rule finds exactly the two stretches
+                // somebody would cut, and nothing in the middle.
+                let spans = StillnessFinder.spans(changes: changes, sliceSeconds: 0.25)
+                check(spans.count == 2,
+                      "27.4 the two still stretches are found and the moving one is not",
+                      actual: "\(spans.count) span(s)", expected: "2")
+                if spans.count == 2 {
+                    check(spans[0].start.rawValue < 1_000_000_000,
+                          "27.4 the first span starts at the beginning",
+                          actual: "\(spans[0].start.rawValue) ns", expected: "under 1 s")
+                    check(spans[1].start.rawValue > 7_000_000_000,
+                          "27.4 the second span starts after the movement",
+                          actual: "\(spans[1].start.rawValue) ns", expected: "over 7 s")
+                }
+            }
+        }
+
+        print("")
         print("26. ExportETA — the six readings, and a key for each in every language")
 
         // **A stronger check than the label scan, and aimed at the thing the label scan cannot
@@ -7162,6 +7229,7 @@ private nonisolated final class IdleFrameCollector: NSObject, SCStreamOutput, SC
     /// same-or-different answer about two pictures a sixteenth of a second apart, and sampling is
     /// what keeps it cheap enough to run inside a 60 fps callback without changing what is being
     /// measured.
+
     private static func contentHash(of pixelBuffer: CVPixelBuffer) -> UInt64 {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
@@ -7177,3 +7245,63 @@ private nonisolated final class IdleFrameCollector: NSObject, SCStreamOutput, SC
         return hash
     }
 }
+
+/// Twelve seconds: still, moving, still — the fixture § 27 measures.
+///
+/// The still stretches append the identical buffer, so a change measure above zero there is
+/// the encoder rather than the picture.
+private func probeWriteStillMoveStill(to url: URL) async -> Bool {
+    let width = 320, height = 240, frameRate = 10
+    guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mov) else { return false }
+    let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        AVVideoCodecKey: AVVideoCodecType.h264,
+        AVVideoWidthKey: width, AVVideoHeightKey: height,
+    ])
+    input.expectsMediaDataInRealTime = false
+    let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+        assetWriterInput: input,
+        sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        ])
+    guard writer.canAdd(input) else { return false }
+    writer.add(input)
+    guard writer.startWriting() else { return false }
+    writer.startSession(atSourceTime: .zero)
+
+    func frame(blockX: Int) -> CVPixelBuffer? {
+        var created: CVPixelBuffer?
+        _ = unsafe CVPixelBufferCreate(
+            nil, width, height, kCVPixelFormatType_32BGRA,
+            [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &created)
+        guard let buffer = created else { return nil }
+        unsafe CVPixelBufferLockBaseAddress(buffer, [])
+        defer { unsafe CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let base = unsafe CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let rowBytes = unsafe CVPixelBufferGetBytesPerRow(buffer)
+        let bytes = unsafe base.assumingMemoryBound(to: UInt8.self)
+        for y in 0..<height {
+            for x in 0..<width {
+                let index = y * rowBytes + x * 4
+                let value: UInt8 = (x >= blockX && x < blockX + 60) ? 240 : 20
+                unsafe bytes[index] = value
+                unsafe bytes[index + 1] = value
+                unsafe bytes[index + 2] = value
+                unsafe bytes[index + 3] = 255
+            }
+        }
+        return buffer
+    }
+
+    for index in 0..<(12 * frameRate) {
+        let seconds = Double(index) / Double(frameRate)
+        let blockX = seconds < 4 ? 0 : (seconds < 8 ? Int((seconds - 4) * 60) : 240)
+        guard let buffer = frame(blockX: blockX) else { return false }
+        while !input.isReadyForMoreMediaData { try? await Task.sleep(for: .milliseconds(1)) }
+        adaptor.append(buffer, withPresentationTime:
+                        CMTime(value: CMTimeValue(index), timescale: CMTimeScale(frameRate)))
+    }
+    input.markAsFinished()
+    await writer.finishWriting()
+    return writer.status == .completed
+}
+

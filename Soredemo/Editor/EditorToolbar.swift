@@ -18,6 +18,10 @@ import Timeline
 struct EditorToolbar: View {
     let model: TimelineEditorModel
     let onChange: () -> Void
+    /// The recording being edited, which finding still stretches has to decode. `nil` leaves the
+    /// control disabled rather than absent: a control that appears when a recording loads is one
+    /// people do not find.
+    var mediaURL: URL?
     /// True while the timeline below is collapsed, so the chevron points the right way.
     var isCollapsed = false
     /// `nil` leaves the collapse control out — the toolbar is useful without one.
@@ -35,6 +39,7 @@ struct EditorToolbar: View {
             separator
             speed
             silence
+            stillness
             reverting
             Spacer(minLength: Space.regular)
             zoom
@@ -144,6 +149,38 @@ struct EditorToolbar: View {
                           + "\(EditorToolbar.seconds(SilenceFinder.total(model.silences))) in all",
                           isEnabled: true) {
                 model.removeSilences()
+                onChange()
+            }
+        }
+    }
+
+    /// Finding and cutting the stretches where the picture does not change.
+    ///
+    /// **The same two presses the silence pair uses, and for the same reason**: finding shows what
+    /// would go, cutting removes it. A single button would make an irreversible-looking edit out
+    /// of a threshold nobody had seen the effect of.
+    ///
+    /// **A third state the silence pair does not need: measuring.** Silence is read from a
+    /// waveform the editor already has; stillness has to decode the recording, which takes long
+    /// enough that a button doing nothing for four seconds reads as broken.
+    @ViewBuilder private var stillness: some View {
+        if let progress = model.stillnessProgress {
+            ProgressView(value: progress)
+                .progressViewStyle(.circular)
+                .controlSize(.small)
+                .help("Looking for still stretches\u{2026}")
+        } else if model.stillness.isEmpty {
+            ToolbarAction(icon: "rectangle.on.rectangle.slash",
+                          help: "Find the stretches where nothing moves",
+                          isEnabled: mediaURL != nil) {
+                if let mediaURL { model.findStillness(in: mediaURL) }
+            }
+        } else {
+            ToolbarAction(icon: "scissors.badge.ellipsis",
+                          help: "Remove \(model.stillness.count) still stretch(es), "
+                          + "\(EditorToolbar.seconds(StillnessFinder.total(model.stillness))) in all",
+                          isEnabled: true) {
+                model.removeStillness()
                 onChange()
             }
         }

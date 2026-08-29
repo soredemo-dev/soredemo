@@ -90,6 +90,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 
 | Capability | Screen Studio | a Rust recorder | Motionik | Borumi | ScreenKite | **Soredemo** |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
+| **Remove still stretches (dead air in the picture)** | · | · | · | · | · | **✓** `StillnessFinder` *(nobody else)* |
 | Trim / cut / split | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** `EditTimeline` |
 | Reorder clips | · | · | · | ✓ | ✓ | **✓** `moving(id:to:)` |
 | Speed up / slow down | ✓ | ✓ | ✓ | · | ✓ | **✓** 0.25×–4×, video *and* audio via `scaleTimeRange` |

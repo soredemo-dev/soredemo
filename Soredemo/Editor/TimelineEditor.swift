@@ -319,6 +319,46 @@ final class TimelineEditorModel {
                                        settings: silenceSettings)
     }
 
+    /// The still stretches, and how they were measured. Empty until somebody asks.
+    private(set) var stillness: [StillnessFinder.Span] = []
+    var stillnessSettings = StillnessFinder.Settings.default
+    /// How far the measurement has got, 0…1, or `nil` when it is not running.
+    private(set) var stillnessProgress: Double?
+
+    /// Measures the recording and finds the stretches where the picture does not change.
+    ///
+    /// **Asked for rather than run on open.** It decodes the whole recording once — a few seconds
+    /// for a few minutes of video — which is cheap enough to ask for and far too expensive to do
+    /// to somebody who only wanted to trim the end.
+    func findStillness(in url: URL) {
+        guard stillnessProgress == nil else { return }
+        stillnessProgress = 0
+        let settings = stillnessSettings
+        Task { @MainActor in
+            let outcome = await StillnessReader.changes(contentsOf: url, sliceSeconds: 0.25) {
+                fraction in Task { @MainActor in self.stillnessProgress = fraction }
+            }
+            stillnessProgress = nil
+            guard case .changes(let changes) = outcome else {
+                stillness = []
+                return
+            }
+            stillness = StillnessFinder.spans(changes: changes, sliceSeconds: 0.25,
+                                              settings: settings)
+        }
+    }
+
+    /// Cuts every still stretch found. One undo step, because it is one decision.
+    func removeStillness() {
+        guard !stillness.isEmpty else { return }
+        apply("Remove \(stillness.count) Still Span(s)",
+              StillnessFinder.removing(stillness, from: edit))
+        selection = nil
+        selectedClip = nil
+        // Already cut: offering them again would remove whatever moved into their place.
+        stillness = []
+    }
+
     /// Cuts every span found. One undo step, because it is one decision.
     func removeSilences() {
         guard !silences.isEmpty else { return }

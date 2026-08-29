@@ -334,6 +334,7 @@ struct StageWindow: View {
 
             VStack(spacing: 0) {
                 EditorToolbar(model: timeline, onChange: { editRevision += 1 },
+                              mediaURL: mediaURL,
                               isCollapsed: isTimelineCollapsed) {
                     isTimelineCollapsed.toggle()
                 }

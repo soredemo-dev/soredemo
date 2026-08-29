@@ -207,6 +207,10 @@ struct MenuBarRecorderPanel: View {
     /// recovers from it after ninety frames, so a toggle would work and would cost a second and
     /// a half of every recording to a control almost nobody wants. It goes in when the writer
     /// can be told up front that a track will not exist.
+    /// **The source rows do not wear the accent.** A `Menu`'s label inherits the tint, which put
+    /// the brand colour on two rows that only report what is selected — and left the button that
+    /// starts the recording competing with them. The accent marks the primary action; these are
+    /// state.
     @ViewBuilder private var microphoneRow: some View {
         Menu {
             Button("No microphone") { coordinator.microphone = .off }
@@ -248,6 +252,9 @@ struct MenuBarRecorderPanel: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        // See `microphoneRow`: a menu label inherits the tint, and these report state rather
+        // than offering the primary action.
+        .tint(Theme.Ink.primary)
         .task { coordinator.refreshMicrophones(); coordinator.refreshCameras(); coordinator.refreshMobileScreens() }
         // **Plugged in while the panel is open, and it is in the list.** The `.task` above only
         // runs when the panel appears, so a camera or an interface connected while a person was
@@ -313,6 +320,8 @@ struct MenuBarRecorderPanel: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            // See `microphoneRow`.
+            .tint(Theme.Ink.primary)
 
             // **What the system is applying, said where the camera is chosen.** Portrait and
             // Studio Light are switched on in Control Center and stay on for every app, so a
@@ -470,14 +479,21 @@ struct MenuBarRecorderPanel: View {
                 Spacer()
                 Text(Self.toggleShortcut)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(Theme.ink.opacity(0.6))
             }
-            .foregroundStyle(.white)
+            // **Dark on the accent, not white, and that is contrast rather than taste.** The
+            // accent is a light periwinkle: white on it measures about 2.4:1, which fails at any
+            // size, while the near-black ink measures 7.8:1.
+            .foregroundStyle(Theme.ink)
             .padding(.horizontal, Space.regular)
             .frame(height: 34)
             .frame(maxWidth: .infinity)
+            // **The app's own colour, not red.** On macOS red means destructive, and a large red
+            // button reading "Start Recording" looks like one — the record dot beside the label
+            // already carries the meaning. Red stays where it belongs: the state while a
+            // recording is running, and the control that ends it.
             .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-                .fill(Signal.record))
+                .fill(Theme.accent))
         }
         .buttonStyle(.plain)
         .help("Choose what to record")
