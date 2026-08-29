@@ -951,6 +951,89 @@ struct StageWindow: View {
             seconds: Double(timeline.editForExport.outputDuration.rawValue) / 1_000_000_000,
             codec: codec)))
             .font(Type.detail).foregroundStyle(.secondary)
+
+        Divider()
+
+        // **A separate button, not a third entry in the save panel's format popup.** Every
+        // control above this — resolution, codec, quality, the size estimate — describes a
+        // rendered picture, and none of them applies to a cut list. Folding it into the same
+        // panel would offer somebody a bit rate for a text file.
+        //
+        // It also runs instantly rather than through `ExportQueue`: there is nothing to render.
+        Button("Export Final Cut XML\u{2026}") { exportFinalCutXML() }
+            .disabled(timeline.editForExport.isEmpty)
+        // **What it carries and what it does not, before the click rather than after it.**
+        // "Export to Final Cut" reads like a promise to carry everything, and the honest answer
+        // is that it carries the cut and none of the look — which is exactly what somebody
+        // finishing in another application wants, and nothing like what they would expect if
+        // nobody said so.
+        Text("The cut only — your clips and their in-points, against the original recording. "
+             + "None of the look travels: no zooms, no cursor, no background, no camera. "
+             + "DaVinci Resolve reads the same file.")
+            .font(Type.detail).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Writes the cut as FCPXML, which Final Cut Pro and DaVinci Resolve both read.
+    ///
+    /// **Not queued.** `ExportQueue` exists because rendering takes minutes and a person should be
+    /// able to set up a second job; this writes a few kilobytes of text and is finished before the
+    /// panel has closed. Putting it in the queue would show a progress bar for something that has
+    /// no progress.
+    private func exportFinalCutXML() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "fcpxml") ?? .xml]
+        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".fcpxml"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        let name = mediaURL.deletingPathExtension().lastPathComponent
+        let edit = timeline.editForExport
+        let rate = recordingFrameRate
+        let media = mediaURL
+        Task {
+            // **The recording's own properties, read from the file rather than from view state.**
+            // `recordingShortSide` is the OUTPUT's short side and the variant may have changed
+            // it; what an editing application has to be told is the size of the media it is
+            // being pointed at.
+            let asset = AVURLAsset(url: media)
+            let duration = (try? await asset.load(.duration)) ?? .zero
+            let track = try? await asset.loadTracks(withMediaType: .video).first
+            // **Converted at the bridge and rotated to what is actually seen.** A phone recording
+            // is encoded landscape with a rotation in `preferredTransform`; describing a sequence
+            // by the encoded size would turn it on its side and letterbox every clip in it.
+            let natural = (try? await track?.load(.naturalSize)) ?? .zero
+            let transform = (try? await track?.load(.preferredTransform)) ?? .identity
+            let size = CGGeometryBridge.displayedPixelSize(of: natural, transform: transform)
+            let hasAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty
+                == false
+            let source = FinalCutXML.Source(
+                url: media,
+                duration: Nanoseconds(Int64((duration.seconds * 1_000_000_000).rounded())),
+                width: size.width, height: size.height,
+                frameRate: rate, hasAudio: hasAudio)
+            switch FinalCutXML.document(timeline: edit, source: source, projectName: name) {
+            case .document(let xml):
+                do {
+                    try xml.write(to: destination, atomically: true, encoding: .utf8)
+                    exportStatus = "Wrote \(destination.lastPathComponent)."
+                } catch {
+                    exportStatus = "Could not write \(destination.lastPathComponent): \(error)"
+                }
+            case .refused(let refusal):
+                // Named rather than generic: the three reasons have three different fixes, and a
+                // person told only that it failed cannot act on any of them.
+                exportStatus = switch refusal {
+                case .theEditKeepsNothing:
+                    "The edit removes the whole recording, so there is no cut to export."
+                case .theFrameRateIsNotAFrameRate:
+                    "The recording reports no frame rate, and every time in the file has to be "
+                        + "a whole frame."
+                case .theRecordingHasNoSize:
+                    "The recording reports no size, so there is no sequence to describe."
+                }
+            }
+        }
     }
 
     /// A byte count as a person reads it. `ByteCountFormatStyle` rather than a hand-rolled

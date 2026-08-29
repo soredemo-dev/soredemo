@@ -164,6 +164,23 @@ public enum CGGeometryBridge {
     /// size or it decodes 4K frames to draw postage stamps. Distinct from
     /// `HeadlessGeometryBridge.renderSize(width:height:)` by name as well as by tier, because a
     /// test forbids the two bridges from sharing a function signature.
+    /// A video track's DISPLAYED size in whole pixels, transform applied.
+    ///
+    /// **`naturalSize` alone is the encoded size and is not what anybody sees.** A recording made
+    /// on a phone held upright is encoded landscape with a rotation in `preferredTransform`;
+    /// reporting 1920x1080 for it would describe a sequence turned on its side, and every clip in
+    /// it would sit in letterbox bars nobody asked for.
+    ///
+    /// Absolute values, because a transform that flips an axis produces a negative extent — which
+    /// is a direction, not a size.
+    ///
+    /// Rounded rather than truncated: a track can report a fractional dimension, and `1919` for a
+    /// 1920-wide recording is an off-by-one that every downstream size inherits.
+    public nonisolated static func displayedPixelSize(of naturalSize: CGSize, transform: CGAffineTransform) -> (width: Int, height: Int) {
+        let displayed = naturalSize.applying(transform)
+        return (Int(abs(displayed.width).rounded()), Int(abs(displayed.height).rounded()))
+    }
+
     public nonisolated static func thumbnailSize(width: Int, height: Int) -> CGSize {
         CGSize(width: CGFloat(width), height: CGFloat(height))
     }

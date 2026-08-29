@@ -125,7 +125,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 
 | Capability | Screen Studio | a Rust recorder | Motionik | Borumi | ScreenKite | **Soredemo** |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
-| Voice volume normalisation | ✓ | · | · | · | · | **·** |
+| Voice volume normalisation | ✓ | · | · | · | · | **✓** `Loudness` *(was listed absent; it has shipped)* |
 | **Background noise removal** | ✓ | · | ✓ | ✓ | · | **✓** `NoiseReduction` |
 | Transcript generation | ✓ *(on-device)* | ✓ *(cloud)* | ✓ | ✓ | ✓ *(WhisperKit on-device; ElevenLabs cloud on Intel)* | **✓** `Transcript` |
 | Burned-in captions | ✓ | ✓ | ✓ | ✓ | ✓ word-level | **✓** `CaptionStyle` |
@@ -143,7 +143,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Export presets (web / social / editor) | ✓ | · | ✓ | · | ✓ | **✓** `.web` `.message` `.editing` |
 | Copy video to clipboard | ✓ | · | · | · | · | **✓** `ExportQueue` |
 | **Export an in/out range only** | **·** | · | · | · | ✓ | **✓** `EditTimeline.restricted` |
-| FCPXML / hand-off to a real NLE | · | · | · | · | ✓ | **·** |
+| FCPXML / hand-off to a real NLE | · | · | · | · | ✓ | **✓** `FinalCutXML` |
 | Share link / cloud | ✓ | ✓ | ✓ | ✓ | ✓ | **↺ declined** |
 | Password-protected / private shares | · | ✓ | ✓ | · | ✓ | **↺ declined** |
 | Viewer analytics | · | ✓ | ✓ | · | ✓ | **↺ declined** |

@@ -243,3 +243,59 @@ import Timeline
     #expect(status == noErr)
     #expect(AudioInterleave.rms(of: try #require(buffer)) == nil)
 }
+
+/// **A video track's displayed size, which is not its encoded one.**
+///
+/// The case that matters is a recording made on a phone held upright: it is encoded landscape
+/// with a rotation in `preferredTransform`, and anything that reads `naturalSize` alone describes
+/// a sequence turned on its side. Every clip in such a sequence sits in letterbox bars nobody
+/// asked for, and nothing reports it — the file opens, it just looks wrong.
+@Suite("A track's displayed size")
+struct DisplayedPixelSizeTests {
+    @Test("an untransformed track is its own size")
+    func identityKeepsTheSize() {
+        let size = CGGeometryBridge.displayedPixelSize(
+            of: CGSize(width: 1920, height: 1080), transform: .identity)
+        #expect(size.width == 1920)
+        #expect(size.height == 1080)
+    }
+
+    /// The phone-held-upright case, both ways round. A quarter turn swaps the axes.
+    @Test("a quarter turn swaps the axes", arguments: [90.0, -90.0, 270.0])
+    func aQuarterTurnSwapsTheAxes(degrees: Double) {
+        let transform = CGAffineTransform(rotationAngle: degrees * .pi / 180)
+        let size = CGGeometryBridge.displayedPixelSize(
+            of: CGSize(width: 1920, height: 1080), transform: transform)
+        #expect(size.width == 1080)
+        #expect(size.height == 1920)
+    }
+
+    /// **A flip is a direction, not a size.** A transform with a negative scale produces a
+    /// negative extent, and a width of -1920 would reach an FCPXML `<format>` element as a
+    /// dimension no importer accepts.
+    @Test("a flipped track reports a size rather than a direction")
+    func aFlipDoesNotProduceANegativeSize() {
+        let size = CGGeometryBridge.displayedPixelSize(
+            of: CGSize(width: 1920, height: 1080),
+            transform: CGAffineTransform(scaleX: -1, y: 1))
+        #expect(size.width == 1920)
+        #expect(size.height == 1080)
+    }
+
+    /// Rounded rather than truncated: `1919` for a 1920-wide recording is an off-by-one that
+    /// every size computed downstream inherits.
+    @Test("a fractional dimension rounds rather than truncating")
+    func fractionsRound() {
+        let size = CGGeometryBridge.displayedPixelSize(
+            of: CGSize(width: 1919.6, height: 1080.4), transform: .identity)
+        #expect(size.width == 1920)
+        #expect(size.height == 1080)
+    }
+
+    @Test("a track with no size reports none rather than refusing")
+    func aZeroSizeIsZero() {
+        let size = CGGeometryBridge.displayedPixelSize(of: .zero, transform: .identity)
+        #expect(size.width == 0)
+        #expect(size.height == 0)
+    }
+}
