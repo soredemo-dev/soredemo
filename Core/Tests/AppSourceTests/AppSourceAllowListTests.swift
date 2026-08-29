@@ -1589,6 +1589,26 @@ private func desktopIconsFile() throws -> [URL] {
 /// assembled with `+`, which SwiftUI cannot look up at all — they arrive as a computed `String`
 /// rather than a key. Checking those would be checking a rule the code does not follow. A
 /// `title:` is a word somebody reads on a control, and it is the set that broke.
+/// Every `\u{XXXX}` escape in a Swift string literal, turned into the character it denotes —
+/// which is what a string table holds.
+func unescapedSwiftLiteral(_ text: String) -> String {
+    var result = ""
+    var rest = Substring(text)
+    while let open = rest.range(of: "\\u{") {
+        result += rest[..<open.lowerBound]
+        let afterOpen = rest[open.upperBound...]
+        guard let close = afterOpen.firstIndex(of: "}"),
+              let value = UInt32(afterOpen[..<close], radix: 16),
+              let scalar = Unicode.Scalar(value) else {
+            result += rest[open.lowerBound...]
+            return result
+        }
+        result.append(Character(scalar))
+        rest = afterOpen[afterOpen.index(after: close)...]
+    }
+    return result + rest
+}
+
 @Test func everyControlLabelIsInEveryStringTable() throws {
     let resources = repositoryRoot.appending(path: "Soredemo/Resources")
     func keys(of language: String) throws -> Set<String> {
@@ -1650,7 +1670,13 @@ private func desktopIconsFile() throws -> [URL] {
                    // widening to every `Text("` would sweep in the explanatory sentences, which
                    // this project deliberately does not put in the tables.
                    ") { Text(\"",
-                   "ColorPicker(\""]
+                   "ColorPicker(\"",
+                   // **A tooltip is text a person reads**, and every one of them in this app was
+                   // English in every language until 2026-08-30 — `ToolbarAction.help` was typed
+                   // `String`, which binds to SwiftUI's verbatim overload, so no table entry
+                   // could have reached it even if one had existed. Both spellings are scanned.
+                   "help: \"",
+                   ".help(\""]
     var missing: [String] = []
     var scanned = 0
     for file in try appSourceFiles() {
@@ -1661,10 +1687,11 @@ private func desktopIconsFile() throws -> [URL] {
                   let start = line.range(of: opener) else { continue }
             let rest = line[start.upperBound...]
             guard let end = rest.firstIndex(of: "\"") else { continue }
-            // `\u{2026}` in the source is one ellipsis character in the key, which is what the
-            // string table holds. Comparing the escape against the character is how a table
-            // entry that exists reads as missing.
-            let key = String(rest[..<end]).replacingOccurrences(of: "\\u{2026}", with: "\u{2026}")
+            // **Every `\u{XXXX}` in the source is one character in the key**, which is what the
+            // string table holds — comparing the escape against the character is how a table
+            // entry that exists reads as missing. This converted only the ellipsis until the
+            // toolbar's tooltips arrived carrying ⌫, ⌘, ⌃ and an em dash.
+            let key = unescapedSwiftLiteral(String(rest[..<end]))
             // Interpolated titles are not keys, and an empty one is the placeholder beside a
             // `verbatimTitle`.
             guard !key.isEmpty, !key.contains("\\(") else { continue }

@@ -56,14 +56,18 @@ struct EditorToolbar: View {
     }
 
     @ViewBuilder private var history: some View {
+        // **The undo title is content, not a key.** It is the name an edit was given — "Cut
+        // 3 words" — which is already in the reader's language because the thing that made it
+        // was. Wrapped as a key it falls through to itself, which is right; the fallback beside
+        // it IS a key.
         ToolbarAction(icon: "arrow.uturn.backward",
-                      help: model.undoTitle ?? "Nothing to undo",
+                      help: model.undoTitle.map { LocalizedStringKey($0) } ?? "Nothing to undo",
                       isEnabled: model.canUndo) {
             model.undo()
             onChange()
         }
         ToolbarAction(icon: "arrow.uturn.forward",
-                      help: model.redoTitle ?? "Nothing to redo",
+                      help: model.redoTitle.map { LocalizedStringKey($0) } ?? "Nothing to redo",
                       isEnabled: model.canRedo) {
             model.redo()
             onChange()
@@ -145,8 +149,10 @@ struct EditorToolbar: View {
             }
         } else {
             ToolbarAction(icon: "waveform.slash",
-                          help: "Remove \(model.silences.count) silent stretch(es), "
-                          + "\(EditorToolbar.seconds(SilenceFinder.total(model.silences))) in all",
+                          // One interpolation, not a `+`: concatenation makes a `String`, and
+                          // a `String` is drawn verbatim. Interpolated, the key is
+                          // "Remove %lld silent stretch(es), %@ in all".
+                          help: "Remove \(model.silences.count) silent stretch(es), \(EditorToolbar.seconds(SilenceFinder.total(model.silences))) in all",
                           isEnabled: true) {
                 model.removeSilences()
                 onChange()
@@ -177,8 +183,7 @@ struct EditorToolbar: View {
             }
         } else {
             ToolbarAction(icon: "scissors.badge.ellipsis",
-                          help: "Remove \(model.stillness.count) still stretch(es), "
-                          + "\(EditorToolbar.seconds(StillnessFinder.total(model.stillness))) in all",
+                          help: "Remove \(model.stillness.count) still stretch(es), \(EditorToolbar.seconds(StillnessFinder.total(model.stillness))) in all",
                           isEnabled: true) {
                 model.removeStillness()
                 onChange()
@@ -238,7 +243,11 @@ struct EditorToolbar: View {
 /// and go is a strip a person cannot learn the shape of.
 private struct ToolbarAction: View {
     let icon: String
-    let help: String
+    /// **`LocalizedStringKey`, not `String`, and the difference is the whole feature.**
+    /// `.help(String)` binds to SwiftUI's `StringProtocol` overload, which draws the text
+    /// verbatim — so every tooltip in this toolbar was English in every language, with nothing
+    /// to see and no way for a table entry to reach it. A key is looked up.
+    let help: LocalizedStringKey
     let isEnabled: Bool
     let action: () -> Void
     @State private var isHovering = false
