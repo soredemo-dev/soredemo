@@ -678,7 +678,29 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                              // smaller area, which is exactly when it is most in the way.
                              contentZoom: plan.contentZoom)
 
-        var placed = image
+        // **The room is cut away here, before anything else touches the frame.** Vision analysed
+        // this exact buffer, so its mask is in this buffer's orientation and at this buffer's
+        // size; mirroring or scaling first would mean transforming the mask to match, which is
+        // one more chance to get a geometry wrong for no gain at all.
+        //
+        // The level is chosen from how wide the card will be drawn — `PersonMask` will not
+        // upscale its own mask if it can avoid it — which is why `box` is computed above this
+        // rather than below it.
+        //
+        // **A refusal draws the camera unchanged.** Somebody leaning out of frame is a refusal,
+        // and blanking the card for as long as they are gone would be a far worse answer than
+        // showing the room for a moment.
+        var source = image
+        var isCutOut = false
+        if style.background == .removed {
+            let quality = PersonMask.quality(forCardWidthInPixels: box.width)
+            if case .cutOut(let cut) = PersonMask.cutOut(image, from: buffer, quality: quality) {
+                source = cut
+                isCutOut = true
+            }
+        }
+
+        var placed = source
         if style.isMirrored {
             // Flipped about the frame's own centre before it is scaled, so the mirror does not
             // also move it — a scale and a flip do not commute about the origin.
@@ -694,6 +716,14 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                 - Double(placed.extent.minY)))
         let cropped = centred.cropped(to: HeadlessGeometryBridge.rect(
             x: box.x, y: box.y, width: box.width, height: box.height))
+
+        // **A cut-out person has no card, so it gets no shape, no ring and no shadow.** Rounding
+        // the corners of a silhouette rounds nothing — the corners are already transparent — and
+        // a ring drawn around where the card would have been would draw a circle in mid-air
+        // beside somebody's shoulder. This is the one branch where `shape`, `borderOpacity` and
+        // `shadowOpacity` are deliberately ignored rather than honoured; the values are kept in
+        // the style so that switching the background back restores the card exactly.
+        guard !isCutOut else { return cropped }
 
         let radius: Double = switch style.shape {
         case .circle: min(box.width, box.height) / 2

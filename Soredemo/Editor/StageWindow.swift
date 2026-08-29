@@ -734,16 +734,54 @@ struct StageWindow: View {
         Toggle("Show camera", isOn: Binding(
             get: { !cameraStyle.isHidden },
             set: { cameraStyle = cameraStyle.changing(isHidden: !$0); reviewRevision += 1 }))
-        Picker("Shape", selection: Binding(
-            get: { cameraStyle.shape },
-            set: { cameraStyle = cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
-            ForEach(CameraOverlayStyle.Shape.allCases, id: \.self) {
+        // **The room behind the person, cut away or kept** — see `PersonMask`.
+        //
+        // Turning it on warms Vision's models on a detached task. The first segmentation of each
+        // level costs one to two seconds loading the model and every one after it costs 21 ms;
+        // paid here, seconds before anybody scrubs to a frame with a camera in it, it is never
+        // paid on a frame somebody is waiting for. Detached because it is not the picker's job
+        // to wait for it, and nothing about the answer is needed to draw the next frame.
+        Picker("Background", selection: Binding(
+            get: { cameraStyle.background },
+            set: { cameraStyle = cameraStyle.changing(background: $0)
+                   if $0 == .removed { Task.detached(priority: .utility) { PersonMask.warmUp() } }
+                   reviewRevision += 1 })) {
+            ForEach(CameraOverlayStyle.Background.allCases, id: \.self) {
                 Text($0.displayName).tag($0)
+            }
+        }
+        // **The system's own blur is one control away and is not reimplemented here.** Portrait
+        // mode runs inside the camera pipeline for free; a hand-written blur would be slower and
+        // worse. Said in the interface because somebody looking for "blur my background" will
+        // look here first, and sending them two clicks away beats offering them a worse copy.
+        if cameraStyle.background == .keep {
+            Text("To blur the background instead, turn on Portrait in the camera effects.")
+                .font(Type.detail).foregroundStyle(.secondary)
+        } else {
+            // **The cost, on screen, before it is discovered.** Cutting a person out is 21 ms a
+            // frame — measured — on top of everything else a frame costs, and somebody whose
+            // preview has just become less smooth is owed the reason rather than left to
+            // conclude the app got slower. Nothing is sent anywhere: this runs on this Mac.
+            Text("Cut out on this Mac, frame by frame — around 21 ms each, so previews and "
+                 + "exports take longer with this on.")
+                .font(Type.detail).foregroundStyle(.secondary)
+        }
+        // **A cut-out person has no card**, so the controls that shape one are not offered while
+        // the background is gone. They keep their values — switching back restores the card
+        // exactly — they simply do nothing, and a control that does nothing is one people
+        // conclude is broken. The same argument the corner slider already makes for a circle.
+        if cameraStyle.background == .keep {
+            Picker("Shape", selection: Binding(
+                get: { cameraStyle.shape },
+                set: { cameraStyle = cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
+                ForEach(CameraOverlayStyle.Shape.allCases, id: \.self) {
+                    Text($0.displayName).tag($0)
+                }
             }
         }
         // **Only for the shape that has corners.** A slider that does nothing on a circle and
         // nothing on a square is a slider people conclude is broken.
-        if cameraStyle.shape == .rounded {
+        if cameraStyle.shape == .rounded, cameraStyle.background == .keep {
             Slider(value: Binding(
                 get: { cameraStyle.cornerFraction },
                 set: { cameraStyle = cameraStyle.changing(cornerFraction: $0)

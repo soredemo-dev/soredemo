@@ -200,6 +200,59 @@ and it is the only automatic answer any of these tools has for a phone.
 cursor then appears in the recording, and everything that follows a cursor has something to
 follow.
 
+### Camera background removal: Vision beats the model everyone bundles
+
+**2026-08-29.** Cutting the room out from behind a webcam — the one thing in this comparison that
+people ask for by name and that this app did not have. Motionik ships it. Screen Studio does not.
+Of the five open-source recorders beside this repo, exactly one does: **a Rust recorder**.
+
+**a Rust recorder's approach, read line by line** (`crates/camera-effects`): MediaPipe's
+`selfie_segmentation.onnx`, bundled as bytes, run through ONNX Runtime with the CoreML execution
+provider, hunting `libonnxruntime.dylib` at three candidate paths on start-up. Model input:
+**256x256**. They need it because a Rust recorder runs on Windows and Linux too.
+
+**What ships here:** `VNGeneratePersonSegmentationRequest`. Measured on this machine:
+
+    quality    per frame     mask         verdict
+    fast        7.85 ms     256 x 192     under-sampled at any realistic card width — not offered
+    balanced   21.32 ms     512 x 384     the default
+    accurate   55.90 ms    2016 x 1512    earned only by a camera wider than 512 output px
+
+So the platform framework gives a **higher-resolution mask than the model a Rust recorder bundles a whole
+runtime for**, with no dependency, no model file and no per-platform dylib. On macOS the
+dependency-free option is also the better one.
+
+Three measurements changed the code:
+
+  * **Mask size does not depend on input size.** 1280x720 and 640x360 both produce 512x384 and
+    both take 21 ms. Downscaling before segmenting — the obvious optimisation — saves nothing.
+  * **The mask does not preserve the input's aspect.** 1920x1080 gives 512x384; so does a square
+    1000x1000. Only portrait flips it. It must be stretched over the whole extent with X and Y
+    scaled *independently*; matching the aspect would put the silhouette a fifth of a frame off
+    the person, silently.
+  * **The first request of each level costs 1–2 seconds** loading the model. Warmed when the
+    switch is turned on, not on the frame somebody is waiting for.
+
+**Two of a Rust recorder's techniques were worth taking, and measuring killed both:**
+
+`refine_mask_value` applies a sigmoid at contrast 4 to harden a mushy boundary. Plotted against a
+0-to-255 ramp, that curve gives `0 -> 30` and `255 -> 225` — it never saturates, so it
+*compresses* the mask rather than sharpening it, leaving background 12% opaque and the person 12%
+transparent. Sound for MediaPipe's soft 256x256 output; unnecessary for Vision's, which is
+decisive — a frame with nobody in it peaks at 2 to 5 out of 255, not at 128.
+
+`smooth_mask_value` is a temporal EMA across frames (growth 0.25, shrink 0.12, stability band
+0.025) that kills edge shimmer. Right for a Rust recorder and wrong here: a Rust recorder segments a **live** camera where
+frames arrive in order, while this renders a timeline that is scrubbed, seeked and exported out of
+order. An EMA would make a frame's appearance depend on how somebody arrived at it — different in
+the preview than in the export, and different again on a second export. The cost of refusing it is
+stated rather than hidden: the silhouette can shimmer slightly, and the deterministic fix if that
+proves visible is a fixed window around the frame's own position, at 63 ms a frame.
+
+**What is deliberately NOT built:** background *blur*. macOS ships Portrait mode, `CameraEffects`
+already puts it one click away, and it runs inside the camera pipeline for free. A hand-written
+blur would be slower and worse. The interface says so where somebody would look for it.
+
 ### Hiding macOS furniture: exclude it from the capture, do not change the Mac
 
 **2026-08-29.** Two switches that sound alike and are built completely differently, because

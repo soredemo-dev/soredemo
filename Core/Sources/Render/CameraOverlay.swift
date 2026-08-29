@@ -55,6 +55,32 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     /// default for the reason every other option here is: a saved project must look as it did.
     public let avoidsCursor: Bool
 
+    /// Whether the room behind the person is kept or cut away — see `PersonMask`.
+    public let background: Background
+
+    /// What is behind the person in the camera.
+    ///
+    /// **Two cases, because macOS already owns the third.** Blurring the background is Portrait
+    /// mode, which `CameraEffects` already puts one click away and which runs inside the camera
+    /// pipeline for free; a hand-written blur here would be slower and worse than the one Apple
+    /// ships, so it is not offered. What the system cannot do is REMOVE the background, and that
+    /// is a different picture rather than a stronger version of the same one: the person stands
+    /// on the screen recording itself instead of in a soft-focus version of their room.
+    public enum Background: String, Hashable, Codable, Sendable, CaseIterable {
+        /// The camera as the camera saw it. The default, and the only value any project written
+        /// before this field existed can honestly be read as having.
+        case keep
+        /// Everything that is not a person made transparent, so the recording shows through.
+        case removed
+
+        public var displayName: String {
+            switch self {
+            case .keep: "Keep"
+            case .removed: "Remove"
+            }
+        }
+    }
+
     public enum Shape: String, Hashable, Codable, Sendable, CaseIterable {
         case circle, rounded, square
 
@@ -81,7 +107,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                 scaleDuringZoom: Double = 1, shape: Shape,
                 cornerFraction: Double, isMirrored: Bool,
                 borderOpacity: Double, shadowOpacity: Double,
-                avoidsCursor: Bool = false) {
+                avoidsCursor: Bool = false, background: Background = .keep) {
+        self.background = background
         self.position = position
         self.isHidden = isHidden
         // Clamped like every other field — rule 8's case, and a zoom scale of zero would be a
@@ -123,16 +150,29 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                                                          forKey: .borderOpacity) ?? 0.35,
             shadowOpacity: try container.decodeIfPresent(Double.self,
                                                          forKey: .shadowOpacity) ?? 0.45,
-            avoidsCursor: try container.decodeIfPresent(Bool.self, forKey: .avoidsCursor) ?? false)
+            avoidsCursor: try container.decodeIfPresent(Bool.self, forKey: .avoidsCursor) ?? false,
+            // `.keep` is the only honest reading of a project written before this existed: the
+            // camera in it was recorded and exported with its room behind it, and opening it
+            // must not silently cut somebody out of a video they have already published.
+            background: try container.decodeIfPresent(Background.self,
+                                                      forKey: .background) ?? .keep)
     }
 
     private enum CodingKeys: String, CodingKey {
         case widthFraction, x, y, position, isHidden, scaleDuringZoom, shape, cornerFraction
-        case isMirrored, borderOpacity, shadowOpacity, avoidsCursor
+        case isMirrored, borderOpacity, shadowOpacity, avoidsCursor, background
     }
 
     /// The same style with one field changed — the shape every style in this tier uses, for the
     /// reason `TextOverlayStyle.changing` gives.
+    ///
+    /// **Every field must be listed here AND in `placed(at:)`, and forgetting is silent.** Both
+    /// rebuild the whole value field by field, so a field that is added to the type and not to
+    /// these two is reset to its default the moment anybody drags a slider — the person's camera
+    /// background comes back, or their corner rounding does, with nothing to see and nothing
+    /// logged. `StageStylePicker.apply` shipped with exactly this defect and it was found by a
+    /// scan rather than by use. `everyCameraStyleFieldSurvivesARebuild` walks this type with a
+    /// `Mirror`, so the next field added is covered without anybody remembering to cover it.
     /// **Moving by hand clears the preset**, because it is no longer on one. `position` is not
     /// reachable through this for that reason — `placed(at:)` sets it and a coordinate clears it,
     /// so the two cannot both claim to be where the camera is.
@@ -141,7 +181,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                          shape: Shape? = nil, cornerFraction: Double? = nil,
                          isMirrored: Bool? = nil, borderOpacity: Double? = nil,
                          shadowOpacity: Double? = nil,
-                         avoidsCursor: Bool? = nil) -> CameraOverlayStyle {
+                         avoidsCursor: Bool? = nil,
+                         background: Background? = nil) -> CameraOverlayStyle {
         CameraOverlayStyle(widthFraction: widthFraction ?? self.widthFraction,
                            x: x ?? self.x, y: y ?? self.y,
                            position: (x == nil && y == nil) ? self.position : nil,
@@ -152,7 +193,8 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                            isMirrored: isMirrored ?? self.isMirrored,
                            borderOpacity: borderOpacity ?? self.borderOpacity,
                            shadowOpacity: shadowOpacity ?? self.shadowOpacity,
-                           avoidsCursor: avoidsCursor ?? self.avoidsCursor)
+                           avoidsCursor: avoidsCursor ?? self.avoidsCursor,
+                           background: background ?? self.background)
     }
 
     /// Nine places a camera is usually put, so a corner is one press rather than two sliders
@@ -212,7 +254,7 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
                            scaleDuringZoom: scaleDuringZoom, shape: shape,
                            cornerFraction: cornerFraction, isMirrored: isMirrored,
                            borderOpacity: borderOpacity, shadowOpacity: shadowOpacity,
-                           avoidsCursor: avoidsCursor)
+                           avoidsCursor: avoidsCursor, background: background)
     }
 
     /// How far the camera is kept from the frame's edge, as a fraction of the output's WIDTH.

@@ -98,6 +98,9 @@ import AVFoundation
 @testable import Capture
 import Carbon.HIToolbox
 import CoreGraphics
+// `CIImage` and `CIContext` for § 22 — reading back what the person cut-out actually produced,
+// which is the only way to tell a mask that was applied from one that evaporated.
+import CoreImage
 // `CMSampleBuffer`, `CMReadySampleBuffer`, `CMAudioFormatDescription` for § 13 — building the
 // synthetic video and audio sample buffers `MasterWriting`'s two conformances both append.
 import CoreMedia
@@ -6669,6 +6672,132 @@ enum CrossBoundaryProbe {
             check(refused, "21.7 a file with no video is refused before anything is copied",
                   actual: "\(refused)", expected: "true")
         }
+
+        print("")
+        print("22. PersonMask — Vision, in a process that can afford to block")
+
+        // **Here rather than in a unit test, and the reason is the same one § 20 gives.**
+        // `VNImageRequestHandler.perform` is synchronous and pulls in CoreML, Espresso and the
+        // Apple Neural Engine. `swift test` runs every target in ONE process with Swift Testing
+        // running suites concurrently, and these calls stalled the whole CompositingTests run at
+        // **0% CPU** — measured twice, once with the suite `.serialized` and once with every
+        // Vision call hopped onto a `DispatchQueue`. Neither was enough: a `sample` of the hung
+        // process showed all eight cooperative threads in `_pthread_cond_wait` and thirteen
+        // unfinished tests, only one of which was a Vision test at all. The other twelve were
+        // audio and codec tests that had simply been starved.
+        //
+        // So the rule that governs it is the rule this instrument exists for: a framework that
+        // takes the process hostage is exercised in a process that has nothing else to lose.
+        // `Core/Tests/CompositingTests/PersonMaskTests.swift` keeps the parts that are pure
+        // arithmetic — the level rule, the mask widths, the refusal that never reaches Vision.
+        //
+        // **What cannot be checked anywhere is whether a person is cut out WELL.** That needs a
+        // frame with somebody in it, and a repository does not want a photograph of a human being
+        // committed to it to satisfy a test. What is checked here is everything else: that the
+        // mask lands on the frame at four different shapes, that both levels run, and — the one
+        // that actually proves the mask is applied rather than merely computed — that a frame
+        // with nobody in it comes back very nearly transparent.
+        PersonMask.warmUp()
+        check(true, "22.1 warming Vision's models returns rather than hanging")
+
+        let probeCIContext = CIContext(options: [.workingColorSpace: NSNull()])
+
+        /// A frame of plain content at a given size. Vision finds nobody in it, which is the
+        /// point — every claim below is about geometry and application, not about detection.
+        func probeBlankFrame(width: Int, height: Int) -> CVPixelBuffer? {
+            var created: CVPixelBuffer?
+            _ = unsafe CVPixelBufferCreate(
+                nil, width, height, kCVPixelFormatType_32BGRA,
+                [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &created)
+            guard let buffer = created else { return nil }
+            // Mid grey, so "the cut-out is transparent" cannot be satisfied by a frame that was
+            // already black and empty.
+            unsafe CVPixelBufferLockBaseAddress(buffer, [])
+            if let base = unsafe CVPixelBufferGetBaseAddress(buffer) {
+                let rowBytes = unsafe CVPixelBufferGetBytesPerRow(buffer)
+                unsafe memset(base, 128, rowBytes * height)
+            }
+            unsafe CVPixelBufferUnlockBaseAddress(buffer, [])
+            return buffer
+        }
+
+        // ---- 22.2 the mask lands on the frame, at four shapes.
+        //
+        // **This is the check that would have caught the mistake the design turns on.** Vision's
+        // mask is 512x384 for a 1920x1080 frame and for a 1000x1000 one — it does not preserve
+        // the input's aspect — so it has to be stretched over the whole extent with X and Y
+        // scaled apart. Matching the aspect, which is the natural thing to write, would leave the
+        // silhouette off the person by a fifth of the frame and would do it silently.
+        for (width, height) in [(1280, 720), (720, 1280), (600, 600), (1920, 1080)] {
+            guard let frame = probeBlankFrame(width: width, height: height) else {
+                check(false, "22.2 the \(width)x\(height) fixture was allocated")
+                continue
+            }
+            let image = CIImage(cvPixelBuffer: frame)
+            guard case .cutOut(let cut) = PersonMask.cutOut(image, from: frame,
+                                                            quality: .balanced) else {
+                check(false, "22.2 a well-formed \(width)x\(height) frame produced a cut-out")
+                continue
+            }
+            check(cut.extent == image.extent,
+                  "22.2 a \(width)x\(height) cut-out covers exactly the frame it came from",
+                  actual: "\(cut.extent)", expected: "\(image.extent)")
+        }
+
+        // ---- 22.3 both levels run. The accurate one is 2.7x the cost and is reached only
+        // through `quality(forCardWidthInPixels:)`, so without this it is a public option that
+        // nothing has ever executed.
+        for quality in PersonMask.Quality.allCases {
+            guard let frame = probeBlankFrame(width: 640, height: 360) else { continue }
+            guard case .cutOut = PersonMask.cutOut(CIImage(cvPixelBuffer: frame), from: frame,
+                                                   quality: quality) else {
+                check(false, "22.3 \(quality.rawValue) segments a well-formed frame")
+                continue
+            }
+            check(true, "22.3 \(quality.rawValue) segments a well-formed frame")
+        }
+
+        // ---- 22.4 **the mask is applied, not merely computed.**
+        //
+        // Every check above would pass against a function that ran Vision, threw the mask away
+        // and returned the frame untouched — the extents would still match, because they are the
+        // frame's own. This one reads the pixels back. A frame of mid grey with nobody in it must
+        // come back very nearly transparent, because Vision's mask for an empty room peaks at 2
+        // to 5 out of 255. If the blend evaporated — which is exactly what happened to the camera
+        // overlay's border for months, compositing into a zero-extent `CIImage.empty()` — the
+        // alpha would come back at 255 and this is the only check in the project that would see
+        // it.
+        if let frame = probeBlankFrame(width: 320, height: 240),
+           case .cutOut(let cut) = PersonMask.cutOut(CIImage(cvPixelBuffer: frame), from: frame,
+                                                     quality: .balanced) {
+            let width = 320, height = 240
+            var pixels = [UInt8](repeating: 0, count: 4 * width * height)
+            unsafe pixels.withUnsafeMutableBytes {
+                unsafe probeCIContext.render(cut, toBitmap: $0.baseAddress!,
+                                             rowBytes: width * 4,
+                                             bounds: CGRect(x: 0, y: 0, width: width,
+                                                            height: height),
+                                             format: .RGBA8, colorSpace: nil)
+            }
+            var peakAlpha = 0
+            var index = 3
+            while index < pixels.count { peakAlpha = max(peakAlpha, Int(pixels[index]))
+                                         index += 4 }
+            check(peakAlpha < 32,
+                  "22.4 a frame with nobody in it comes back transparent, so the mask is applied",
+                  actual: "peak alpha \(peakAlpha)", expected: "under 32")
+            print("        peak alpha of an empty room after cut-out: \(peakAlpha) of 255")
+        } else {
+            check(false, "22.4 the readback fixture was built and segmented")
+        }
+
+        // ---- 22.5 the level rule, executed rather than reasoned about. Pure arithmetic, and
+        // also checked in `PersonMaskTests`; repeated here because the numbers it turns on are
+        // the mask widths measured in this same process, two checks above.
+        check(PersonMask.quality(forCardWidthInPixels: 512) == .balanced,
+              "22.5 a card the width of the balanced mask does not pay for the accurate one")
+        check(PersonMask.quality(forCardWidthInPixels: 513) == .accurate,
+              "22.5 a card wider than the balanced mask earns the accurate one")
 
 
 
