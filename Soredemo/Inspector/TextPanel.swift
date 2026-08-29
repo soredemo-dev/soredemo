@@ -113,7 +113,7 @@ struct TextPanel: View {
             .contentShape(Rectangle())
             .onTapGesture { model.selection = item.id }
             .listRowBackground(model.selection == item.id
-                               ? Color.accentColor.opacity(0.15) : Color.clear)
+                               ? Theme.accent.opacity(0.15) : Color.clear)
         }
     }
 

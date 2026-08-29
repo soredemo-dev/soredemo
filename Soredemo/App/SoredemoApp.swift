@@ -77,6 +77,10 @@ struct SoredemoApp: App {
         // the design to solve.
         MenuBarExtra {
             MenuBarRecorderPanel(coordinator: recordingCoordinator)
+                // The same accent the editor uses; see the note on the editor scene. The panel
+                // is where somebody spends the seconds before a recording, and a red toggle in
+                // a blue interface is the first thing they see.
+                .tint(Theme.accent)
         } label: {
             MenuBarRecorderLabel(coordinator: recordingCoordinator)
         }
@@ -156,6 +160,13 @@ struct SoredemoApp: App {
         // with AppKit's own vocabulary.
         WindowGroup("Soredemo", id: WindowID.editor) {
             ContentView(coordinator: recordingCoordinator)
+                // **The app's own accent, applied once at the scene.** Without this every
+                // control follows the accent colour set in System Settings, so an app whose
+                // whole palette is built around one blue draws its buttons, toggles, sliders
+                // and selection in whatever the person happens to have chosen — red, on the
+                // machine where this was noticed. Two windows set it locally and nothing set
+                // it here, which is why it looked deliberate everywhere except the editor.
+                .tint(Theme.accent)
                 // `SCContentSharingPicker.present()` hands off to Control
                 // Center's UI and needs a running run loop to call back into,
                 // so unlike `--dump-permissions` these flags cannot be handled

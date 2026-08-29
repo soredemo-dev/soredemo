@@ -1756,3 +1756,48 @@ private func desktopIconsFile() throws -> [URL] {
             """)
     }
 }
+
+/// **Every control wears this app's accent, not the one in System Settings.**
+///
+/// SwiftUI tints buttons, toggles, sliders, pickers, focus rings and selection with the system
+/// accent colour unless a scene says otherwise. This app's whole palette is built from one blue —
+/// every timeline lane is that hue rotated — so on a Mac whose accent is set to red, an interface
+/// designed around HSB(230°, 44%, 100%) drew its controls in red, and looked like a mistake
+/// rather than a choice. Two windows set `.tint` locally; the editor and the menu-bar panel,
+/// where somebody spends nearly all of their time, did not.
+///
+/// Two checks, because they fail differently. `Color.accentColor` is the system colour named
+/// outright, which a scene-level tint does not override for a `Color` used as a fill. And a
+/// scene with no tint is the omission that caused this.
+@Test func noAppSourceUsesTheSystemAccentColour() throws {
+    var found: [String] = []
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for (index, line) in text.components(separatedBy: .newlines).enumerated()
+        where line.contains("Color.accentColor") || line.contains(".accentColor(") {
+            found.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1)")
+        }
+    }
+    #expect(found.isEmpty, """
+        The system accent colour is named in the app target, so these follow whatever accent \
+        the person set in System Settings rather than this app's own:
+        \(found.joined(separator: "\n"))
+        Use `Theme.accent`.
+        """)
+}
+
+/// The scenes carry the tint. Counted rather than located: a scan cannot tell which `.tint` is
+/// on a scene root, but it can tell that the app stopped applying it at all — which is the state
+/// this was in.
+@Test func theAppTintsItsOwnControls() throws {
+    var tints = 0
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        tints += text.components(separatedBy: ".tint(Theme.accent)").count - 1
+    }
+    #expect(tints >= 4, """
+        Only \(tints) place(s) apply this app's accent. The editor, the menu-bar panel, \
+        Settings and Permissions each need it: SwiftUI uses the SYSTEM accent otherwise, and \
+        an interface built around one blue drew red buttons on the machine where that was noticed.
+        """)
+}
