@@ -500,7 +500,9 @@ enum CrossBoundaryProbe {
         let styleKey = RecordingCoordinator.cameraStyleKey
         let iconsKey = RecordingCoordinator.hidesDesktopIconsKey
         let dockKey = RecordingCoordinator.hidesDockKey
-        let keys = [countdownKey, frameRateKey, qualityKey, styleKey, iconsKey, dockKey]
+        let menuBarKey = RecordingCoordinator.hidesMenuBarKey
+        let keys = [countdownKey, frameRateKey, qualityKey, styleKey, iconsKey, dockKey,
+                    menuBarKey]
 
         print("        preferences domain: "
               + (Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName)
@@ -543,6 +545,8 @@ enum CrossBoundaryProbe {
               "17.1 a first launch does not restart Finder to hide desktop icons")
         check(!firstLaunch.hidesDock,
               "17.1 a first launch records the Dock rather than silently omitting it")
+        check(!firstLaunch.hidesMenuBar,
+              "17.1 a first launch records the menu bar rather than silently omitting it")
 
         // ---- 17.2 each preference reaches disk, under the key the app has always used.
         //
@@ -559,7 +563,8 @@ enum CrossBoundaryProbe {
                           ("camera quality", qualityKey, "cameraQuality"),
                           ("camera style", styleKey, "cameraOverlayStyle"),
                           ("desktop-icon switch", iconsKey, "hidesDesktopIcons"),
-                          ("Dock switch", dockKey, "hidesDock")]
+                          ("Dock switch", dockKey, "hidesDock"),
+                          ("menu-bar switch", menuBarKey, "hidesMenuBar")]
         for (what, declared, pinned) in pinnedKeys {
             check(declared == pinned,
                   "17.2 the \(what) is stored under the key it has always been stored under",
@@ -574,6 +579,7 @@ enum CrossBoundaryProbe {
         firstLaunch.cameraStyle = moved
         firstLaunch.hidesDesktopIcons = true
         firstLaunch.hidesDock = true
+        firstLaunch.hidesMenuBar = true
 
         check(defaults.object(forKey: countdownKey) as? Int == 5,
               "17.2 the countdown is written under '\(countdownKey)'",
@@ -592,6 +598,9 @@ enum CrossBoundaryProbe {
         check(defaults.object(forKey: dockKey) as? Bool == true,
               "17.2 the Dock switch is written under '\(dockKey)'",
               actual: String(describing: defaults.object(forKey: dockKey)), expected: "true")
+        check(defaults.object(forKey: menuBarKey) as? Bool == true,
+              "17.2 the menu-bar switch is written under '\(menuBarKey)'",
+              actual: String(describing: defaults.object(forKey: menuBarKey)), expected: "true")
 
         // ---- 17.3 and a relaunch reads them back. A separate check from 17.2 on purpose: a
         // preference that reaches disk and is not read on the way back up is still lost, and the
@@ -610,6 +619,8 @@ enum CrossBoundaryProbe {
               "17.3 a relaunch still hides the desktop icons")
         check(relaunched.hidesDock,
               "17.3 a relaunch still keeps the Dock out of the picture")
+        check(relaunched.hidesMenuBar,
+              "17.3 a relaunch still keeps the menu bar out of the picture")
 
         // ---- 17.4 zero is a stored answer, not an absent key. This is the distinction 17.1's
         // default rests on, from the other side: if the two collapsed, somebody who deliberately
@@ -955,6 +966,34 @@ enum CrossBoundaryProbe {
                   "SCShareableContent.currentProcess; cannot construct a CaptureSource.window")
             return
         }
+
+        // ---- 0. the menu bar switch reaches the filter it is supposed to reach.
+        //
+        // **Here because a filter needs a real `SCDisplay`**, which no unit test can build.
+        // `CaptureExclusions.hidesMenuBar` is one boolean travelling through three files to land
+        // on `SCContentFilter.includeMenuBar`, and every step of that is the kind that compiles
+        // perfectly while doing nothing: a defaulted argument left off at the call site, a
+        // property set on a copy. Nothing else in the project would notice — the recording would
+        // simply still have a menu bar in it, which looks exactly like nobody asked.
+        //
+        // Also checked: the frame does not change size. A property that CROPPED rather than hid
+        // would change the output's dimensions, and every geometry downstream is built on those.
+        let menuBarSource = CaptureSource.display(display)
+        let withMenuBar = menuBarSource.filter(showsMenuBar: true)
+        let withoutMenuBar = menuBarSource.filter(showsMenuBar: false)
+        check(withMenuBar.includeMenuBar,
+              "5.0 a filter asked to show the menu bar includes it",
+              actual: "\(withMenuBar.includeMenuBar)", expected: "true")
+        check(!withoutMenuBar.includeMenuBar,
+              "5.0 a filter asked to hide the menu bar excludes it",
+              actual: "\(withoutMenuBar.includeMenuBar)", expected: "false")
+        check(withMenuBar.contentRect == withoutMenuBar.contentRect,
+              "5.0 hiding the menu bar hides it rather than cropping the frame",
+              actual: "\(withoutMenuBar.contentRect)", expected: "\(withMenuBar.contentRect)")
+        // The default is to show it: a caller that forgets the argument must not silently start
+        // omitting part of somebody's screen.
+        check(menuBarSource.filter().includeMenuBar,
+              "5.0 the menu bar is shown unless somebody asks otherwise")
 
         let displayUUID = UUID()          // a plain test value — the real
         let windowSourceID = UUID()       // lookup is capture-stream's job, not this pure function's.

@@ -278,6 +278,22 @@ the Dock (`kCGDockWindowLevel`, 20); the wallpapers sit at -2147483624 and four 
 backdrops at -2147483622. So the application is excluded and every window of it except that one
 is named in `exceptingWindows`. Both variants were shot and compared: Dock gone, wallpaper intact.
 
+**Hiding the menu bar** is the easiest of the three and the only one with a documented API for
+it: `SCContentFilter.includeMenuBar`. Measured, it takes the menu bar's **twelve status items with
+it** — the menu bar is one window at `kCGMainMenuWindowLevel` (24) titled `Menubar`, and Clock,
+Battery, WiFi, Sound, Siri, NowPlaying and the rest are separate windows one level above at
+`kCGStatusWindowLevel` (25), all owned by `com.apple.controlcenter`. Turning the property off
+removed all thirteen, and the top of the frame comes back showing the desktop rather than a black
+strip. `contentRect` is 1512x982 either way, so it hides rather than crops.
+
+Because it is a property rather than a list, it sidesteps the constraint that shapes the Dock's
+implementation entirely: `SCContentFilter` allows exactly one exclusion list and this process
+already occupies it.
+
+Worth more than tidiness: a menu bar says what time it is, how much battery is left, which network
+somebody is on, and — through its extras — which applications they run. For a recording that is
+going to be published, that is a row of small disclosures nobody meant to make.
+
 **Desktop icons** still use the older, heavier mechanism — Finder's `CreateDesktop` preference
 plus a Finder restart — and the same capture-filter trick was measured to work for them too
 (Finder's one window at -2147483603; the icon visible in the control shot is gone and the

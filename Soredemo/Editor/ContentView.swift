@@ -291,6 +291,23 @@ final class RecordingCoordinator {
     }
     static let hidesDockKey = "hidesDock"
 
+    /// Whether the menu bar — and the twelve small things sitting in it — are kept out of the
+    /// picture for the duration of a recording.
+    ///
+    /// **Off by default, and this is the one where that is arguable.** A menu bar says what time
+    /// it is, how much battery is left, which network somebody is on, and through its extras
+    /// which applications they run: for a recording that is going to be published, that is a row
+    /// of small disclosures nobody meant to make. The case for hiding it by default is real.
+    ///
+    /// It is still off, for the same reason the other two are: a recording that silently omits
+    /// part of the screen is not what pressing Record is understood to mean, and somebody
+    /// demonstrating a menu is demonstrating the menu bar. Costs nothing when off — it is one
+    /// property on the capture filter, not a query and not a change to the Mac.
+    var hidesMenuBar: Bool {
+        didSet { UserDefaults.standard.set(hidesMenuBar, forKey: Self.hidesMenuBarKey) }
+    }
+    static let hidesMenuBarKey = "hidesMenuBar"
+
     // **Every preference key is `internal`, not `private`, and the reason is compatibility
     // rather than testing convenience.** A persisted key is part of what the app promises across
     // versions: rename one and every existing user's preference silently reverts to its default
@@ -359,6 +376,7 @@ final class RecordingCoordinator {
         // is needed for a preference whose default is the same as its zero value.
         hidesDesktopIcons = UserDefaults.standard.bool(forKey: Self.hidesDesktopIconsKey)
         hidesDock = UserDefaults.standard.bool(forKey: Self.hidesDockKey)
+        hidesMenuBar = UserDefaults.standard.bool(forKey: Self.hidesMenuBarKey)
         // Same reasoning as the countdown's default: `integer(forKey:)` answers 0 for a key
         // never set, and 0 is not a frame rate.
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
@@ -634,7 +652,9 @@ final class RecordingCoordinator {
                                         // the session looks the Dock up per segment, because a
                                         // window object taken now would be stale by the time a
                                         // second segment opens. See `CaptureExclusions`.
-                                        exclusions: CaptureExclusions(hidesDock: hidesDock))
+                                        exclusions: CaptureExclusions(
+                                            hidesDock: hidesDock,
+                                            hidesMenuBar: hidesMenuBar))
         session = newSession
         // **The camera starts BEFORE the countdown, not after.** A camera takes a moment to
         // wake and expose; started with the capture, its first second is a dark frame settling.

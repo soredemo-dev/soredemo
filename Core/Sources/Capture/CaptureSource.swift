@@ -321,13 +321,20 @@ public enum CaptureSource: Sendable {
     ///
     /// Empty by default, and empty is the honest default: excepting a window from an application
     /// nobody excluded does nothing at all.
+    /// `showsMenuBar` is `SCContentFilter.includeMenuBar`, passed through rather than reasoned
+    /// about: it is the documented switch for this and it needs none of the exclusion machinery
+    /// above, because it is a property rather than a list. Measured — it takes the menu bar's
+    /// twelve status items with it and does not change `contentRect`. See `CaptureExclusions`.
     public nonisolated func filter(excluding applications: [SCRunningApplication] = [],
-                                   excepting windows: [SCWindow] = [])
+                                   excepting windows: [SCWindow] = [],
+                                   showsMenuBar: Bool = true)
     -> SCContentFilter {
         switch self {
         case .display(let display):
-            return SCContentFilter(display: display, excludingApplications: applications,
-                                   exceptingWindows: windows)
+            let filter = SCContentFilter(display: display, excludingApplications: applications,
+                                         exceptingWindows: windows)
+            filter.includeMenuBar = showsMenuBar
+            return filter
         case .window(let capture):
             // **The Dock is excluded here by construction, so `excepting` has nothing to undo.**
             // A window filter captures one window and nothing overlapping it — the same argument
@@ -338,8 +345,16 @@ public enum CaptureSource: Sendable {
             // The crop is `SCStreamConfiguration.sourceRect`; this only decides what may appear
             // inside it, and what may not is this application — the same exclusion the display
             // case makes, and for the same reason the recording bar was once burnt into a video.
-            return SCContentFilter(display: capture.display, excludingApplications: applications,
-                                   exceptingWindows: windows)
+            let filter = SCContentFilter(display: capture.display,
+                                         excludingApplications: applications,
+                                         exceptingWindows: windows)
+            // A region that does not reach the top of the screen contains no menu bar to hide,
+            // and one that does is asking the same question a display capture asks. Set either
+            // way rather than conditioned on the region's rect: the crop is applied downstream by
+            // `sourceRect`, and a filter that answered differently depending on where somebody
+            // dragged a box would be a second rule to keep in step with the first.
+            filter.includeMenuBar = showsMenuBar
+            return filter
         }
     }
 

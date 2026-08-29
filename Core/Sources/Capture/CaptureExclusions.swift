@@ -73,15 +73,45 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// Whether the Dock should be kept out of the picture.
     public var hidesDock: Bool
 
-    public init(hidesDock: Bool = false) {
+    /// Whether the menu bar — and everything sitting in it — should be kept out of the picture.
+    ///
+    /// **This one needs no exclusion list at all**, which is why it is a separate field rather
+    /// than another entry in `resolve()`. `SCContentFilter.includeMenuBar` is a documented
+    /// property that does exactly this, so the menu bar never has to compete for the single
+    /// `excludingApplications` list that this process's own windows already occupy.
+    ///
+    /// **It takes the menu bar EXTRAS with it, which is the part worth knowing.** Measured: the
+    /// menu bar is one window at `kCGMainMenuWindowLevel` (24) titled `Menubar`, and the twelve
+    /// items in it — Clock, Battery, WiFi, Sound, Siri, NowPlaying and the rest — are separate
+    /// windows one level above it at `kCGStatusWindowLevel` (25). Turning the property off
+    /// removed all thirteen; the top of the frame comes back showing the desktop behind them
+    /// rather than a black strip.
+    ///
+    /// That matters for more than tidiness. A menu bar says what time it is, how much battery is
+    /// left, which network somebody is on, and — through the extras — which applications they
+    /// run. For a recording that is going to be published, that is a row of small disclosures
+    /// nobody meant to make.
+    ///
+    /// **The frame does not change size.** Measured: `contentRect` is 1512x982 with the menu bar
+    /// and 1512x982 without it. Worth stating because a property that cropped instead of hiding
+    /// would change the output's dimensions, and every geometry downstream is built on those.
+    public var hidesMenuBar: Bool
+
+    public init(hidesDock: Bool = false, hidesMenuBar: Bool = false) {
         self.hidesDock = hidesDock
+        self.hidesMenuBar = hidesMenuBar
     }
 
     /// Nothing hidden — what a display capture uses unless somebody asked otherwise.
     public static let none = CaptureExclusions()
 
-    /// Whether anything at all is being asked for. Read before the shareable-content query, so a
-    /// person who wants nothing hidden pays nothing for the feature.
+    /// Whether anything needing a WINDOW LIST is being asked for. Read before the
+    /// shareable-content query, so a person who wants nothing hidden pays nothing for the feature.
+    ///
+    /// **The menu bar is deliberately not counted here.** It is a property on the filter, not an
+    /// entry in an exclusion list, so hiding it costs no query — and counting it would make
+    /// `resolve()` go and enumerate every window on the machine to answer a question that does
+    /// not need the answer.
     public var wantsAnything: Bool { hidesDock }
 
     public init(from decoder: any Decoder) throws {
@@ -90,9 +120,10 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
         // older projects that predate it, and the honest reading of a file written before the
         // switch existed is that the switch was off.
         hidesDock = try container.decodeIfPresent(Bool.self, forKey: .hidesDock) ?? false
+        hidesMenuBar = try container.decodeIfPresent(Bool.self, forKey: .hidesMenuBar) ?? false
     }
 
-    private enum CodingKeys: String, CodingKey { case hidesDock }
+    private enum CodingKeys: String, CodingKey { case hidesDock, hidesMenuBar }
 }
 
 // MARK: - Which window is the Dock

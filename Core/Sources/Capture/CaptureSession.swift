@@ -839,7 +839,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         unsafe _diagnostics.dockExclusion = furniture.outcome
         let filter = source.filter(excluding: await CaptureSource.thisApplication()
                                        + furniture.applications,
-                                   excepting: furniture.exceptedWindows)
+                                   excepting: furniture.exceptedWindows,
+                                   showsMenuBar: !exclusions.hidesMenuBar)
         let scStream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try scStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try scStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)

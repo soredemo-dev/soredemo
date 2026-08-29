@@ -129,6 +129,18 @@ struct SettingsWindow: View {
                  + "is changed, so there is nothing to put back. Recordings of a single window "
                  + "never include the Dock anyway.")
                 .font(Type.detail).foregroundStyle(.secondary)
+
+            Toggle("Hide the menu bar", isOn: Binding(
+                get: { coordinator.hidesMenuBar },
+                set: { coordinator.hidesMenuBar = $0 }))
+            // **What it takes with it is the reason to turn it on**, and it is not obvious from
+            // the name. Somebody reading "hide the menu bar" thinks about tidiness; the clock,
+            // the battery and the row of app icons are the part that ends up in a published
+            // video saying more than they meant.
+            Text("The clock, battery, network and every icon beside them go too. Like the Dock, "
+                 + "nothing on your Mac changes — the menu bar is still there and still works, "
+                 + "it just is not in the recording.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("Sources") {
             Picker("Microphone", selection: Binding(

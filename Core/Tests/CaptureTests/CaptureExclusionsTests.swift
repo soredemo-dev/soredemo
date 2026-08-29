@@ -84,8 +84,30 @@ struct CaptureExclusionsTests {
     @Test("nothing hidden is the default, and it asks the system for nothing")
     func noneWantsNothing() {
         #expect(CaptureExclusions.none.hidesDock == false)
+        #expect(CaptureExclusions.none.hidesMenuBar == false)
         #expect(CaptureExclusions.none.wantsAnything == false)
         #expect(CaptureExclusions() == CaptureExclusions.none)
+    }
+
+    /// **The menu bar deliberately does not make `wantsAnything` true**, and getting this
+    /// backwards would be invisible: everything would still work, and every recording with the
+    /// menu bar hidden would quietly enumerate every window on the machine to answer a question
+    /// that is settled by a property on the filter. `SCContentFilter.includeMenuBar` needs no
+    /// window list, so hiding the menu bar must cost no query.
+    @Test("hiding the menu bar needs no window list, so it asks the system for nothing")
+    func hidingTheMenuBarNeedsNoQuery() {
+        let menuBarOnly = CaptureExclusions(hidesMenuBar: true)
+        #expect(menuBarOnly.hidesMenuBar)
+        #expect(!menuBarOnly.wantsAnything)
+    }
+
+    /// And the query is really skipped: asked for the menu bar alone, `resolve()` reports that
+    /// nothing was asked of the WINDOW LIST rather than going and reading one.
+    @Test("resolving a menu-bar-only request reports that no window list was needed")
+    func resolvingAMenuBarOnlyRequestAsksNothing() async {
+        let resolution = await CaptureExclusions(hidesMenuBar: true).resolve()
+        #expect(resolution.outcome == .notAsked)
+        #expect(resolution.applications.isEmpty)
     }
 
     @Test("asking for the Dock to be hidden is asking for something")
@@ -143,7 +165,10 @@ struct CaptureExclusionsTests {
 
     @Test("the switch survives a round trip")
     func roundTrips() throws {
-        for value in [CaptureExclusions.none, CaptureExclusions(hidesDock: true)] {
+        for value in [CaptureExclusions.none,
+                      CaptureExclusions(hidesDock: true),
+                      CaptureExclusions(hidesMenuBar: true),
+                      CaptureExclusions(hidesDock: true, hidesMenuBar: true)] {
             let data = try JSONEncoder().encode(value)
             #expect(try JSONDecoder().decode(CaptureExclusions.self, from: data) == value)
         }
@@ -153,9 +178,31 @@ struct CaptureExclusionsTests {
     /// would be indistinguishable from a project that never had the switch on.
     @Test("a stored value of the wrong type is refused")
     func aWrongTypeIsRefused() {
-        let data = Data(#"{"hidesDock": "yes"}"#.utf8)
-        #expect(throws: (any Error).self) {
-            try JSONDecoder().decode(CaptureExclusions.self, from: data)
+        for json in [#"{"hidesDock": "yes"}"#, #"{"hidesMenuBar": 1}"#] {
+            #expect(throws: (any Error).self) {
+                try JSONDecoder().decode(CaptureExclusions.self, from: Data(json.utf8))
+            }
         }
+    }
+
+    /// **Every field must be in the decoder, and forgetting one is silent.** A field added to the
+    /// type and not to `init(from:)` reads back as its default on every project ever saved, with
+    /// nothing to see. Walked with a `Mirror` so the next field is covered before it is written.
+    @Test("every field of the type survives being written and read back")
+    func everyFieldSurvivesTheRoundTrip() throws {
+        let all = CaptureExclusions(hidesDock: true, hidesMenuBar: true)
+        let decoded = try JSONDecoder().decode(CaptureExclusions.self,
+                                               from: try JSONEncoder().encode(all))
+        func fields(of value: CaptureExclusions) -> [String: String] {
+            var found: [String: String] = [:]
+            for child in Mirror(reflecting: value).children where child.label != nil {
+                found[child.label!] = String(describing: child.value)
+            }
+            return found
+        }
+        #expect(fields(of: decoded) == fields(of: all))
+        // A guard on the guard: reflection that saw no fields would pass the line above while
+        // checking nothing at all.
+        #expect(fields(of: all).count >= 2)
     }
 }
