@@ -5,7 +5,9 @@ import AppKit
 import AVFoundation
 import Framing
 import SwiftUI
+import Capture
 import Overlays
+import Project
 import Timeline
 
 /// The editing surface: what survives, what was cut, and where the playhead is.
@@ -346,10 +348,38 @@ final class TimelineEditorModel {
     /// **Asked for rather than run on open.** It decodes the whole recording once — a few seconds
     /// for a few minutes of video — which is cheap enough to ask for and far too expensive to do
     /// to somebody who only wanted to trim the end.
+    /// Finds the still stretches, preferring what the recorder already knew.
+    ///
+    /// `StillnessReader` answers by decoding every frame of the recording and
+    /// differencing it — minutes of work on a long demo, and the reason this
+    /// control has a progress bar at all. `StillInterval` is the same answer
+    /// written down at capture time, where ScreenCaptureKit was already
+    /// reporting that it had drawn nothing; reading it back is a scan of one
+    /// small text file.
+    ///
+    /// Nothing is threaded through the UI for this: the package and its logs are
+    /// derived from the media URL the toolbar already has.
     func findStillness(in url: URL) {
         guard stillnessProgress == nil else { return }
-        stillnessProgress = 0
         let settings = stillnessSettings
+
+        switch Self.recorded(forMediaAt: url) {
+        case .recorded(let intervals, let segments):
+            // Instant, so no progress is shown — a bar that appears and vanishes
+            // in one frame reads as a glitch, not as speed.
+            stillness = RecordedStillness.spans(recorded: intervals, in: segments,
+                                                settings: settings).spans
+            return
+        case .nothingWasEverStill:
+            // A measurement, not an absence of one. Decoding would spend minutes
+            // confirming what the recording already says.
+            stillness = []
+            return
+        case .theRecordingDoesNotCarryIt:
+            break
+        }
+
+        stillnessProgress = 0
         Task { @MainActor in
             let outcome = await StillnessReader.changes(contentsOf: url, sliceSeconds: 0.25) {
                 fraction in Task { @MainActor in self.stillnessProgress = fraction }
@@ -361,6 +391,39 @@ final class TimelineEditorModel {
             }
             stillness = StillnessFinder.spans(changes: changes, sliceSeconds: 0.25,
                                               settings: settings)
+        }
+    }
+
+    /// What a recording says about its own stillness, with the segment table it
+    /// has to be read against.
+    ///
+    /// Any failure to read the package is `theRecordingDoesNotCarryIt`, not an
+    /// error shown to a person: the fallback is the decode, which answers the
+    /// same question correctly and only costs time. A recording whose package
+    /// cannot be opened has bigger problems than this control, and they surface
+    /// where the package is opened.
+    private enum RecordedAnswer {
+        case recorded([StillInterval], SegmentTable)
+        case nothingWasEverStill
+        case theRecordingDoesNotCarryIt
+    }
+
+    private static func recorded(forMediaAt url: URL) -> RecordedAnswer {
+        let packageURL = ProjectStore.packageURL(forMediaAt: url)
+        guard let snapshot = try? ProjectPackageIO.load(from: packageURL),
+              !snapshot.segments.segments.isEmpty else {
+            return .theRecordingDoesNotCarryIt
+        }
+        let logs = snapshot.segments.segments.map {
+            ObservationWriter.logURL(forSegment: $0.index, in: packageURL)
+        }
+        guard let outcome = try? RecordedStillnessReader.intervals(fromObservationLogsAt: logs) else {
+            return .theRecordingDoesNotCarryIt
+        }
+        switch outcome {
+        case .recorded(let intervals):    return .recorded(intervals, snapshot.segments)
+        case .nothingWasEverStill:        return .nothingWasEverStill
+        case .theRecordingDoesNotCarryIt: return .theRecordingDoesNotCarryIt
         }
     }
 

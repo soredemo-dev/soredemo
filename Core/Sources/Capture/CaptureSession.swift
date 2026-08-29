@@ -507,6 +507,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// Accessibility. Read once for the whole session, not per segment.
     private nonisolated(unsafe) var observationBlindness: [ObservationBlindness] = []
     private nonisolated(unsafe) var observationWriter: ObservationWriter?
+
+    // MARK: - The idle run, which is where stillness is free
+    //
+    // ScreenCaptureKit already tells this callback that it drew nothing, on every
+    // callback, at no cost — `.idle` arrives with no image buffer at all. Held
+    // here as a run rather than emitted per callback because a busy screen
+    // produces hundreds of one-frame runs a minute and none of them is a stretch
+    // anything can cut. See `StillInterval`.
+    private nonisolated(unsafe) var idleRunStart: HostInstant?
+    private nonisolated(unsafe) var idleRunFrames = 0
     /// `InputObserver`/`AXObserver` diagnostics as of the current segment's
     /// open. Both are session-cumulative, so a segment's `GapWatch` rows are
     /// this snapshot subtracted from the diagnostics read at close.
@@ -1012,6 +1022,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             throw SessionError.noSegmentOpen
         }
 
+        // Closed BEFORE the writer is torn down, or the last stretch of a
+        // recording that ended still is the one stretch never recorded — and
+        // that is the stretch most likely to exist, since a person stops
+        // recording after they have stopped doing things.
+        closeIdleRun(at: HostInstant(epoch: epoch, hostTime: Minting.hostNow()),
+                     endedBy: .theSegmentEnded)
+
         if let scStream = snapshot.scStream {
             try? await scStream.stopCapture()
         }
@@ -1147,8 +1164,21 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// been replaced. `finalizingCurrentSegment` must be read in the SAME
     /// `lock.withLock` as `observationWriter`, or a close running between two
     /// separate reads would misattribute a drop to the wrong counter.
-    private nonisolated func routeInputObservation(_ observation: InputObserver.Observation) {
+    /// The writer and the closing flag, read together under one lock.
+    ///
+    /// **The pairing is the point, and this exists so a third caller cannot get
+    /// it wrong.** Two facts once shared one counter — an observation dropped
+    /// because a segment was closing, a real loss, and one arriving while no
+    /// segment was open, not uniformly a loss — and telling them apart needs
+    /// both values from the same instant. Read separately, a close running
+    /// between the two reads misattributes the drop to the other counter.
+    private nonisolated func writerAndClosingFlag() -> (ObservationWriter?, Bool) {
         let (writer, finalizing) = lock.withLock { unsafe (observationWriter, finalizingCurrentSegment) }
+        return (writer, finalizing)
+    }
+
+    private nonisolated func routeInputObservation(_ observation: InputObserver.Observation) {
+        let (writer, finalizing) = writerAndClosingFlag()
         switch observation {
         case .pointer(let sample):
             appendObservation(sample, to: writer, whileFinalizing: finalizing)
@@ -1342,6 +1372,59 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // state a `.failed` boundary has always left behind.
     }
 
+    /// Extends, opens or closes the current run of idle callbacks.
+    ///
+    /// Any status that is not `.idle` ends a run — not only `.complete`. A
+    /// `.blank` or `.suspended` callback is the compositor saying something
+    /// other than "nothing was drawn", and folding those into a still stretch
+    /// would put a cut across footage whose content is unknown rather than
+    /// unchanged.
+    private nonisolated func noteIdleRun(statusRaw: Int, at instant: HostInstant) {
+        if statusRaw == SCFrameStatus.idle.rawValue {
+            lock.withLock {
+                if unsafe idleRunStart == nil { unsafe idleRunStart = instant }
+                unsafe idleRunFrames += 1
+            }
+            return
+        }
+        closeIdleRun(at: instant, endedBy: .thePictureChanged)
+    }
+
+    /// Emits the open run as a `StillInterval` when it is long enough to be worth
+    /// anything, and clears it either way.
+    ///
+    /// The run is cleared even when it is discarded: a run held open across the
+    /// frame that ended it would merge two stretches separated by a picture, and
+    /// that merged stretch is the one shape this record must never take.
+    ///
+    /// `instant` is the callback that ended the run, so the interval's right edge
+    /// is where the picture came back — not where the last idle callback was.
+    /// The difference is one frame interval and it belongs inside the stretch,
+    /// since nothing was drawn during it.
+    private nonisolated func closeIdleRun(at instant: HostInstant, endedBy: StillIntervalEnd) {
+        let pending = lock.withLock { () -> (HostInstant, Int)? in
+            guard let start = unsafe idleRunStart else { return nil }
+            let frames = unsafe idleRunFrames
+            unsafe idleRunStart = nil
+            unsafe idleRunFrames = 0
+            return (start, frames)
+        }
+        guard let (start, frames) = pending, frames > 0 else { return }
+        // An instant from another epoch cannot be subtracted from this one, and a
+        // run that somehow spans a reboot is not a measurement of anything.
+        guard start.epoch == instant.epoch,
+              instant.hostTime.rawValue >= start.hostTime.rawValue else { return }
+        let duration = Nanoseconds(instant.hostTime.rawValue - start.hostTime.rawValue)
+        guard duration >= StillInterval.shortestWorthRecording else { return }
+
+        let (writer, finalizing) = writerAndClosingFlag()
+        appendObservation(
+            StillInterval(interval: HostRange(epoch: start.epoch, start: start.hostTime,
+                                              duration: duration),
+                          endedBy: endedBy, idleFrames: frames),
+            to: writer, whileFinalizing: finalizing)
+    }
+
     private nonisolated func handleScreenSample(_ sampleBuffer: CMSampleBuffer) {
         let callbackInstant = Minting.hostNow()
 
@@ -1351,6 +1434,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         let statusRaw = (attachments[.status] as? Int) ?? -1
         lock.withLock { unsafe _diagnostics.frameStatusCounts[statusRaw, default: 0] += 1 }
+
+        // The idle run is tracked BEFORE the `.complete` guard below, because the
+        // callbacks it is made of are exactly the ones that guard discards.
+        // Stamped with the session's epoch here rather than carried as a bare
+        // `Nanoseconds`: an instant with no epoch cannot be placed on the log's
+        // clock, and `ObservationLog.checkEpoch` refuses a record that arrives
+        // without one.
+        noteIdleRun(statusRaw: statusRaw,
+                    at: HostInstant(epoch: epoch, hostTime: callbackInstant))
 
         // A callback is not a frame (F2-4: idle was 42–84% of callbacks
         // across four runs) — append only `.complete`.
@@ -1740,6 +1832,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             if !pending.blindness.contains(.accessibilityUnavailable) {
                 writer.declareRecordKind("axChain")
             }
+            // Declared unconditionally, unlike every kind above it. `still` comes
+            // from the video callback, and a session with an open log always has
+            // a stream feeding that callback — there is no permission this
+            // channel can be blind for. So `still: 0` here means the picture
+            // never stopped changing for long enough, which is a measurement;
+            // for the input kinds the same zero would have been a claim the
+            // session was in no position to make.
+            writer.declareRecordKind("still")
         }
         let held = lock.withLock { () -> [(ObservationWriter) throws -> Void] in
             unsafe observationWriter = writer

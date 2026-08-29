@@ -52,7 +52,10 @@ let package = Package(
         // `Render` since text overlays landed: a `TextItem` carries the style it is drawn
         // with, and that style is a render-tier value. Deterministic → deterministic, and
         // `Render` does not and may not depend back.
-        .target(name: "Overlays", dependencies: ["Timeline", "Render"], swiftSettings: strict,
+        // `Project` is declared, not merely reached through `Render`: `RecordedStillness`
+        // reads `StillInterval` and `SegmentTable` by name, and rule 1 answers imports
+        // from this list rather than from the transitive graph.
+        .target(name: "Overlays", dependencies: ["Timeline", "Render", "Project"], swiftSettings: strict,
                 plugins: archCheck),
 
         // **The tier `swift test` can run but a person still has to believe.**
@@ -217,7 +220,9 @@ let package = Package(
                     swiftSettings: strict),
         .testTarget(name: "VariantsTests", dependencies: ["Variants", "Framing", "Geometry"],
                     swiftSettings: strict),
-        .testTarget(name: "OverlaysTests", dependencies: ["Overlays", "Timeline", "Render"], swiftSettings: strict),
+        .testTarget(name: "OverlaysTests",
+                    dependencies: ["Overlays", "Timeline", "Render", "Project", "Geometry"],
+                    swiftSettings: strict),
         .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
         .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],
                     swiftSettings: strict),

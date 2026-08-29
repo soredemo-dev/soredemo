@@ -197,6 +197,94 @@ public struct TapDisabledInterval: Hashable, Codable, Sendable {
 // an existing type still compiles, encodes and decodes with `epochs` silently
 // omitting it. When you add such a field, add it below.
 
+/// Why a `StillInterval` closed. `.thePictureChanged` makes the interval a
+/// measurement — the complete frame that ended it is its exact right edge.
+/// `.theSegmentEnded` puts the segment's end there instead of stillness's, so
+/// the interval is a lower bound, the same distinction `SecureInputInterval`
+/// draws with `.observationStopped`.
+public enum StillIntervalEnd: String, Codable, Sendable {
+    case thePictureChanged
+    case theSegmentEnded
+}
+
+/// A stretch during which ScreenCaptureKit drew nothing: every callback inside
+/// it carried `SCFrameStatus.idle`.
+///
+/// **This is the compositor's own statement, not an inference from pixels.**
+/// Measured on this machine: a completely static window produced 1 complete
+/// frame and 1210 idle ones over twenty seconds, and every one of those idle
+/// callbacks arrived with **no image buffer at all** — there was nothing to
+/// compare, because nothing was drawn. A screen that was changing produced
+/// roughly thirty complete frames a second over the same span. Recording where
+/// the idle stretches were costs nothing, because the status is already read on
+/// every callback; deriving the same answer afterwards costs a decode of the
+/// whole recording.
+///
+/// It is deliberately the conservative signal of the two. A one-pixel change
+/// redraws the frame, so ScreenCaptureKit reports `.complete` where a pixel
+/// threshold would still call the picture still. The disagreement therefore
+/// falls on the side of *not* cutting something that moved, never on cutting
+/// something that did.
+///
+/// `idleFrames` is recorded because a range alone cannot tell stillness from a
+/// stalled stream. Ten seconds spanned by six hundred idle callbacks is a still
+/// picture; ten seconds spanned by two is a stream that stopped delivering, and
+/// a cut across the second is a cut across footage nobody looked at.
+public struct StillInterval: Hashable, Codable, Sendable {
+    /// Stretches shorter than this are not recorded. `StillnessReader` measures
+    /// the picture in slices of this length, so anything below it is a stretch
+    /// neither signal can resolve — recording it would be recording noise, and
+    /// on a busy screen there are hundreds of them a minute.
+    public static let shortestWorthRecording = Nanoseconds(250_000_000)
+
+    public let kind: String
+    /// Half-open and epoch-stamped, from the first idle callback of the run to
+    /// the callback that ended it. Both edges are callback instants rather than
+    /// presentation timestamps: an idle callback carries no frame, so it has no
+    /// presentation timestamp worth the name.
+    public let interval: HostRange
+    public let endedBy: StillIntervalEnd
+    /// How many idle callbacks the run covered. Never zero — a run with no
+    /// callbacks in it is not a run.
+    public let idleFrames: Int
+
+    /// Traps on a run of no callbacks; untrusted input goes through
+    /// `init(from:)` instead, which refuses rather than trapping. Same split as
+    /// `GapWatch`.
+    public init(interval: HostRange, endedBy: StillIntervalEnd, idleFrames: Int) {
+        precondition(idleFrames > 0, "a still interval with no idle callbacks is not a measurement")
+        self.kind = "still"
+        self.interval = interval
+        self.endedBy = endedBy
+        self.idleFrames = idleFrames
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, interval, endedBy, idleFrames }
+
+    /// Rule 8: the synthesised decode would accept `idleFrames: 0` and a `kind`
+    /// naming some other record, and both would then travel as if a producer had
+    /// vouched for them.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+        guard kind == "still" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind, in: container,
+                debugDescription: "a StillInterval must carry kind \"still\", found \"\(kind)\"")
+        }
+        let idleFrames = try container.decode(Int.self, forKey: .idleFrames)
+        guard idleFrames > 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .idleFrames, in: container,
+                debugDescription: "a still interval with no idle callbacks is not a measurement")
+        }
+        self.kind = kind
+        self.interval = try container.decode(HostRange.self, forKey: .interval)
+        self.endedBy = try container.decode(StillIntervalEnd.self, forKey: .endedBy)
+        self.idleFrames = idleFrames
+    }
+}
+
 extension PointerSample: ObservationRecord {
     public var epochs: [BootEpoch] { [instant.epoch] }
 }
@@ -214,5 +302,9 @@ extension SecureInputInterval: ObservationRecord {
 }
 
 extension TapDisabledInterval: ObservationRecord {
+    public var epochs: [BootEpoch] { [interval.epoch] }
+}
+
+extension StillInterval: ObservationRecord {
     public var epochs: [BootEpoch] { [interval.epoch] }
 }
