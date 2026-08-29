@@ -959,9 +959,9 @@ struct StageWindow: View {
         // is that it carries the cut and none of the look — which is exactly what somebody
         // finishing in another application wants, and nothing like what they would expect if
         // nobody said so.
-        Text("The cut only — your clips and their in-points, against the original recording. "
-             + "None of the look travels: no zooms, no cursor, no background, no camera. "
-             + "DaVinci Resolve reads the same file.")
+        Text("The cut only — your clips and their in-points, against the original recording, with "
+             + "the camera on its own lane. None of the look travels: no zooms, no cursor, no "
+             + "background. DaVinci Resolve reads the same file.")
             .font(Type.detail).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -983,6 +983,11 @@ struct StageWindow: View {
         let edit = timeline.editForExport
         let rate = recordingFrameRate
         let media = mediaURL
+        // **The camera and its offset, captured with the rest of the job.** The offset is
+        // `cameraStart - screenStart`, measured by the recorder from the two recordings' own
+        // first-frame instants — the same number the preview composites with.
+        let cameraMedia = cameraURL
+        let cameraOffset = cameraStartOffsetNanos
         Task {
             // **The recording's own properties, read from the file rather than from view state.**
             // `recordingShortSide` is the OUTPUT's short side and the variant may have changed
@@ -1004,7 +1009,30 @@ struct StageWindow: View {
                 duration: Nanoseconds(Int64((duration.seconds * 1_000_000_000).rounded())),
                 width: size.width, height: size.height,
                 frameRate: rate, hasAudio: hasAudio)
-            switch FinalCutXML.document(timeline: edit, source: source, projectName: name) {
+            // The camera's own shape, read from its own file: a webcam is almost never the
+            // screen's aspect, and describing it by the screen's would letterbox it.
+            var cameraSource: FinalCutXML.Source?
+            if let cameraMedia {
+                let cameraAsset = AVURLAsset(url: cameraMedia)
+                let cameraDuration = (try? await cameraAsset.load(.duration)) ?? .zero
+                if let cameraTrack = try? await cameraAsset.loadTracks(withMediaType: .video).first {
+                    let natural = (try? await cameraTrack.load(.naturalSize)) ?? .zero
+                    let transform = (try? await cameraTrack.load(.preferredTransform)) ?? .identity
+                    let cameraSize = CGGeometryBridge.displayedPixelSize(of: natural,
+                                                                        transform: transform)
+                    let cameraAudio = ((try? await cameraAsset.loadTracks(withMediaType: .audio))
+                                       ?? []).isEmpty == false
+                    cameraSource = FinalCutXML.Source(
+                        url: cameraMedia,
+                        duration: Nanoseconds(Int64((cameraDuration.seconds * 1_000_000_000)
+                            .rounded())),
+                        width: cameraSize.width, height: cameraSize.height,
+                        frameRate: rate, hasAudio: cameraAudio)
+                }
+            }
+            switch FinalCutXML.document(timeline: edit, source: source, camera: cameraSource,
+                                        cameraOffset: Nanoseconds(cameraOffset),
+                                        projectName: name) {
             case .document(let xml):
                 do {
                     try xml.write(to: destination, atomically: true, encoding: .utf8)

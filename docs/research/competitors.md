@@ -240,6 +240,38 @@ word is a filler, which they can do at a glance and no dictionary can do at all.
 The asymmetry that settled it is the same one that removed the phone auto-zoom: a missed "um"
 costs nothing, and a deleted "am" is somebody's sentence changed without being asked.
 
+### Reading the two projects that had only been skimmed
+
+**2026-08-30.** The subsystem sweep read a Rust recorder and a Swift recorder closely and gave a native editor and
+an Electron recorder a module listing. This closes that, and the useful outcome is a correction rather than
+a technique.
+
+**a native editor, by module** — 534 files, 100k lines. `Agent` is the largest at 13.7k and
+`Generation` next at 6.5k; both are AI features that require a server and are declined here. What
+was worth reading:
+
+  * **`Preview/ScrubAudioEngine`** (643 lines) — audio while dragging the playhead, built as
+    granular synthesis: 2400-frame grains with 144-frame fades, a 256-entry cache of 2-second PCM
+    windows, forward and reverse, prefetch, and a meter. **This app has no scrub audio**, and it
+    is the thing that makes finding a word in a recording fast. A real gap, and a large one.
+  * **`Audio/AudioSyncCorrelator`** (318 lines) — aligning two recordings by correlating their
+    envelopes, with a pyramid search for large lag ranges and a consensus across five 60-second
+    chunks that must agree within a second. Its constants carry knowledge worth having: recorder
+    crystals disagree by *tens of ppm*, so a fitted drift slope above 500 ppm means mismatched
+    content rather than drift; and below about 2.5 minutes of span the slope is dominated by hop
+    quantisation.
+
+    **Not needed here**, and knowing why is the point: that machinery exists because two
+    independent recorders drift apart. This app's camera and screen are written by one process on
+    one machine, and the recorder measures the offset directly.
+  * `Compositing/ColorScopes`, `ColorWheels`, `LUTLoader` — colour grading, which is a different
+    product.
+
+**The correction.** `FinalCutXML` said the camera could not be carried because its offset from the
+screen was unknown. It is not unknown — `cameraStartOffsetNanos = cameraStart - screenStart`, from
+the two recordings' own first-frame instants, and the preview has been compositing with it since
+the camera shipped. The camera is on a connected lane now.
+
 ### A systematic read of the reference projects, and what it turned up
 
 **2026-08-30.** Everything before this was read reactively — a project opened when something went

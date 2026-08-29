@@ -26,11 +26,12 @@ import Timeline
 /// who wants to keep editing exports this. **Said out loud in the interface**, because "export to
 /// Final Cut" reads like a promise to carry everything.
 ///
-/// **The camera is not carried either, and that one IS a gap rather than a decision.** The camera
-/// is a second file recorded a moment apart from the screen, and putting it on a connected lane
-/// means knowing that offset exactly. Establishing it needs a measurement that has not been made,
-/// and a face two hundred milliseconds out of sync is a worse thing to hand somebody than a file
-/// that says it has no face in it.
+/// **The camera IS carried, on a connected lane**, and an earlier version of this comment said it
+/// could not be because the offset was unknown. That was wrong: the recorder measures it —
+/// `cameraStart - screenStart`, from the two recordings' own first-frame instants — and the
+/// preview has been compositing with it all along. A connected clip is how an editing application
+/// spells "a second angle of the same take", so the camera is cut exactly as the screen is and
+/// arrives on its own lane where somebody can move it, resize it, or throw it away.
 ///
 /// ### Times are rationals, and they must land on frames
 ///
@@ -162,7 +163,12 @@ public enum FinalCutXML {
     /// `projectName` is what appears in the importing application's browser. Escaped like every
     /// other text here: a project called `Q&A <draft>` is a perfectly ordinary name and an
     /// unescaped one is a document that will not parse.
+    /// `camera`, when there is one, is laid on a connected lane and cut the same way the screen
+    /// is. `cameraOffset` is `cameraStart - screenStart` in nanoseconds: positive when the camera
+    /// began LATER, which is the usual direction because a camera takes a moment to wake.
     public static func document(timeline: EditTimeline, source: Source,
+                                camera: Source? = nil,
+                                cameraOffset: Nanoseconds = Nanoseconds(0),
                                 projectName: String,
                                 version: Version = .v1_10) -> Outcome {
         guard !timeline.isEmpty else { return .refused(.theEditKeepsNothing) }
@@ -180,13 +186,46 @@ public enum FinalCutXML {
             // divided by the speed, which is what `outputDuration` already is for the length.
             // Getting this wrong does not fail: it plays the wrong part of the recording.
             let start = Int64((Double(clip.sourceStart.rawValue) / clip.speed).rounded())
+            // **A camera clip is nested inside its screen clip, on lane 1.** That is how the
+            // format spells "a second angle of the same take": a connected clip's `offset` is in
+            // the PARENT's timeline, whose origin is the parent's own `start` — so a camera
+            // beginning at the same instant carries the parent's `start` as its offset.
+            //
+            // The camera's in-point is `sourceStart - cameraOffset`. At screen time S the wall
+            // instant is `S + screenStart`, and the camera file's time for it is
+            // `S + screenStart - cameraStart`, which is `S - offset`.
+            //
+            // **A clip from before the camera existed carries no camera**, rather than one that
+            // starts in the middle of it. A camera that woke 200 ms late has nothing for the
+            // recording's first 200 ms, and a negative in-point is how that becomes a face
+            // playing from the wrong place.
+            let cameraIn = clip.sourceStart.rawValue - cameraOffset.rawValue
+            let hasCamera = camera != nil && cameraIn >= 0
+            let selfClosing = clip.speed == 1 && !hasCamera
             spine += """
                         <asset-clip ref="asset-1" offset="\(timeAttribute(offset, frameRate: rate))" \
                 name="\(escaped(assetName))" start="\(timeAttribute(start, frameRate: rate))" \
                 duration="\(timeAttribute(outputDuration, frameRate: rate))" format="format-1" \
-                tcFormat="NDF"\(clip.speed == 1 ? "/>" : ">")
+                tcFormat="NDF"\(selfClosing ? "/>" : ">")
 
                 """
+            if hasCamera, let camera {
+                let cameraName = camera.url.deletingPathExtension().lastPathComponent
+                let cameraOutputIn = Int64((Double(cameraIn) / clip.speed).rounded())
+                spine += """
+                                <asset-clip ref="asset-2" lane="1" \
+                    offset="\(timeAttribute(start, frameRate: rate))" \
+                    name="\(escaped(cameraName))" \
+                    start="\(timeAttribute(cameraOutputIn, frameRate: rate))" \
+                    duration="\(timeAttribute(outputDuration, frameRate: rate))" \
+                    format="format-2" tcFormat="NDF"/>
+
+                    """
+            }
+            // A clip with a camera and no ramp still has to be closed.
+            if clip.speed == 1, hasCamera {
+                spine += "            </asset-clip>\n"
+            }
             if clip.speed != 1 {
                 // **The ramp covers the WHOLE media, not the clip.** Taken at
                 // face value and worth keeping: a time map that only spans the clip blacks the
@@ -206,6 +245,27 @@ public enum FinalCutXML {
             offset += outputDuration
         }
 
+        // **The camera gets its own `<format>`**, because it is almost never the screen's shape:
+        // a 16:9 webcam beside a 16:10 display, or a portrait phone beside a landscape Mac. One
+        // format for both would describe the camera by the screen's dimensions and letterbox it.
+        var cameraResources = ""
+        if let camera {
+            let cameraAudio = camera.hasAudio
+                ? #" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000""#
+                : ""
+            cameraResources = """
+            \n                    <format id="format-2" name="SoredemoCameraFormat" \
+            frameDuration="\(frameDuration(max(camera.frameRate, 1)))" width="\(camera.width)" \
+            height="\(camera.height)" colorSpace="1-1-1 (Rec. 709)"/>
+                                <asset id="asset-2" \
+            name="\(escaped(camera.url.deletingPathExtension().lastPathComponent))" start="0s" \
+            duration="\(timeAttribute(camera.duration.rawValue, frameRate: rate))" hasVideo="1" \
+            videoSources="1" format="format-2"\(cameraAudio)>
+                                    <media-rep kind="original-media" \
+            src="\(escaped(fileURLString(camera.url)))"/>
+                                </asset>
+            """
+        }
         let audio = source.hasAudio
             ? #" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000""#
             : ""
@@ -221,7 +281,7 @@ public enum FinalCutXML {
             duration="\(timeAttribute(source.duration.rawValue, frameRate: rate))" hasVideo="1" \
             videoSources="1" format="format-1"\(audio)>
                         <media-rep kind="original-media" src="\(escaped(fileURLString(source.url)))"/>
-                    </asset>
+                    </asset>\(cameraResources)
                 </resources>
                 <library>
                     <event name="Soredemo">

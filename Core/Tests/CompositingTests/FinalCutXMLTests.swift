@@ -281,3 +281,133 @@ struct FinalCutXMLTests {
         }
     }
 }
+
+/// **The camera on a connected lane, cut exactly as the screen is.**
+///
+/// An earlier version of `FinalCutXML` said the camera could not be carried because its offset
+/// from the screen was unknown. It is not unknown: the recorder measures it from the two
+/// recordings' own first-frame instants, and the preview has been compositing with it all along.
+///
+/// The arithmetic is the part that fails silently. At screen time S the wall instant is
+/// `S + screenStart`, so the camera file's time for it is `S - offset` — and a document that got
+/// the sign wrong would play a face from the wrong place with nothing to report.
+@Suite("Final Cut XML with a camera")
+struct FinalCutXMLCameraTests {
+    static let rate = 60
+    static let screen = FinalCutXMLTests.source
+    static let camera = FinalCutXML.Source(
+        url: URL(fileURLWithPath: "/Users/x/Product Demo/camera-00.mov"),
+        duration: Nanoseconds(58_000_000_000), width: 1280, height: 720,
+        frameRate: rate, hasAudio: true)
+
+    static func document(_ clips: [(start: Int64, duration: Int64, speed: Double)],
+                         offset: Int64) throws -> XMLDocument {
+        let timeline = FinalCutXMLTests.timeline(clips)
+        guard case .document(let xml) = FinalCutXML.document(
+            timeline: timeline, source: screen, camera: camera,
+            cameraOffset: Nanoseconds(offset), projectName: "Demo") else {
+            Issue.record("a well-formed timeline with a camera was refused")
+            throw CancellationError()
+        }
+        return try XMLDocument(xmlString: xml, options: [])
+    }
+
+    static func frames(_ element: XMLElement, _ name: String) -> Int64? {
+        guard let value = element.attribute(forName: name)?.stringValue else { return nil }
+        if value == "0s" { return 0 }
+        let parts = value.dropLast().split(separator: "/")
+        guard parts.count == 2, let count = Int64(parts[0]) else { return nil }
+        return count
+    }
+
+    @Test("a camera adds its own asset and its own format")
+    func theCameraGetsItsOwnResources() throws {
+        let document = try Self.document([(0, 4_000_000_000, 1)], offset: 0)
+        #expect(throws: Never.self) { _ = try document.nodes(forXPath: "//asset") }
+        let assets = try document.nodes(forXPath: "//asset").compactMap { $0 as? XMLElement }
+        #expect(assets.count == 2)
+        // **Its own format, because a camera is almost never the screen's shape.** One format for
+        // both would describe a 16:9 webcam by a 16:10 display and letterbox it.
+        let formats = try document.nodes(forXPath: "//format").compactMap { $0 as? XMLElement }
+        #expect(formats.count == 2)
+        #expect(formats.contains { $0.attribute(forName: "width")?.stringValue == "1280" })
+    }
+
+    /// **A connected clip's `offset` is in the parent's timeline**, whose origin is the parent's
+    /// own `start` — so a camera beginning at the same instant carries the parent's `start`.
+    @Test("the camera clip is connected to its screen clip on lane 1")
+    func theCameraIsOnLaneOne() throws {
+        let document = try Self.document([(0, 4_000_000_000, 1),
+                                          (10_000_000_000, 3_000_000_000, 1)], offset: 0)
+        let connected = try document.nodes(forXPath: "//asset-clip[@lane]")
+            .compactMap { $0 as? XMLElement }
+        #expect(connected.count == 2, "one camera clip per screen clip")
+        for clip in connected {
+            #expect(clip.attribute(forName: "lane")?.stringValue == "1")
+            #expect(clip.attribute(forName: "ref")?.stringValue == "asset-2")
+            let parent = clip.parent as? XMLElement
+            #expect(parent?.name == "asset-clip", "the camera must be inside its screen clip")
+            #expect(Self.frames(clip, "offset") == Self.frames(parent!, "start"),
+                    "a connected clip's offset is the parent's start")
+            #expect(Self.frames(clip, "duration") == Self.frames(parent!, "duration"))
+        }
+    }
+
+    /// **The sign is the thing that fails silently.** A camera that began 500 ms LATE has a
+    /// positive offset, and the camera's in-point for screen time S is `S - offset`.
+    @Test("a camera that started late plays from earlier in its own file")
+    func theCameraInPointSubtractsTheOffset() throws {
+        // The camera started half a second after the screen.
+        let document = try Self.document([(2_000_000_000, 3_000_000_000, 1)],
+                                         offset: 500_000_000)
+        let clip = try #require(document.nodes(forXPath: "//asset-clip[@lane]")
+            .first as? XMLElement)
+        // 2.0 s of screen is 1.5 s into the camera: 90 frames at 60.
+        #expect(Self.frames(clip, "start") == 90)
+    }
+
+    /// **A clip from before the camera existed carries no camera at all.** A camera that woke
+    /// 200 ms late has nothing for the recording's first 200 ms, and a negative in-point is how
+    /// that becomes a face playing from the wrong place.
+    @Test("a clip earlier than the camera carries no camera")
+    func aClipBeforeTheCameraHasNone() throws {
+        let document = try Self.document([(0, 1_000_000_000, 1),
+                                          (5_000_000_000, 2_000_000_000, 1)],
+                                         offset: 2_000_000_000)
+        let connected = try document.nodes(forXPath: "//asset-clip[@lane]")
+        // The first clip starts at 0 and the camera did not exist until 2 s in, so only the
+        // second clip carries one.
+        #expect(connected.count == 1)
+        let clip = try #require(connected.first as? XMLElement)
+        // 5.0 s of screen is 3.0 s into the camera: 180 frames.
+        #expect(Self.frames(clip, "start") == 180)
+    }
+
+    /// A retimed clip closes around both its camera and its ramp, and the document still parses —
+    /// which is the check that catches an element left open.
+    @Test("a retimed clip with a camera still produces well-formed XML")
+    func aRetimedClipWithACameraParses() throws {
+        let document = try Self.document([(4_000_000_000, 4_000_000_000, 2)], offset: 0)
+        #expect(try document.nodes(forXPath: "//timeMap").count == 1)
+        #expect(try document.nodes(forXPath: "//asset-clip[@lane]").count == 1)
+        // Both are children of the one screen clip.
+        let screen = try #require(document.nodes(forXPath: "//spine/asset-clip")
+            .first as? XMLElement)
+        #expect((screen.children ?? []).count >= 2)
+    }
+
+    /// **Without a camera nothing changes**, which is what keeps the seventeen tests above
+    /// meaningful: they were written before the lane existed.
+    @Test("no camera means no lane and no second asset")
+    func noCameraChangesNothing() throws {
+        guard case .document(let xml) = FinalCutXML.document(
+            timeline: FinalCutXMLTests.timeline([(0, 2_000_000_000, 1)]),
+            source: Self.screen, projectName: "Demo") else {
+            Issue.record("refused")
+            return
+        }
+        #expect(!xml.contains("lane="))
+        #expect(!xml.contains("asset-2"))
+        #expect(!xml.contains("format-2"))
+    }
+}
