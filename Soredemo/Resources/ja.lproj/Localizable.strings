@@ -313,3 +313,9 @@
 "Takes effect the next time Soredemo starts." = "次回 Soredemo を起動したときに反映されます。";
 "Export Final Cut XML…" = "Final Cut XML を書き出す…";
 "Blur" = "ぼかし";
+"a few seconds left" = "残りわずか";
+"about %lld seconds left" = "残り約 %lld 秒";
+"about a minute left" = "残り約 1 分";
+"about %lld minutes left" = "残り約 %lld 分";
+"about an hour left" = "残り約 1 時間";
+"about %lld hours left" = "残り約 %lld 時間";

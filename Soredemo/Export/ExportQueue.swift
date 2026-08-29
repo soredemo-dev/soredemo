@@ -1,8 +1,10 @@
 import AppKit
+import Capture
 import Compositing
 import Foundation
 import Observation
 import SwiftUI
+import Timeline
 
 /// Exports waiting their turn.
 ///
@@ -55,7 +57,16 @@ final class ExportQueue {
         jobs.append(ExportJob(id: id, destination: destination, status: .waiting, progress: nil))
         work[id] = { [weak self] in
             let failure = await run { progress in
-                self?.update(id) { $0.progress = progress }
+                self?.update(id) { job in
+                    job.progress = progress
+                    // **Folded here rather than in the view**, because a view is rebuilt for
+                    // reasons that have nothing to do with progress and an estimate that
+                    // advanced on every redraw would be measuring SwiftUI rather than the export.
+                    if let fraction = progress.fraction, let startedAt = job.startedAt {
+                        let now = Double(Minting.continuousNow().rawValue) / 1_000_000_000
+                        job.eta.update(fraction: fraction, elapsed: now - startedAt)
+                    }
+                }
             }
             self?.update(id) {
                 $0.status = failure == nil ? .finished : .failed
@@ -101,6 +112,7 @@ final class ExportQueue {
         else { return }
         let id = jobs[index].id
         jobs[index].status = .running
+        jobs[index].startedAt = Double(Minting.continuousNow().rawValue) / 1_000_000_000
         running = id
         let operation = work[id]
         work[id] = nil
@@ -120,6 +132,20 @@ struct ExportJob: Identifiable, Sendable {
     var status: Status
     var progress: ExportProgress?
     var failure: String?
+
+    /// When this job started writing, by the monotonic clock.
+    ///
+    /// **`Minting.continuousNow`, not a wall clock.** An export can outlive a clock adjustment,
+    /// and a wall clock that steps backwards during one turns "two minutes left" into a negative
+    /// number. `continuousNow` keeps counting across sleep, which a long export can also outlive.
+    /// Set when the job goes to `.running` and never after.
+    var startedAt: Double?
+
+    /// How long is left, smoothed. Folded on every progress report; see `ExportETA`.
+    var eta = ExportETA()
+
+    /// What to tell somebody about the time, or `nil` while nothing is worth claiming.
+    var timeReading: ExportETA.Reading? { ExportETA.reading(eta.secondsRemaining) }
 
     var filename: String { destination.lastPathComponent }
 
@@ -185,8 +211,27 @@ private struct ExportJobRow: View {
     var body: some View {
         switch job.status {
         case .waiting, .running:
-            Button("\(job.filename) \u{2014} \(Self.label(job))") {
-                ExportQueue.shared.cancel(job.id)
+            // **The time is the answer to the only question anybody has while an export runs.**
+            // A fraction says where it is; whether to wait or to go and do something else is a
+            // different question, and it was the one this menu could not answer.
+            if let reading = job.timeReading {
+                Button {
+                    ExportQueue.shared.cancel(job.id)
+                } label: {
+                    // **Two `Text` views in a stack, not `Text + Text`.** Concatenation is
+                    // deprecated in macOS 26, and interpolating a localised `Text` into another
+                    // string would flatten it back into English — the six keys exist precisely
+                    // so the reading is looked up rather than built.
+                    HStack(spacing: Space.tight) {
+                        Text("\(job.filename) \u{2014} \(Self.label(job))")
+                        Text("\u{00B7}").foregroundStyle(.secondary)
+                        Self.timeText(reading).foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Button("\(job.filename) \u{2014} \(Self.label(job))") {
+                    ExportQueue.shared.cancel(job.id)
+                }
             }
         case .finished:
             // **A submenu, because there are now two things to do with a finished export and
@@ -201,6 +246,23 @@ private struct ExportJobRow: View {
             }
         case .failed, .cancelled:
             Text("\(job.filename) \u{2014} \(Self.label(job))")
+        }
+    }
+
+    /// One reading, in the reader's own language.
+    ///
+    /// **Six keys, one per case, and the numbers interpolated here rather than in `Core`.** The
+    /// first version built the sentence in the package — `"about 3 minutes left"` — which cannot
+    /// be a string-table key: there is one key per number. Interpolating on this side turns
+    /// `\(value)` into `%lld`, which the tables carry as a single entry.
+    static func timeText(_ reading: ExportETA.Reading) -> Text {
+        switch reading {
+        case .aFewSeconds: Text("a few seconds left")
+        case .seconds(let value): Text("about \(value) seconds left")
+        case .aMinute: Text("about a minute left")
+        case .minutes(let value): Text("about \(value) minutes left")
+        case .anHour: Text("about an hour left")
+        case .hours(let value): Text("about \(value) hours left")
         }
     }
 

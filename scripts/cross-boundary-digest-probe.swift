@@ -7004,6 +7004,60 @@ enum CrossBoundaryProbe {
                   "25.3 a damaged one does")
         }
 
+        print("")
+        print("26. ExportETA — the six readings, and a key for each in every language")
+
+        // **A stronger check than the label scan, and aimed at the thing the label scan cannot
+        // see.** `ExportJobRow.timeText` renders each `Reading` case as a `Text` inside a switch,
+        // which is not one of the positions the string-table scan looks at — and widening that
+        // scan to every `Text("` would sweep in the explanatory sentences this project
+        // deliberately leaves untranslated. So the cases are walked here instead: every one of
+        // them must have a key, in every table on disk.
+        //
+        // This exists because the estimate was first built as an interpolated ENGLISH sentence
+        // inside the package — "about 3 minutes left" — which cannot be a string-table key at
+        // all: there is one key per number. The value type is what makes six keys enough.
+        do {
+            let readings: [ExportETA.Reading] = [
+                .aFewSeconds, .seconds(20), .aMinute, .minutes(3), .anHour, .hours(2),
+            ]
+            // The keys the interface uses, spelled out HERE rather than read from the app — the
+            // same argument § 17.2 makes about preference keys. Reading them from the code that
+            // writes them would rename both sides at once.
+            let expected = ["a few seconds left", "about %lld seconds left",
+                            "about a minute left", "about %lld minutes left",
+                            "about an hour left", "about %lld hours left"]
+            check(readings.count == expected.count,
+                  "26.1 every reading has a key named for it",
+                  actual: "\(readings.count) readings, \(expected.count) keys",
+                  expected: "equal")
+
+            let resources = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appending(path: "Soredemo/Resources", directoryHint: .isDirectory)
+            let languages = ((try? FileManager.default.contentsOfDirectory(
+                at: resources, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "lproj" }
+                .map { $0.deletingPathExtension().lastPathComponent }
+                .sorted()
+            check(languages.count >= 10,
+                  "26.2 the string tables were found",
+                  actual: "\(languages.count) languages", expected: "at least 10")
+
+            var missing: [String] = []
+            for language in languages {
+                let table = (try? String(contentsOf: resources
+                    .appending(path: "\(language).lproj/Localizable.strings"),
+                                         encoding: .utf8)) ?? ""
+                for key in expected where !table.contains("\"\(key)\" = ") {
+                    missing.append("\(language): \(key)")
+                }
+            }
+            check(missing.isEmpty,
+                  "26.3 every reading has a translation in every language",
+                  actual: missing.prefix(4).joined(separator: ", "), expected: "none missing")
+        }
+
 
 
 

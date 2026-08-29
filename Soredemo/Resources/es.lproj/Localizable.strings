@@ -313,3 +313,9 @@
 "Takes effect the next time Soredemo starts." = "Se aplica la próxima vez que se inicie Soredemo.";
 "Export Final Cut XML…" = "Exportar Final Cut XML…";
 "Blur" = "Desenfoque";
+"a few seconds left" = "quedan unos segundos";
+"about %lld seconds left" = "quedan unos %lld segundos";
+"about a minute left" = "queda cerca de un minuto";
+"about %lld minutes left" = "quedan unos %lld minutos";
+"about an hour left" = "queda cerca de una hora";
+"about %lld hours left" = "quedan unas %lld horas";

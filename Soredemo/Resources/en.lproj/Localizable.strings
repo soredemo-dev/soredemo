@@ -327,3 +327,9 @@
 "Takes effect the next time Soredemo starts." = "Takes effect the next time Soredemo starts.";
 "Export Final Cut XML…" = "Export Final Cut XML…";
 "Blur" = "Blur";
+"a few seconds left" = "a few seconds left";
+"about %lld seconds left" = "about %lld seconds left";
+"about a minute left" = "about a minute left";
+"about %lld minutes left" = "about %lld minutes left";
+"about an hour left" = "about an hour left";
+"about %lld hours left" = "about %lld hours left";

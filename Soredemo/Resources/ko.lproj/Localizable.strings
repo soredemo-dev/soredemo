@@ -311,3 +311,9 @@
 "Takes effect the next time Soredemo starts." = "다음에 Soredemo를 실행할 때 적용됩니다.";
 "Export Final Cut XML…" = "Final Cut XML 내보내기…";
 "Blur" = "흐림";
+"a few seconds left" = "몇 초 남음";
+"about %lld seconds left" = "약 %lld초 남음";
+"about a minute left" = "약 1분 남음";
+"about %lld minutes left" = "약 %lld분 남음";
+"about an hour left" = "약 1시간 남음";
+"about %lld hours left" = "약 %lld시간 남음";

@@ -311,3 +311,9 @@
 "Takes effect the next time Soredemo starts." = "Вступит в силу при следующем запуске Soredemo.";
 "Export Final Cut XML…" = "Экспорт Final Cut XML…";
 "Blur" = "Размытие";
+"a few seconds left" = "осталось несколько секунд";
+"about %lld seconds left" = "осталось около %lld с";
+"about a minute left" = "осталось около минуты";
+"about %lld minutes left" = "осталось около %lld мин";
+"about an hour left" = "осталось около часа";
+"about %lld hours left" = "осталось около %lld ч";

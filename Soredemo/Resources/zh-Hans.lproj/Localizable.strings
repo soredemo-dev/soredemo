@@ -313,3 +313,9 @@
 "Takes effect the next time Soredemo starts." = "下次启动 Soredemo 时生效。";
 "Export Final Cut XML…" = "导出 Final Cut XML…";
 "Blur" = "模糊";
+"a few seconds left" = "还剩几秒";
+"about %lld seconds left" = "大约还剩 %lld 秒";
+"about a minute left" = "大约还剩一分钟";
+"about %lld minutes left" = "大约还剩 %lld 分钟";
+"about an hour left" = "大约还剩一小时";
+"about %lld hours left" = "大约还剩 %lld 小时";
