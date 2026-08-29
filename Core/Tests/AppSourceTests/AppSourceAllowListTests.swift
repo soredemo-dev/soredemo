@@ -1643,7 +1643,14 @@ private func desktopIconsFile() throws -> [URL] {
                    // restarting were all drawing in English inside a Chinese interface, for the
                    // same reason the twenty-five before them were: nothing looked in this
                    // position.
-                   "Label(\""]
+                   "Label(\"",
+                   // **A `Slider`'s trailing-closure label**, which every slider in this app uses
+                   // and which fifteen of the sixteen were already translated for — the scan had
+                   // simply never looked, so the sixteenth drew in English. Narrow on purpose:
+                   // widening to every `Text("` would sweep in the explanatory sentences, which
+                   // this project deliberately does not put in the tables.
+                   ") { Text(\"",
+                   "ColorPicker(\""]
     var missing: [String] = []
     var scanned = 0
     for file in try appSourceFiles() {

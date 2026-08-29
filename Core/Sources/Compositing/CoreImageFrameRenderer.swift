@@ -113,8 +113,26 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         switch plan.style.background {
         case .image(let filename):
             guard let image = imageBackground(filename) else { return Self.missingImageFallback }
-            return covering(image, width: Double(plan.outputWidth),
-                            height: Double(plan.outputHeight))
+            let filled = covering(image, width: Double(plan.outputWidth),
+                                  height: Double(plan.outputHeight))
+            guard plan.style.backgroundBlur > 0 else { return filled }
+            // **Clamped before, cropped after.** A Gaussian reads outside its input and grows its
+            // extent: without the clamp the picture fades to transparent at the frame's edges,
+            // which on a dark stage draws a soft vignette nobody asked for and on a light one
+            // shows whatever is underneath.
+            //
+            // The sigma is a fraction of the frame's WIDTH rather than a number of pixels,
+            // because the same slider has to mean the same thing for a 720p export and a 4K one
+            // — a fixed 40-pixel blur is heavy on one and invisible on the other. Four per cent
+            // at the top of the range is 77 pixels at 1920, which turns a photograph into its own
+            // colours without turning it into a flat fill.
+            let sigma = plan.style.backgroundBlur * Double(plan.outputWidth)
+                * Self.backgroundBlurFractionOfWidth
+            return filled.clampedToExtent()
+                .applyingGaussianBlur(sigma: sigma)
+                .cropped(to: HeadlessGeometryBridge.rect(x: 0, y: 0,
+                                                         width: Double(plan.outputWidth),
+                                                         height: Double(plan.outputHeight)))
         case .transparent:
             // **`CIImage(color: .clear)`, which has infinite extent like every other case here.**
             // Not `CIImage.empty()`: that has ZERO extent, and compositing over it drops the
@@ -142,6 +160,17 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// half the frame's diagonal in each direction from the centre, so the gradient always
     /// covers the whole frame whatever the angle: projecting the frame's width and height
     /// onto the axis separately would leave a flat band at every angle but 0° and 90°.
+    /// How much of the frame's width the strongest blur spans, as a Gaussian sigma.
+    ///
+    /// **Expressed against the width so the slider means the same thing at every export size.** A
+    /// blur written in pixels is heavy at 720p and invisible at 4K, which makes a project look
+    /// different depending on what it was exported as — the one thing a style must never do.
+    ///
+    /// 0.04 was chosen by looking: at 1920 it is a sigma of 77 pixels, which reduces a
+    /// photograph to its own colours and light while stopping short of a flat fill. Doubling it
+    /// loses the light; halving it leaves a face recognisable.
+    static let backgroundBlurFractionOfWidth = 0.04
+
     /// **The fallback when an image will not load.** A mid grey rather than black or clear:
     /// black reads as a deliberate background and clear shows whatever was underneath, and both
     /// hide the fact that a chosen picture is missing.

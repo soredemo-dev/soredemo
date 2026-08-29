@@ -67,13 +67,14 @@ struct WallpaperPicker: View {
     @State private var failure: String?
 
     private enum Source: String, CaseIterable, Hashable {
-        case desktop, system, gradient, none
+        case desktop, system, gradient, colour, none
 
         var title: String {
             switch self {
             case .desktop: "Desktop"
             case .system: "System"
             case .gradient: "Gradients"
+            case .colour: "Colour"
             case .none: "None"
             }
         }
@@ -83,7 +84,7 @@ struct WallpaperPicker: View {
         switch source {
         case .desktop: WallpaperGallery.currentDesktops()
         case .system: WallpaperGallery.systemPictures()
-        case .gradient, .none: []
+        case .gradient, .colour, .none: []
         }
     }
 
@@ -97,6 +98,8 @@ struct WallpaperPicker: View {
 
             if source == .none {
                 transparent
+            } else if source == .colour {
+                solidColour
             } else if source == .gradient {
                 gradients
             } else if urls.isEmpty {
@@ -117,9 +120,60 @@ struct WallpaperPicker: View {
                 }
             }
 
+            // **Only under the two tabs that show a picture**, because a blur is a weighted
+            // average of neighbours: on a flat fill every neighbour is the same colour, and on a
+            // smooth gradient the average of a symmetric neighbourhood is the value at its
+            // centre. A slider that visibly did nothing under two of the five tabs is a slider
+            // people conclude is broken.
+            //
+            // **This is what makes somebody's own wallpaper usable as a background.** A desktop
+            // picture has a horizon, a face, a logo — all of it competing with the recording on
+            // top. Blurred, the same picture keeps its colours and its light and stops being a
+            // picture. Screen Studio puts the same control directly under its wallpaper grid.
+            if source == .desktop || source == .system {
+                VStack(alignment: .leading, spacing: Space.hairline) {
+                    Slider(value: Binding(get: { model.style.backgroundBlur },
+                                          set: { model.setBackgroundBlur($0); onChange() }),
+                           in: 0...1) { Text("Blur") }
+                    Text("Blurs the picture only. A colour or a gradient has nothing to blur.")
+                        .font(Type.detail).foregroundStyle(.secondary)
+                }
+                .padding(.top, Space.hairline)
+            }
+
             if let failure {
                 Text(failure).font(Type.detail).foregroundStyle(Signal.paused)
             }
+        }
+    }
+
+    /// One flat colour, which is the background a great many recordings actually want.
+    ///
+    /// **A well rather than a grid of swatches.** The gradients are a curated set and a grid is
+    /// the right shape for choosing among them; a colour is a continuum, and offering twelve of
+    /// them would be offering the wrong twelve to somebody matching a brand.
+    @ViewBuilder private var solidColour: some View {
+        VStack(alignment: .leading, spacing: Space.snug) {
+            ColorPicker("Colour", selection: Binding(
+                get: {
+                    guard let solid = model.solidBackground else { return Color(white: 0.09) }
+                    return Color(red: solid.red, green: solid.green, blue: solid.blue)
+                },
+                set: { chosen in
+                    // **Converted through sRGB explicitly.** A colour from the system picker can
+                    // be in Display P3, and reading its components without asking for a space
+                    // gives numbers that mean something else — a brand red that arrives duller
+                    // than the brand, with nothing to see.
+                    guard let srgb = NSColor(chosen).usingColorSpace(.sRGB) else { return }
+                    model.useSolidBackground(red: Double(srgb.redComponent),
+                                             green: Double(srgb.greenComponent),
+                                             blue: Double(srgb.blueComponent))
+                    onChange()
+                }), supportsOpacity: false)
+            Text("One flat colour behind the recording. Match it to a brand, or to the slide "
+                 + "this is going into.")
+                .font(Type.detail).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

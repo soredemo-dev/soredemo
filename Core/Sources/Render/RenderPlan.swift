@@ -216,6 +216,25 @@ public struct StageStyle: Hashable, Codable, Sendable {
     /// again returns the one somebody picked rather than the default.
     public let deviceFinish: DeviceFrame.Finish
 
+    /// How much the background PICTURE is blurred, from 0 to 1.
+    ///
+    /// **For a wallpaper, which is what makes it worth having.** Somebody's desktop picture is a
+    /// photograph: it has a horizon, a face, a logo, and all of that competes with the recording
+    /// sitting on top of it. Blurred, the same picture keeps its colours and its light and stops
+    /// being a picture — which is the whole reason Screen Studio puts this slider directly under
+    /// its wallpaper grid rather than in a settings panel.
+    ///
+    /// **A blur here is nothing like the one `Redaction` refuses.** That refusal is a security
+    /// argument: a Gaussian is a convolution, a convolution with a known kernel is reversible,
+    /// and something hidden behind one is not hidden. Nothing is hidden behind a wallpaper.
+    ///
+    /// **It does nothing to a solid colour or a gradient, and that is arithmetic rather than a
+    /// rule.** A blur is a weighted average of neighbours; on a flat fill every neighbour is the
+    /// same colour, and on a smooth gradient the average of a symmetric neighbourhood is the
+    /// value at its centre. So the slider is only offered where it changes something, and the
+    /// renderer skips the pass rather than paying for one that cannot be seen.
+    public let backgroundBlur: Double
+
     public static let `default` = StageStyle(
         insetFraction: 0.06, cornerRadius: 18, shadowRadius: 32, shadowOpacity: 0.35,
         background: .solid(red: 0.09, green: 0.09, blue: 0.11))
@@ -224,7 +243,8 @@ public struct StageStyle: Hashable, Codable, Sendable {
                 shadowOpacity: Double, background: StageBackground,
                 borderOpacity: Double = 0,
                 deviceModel: DeviceFrame.Model? = nil,
-                deviceFinish: DeviceFrame.Finish = .graphite) {
+                deviceFinish: DeviceFrame.Finish = .graphite,
+                backgroundBlur: Double = 0) {
         precondition(insetFraction >= 0 && insetFraction < 0.5,
                      "insetFraction must be in [0, 0.5), got \(insetFraction)")
         self.insetFraction = insetFraction
@@ -236,6 +256,8 @@ public struct StageStyle: Hashable, Codable, Sendable {
         self.borderOpacity = min(max(borderOpacity, 0), 1)
         self.deviceModel = deviceModel
         self.deviceFinish = deviceFinish
+        // Clamped for the same reason `borderOpacity` is: a slider and a decoder both reach here.
+        self.backgroundBlur = min(max(backgroundBlur.isFinite ? backgroundBlur : 0, 0), 1)
     }
 }
 
@@ -248,6 +270,7 @@ extension StageStyle {
         case insetFraction, cornerRadius, shadowRadius, shadowOpacity, background
         case borderOpacity
         case deviceModel, deviceFinish
+        case backgroundBlur
     }
 
     public init(from decoder: any Decoder) throws {
@@ -271,6 +294,10 @@ extension StageStyle {
         self.shadowOpacity = shadowOpacity
         self.background = background
         self.borderOpacity = min(max(borderOpacity, 0), 1)
+        // Absent is zero, for the border's reason: every project written before this existed has
+        // no such key, and a sharp wallpaper is what those projects were exported with.
+        self.backgroundBlur = min(max(
+            try container.decodeIfPresent(Double.self, forKey: .backgroundBlur) ?? 0, 0), 1)
         // **A model this build does not know decodes as no frame, not as a failure.** A project
         // written by a later version that has learned about another device must still open; the
         // body is the only thing lost. Same shape as `MobileScreen.Source`'s family, for the
@@ -292,6 +319,12 @@ extension StageStyle {
         // Only when it is on: a zero written into every project would make the default look
         // like a decision somebody made.
         if borderOpacity > 0 { try container.encode(borderOpacity, forKey: .borderOpacity) }
+        // Same rule, and the omission was caught by a round-trip test rather than by anybody
+        // remembering: this encoder is hand-written, so a field added to the type and not to
+        // THIS function is written nowhere and read back as its default — silently, and only in
+        // somebody's saved project. It is the third time this shape of defect has appeared here,
+        // after `StageStylePicker.apply` and `CameraOverlayStyle.changing`.
+        if backgroundBlur > 0 { try container.encode(backgroundBlur, forKey: .backgroundBlur) }
         // The finish only when there is a body to finish, for the same reason: a project with no
         // device frame has nothing to say about what colour it is not.
         if let deviceModel {

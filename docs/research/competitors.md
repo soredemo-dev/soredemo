@@ -111,6 +111,8 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 
 | Capability | Screen Studio | a Rust recorder | Motionik | Borumi | ScreenKite | **Soredemo** |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
+| **Background blur (wallpaper)** | ✓ | · | · | · | · | **✓** `StageStyle.backgroundBlur` |
+| Solid colour background | ✓ | ✓ | ✓ | · | ✓ | **✓** `StageBackground.solid` |
 | Background: colour / gradient / wallpaper | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** `WallpaperGallery` |
 | Padding / outer spacing | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** |
 | Shadow | ✓ | ✓ | ✓ | ✓ | ✓ | **✓** |
@@ -236,6 +238,37 @@ word is a filler, which they can do at a glance and no dictionary can do at all.
 
 The asymmetry that settled it is the same one that removed the phone auto-zoom: a missed "um"
 costs nothing, and a deleted "am" is somebody's sentence changed without being asked.
+
+### What Screen Studio's own demo videos show, frame by frame
+
+**2026-08-30.** Fourteen of their marketing videos, read as evidence rather than as advertising.
+Most are OUTPUT — what their look produces — but three (`cut-and-speed-up`, `crop`,
+`horizontal-and-vertical-output`) were recorded inside the editor and show the interface.
+
+What their editor has:
+
+  * **Timeline.** Amber clip blocks labelled inline with duration and speed (`7s 2x`); a purple
+    Zoom lane below, labelled with magnification and whether it is automatic (`2x Auto`); amber
+    scissors markers at every cut; a timeline zoom slider in the toolbar.
+  * **Toolbar.** An aspect dropdown — `Auto`, `Wide 16:9`, `Vertical 9:16`, `Square 1:1`,
+    `Classic 4:3`, `Tall 3:4` — plus Crop, transport, and a red scissors that cuts at the playhead.
+  * **Crop** is a mode with drag handles on the preview and an explicit `Confirm` / `Reset crop`.
+  * **Background inspector**, four tabs: `Wallpaper | Gradient | Color | Image`, a grid of ~18
+    gradients credited to raycast.com, a **Background blur** slider, and Shape → Padding.
+
+Checked one at a time against this app rather than assumed. Already here: clip labels with
+duration and speed, a zoom lane, aspect variants, crop handles on the preview with a Reset,
+gradient presets. **Genuinely missing: the background blur, and a way to pick a flat colour.**
+Both are now built.
+
+The blur is the one worth having. A desktop picture has a horizon, a face, a logo, and all of it
+competes with the recording on top of it; blurred, the same picture keeps its colours and its
+light and stops being a picture. It is expressed as a fraction of the frame's width rather than a
+pixel count, so the slider means the same thing for a 720p export and a 4K one — a style that
+looked different depending on what it was exported as would be worse than no style.
+
+Two things still absent and worth noting rather than building blind: a **timeline zoom slider**,
+and their `Tall 3:4` / `Classic 4:3` aspect rungs.
 
 ### Transparent export: two codecs carry it, and they are 107x apart
 

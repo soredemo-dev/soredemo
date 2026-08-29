@@ -112,6 +112,29 @@ final class StageStyleModel {
         apply(background: preset.background)
     }
 
+    /// How much the background PICTURE is blurred. Does nothing to a colour or a gradient — see
+    /// `StageStyle.backgroundBlur`, which explains why that is arithmetic rather than a rule.
+    func setBackgroundBlur(_ value: Double) { apply(backgroundBlur: value) }
+
+    /// A background of one flat colour.
+    ///
+    /// **Clears `presetName` unless the colour IS a preset.** Two of the shipped presets are
+    /// solid, and somebody who lands on one by dragging a colour well should see it selected
+    /// rather than see the gallery claim nothing is chosen.
+    func useSolidBackground(red: Double, green: Double, blue: Double) {
+        let background = StageBackground.solid(red: red, green: green, blue: blue)
+        presetName = StageBackground.presets.first { $0.background == background }?.name
+        apply(background: background)
+    }
+
+    /// The background's colour when it is a flat one, for a colour well to show. `nil` for a
+    /// gradient, a picture or nothing — a well showing grey for a photograph would be a control
+    /// claiming to describe something it does not.
+    var solidBackground: (red: Double, green: Double, blue: Double)? {
+        guard case .solid(let red, let green, let blue) = style.background else { return nil }
+        return (red, green, blue)
+    }
+
     func setInset(_ value: Double) { apply(insetFraction: value) }
     func setCornerRadius(_ value: Double) { apply(cornerRadius: value) }
     func setShadowOpacity(_ value: Double) { apply(shadowOpacity: value) }
@@ -124,7 +147,8 @@ final class StageStyleModel {
                        shadowOpacity: Double? = nil, background: StageBackground? = nil,
                        borderOpacity: Double? = nil,
                        deviceModel: DeviceFrame.Model?? = nil,
-                       deviceFinish: DeviceFrame.Finish? = nil) {
+                       deviceFinish: DeviceFrame.Finish? = nil,
+                       backgroundBlur: Double? = nil) {
         style = StageStyle(
             // Clamped, not asserted: this comes from a slider, and a UI that can trap the
             // app by being dragged to its own maximum is a UI with a bug in it.
@@ -142,7 +166,8 @@ final class StageStyleModel {
             // A double optional: `nil` means "leave it", `.some(nil)` means "turn the frame
             // off". One optional could not say the second thing.
             deviceModel: deviceModel ?? style.deviceModel,
-            deviceFinish: deviceFinish ?? style.deviceFinish)
+            deviceFinish: deviceFinish ?? style.deviceFinish,
+            backgroundBlur: backgroundBlur ?? style.backgroundBlur)
         publish()
     }
 
