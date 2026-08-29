@@ -2,11 +2,11 @@ import SwiftUI
 
 /// The spacing scale, on an 8-point grid.
 ///
-/// **Named steps rather than numbers at each call site.** Every panel in this app had its own
-/// spacing — 2, 4, 6, 8 — chosen while writing that panel and never compared against the one
-/// beside it, which is how a window ends up looking assembled rather than designed.
-/// The scale below is the usual one for the same
-/// reason, and its values are carried over rather than re-invented.
+/// Named steps rather than numbers at each call site. Every panel in this app had
+/// its own spacing — 2, 4, 6, 8 — chosen while writing that panel and never
+/// compared against the one beside it, which is how a window ends up looking
+/// assembled rather than designed. An 8-point grid is the conventional answer and
+/// its steps are used as they are rather than re-invented.
 ///
 /// **Not a `CGFloat` extension.** Rule 5 forbids this tier from naming a CoreGraphics geometry
 /// type at all; `Double` is what SwiftUI's spacing arguments take anyway.

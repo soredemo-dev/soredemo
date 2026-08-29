@@ -110,10 +110,10 @@ public struct CameraMotion: Sendable {
     /// the footage shimmers. **Uncalibrated**, like every constant in this module.
     public static let safeZone: Double = 0.01
 
-    /// The zoom at or below which the centre is free to move instantly. At 1.002 the viewport
-    /// is 99.8% of the frame, so any centre jump displaces the card by at most 0.2% of it —
-    /// sub-pixel on any real output. The same bound is the standard one, for the same
-    /// reason.
+    /// The zoom at or below which the centre is free to move instantly. At 1.002
+    /// the viewport is 99.8% of the frame, so any centre jump displaces the card
+    /// by at most 0.2% of it — sub-pixel on any real output, which is what makes
+    /// an instant move safe rather than merely cheap. **Uncalibrated.**
     public static let identityZoomBound: Double = 1.002
 
     /// How long after the last block the camera is treated as having settled back to rest.

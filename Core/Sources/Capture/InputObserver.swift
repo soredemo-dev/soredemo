@@ -215,10 +215,11 @@ final class InputObserver: @unchecked Sendable {
     /// image bytes, which at 120 Hz is enough work for macOS to disable the tap with
     /// `kCGEventTapDisabledByTimeout`. A disabled tap becomes a `tapDisabled` blind
     /// interval, a blind interval draws no pointer, and that is the flicker. The callback
-    /// reads `cachedPointerShape` instead; `refreshPointerShape()` is what runs the reader,
-    /// on the poll timer that already exists for the tap's own health.
-    /// Sampling the pointer on a timer is the standard answer, for the same
-    /// reason.
+    /// reads `cachedPointerShape` instead; `refreshPointerShape()` is what runs
+    /// the reader, on the poll timer that already exists for the tap's own health.
+    /// Sampling the cursor's shape on a timer rather than per event is the usual
+    /// arrangement, and this is why: the read is far too expensive to sit on the
+    /// path the OS is timing.
     private let pointerShapeReader: @Sendable () -> PointerShape?
     /// Reads where inside the cursor's image the pointer actually is — see
     /// `PointerSample.hotspot` for why a drawn cursor is misplaced without it. Same seam,

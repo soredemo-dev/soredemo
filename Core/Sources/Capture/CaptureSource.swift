@@ -7,28 +7,13 @@
 @unsafe @preconcurrency import ScreenCaptureKit
 import Geometry
 
-/// What gets recorded — a display or a window — and the geometry that choice
-/// implies.
-///
-/// `@preconcurrency import` because `SCDisplay` and `SCWindow` are not
-/// `Sendable` in the SDK; this type asserts what the compiler cannot verify.
-///
-/// Only `SCContentSharingPicker` produces a live `CaptureSource` — a hand-built
-/// `SCContentFilter` bypasses the picker's permission affordances and Presenter
-/// Overlay.
-///
-/// Every member is `nonisolated` so that `CaptureSourcePicker`'s `nonisolated`
-/// observer callbacks can call them synchronously under this project's
-/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
-/// Everything a window capture needs, as its own type rather than four associated values
-/// on an enum case: the case's data has its own invariants — the rect must be the window's
-/// place on THAT display, the buffer must be sized to the window — and they belong together.
 /// A rectangle of a display, and the buffer it is recorded into.
 ///
-/// **The same shape as `WindowCapture` minus the window**, deliberately — the two are captured
-/// by the same mechanism and differ only in what chose the rectangle. Not folded into one type
-/// with an optional window: `WindowFollower` asks whether there is a window to follow, and an
-/// optional would make that a runtime question in a place the type system can answer it.
+/// The same shape as `WindowCapture` minus the window, deliberately — the two are
+/// captured by the same mechanism and differ only in what chose the rectangle. Not
+/// folded into one type with an optional window: `WindowFollower` asks whether
+/// there is a window to follow, and an optional would make that a runtime question
+/// where the type system can answer it.
 public struct RegionCapture: Sendable {
     /// The display the region sits on.
     public let display: SCDisplay
@@ -66,6 +51,9 @@ public struct RegionCapture: Sendable {
     }
 }
 
+/// Everything a window capture needs, as its own type rather than four associated
+/// values on an enum case: the rect must be the window's place on THAT display and
+/// the buffer must be sized to the window, and those invariants belong together.
 public struct WindowCapture: Sendable {
     public let window: SCWindow
     /// The display the window's centre sits on. **A display filter with a source rect, not
@@ -102,6 +90,14 @@ public struct WindowCapture: Sendable {
     }
 }
 
+/// What gets recorded — a display, a window, or a region — and the geometry that
+/// choice implies.
+///
+/// Only `SCContentSharingPicker` produces a live value: a hand-built
+/// `SCContentFilter` bypasses the picker's permission affordances and Presenter
+/// Overlay. Every member is `nonisolated` so `CaptureSourcePicker`'s `nonisolated`
+/// observer callbacks can call them synchronously under this project's
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
 public enum CaptureSource: Sendable {
     case display(SCDisplay)
 
@@ -260,66 +256,24 @@ public enum CaptureSource: Sendable {
         return rounded - (rounded % 2)
     }
 
-    /// The `SCContentFilter` this source captures through — what is handed to
-    /// `SCStream(filter:configuration:delegate:)`, and the reverse of
-    /// `init(pickerFilter:availableDisplays:)`. Rebuilding a filter from a value
-    /// the picker vetted exposes no surface the person did not already choose.
-    /// **A WINDOW filter for a window, and this reverses a reversal.**
+    /// The `SCContentFilter` this source captures through, and the reverse of
+    /// `init(pickerFilter:availableDisplays:)`.
     ///
-    /// D2-13 chose `desktopIndependentWindow`; the window-capture repair replaced it with a
-    /// display filter plus `sourceRect`, on three arguments. A real recording then captured
-    /// the Dock, which that repair's own comment had predicted in as many words — "anything
-    /// overlapping the window's rect is captured with it. A real regression in isolation,
-    /// accepted because…". All three arguments dissolve on inspection:
+    /// A WINDOW gets a window filter, not a display filter plus a crop: other
+    /// windows, the Dock, the menu bar and notifications are then excluded by
+    /// construction. A DISPLAY excludes this process's own applications, because a
+    /// recorder that puts a control strip over the screen and then records the
+    /// screen records the strip.
     ///
-    /// 1. *"the buffer can then be sized to the WINDOW"* — a window filter does not stop the
-    ///    buffer being sized to `window.frame × backing scale`. The two were never in tension.
-    /// 2. *"ScreenCaptureKit crops at the source, so nothing downstream applies an offset"* —
-    ///    a window filter's frame IS the window, so there is no offset to apply either.
-    /// 3. *"macOS composites the purple recording indicator into the frames"* — it does not,
-    ///    measured; the indicator is drawn by the window server outside the captured content.
+    /// `excepting` names windows that come back DESPITE their application being
+    /// excluded — the Dock's process also draws the wallpaper. `showsMenuBar` is
+    /// `SCContentFilter.includeMenuBar` passed through.
     ///
-    /// What a window filter gives that no amount of cropping can: **other windows, the Dock,
-    /// the menu bar and notifications are excluded by construction**, because the capture is
-    /// of the window rather than of the screen where the window happens to be.
+    /// The list is an argument with an empty default rather than a static, because
+    /// the applications come from an `async` query and a static would be wrong
+    /// exactly once — on the first recording after launch.
     ///
-    /// `sourceRect` is therefore NOT set for a window — it would crop the window's own
-    /// content — and `WindowFollower` no longer reconfigures the stream on a move, since
-    /// ScreenCaptureKit follows the window itself. The follower still updates the pointer's
-    /// viewport, which nothing else can do.
-    /// **This process's own windows are excluded from a display capture**, and the recording
-    /// that proved it necessary has the floating control bar sitting across the bottom of the
-    /// picture for its whole length. `excludingWindows: []` excluded nothing; a recorder that
-    /// puts a control strip over the screen and then records the screen records the strip.
-    ///
-    /// `excludingApplications:` rather than a list of window objects: the bar is created after
-    /// the filter is built — it appears when the capture starts — so a window list captured at
-    /// filter time would not contain it. Excluding the application covers every window this
-    /// process has now or opens later, which for a recorder is exactly the rule wanted.
-    ///
-    /// This is the visual half of what `excludesCurrentProcessAudio` already did for sound. The
-    /// two now say the same thing about the same process.
-    ///
-    /// A window capture needs none of this: `desktopIndependentWindow` captures one window and
-    /// nothing that overlaps it, so the bar is excluded by construction — which is the same
-    /// argument the header makes about the menu bar and notifications.
-    ///
-    /// **The list is an argument with an empty default**, not a static this type reads. The
-    /// applications come from `SCShareableContent`, which is `async`, and this is not; a static
-    /// would have to be written before every call and would be wrong exactly once — on the
-    /// first recording after launch, which is the one a person judges the product by.
-    /// `excepting` names windows that come back into the picture DESPITE their application being
-    /// on the exclusion list — `SCContentFilter`'s own `exceptingWindows:`. It exists because the
-    /// Dock's process also draws the wallpaper: hiding the Dock means excluding
-    /// `com.apple.dock` and then putting its five wallpaper windows and four full-screen
-    /// backdrops back. `CaptureExclusions` works out that list; this only passes it on.
-    ///
-    /// Empty by default, and empty is the honest default: excepting a window from an application
-    /// nobody excluded does nothing at all.
-    /// `showsMenuBar` is `SCContentFilter.includeMenuBar`, passed through rather than reasoned
-    /// about: it is the documented switch for this and it needs none of the exclusion machinery
-    /// above, because it is a property rather than a list. Measured — it takes the menu bar's
-    /// twelve status items with it and does not change `contentRect`. See `CaptureExclusions`.
+    /// See `docs/design/what-a-filter-excludes.md`.
     public nonisolated func filter(excluding applications: [SCRunningApplication] = [],
                                    excepting windows: [SCWindow] = [],
                                    showsMenuBar: Bool = true)
@@ -414,22 +368,18 @@ public enum CaptureSource: Sendable {
         }
     }
 
-    /// Derives a `CaptureSource` from a filter the picker produced. Returns
-    /// `nil` for `.application` and `.none`, for an empty `availableDisplays`,
-    /// and for a non-positive size, rather than building a value that would trap
-    /// later inside `.geometry()`.
+    /// Derives a `CaptureSource` from a filter the picker produced. `nil` for
+    /// `.application` and `.none`, for an empty `availableDisplays`, and for a
+    /// non-positive size, rather than building a value that would trap later.
     ///
-    /// `availableDisplays` supplies the display a `.window` source is cropped out
-    /// of: the one whose bounds contain the window's CENTRE, not the largest.
-    /// A window is captured through a display filter plus a source rect, so the
-    /// display has to be the one the window is actually on — the largest display
-    /// was the right answer only while the buffer was display-sized, which was
-    /// the defect. `SCDisplay` exposes no scale, so `filter.pointPixelScale`
-    /// converts points (`SCShareableContent.h`) to pixels.
+    /// `availableDisplays` supplies the display a `.window` source is cropped out of:
+    /// the one whose bounds contain the window's CENTRE, not the largest — the
+    /// largest was right only while the buffer was display-sized, which was the
+    /// defect. `SCDisplay` exposes no scale, so `filter.pointPixelScale` converts
+    /// points to pixels.
     ///
-    /// Not `nonisolated`, unlike `.geometry()`/`.filter()` above: it stays
-    /// implicitly `@MainActor`, so `CaptureSourcePicker` hops onto the main
-    /// actor before calling it.
+    /// Not `nonisolated`, unlike `.geometry()`/`.filter()`: it stays implicitly
+    /// `@MainActor`, so `CaptureSourcePicker` hops before calling it.
     public init?(pickerFilter filter: SCContentFilter, availableDisplays: [SCDisplay]) {
         switch filter.style {
         case .display:
@@ -489,21 +439,16 @@ public enum CaptureSource: Sendable {
     }
 }
 
-/// Presents the system content picker and reports the `CaptureSource` a human
-/// chose.
+/// Presents the system content picker and reports the `CaptureSource` a human chose.
 ///
-/// Nothing here is exercised by a probe or by `swift test`: the observer
-/// callbacks fire only after a real click in Control Center's picker UI.
+/// Nothing here is exercised by a probe or by `swift test`: the observer callbacks
+/// fire only after a real click in Control Center's picker UI. They are
+/// `nonisolated` deliberately — `SCContentSharingPickerObserver` is a non-isolated
+/// ObjC protocol and the picker is not documented to call back on the main thread.
 ///
-/// The three observer methods are `nonisolated` deliberately.
-/// `SCContentSharingPickerObserver` is a non-isolated ObjC protocol, so a build
-/// without the `InferIsolatedConformances` upcoming feature rejects an
-/// implicitly `@MainActor` conformance; the picker is also not documented to
-/// call back on the main thread.
-/// `@unchecked Sendable` because the three observer callbacks are `nonisolated` and each has to
-/// hop to the main actor to hand the shared picker back — which sends `self`. Safe: both stored
-/// properties are `let`, and both are already `@Sendable` closures, so there is no mutable state
-/// for two threads to disagree about.
+/// `@unchecked Sendable` because each callback hops to the main actor to hand the
+/// shared picker back, which sends `self`. Safe: both stored properties are `let`
+/// and both are already `@Sendable` closures.
 public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver, @unchecked Sendable {
     private let onSelect: @Sendable (CaptureSource?) -> Void
 
@@ -520,23 +465,18 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
         super.init()
     }
 
-    /// Marks the shared picker active and shows it. `SCContentSharingPicker` is
-    /// a singleton (`.shared`) this type observes rather than owns; main-actor
-    /// because it presents UI, unlike the callbacks below.
+    /// Marks the shared picker active and shows it. `SCContentSharingPicker` is a
+    /// singleton this type observes rather than owns; main-actor because it presents
+    /// UI, unlike the callbacks below.
     ///
-    /// `allowedPickerModes` is restricted to `.singleWindow` and
-    /// `.singleDisplay` because the default also offers applications and
-    /// multi-selections, which `CaptureSource` has no case for; a later caller
-    /// could change that, so the initialiser still returns `Optional`.
+    /// `allowedPickerModes` is narrowed to `.singleWindow` and `.singleDisplay` —
+    /// `CaptureSource` has no case for applications or multi-selections, and the
+    /// narrowing is also what makes "Record Screen" and "Record Window" two buttons
+    /// rather than one opening twice. A later caller could widen it, so the
+    /// initialiser still returns `Optional`.
     ///
-    /// `restrictModes: false` exists only to check that the restriction changes
-    /// what the picker offers; it is not for product use.
-    /// Which tab the picker opens on, and what it will accept.
-    ///
-    /// **A "Record Screen" button that opened the same picker as "Record Window" would be two
-    /// buttons doing one thing.** Narrowing the modes is what makes them different, and it is
-    /// also the only honest way to offer them: this app does not enumerate windows itself — the
-    /// system picker is the permission-correct path and the one Apple keeps working.
+    /// `restrictModes: false` exists only to check that the restriction changes what
+    /// the picker offers; it is not for product use.
     public enum Modes: Sendable {
         case displaysAndWindows
         case displaysOnly
@@ -569,22 +509,15 @@ public final class CaptureSourcePicker: NSObject, SCContentSharingPickerObserver
         picker.present()
     }
 
-    /// Hands the shared picker back.
+    /// Hands the shared picker back: clears `isActive` and removes the observer.
     ///
-    /// **`isActive = true` puts a screen-sharing indicator in the menu bar, and it is the
-    /// system's, not ours.** That is what the flag is documented to do: it tells macOS this app
-    /// may start sharing at any moment, so macOS says so. Nothing here ever set it back, so one
-    /// cancelled picker left a green recording pill sitting in the menu bar for the rest of the
-    /// session, next to an app that was recording nothing — the strongest possible claim a Mac
-    /// can make about an app, made falsely, and made permanently.
+    /// `isActive = true` puts the SYSTEM's screen-sharing indicator in the menu bar,
+    /// and one cancelled picker used to leave it there for the session. The picker is
+    /// a singleton that RETAINS observers, so without the removal the second cancel
+    /// called `onSelect(nil)` twice.
     ///
-    /// **`remove` matters as much.** `SCContentSharingPicker` is a singleton and it RETAINS its
-    /// observers. Without this every attempt added another one and none was ever released, so
-    /// the second cancel called `onSelect(nil)` twice, the third three times, each on a
-    /// `CaptureSourcePicker` whose owner had already dropped it.
-    ///
-    /// Called from all three terminal callbacks — chosen, cancelled, failed to start — because
-    /// each of them is the end of this picker's life and only one of them is the happy one.
+    /// Called from all three terminal callbacks, because each is the end of this
+    /// picker's life and only one of them is the happy one.
     @MainActor
     public func dismiss() {
         let picker = SCContentSharingPicker.shared

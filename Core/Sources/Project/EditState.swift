@@ -3,20 +3,14 @@ import Timeline
 
 /// Everything a person decided about a recording, as one value.
 ///
-/// **Only authored values live here.** Not the framing plan, not the derived zoom blocks, not
-/// the pointer track — those are read from the observation log every time and would be a
-/// second, staler copy of a fact the recording already carries. What a person cannot get back
-/// by re-deriving is what has to be saved: the cuts, the levels, the corrections to the
-/// automatic zooms, the look, the shape.
+/// **Only authored values live here** — not the framing plan, not the derived zoom
+/// blocks, not the pointer track, which are read from the observation log every
+/// time. The producer-value rule made into a file format.
 ///
-/// That split is the producer-value rule made into a file format. A saved project that stored
-/// derived values would silently keep an old answer when the derivation improved; one that
-/// stored only authored values re-derives on open and applies the same corrections on top.
-///
-/// **Every field is absence-tolerant.** A project written before a field existed has no such
-/// key and opens with that part unedited, which is the one behaviour that lets the format grow
-/// without a migration per field. `ProjectSnapshot.schemaVersion` still moves when an existing
-/// key changes MEANING — that is what it is for.
+/// **Every field is absence-tolerant**, so the format grows without a migration
+/// per field and absent means off. `ProjectSnapshot.schemaVersion` still moves when
+/// an existing key changes MEANING. See
+/// `docs/design/what-a-project-file-remembers.md`.
 public struct EditState: Codable, Sendable, Equatable {
     /// What survives cutting. Absent means the whole recording.
     public var timeline: EditTimeline?
@@ -35,13 +29,9 @@ public struct EditState: Codable, Sendable, Equatable {
     public var outputShapeName: String?
     /// The caption track, as encoded bytes for the reason `zoomAdjustmentData` gives.
     ///
-    /// **The one derived value this format stores, deliberately.** Everything else here is
-    /// authored, because deriving is cheap and a stored derived value goes stale when the
-    /// derivation improves. Transcription is neither cheap nor stable: it costs a minute of
-    /// compute and a several-hundred-megabyte model download, and two model versions do not
-    /// agree word for word. Re-deriving on open would apply a person's text corrections to text
-    /// that had changed underneath them — so the corrected text is what is saved, corrections
-    /// included, and there is nothing left to reconcile.
+    /// **The one derived value this format stores, deliberately.** Transcription is
+    /// neither cheap nor stable, and re-deriving on open would apply a person's text
+    /// corrections to text that had changed underneath them.
     public var captionTrackData: Data?
     /// How a burnt-in caption looks, as encoded bytes. Authored.
     public var captionStyleData: Data?
@@ -78,16 +68,9 @@ public struct EditState: Codable, Sendable, Equatable {
     /// neutral** — a project nobody dialled has nothing to say about it, and writing 1 would
     /// make every untouched project claim a decision.
     public var zoomIntensity: Double?
-    /// Noise removal on the microphone track — an encoded `NoiseReduction.Settings`. Authored.
-    ///
-    /// **`Data?`, following every other sub-object here, and that is the reason rather than
-    /// laziness.** `EditState` lives in `Project`, the settings type lives with the algorithm in
-    /// `Overlays`, and `Project` cannot see `Overlays` — nor should it: the document's job is to
-    /// remember what a person chose, not to know how noise is removed. Every other authored
-    /// sub-object in this type is stored the same way for the same reason.
-    ///
-    /// **Absent means off.** A project made before this feature existed, and a project by
-    /// somebody who never asked for it, are the same thing and decode to the same thing.
+    /// Noise removal on the microphone track — an encoded `NoiseReduction.Settings`.
+    /// Authored. `Data?` because the settings type lives in `Overlays`, which
+    /// `Project` cannot see. **Absent means off.**
     public var noiseReductionData: Data?
 
     public init(timeline: EditTimeline? = nil,
@@ -155,18 +138,11 @@ public struct EditState: Codable, Sendable, Equatable {
 
     // MARK: - the tiers that own these values
 
-    /// **Why several fields are `Data` rather than their own types.**
-    ///
-    /// `ZoomAdjustment` lives in `Framing`, `StageStyle` in `Render`, `AspectVariant` in
-    /// `Variants`. `Project` depends on none of them and must not: the architecture plugin
-    /// enforces the dependency graph, and making the file format depend on every tier that has
-    /// something to save would invert it — a persisted-format change would then require
-    /// rebuilding the render tier.
-    ///
-    /// So this holds their encoded bytes and each tier's own type does the decoding. The
-    /// format is still one file and still one version; what changes is which tier is allowed
-    /// to read which part of it. `encoding(_:)` and `decoding(_:as:)` are the seam, so no
-    /// caller writes an encoder by hand and gets different bytes.
+    /// Why several fields are `Data` rather than their own types: those types live
+    /// in tiers `Project` does not depend on and must not, or a persisted-format
+    /// change would require rebuilding the render tier. These two are the seam, so
+    /// no caller writes an encoder by hand and gets different bytes.
+    /// See `docs/design/what-a-project-file-remembers.md`.
     public static func encoding<Value: Encodable>(_ value: Value) throws -> Data {
         try ProjectSnapshot.makeEncoder().encode(value)
     }

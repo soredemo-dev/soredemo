@@ -8,26 +8,19 @@ import Foundation
 
 /// What macOS furniture is kept out of a recording: the Dock, the menu bar.
 ///
-/// Nothing here changes the machine. The Dock and the menu bar are excluded from the CAPTURE, so
-/// they stay where they are, keep working while somebody records, and are simply not in the
-/// picture — no preference written, no process killed, no permission asked for, and no restore
-/// owed. A **window** capture needs none of it: `SCContentFilter(desktopIndependentWindow:)`
+/// Nothing here changes the machine — both are excluded from the CAPTURE, so they
+/// keep working while somebody records and are simply not in the picture. A
+/// WINDOW capture needs none of it: `SCContentFilter(desktopIndependentWindow:)`
 /// excludes both by construction.
 ///
-/// `resolve()` turns this into the arguments `CaptureSource.filter` wants. It costs nothing when
-/// nothing is asked for.
-///
-/// See `docs/design/hiding-macos-furniture.md` for the three mechanisms that were measured and
-/// rejected, and for the wallpaper trap that shapes `resolve()`.
+/// The three mechanisms that were measured and rejected, and the wallpaper trap
+/// that shapes `resolve()`, are in `docs/design/hiding-macos-furniture.md`.
 public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// Whether the Dock should be kept out of the picture.
     public var hidesDock: Bool
 
-    /// Whether the menu bar — and the twelve status items in it — should be kept out.
-    ///
-    /// **Not part of `wantsAnything`.** This is a property on the filter rather than an entry in
-    /// an exclusion list, so it needs no window list and must not send `resolve()` looking for
-    /// one. Measured: it takes the menu bar's items with it and does not change `contentRect`.
+    /// Whether the menu bar — and the status items in it — should be kept out.
+    /// Measured: it takes the items with it and does not change `contentRect`.
     public var hidesMenuBar: Bool
 
     public init(hidesDock: Bool = false, hidesMenuBar: Bool = false) {
@@ -38,13 +31,12 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// Nothing hidden — what a display capture uses unless somebody asked otherwise.
     public static let none = CaptureExclusions()
 
-    /// Whether anything needing a WINDOW LIST is being asked for. Read before the
-    /// shareable-content query, so a person who wants nothing hidden pays nothing for the feature.
+    /// Whether anything needing a WINDOW LIST is being asked for, read before the
+    /// shareable-content query so nothing is paid for a feature nobody wants.
     ///
-    /// **The menu bar is deliberately not counted here.** It is a property on the filter, not an
-    /// entry in an exclusion list, so hiding it costs no query — and counting it would make
-    /// `resolve()` go and enumerate every window on the machine to answer a question that does
-    /// not need the answer.
+    /// The menu bar is deliberately not counted: it is a property on the filter,
+    /// not an entry in an exclusion list, and counting it would send `resolve()`
+    /// enumerating every window on the machine for an answer it does not need.
     public var wantsAnything: Bool { hidesDock }
 
     public init(from decoder: any Decoder) throws {
@@ -61,22 +53,21 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
 
 // MARK: - Which window is the Dock
 
-/// **The one window that IS the Dock**, told apart from the ten others its process owns.
+/// The one window that IS the Dock, told apart from the ten others its process
+/// owns.
 ///
-/// Kept as a free predicate over two plain values rather than a method on `SCWindow` so that it
-/// can be tested. `SCWindow` has no public initialiser — a rule that says "exclude the Dock" and
-/// is only exercised against the live Dock is a rule nobody can show is right, and the wallpaper
-/// windows are the case that matters: getting this wrong does not fail loudly, it silently blanks
-/// the desktop picture in somebody's recording.
+/// A free predicate over two plain values rather than a method on `SCWindow`,
+/// because `SCWindow` has no public initialiser and this rule has to be testable:
+/// getting it wrong does not fail loudly, it silently blanks the desktop picture
+/// in somebody's recording.
 public enum DockWindow {
     /// The Dock's bundle identifier. Matched on the identifier rather than the localised
     /// application name, for the reason `CaptureSource.thisApplication` gives about names.
     public static let bundleIdentifier = "com.apple.dock"
 
-    /// The window level the Dock sits at. `CGWindowLevelForKey(.dockWindow)` rather than the
-    /// literal, because it is the system's own answer; measured as 20 on macOS 26, and the five
-    /// wallpaper windows sit at -2147483624 and the four backdrops at -2147483622, so the
-    /// separation is not marginal.
+    /// The window level the Dock sits at — the system's own answer, not a literal.
+    /// Measured as 20 on macOS 26, against wallpaper at -2147483624 and backdrops
+    /// at -2147483622, so the separation is not marginal.
     public static var level: Int { Int(CGWindowLevelForKey(.dockWindow)) }
 
     /// Whether a window owned by `bundleIdentifier` at `windowLayer` is the Dock itself.
@@ -126,13 +117,9 @@ extension CaptureExclusions {
 
     /// Resolves against the live window list.
     ///
-    /// **`SCShareableContent.current`, which needs the Screen Recording grant** — unlike
-    /// `CaptureSource.thisApplication`'s `currentProcess`, this has to see another application's
-    /// windows. That is not a new demand: a display capture cannot start without the grant
-    /// anyway, so by the time this runs the answer is already yes.
-    ///
-    /// Asked only when something was actually asked for. A person with the switch off pays for
-    /// no query at all.
+    /// Needs the Screen Recording grant, which is not a new demand: a display
+    /// capture cannot start without it, so by the time this runs the answer is
+    /// already yes. Asked only when something was actually asked for.
     public func resolve() async -> Resolution {
         guard wantsAnything else {
             return Resolution(applications: [], exceptedWindows: [], outcome: .notAsked)

@@ -76,36 +76,19 @@ public enum CGGeometryBridge {
 
     // MARK: - accessibility → package
 
-    /// Decodes an `AXValue` holding a position into bare scalars, in points, in
-    /// the global top-left space `kAXPositionAttribute` reports in. Position and
-    /// size stay separate scalars; the caller assembles the `PointRect`.
-    ///
-    /// `nil` — never a zeroed point, which is a legal position — when the
-    /// attribute did not answer, what came back is not an `AXValue`, or
-    /// `AXValueGetValue` refuses the type. Non-finite values pass through
-    /// unfiltered; the caller checks `isFinite`.
-    /// **The current frame of ONE window, by ID** — the live value `SCWindow.frame` is not.
+    /// The current frame of ONE window, by ID — the live value `SCWindow.frame` is not.
     /// `SCWindow` carries the frame the content query saw and never updates it, so a window
     /// moved or resized during a recording leaves the capture cropping the wrong rectangle
     /// and the pointer normalised against it. `WindowFollower` is the only caller.
     ///
-    /// **Why the scoped call is here and not there.** `CGWindowListCopyWindowInfo` is on
-    /// `noAppSourceReadsUserContent`'s ban list, because in its usual shape — `.optionAll`
-    /// with `kCGNullWindowID` — it enumerates every window on the machine, including the
-    /// unrecorded ones, and can read `kCGWindowName`. That concern is real and the ban is
-    /// right. This call is a different shape: `.optionIncludingWindow` with a specific ID
-    /// returns exactly one window, the one already being recorded, and reads only
-    /// `kCGWindowBounds` — a rectangle, which an observation log may carry. The ban is
-    /// narrowed to permit this file and no other, so the shape stays auditable in one place
-    /// rather than becoming a habit; `kCGWindowName` remains banned everywhere including here.
+    /// `CGWindowListCopyWindowInfo` is banned in the app tier because its usual
+    /// shape enumerates every window on the machine and can read `kCGWindowName`.
+    /// This shape is different: one specific ID, `kCGWindowBounds` only. The ban
+    /// is narrowed to permit this file and no other, so it stays auditable in one
+    /// place rather than becoming a habit; `kCGWindowName` remains banned here too.
     ///
-    /// Returns `nil` when the window is gone — closed, or moved to another Space. That is
-    /// not the same as "unchanged" and the caller must not treat it as such.
-    ///
-    /// `kCGWindowBounds` is a dictionary representation of a `CGRect` in global top-left
-    /// points. `CGRectMakeWithDictionaryRepresentation` is the documented way back, rather
-    /// than picking the four keys out by hand — and it belongs in this file because the
-    /// `CGRect` it produces may not escape it.
+    /// `nil` when the window is gone — closed, or moved to another Space. That is
+    /// not "unchanged", and the caller must not treat it as such.
     public nonisolated static func windowBounds(_ windowID: CGWindowID) -> PointRect? {
         guard let infoList = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID)
                 as? [[String: Any]],
@@ -124,6 +107,14 @@ public enum CGGeometryBridge {
         return pointRect(from: rect)
     }
 
+    /// Decodes an `AXValue` holding a position into bare scalars, in points, in
+    /// the global top-left space `kAXPositionAttribute` reports in. Position and
+    /// size stay separate scalars; the caller assembles the `PointRect`.
+    ///
+    /// `nil` — never a zeroed point, which is a legal position — when the
+    /// attribute did not answer, what came back is not an `AXValue`, or
+    /// `AXValueGetValue` refuses the type. Non-finite values pass through
+    /// unfiltered; the caller checks `isFinite`.
     public nonisolated static func point(fromAXValue value: CFTypeRef?) -> (x: Double, y: Double)? {
         guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero
@@ -157,13 +148,6 @@ public enum CGGeometryBridge {
         CGRect(x: points.x, y: points.y, width: points.width, height: points.height)
     }
 
-    /// The `CGSize` `AVAssetImageGenerator.maximumSize` takes, from plain `Int`s.
-    ///
-    /// **The app tier names no CoreGraphics geometry type at all** — a zero-permit claim
-    /// (`noAppSourceNamesACoreGraphicsGeometryType`), and a filmstrip has to cap its thumbnail
-    /// size or it decodes 4K frames to draw postage stamps. Distinct from
-    /// `HeadlessGeometryBridge.renderSize(width:height:)` by name as well as by tier, because a
-    /// test forbids the two bridges from sharing a function signature.
     /// A video track's DISPLAYED size in whole pixels, transform applied.
     ///
     /// **`naturalSize` alone is the encoded size and is not what anybody sees.** A recording made
@@ -181,6 +165,13 @@ public enum CGGeometryBridge {
         return (Int(abs(displayed.width).rounded()), Int(abs(displayed.height).rounded()))
     }
 
+    /// The `CGSize` `AVAssetImageGenerator.maximumSize` takes, from plain `Int`s.
+    ///
+    /// The app tier names no CoreGraphics geometry type at all
+    /// (`noAppSourceNamesACoreGraphicsGeometryType`), and a filmstrip has to cap
+    /// its thumbnail size or it decodes 4K frames to draw postage stamps.
+    /// Distinct from `HeadlessGeometryBridge.renderSize(width:height:)` by name as
+    /// well as by tier: a test forbids the two bridges sharing a signature.
     public nonisolated static func thumbnailSize(width: Int, height: Int) -> CGSize {
         CGSize(width: CGFloat(width), height: CGFloat(height))
     }

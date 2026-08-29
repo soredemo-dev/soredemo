@@ -283,6 +283,14 @@ func inode(of url: URL) throws -> UInt64 {
 
 @MainActor var failures = 0
 @MainActor var checksRun = 0
+/// Sections that did not run, and why.
+///
+/// **A skipped section used to be invisible.** The count is the only thing the
+/// verdict line carried, and a run that measured seventy checks fewer than the
+/// last one still said PROBE PASSED — a number nobody was comparing against
+/// anything. `count-tests.sh` states the rule this file was missing: a gate that
+/// passes having measured nothing is worse than one that fails.
+@MainActor var skipped: [String] = []
 
 @MainActor
 func check(_ condition: Bool, _ label: String, actual: String = "", expected: String = "") {
@@ -458,9 +466,19 @@ enum CrossBoundaryProbe {
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
-        print(failures == 0
-              ? "PROBE PASSED (\(checksRun) checks)"
-              : "PROBE FAILED (\(failures) of \(checksRun) checks)")
+        if !skipped.isEmpty {
+            print("")
+            print("SKIPPED \(skipped.count) section(s) — the count below is smaller than a "
+                  + "full run's by however many checks they hold:")
+            for reason in skipped { print("  - \(reason)") }
+        }
+        let verdict = failures == 0
+            ? "PROBE PASSED (\(checksRun) checks)"
+            : "PROBE FAILED (\(failures) of \(checksRun) checks)"
+        // The skip is named in the verdict itself, not only above it: a person
+        // reading the last line of a log is reading the whole answer as far as
+        // they are concerned.
+        print(skipped.isEmpty ? verdict : "\(verdict), \(skipped.count) SECTION(S) SKIPPED")
         if failures != 0 { exit(1) }
     }
 
@@ -6497,34 +6515,42 @@ enum CrossBoundaryProbe {
         print("        \(surfaces.count) complete frames, \(Set(surfaces).count) distinct "
               + "IOSurface ids, \(Set(hashes).count) distinct pictures")
 
-        guard surfaces.count >= 10 else {
-            print("        SKIPPED — only \(surfaces.count) complete frames arrived in 2 s; "
-                  + "too few to say anything about duplicates.")
-            return
+        // **The skip is a branch, not a `return`, and that repair is the point.** Sections 19
+        // through 27 live in this same function, so the `return` that used to be here took
+        // seventy checks in nine unrelated sections with it whenever too few frames arrived —
+        // and the run still printed PROBE PASSED, with a smaller number nobody was comparing
+        // against anything. A gate that skips has to say so where the verdict is read.
+        if surfaces.count < 10 {
+            let why = "18 — only \(surfaces.count) complete frames arrived in 2 s, too few to "
+                + "say anything about duplicates"
+            print("        SKIPPED — \(why).")
+            skipped.append(why)
+        } else {
+            check(noSurface == 0,
+                  "18.1 every complete frame carries an IOSurface — the thing such a dedup reads",
+                  actual: "\(noSurface) without one", expected: "0")
+
+            let sameSurfaceAsPrevious = (1..<surfaces.count).count { surfaces[$0] == surfaces[$0 - 1] }
+            // **The load-bearing check.** If this ever stops being zero, ScreenCaptureKit has
+            // changed how it cycles its surface pool and the decision recorded above should be
+            // re-made.
+            check(sameSurfaceAsPrevious == 0, """
+                  18.2 no two consecutive frames share an IOSurface id — so an identity \
+                  `surfaceID == lastIOSurfaceID` dedup would skip nothing
+                  """,
+                  actual: "\(sameSurfaceAsPrevious) of \(surfaces.count - 1)", expected: "0")
+
+            let sameContentAsPrevious = (1..<hashes.count).count { hashes[$0] == hashes[$0 - 1] }
+            // Conservative by a wide margin: measured at 97–100% over four runs of a still
+            // window. Half is enough to establish that the duplicates exist and are visible in
+            // the CONTENT, which is the half of the finding that survives a busier machine.
+            check(sameContentAsPrevious * 2 > hashes.count - 1, """
+                  18.3 most of a still window's frames repeat the previous picture exactly — the \
+                  duplicates are real, and content is the only place they show
+                  """,
+                  actual: "\(sameContentAsPrevious) of \(hashes.count - 1)",
+                  expected: "more than half")
         }
-        check(noSurface == 0,
-              "18.1 every complete frame carries an IOSurface — the thing such a dedup reads",
-              actual: "\(noSurface) without one", expected: "0")
-
-        let sameSurfaceAsPrevious = (1..<surfaces.count).count { surfaces[$0] == surfaces[$0 - 1] }
-        // **The load-bearing check.** If this ever stops being zero, ScreenCaptureKit has changed
-        // how it cycles its surface pool and the decision recorded above should be re-made.
-        check(sameSurfaceAsPrevious == 0, """
-              18.2 no two consecutive frames share an IOSurface id — so an identity \
-              `surfaceID == lastIOSurfaceID` dedup would skip nothing
-              """,
-              actual: "\(sameSurfaceAsPrevious) of \(surfaces.count - 1)", expected: "0")
-
-        let sameContentAsPrevious = (1..<hashes.count).count { hashes[$0] == hashes[$0 - 1] }
-        // Conservative by a wide margin: measured at 97–100% over four runs of a still window.
-        // Half is enough to establish that the duplicates exist and are visible in the CONTENT,
-        // which is the half of the finding that survives a busier machine.
-        check(sameContentAsPrevious * 2 > hashes.count - 1, """
-              18.3 most of a still window's frames repeat the previous picture exactly — the \
-              duplicates are real, and content is the only place they show
-              """,
-              actual: "\(sameContentAsPrevious) of \(hashes.count - 1)",
-              expected: "more than half")
 
         // MARK: - 19. hiding the desktop's icons, without hiding anybody's desktop
 

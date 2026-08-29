@@ -24,12 +24,10 @@ struct SoredemoApp: App {
     /// Held here because a SwiftUI command can only attach to a `Scene`, never a
     /// `View`, so the "Open Recording…" command cannot live in `ContentView`.
     ///
-    /// **Declared without a default, and set in `init`.** Written as
-    /// `= RecordingCoordinator()` it built TWO: the stored-property default runs before the
-    /// `init` body, which then replaced it with a second. Measured by logging from the
-    /// coordinator — every line appeared twice, one per instance — and each one read the
-    /// persisted defaults and scanned the machine's cameras and microphones for a copy of the
-    /// app nothing was pointing at.
+    /// Declared without a default and set in `init`: written as
+    /// `= RecordingCoordinator()` it built TWO — the stored-property default runs
+    /// before the `init` body, which then replaced it — and each one read the
+    /// persisted defaults and scanned the machine's cameras and microphones.
     @State private var recordingCoordinator: RecordingCoordinator
     /// The one thing an app delegate is needed for: asking before the app quits over an edit
     /// nobody saved. See `UnsavedWorkGuard`.
@@ -64,17 +62,15 @@ struct SoredemoApp: App {
     /// executable: TCC attributes a direct `fork`/`exec` to the responsible
     /// parent process, so the grants reported would not be this bundle's.
     var body: some Scene {
-        // **The menu bar item, and it is the whole app.** A recorder is used from inside what
-        // is being demonstrated, and the moment a person opens this app's window to press
-        // Record, the thing they wanted to record is behind it. See `MenuBarRecorderPanel`.
+        // The menu bar item, and it is the whole app: a recorder is used from inside
+        // what is being demonstrated, and the moment a person opens a window to press
+        // Record, the thing they wanted to record is behind it.
         //
-        // **`MenuBarExtra`, after an `NSStatusItem` was tried and taken back out.** Owning the
-        // item bought `autosaveName` and a seeded position — real answers to an item macOS hides
-        // on a full menu bar — and cost the two things that make this feel like a menu bar app:
-        // the system's own window chrome behind the panel, and a label that is in the scene
-        // graph for as long as the app is. Both were rebuilt by hand and neither came back
-        // right. The scene is the design; the position problem goes somewhere it does not cost
-        // the design to solve.
+        // `MenuBarExtra` after an `NSStatusItem` was tried and taken back out. Owning
+        // the item bought `autosaveName` and a seeded position — real answers to an
+        // item macOS hides on a full menu bar — and cost the system's own window
+        // chrome behind the panel and a label that stays in the scene graph. Both
+        // were rebuilt by hand and neither came back right.
         MenuBarExtra {
             MenuBarRecorderPanel(coordinator: recordingCoordinator)
                 // The same accent the editor uses; see the note on the editor scene. The panel
@@ -114,50 +110,22 @@ struct SoredemoApp: App {
         .restorationBehavior(.disabled)
         .windowResizability(.contentSize)
 
-        // **The editor, and it does not exist until there is something to edit.**
-        // `.defaultLaunchBehavior(.suppressed)` is what stops SwiftUI opening it at launch: a
-        // recorder that greets you with an empty editor window is a recorder whose first act is
-        // to cover the screen you wanted to record. `MenuBarRecorderLabel` opens it when a
-        // recording finishes or a project is opened, which are the only two times it has
-        // anything in it.
+        // The editor, and it does not exist until there is something to edit.
+        // `.defaultLaunchBehavior(.suppressed)` is what stops SwiftUI opening it at
+        // launch: a recorder that greets you with an empty editor window is a
+        // recorder whose first act is to cover the screen you wanted to record.
+        // `MenuBarRecorderLabel` opens it when a recording finishes or a project is
+        // opened, which are the only two times it has anything in it.
         //
-        // `Window`, not `WindowGroup`: one recording is open at a time, so a second window would
-        // be a second set of models over the same `StageCompositor` statics — which are
-        // process-global because AVFoundation owns compositor instances, and would therefore
-        // disagree between the two windows.
-        // **A default size, because a `Window` scene's default is the content's own.** An
-        // editor is a preview, a timeline and an inspector at once and none of those three is
-        // what SwiftUI sizes to; the result was a window whose timeline had no length. This is
-        // the size before `sizeGenerouslyOnFirstOpen` gets a screen to measure — a floor for
-        // the first frame rather than the answer, which is why it is not a share of anything.
-        // **`WindowGroup`, not `Window`, and it is the green button that forced it.**
+        // `WindowGroup`, not `Window`, and the green button forced it: SwiftUI
+        // classifies a `Window` scene as auxiliary, which cannot go full screen.
+        // Measured — see `docs/design/full-screen-and-window-behaviour.md`.
         //
-        // Measured 2026-08-27 by logging the editor window's own `collectionBehavior` from
-        // inside a running build, at attach and three seconds later:
-        //
-        //     Window       131330 = auxiliary | fullScreenAuxiliary | moveToActiveSpace
-        //     WindowGroup   65666 = primary   | fullScreenPrimary   | moveToActiveSpace
-        //
-        // SwiftUI classifies a `Window` scene as AUXILIARY, and an auxiliary window gets
-        // `fullScreenAuxiliary` — "may join another app's full-screen space" — rather than
-        // `fullScreenPrimary`. The green button reads the latter, so it offered tiling and
-        // nothing else. `WindowConfigurator` inserted `fullScreenPrimary` and SwiftUI stripped
-        // it again within three seconds, which is why every earlier attempt looked like it had
-        // worked and had not.
-        //
-        // Both Swift reference projects land on a primary window for their editor:
-        // The alternatives are a `WindowGroup`, or
-        // an `NSWindowController` managed by hand. Neither
-        // uses a `Window` scene.
-        //
-        // **The single-window rule the old comment gave is kept, by hand.** It said: one
-        // recording is open at a time, so a second window would be a second set of models over
-        // the same `StageCompositor` statics — which are process-global because AVFoundation
-        // owns compositor instances, and would disagree between two windows. That is still
-        // true. `WindowGroup` permits a second window rather than requiring one, and
-        // `EditorWindowPresence.openEditor` refuses to make one: it brings the existing window
-        // forward instead. A shared window controller is the same arrangement
-        // with AppKit's own vocabulary.
+        // ONE recording is open at a time even so. A second window would be a second
+        // set of models over the same process-global `StageCompositor` statics, and
+        // the two would disagree. `WindowGroup` permits a second window rather than
+        // requiring one; `EditorWindowPresence.openEditor` refuses to make one and
+        // brings the existing window forward instead.
         WindowGroup("Soredemo", id: WindowID.editor) {
             ContentView(coordinator: recordingCoordinator)
                 // **The app's own accent, applied once at the scene.** Without this every
@@ -180,29 +148,10 @@ struct SoredemoApp: App {
                     }
                 }
         }
-        // **No `.defaultSize`, and that is not an omission — it disables full screen.**
-        //
-        // Measured 2026-08-26 in an isolated SwiftUI `Window` scene, reading the window's own
-        // `collectionBehavior` back at 0.2 s, 1 s and 3 s:
-        //
-        //     with    .defaultSize  →  66050 = primary | fullScreenNone | moveToActiveSpace
-        //     without .defaultSize  →  65666 = primary | fullScreenPrimary | moveToActiveSpace
-        //
-        // `.fullScreenNone` is the flag that says a window cannot go full screen, and it is
-        // what makes the green button show a "+" with a tiling menu and no Full Screen row.
-        // SwiftUI sets it for a scene with a default size and re-asserts it after every update,
-        // so `WindowConfigurator`'s `insert(.fullScreenPrimary)` never survived — the two are
-        // mutually exclusive and `fullScreenNone` wins. Removing it first does not help either;
-        // SwiftUI puts it back.
-        //
-        // This modifier was added on the same day, to stop the editor opening at its content's
-        // size. It was the wrong tool for that: `sizeGenerouslyOnFirstOpen` already gives the
-        // editor most of the screen on first open, and unlike a default size it does not tell
-        // AppKit the window is fixed.
-        //
-        // `.contentMinSize` stays and is measured innocent — the run with it and without a
-        // default size is the one that reports `fullScreenPrimary=true`. The floor comes from
-        // the content, the ceiling from nothing, so the editor resizes freely.
+        // No `.defaultSize`, and that is not an omission — it sets
+        // `.fullScreenNone`, which is the flag that disables full screen, and
+        // SwiftUI re-asserts it after every update. `.contentMinSize` is measured
+        // innocent. See `docs/design/full-screen-and-window-behaviour.md`.
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)

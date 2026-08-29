@@ -2,29 +2,22 @@ import AVFoundation
 import Foundation
 import ScreenCaptureKit
 
-/// Which microphone a recording captures, and whether this system can capture one at all.
+/// Which microphone a recording captures, and whether this system can capture one
+/// at all.
 ///
-/// **Internal and external audio are two different captures with two different failure
-/// modes**, and until this existed the recorder acknowledged only one of them: it set
-/// `captureMicrophone = true` unconditionally, named no device, and had no answer for a
-/// system that cannot do it. System audio is a tap on what the machine is playing and either
-/// works or is denied; a microphone is a physical device that can be absent, chosen wrongly,
-/// muted at the OS, or held exclusively by another application.
+/// System audio is a tap on what the machine is playing and either works or is
+/// denied; a microphone is a physical device that can be absent, chosen wrongly,
+/// muted at the OS, or held by another application. The device is named and the
+/// capability is probed rather than either being assumed.
 ///
-/// **The device is named and the capability is probed**, rather than either being assumed.
-/// Probing means `responds(to:)` for the two selectors and a named refusal instead of a failed
-/// recording; naming means somebody with two microphones gets the one they chose rather than
-/// whichever the system preferred.
-///
-/// It is common advice that ScreenCaptureKit cannot select a microphone device, and that a
-/// second `AVCaptureSession` is therefore needed. Measured on this machine that is no longer
-/// true: `SCStreamConfiguration` responds to both selectors. So this keeps one capture.
+/// It is common advice that ScreenCaptureKit cannot select a microphone device
+/// and that a second `AVCaptureSession` is needed. Measured on this machine that
+/// is no longer true: `SCStreamConfiguration` responds to both selectors, so this
+/// keeps one capture.
 public enum MicrophoneSource: Hashable, Sendable {
-    /// **No microphone at all — a choice, not a failure.** Until this case existed the type
-    /// could say "we could not capture one" and could not say "you asked us not to", and the
-    /// recorder treated the second as the first: it appended `.microphoneUnavailable` to the
-    /// observation blindness, which is the record of what this module could not see. A person
-    /// recording a UI demo in a shared office has not been degraded by choosing silence.
+    /// No microphone at all — a CHOICE, never `.microphoneUnavailable`. A person
+    /// recording a UI demo in a shared office has not been degraded by choosing
+    /// silence, and the blindness record is for what could not be seen.
     case off
     /// Whatever the system considers the default input. Follows the user changing it in
     /// System Settings, which a pinned device does not.

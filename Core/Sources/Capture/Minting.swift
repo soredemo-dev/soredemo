@@ -9,24 +9,20 @@ import Foundation
 import Graph
 import Timeline
 
-/// The ambient values the deterministic tier is forbidden to touch (`UUID`, `Date`,
-/// `SHA256`, the clocks, `sysctl`), read here at one boundary. Every function is a pure
-/// mapping from an ambient thing to a package type; anything with branching or policy in
-/// it belongs in a package module instead.
+/// The ambient values the deterministic tier is forbidden to touch (`UUID`,
+/// `Date`, `SHA256`, the clocks, `sysctl`), read here at one boundary.
 ///
-/// **In `Headless` since Phase 3A-3, and `public` because of it.** It was an app-target
-/// file, so `internal` reached its callers; from a library target the app tier needs the
-/// symbol exported. Every member of this file reads the environment, which is what makes
-/// the whole-file permit in `Tests/AppSourceTests` cost nothing — the same argument
-/// `MonotonicStopwatch.swift` carries, and the reason those are two files and not one:
-/// this file's claim is "pure ambient→package mappings" and a stateful stopwatch is not
-/// one. The app target now holds no ambient boundary at all
-/// (`noAppSourceReadsAnAmbientValueAtAll`).
+/// **Every function is a pure mapping from an ambient thing to a package type.**
+/// That claim is what the whole-file permit in `Tests/AppSourceTests` rests on, so
+/// anything with branching or policy in it belongs in a package module instead —
+/// and a stateful stopwatch belongs in `MonotonicStopwatch.swift`, which carries
+/// its own permit for its own reason. The app target holds no ambient boundary at
+/// all (`noAppSourceReadsAnAmbientValueAtAll`).
 public enum Minting {
     /// A fresh v4 UUID. The package cannot call `UUID()`; it can hold the result.
     ///
-    /// `nonisolated` here and on every function in this file is required and must stay:
-    /// the target sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and callers include
+    /// `nonisolated` here and on every function in this file must stay: the target
+    /// sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and callers include
     /// synchronous non-MainActor contexts such as `SCStreamOutput` callbacks.
     public nonisolated static func newIdentifier() -> UUID {
         UUID()

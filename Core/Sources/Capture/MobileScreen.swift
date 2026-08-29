@@ -4,37 +4,19 @@ import Foundation
 import IOKit
 import IOKit.usb
 
-/// **An iPhone or iPad on the end of a cable, as something this app can record.**
-///
-/// This opens mobile-app demos as a use
-/// case. None of the seven open-source projects beside this repo implements it — searched for
-/// `AllowScreenCaptureDevices` and `DeviceTypeExternal` across all of them and got nothing — so
-/// there was no design to read and this is built from what macOS actually offers.
-///
-/// ### The one mechanism, and it is a switch rather than an API
+/// An iPhone or iPad on the end of a cable, as something this app can record.
 ///
 /// A connected iOS device is invisible to AVFoundation until a process sets
-/// `kCMIOHardwarePropertyAllowScreenCaptureDevices`. That is what QuickTime's
-/// "Movie Recording → iPhone" turns on. Once it is on, the device appears as an ordinary
-/// `AVCaptureDevice` of type `.external` carrying the phone's screen as video and its audio as a
-/// separate device.
+/// `kCMIOHardwarePropertyAllowScreenCaptureDevices`; after that it is an ordinary
+/// `AVCaptureDevice` of type `.external`, so `CameraRecorder` writes it with no
+/// second capture path and no second set of failure modes.
 ///
-/// Measured on macOS 26 before any of this was written: `CMIOObjectSetPropertyData` returns 0,
-/// and with nothing connected the external-device list is empty rather than erroring.
+/// **What a phone recording does NOT get, said here rather than discovered.** No
+/// cursor, no accessibility tree, no clicks — so the automatic framing has nothing
+/// to work from. Everything else works, manual zoom included.
 ///
-/// ### Recording one costs nothing new
-///
-/// An iOS screen is an `AVCaptureDevice`, and `CameraRecorder` already writes an
-/// `AVCaptureDevice` to a movie file with `AVCaptureMovieFileOutput`. So a phone recording is
-/// `CameraRecorder.start(camera: .device(uniqueID:name:))` with this type's id — no second
-/// capture path, no second writer, no second set of failure modes.
-///
-/// **What a phone recording does NOT get, said here rather than discovered.** There is no cursor
-/// to draw, no accessibility tree to read, and no clicks to zoom to — the automatic framing this
-/// app is built around has nothing to work from. Everything else does work: the look, the
-/// background, cutting, speed, captions, export. Manual zoom works. A person expecting the
-/// automatic zoom they get on a Mac recording will not get it, and that is a property of there
-/// being no observations to derive it from rather than a feature that was skipped.
+/// Every rule in this file was measured on a real device;
+/// `docs/design/recording-a-phone.md` holds the runs.
 public enum MobileScreen {
     /// Which kind of device this is.
     ///
@@ -115,22 +97,12 @@ public enum MobileScreen {
             self.family = try? container.decodeIfPresent(Family.self, forKey: .family)
         }
 
-        /// The name to put on a card.
+        /// The name to put on a card: the device's own name, whatever it looks like.
         ///
-        /// **The device's own name, whatever it looks like.** Measured over USB on 2026-08-27,
-        /// AVFoundation reported this iPad's name as `[226, 150, 161, 226, 150, 161]` — two
-        /// U+25A1 WHITE SQUARE characters and nothing else. I took that for a placeholder and
-        /// replaced it with a generic label. It is not a placeholder: the device's owner
-        /// confirmed it is the name they chose.
-        ///
-        /// So the rule is the producer-value rule, which this project states plainly and which
-        /// I had just broken: an authored value wins over a derived one and is never silently
-        /// replaced. Somebody who names their iPad in boxes, in Chinese, in emoji or in nothing
-        /// legible at all has named it, and a recorder that decides their name carries no
-        /// information is a recorder deciding something that is not its to decide.
-        ///
-        /// The only fallback left is for a name with no characters in it at all — a card has to
-        /// say something, and there is nothing there to say.
+        /// The producer-value rule. An iPad whose name is two U+25A1 characters has
+        /// been named, and a recorder that decides that name carries no information
+        /// is deciding something that is not its to decide. The only fallback is for
+        /// a name with no characters in it at all.
         public var displayName: String {
             MobileScreen.isNameUsable(name) ? name : "Mobile device"
         }
@@ -188,15 +160,8 @@ public enum MobileScreen {
     }
 
     /// What `AVCaptureDevice.modelID` reads for an iOS screen-capture device.
-    ///
-    /// **Measured, on an iPad over USB, on 2026-08-27.** This string was written into an earlier
-    /// version of this file as "widely said and therefore not used" — a branch nobody has run is
-    /// a claim rather than a mechanism. It has now been run:
-    ///
-    ///     CONNECTED  <name>  model=iOS Device  type=AVCaptureDeviceTypeExternal
-    ///
-    /// Using it removes the limitation the previous rule carried whole: it no longer matters
-    /// whether some other application threw the switch before this app launched.
+    /// Measured on an iPad over USB, 2026-08-27; an earlier version wrote this
+    /// string down as "widely said and therefore not used".
     public static let mobileModelID = "iOS Device"
 
     /// Whether `device` is a phone or tablet screen rather than a camera.
@@ -208,18 +173,12 @@ public enum MobileScreen {
                         uniqueID: device.uniqueID, knownBefore: before)
     }
 
-    /// The rule itself, over plain values.
+    /// The rule itself, over plain values — separated from `isMobileScreen` so it
+    /// can be tested without a phone on the end of a cable.
     ///
-    /// **Separated from `isMobileScreen` so it can be tested without a phone on the end of a
-    /// cable.** `AVCaptureDevice` cannot be constructed, so a predicate that took one could only
-    /// be exercised against whatever happened to be plugged into the machine running the tests.
-    /// This takes the three facts the rule uses.
-    ///
-    /// **`modelID` first, the snapshot second.** The model string is a direct answer from the
-    /// device and was measured; the snapshot is a heuristic — "it was not visible until this
-    /// process allowed screen-capture devices" — which is right whenever it applies and silently
-    /// wrong if another application threw the switch first. Keeping it as a fallback costs
-    /// nothing and covers a future macOS that stops reporting the model string.
+    /// `modelID` first, the snapshot second: the model string is a direct answer
+    /// from the device, and the snapshot is a heuristic that is silently wrong if
+    /// another application threw the switch first.
     static func classify(deviceType: AVCaptureDevice.DeviceType, modelID: String,
                          uniqueID: String, knownBefore: Set<String>?) -> Bool {
         guard deviceType == .external else { return false }
@@ -234,20 +193,9 @@ public enum MobileScreen {
 
     /// Starts listening for phones and tablets arriving and leaving.
     ///
-    /// **The notification, not a discovery session, and this is a measured correction rather
-    /// than a preference.** On macOS 26, with an iPad connected over USB and unlocked:
-    ///
-    ///     CONNECTED  <name>  model=iOS Device  type=AVCaptureDeviceTypeExternal
-    ///     DiscoverySession(external, .video) -> 0
-    ///
-    /// The device announces itself and the discovery session does not list it — repeatedly, over
-    /// twenty-five seconds, in the same process. An implementation built on enumeration alone
-    /// finds nothing however long it waits, which is what the first version of this file did.
-    ///
-    /// **And the run loop has to be running.** CoreMediaIO discovers these on the main run loop;
-    /// a probe that threw the switch and then slept saw nothing for six seconds, and the same
-    /// code pumping `RunLoop.main` saw the device at once. In the app this is free — AppKit runs
-    /// the loop — but it is the reason a command-line check of this feature reports nothing.
+    /// The notification, not a discovery session — measured, the device announces
+    /// itself and the session does not list it. And the run loop has to be running,
+    /// which is free in the app and the reason a command-line check reports nothing.
     ///
     /// Idempotent. Safe to call before every listing.
     public nonisolated static func startWatching() {
@@ -304,42 +252,18 @@ public enum MobileScreen {
         return found.values.sorted { $0.name < $1.name }
     }
 
-    /// Apple phones and tablets that are on the USB bus but are NOT offering their screens,
-    /// by the name USB reports — "iPad", "iPhone".
+    /// Apple phones and tablets that are on the USB bus but are NOT offering their
+    /// screens, by the name USB reports — "iPad", "iPhone".
     ///
-    /// **This exists because the empty list has a knowable cause and saying nothing is the worst
-    /// answer.** Measured with an iPad plugged in and locked: `ioreg` shows
-    /// `iPad@00100000 <class IOUSBHostDevice>`, vendor "Apple Inc.", but the device exposes only
-    /// PTP, Apple's USB multiplexor, and two NCM (network-over-USB) interfaces. The
-    /// screen-capture interface is simply absent, so `available()` is correctly empty and a
-    /// person sees nothing at all — with a cable in their hand.
-    ///
-    /// The screen interface appears once the device is **unlocked**. Trust is asked once and
-    /// remembered, so somebody who has plugged this iPad in before will never see that prompt
-    /// again and has no way to guess. It does NOT need Developer Mode; that is for running your
-    /// own builds from Xcode and has nothing to do with this — measured, because it is the first
-    /// thing anybody searches for.
-    ///
-    /// **Names, not a count.** "Unlock iPad" is a sentence somebody can act on; "1 device
-    /// unavailable" is not.
+    /// A locked device exposes no screen-capture interface at all, so the device
+    /// list is correctly empty and a person sees nothing with a cable in their hand.
+    /// Names rather than a count: "Unlock iPad" is a sentence somebody can act on.
     public nonisolated static func attachedButUnavailable() -> [String] {
-        // **Counted, not name-matched, and a real iPad is why.** The first version compared the
-        // USB product string against the capture device's `localizedName` and asked whether one
-        // contained the other. Measured with an iPad attached and working:
-        //
-        //     available=["<the iPad's own name>"]  waiting=["iPad"]
-        //
-        // USB reports the family — "iPad" — and AVFoundation reports what the person called
-        // their device, which in this case shared not one character with it. So a device that
-        // was recording perfectly well was also reported as needing to be unlocked, and the menu
-        // would have shown a working card beside "unlock it".
-        //
-        // There is no reliable mapping between the two names, and inventing one would be
-        // guessing at what somebody names their iPad. Counting needs no mapping: if three Apple
-        // mobile devices are on the bus and two are offering screens, one is waiting.
-        //
-        // **Dropping from the front is arbitrary and has to be.** Without a name mapping there
-        // is no way to say WHICH of three iPads is the locked one, only how many are.
+        // Counted, not name-matched, and a real iPad is why: USB reports the family
+        // ("iPad") and AVFoundation reports what the person called their device,
+        // which shared not one character with it. Counting needs no mapping between
+        // the two. Dropping from the front is arbitrary and has to be — there is no
+        // way to say WHICH of three iPads is locked, only how many are.
         Array(attachedMobileFamilyNames().dropFirst(available().count))
     }
 
@@ -380,14 +304,10 @@ public enum MobileScreen {
 
     /// Whether a device reported any name at all.
     ///
-    /// **Deliberately almost everything passes, and that is the correction.** An earlier version
-    /// required a letter or a digit, on the strength of an iPad reporting its name as two U+25A1
-    /// WHITE SQUARE characters — which looked like a placeholder and was the name its owner had
-    /// chosen. Replacing it was the producer-value rule broken: an authored value silently
-    /// swapped for a derived one.
-    ///
-    /// What is left refuses only a name with nothing in it. A card has to say something, and an
-    /// empty string is the one case where there is nothing to say.
+    /// Deliberately almost everything passes. An earlier version required a letter
+    /// or a digit, on the strength of an iPad whose name really was two U+25A1
+    /// characters — the producer-value rule broken. Only a name with nothing in it
+    /// is refused.
     static func isNameUsable(_ name: String) -> Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
