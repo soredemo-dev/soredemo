@@ -6969,6 +6969,41 @@ enum CrossBoundaryProbe {
               actual: SystemCursorShape.classify(NSCursor.resizeDown).rawValue,
               expected: "resizeUpDown")
 
+        print("")
+        print("25. RecordingHealth wording — every damage says something different")
+
+        // **The check itself is unit-tested against real broken files; this is about what a
+        // person is told.** `RecordingCoordinator.wording(for:file:)` lives in the app target,
+        // which has no test target of its own — the same reason § 17 checks its preferences here.
+        //
+        // Six damages with one shared sentence would be six causes reported as one, and they have
+        // different next steps: a container that will not open means the recording died
+        // mid-write; a file much shorter than the session means the writer stopped early. "Something
+        // went wrong" leaves somebody holding a file they cannot judge.
+        do {
+            let damages: [RecordingHealth.Damage] = [
+                .theFileIsNotThere, .theFileIsEmpty, .theContainerWillNotOpen,
+                .thereIsNoVideoTrack, .theVideoWillNotDecode, .itIsShorterThanTheSession,
+            ]
+            var sentences: Set<String> = []
+            for damage in damages {
+                let text = RecordingCoordinator.wording(for: damage, file: "master-00.mov")
+                sentences.insert(text)
+                check(text.contains("master-00.mov"),
+                      "25.1 \(damage.rawValue) names the file it is about",
+                      actual: text, expected: "a sentence naming master-00.mov")
+            }
+            check(sentences.count == damages.count,
+                  "25.2 every damage has its own sentence rather than a shared one",
+                  actual: "\(sentences.count) distinct", expected: "\(damages.count)")
+            // And a healthy recording says nothing: a message on every take is a message people
+            // stop reading, including the one that matters.
+            check(!RecordingHealth.sound(duration: Nanoseconds(1)).needsSaying,
+                  "25.3 a healthy recording interrupts nobody")
+            check(RecordingHealth.damaged(.theFileIsEmpty).needsSaying,
+                  "25.3 a damaged one does")
+        }
+
 
 
 

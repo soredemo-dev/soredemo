@@ -877,6 +877,24 @@ final class RecordingCoordinator {
                 mediaSourceSink = sink
                 statusText = discardedCount == 0 ? "" :
                     "\(discardedCount) segment(s) did not make it into the recording."
+
+                // **The file is checked before anybody is told the recording worked.**
+                //
+                // The worst failure this app can have is not a crash. It is somebody who talks
+                // for eleven minutes, presses stop, and finds out in the editor — or on the day
+                // they meant to publish — that the file is four seconds long or will not open.
+                // A crash costs a restart; that costs the eleven minutes, and they cannot be
+                // recorded again. a Rust recorder validates its output for this reason and nothing here did.
+                //
+                // **Said in the status line rather than in a dialog**, because there is nothing
+                // to decide: the recording is already over and the only useful thing is knowing
+                // now instead of later. A healthy recording says nothing at all — a message on
+                // every take is a message people stop reading, including the one that matters.
+                let elapsedSoFar = Nanoseconds(Int64((elapsed * 1_000_000_000).rounded()))
+                let health = await RecordingCheck.health(of: url, session: elapsedSoFar)
+                if case .damaged(let damage) = health {
+                    statusText = Self.wording(for: damage, file: url.lastPathComponent)
+                }
             } else {
                 statusText = "The recording finished but produced no media."
             }
@@ -884,6 +902,33 @@ final class RecordingCoordinator {
             statusText = "Could not stop recording: \(error)"
         }
         self.session = nil
+    }
+
+    /// What to tell somebody whose recording did not survive.
+    ///
+    /// **Each damage has its own sentence, because each has a different next step.** "Something
+    /// went wrong" leaves a person with a file they cannot judge; being told the container will
+    /// not open tells them the recording died mid-write, which is a different problem from being
+    /// told it is a fraction of the length they recorded.
+    ///
+    /// Every one of them names the file. It is the only way somebody with several takes works
+    /// out which one this is about.
+    static func wording(for damage: RecordingHealth.Damage, file: String) -> String {
+        switch damage {
+        case .theFileIsNotThere:
+            "\(file) is not there. The recording did not reach the disk."
+        case .theFileIsEmpty:
+            "\(file) has no data in it. The recording stopped before anything was written."
+        case .theContainerWillNotOpen:
+            "\(file) will not open. The recording was interrupted before it could be closed."
+        case .thereIsNoVideoTrack:
+            "\(file) has no picture in it. No frames reached the recorder."
+        case .theVideoWillNotDecode:
+            "\(file) opens but its picture cannot be read."
+        case .itIsShorterThanTheSession:
+            "\(file) is much shorter than the time you recorded for. Check it before you rely "
+                + "on it."
+        }
     }
 
     // MARK: - scale / displayUUID

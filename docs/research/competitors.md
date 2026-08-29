@@ -239,6 +239,44 @@ word is a filler, which they can do at a glance and no dictionary can do at all.
 The asymmetry that settled it is the same one that removed the phone auto-zoom: a missed "um"
 costs nothing, and a deleted "am" is somebody's sentence changed without being asked.
 
+### A systematic read of the reference projects, and what it turned up
+
+**2026-08-30.** Everything before this was read reactively — a project opened when something went
+wrong. That is how an Electron recorder's fifth line went unread for weeks while the cursor drew as an arrow.
+So the five recorders were read by SUBSYSTEM instead: 6.4 million lines across the folder, 770,000
+in the recorders, mapped at module level and then read where the map showed something this app has
+no equivalent of.
+
+**What the map shows.** a Rust recorder has 46 crates including `automation`, `flags`, `output_validation`,
+`timestamp/master_clock`, `frame-converter`, `gpu-converters`, `rendering-skia`, `cursor-info`.
+a Swift recorder has `Analysis` and `Generators`. a native editor has `Agent`, `Generation`, `Search`,
+`Telemetry`. an Electron recorder keeps written `docs/architecture` and `docs/engineering`. an Electron recorder has
+`gpuSwitches`, `mediaServer`, `navigationPolicy`, `permissionPolicy`.
+
+**Findings, ranked by what they would change here:**
+
+| | Finding | State |
+|---|---|---|
+| 1 | **Validating the output file after a recording stops** (a Rust recorder `output_validation.rs`) | had nothing — **now built** |
+| 2 | `VNGenerateImageFeaturePrintRequest` — perceptual frame similarity (a Swift recorder) | not used here |
+| 3 | `VNGenerateOpticalFlowRequest` — real per-pixel motion (a Swift recorder) | not used here |
+| 4 | `VNGenerateAttentionBasedSaliencyImageRequest` — where a viewer looks (a Swift recorder) | not used here |
+| 5 | Spring-integrating the zoom's 0/1 `activity` channel (a Rust recorder `zoom_spring.rs`) | **not needed — ours is better** |
+
+**On (5), checked rather than assumed.** a Rust recorder integrates a third spring channel because their
+camera's shrink-during-zoom is driven by a binary "any zoom active", and a step there would pop.
+This app's camera shrink is `scaleDuringZoom + (1 - scaleDuringZoom) / zoom` — a continuous
+function of the live, already-smoothed zoom value. Same smoothness, one fewer channel.
+
+**On (2) to (4), and this is the one worth returning to.** The phone auto-zoom was removed here
+after measuring that pixel-change targeting was wrong, and two of the three reasons were
+structural: transitions dominate the change signal, and the UI animates on its own. Optical flow
+answers both — a transition is *coherent* flow across the whole frame, which is precisely what a
+scroll/transition detector rejects — and saliency answers "where should this be framed" without
+needing to know where the tap was. **That is a genuinely different method, not a tuning of the one
+that failed.** It should not be rebuilt on this argument alone: it was removed with frame evidence
+and it would have to come back with frame evidence, measured against the same iPad recording.
+
 ### The cursor was drawing as an arrow for weeks, and a comment was the reason
 
 **2026-08-30.** Screen Studio's `auto-zoom-on-clicks` demo shows their rendered cursor becoming a
