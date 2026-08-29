@@ -160,6 +160,21 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// Boundaries this session actually closed with `.displayReconfigured`,
         /// not every callback the OS delivered.
         public internal(set) var displayReconfigurationsHandled = 0
+        /// Every `SCStream` stop this session was told about, in order, as
+        /// `StreamStopReason` read it. Recorded whether or not a restart was
+        /// tried: a session that recovered twice and a session that stopped once
+        /// are different sessions, and only the list can tell them apart.
+        public internal(set) var streamStops: [String] = []
+        /// Stream rebuilds attempted after a stop `StreamStopReason` judged
+        /// transient. Counts attempts, not stops — one stop can spend several.
+        public internal(set) var streamRestartsAttempted = 0
+        /// Rebuilds that opened a new segment. `streamRestartsAttempted` minus
+        /// this is how many attempts were spent for nothing.
+        public internal(set) var streamRestartsSucceeded = 0
+        /// Set when a restartable stop ran out of attempts and the recording was
+        /// ended after all. `nil` means it never happened, which is a different
+        /// fact from "it happened and was survived".
+        public internal(set) var streamRestartsExhausted: String?
         /// One entry per time the black-frame detector's placeholder threshold
         /// was reached. Logged only; never causes a `.failed` boundary.
         public internal(set) var blackFrameDetections: [(segmentIndex: Int, consecutiveChecks: Int)] = []
@@ -1238,12 +1253,93 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     /// A revoked Screen Recording grant does NOT reach here — it produces black
     /// frames, not a stream error (see `checkForBlackFrame`). Genuine stream
-    /// failures close the segment with `.failed` from a detached `Task`, since
-    /// this callback must stay synchronous to match the protocol.
+    /// failures are read by `StreamStopReason` and then either survived or
+    /// ended, from a detached `Task`, since this callback must stay synchronous
+    /// to match the protocol.
     public nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
-        Task {
-            try? await self.finalizeCurrentSegment(endedBy: .failed(reason: String(describing: error)))
+        let reason = StreamStopReason(error)
+        lock.withLock { unsafe _diagnostics.streamStops.append(reason.description) }
+        Task { await self.handleStreamStop(reason) }
+    }
+
+    /// Closes the interrupted segment and, when the stop was one a new stream
+    /// can outlive, opens a successor over the same source.
+    ///
+    /// The recovery is not new machinery: `pause()`/`resume()` already close a
+    /// segment and open the next one over saved geometry, because ScreenCaptureKit
+    /// has no pause. This reuses that path, so a survived interruption produces
+    /// exactly the shape on disk a pause produces — a gap between two segments,
+    /// with a stated boundary — and everything downstream that already handles a
+    /// paused recording handles this one unchanged.
+    ///
+    /// Geometry is the SAVED geometry, not re-derived: a display that slept and
+    /// woke is the same display, and re-deriving would mint a new revision for a
+    /// change that did not happen. A display that genuinely changed while the
+    /// stream was down arrives separately, through the reconfiguration observer
+    /// that stays registered across all of this.
+    private nonisolated func handleStreamStop(_ reason: StreamStopReason) async {
+        guard reason.isWorthRestarting else {
+            try? await finalizeCurrentSegment(endedBy: .failed(reason: reason.description))
+            return
         }
+
+        // Closed as `.interrupted` BEFORE the first attempt, not after the last:
+        // the bytes already written are worth keeping whether or not the restart
+        // works, and a writer left open across a two-second wait is a writer
+        // holding a stream that is already gone.
+        try? await finalizeCurrentSegment(endedBy: .interrupted(reason: reason.description))
+
+        for attempt in 1...StreamStopReason.restartAttempts {
+            try? await Task.sleep(for: StreamStopReason.restartDelay)
+
+            // A stop() during the wait is the user's answer to this; honour it
+            // rather than reopening a segment onto a finished recording.
+            let (running, savedGeometry, savedDestination) =
+                lock.withLock { unsafe (isRunning, currentGeometry, currentDestination) }
+            guard running else { return }
+            guard let savedGeometry, let savedDestination else {
+                lock.withLock {
+                    unsafe _diagnostics.streamRestartsExhausted =
+                        "no saved geometry to restart onto after \(reason.description)"
+                }
+                return
+            }
+
+            lock.withLock { unsafe _diagnostics.streamRestartsAttempted += 1 }
+            do {
+                try await beginSegment(geometry: savedGeometry, destination: savedDestination)
+                lock.withLock { unsafe _diagnostics.streamRestartsSucceeded += 1 }
+                return
+            } catch {
+                // `beginSegment` opens the ledger's next segment BEFORE
+                // `startCapture()`, so a throw from there leaves a segment open
+                // over a stream that never ran. Closing it here is what lets the
+                // next attempt start clean; without it the second attempt opens
+                // a second segment on top of the first. The close routes through
+                // the ordinary path, so the failure lands in `discardedSegments`
+                // with its writer status and retained scratch path — which is the
+                // per-attempt record this catch deliberately does not duplicate.
+                if lock.withLock({ unsafe ledger.isSegmentOpen }) {
+                    try? await finalizeCurrentSegment(
+                        endedBy: .failed(reason: "restart attempt \(attempt) never started capture: \(error)"))
+                }
+                // Each failure is one attempt spent. The error is not recorded
+                // per attempt on purpose: the interesting record is the reason
+                // the recording ended, and the last attempt's error is it.
+                if attempt == StreamStopReason.restartAttempts {
+                    lock.withLock {
+                        unsafe _diagnostics.streamRestartsExhausted =
+                            "\(reason.description); last rebuild failed with \(error)"
+                    }
+                }
+            }
+        }
+
+        // Every attempt spent with the source still refusing. Nothing is torn
+        // down here: `isRunning` stays true and the reconfiguration observer
+        // stays registered, so `stop()` still reaches its no-segment-open branch
+        // and still returns the table for what WAS recorded. This is the same
+        // state a `.failed` boundary has always left behind.
     }
 
     private nonisolated func handleScreenSample(_ sampleBuffer: CMSampleBuffer) {

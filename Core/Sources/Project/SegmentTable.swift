@@ -8,7 +8,13 @@ public enum SegmentBoundary: Hashable, Codable, Sendable {
     case paused
     case displayReconfigured(newRevision: GeometryRevision)
     case stopped
+    /// The stream stopped and the recording ended there.
     case failed(reason: String)
+    /// The stream stopped for a reason `StreamStopReason` judged transient, and
+    /// a successor segment was opened. Distinct from `.failed` because the two
+    /// describe different recordings: `.failed` is the last segment there will
+    /// ever be, `.interrupted` is a gap in the middle of one that continued.
+    case interrupted(reason: String)
 }
 
 /// One continuous stretch of master recording, and — through `hostRange` — the
