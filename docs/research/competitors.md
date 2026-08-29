@@ -200,6 +200,42 @@ and it is the only automatic answer any of these tools has for a phone.
 cursor then appears in the recording, and everything that follows a cursor has something to
 follow.
 
+### Hiding macOS furniture: exclude it from the capture, do not change the Mac
+
+**2026-08-29.** Two switches that sound alike and are built completely differently, because
+measuring the obvious mechanism killed it.
+
+**Hiding the Dock.** Every recipe online says `defaults write com.apple.dock autohide -bool true`.
+Measured, that alone does **nothing** — the Dock does not watch the key. `NSScreen.main`'s usable
+height was 105 pt short of the full frame before the write, after it, and after writing it back:
+three identical readings. So the pref route needs the Dock killed and relaunched too.
+`System Events`' `set autohide of dock preferences` *does* work live, with the Dock's pid
+unchanged — but it needs an Apple Events grant, a second permission dialog, and it persists into
+`com.apple.dock` anyway, so it still owes a restore.
+
+Both of those change somebody's Mac in order to change a video. What ships instead is a
+**capture-filter exclusion**: the Dock is left out of the picture and nothing on the machine
+moves. The person can still click their Dock while recording; it is simply not in the file. No
+preference, no killed process, no permission, and no state a crash can strand.
+
+The trap, found by looking rather than reasoning: `com.apple.dock` owns **eleven** windows, and
+five of them are titled `Wallpaper-<UUID>` — **the desktop picture is drawn by the Dock process**.
+Excluding the application outright would risk taking the wallpaper with it. Exactly one window is
+the Dock (`kCGDockWindowLevel`, 20); the wallpapers sit at -2147483624 and four full-screen
+backdrops at -2147483622. So the application is excluded and every window of it except that one
+is named in `exceptingWindows`. Both variants were shot and compared: Dock gone, wallpaper intact.
+
+**Desktop icons** still use the older, heavier mechanism — Finder's `CreateDesktop` preference
+plus a Finder restart — and the same capture-filter trick was measured to work for them too
+(Finder's one window at -2147483603; the icon visible in the control shot is gone and the
+wallpaper survives). It is not adopted yet because `SCContentFilter` allows one exclusion list and
+this app must be on it at application granularity, so excluding Finder's desktop window means
+excluding Finder — and a Finder window opened mid-recording would then vanish from the video.
+Worth doing; needs the filter re-resolved as windows appear.
+
+**Nobody else in the comparison set does either.** Screen Studio hides desktop icons; the five
+open-source recorders beside this repo hide neither.
+
 ### Automatic zoom on a phone: built, measured, removed
 
 **2026-08-29.** A pass that derived zooms from what CHANGES on screen shipped and was taken out

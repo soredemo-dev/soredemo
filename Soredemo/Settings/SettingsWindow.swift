@@ -116,6 +116,19 @@ struct SettingsWindow: View {
                  + "come back when the recording ends, and also if Soredemo is quit or crashes "
                  + "while one is running.")
                 .font(Type.detail).foregroundStyle(.secondary)
+
+            Toggle("Hide the Dock", isOn: Binding(
+                get: { coordinator.hidesDock },
+                set: { coordinator.hidesDock = $0 }))
+            // **The contrast with the switch above it is the point.** They sit together and
+            // sound alike, and one of them restarts an application while the other changes
+            // nothing on the machine at all. Somebody comparing the two is owed that difference
+            // here rather than after they have tried both.
+            Text("Kept out of the picture, not moved. Your Dock stays where it is and still "
+                 + "works while you record — it is simply not in the video. Nothing on your Mac "
+                 + "is changed, so there is nothing to put back. Recordings of a single window "
+                 + "never include the Dock anyway.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("Sources") {
             Picker("Microphone", selection: Binding(

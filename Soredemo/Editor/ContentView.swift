@@ -278,7 +278,20 @@ final class RecordingCoordinator {
     }
     static let hidesDesktopIconsKey = "hidesDesktopIcons"
 
-    // **All four preference keys are `internal`, not `private`, and the reason is compatibility
+    /// Whether the Dock is kept out of the picture for the duration of a recording.
+    ///
+    /// **Off by default, but not for the reason its neighbour is.** Hiding the desktop icons
+    /// restarts Finder and costs somebody their open windows, so it has to be asked for. This
+    /// costs nothing at all — the Dock is excluded from the capture filter and the person's own
+    /// Dock never moves — and it is still off, because a recording that silently omits part of
+    /// the screen is not what somebody pressing Record expects to get. See `CaptureExclusions`
+    /// for the three mechanisms that were measured and rejected before this one.
+    var hidesDock: Bool {
+        didSet { UserDefaults.standard.set(hidesDock, forKey: Self.hidesDockKey) }
+    }
+    static let hidesDockKey = "hidesDock"
+
+    // **Every preference key is `internal`, not `private`, and the reason is compatibility
     // rather than testing convenience.** A persisted key is part of what the app promises across
     // versions: rename one and every existing user's preference silently reverts to its default
     // on the next launch, with nothing to see and nothing to report. Two of the four were
@@ -286,6 +299,10 @@ final class RecordingCoordinator {
     // nothing outside this file named any of them. They are named now by
     // `scripts/cross-boundary-digest-probe.swift` § 17, which asserts that setting each
     // preference writes the string below, so a rename is a red check instead of a quiet reset.
+    //
+    // `hidesDesktopIcons` was internal from the start and still went unpinned until the Dock
+    // switch was added beside it — the probe named four keys and there were five. Both are
+    // pinned now.
 
     func refreshMicrophones() {
         availableMicrophones = MicrophoneInventory.available()
@@ -341,6 +358,7 @@ final class RecordingCoordinator {
         // Absent means off, which `bool(forKey:)` already answers — no `object(forKey:)` dance
         // is needed for a preference whose default is the same as its zero value.
         hidesDesktopIcons = UserDefaults.standard.bool(forKey: Self.hidesDesktopIconsKey)
+        hidesDock = UserDefaults.standard.bool(forKey: Self.hidesDockKey)
         // Same reasoning as the countdown's default: `integer(forKey:)` answers 0 for a key
         // never set, and 0 is not a frame rate.
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
@@ -611,7 +629,12 @@ final class RecordingCoordinator {
                                         mediaSink: newSink, epoch: Minting.bootEpoch(),
                                         pointerShapeReader: SystemCursorShape.reader(),
                                         pointerHotspotReader: SystemCursorShape.hotspotReader(),
-                                        microphone: microphone, frameRate: frameRate)
+                                        microphone: microphone, frameRate: frameRate,
+                                        // Passed as the person's ANSWER, not as a resolved list:
+                                        // the session looks the Dock up per segment, because a
+                                        // window object taken now would be stale by the time a
+                                        // second segment opens. See `CaptureExclusions`.
+                                        exclusions: CaptureExclusions(hidesDock: hidesDock))
         session = newSession
         // **The camera starts BEFORE the countdown, not after.** A camera takes a moment to
         // wake and expose; started with the capture, its first second is a dark frame settling.

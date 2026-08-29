@@ -56,6 +56,28 @@ import Foundation
 /// **What it costs, stated rather than discovered:** restarting Finder closes the Finder windows
 /// that were open. There is no way around that — it is the same cost `killall Finder` has, and it
 /// is why this is off by default and asked for rather than assumed.
+///
+/// ### There is a cheaper mechanism, it was measured, and it is not used here yet
+///
+/// Building the Dock switch turned up a route this had ruled out without trying: **excluding the
+/// desktop from the CAPTURE rather than hiding it from the person**. Finder owns exactly one
+/// window at `kCGDesktopIconWindowLevel` (-2147483603, 1512x982, the only Finder window reported
+/// as on-screen), and a shot taken with that one window excluded — 2026-08-29, compared against a
+/// shot taken without — has the desktop icon that was visible in the first one gone, and the
+/// wallpaper untouched. No preference written, no Finder restarted, no restore owed.
+///
+/// It is not adopted here in the same change for one reason worth stating rather than leaving as
+/// an omission: `SCContentFilter` offers exactly one exclusion list, this process must be on it
+/// at APPLICATION granularity — the control bar is created after the filter is built — and so
+/// excluding one Finder window means excluding the Finder application and naming its other
+/// windows in `exceptingWindows`. Any Finder window opened AFTER the recording starts is then not
+/// on that list and vanishes from the video. For the Dock that risk is negligible; for Finder,
+/// during a demo, it is exactly the thing somebody would open. Solving it properly means
+/// re-resolving the filter as windows appear, which is a change to how capture is driven and not
+/// a change to this file.
+///
+/// So: measured, promising, and deliberately not taken yet. `CaptureExclusions` is where it would
+/// go, and this note exists so the next person finds the measurement instead of the idea.
 enum DesktopIcons {
     /// Finder's own preference domain and the key that decides whether it draws the desktop.
     private static let finderDomain = "com.apple.finder" as CFString

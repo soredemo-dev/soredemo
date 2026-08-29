@@ -62,6 +62,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     private let source: CaptureSource
     private let scale: Double
+    /// Which pieces of macOS furniture are kept out of the picture — the Dock, today.
+    ///
+    /// **Held for the life of the session but RESOLVED per segment**, beside
+    /// `CaptureSource.thisApplication()`, and for the same reason that one is resolved there:
+    /// the answer is a list of live window objects, a segment can begin after a display
+    /// reconfiguration, and a list captured once at `init` would name windows that no longer
+    /// exist. What is held here is the person's ANSWER, which does not change; what is looked up
+    /// each time is the machine's.
+    private let exclusions: CaptureExclusions
     private let displayUUID: UUID
     private let mediaSink: any MediaSink
     private let epoch: BootEpoch
@@ -323,6 +332,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         public internal(set) var segmentConfigurations: [SegmentConfiguration] = []
 
+        /// What happened to the Dock on the most recent segment.
+        ///
+        /// Recorded because the switch can fail quietly in a way the person cannot see from the
+        /// outside: a recording with the Dock still in it looks exactly like a recording nobody
+        /// asked to hide it from. `.notAsked` is the honest starting value — before a segment
+        /// opens, nothing has been asked of anything.
+        public internal(set) var dockExclusion: CaptureExclusions.Outcome = .notAsked
+
         /// The `destinationRect` this session configured, recorded at the moment
         /// it was set — what was *asked for*, against `lastContentRect`'s what
         /// was *delivered*. Recomputing it at check time would compare a fresh
@@ -510,9 +527,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil },
                 pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil },
                 microphone: MicrophoneSource = .systemDefault,
-                frameRate: CaptureFrameRate = .sixty) {
+                frameRate: CaptureFrameRate = .sixty,
+                exclusions: CaptureExclusions = .none) {
         self.microphone = microphone
         self.frameRate = frameRate
+        self.exclusions = exclusions
         self.source = source
         self.scale = scale
         self.displayUUID = displayUUID
@@ -811,7 +830,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         // Resolved per segment rather than once: a segment can begin after a display
         // reconfiguration, and the cost is one query against this process's own content.
-        let filter = source.filter(excluding: await CaptureSource.thisApplication())
+        //
+        // **The Dock's exclusion is resolved in the same breath and merged into the same
+        // filter**, because `SCContentFilter` allows exactly one exclusion list and this process
+        // has to be on it. `CaptureExclusions.resolve()` returns an empty pair — and costs no
+        // query at all — when nobody asked for anything to be hidden.
+        let furniture = await exclusions.resolve()
+        unsafe _diagnostics.dockExclusion = furniture.outcome
+        let filter = source.filter(excluding: await CaptureSource.thisApplication()
+                                       + furniture.applications,
+                                   excepting: furniture.exceptedWindows)
         let scStream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try scStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try scStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)

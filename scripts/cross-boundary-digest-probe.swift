@@ -495,7 +495,9 @@ enum CrossBoundaryProbe {
         let frameRateKey = RecordingCoordinator.frameRateKey
         let qualityKey = RecordingCoordinator.cameraQualityKey
         let styleKey = RecordingCoordinator.cameraStyleKey
-        let keys = [countdownKey, frameRateKey, qualityKey, styleKey]
+        let iconsKey = RecordingCoordinator.hidesDesktopIconsKey
+        let dockKey = RecordingCoordinator.hidesDockKey
+        let keys = [countdownKey, frameRateKey, qualityKey, styleKey, iconsKey, dockKey]
 
         print("        preferences domain: "
               + (Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName)
@@ -529,6 +531,15 @@ enum CrossBoundaryProbe {
               actual: "\(firstLaunch.cameraQuality.rawValue)", expected: "best")
         check(firstLaunch.cameraStyle == .default,
               "17.1 a first launch's camera sits where CameraOverlayStyle.default puts it")
+        // **Both switches are off on a first launch, and for two different reasons.** Hiding the
+        // desktop icons restarts Finder and closes somebody's windows, so it must be asked for.
+        // Hiding the Dock costs nothing at all — it is excluded from the capture filter and the
+        // machine is not touched — and is still off, because a recording that quietly omits part
+        // of the screen is not what pressing Record is understood to mean.
+        check(!firstLaunch.hidesDesktopIcons,
+              "17.1 a first launch does not restart Finder to hide desktop icons")
+        check(!firstLaunch.hidesDock,
+              "17.1 a first launch records the Dock rather than silently omitting it")
 
         // ---- 17.2 each preference reaches disk, under the key the app has always used.
         //
@@ -543,7 +554,9 @@ enum CrossBoundaryProbe {
         let pinnedKeys = [("countdown", countdownKey, "countdownSeconds"),
                           ("frame rate", frameRateKey, "captureFrameRate"),
                           ("camera quality", qualityKey, "cameraQuality"),
-                          ("camera style", styleKey, "cameraOverlayStyle")]
+                          ("camera style", styleKey, "cameraOverlayStyle"),
+                          ("desktop-icon switch", iconsKey, "hidesDesktopIcons"),
+                          ("Dock switch", dockKey, "hidesDock")]
         for (what, declared, pinned) in pinnedKeys {
             check(declared == pinned,
                   "17.2 the \(what) is stored under the key it has always been stored under",
@@ -556,6 +569,8 @@ enum CrossBoundaryProbe {
                                        cornerFraction: 0.1, isMirrored: false,
                                        borderOpacity: 0.1, shadowOpacity: 0.2)
         firstLaunch.cameraStyle = moved
+        firstLaunch.hidesDesktopIcons = true
+        firstLaunch.hidesDock = true
 
         check(defaults.object(forKey: countdownKey) as? Int == 5,
               "17.2 the countdown is written under '\(countdownKey)'",
@@ -568,6 +583,12 @@ enum CrossBoundaryProbe {
               actual: String(describing: defaults.string(forKey: qualityKey)), expected: "hd720")
         check(defaults.data(forKey: styleKey) != nil,
               "17.2 the camera style is written under '\(styleKey)'")
+        check(defaults.object(forKey: iconsKey) as? Bool == true,
+              "17.2 the desktop-icon switch is written under '\(iconsKey)'",
+              actual: String(describing: defaults.object(forKey: iconsKey)), expected: "true")
+        check(defaults.object(forKey: dockKey) as? Bool == true,
+              "17.2 the Dock switch is written under '\(dockKey)'",
+              actual: String(describing: defaults.object(forKey: dockKey)), expected: "true")
 
         // ---- 17.3 and a relaunch reads them back. A separate check from 17.2 on purpose: a
         // preference that reaches disk and is not read on the way back up is still lost, and the
@@ -582,6 +603,10 @@ enum CrossBoundaryProbe {
               actual: relaunched.cameraQuality.rawValue, expected: "hd720")
         check(relaunched.cameraStyle == moved,
               "17.3 a relaunch puts the camera back where it was dragged to")
+        check(relaunched.hidesDesktopIcons,
+              "17.3 a relaunch still hides the desktop icons")
+        check(relaunched.hidesDock,
+              "17.3 a relaunch still keeps the Dock out of the picture")
 
         // ---- 17.4 zero is a stored answer, not an absent key. This is the distinction 17.1's
         // default rests on, from the other side: if the two collapsed, somebody who deliberately

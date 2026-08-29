@@ -313,13 +313,25 @@ public enum CaptureSource: Sendable {
     /// applications come from `SCShareableContent`, which is `async`, and this is not; a static
     /// would have to be written before every call and would be wrong exactly once — on the
     /// first recording after launch, which is the one a person judges the product by.
-    public nonisolated func filter(excluding applications: [SCRunningApplication] = [])
+    /// `excepting` names windows that come back into the picture DESPITE their application being
+    /// on the exclusion list — `SCContentFilter`'s own `exceptingWindows:`. It exists because the
+    /// Dock's process also draws the wallpaper: hiding the Dock means excluding
+    /// `com.apple.dock` and then putting its five wallpaper windows and four full-screen
+    /// backdrops back. `CaptureExclusions` works out that list; this only passes it on.
+    ///
+    /// Empty by default, and empty is the honest default: excepting a window from an application
+    /// nobody excluded does nothing at all.
+    public nonisolated func filter(excluding applications: [SCRunningApplication] = [],
+                                   excepting windows: [SCWindow] = [])
     -> SCContentFilter {
         switch self {
         case .display(let display):
             return SCContentFilter(display: display, excludingApplications: applications,
-                                   exceptingWindows: [])
+                                   exceptingWindows: windows)
         case .window(let capture):
+            // **The Dock is excluded here by construction, so `excepting` has nothing to undo.**
+            // A window filter captures one window and nothing overlapping it — the same argument
+            // the header makes about the menu bar and notifications.
             return SCContentFilter(desktopIndependentWindow: capture.window)
         case .region(let capture):
             // **A display filter, because a region is part of a display and not of any window.**
@@ -327,7 +339,7 @@ public enum CaptureSource: Sendable {
             // inside it, and what may not is this application — the same exclusion the display
             // case makes, and for the same reason the recording bar was once burnt into a video.
             return SCContentFilter(display: capture.display, excludingApplications: applications,
-                                   exceptingWindows: [])
+                                   exceptingWindows: windows)
         }
     }
 
