@@ -6,95 +6,28 @@
 import CoreGraphics
 import Foundation
 
-/// **Keeps the Dock out of a recording without touching the person's Dock.**
+/// What macOS furniture is kept out of a recording: the Dock, the menu bar.
 ///
-/// Asked for as "dock可以隱藏嗎" alongside the desktop-icon switch, which is the natural place to
-/// look for it: the Dock is the other piece of macOS furniture that sits in front of whatever is
-/// being demonstrated, and a walkthrough with somebody's forty-icon Dock across the bottom reads
-/// as a screenshot of a desk rather than of a product.
+/// Nothing here changes the machine. The Dock and the menu bar are excluded from the CAPTURE, so
+/// they stay where they are, keep working while somebody records, and are simply not in the
+/// picture — no preference written, no process killed, no permission asked for, and no restore
+/// owed. A **window** capture needs none of it: `SCContentFilter(desktopIndependentWindow:)`
+/// excludes both by construction.
 ///
-/// ### The mechanism, and the three that were measured and rejected
+/// `resolve()` turns this into the arguments `CaptureSource.filter` wants. It costs nothing when
+/// nothing is asked for.
 ///
-/// The obvious route is the one every blog post gives — `com.apple.dock`'s `autohide`
-/// preference — and it is wrong here for a reason that only shows up when it is measured.
-/// Measured on 2026-08-29:
-///
-///  1. **`defaults write com.apple.dock autohide -bool true` alone does nothing.** The Dock does
-///     not watch that key. `NSScreen.main`'s usable height was 105 pt short of the full frame
-///     before the write, after the write, and after writing it back — three identical readings.
-///     The pref route therefore also needs the Dock killed and relaunched, which is the same
-///     heavy machinery `DesktopIcons` carries for Finder: a preference belonging to another
-///     application, a process killed, and a restore owed across crashes.
-///  2. **`System Events`' `set autohide of dock preferences to true` DOES work, live, with no
-///     relaunch** — the Dock's pid was unchanged through `false → true → false`. But it needs an
-///     Apple Events automation grant, one more permission dialog on top of Screen Recording, and
-///     a person who declines it gets a switch that silently does nothing. It also persists into
-///     `com.apple.dock` (`defaults read` reported `1` afterwards), so it owes a restore too.
-///  3. Both of the above **change the person's Mac** to change a video. The Dock is gone from
-///     their screen for the whole take, and if the app dies mid-recording it stays gone.
-///
-/// What this does instead: the Dock is **excluded from the capture filter**. Nothing about the
-/// machine changes. The Dock stays exactly where it was, the person can still click it during the
-/// recording, and it is simply not in the picture. No preference is written, no process is
-/// killed, no permission is asked for, and there is no restore to owe — so there is no state that
-/// a crash can strand.
-///
-/// ### Why the Dock's APPLICATION is excluded and then most of it put back
-///
-/// `SCContentFilter` has no initialiser that excludes a list of applications AND a list of
-/// windows; it offers `excludingApplications:exceptingWindows:`, where the second argument names
-/// windows to keep DESPITE the first. This process's own windows must be excluded by application
-/// — the floating control bar is created when capture starts, after the filter is built, so a
-/// window list taken at filter time would not contain it, and a recorder that records its own
-/// control strip has happened here before. So the Dock has to be excluded the same way.
-///
-/// **Excluding the whole Dock application would risk the wallpaper.** Measured: `com.apple.dock`
-/// owns eleven windows on this machine, and five of them are titled `Wallpaper-<UUID>` — the
-/// desktop picture is drawn by the Dock process. Four more are `Fullscreen Backdrop`. Exactly one
-/// is the Dock itself. So every window of the Dock EXCEPT that one is named in `exceptingWindows`
-/// and comes back into the picture.
-///
-/// Both were shot and looked at rather than reasoned about. Excluding the application alone
-/// happened to keep the wallpaper on this machine — `com.apple.wallpaper.agent` owns an
-/// "Offscreen Wallpaper Window" that appears to be what actually renders — but that is luck, not
-/// design, and a dynamic or aerial wallpaper may well come from the Dock's own windows. The
-/// belt-and-braces version was shot too, and it is the one shipped: Dock gone, wallpaper intact.
-///
-/// **What it costs:** a window of the Dock created AFTER the filter is built is not in the
-/// excepted list, so it would be excluded with the rest of the Dock. In practice that means a
-/// full-screen backdrop created mid-recording. The exposure is small because the filter is
-/// rebuilt for every segment, and because on the machine this was measured on the wallpaper does
-/// not come from the Dock at all — losing it needs both of those to be false at once.
-///
-/// A **window** capture needs none of this: `SCContentFilter(desktopIndependentWindow:)` captures
-/// one window and nothing overlapping it, so the Dock is excluded by construction. The switch is
-/// a no-op there, and says so rather than pretending to act.
+/// See `docs/design/hiding-macos-furniture.md` for the three mechanisms that were measured and
+/// rejected, and for the wallpaper trap that shapes `resolve()`.
 public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// Whether the Dock should be kept out of the picture.
     public var hidesDock: Bool
 
-    /// Whether the menu bar — and everything sitting in it — should be kept out of the picture.
+    /// Whether the menu bar — and the twelve status items in it — should be kept out.
     ///
-    /// **This one needs no exclusion list at all**, which is why it is a separate field rather
-    /// than another entry in `resolve()`. `SCContentFilter.includeMenuBar` is a documented
-    /// property that does exactly this, so the menu bar never has to compete for the single
-    /// `excludingApplications` list that this process's own windows already occupy.
-    ///
-    /// **It takes the menu bar EXTRAS with it, which is the part worth knowing.** Measured: the
-    /// menu bar is one window at `kCGMainMenuWindowLevel` (24) titled `Menubar`, and the twelve
-    /// items in it — Clock, Battery, WiFi, Sound, Siri, NowPlaying and the rest — are separate
-    /// windows one level above it at `kCGStatusWindowLevel` (25). Turning the property off
-    /// removed all thirteen; the top of the frame comes back showing the desktop behind them
-    /// rather than a black strip.
-    ///
-    /// That matters for more than tidiness. A menu bar says what time it is, how much battery is
-    /// left, which network somebody is on, and — through the extras — which applications they
-    /// run. For a recording that is going to be published, that is a row of small disclosures
-    /// nobody meant to make.
-    ///
-    /// **The frame does not change size.** Measured: `contentRect` is 1512x982 with the menu bar
-    /// and 1512x982 without it. Worth stating because a property that cropped instead of hiding
-    /// would change the output's dimensions, and every geometry downstream is built on those.
+    /// **Not part of `wantsAnything`.** This is a property on the filter rather than an entry in
+    /// an exclusion list, so it needs no window list and must not send `resolve()` looking for
+    /// one. Measured: it takes the menu bar's items with it and does not change `contentRect`.
     public var hidesMenuBar: Bool
 
     public init(hidesDock: Bool = false, hidesMenuBar: Bool = false) {

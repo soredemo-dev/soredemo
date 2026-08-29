@@ -118,6 +118,18 @@ fact — the fact is what the reader needs, it survives the other product changi
 does not audit its own reasoning by pointing at somebody else's. Comparisons live in
 `docs/research/`.
 
+### Where a long reasoning goes
+
+`docs/design/` holds one note per subsystem whose "why" is longer than a paragraph — what was
+measured, what was tried, what it cost. The source file keeps a doc comment a caller can act on
+and one line pointing at the note.
+
+**The density number is a smell, not a target.** A file of tuning constants is mostly comment and
+is right that way: the code is three lines and the measured value IS the decision.
+`Core/Sources/Framing/FramingDepth.swift` is 66% comment and none of it should move. What does
+move is narrative — a debugging session, a paragraph about what an earlier version of the comment
+said, a comparison. Those are documents.
+
 ### Comment budget
 
 Roughly **one line of comment to five of code** across a file, and a file well past that is telling

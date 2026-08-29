@@ -3,43 +3,16 @@ import SwiftUI
 
 /// Reaches the editor's `NSWindow` to set what SwiftUI has no modifier for.
 ///
-/// **Full screen is a collection behaviour, not a style mask.** A window only offers "Enter Full
-/// Screen" from its green button when `.fullScreenPrimary` is set; without it the button shows a
-/// "+" and a tiling menu, and the Window menu has no "Enter Full Screen" item at all.
+/// Sets `.fullScreenPrimary` — without it the green button offers tiling rather than full screen
+/// — and `.moveToActiveSpace`, so an editor opened after switching Spaces arrives where the
+/// person is. The two coexist; `collectionBehavior.rawValue` is 130.
 ///
-/// **`.moveToActiveSpace` too.** This app is a menu bar item that opens an editor: a person who
-/// finished a recording on one Space and switched to another should get the editor where they
-/// are, not be thrown back to where they started. The two flags coexist — measured, because the
-/// obvious suspicion when full screen does not appear is that they conflict, and they do not:
-/// setting both leaves `collectionBehavior.rawValue == 130`, which is `128 | 2`.
+/// **Applied on attach AND on every update.** `viewDidMoveToWindow` fires when the view gets a
+/// window, however late; `updateNSView` re-asserts so a later reset is undone on the next SwiftUI
+/// update rather than lasting for the session.
 ///
-/// **Applied on attach and re-applied on every update.** The first version read `view.window`
-/// once from a `DispatchQueue.main.async` in `makeNSView` and returned silently when it was
-/// `nil` — a one-shot with a `guard` and nothing to retry it. `NSView` has the exact hook for
-/// this: `viewDidMoveToWindow` fires when the view GETS a window, however late, and
-/// `updateNSView` re-asserts afterwards so a later reset is undone on the next SwiftUI update
-/// rather than lasting for the session.
-///
-/// **The green button still does not offer full screen, and 2026-08-26 established why not.**
-///
-/// This paragraph used to say: "this app sets no activation policy and has no `LSUIElement`, so
-/// it is not an accessory app, whose windows genuinely cannot go full screen." Both halves were
-/// false and neither had been checked. `INFOPLIST_KEY_LSUIElement = YES` sat in both build
-/// configurations of the pbxproj, and `EditorWindowPresence` has always switched the policy —
-/// `.regular` when an editor opens, `.accessory` when the last one closes.
-///
-/// The conclusion drawn from those false premises was false too, and an isolated experiment is
-/// what settled it: a bare AppKit app that calls `toggleFullScreen(_:)` on a window carrying
-/// `.fullScreenPrimary` ENTERS FULL SCREEN under every policy — `.regular`, `.accessory`, and
-/// accessory switched to regular — all three reporting `didEnterFullScreenNotification` and a
-/// `.fullScreen` style mask. So an accessory app's windows can go full screen; the folklore is
-/// wrong on this system, and the flags below are not the thing that was missing.
-///
-/// What remains missing is the ROW in the green button's own menu, which an app does not
-/// control. `StageWindow` offers the command directly instead — a toolbar button on ⌃⌘F, which
-/// is why the command is added to the menu explicitly rather than relying
-/// on the button. The flags here stay: they are what make the window full-screen-capable at
-/// all, which is the half `toggleFullScreen` needs.
+/// See `docs/design/full-screen-and-window-behaviour.md` for what was measured — including the
+/// folklore that an accessory app's windows cannot go full screen, which is false on this system.
 struct WindowConfigurator: NSViewRepresentable {
     /// Most of the screen, with enough left over that the window still reads as a window and
     /// whatever is behind it can still be grabbed. **Uncalibrated.**
