@@ -1,4 +1,6 @@
 import AppKit
+import Capture
+import Graph
 import Geometry
 import Project
 
@@ -59,25 +61,53 @@ nonisolated enum SystemCursorShape {
 
     private nonisolated static let cache = Cache()
 
-    /// **Classification is `.other`, deliberately, and the measurement is why.** An earlier
-    /// version compared the live cursor's TIFF bytes against `NSCursor.arrow.image`,
-    /// `.iBeam.image` and so on. Measured on this machine: those class images are 0×0 and
-    /// their `tiffRepresentation` is `nil`, while `NSCursor.currentSystem` returns a real
-    /// 32×32 image with ~20 KB of TIFF. No comparison could ever succeed, so every cursor
-    /// classified as `.other` anyway — silently. `../opensource/a Rust recorder` (AGPLv3, read for
-    /// approach not code) hashes the live image against a table of KNOWN digests; those are
-    /// OS-version-specific and cannot be derived from the class cursors here, so this
-    /// returns `.other` openly until such a table exists.
+    /// **Every cursor classified as `.other` until 2026-08-30, and the wall that stopped it was
+    /// not there.**
     ///
-    /// **The hotspot is the part that affects position, and it is real.** It is where inside
-    /// the cursor's image the pointer actually is — measured here: `(0.406, 0.250)` for the
-    /// pointing hand, `(0.458, 0.458)` for the crosshair — and art drawn with its own origin
-    /// at the recorded position is correct only when that origin IS the hotspot. Carrying
-    /// the true value lets the renderer place art correctly for shapes it cannot name, which
-    /// is currently all of them.
+    /// The comment this replaces said: "those class images are 0×0 and their
+    /// `tiffRepresentation` is `nil` … no comparison could ever succeed". That measurement was
+    /// real and it was taken in the wrong place — a bare command-line binary that never touches
+    /// `NSApplication`. **AppKit populates the class cursors' images when the application object
+    /// is created**, and until it exists `NSCursor.arrow.image` really is 0×0.
+    /// `../opensource/Screen Record Opensource/an Electron recorder-main/electron/native/SystemCursorAssets.swift`
+    /// says so on its fifth line, in a comment above `let _ = NSApplication.shared` — which is
+    /// where this was found, after the same 0×0 was measured a second time and disbelieved.
     ///
-    /// `currentSystem` with a `current` fallback, the pair a Rust recorder uses: the first is `nil` when
-    /// no system cursor is set, and the app's own beats reporting nothing.
+    /// Re-measured inside an application, all seventeen class cursors have real images and
+    /// distinct digests:
+    ///
+    ///     arrow           28x40   583248 bytes   57a1d610…
+    ///     iBeam           23x22   263952         3de4a52b…
+    ///     pointingHand    32x32    20892         65d626a5…
+    ///     crosshair       24x24    11932         c5bc204d…
+    ///     resizeLeftRight 30x24    14812         b94c84b1…
+    ///     resizeUpDown    24x28    13852         b3b52be9…
+    ///
+    /// **Size alone cannot do it and the digest can.** `pointingHand`, `openHand` and
+    /// `closedHand` are all 32x32 with 20,892 bytes of TIFF; `operationNotAllowed`, `dragCopy`,
+    /// `contextualMenu` and `disappearingItem` are all 28x40 with 22,812. Only the digests tell
+    /// those families apart.
+    ///
+    /// ### The table is built at runtime, which is the whole point
+    ///
+    /// a Rust recorder (AGPLv3, read for approach, nothing copied) hashes the live cursor against a table of
+    /// literal digests — and has had to write **two** of them, one for macOS 26 and one for
+    /// everything before, because the artwork changed. A literal table is a fact about an OS
+    /// version pinned inside an application, and it goes stale silently: an unrecognised cursor
+    /// draws as an arrow and nothing reports it.
+    ///
+    /// This asks the running system instead. Every class cursor is hashed once, and the live
+    /// cursor is looked up in what came back. A macOS that redraws its cursors changes both sides
+    /// of the comparison at once, so there is nothing to update and nothing to go stale. **The
+    /// measured digests above match a Rust recorder's macOS 26 table exactly**, which is as close to a second
+    /// opinion as this can get.
+    ///
+    /// **The hotspot is unchanged and was always real.** It is where inside the cursor's image
+    /// the pointer actually is, and art drawn with its own origin at the recorded position is
+    /// correct only when that origin IS the hotspot.
+    ///
+    /// `currentSystem` with a `current` fallback, the pair a Rust recorder uses: the first is `nil` when no
+    /// system cursor is set, and the app's own beats reporting nothing.
     @MainActor
     private static func sampleOnMainActor() -> (shape: PointerShape, hotspot: NormalizedPoint)? {
         guard let cursor = NSCursor.currentSystem ?? NSCursor.current as NSCursor? else {
@@ -90,9 +120,61 @@ nonisolated enum SystemCursorShape {
             return (.other, NormalizedPoint(x: 0.5, y: 0.5))
         }
         let hotspot = cursor.hotSpot
-        return (.other, NormalizedPoint(x: hotspot.x / size.width,
-                                        y: hotspot.y / size.height))
+        return (classify(cursor), NormalizedPoint(x: hotspot.x / size.width,
+                                                  y: hotspot.y / size.height))
     }
+
+    /// Which shape this cursor is, by matching its image against the running system's own.
+    @MainActor
+    static func classify(_ cursor: NSCursor) -> PointerShape {
+        guard let data = cursor.image.tiffRepresentation else { return .other }
+        // **Through `Minting`, not `SHA256` directly.** Digests enter this app through one
+        // boundary so that derivation stays a deterministic function of its input, and the
+        // app-source scan enforces it — it caught this file reaching for CryptoKit the moment
+        // the classifier was written.
+        return knownCursors[Minting.digest(of: data)] ?? .other
+    }
+
+    /// Every class cursor this app has art for, by the digest of its image.
+    ///
+    /// **Built once and held**, because hashing ten images is a few milliseconds and the reader
+    /// runs ten times a second.
+    ///
+    /// The four resize cursors that point one way — `resizeLeft`, `resizeRight`, `resizeUp`,
+    /// `resizeDown` — are reported as the two-headed shape on their own axis. That is a
+    /// deliberate approximation and the smaller of two errors: this app draws two resize shapes
+    /// and not four, and a viewer who saw a horizontal resize affordance is shown a horizontal
+    /// resize affordance rather than the arrow `.other` would give them. `openHand`,
+    /// `closedHand`, `contextualMenu` and the rest have no art here and stay honestly `.other`.
+    @MainActor
+    static let knownCursors: [ContentDigest: PointerShape] = {
+        // Touching the shared application is what populates `arrow` and `iBeam` — see the header.
+        // It is already alive in this app; this is here so the table is still right if anything
+        // ever builds it before the application object exists.
+        _ = NSApplication.shared
+        let sources: [(NSCursor, PointerShape)] = [
+            (.arrow, .arrow),
+            (.iBeam, .iBeam),
+            (.pointingHand, .pointingHand),
+            (.crosshair, .crosshair),
+            (.resizeLeftRight, .resizeLeftRight),
+            (.resizeUpDown, .resizeUpDown),
+            (.resizeLeft, .resizeLeftRight),
+            (.resizeRight, .resizeLeftRight),
+            (.resizeUp, .resizeUpDown),
+            (.resizeDown, .resizeUpDown),
+        ]
+        var table: [ContentDigest: PointerShape] = [:]
+        for (cursor, shape) in sources {
+            guard let data = cursor.image.tiffRepresentation else { continue }
+            // **First writer wins.** Two class properties can be the same image — if a future
+            // macOS drew `resizeLeft` exactly as `resizeLeftRight`, the more specific entry
+            // listed first is the one that should answer.
+            let digest = Minting.digest(of: data)
+            if table[digest] == nil { table[digest] = shape }
+        }
+        return table
+    }()
 
     /// The shape reader `CaptureSession` injects. Non-blocking: returns the last sample and
     /// asks for the next.

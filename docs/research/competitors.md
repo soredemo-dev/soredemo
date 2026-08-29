@@ -239,6 +239,43 @@ word is a filler, which they can do at a glance and no dictionary can do at all.
 The asymmetry that settled it is the same one that removed the phone auto-zoom: a missed "um"
 costs nothing, and a deleted "am" is somebody's sentence changed without being asked.
 
+### The cursor was drawing as an arrow for weeks, and a comment was the reason
+
+**2026-08-30.** Screen Studio's `auto-zoom-on-clicks` demo shows their rendered cursor becoming a
+**pointing hand** over a menu item and a **crosshair** over a spreadsheet cell. This app records a
+shape per pointer sample and draws six of them — and drew an arrow every time.
+
+`SystemCursorShape.sampleOnMainActor` returned `.other` unconditionally, on the strength of a
+comment that said the class cursors could not be compared against: *"those class images are 0×0
+and their `tiffRepresentation` is `nil` … no comparison could ever succeed"*.
+
+**That measurement was real and was taken in the wrong place.** AppKit populates the class cursors'
+images when the application object is created, and in a bare command-line binary — which is what
+the original measurement ran in — `NSCursor.arrow.image` really is 0×0.
+
+`an Electron recorder-main/electron/native/SystemCursorAssets.swift` says so **on its fifth line**:
+
+    // Force AppKit initialization so all system cursor images are populated
+    let _ = NSApplication.shared
+
+Re-measured inside an application, all seventeen class cursors have real images and distinct
+digests. `arrow` is 28x40 / 583,248 bytes; `iBeam` 23x22 / 263,952; `pointingHand` 32x32 / 20,892;
+`crosshair` 24x24 / 11,932. Size alone cannot discriminate — `pointingHand`, `openHand` and
+`closedHand` are all 32x32 with the same byte count, and four arrow variants are all 28x40 with
+the same — but the digests are distinct.
+
+**The table is built from the running system, not written down.** a Rust recorder keeps two literal digest
+tables, one for macOS 26 and one for everything before, because the artwork changed; a literal
+table is a fact about an OS version pinned inside an application and it goes stale silently. Asking
+the system means a macOS that redraws its cursors changes both sides of the comparison at once.
+
+The measured digests match a Rust recorder's macOS 26 table exactly, which is as close to a second opinion as
+this can get.
+
+**The lesson is bigger than the feature.** A measurement taken in the wrong context became a
+comment, and the comment became a wall. The rule this project already had — measure with the app's
+own conditions — was written for compiler flags; it applies to frameworks too.
+
 ### What Screen Studio's own demo videos show, frame by frame
 
 **2026-08-30.** Fourteen of their marketing videos, read as evidence rather than as advertising.

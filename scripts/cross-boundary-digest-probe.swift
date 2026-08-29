@@ -6887,6 +6887,88 @@ enum CrossBoundaryProbe {
                   actual: "\(huge)", expected: "a line containing only [1]")
         }
 
+        print("")
+        print("24. SystemCursorShape — the cursor is named again, and the wall was not there")
+
+        // **This section exists because a measurement taken in the wrong place became a comment
+        // that stopped a feature for weeks.** `SystemCursorShape` classified every cursor as
+        // `.other`, on the strength of "the class cursors' images are 0x0 and their
+        // tiffRepresentation is nil". That is TRUE in a binary that never touches
+        // `NSApplication` — AppKit populates those images when the application object is created
+        // — and this probe is exactly such a binary, which is why the check belongs here: if the
+        // classifier ever stops forcing AppKit awake, this goes red rather than a recording
+        // quietly going back to drawing every cursor as an arrow.
+        //
+        // Screen Studio's own demo videos are what surfaced it: their rendered cursor becomes a
+        // pointing hand over a menu item and a crosshair over a spreadsheet cell, and this app's
+        // did not — despite recording a shape per sample and drawing six of them.
+        //
+        // The table is built from the RUNNING system rather than from literal digests. a Rust recorder keeps
+        // two literal tables, one for macOS 26 and one for everything before, because the
+        // artwork changed; a literal table is a fact about an OS version pinned inside an
+        // application, and it goes stale silently.
+        check(!SystemCursorShape.knownCursors.isEmpty,
+              "24.1 the class cursors have images to hash",
+              actual: "\(SystemCursorShape.knownCursors.count) digests", expected: "more than 0")
+
+        // ---- 24.2 each shape this app draws art for is identified as itself.
+        //
+        // **Round-tripped through the classifier rather than compared to the table**, so this
+        // checks the thing callers use.
+        let named: [(String, NSCursor, PointerShape)] = [
+            ("arrow", .arrow, .arrow),
+            ("iBeam", .iBeam, .iBeam),
+            ("pointingHand", .pointingHand, .pointingHand),
+            ("crosshair", .crosshair, .crosshair),
+            ("resizeLeftRight", .resizeLeftRight, .resizeLeftRight),
+            ("resizeUpDown", .resizeUpDown, .resizeUpDown),
+        ]
+        for (name, cursor, expected) in named {
+            let classified = SystemCursorShape.classify(cursor)
+            check(classified == expected,
+                  "24.2 \(name) is recognised as itself",
+                  actual: classified.rawValue, expected: expected.rawValue)
+        }
+
+        // ---- 24.3 the digest is what discriminates, and size could not.
+        //
+        // `pointingHand`, `openHand` and `closedHand` are all 32x32 with 20,892 bytes of TIFF;
+        // `operationNotAllowed`, `dragCopy`, `contextualMenu` and `disappearingItem` are all
+        // 28x40 with 22,812. A classifier keyed on size would answer one of each family for all
+        // of it, and would be wrong in a way nothing reports.
+        check(SystemCursorShape.classify(NSCursor.openHand) != .pointingHand,
+              "24.3 an open hand is not mistaken for a pointing hand despite the same size",
+              actual: SystemCursorShape.classify(NSCursor.openHand).rawValue,
+              expected: "not pointingHand")
+
+        // ---- 24.4 a cursor this app has no art for is `.other`, not a guess.
+        //
+        // `.other` is a real classification — "the system cursor was something this enum does not
+        // name" — and the renderer draws it as an arrow. Reporting it as the nearest shape with
+        // art would put a hand on screen where there was none.
+        for (name, cursor) in [("openHand", NSCursor.openHand),
+                               ("closedHand", NSCursor.closedHand),
+                               ("contextualMenu", NSCursor.contextualMenu)] {
+            let classified = SystemCursorShape.classify(cursor)
+            check(classified == .other,
+                  "24.4 \(name) has no art here and says so rather than guessing",
+                  actual: classified.rawValue, expected: "other")
+        }
+
+        // ---- 24.5 the one-way resize cursors are reported on their own axis.
+        //
+        // A deliberate approximation, and the smaller of two errors: this app draws two resize
+        // shapes and not four, and somebody who saw a horizontal resize affordance is shown one
+        // rather than the arrow `.other` would give them.
+        check(SystemCursorShape.classify(NSCursor.resizeLeft) == .resizeLeftRight,
+              "24.5 a left-resize is drawn on the horizontal axis rather than as an arrow",
+              actual: SystemCursorShape.classify(NSCursor.resizeLeft).rawValue,
+              expected: "resizeLeftRight")
+        check(SystemCursorShape.classify(NSCursor.resizeDown) == .resizeUpDown,
+              "24.5 a down-resize is drawn on the vertical axis rather than as an arrow",
+              actual: SystemCursorShape.classify(NSCursor.resizeDown).rawValue,
+              expected: "resizeUpDown")
+
 
 
 
