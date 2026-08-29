@@ -1664,6 +1664,12 @@ func unescapedSwiftLiteral(_ text: String) -> String {
                    // same reason the twenty-five before them were: nothing looked in this
                    // position.
                    "Label(\"",
+                   // **`.accessibilityLabel("…")`, added 2026-08-30.** A string only a
+                   // screen reader ever says is still a string a person hears, and it was
+                   // in no position this scan looked at — so it could be added in English
+                   // and stay English in every other language for as long as nobody
+                   // listened in one. Found while adding one.
+                   ".accessibilityLabel(\"",
                    // **A `Slider`'s trailing-closure label**, which every slider in this app uses
                    // and which fifteen of the sixteen were already translated for — the scan had
                    // simply never looked, so the sixteenth drew in English. Narrow on purpose:

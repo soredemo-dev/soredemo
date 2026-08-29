@@ -82,6 +82,8 @@
 "No camera" = "不使用相機";
 "No clicks were observed with accessibility available." = "在輔助使用可用的情況下沒有觀察到任何點擊。";
 "No microphone" = "不錄麥克風";
+"Record system audio" = "錄製系統音訊";
+"System audio is off" = "系統音訊已關閉";
 "No zoom" = "不縮放";
 "Nothing is hidden." = "沒有任何遮蔽。";
 "Nothing on screen yet." = "畫面上還沒有東西。";

@@ -82,6 +82,8 @@
 "No camera" = "카메라 사용 안 함";
 "No clicks were observed with accessibility available." = "손쉬운 사용이 가능한 상태에서 관찰된 클릭이 없습니다.";
 "No microphone" = "마이크 사용 안 함";
+"Record system audio" = "시스템 오디오 녹음";
+"System audio is off" = "시스템 오디오가 꺼져 있습니다";
 "No zoom" = "확대 없음";
 "Nothing is hidden." = "숨긴 것이 없습니다.";
 "Nothing on screen yet." = "화면에 아직 아무것도 없습니다.";

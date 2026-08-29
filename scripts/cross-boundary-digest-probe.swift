@@ -521,8 +521,9 @@ enum CrossBoundaryProbe {
         let dockKey = RecordingCoordinator.hidesDockKey
         let menuBarKey = RecordingCoordinator.hidesMenuBarKey
         let scrubKey = RecordingCoordinator.scrubAudioKey
+        let systemAudioKey = RecordingCoordinator.capturesSystemAudioKey
         let keys = [countdownKey, frameRateKey, qualityKey, styleKey, iconsKey, dockKey,
-                    menuBarKey, scrubKey]
+                    menuBarKey, scrubKey, systemAudioKey]
 
         print("        preferences domain: "
               + (Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName)
@@ -574,6 +575,12 @@ enum CrossBoundaryProbe {
         check(firstLaunch.scrubAudio,
               "17.1 a first launch plays audio while the playhead is dragged")
 
+        // The second switch that defaults ON, and for the opposite reason to the one above: this
+        // one DOES change what a recording contains, and a demo of anything that makes a sound
+        // is worse without it. What it must not do is be unaskable, which it was until now.
+        check(firstLaunch.capturesSystemAudio,
+              "17.1 a first launch records the machine's own output")
+
         // ---- 17.2 each preference reaches disk, under the key the app has always used.
         //
         // **The four literals below are spelled out HERE, and that is the whole check.** The
@@ -591,7 +598,8 @@ enum CrossBoundaryProbe {
                           ("desktop-icon switch", iconsKey, "hidesDesktopIcons"),
                           ("Dock switch", dockKey, "hidesDock"),
                           ("menu-bar switch", menuBarKey, "hidesMenuBar"),
-                          ("scrub-audio switch", scrubKey, "scrubAudio")]
+                          ("scrub-audio switch", scrubKey, "scrubAudio"),
+                          ("system-audio switch", systemAudioKey, "capturesSystemAudio")]
         for (what, declared, pinned) in pinnedKeys {
             check(declared == pinned,
                   "17.2 the \(what) is stored under the key it has always been stored under",
@@ -608,6 +616,7 @@ enum CrossBoundaryProbe {
         firstLaunch.hidesDock = true
         firstLaunch.hidesMenuBar = true
         firstLaunch.scrubAudio = false
+        firstLaunch.capturesSystemAudio = false
 
         check(defaults.object(forKey: countdownKey) as? Int == 5,
               "17.2 the countdown is written under '\(countdownKey)'",
@@ -654,6 +663,8 @@ enum CrossBoundaryProbe {
               "17.3 a relaunch still keeps the menu bar out of the picture")
         // **Deliberately turned OFF above**, which is the distinction 17.4 makes for the
         // countdown: a switch whose default is on must remember being turned off.
+        check(!relaunched.capturesSystemAudio,
+              "17.3 system audio deliberately turned off stays off across a relaunch")
         check(!relaunched.scrubAudio,
               "17.3 a scrub-audio switch deliberately turned off stays off")
 

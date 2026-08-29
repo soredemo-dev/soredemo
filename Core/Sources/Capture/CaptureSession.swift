@@ -107,6 +107,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// caller records exactly what it did before; see `MicrophoneSource` for why naming one
     /// is worth the parameter.
     private let microphone: MicrophoneSource
+    /// Whether the machine's own output is recorded.
+    ///
+    /// A `Bool` rather than a source type, unlike the microphone: system audio
+    /// names no device, and macOS 13 and later can always capture it, so there is
+    /// no third state for a type to hold. What it does have is the same
+    /// distinction the microphone draws — asked not to is not the same as could
+    /// not — and `Diagnostics.systemAudioSource` is where that is said.
+    private let capturesSystemAudio: Bool
     /// The ceiling on how often ScreenCaptureKit delivers a frame. See `CaptureFrameRate`.
     private let frameRate: CaptureFrameRate
 
@@ -368,6 +376,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// Which microphone the recording asked for, or why it asked for none. A project that
         /// came out silent needs to be able to say which of the two it was.
         public internal(set) var microphoneSource: String?
+        /// What was asked of the machine's own output, in the same words as
+        /// `microphoneSource`. A recording with no system-audio track says why it
+        /// has none rather than leaving a reader to guess.
+        public internal(set) var systemAudioSource: String?
         /// How long after the segment was set up the first complete frame arrived.
         ///
         /// **This is the size of a bug that shipped**: the observation log's anchor used to be
@@ -552,9 +564,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 pointerShapeReader: @escaping @Sendable () -> PointerShape? = { nil },
                 pointerHotspotReader: @escaping @Sendable () -> NormalizedPoint? = { nil },
                 microphone: MicrophoneSource = .systemDefault,
+                capturesSystemAudio: Bool = true,
                 frameRate: CaptureFrameRate = .sixty,
                 exclusions: CaptureExclusions = .none) {
         self.microphone = microphone
+        self.capturesSystemAudio = capturesSystemAudio
         self.frameRate = frameRate
         self.exclusions = exclusions
         self.source = source
@@ -800,7 +814,15 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                                                   bufferHeight: geometry.pixelHeight,
                                                   destination: destination, scale: geometry.scale))
         }
-        configuration.capturesAudio = true
+        // **Asked for, not assumed.** This used to be unconditionally true, which
+        // meant a person recording a call, or a screen that makes notification
+        // sounds, had no way to keep that out of the file — and muting afterwards
+        // is not the same act, because by then it is recorded.
+        configuration.capturesAudio = capturesSystemAudio
+        lock.withLock {
+            unsafe _diagnostics.systemAudioSource =
+                capturesSystemAudio ? "on" : "off (not requested)"
+        }
         // **The microphone is requested only when this system can serve one, and it is named.**
         // Setting `captureMicrophone` unconditionally and naming no device meant a machine
         // without the capability got a silent no, and a person with two microphones got

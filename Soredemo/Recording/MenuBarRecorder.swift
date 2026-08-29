@@ -198,15 +198,26 @@ struct MenuBarRecorderPanel: View {
         }
     }
 
-    /// Which microphone, including none.
+    /// Both audio sources: which microphone, and whether the machine's own output
+    /// is recorded.
     ///
-    /// **System audio is not offered beside it, and the asymmetry is deliberate.** The
-    /// toolbar has both toggles. Ours records system audio always, because turning it off leaves
-    /// an `AVAssetWriter` input that nothing ever feeds — the exact condition that produced the
-    /// export deadlock this project spent two commits on. `closeAudioTracksNothingIsFeeding`
-    /// recovers from it after ninety frames, so a toggle would work and would cost a second and
-    /// a half of every recording to a control almost nobody wants. It goes in when the writer
-    /// can be told up front that a track will not exist.
+    /// **One row rather than two, because they are one question.** A person
+    /// thinking about sound is thinking about sound, and a second row costs the
+    /// panel height it has none of. The microphone is what has a list, so it keeps
+    /// the label; system audio is a switch inside the same menu, and the row shows
+    /// a struck-through speaker when it is off — state a person turned off has to
+    /// be visible without opening anything.
+    ///
+    /// **This used to say the asymmetry was deliberate, and the reason has since
+    /// stopped being true.** It read: turning system audio off leaves an
+    /// `AVAssetWriter` input nothing feeds, which is the condition that starved a
+    /// fed audio track down to three packets, and
+    /// `closeAudioTracksNothingIsFeeding` only recovers after ninety frames. All
+    /// of that is still accurate — and `HeldAudioQueue` now holds about eight
+    /// seconds of buffers against a grace period of one and a half, so the audio
+    /// that would once have been dropped is queued and drains when the unfed track
+    /// closes. Nothing is lost. The microphone's own `.off` has been taking
+    /// exactly this path since it shipped.
     /// **The source rows do not wear the accent.** A `Menu`'s label inherits the tint, which put
     /// the brand colour on two rows that only report what is selected — and left the button that
     /// starts the recording competing with them. The accent marks the primary action; these are
@@ -225,12 +236,32 @@ struct MenuBarRecorderPanel: View {
             // rather than something an export has to undo. No app can set it — see
             // `CameraEffects` — so this opens the panel that can.
             Button("Microphone Modes\u{2026}") { CameraEffects.showMicrophoneModes() }
+            Divider()
+            // A checkmark rather than a `Toggle`: inside a `Menu` the two look the
+            // same and the button carries its own action, which keeps the state in
+            // the coordinator rather than in a binding this view would own.
+            Button {
+                coordinator.capturesSystemAudio.toggle()
+            } label: {
+                Label("Record system audio",
+                      systemImage: coordinator.capturesSystemAudio ? "checkmark" : "")
+            }
         } label: {
             HStack(spacing: Space.snug) {
                 Image(systemName: coordinator.microphone == .off ? "mic.slash" : "mic.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(coordinator.microphone == .off ? .secondary : .primary)
                     .frame(width: 14)
+                // Shown only when it is OFF. A speaker drawn on every recording
+                // would be one more thing to read on a row that is usually just
+                // "System default"; a struck-through one appears exactly when
+                // somebody has turned something off and needs to see that they did.
+                if !coordinator.capturesSystemAudio {
+                    Image(systemName: "speaker.slash.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("System audio is off")
+                }
                 // **Looked up here, because the name crosses a module boundary as a `String`.**
                 // `MicrophoneSource.displayName` is in the package, which has no strings table
                 // and should not have one — a capture module that knew about the app's UI

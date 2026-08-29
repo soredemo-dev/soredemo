@@ -320,6 +320,21 @@ final class RecordingCoordinator {
     }
     static let scrubAudioKey = "scrubAudio"
 
+    /// Whether the machine's own output — what the speakers are playing — is recorded.
+    ///
+    /// **On by default, and it has to be asked rather than assumed.** A demo of
+    /// anything that makes a sound is worse without it, so on is the right
+    /// default. But it used to be unconditional, which left no way to record a
+    /// call, or a screen that pings, without the other side of it in the file —
+    /// and muting afterwards is not the same act, because by then it is recorded.
+    ///
+    /// This app's own sound is already excluded (`excludesCurrentProcessAudio`),
+    /// so the switch is about the rest of the machine.
+    var capturesSystemAudio: Bool {
+        didSet { UserDefaults.standard.set(capturesSystemAudio, forKey: Self.capturesSystemAudioKey) }
+    }
+    static let capturesSystemAudioKey = "capturesSystemAudio"
+
     // **Every preference key is `internal`, not `private`, and the reason is compatibility
     // rather than testing convenience.** A persisted key is part of what the app promises across
     // versions: rename one and every existing user's preference silently reverts to its default
@@ -393,6 +408,11 @@ final class RecordingCoordinator {
         // answers `false`, which for a switch that should start on is the same silent defect
         // `countdownSeconds` documents.
         scrubAudio = UserDefaults.standard.object(forKey: Self.scrubAudioKey) as? Bool ?? true
+        // `object(forKey:)` rather than `bool(forKey:)` for the same reason as every
+        // switch above: `bool` reads a missing key as `false`, which would turn this
+        // off for everybody who has ever run the app rather than defaulting it on.
+        capturesSystemAudio = UserDefaults.standard
+            .object(forKey: Self.capturesSystemAudioKey) as? Bool ?? true
         // Same reasoning as the countdown's default: `integer(forKey:)` answers 0 for a key
         // never set, and 0 is not a frame rate.
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
@@ -663,7 +683,9 @@ final class RecordingCoordinator {
                                         mediaSink: newSink, epoch: Minting.bootEpoch(),
                                         pointerShapeReader: SystemCursorShape.reader(),
                                         pointerHotspotReader: SystemCursorShape.hotspotReader(),
-                                        microphone: microphone, frameRate: frameRate,
+                                        microphone: microphone,
+                                        capturesSystemAudio: capturesSystemAudio,
+                                        frameRate: frameRate,
                                         // Passed as the person's ANSWER, not as a resolved list:
                                         // the session looks the Dock up per segment, because a
                                         // window object taken now would be stale by the time a

@@ -82,6 +82,8 @@
 "No camera" = "No camera";
 "No clicks were observed with accessibility available." = "No clicks were observed with accessibility available.";
 "No microphone" = "No microphone";
+"Record system audio" = "Record system audio";
+"System audio is off" = "System audio is off";
 "No zoom" = "No zoom";
 "Nothing is hidden." = "Nothing is hidden.";
 "Nothing on screen yet." = "Nothing on screen yet.";

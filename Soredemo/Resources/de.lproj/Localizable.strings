@@ -82,6 +82,8 @@
 "No camera" = "Keine Kamera";
 "No clicks were observed with accessibility available." = "Es wurden keine Klicks beobachtet, während die Bedienungshilfen verfügbar waren.";
 "No microphone" = "Kein Mikrofon";
+"Record system audio" = "Systemton aufnehmen";
+"System audio is off" = "Systemton ist aus";
 "No zoom" = "Kein Zoom";
 "Nothing is hidden." = "Nichts ist ausgeblendet.";
 "Nothing on screen yet." = "Noch nichts auf dem Bildschirm.";

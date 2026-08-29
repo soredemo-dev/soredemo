@@ -472,3 +472,44 @@ func projectPbxprojText() throws -> String {
         proof needs hostRange.start fixed before any sample could exist to compare against it.
         """)
 }
+
+// MARK: - the two audio sources are both asked for, never assumed
+
+/// **`capturesAudio` was the literal `true` for the whole life of the recorder**, so a person
+/// recording a call, or a screen that makes notification sounds, had no way to keep that out of
+/// the file — and muting afterwards is not the same act, because by then it is recorded.
+///
+/// Pinned by a source scan rather than by a test of the running session, and the reason is that
+/// nothing can reach it: `beginSegment` is private, `SCStreamConfiguration` needs a real source,
+/// and no instrument in this repository starts a `CaptureSession`. What a scan CAN say is the
+/// thing that actually regressed — that the property is fed by the parameter and not by a
+/// constant. A future edit that writes `= true` back fails here.
+///
+/// The microphone is checked alongside it because the pair is the claim: both audio sources are
+/// asked for, and neither is assumed.
+@Test func neitherAudioSourceIsCapturedWithoutBeingAskedFor() throws {
+    let session = try firstPartySourceFiles().first {
+        $0.lastPathComponent == "CaptureSession.swift"
+    }
+    let file = try #require(session, "CaptureSession.swift was not in the first-party sources")
+
+    let systemAudio = try codeLinesNaming("configuration.capturesAudio", in: [file])
+    #expect(systemAudio.count == 1, """
+        expected exactly one assignment to configuration.capturesAudio, found \
+        \(systemAudio.count): \(systemAudio.map(\.text).joined(separator: " | "))
+        """)
+    #expect(systemAudio.first?.text.contains("= capturesSystemAudio") == true, """
+        configuration.capturesAudio is not fed by the capturesSystemAudio parameter: \
+        \(systemAudio.first?.text ?? "(nothing)"). A literal here is the defect this replaced — \
+        it is what made system audio unaskable.
+        """)
+
+    // The microphone reaches the same property by three branches — off, supported, unsupported —
+    // and every one of them assigns rather than assuming. A count is what catches a fourth
+    // branch added without one.
+    let microphone = try codeLinesNaming("configuration.captureMicrophone", in: [file])
+    #expect(microphone.count == 3, """
+        expected exactly three assignments to configuration.captureMicrophone — asked not to, \
+        supported, unsupported — found \(microphone.count).
+        """)
+}

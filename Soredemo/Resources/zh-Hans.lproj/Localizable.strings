@@ -84,6 +84,8 @@
 "No camera" = "不使用摄像头";
 "No clicks were observed with accessibility available." = "在辅助功能可用时没有观察到任何点击。";
 "No microphone" = "不使用麦克风";
+"Record system audio" = "录制系统音频";
+"System audio is off" = "系统音频已关闭";
 "No zoom" = "不放大";
 "Nothing is hidden." = "没有隐藏任何东西。";
 "Nothing on screen yet." = "屏幕上还没有东西。";

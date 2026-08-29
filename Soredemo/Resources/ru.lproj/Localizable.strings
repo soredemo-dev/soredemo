@@ -82,6 +82,8 @@
 "No camera" = "Без камеры";
 "No clicks were observed with accessibility available." = "Нажатий при доступном универсальном доступе не обнаружено.";
 "No microphone" = "Без микрофона";
+"Record system audio" = "Записывать системный звук";
+"System audio is off" = "Системный звук выключен";
 "No zoom" = "Без приближения";
 "Nothing is hidden." = "Ничего не скрыто.";
 "Nothing on screen yet." = "На экране пока ничего нет.";

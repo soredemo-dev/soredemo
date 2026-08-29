@@ -84,6 +84,8 @@
 "No camera" = "カメラを使わない";
 "No clicks were observed with accessibility available." = "アクセシビリティが利用できる状態でのクリックは観測されませんでした。";
 "No microphone" = "マイクを使わない";
+"Record system audio" = "システム音声を録音";
+"System audio is off" = "システム音声はオフです";
 "No zoom" = "ズームなし";
 "Nothing is hidden." = "何も隠していません。";
 "Nothing on screen yet." = "画面にはまだ何もありません。";
