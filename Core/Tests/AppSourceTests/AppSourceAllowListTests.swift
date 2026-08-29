@@ -1606,7 +1606,7 @@ private func desktopIconsFile() throws -> [URL] {
         """)
 }
 
-/// **Every `title:` the app passes as a localizable key has an entry in both string tables.**
+/// **Every label the app passes as a localizable key has an entry in every string table.**
 ///
 /// SwiftUI looks a `LocalizedStringKey` up by its exact text and draws the key itself when the
 /// lookup misses. There is no warning, no crash, and no missing-glyph box — just an English word
@@ -1621,7 +1621,7 @@ private func desktopIconsFile() throws -> [URL] {
 /// assembled with `+`, which SwiftUI cannot look up at all — they arrive as a computed `String`
 /// rather than a key. Checking those would be checking a rule the code does not follow. A
 /// `title:` is a word somebody reads on a control, and it is the set that broke.
-@Test func everyTitleLiteralIsInBothStringTables() throws {
+@Test func everyControlLabelIsInEveryStringTable() throws {
     let resources = repositoryRoot.appending(path: "Soredemo/Resources")
     func keys(of language: String) throws -> Set<String> {
         let url = resources.appending(path: "\(language).lproj/Localizable.strings")
@@ -1637,25 +1637,51 @@ private func desktopIconsFile() throws -> [URL] {
         return found
     }
     let english = try keys(of: "en")
-    let chinese = try keys(of: "zh-Hant")
     try #require(english.count > 100, "the English table read as \(english.count) keys — parsed wrong")
-    #expect(english == chinese, """
-        The two tables have drifted apart. Only in English: \
-        \(english.subtracting(chinese).sorted().prefix(6)). Only in Chinese: \
-        \(chinese.subtracting(english).sorted().prefix(6)).
-        """)
+
+    // **Every table, found on disk rather than listed here.** Ten languages is more than anybody
+    // remembers to update one at a time, and a list in this file would be one more thing that
+    // goes stale — the eleventh language would be added to the app and not to its own check.
+    let languages = try FileManager.default
+        .contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "lproj" }
+        .map { $0.deletingPathExtension().lastPathComponent }
+        .filter { $0 != "en" && $0 != "Base" }
+        .sorted()
+    try #require(languages.count >= 2,
+                 "only \(languages.count) translations were found — this scan decided nothing")
+
+    for language in languages {
+        let translated = try keys(of: language)
+        #expect(english == translated, """
+            \(language) has drifted from English. Only in English: \
+            \(english.subtracting(translated).sorted().prefix(6)). Only in \(language): \
+            \(translated.subtracting(english).sorted().prefix(6)).
+            """)
+    }
 
     // **A RAW scan.** The needle is string-literal CONTENT, which the code view blanks.
+    //
+    // **Every position where a bare literal becomes a key, not only `title:`.** The narrow
+    // version missed `Picker("Device")`, `Toggle("Hide desktop icons")` and twenty-three others,
+    // which drew in English inside a Chinese interface — the same silent failure the ellipsis
+    // mismatch produced, in twenty-five more places.
+    let openers = ["title: \"", "Picker(\"", "Toggle(\"", "Button(\"", "Section(\"",
+                   "LabeledContent(\""]
     var missing: [String] = []
     var scanned = 0
     for file in try appSourceFiles() {
         let text = try String(contentsOf: file, encoding: .utf8)
         for (index, line) in text.components(separatedBy: .newlines).enumerated() {
-            guard line.contains("title: \""), !line.contains("verbatim") else { continue }
-            guard let start = line.range(of: "title: \"") else { continue }
+            guard !line.contains("verbatim") else { continue }
+            guard let opener = openers.first(where: { line.contains($0) }),
+                  let start = line.range(of: opener) else { continue }
             let rest = line[start.upperBound...]
             guard let end = rest.firstIndex(of: "\"") else { continue }
-            let key = String(rest[..<end])
+            // `\u{2026}` in the source is one ellipsis character in the key, which is what the
+            // string table holds. Comparing the escape against the character is how a table
+            // entry that exists reads as missing.
+            let key = String(rest[..<end]).replacingOccurrences(of: "\\u{2026}", with: "\u{2026}")
             // Interpolated titles are not keys, and an empty one is the placeholder beside a
             // `verbatimTitle`.
             guard !key.isEmpty, !key.contains("\\(") else { continue }
@@ -1665,7 +1691,7 @@ private func desktopIconsFile() throws -> [URL] {
             }
         }
     }
-    #expect(scanned > 5, "only \(scanned) title literals were found — this scan decided nothing")
+    #expect(scanned > 100, "only \(scanned) control labels were found — this scan decided nothing")
     #expect(missing.isEmpty, """
         These titles have no entry in the string tables, so they draw in English whatever \
         language the app is in:

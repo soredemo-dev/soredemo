@@ -265,7 +265,7 @@
 /* Added 2026-08-28. These are `title:` arguments, which SwiftUI looks up as
    `LocalizedStringKey`s — the table already held "Open Project…" and "Settings…" WITH
    an ellipsis, which the code does not pass, so the lookup missed and the English key
-   was drawn beside a translated "Quit". `everyTitleLiteralIsInBothStringTables` is the
+   was drawn beside a translated "Quit". `everyControlLabelIsInEveryStringTable` is the
    check that stops that happening silently again. */
 "Never what you type" = "Never what you type";
 "Where you clicked, and what shape it was" = "Where you clicked, and what shape it was";
@@ -274,3 +274,42 @@
 "Open Project" = "Open Project";
 "Open Video" = "Open Video";
 "Settings" = "Settings";
+
+/* The device frame, added 2026-08-29. "iPhone" and "iPad" are product names and are
+   the same in both tables — they are here so the completeness check can see them
+   rather than because they need translating. */
+"Device" = "Device";
+"Finish" = "Finish";
+"Graphite" = "Graphite";
+"Silver" = "Silver";
+"Gold" = "Gold";
+"Deep Blue" = "Deep Blue";
+"iPhone" = "iPhone";
+"iPad" = "iPad";
+
+/* Control labels, added 2026-08-29. Every one of these was a `Picker`, `Toggle`,
+   `Button`, `Section` or `LabeledContent` title that SwiftUI looks up as a key and
+   drew in English when the lookup missed — the same silent failure the ellipsis
+   mismatch produced in the menu-bar footer. The completeness check covers these
+   positions now, not only `title:`. */
+"Open Video…" = "Open Video…";
+"Add a zoom" = "Add a zoom";
+"Zoom amount" = "Zoom amount";
+"Move out of the cursor's way" = "Move out of the cursor's way";
+"For" = "For";
+"Range" = "Range";
+"Mark in" = "Mark in";
+"Mark out" = "Mark out";
+"Clear range" = "Clear range";
+"Show in Finder" = "Show in Finder";
+"Copy" = "Copy";
+"Marks" = "Marks";
+"Colour" = "Colour";
+"Where" = "Where";
+"Arrives" = "Arrives";
+"Return cursor to start for looping" = "Return cursor to start for looping";
+"Sentences" = "Sentences";
+"Interface" = "Interface";
+"Hide desktop icons" = "Hide desktop icons";
+"Screen recording, microphone and camera" = "Screen recording, microphone and camera";
+"Review…" = "Review…";

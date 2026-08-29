@@ -265,7 +265,7 @@
 /* Added 2026-08-28. These are `title:` arguments, which SwiftUI looks up as
    `LocalizedStringKey`s — the table already held "Open Project…" and "Settings…" WITH
    an ellipsis, which the code does not pass, so the lookup missed and the English key
-   was drawn beside a translated "Quit". `everyTitleLiteralIsInBothStringTables` is the
+   was drawn beside a translated "Quit". `everyControlLabelIsInEveryStringTable` is the
    check that stops that happening silently again. */
 "Never what you type" = "永遠不記錄你打的字";
 "Where you clicked, and what shape it was" = "你點了哪裡,以及那是什麼形狀";
@@ -274,3 +274,42 @@
 "Open Project" = "開啟專案";
 "Open Video" = "開啟影片";
 "Settings" = "設定";
+
+/* The device frame, added 2026-08-29. "iPhone" and "iPad" are product names and are
+   the same in both tables — they are here so the completeness check can see them
+   rather than because they need translating. */
+"Device" = "裝置";
+"Finish" = "外觀顏色";
+"Graphite" = "石墨";
+"Silver" = "銀";
+"Gold" = "金";
+"Deep Blue" = "深藍";
+"iPhone" = "iPhone";
+"iPad" = "iPad";
+
+/* Control labels, added 2026-08-29. Every one of these was a `Picker`, `Toggle`,
+   `Button`, `Section` or `LabeledContent` title that SwiftUI looks up as a key and
+   drew in English when the lookup missed — the same silent failure the ellipsis
+   mismatch produced in the menu-bar footer. The completeness check covers these
+   positions now, not only `title:`. */
+"Open Video…" = "開啟影片…";
+"Add a zoom" = "加入一個 zoom";
+"Zoom amount" = "Zoom 強度";
+"Move out of the cursor's way" = "讓開游標";
+"For" = "用途";
+"Range" = "範圍";
+"Mark in" = "標記入點";
+"Mark out" = "標記出點";
+"Clear range" = "清除範圍";
+"Show in Finder" = "在 Finder 中顯示";
+"Copy" = "拷貝";
+"Marks" = "標記";
+"Colour" = "顏色";
+"Where" = "位置";
+"Arrives" = "出現方式";
+"Return cursor to start for looping" = "循環播放時游標回到起點";
+"Sentences" = "句子";
+"Interface" = "介面語言";
+"Hide desktop icons" = "隱藏桌面圖示";
+"Screen recording, microphone and camera" = "螢幕錄製、麥克風與相機";
+"Review…" = "檢視…";
