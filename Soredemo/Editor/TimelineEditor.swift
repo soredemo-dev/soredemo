@@ -104,10 +104,26 @@ final class TimelineEditorModel {
     /// A counter separates "somebody asked to go there" from "that is where we are".
     private(set) var seekRequest = 0
 
+    /// Plays the recording under the playhead while it is being dragged. Silent until a
+    /// recording is opened, and silent for a recording with no audio.
+    let scrubAudio = ScrubAudio()
+
     /// A person put the playhead here. Seeks the preview.
+    ///
+    /// **The sound is played from here rather than from the drag gesture**, because this is the
+    /// one function every deliberate move goes through — a drag, a tap on the ruler, a keyboard
+    /// nudge. `followPlayer` is the other writer and is deliberately not here: it is playback
+    /// moving the line, and playing a grain over the audio already playing would be an echo.
     func movePlayhead(to time: Nanoseconds) {
         playhead = time
         seekRequest += 1
+        scrubAudio.scrub(to: sourceTime(atOutput: time) ?? time)
+    }
+
+    /// Where in the RECORDING an output time falls, for anything that reads the source rather
+    /// than the edit. `nil` past the end of the edit.
+    private func sourceTime(atOutput time: Nanoseconds) -> Nanoseconds? {
+        edit.sourceTime(atOutput: time)
     }
 
     /// The preview is here. Moves the line and nothing else.

@@ -338,3 +338,5 @@
 "Nothing to undo" = "Nada que deshacer";
 "Nothing to redo" = "Nada que rehacer";
 "Revert every edit" = "Revertir todas las ediciones";
+"Play audio while dragging the playhead" = "Reproducir el audio al arrastrar el cabezal";
+"While editing" = "Al editar";

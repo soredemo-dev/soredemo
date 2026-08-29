@@ -30,7 +30,8 @@ struct ContentView: View {
                 StageWindow(initialCameraStyle: coordinator.cameraStyle,
                             cameraStartOffsetNanos: coordinator.cameraStartOffsetNanos,
                             mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit(),
-                            cameraURL: coordinator.cameraURL)
+                            cameraURL: coordinator.cameraURL,
+                            scrubAudioIsOn: coordinator.scrubAudio)
                     // `StageWindow` carries no `.id(mediaURL)`, so `.onDisappear` fires only
                     // because `beginOpenRecording()` sets `mediaURL = nil` first, swapping this
                     // `Group`'s branch out and giving old and new `StageWindow` distinct view
@@ -308,6 +309,17 @@ final class RecordingCoordinator {
     }
     static let hidesMenuBarKey = "hidesMenuBar"
 
+    /// Whether dragging the playhead plays the moment under it.
+    ///
+    /// **On by default, unlike the three recording switches above.** Those change what a
+    /// recording CONTAINS, so a default that surprised somebody would be in their file. This
+    /// changes only what the person editing hears, costs nothing when they are not dragging, and
+    /// is the difference between finding a sentence and hunting for one.
+    var scrubAudio: Bool {
+        didSet { UserDefaults.standard.set(scrubAudio, forKey: Self.scrubAudioKey) }
+    }
+    static let scrubAudioKey = "scrubAudio"
+
     // **Every preference key is `internal`, not `private`, and the reason is compatibility
     // rather than testing convenience.** A persisted key is part of what the app promises across
     // versions: rename one and every existing user's preference silently reverts to its default
@@ -377,6 +389,10 @@ final class RecordingCoordinator {
         hidesDesktopIcons = UserDefaults.standard.bool(forKey: Self.hidesDesktopIconsKey)
         hidesDock = UserDefaults.standard.bool(forKey: Self.hidesDockKey)
         hidesMenuBar = UserDefaults.standard.bool(forKey: Self.hidesMenuBarKey)
+        // **Defaults to ON, so `bool(forKey:)`'s zero is not the answer.** A key never written
+        // answers `false`, which for a switch that should start on is the same silent defect
+        // `countdownSeconds` documents.
+        scrubAudio = UserDefaults.standard.object(forKey: Self.scrubAudioKey) as? Bool ?? true
         // Same reasoning as the countdown's default: `integer(forKey:)` answers 0 for a key
         // never set, and 0 is not a frame rate.
         frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)

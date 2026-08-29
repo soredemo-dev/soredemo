@@ -336,3 +336,5 @@
 "Nothing to undo" = "되돌릴 작업이 없습니다";
 "Nothing to redo" = "다시 실행할 작업이 없습니다";
 "Revert every edit" = "모든 편집 되돌리기";
+"Play audio while dragging the playhead" = "재생 헤드를 끌 때 소리 재생";
+"While editing" = "편집 중";

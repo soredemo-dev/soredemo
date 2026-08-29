@@ -338,3 +338,5 @@
 "Nothing to undo" = "没有可以还原的";
 "Nothing to redo" = "没有可以重做的";
 "Revert every edit" = "还原所有编辑";
+"Play audio while dragging the playhead" = "拖动播放头时播放声音";
+"While editing" = "编辑时";

@@ -336,3 +336,5 @@
 "Nothing to undo" = "Rien à annuler";
 "Nothing to redo" = "Rien à rétablir";
 "Revert every edit" = "Annuler toutes les modifications";
+"Play audio while dragging the playhead" = "Lire le son en faisant glisser la tête de lecture";
+"While editing" = "Pendant le montage";

@@ -502,8 +502,9 @@ enum CrossBoundaryProbe {
         let iconsKey = RecordingCoordinator.hidesDesktopIconsKey
         let dockKey = RecordingCoordinator.hidesDockKey
         let menuBarKey = RecordingCoordinator.hidesMenuBarKey
+        let scrubKey = RecordingCoordinator.scrubAudioKey
         let keys = [countdownKey, frameRateKey, qualityKey, styleKey, iconsKey, dockKey,
-                    menuBarKey]
+                    menuBarKey, scrubKey]
 
         print("        preferences domain: "
               + (Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName)
@@ -548,6 +549,12 @@ enum CrossBoundaryProbe {
               "17.1 a first launch records the Dock rather than silently omitting it")
         check(!firstLaunch.hidesMenuBar,
               "17.1 a first launch records the menu bar rather than silently omitting it")
+        // **The one switch here that defaults ON**, and the reason is what it touches: the three
+        // above change what a recording CONTAINS, so a surprising default would be in somebody's
+        // file. This changes only what the person editing hears. `bool(forKey:)` answers false
+        // for a key never written, which is the trap 17.1 exists for.
+        check(firstLaunch.scrubAudio,
+              "17.1 a first launch plays audio while the playhead is dragged")
 
         // ---- 17.2 each preference reaches disk, under the key the app has always used.
         //
@@ -565,7 +572,8 @@ enum CrossBoundaryProbe {
                           ("camera style", styleKey, "cameraOverlayStyle"),
                           ("desktop-icon switch", iconsKey, "hidesDesktopIcons"),
                           ("Dock switch", dockKey, "hidesDock"),
-                          ("menu-bar switch", menuBarKey, "hidesMenuBar")]
+                          ("menu-bar switch", menuBarKey, "hidesMenuBar"),
+                          ("scrub-audio switch", scrubKey, "scrubAudio")]
         for (what, declared, pinned) in pinnedKeys {
             check(declared == pinned,
                   "17.2 the \(what) is stored under the key it has always been stored under",
@@ -581,6 +589,7 @@ enum CrossBoundaryProbe {
         firstLaunch.hidesDesktopIcons = true
         firstLaunch.hidesDock = true
         firstLaunch.hidesMenuBar = true
+        firstLaunch.scrubAudio = false
 
         check(defaults.object(forKey: countdownKey) as? Int == 5,
               "17.2 the countdown is written under '\(countdownKey)'",
@@ -602,6 +611,9 @@ enum CrossBoundaryProbe {
         check(defaults.object(forKey: menuBarKey) as? Bool == true,
               "17.2 the menu-bar switch is written under '\(menuBarKey)'",
               actual: String(describing: defaults.object(forKey: menuBarKey)), expected: "true")
+        check(defaults.object(forKey: scrubKey) as? Bool == false,
+              "17.2 the scrub-audio switch is written under '\(scrubKey)'",
+              actual: String(describing: defaults.object(forKey: scrubKey)), expected: "false")
 
         // ---- 17.3 and a relaunch reads them back. A separate check from 17.2 on purpose: a
         // preference that reaches disk and is not read on the way back up is still lost, and the
@@ -622,6 +634,10 @@ enum CrossBoundaryProbe {
               "17.3 a relaunch still keeps the Dock out of the picture")
         check(relaunched.hidesMenuBar,
               "17.3 a relaunch still keeps the menu bar out of the picture")
+        // **Deliberately turned OFF above**, which is the distinction 17.4 makes for the
+        // countdown: a switch whose default is on must remember being turned off.
+        check(!relaunched.scrubAudio,
+              "17.3 a scrub-audio switch deliberately turned off stays off")
 
         // ---- 17.4 zero is a stored answer, not an absent key. This is the distinction 17.1's
         // default rests on, from the other side: if the two collapsed, somebody who deliberately

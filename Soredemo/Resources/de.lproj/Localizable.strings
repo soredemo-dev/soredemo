@@ -336,3 +336,5 @@
 "Nothing to undo" = "Nichts zum Widerrufen";
 "Nothing to redo" = "Nichts zum Wiederholen";
 "Revert every edit" = "Alle Änderungen zurücknehmen";
+"Play audio while dragging the playhead" = "Beim Ziehen des Abspielkopfs Ton wiedergeben";
+"While editing" = "Beim Bearbeiten";

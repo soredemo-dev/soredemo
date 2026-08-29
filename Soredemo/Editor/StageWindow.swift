@@ -227,6 +227,10 @@ struct StageWindow: View {
     /// than derived here: the recorder knows whether a camera ran, and a window that guessed by
     /// probing for a filename would show camera controls for a file left by an earlier attempt.
     var cameraURL: URL?
+    /// Whether dragging the playhead plays what is under it. Passed down rather than read from a
+    /// coordinator here: this window's job is to draw an edit, and a preference it looked up
+    /// itself would be a second place the setting lives.
+    var scrubAudioIsOn = true
 
     /// **The DEFAULT output size** — `AspectVariant.landscape` at a 1920 longest edge — kept
     /// as constants because the render-parity check in
@@ -361,6 +365,9 @@ struct StageWindow: View {
         .navigationTitle(mediaURL.deletingPathExtension().lastPathComponent)
         .navigationDocument(savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }
+        // The setting can be changed while an editor is open; without this it would take a
+        // reopen to have any effect, which reads as the switch not working.
+        .task(id: scrubAudioIsOn) { timeline.scrubAudio.isEnabled = scrubAudioIsOn }
         // **The mix changes what you hear WITHOUT reloading anything.** A mute applied by
         // rebuilding the player item would reload the asset, lose the position and go silent
         // for as long as that took — so a person testing whether to keep their narration would
@@ -1717,6 +1724,10 @@ struct StageWindow: View {
             // cuts taken out of it — so a frame asked for at 30 s would come back from a
             // different moment after every edit.
             filmstrip.load(url: mediaURL)
+            // Cheap: nothing is read until the first scrub, and a recording with no audio leaves
+            // it silent rather than failing.
+            timeline.scrubAudio.isEnabled = scrubAudioIsOn
+            timeline.scrubAudio.open(mediaURL)
             player = AVPlayer(playerItem: item)
         } catch {
             failure = "\(error)"

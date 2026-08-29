@@ -142,6 +142,17 @@ struct SettingsWindow: View {
                  + "it just is not in the recording.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
+        SwiftUI.Section("While editing") {
+            Toggle("Play audio while dragging the playhead", isOn: Binding(
+                get: { coordinator.scrubAudio },
+                set: { coordinator.scrubAudio = $0 }))
+            // **Off is a real answer**, which is why this is a switch rather than a constant:
+            // somebody editing beside a sleeping child, or with the recording already playing
+            // through a speaker, wants the drag silent.
+            Text("Dragging the playhead plays the moment under it, so a sentence can be found by "
+                 + "ear instead of by scrubbing and watching.")
+                .font(Type.detail).foregroundStyle(.secondary)
+        }
         SwiftUI.Section("Sources") {
             Picker("Microphone", selection: Binding(
                 get: { coordinator.microphone },

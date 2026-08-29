@@ -130,6 +130,7 @@ xcrun swiftc \
   Soredemo/Editor/FramingReview.swift \
   Soredemo/Inspector/StageStylePicker.swift \
   Soredemo/Inspector/WallpaperGallery.swift \
+  Soredemo/Editor/ScrubAudio.swift \
   Soredemo/Editor/TimelineEditor.swift \
   Soredemo/Editor/EditorToolbar.swift \
   Soredemo/DesignSystem/Theme.swift \

@@ -336,3 +336,5 @@
 "Nothing to undo" = "Нечего отменять";
 "Nothing to redo" = "Нечего повторять";
 "Revert every edit" = "Отменить все правки";
+"Play audio while dragging the playhead" = "Звук при перетаскивании курсора";
+"While editing" = "При монтаже";
