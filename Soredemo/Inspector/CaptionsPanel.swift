@@ -738,13 +738,28 @@ struct CaptionsPanel: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Play from this caption")
 
-                TextField("Caption", text: Binding(
-                    get: { index < model.track.cues.count ? model.track.cues[index].text : "" },
-                    set: { model.setText($0, at: index) }))
-                    .textFieldStyle(.plain)
-                    .font(Type.label)
+                CaptionField(
+                    text: Binding(
+                        get: { index < model.track.cues.count ? model.track.cues[index].text : "" },
+                        set: { model.setText($0, at: index) }),
+                    onSplit: { offset in
+                        noteCorrection(at: index)
+                        model.split(at: index, atCharacter: offset)
+                        onChange()
+                        focused = index + 1
+                    },
+                    onMergeWithPrevious: {
+                        guard index > 0 else { return }
+                        noteCorrection(at: index)
+                        model.merge(at: index - 1)
+                        onChange()
+                        focused = index - 1
+                    },
+                    onStep: { step(from: index, by: $0) },
+                    onCommit: { noteCorrection(at: index); onChange() },
+                    isFocused: focused == index)
                     .focused($focused, equals: index)
-                    .onSubmit { advance(from: index) }
+                    .frame(height: 20)
 
                 measurement(of: cue)
             }
@@ -789,11 +804,9 @@ struct CaptionsPanel: View {
     ///
     /// At the last cue it commits and leaves the field rather than wrapping: a wrap would put
     /// somebody back at the top of a recording they had just finished checking.
-    private func advance(from index: Int) {
-        noteCorrection(at: index)
-        onChange()
-        let next = index + 1
-        guard next < model.track.cues.count else { focused = nil; return }
+    private func step(from index: Int, by delta: Int) {
+        let next = index + delta
+        guard next >= 0, next < model.track.cues.count else { focused = nil; return }
         onSeek(model.track.cues[next].start)
         focused = next
     }
@@ -862,17 +875,6 @@ struct CaptionsPanel: View {
             nudge("arrow.right", "End later") {
                 model.retime(at: index, start: cue.start, end: shifted(cue.end, by: Self.nudge.rawValue))
             }
-            Divider().frame(height: 12)
-            nudge("text.insert", "Split in two") {
-                model.split(at: index, atCharacter: splitOffset(of: cue.text))
-                focused = nil
-            }
-            .disabled(splitOffset(of: cue.text) == 0)
-            nudge("arrow.triangle.merge", "Merge with the next line") {
-                model.merge(at: index)
-                focused = nil
-            }
-            .disabled(index + 1 >= model.track.cues.count)
             Spacer()
             nudge("trash", "Delete this line") {
                 model.remove(at: index)
@@ -880,24 +882,6 @@ struct CaptionsPanel: View {
             }
         }
         .font(Type.detail)
-    }
-
-    /// Where a line splits: **the space nearest the middle**, which is the break a person would
-    /// have made.
-    ///
-    /// **Not the caret, which is what a subtitle editor uses and what SwiftUI will not give.**
-    /// A `TextField` does not publish its selection, so the alternative to a computed point is a
-    /// text view of this app's own — a real cost for one control. The computed point is right
-    /// most of the time and `CaptionBuilder`'s balance rule is what produced the line in the
-    /// first place, so it usually agrees with itself.
-    ///
-    /// Zero when there is no space at all — a dense script has no offset this can guess, and the
-    /// button is disabled rather than splitting it mid-word.
-    private func splitOffset(of text: String) -> Int {
-        let characters = Array(text)
-        let middle = characters.count / 2
-        let spaces = characters.indices.filter { characters[$0] == " " }
-        return spaces.min(by: { abs($0 - middle) < abs($1 - middle) }).map { $0 + 1 } ?? 0
     }
 
     private static let nudge = Nanoseconds(100_000_000)

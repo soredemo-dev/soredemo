@@ -112,6 +112,29 @@ sure of named, so you know which character to look at rather than re-reading the
 rotating tip — `B splits a cue in two at the cursor`. Beside it, `auto-saved · 270
 cues`.
 
+### The keymap, confirmed twice
+
+A second reference — an open-source, local-first subtitle editor built explicitly as a
+keyboard-driven proofreading tool — uses the SAME keymap, and says in its own spec that
+it copied it. Two independent tools converging on one keymap is the strongest evidence
+available that it is the right one, and it is also every text editor's:
+
+| key | what it does |
+|---|---|
+| Return, caret inside the text | split into two cues there |
+| Backspace, caret at 0, nothing selected | merge into the previous cue |
+| Tab / Shift-Tab | next cue / previous cue |
+| click a cue | seek to it |
+| the row's own ✕ | delete the cue — Backspace's meaning is reserved for merge |
+
+That editor also records a decision NOT to build an "Alt quick mode", on the grounds
+that Return-splits and Backspace-merges already cover it. **Built here 2026-08-31**, in
+`CaptionField`: the caret is the argument to two of those keys and SwiftUI's `TextField`
+publishes neither its selection nor a way to see a key before the field consumes it, so
+this is an `NSTextField` behind an `NSViewRepresentable`. That cost was named as a
+blocker when the list was first written; two references agreeing is what made it worth
+paying.
+
 ### What that is, stated as rules rather than as a screenshot
 
 1. **Clicking a cue moves the playhead.** The list is a way of navigating the
@@ -135,9 +158,9 @@ cues`.
 | Search the cues | ● | ● *(2026-08-31)* |
 | Per-cue duration / characters / CPS | ● with an out-of-range verdict | ● *(2026-08-31)* |
 | Recogniser confidence per word | ● names the weakest word | ○ *(the API returns it; nothing reads it)* |
-| Edit in place | ● Esc / Done | ◐ tap, Esc leaves; Save is still a button |
+| Edit in place | ● Esc / Done | ● every row is a live field |
 | Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
-| Split a cue / merge two | ● one key each | ● *buttons, not keys (2026-08-31)* |
+| Split a cue / merge two | ● one key each | ● Return at the caret / Backspace at the start |
 | Snap a boundary to speech | ● | ○ |
 | Waveform with cue blocks | ● zoomable | ○ |
 | Safe-frame overlay | ● | ○ |

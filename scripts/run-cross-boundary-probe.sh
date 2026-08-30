@@ -143,6 +143,7 @@ xcrun swiftc \
   Soredemo/Editor/TransportBar.swift \
   Soredemo/Project/ProjectStore.swift \
   Soredemo/Inspector/CaptionsPanel.swift \
+  Soredemo/Inspector/CaptionField.swift \
   Soredemo/Inspector/TranscriptPanel.swift \
   Soredemo/Inspector/TextPanel.swift \
   Soredemo/Inspector/RedactionPanel.swift \
