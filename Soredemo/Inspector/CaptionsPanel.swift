@@ -312,6 +312,27 @@ struct CaptionsPanel: View {
                     onChange()
                 }), supportsOpacity: false)
         }
+        // **Offered above the plate and the shadow, because it is the one that reads over
+        // anything.** A plate covers the picture and a shadow softens an edge; an outline
+        // follows the letters, so a caption crossing a light region and a dark one in the same
+        // line stays legible without a rectangle across the frame.
+        Slider(value: Binding(
+            get: { model.style.outlineWidthFraction },
+            set: { model.setStyle(model.style.changing(outlineWidthFraction: $0)); onChange() }),
+               in: 0...0.14) { Text("Outline") }
+        if model.style.outlineWidthFraction > 0 {
+            ColorPicker("Outline colour", selection: Binding(
+                get: { Color(red: model.style.outlineRed, green: model.style.outlineGreen,
+                             blue: model.style.outlineBlue) },
+                set: { colour in
+                    let rgb = Self.components(of: colour)
+                    model.setStyle(model.style.changing(outlineRed: rgb.red,
+                                                        outlineGreen: rgb.green,
+                                                        outlineBlue: rgb.blue))
+                    onChange()
+                }), supportsOpacity: false)
+        }
+
         Slider(value: Binding(
             get: { model.style.shadowOpacity },
             set: { model.setStyle(model.style.changing(shadowOpacity: $0,

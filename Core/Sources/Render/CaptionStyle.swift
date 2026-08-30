@@ -49,6 +49,12 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     /// passing zero.
     public let shadowOpacity: Double
     public let shadowBlurFraction: Double
+    /// The outline around each letter, as a fraction of the type size, and its colour.
+    /// See `TextOverlayStyle.outlineWidthFraction` for what it costs and why it is centred.
+    public let outlineWidthFraction: Double
+    public let outlineRed: Double
+    public let outlineGreen: Double
+    public let outlineBlue: Double
     /// **Highlight the word being said.** The recogniser gives a time for every word and until
     /// now nothing read them — `TranscribedWord.start`/`.end` were stored, retimed through cuts,
     /// clipped at cut boundaries, and never drawn. Comparable editors all
@@ -74,7 +80,9 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                 alignment: TextAnchor = .center, horizontalFraction: Double = 0.5,
                 isBold: Bool = false,
                 plateRed: Double = 0, plateGreen: Double = 0, plateBlue: Double = 0,
-                shadowOpacity: Double = 0, shadowBlurFraction: Double = 0) {
+                shadowOpacity: Double = 0, shadowBlurFraction: Double = 0,
+                outlineWidthFraction: Double = 0, outlineRed: Double = 0,
+                outlineGreen: Double = 0, outlineBlue: Double = 0) {
         // Clamped rather than trapped: every one of these reaches here from a slider, and a
         // style is also decoded from a saved project — rule 8 says never `precondition` on an
         // untrusted input. Clamping is the same answer on both paths, so there is one path.
@@ -100,6 +108,10 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
         // Floored at zero and capped well below the frame: a blur wider than the text is a
         // smear rather than a shadow, and a very large one is minutes of Core Image per frame.
         self.shadowBlurFraction = min(max(shadowBlurFraction, 0), 0.05)
+        self.outlineWidthFraction = min(max(outlineWidthFraction, 0), 0.14)
+        self.outlineRed = min(max(outlineRed, 0), 1)
+        self.outlineGreen = min(max(outlineGreen, 0), 1)
+        self.outlineBlue = min(max(outlineBlue, 0), 1)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -108,6 +120,7 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
         case red, green, blue, highlightsSpokenWord, unspokenOpacity
         case alignment, horizontalFraction, isBold
         case plateRed, plateGreen, plateBlue, shadowOpacity, shadowBlurFraction
+        case outlineWidthFraction, outlineRed, outlineGreen, outlineBlue
     }
 
     /// **Every field optional on the way in, and routed through the clamping initialiser.**
@@ -147,7 +160,12 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
             plateGreen: try value(.plateGreen, fallback.plateGreen),
             plateBlue: try value(.plateBlue, fallback.plateBlue),
             shadowOpacity: try value(.shadowOpacity, fallback.shadowOpacity),
-            shadowBlurFraction: try value(.shadowBlurFraction, fallback.shadowBlurFraction))
+            shadowBlurFraction: try value(.shadowBlurFraction, fallback.shadowBlurFraction),
+            outlineWidthFraction: try value(.outlineWidthFraction,
+                                            fallback.outlineWidthFraction),
+            outlineRed: try value(.outlineRed, fallback.outlineRed),
+            outlineGreen: try value(.outlineGreen, fallback.outlineGreen),
+            outlineBlue: try value(.outlineBlue, fallback.outlineBlue))
     }
 
     /// The type size in output pixels.
@@ -163,7 +181,10 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                          plateRed: Double? = nil, plateGreen: Double? = nil,
                          plateBlue: Double? = nil,
                          shadowOpacity: Double? = nil,
-                         shadowBlurFraction: Double? = nil) -> CaptionStyle {
+                         shadowBlurFraction: Double? = nil,
+                         outlineWidthFraction: Double? = nil,
+                         outlineRed: Double? = nil, outlineGreen: Double? = nil,
+                         outlineBlue: Double? = nil) -> CaptionStyle {
         CaptionStyle(heightFraction: heightFraction ?? self.heightFraction,
                      bottomInsetFraction: bottomInsetFraction ?? self.bottomInsetFraction,
                      maximumWidthFraction: maximumWidthFraction,
@@ -179,7 +200,11 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                      plateGreen: plateGreen ?? self.plateGreen,
                      plateBlue: plateBlue ?? self.plateBlue,
                      shadowOpacity: shadowOpacity ?? self.shadowOpacity,
-                     shadowBlurFraction: shadowBlurFraction ?? self.shadowBlurFraction)
+                     shadowBlurFraction: shadowBlurFraction ?? self.shadowBlurFraction,
+                     outlineWidthFraction: outlineWidthFraction ?? self.outlineWidthFraction,
+                     outlineRed: outlineRed ?? self.outlineRed,
+                     outlineGreen: outlineGreen ?? self.outlineGreen,
+                     outlineBlue: outlineBlue ?? self.outlineBlue)
     }
 
     public func pointSize(forOutputHeight height: Int) -> Double {

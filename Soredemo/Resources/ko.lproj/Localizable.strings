@@ -349,3 +349,5 @@
 "Centre" = "가운데";
 "Right" = "오른쪽";
 "A shadow separates the words from what is behind them without covering it, which is what a plate does instead." = "그림자는 글자와 뒤에 있는 화면을 가리지 않고 분리합니다. 판은 가려서 그렇게 합니다.";
+"Outline" = "외곽선";
+"Outline colour" = "외곽선 색";

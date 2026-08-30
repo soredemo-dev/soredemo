@@ -33,8 +33,15 @@ public enum TextArt {
         return ui ?? CTFontCreateWithName("Helvetica" as CFString, pointSize, nil)
     }
 
+    /// One laid-out line, with its colour, its dimmed runs and its outline already in it.
+    ///
+    /// **The outline is an attribute rather than a second pass.** Stroking separately means
+    /// laying the same text out twice and lining the two up, which is the drift
+    /// `line`'s dimmed-run comment describes: two layouts of one string are not guaranteed to
+    /// agree at every size. Core Text strokes the glyphs it is laying out.
     private static func line(_ text: String, pointSize: Double, bold: Bool,
-                             dim: DimmedRun? = nil, colour: CGColor? = nil) -> CTLine {
+                             dim: DimmedRun? = nil, colour: CGColor? = nil,
+                             outline: (width: Double, colour: CGColor)? = nil) -> CTLine {
         // `kCTFontAttributeName`, not `.font`: that key is AppKit's, and `HeadlessCheck` bans
         // AppKit in this target. Core Text reads its own key regardless of who set it.
         let attributed = NSMutableAttributedString(string: text, attributes: [
@@ -45,6 +52,18 @@ public enum TextArt {
             attributed.addAttribute(
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String),
                 value: colour, range: NSRange(location: 0, length: attributed.length))
+        }
+        if let outline, outline.width > 0 {
+            let whole = NSRange(location: 0, length: attributed.length)
+            // **NEGATIVE, and the sign is the whole behaviour.** Core Text reads `strokeWidth`
+            // as a percentage of the type size; positive strokes ONLY, leaving hollow letters,
+            // and negative fills and strokes. A caption wants both.
+            attributed.addAttribute(
+                NSAttributedString.Key(kCTStrokeWidthAttributeName as String),
+                value: -outline.width * 100, range: whole)
+            attributed.addAttribute(
+                NSAttributedString.Key(kCTStrokeColorAttributeName as String),
+                value: outline.colour, range: whole)
         }
         if let dim, let colour {
             // **Everything OUTSIDE the highlight is dimmed, inside ONE laid-out line.** The
@@ -123,13 +142,32 @@ public enum TextArt {
 
         // The glyph colour is set on the line rather than on the context when a run is dimmed:
         // `setFillColor` applies to the whole line, and a per-range alpha needs the attribute.
-        let glyphColour = dim == nil ? nil
-            : CGColor(red: style.red, green: style.green, blue: style.blue, alpha: style.alpha)
+        let outlined = style.outlineWidthFraction > 0
+        // **Always, and this is a repair.** The colour used to be attached only when a word was
+        // being highlighted; otherwise the glyphs carried no foreground attribute and the code
+        // relied on `setFillColor` below to colour them. Core Text does not work that way: an
+        // attributed string with no `kCTForegroundColorAttributeName` and no
+        // `kCTForegroundColorFromContextAttributeName` draws BLACK, whatever the context's fill
+        // colour is.
+        //
+        // Measured by asking for red on white and getting black. So `TextOverlayStyle.red`,
+        // `.green` and `.blue` have never reached a glyph except on a highlighted line — every
+        // caption and every text overlay this app has drawn was black, on a plate that defaults
+        // to black. The tests looked for ink near the bottom of the frame and found it, which is
+        // true of black ink too.
+        let glyphColour = CGColor(red: style.red, green: style.green, blue: style.blue,
+                                  alpha: style.alpha)
+        let outline: (width: Double, colour: CGColor)? = outlined
+            ? (style.outlineWidthFraction,
+               CGColor(red: style.outlineRed, green: style.outlineGreen,
+                       blue: style.outlineBlue, alpha: style.alpha))
+            : nil
         let typeset = drawnLines.map { text -> (line: CTLine, width: Double, ascent: Double, descent: Double) in
             // A dimmed run is only meaningful on a single-line caption; a title broken over two
             // lines has no spoken word, so nothing is dimmed there.
             let made = line(text, pointSize: size, bold: style.isBold,
-                            dim: drawnLines.count == 1 ? dim : nil, colour: glyphColour)
+                            dim: drawnLines.count == 1 ? dim : nil, colour: glyphColour,
+                            outline: outline)
             let bounds = HeadlessGeometryBridge.typographicBounds(of: made)
             return (made, bounds.width, bounds.ascent, bounds.descent)
         }

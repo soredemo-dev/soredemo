@@ -349,3 +349,5 @@
 "Centre" = "Centre";
 "Right" = "Droite";
 "A shadow separates the words from what is behind them without covering it, which is what a plate does instead." = "Une ombre sépare les mots de ce qui se trouve derrière sans le masquer, contrairement à un fond.";
+"Outline" = "Contour";
+"Outline colour" = "Couleur du contour";

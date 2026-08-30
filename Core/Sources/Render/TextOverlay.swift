@@ -50,6 +50,27 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
     public let plateBlue: Double
     /// A drop shadow under the glyphs. **The cheapest thing that keeps white text legible over a
     /// white window**, and the reason it is here when tracking and underline are not.
+    /// The outline drawn around each glyph, as a fraction of the type size, and its colour.
+    ///
+    /// **The half of legibility that does not cover the picture.** A plate is a rectangle across
+    /// the frame and a shadow is a soft edge; an outline follows the letterforms, so it works
+    /// over footage that is light in one part of the line and dark in another — which is the
+    /// case a plate exists for and the case a shadow handles worst.
+    ///
+    /// Drawn by Core Text's own `strokeWidth`, which is a PERCENTAGE OF THE TYPE SIZE and is
+    /// therefore already the fraction this file expresses everything in. Negative there means
+    /// "fill and stroke"; positive would leave the letters hollow, which is a different effect
+    /// and not this one.
+    ///
+    /// **Centred on the glyph outline, not outside it.** Core Text strokes down the middle of
+    /// the path, so half the width eats into the letterform and a wide outline thins the type.
+    /// Drawing it outside means extracting each glyph's path and stroking it separately, which
+    /// is a second layout and the thing `line(_:pointSize:bold:dim:colour:)` exists to avoid.
+    /// The cap is set where the thinning is still invisible.
+    public let outlineWidthFraction: Double
+    public let outlineRed: Double
+    public let outlineGreen: Double
+    public let outlineBlue: Double
     public let shadowOpacity: Double
     public let shadowBlurFraction: Double
     /// The widest a line may be measured against, as a fraction of the frame's width.
@@ -70,7 +91,9 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
                 plateOpacity: Double, plateCornerFraction: Double,
                 plateRed: Double, plateGreen: Double, plateBlue: Double,
                 shadowOpacity: Double, shadowBlurFraction: Double,
-                maximumWidthFraction: Double, lineGapRatio: Double) {
+                maximumWidthFraction: Double, lineGapRatio: Double,
+                outlineWidthFraction: Double = 0,
+                outlineRed: Double = 0, outlineGreen: Double = 0, outlineBlue: Double = 0) {
         // Clamped rather than trapped, for `CaptionStyle`'s reason: every one of these arrives
         // from a slider AND from a decoder, and rule 8 forbids trapping on an untrusted input.
         self.heightFraction = min(max(heightFraction, 0.005), 0.6)
@@ -87,10 +110,59 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
         self.plateRed = min(max(plateRed, 0), 1)
         self.plateGreen = min(max(plateGreen, 0), 1)
         self.plateBlue = min(max(plateBlue, 0), 1)
+        // 0.14 of the type size, which is thick by any published caption standard and is the
+        // point past which the centred stroke visibly thins the letters. A cap here rather than
+        // in the slider: the value also arrives from a decoder.
+        self.outlineWidthFraction = min(max(outlineWidthFraction, 0), 0.14)
+        self.outlineRed = min(max(outlineRed, 0), 1)
+        self.outlineGreen = min(max(outlineGreen, 0), 1)
+        self.outlineBlue = min(max(outlineBlue, 0), 1)
         self.shadowOpacity = min(max(shadowOpacity, 0), 1)
         self.shadowBlurFraction = min(max(shadowBlurFraction, 0), 0.1)
         self.maximumWidthFraction = min(max(maximumWidthFraction, 0.1), 1)
         self.lineGapRatio = min(max(lineGapRatio, 0), 2)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case heightFraction, x, y, anchor, isBold
+        case red, green, blue, alpha
+        case plateOpacity, plateCornerFraction, plateRed, plateGreen, plateBlue
+        case outlineWidthFraction, outlineRed, outlineGreen, outlineBlue
+        case shadowOpacity, shadowBlurFraction, maximumWidthFraction, lineGapRatio
+    }
+
+    /// **Every field optional, routed through the clamping initialiser** — `CaptionStyle`'s
+    /// reason, and the same near-miss. A synthesised decode requires every key, so the outline
+    /// fields could not have been added without every saved text overlay ceasing to decode; and
+    /// it assigns past the clamping, so a corrupt file could put a stroke wider than the type
+    /// into Core Text.
+    ///
+    /// The fallbacks are what the field meant before it existed: no outline is `0`, which is
+    /// what every overlay written until now had.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value(_ key: CodingKeys, _ fallback: Double) throws -> Double {
+            try container.decodeIfPresent(Double.self, forKey: key) ?? fallback
+        }
+        self.init(
+            heightFraction: try value(.heightFraction, 0.05),
+            x: try value(.x, 0.5), y: try value(.y, 0.5),
+            anchor: try container.decodeIfPresent(TextAnchor.self, forKey: .anchor) ?? .center,
+            isBold: try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? false,
+            red: try value(.red, 1), green: try value(.green, 1), blue: try value(.blue, 1),
+            alpha: try value(.alpha, 1),
+            plateOpacity: try value(.plateOpacity, 0),
+            plateCornerFraction: try value(.plateCornerFraction, 0),
+            plateRed: try value(.plateRed, 0), plateGreen: try value(.plateGreen, 0),
+            plateBlue: try value(.plateBlue, 0),
+            shadowOpacity: try value(.shadowOpacity, 0),
+            shadowBlurFraction: try value(.shadowBlurFraction, 0),
+            maximumWidthFraction: try value(.maximumWidthFraction, 0.9),
+            lineGapRatio: try value(.lineGapRatio, 0.2),
+            outlineWidthFraction: try value(.outlineWidthFraction, 0),
+            outlineRed: try value(.outlineRed, 0),
+            outlineGreen: try value(.outlineGreen, 0),
+            outlineBlue: try value(.outlineBlue, 0))
     }
 
     public func pointSize(forOutputHeight height: Int) -> Double {
@@ -224,6 +296,8 @@ extension CaptionStyle {
             plateOpacity: backgroundOpacity, plateCornerFraction: backgroundCornerFraction,
             plateRed: plateRed, plateGreen: plateGreen, plateBlue: plateBlue,
             shadowOpacity: shadowOpacity, shadowBlurFraction: shadowBlurFraction,
-            maximumWidthFraction: maximumWidthFraction, lineGapRatio: 0.2)
+            maximumWidthFraction: maximumWidthFraction, lineGapRatio: 0.2,
+            outlineWidthFraction: outlineWidthFraction, outlineRed: outlineRed,
+            outlineGreen: outlineGreen, outlineBlue: outlineBlue)
     }
 }

@@ -651,3 +651,124 @@ import Timeline
         #expect(combined.cameraTrackID == nil)
     }
 }
+
+// MARK: - the colour, which never reached a glyph
+
+/// **Asked for red, drew black — for as long as this app has drawn text.**
+///
+/// `TextArt` set the context's fill colour and let `CTLineDraw` use it. Core Text does not work
+/// that way: an attributed string carrying neither `kCTForegroundColorAttributeName` nor
+/// `kCTForegroundColorFromContextAttributeName` draws BLACK whatever the context says. The
+/// colour was attached only when a word was being highlighted, so every caption and every text
+/// overlay without word highlighting was black — on a plate that defaults to black.
+///
+/// **What let it ship is the shape of the tests around it**: they asked whether there was ink
+/// near the bottom of the frame, and there was. Black ink is ink. So this asks the one question
+/// none of them did.
+@Test func theColourAskedForIsTheColourDrawn() throws {
+    func inkColour(red: Double, green: Double, blue: Double) throws -> (r: Int, g: Int, b: Int) {
+        let style = TextOverlayStyle(
+            heightFraction: 0.3, x: 0.5, y: 0.3, anchor: .center, isBold: true,
+            red: red, green: green, blue: blue, alpha: 1,
+            plateOpacity: 0, plateCornerFraction: 0,
+            plateRed: 0, plateGreen: 0, plateBlue: 0,
+            shadowOpacity: 0, shadowBlurFraction: 0,
+            maximumWidthFraction: 0.9, lineGapRatio: 0.2)
+        let image = try #require(TextArt.image(TextOverlay(text: "MMMM", style: style),
+                                               outputWidth: 200, outputHeight: 100))
+        // The most opaque pixel is inside a stroke of the type, which is where the colour is.
+        let context = CIContext()
+        let width = 200, height = 100
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        // `unsafe`: the buffer is exactly `width * height * 4` by construction and the pointer
+        // does not escape the closure.
+        unsafe bytes.withUnsafeMutableBytes { buffer in
+            guard let base = unsafe buffer.baseAddress else { return }
+            unsafe context.render(image, toBitmap: base, rowBytes: width * 4,
+                                  bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                                  format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        }
+        var best = (alpha: UInt8(0), r: 0, g: 0, b: 0)
+        for index in stride(from: 0, to: bytes.count, by: 4) where bytes[index + 3] > best.alpha {
+            best = (bytes[index + 3], Int(bytes[index]), Int(bytes[index + 1]),
+                    Int(bytes[index + 2]))
+        }
+        #expect(best.alpha > 200, "no opaque ink was drawn at all")
+        return (best.r, best.g, best.b)
+    }
+
+    let red = try inkColour(red: 1, green: 0, blue: 0)
+    #expect(red.r > 200 && red.g < 60 && red.b < 60,
+            "asked for red and got (\(red.r), \(red.g), \(red.b))")
+
+    let white = try inkColour(red: 1, green: 1, blue: 1)
+    #expect(white.r > 200 && white.g > 200 && white.b > 200,
+            "asked for white and got (\(white.r), \(white.g), \(white.b))")
+
+    // And the two are not the same, which is the assertion the old tests could not make: a
+    // renderer ignoring the colour passes every "is there ink" check ever written.
+    #expect(red != white, "two different colours drew identical ink")
+}
+
+/// The outline is drawn in ITS colour, not the text's — a stroke the same colour as the fill is
+/// a thicker letter and not an outline.
+@Test func theOutlineIsDrawnInItsOwnColour() throws {
+    let style = TextOverlayStyle(
+        heightFraction: 0.3, x: 0.5, y: 0.3, anchor: .center, isBold: true,
+        red: 1, green: 1, blue: 1, alpha: 1,
+        plateOpacity: 0, plateCornerFraction: 0,
+        plateRed: 0, plateGreen: 0, plateBlue: 0,
+        shadowOpacity: 0, shadowBlurFraction: 0,
+        maximumWidthFraction: 0.9, lineGapRatio: 0.2,
+        outlineWidthFraction: 0.08, outlineRed: 1, outlineGreen: 0, outlineBlue: 0)
+    let width = 200, height = 100
+    let image = try #require(TextArt.image(TextOverlay(text: "MMMM", style: style),
+                                           outputWidth: width, outputHeight: height))
+    let context = CIContext()
+    var bytes = [UInt8](repeating: 0, count: width * height * 4)
+    unsafe bytes.withUnsafeMutableBytes { buffer in
+        guard let base = unsafe buffer.baseAddress else { return }
+        unsafe context.render(image, toBitmap: base, rowBytes: width * 4,
+                              bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                              format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+    }
+    var white = 0, red = 0
+    for index in stride(from: 0, to: bytes.count, by: 4) where bytes[index + 3] > 200 {
+        let r = Int(bytes[index]), g = Int(bytes[index + 1]), b = Int(bytes[index + 2])
+        if r > 200 && g > 200 && b > 200 { white += 1 }
+        if r > 200 && g < 60 && b < 60 { red += 1 }
+    }
+    #expect(white > 0, "the white fill is missing — a positive stroke width leaves letters hollow")
+    #expect(red > 0, "the red outline never drew")
+}
+
+/// A style with no outline draws exactly what it drew before outlines existed — the feature is
+/// opt-in, and `0` has to mean nothing rather than a hairline.
+@Test func noOutlineDrawsNoOutline() throws {
+    func opaquePixels(outline: Double) throws -> Int {
+        let style = TextOverlayStyle(
+            heightFraction: 0.3, x: 0.5, y: 0.3, anchor: .center, isBold: true,
+            red: 1, green: 1, blue: 1, alpha: 1,
+            plateOpacity: 0, plateCornerFraction: 0,
+            plateRed: 0, plateGreen: 0, plateBlue: 0,
+            shadowOpacity: 0, shadowBlurFraction: 0,
+            maximumWidthFraction: 0.9, lineGapRatio: 0.2,
+            outlineWidthFraction: outline, outlineRed: 0, outlineGreen: 0, outlineBlue: 0)
+        let width = 200, height = 100
+        let image = try #require(TextArt.image(TextOverlay(text: "MMMM", style: style),
+                                               outputWidth: width, outputHeight: height))
+        let context = CIContext()
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        unsafe bytes.withUnsafeMutableBytes { buffer in
+            guard let base = unsafe buffer.baseAddress else { return }
+            unsafe context.render(image, toBitmap: base, rowBytes: width * 4,
+                                  bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                                  format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        }
+        return stride(from: 0, to: bytes.count, by: 4).count { bytes[$0 + 3] > 200 }
+    }
+    let plain = try opaquePixels(outline: 0)
+    let outlined = try opaquePixels(outline: 0.08)
+    #expect(plain > 0)
+    #expect(outlined > plain, "an outline did not make the drawn shape any larger")
+}

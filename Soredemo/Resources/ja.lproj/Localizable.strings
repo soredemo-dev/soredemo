@@ -351,3 +351,5 @@
 "Centre" = "中央";
 "Right" = "右";
 "A shadow separates the words from what is behind them without covering it, which is what a plate does instead." = "影は文字と背後の映像を分けます。プレートのように覆い隠すことはありません。";
+"Outline" = "縁取り";
+"Outline colour" = "縁取りの色";
