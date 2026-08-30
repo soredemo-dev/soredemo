@@ -72,6 +72,15 @@ public struct EditState: Codable, Sendable, Equatable {
     /// Authored. `Data?` because the settings type lives in `Overlays`, which
     /// `Project` cannot see. **Absent means off.**
     public var noiseReductionData: Data?
+    /// Names the recogniser has never heard — a product, a person, a domain — spelled the way
+    /// they should come out. Authored, and a plain `[String]` because a list of words needs no
+    /// type that `Project` cannot see.
+    ///
+    /// **Applied after recognition, never during it.** Both mechanisms Apple publishes for
+    /// biasing the recogniser were measured and changed nothing on this platform; see
+    /// `docs/design/teaching-the-recogniser-a-word.md`. `Transcript.correcting(terms:)` is what
+    /// reads this, and it corrects spelling rather than hearing.
+    public var spokenTerms: [String]?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -91,7 +100,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 hidesKeystrokes: Bool? = nil,
                 musicData: Data? = nil,
                 zoomIntensity: Double? = nil,
-                noiseReductionData: Data? = nil) {
+                noiseReductionData: Data? = nil,
+                spokenTerms: [String]? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -111,6 +121,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.musicData = musicData
         self.zoomIntensity = zoomIntensity
         self.noiseReductionData = noiseReductionData
+        self.spokenTerms = spokenTerms
     }
 
     /// A recording nobody has edited.
@@ -134,6 +145,9 @@ public struct EditState: Codable, Sendable, Equatable {
             // and the type has no "off" value of its own — turning the feature off removes the
             // field rather than writing a disabled one.
             || noiseReductionData != nil
+            // An EMPTY list is not a change, for `burnsInCaptions == false`'s reason: somebody
+            // who added a term and removed it again has an untouched project.
+            || (spokenTerms.map { !$0.isEmpty } ?? false)
     }
 
     // MARK: - the tiers that own these values

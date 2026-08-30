@@ -369,3 +369,8 @@
 "Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "話した語を1つずつ光らせます。語ごとの時間が必要 — ない場合は行全体を描きます。";
 "Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "文字を大きく、下端から十分に離します。縦型動画の操作部がそこにあるためです。画面を多く使います。";
 "Edited from a preset. Picking one above replaces every value below." = "プリセットから編集済みです。上で選び直すと下の値がすべて置き換わります。";
+"Names" = "名前";
+"A name, spelled your way" = "名前を、望むつづりで";
+"Add" = "追加";
+"Remove this name" = "この名前を削除";
+"These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "認識結果の**つづり**を直します。知らない名前を聞き取れるようにはできません — まったく別のものとして聞き取られた名前はそのままです。";

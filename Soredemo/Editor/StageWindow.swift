@@ -1373,7 +1373,10 @@ struct StageWindow: View {
             // Neutral is not a decision, so an untouched project stays untouched on disk.
             zoomIntensity: zoomIntensity == FramingDepth.neutralIntensity ? nil : zoomIntensity,
             // Absent means off, so a project nobody asked has nothing to say about it.
-            noiseReductionData: noiseReduction.flatMap { try? EditState.encoding($0) })
+            noiseReductionData: noiseReduction.flatMap { try? EditState.encoding($0) },
+            // An empty list is nothing to say either, and writing `[]` would make every project
+            // that never had a name in it claim a decision.
+            spokenTerms: captions.spokenTerms.isEmpty ? nil : captions.spokenTerms)
     }
 
     /// The cleaned microphone track, made if it is asked for and does not exist yet.
@@ -1562,6 +1565,10 @@ struct StageWindow: View {
             } else if let style {
                 captions.setStyle(style)
             }
+            // Restored whether or not a track came back: the names are a person's own list and
+            // outlive the transcript that prompted them — transcribing again should not also
+            // mean typing them again.
+            captions.restoreTerms(edit.spokenTerms ?? [])
         } catch { failures.append("the captions") }
         do {
             if let track = try EditState.decoding(edit.textTrackData, as: TextTrack.self) {

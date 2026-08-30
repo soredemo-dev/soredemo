@@ -28,10 +28,23 @@ final class CaptionsModel {
     private(set) var burnsIn = false
     private(set) var phase: TranscriptionProgress?
     private(set) var status: String?
-    /// The transcript as recognised, kept so a change to the caption style or the output size
-    /// can re-break the lines without transcribing again. Breaking is instant; recognising is
-    /// not.
+    /// The transcript **as recognised**, kept so a change to the caption style or the output
+    /// size can re-break the lines without transcribing again. Breaking is instant; recognising
+    /// is not.
+    ///
+    /// **Corrections are applied on the way to the cues, not baked in here.** Editing the term
+    /// list then re-applies against what was actually heard rather than compounding on top of a
+    /// previous pass, and the raw recognition is still there to correct differently tomorrow.
     private(set) var transcript: Transcript?
+    /// Names the recogniser has never heard, spelled the way they should come out.
+    ///
+    /// **This does not make the recogniser hear them.** Both mechanisms Apple publishes for
+    /// biasing recognition were measured on this platform and changed nothing —
+    /// `docs/design/teaching-the-recogniser-a-word.md` — so this is a spelling pass over what
+    /// came back, and the panel says so rather than letting somebody read it as accuracy.
+    private(set) var spokenTerms: [String] = []
+    /// What the cues are built from: the recognition with the person's terms spelled their way.
+    var correctedTranscript: Transcript? { transcript?.correcting(terms: spokenTerms) }
     /// The language to recognise, or `nil` for the system's preferred. Held across recordings.
     var locale: Locale?
     private(set) var availableLocales: [Locale] = []
@@ -83,7 +96,7 @@ final class CaptionsModel {
     /// Re-breaks the kept transcript for a new size or word cap, WITHOUT transcribing again —
     /// and therefore discarding text corrections, which is why the caller has to mean it.
     func rebuild(outputWidth: Int, outputHeight: Int, maximumWords: Int?) {
-        guard let transcript else { return }
+        guard let transcript = correctedTranscript else { return }
         track = CaptionTrack(cues: CaptionBuilder.cues(
             for: transcript,
             fits: CaptionArt.fits(style: style, outputWidth: outputWidth,
@@ -108,6 +121,25 @@ final class CaptionsModel {
         burnsIn = value
         publish()
     }
+
+    /// Adds a term, trimmed, refusing an empty one and a duplicate. **Case-insensitively
+    /// duplicate**: two spellings of one name are two answers to the same question, and the
+    /// second would be picked or not depending on which came first in the list.
+    func addTerm(_ term: String) -> Bool {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !spokenTerms.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+        else { return false }
+        spokenTerms.append(trimmed)
+        return true
+    }
+
+    func removeTerm(at index: Int) {
+        guard spokenTerms.indices.contains(index) else { return }
+        spokenTerms.remove(at: index)
+    }
+
+    func restoreTerms(_ terms: [String]) { spokenTerms = terms }
 
     func setStyle(_ value: CaptionStyle) {
         style = value
@@ -174,6 +206,8 @@ struct CaptionsPanel: View {
     /// Why a chosen font did not take, or `nil`. Said rather than left to look like the picker
     /// did nothing: a copy that fails silently is a font somebody chose and cannot find.
     @State private var fontFailure: String?
+    /// The name being typed. Cleared on add, so the field is ready for the next one.
+    @State private var newTerm = ""
 
     var body: some View {
         List {
@@ -263,6 +297,55 @@ struct CaptionsPanel: View {
     /// the moment a control moves the style off every preset, because a picker still naming
     /// "Broadcast" after four sliders moved would be naming something that is not on the screen.
     /// `CaptionStyle.matchingPreset` decides, on full equality.
+    /// A list of names the recogniser has never heard, and what it can and cannot do about them.
+    ///
+    /// **The sentence under it is the feature.** Every surveyed recorder offers a list like this
+    /// and the ones built on a downloaded Whisper-class model really do bias recognition with it.
+    /// This one cannot — measured, twice, in `docs/design/teaching-the-recogniser-a-word.md` —
+    /// so it corrects the spelling of what came back, and says that rather than letting somebody
+    /// read the control as accuracy and blame the recording when a name is still wrong.
+    @ViewBuilder private var termControls: some View {
+        HStack {
+            TextField("A name, spelled your way", text: $newTerm)
+                .onSubmit(addTerm)
+            Button("Add") { addTerm() }
+                .disabled(newTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        ForEach(Array(model.spokenTerms.enumerated()), id: \.offset) { index, term in
+            HStack {
+                Text(verbatim: term)
+                Spacer()
+                Button {
+                    model.removeTerm(at: index)
+                    rebuildAndPublish()
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove this name")
+            }
+        }
+        Text("These correct the SPELLING of what was recognised. They cannot make the "
+             + "recogniser hear a name it does not know — a name it heard as something else "
+             + "entirely stays that way.")
+            .font(Type.detail).foregroundStyle(.secondary)
+    }
+
+    private func addTerm() {
+        guard model.addTerm(newTerm) else { return }
+        newTerm = ""
+        rebuildAndPublish()
+    }
+
+    /// A term list change re-breaks the cues, because a corrected word is a different width and
+    /// may not fit the line it was on. Cheap — `rebuild` re-breaks a kept transcript rather than
+    /// recognising anything.
+    private func rebuildAndPublish() {
+        model.rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
+                      maximumWords: maximumWords)
+        onChange()
+    }
+
     @ViewBuilder private var presetControls: some View {
         Picker("Preset", selection: Binding(
             get: { model.style.matchingPreset?.name },

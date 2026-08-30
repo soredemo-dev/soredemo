@@ -367,3 +367,8 @@
 "Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "말하는 단어를 하나씩 밝힙니다. 단어 단위 시간이 필요 — 없으면 줄 전체를 그립니다.";
 "Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "글자가 크고 아래쪽에서 충분히 떨어집니다. 세로형 영상의 인터페이스가 거기 있습니다. 화면을 더 차지합니다.";
 "Edited from a preset. Picking one above replaces every value below." = "프리셋에서 수정되었습니다. 위에서 하나를 고르면 아래 모든 값이 대체됩니다.";
+"Names" = "이름";
+"A name, spelled your way" = "이름을 원하는 철자로";
+"Add" = "추가";
+"Remove this name" = "이 이름 제거";
+"These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "인식된 결과의 **철자**를 고칩니다. 모르는 이름을 알아듣게 만들지는 못합니다 — 전혀 다른 것으로 들린 이름은 그대로입니다.";

@@ -367,3 +367,8 @@
 "Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "Éclaire chaque mot au moment où il est dit. Nécessite le minutage par mot — sans lui, la ligne est tracée d’un bloc.";
 "Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "Texte plus grand, placé bien au-dessus du bas, là où se trouve l’interface d’une vidéo verticale. Occupe plus d’image.";
 "Edited from a preset. Picking one above replaces every value below." = "Modifié depuis un préréglage. En choisir un ci-dessus remplace toutes les valeurs en dessous.";
+"Names" = "Noms";
+"A name, spelled your way" = "Un nom, orthographié comme vous le voulez";
+"Add" = "Ajouter";
+"Remove this name" = "Retirer ce nom";
+"These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "Ceci corrige l’ORTHOGRAPHE de ce qui a été reconnu. Cela ne fait pas entendre à la reconnaissance un nom qu’elle ignore — un nom entendu comme tout autre chose le reste.";

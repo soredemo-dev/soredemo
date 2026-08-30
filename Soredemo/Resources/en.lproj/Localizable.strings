@@ -383,3 +383,8 @@
 "Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "Lights each word as it is said. Needs word timings — without them the line is drawn whole.";
 "Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame.";
 "Edited from a preset. Picking one above replaces every value below." = "Edited from a preset. Picking one above replaces every value below.";
+"Names" = "Names";
+"A name, spelled your way" = "A name, spelled your way";
+"Add" = "Add";
+"Remove this name" = "Remove this name";
+"These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way.";

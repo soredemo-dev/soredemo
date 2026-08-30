@@ -369,3 +369,8 @@
 "Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "念到哪个字就亮哪个字。需要逐字时间 —— 没有的话整行一起画。";
 "Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "字更大,离底部留得更开,竖版视频的界面就在那里。会占掉画面更多。";
 "Edited from a preset. Picking one above replaces every value below." = "已从预设样式改过。在上面选一个会取代下面每一个值。";
+"Names" = "名称";
+"A name, spelled your way" = "一个名字,照你要的拼法";
+"Add" = "加入";
+"Remove this name" = "移除这个名字";
+"These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "这些会校正识别结果的**拼写**。它们没办法让识别器听出一个它不认识的名字 —— 被听成完全别的东西的名字,仍然是那样。";
