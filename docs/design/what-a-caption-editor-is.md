@@ -29,6 +29,24 @@ The CJK figures are roughly half the Latin ones for the same reason a CJK line i
 half the length: a full-width character carries about what two or three letters do,
 so 9 CPS of Chinese is about the information rate of 20 CPS of English.
 
+**The two reading speeds are one number in a different unit, and that is now how this
+is implemented.** Measured in DISPLAY WIDTH — a full-width character being two columns
+— 17 CPS of Latin is 17 and 9 CPS of CJK is 18: the same figure within six per cent.
+They differ because they are quoted in different units, not because reading Chinese is
+a different act. `CaptionMeasurement.widthPerSecond` is the single limit and the two
+published figures are what it reproduces.
+
+The idea came from reading a shipping open-source subtitle pipeline (`SmartSub`),
+which measures line length in East-Asian display width rather than in characters.
+Adopting it closed a hole this project had documented and accepted: `CaptionScript.of`
+calls a line spaced if it contains one space anywhere, so a Chinese caption with a
+single English word in it was held to the Latin limit. Width counts each character for
+what it occupies whatever its neighbours are.
+
+The line lengths stay two numbers — 42 of width for Latin and 32 for CJK — because the
+guidelines really do differ there: a CJK line is held shorter than its width alone
+would allow.
+
 **Implemented 2026-08-31** in `CaptionScript`, which carries both columns, and in
 `CaptionMeasurement`, which judges a cue against the column its text belongs to.
 `CaptionBuilder.longestLine` is now `CaptionScript.spaced.longestLine` rather than a

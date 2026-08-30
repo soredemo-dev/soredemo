@@ -261,3 +261,50 @@ private func cue(_ text: String, _ start: Double, _ end: Double,
     #expect(fixed.cues.map(\.end) == track.cues.map(\.end))
     #expect(fixed.cues[0].words == words, "the recogniser's own runs were rewritten")
 }
+
+// MARK: - the two published reading speeds are one number in display width
+
+/// **17 characters a second of Latin and 9 of CJK are the same figure quoted in different
+/// units.** In display width — a full-width character being two columns — they are 17 and 18,
+/// within six per cent. This pins that, so a future edit that reintroduces two limits has to
+/// argue with the arithmetic rather than with a previous draft.
+@Test func theTwoPublishedReadingSpeedsAgreeOnceMeasuredInWidth() {
+    let latin = String(repeating: "a", count: 17)
+    let cjk = String(repeating: "字", count: 9)
+    #expect(CaptionMeasurement.width(of: latin) == 17)
+    #expect(CaptionMeasurement.width(of: cjk) == 18)
+
+    // Each at its own published rate is comfortable; a little more of either is not.
+    #expect(CaptionMeasurement(text: latin, duration: ns(1)).fault == nil)
+    #expect(CaptionMeasurement(text: cjk, duration: ns(1.06)).fault == nil,
+            "nine CJK characters a second failed its own published rate")
+    #expect(CaptionMeasurement(text: latin + "aaaa", duration: ns(1)).fault == .tooFast)
+    #expect(CaptionMeasurement(text: cjk + "字字", duration: ns(1)).fault == .tooFast)
+}
+
+/// **The mixed-line hole is closed.** `CaptionScript.of` calls a line spaced if it contains one
+/// space anywhere, so a Chinese caption with a single English word in it used to be held to the
+/// Latin limit — a lenient failure this project documented and accepted. Width counts each
+/// character for what it occupies whatever its neighbours are.
+@Test func aChineseLineWithOneEnglishWordIsNotJudgedAsLatin() {
+    // Twenty CJK characters and one short Latin word: 40 + 4 = 44 of width, over the 42 a
+    // spaced line is allowed and far over the 32 a dense one is.
+    let mixed = String(repeating: "字", count: 20) + " demo"
+    #expect(CaptionScript.of(mixed) == .spaced, "the premise is gone — this is judged as dense")
+    #expect(CaptionMeasurement.width(of: mixed) == 44)
+    #expect(CaptionMeasurement.width(of: mixed) > CaptionScript.spaced.longestLine,
+            "counted as characters this line is 25 and passes; counted as width it does not")
+
+    // And it is broken rather than left whole, which is what the hole used to allow.
+    let cues = CaptionBuilder.cues(
+        for: TranscribedSegment(text: mixed, start: ns(0), end: ns(4)), fits: { _ in true })
+    #expect(cues.count > 1, "a 44-wide line survived because it had one space in it")
+}
+
+/// Whitespace is not read, so it is not measured — which is also how the published figures are
+/// defined, and why a line's width is not its character count.
+@Test func whitespaceCostsNothingToRead() {
+    #expect(CaptionMeasurement.width(of: "a b c") == 3)
+    #expect(CaptionMeasurement.width(of: "  ") == 0)
+    #expect(CaptionMeasurement.width(of: "") == 0)
+}

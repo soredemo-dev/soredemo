@@ -220,8 +220,13 @@ private extension Array where Element == CaptionCue {
 
     #expect(cues.count > 1, "nothing broke a 76-character line — the reading limit is not applied")
     for cue in cues {
-        #expect(cue.text.count <= CaptionBuilder.longestLine,
-                "a \(cue.text.count)-character line survived: |\(cue.text)|")
+        // **Width, not characters, because that is what the rule measures.** Whitespace does
+        // not count and a full-width character counts twice, so 42 is 42 Latin words' worth of
+        // ink whatever the script — this assertion used to count characters and disagreed with
+        // the rule by exactly the spaces in the line.
+        let width = CaptionMeasurement.width(of: cue.text)
+        #expect(width <= CaptionBuilder.longestLine,
+                "a line of width \(width) survived: |\(cue.text)|")
     }
     #expect(cues.map(\.text).joined(separator: " ") == long, "breaking changed the words")
 }
