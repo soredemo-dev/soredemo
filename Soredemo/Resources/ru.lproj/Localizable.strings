@@ -389,3 +389,7 @@
 "Previous caption" = "Предыдущий субтитр";
 "Next caption" = "Следующий субтитр";
 "No caption contains that." = "Ни один субтитр не содержит этого.";
+"Play from this caption" = "Воспроизвести с этого субтитра";
+"Dismiss this suggestion" = "Скрыть эту подсказку";
+"Fix them too" = "Исправить и там";
+"The same change fits %lld other line(s)." = "То же исправление подходит ещё для %lld строк(и).";

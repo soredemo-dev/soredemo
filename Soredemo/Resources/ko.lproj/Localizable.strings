@@ -389,3 +389,7 @@
 "Previous caption" = "이전 자막";
 "Next caption" = "다음 자막";
 "No caption contains that." = "그것을 포함한 자막이 없습니다.";
+"Play from this caption" = "이 자막부터 재생";
+"Dismiss this suggestion" = "이 제안 닫기";
+"Fix them too" = "한꺼번에 고치기";
+"The same change fits %lld other line(s)." = "같은 수정이 다른 %lld개 줄에도 맞습니다.";

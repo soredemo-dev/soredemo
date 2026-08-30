@@ -391,3 +391,7 @@
 "Previous caption" = "前の字幕";
 "Next caption" = "次の字幕";
 "No caption contains that." = "それを含む字幕はありません。";
+"Play from this caption" = "この字幕から再生";
+"Dismiss this suggestion" = "この提案を閉じる";
+"Fix them too" = "まとめて直す";
+"The same change fits %lld other line(s)." = "同じ修正が他の %lld 件にも当てはまります。";

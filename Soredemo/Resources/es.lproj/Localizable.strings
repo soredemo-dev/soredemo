@@ -391,3 +391,7 @@
 "Previous caption" = "Subtítulo anterior";
 "Next caption" = "Subtítulo siguiente";
 "No caption contains that." = "Ningún subtítulo contiene eso.";
+"Play from this caption" = "Reproducir desde este subtítulo";
+"Dismiss this suggestion" = "Descartar esta sugerencia";
+"Fix them too" = "Corregirlas también";
+"The same change fits %lld other line(s)." = "El mismo cambio encaja en %lld línea(s) más.";

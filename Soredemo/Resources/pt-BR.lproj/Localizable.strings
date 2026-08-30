@@ -390,3 +390,7 @@
 "Previous caption" = "Legenda anterior";
 "Next caption" = "Próxima legenda";
 "No caption contains that." = "Nenhuma legenda contém isso.";
+"Play from this caption" = "Reproduzir a partir desta legenda";
+"Dismiss this suggestion" = "Dispensar esta sugestão";
+"Fix them too" = "Corrigir também";
+"The same change fits %lld other line(s)." = "A mesma alteração serve para %lld outra(s) linha(s).";

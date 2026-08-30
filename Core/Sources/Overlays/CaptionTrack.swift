@@ -231,3 +231,73 @@ extension CaptionTrack {
         return CaptionTrack(cues: updated)
     }
 }
+
+// MARK: - one correction, applied everywhere it belongs
+
+/// What changed between two versions of a line, when it was one contiguous run.
+///
+/// **Common prefix and common suffix, rather than splitting into words.** A word split needs
+/// word gaps, and half the languages this app recognises have none — a Chinese product name
+/// corrected in one caption is exactly the case worth catching, and it has no spaces around it.
+/// The differing middle is the correction whatever the script.
+public struct RunEdit: Sendable, Equatable {
+    public let was: String
+    public let now: String
+
+    /// `nil` when nothing changed, when the whole line was rewritten rather than one run
+    /// corrected, or when what changed is too short to replace safely.
+    ///
+    /// **A one-character run is refused.** Replacing every "的" or every "a" across a transcript
+    /// on the strength of one edit is a change nobody could review, and the offer is only worth
+    /// making where a person can predict what it will do.
+    public static let shortestRun = 2
+
+    public init?(from before: String, to after: String) {
+        guard before != after else { return nil }
+        let old = Array(before), new = Array(after)
+        var head = 0
+        while head < old.count, head < new.count, old[head] == new[head] { head += 1 }
+        var tail = 0
+        while tail < old.count - head, tail < new.count - head,
+              old[old.count - 1 - tail] == new[new.count - 1 - tail] { tail += 1 }
+
+        let was = String(old[head..<(old.count - tail)])
+        let now = String(new[head..<(new.count - tail)])
+        // Both sides non-empty: a pure insertion or deletion is not a term being corrected, and
+        // replacing "" everywhere is not a thing anybody means.
+        guard was.count >= Self.shortestRun, !now.isEmpty else { return nil }
+        // The whole line replaced is a rewrite, not a correction to carry elsewhere.
+        guard head > 0 || tail > 0 else { return nil }
+        self.was = was
+        self.now = now
+    }
+}
+
+extension CaptionTrack {
+    /// How many cues, other than `excluding`, contain `run`.
+    ///
+    /// **Counted before it is offered.** "Fix this everywhere" is safe to press only when a
+    /// person can see how far "everywhere" reaches; an offer with no number is a button whose
+    /// effect is discovered afterwards.
+    public func cuesContaining(_ run: String, excluding index: Int? = nil) -> Int {
+        guard !run.isEmpty else { return 0 }
+        return cues.enumerated().count { offset, cue in
+            offset != index && cue.text.contains(run)
+        }
+    }
+
+    /// Every occurrence of `run` replaced, in every cue.
+    ///
+    /// A plain substring replacement, deliberately: the run came from a diff of two strings the
+    /// person typed, so it is already exactly the text they changed, and matching it any more
+    /// cleverly would find something they did not mean. **The word runs are left alone** — they
+    /// carry the recogniser's own text and its times, and rewriting them would put a corrected
+    /// spelling on a span the recogniser never said it about.
+    public func replacing(_ run: String, with replacement: String) -> CaptionTrack {
+        guard !run.isEmpty else { return self }
+        return CaptionTrack(cues: cues.map { cue in
+            CaptionCue(text: cue.text.replacingOccurrences(of: run, with: replacement),
+                       start: cue.start, end: cue.end, words: cue.words)
+        })
+    }
+}

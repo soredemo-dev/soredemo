@@ -405,3 +405,7 @@
 "Previous caption" = "Previous caption";
 "Next caption" = "Next caption";
 "No caption contains that." = "No caption contains that.";
+"Play from this caption" = "Play from this caption";
+"Dismiss this suggestion" = "Dismiss this suggestion";
+"Fix them too" = "Fix them too";
+"The same change fits %lld other line(s)." = "The same change fits %lld other line(s).";

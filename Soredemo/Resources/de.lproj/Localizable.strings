@@ -389,3 +389,7 @@
 "Previous caption" = "Vorheriger Untertitel";
 "Next caption" = "Nächster Untertitel";
 "No caption contains that." = "Kein Untertitel enthält das.";
+"Play from this caption" = "Ab diesem Untertitel abspielen";
+"Dismiss this suggestion" = "Diesen Vorschlag schließen";
+"Fix them too" = "Auch dort korrigieren";
+"The same change fits %lld other line(s)." = "Dieselbe Änderung passt auf %lld weitere Zeile(n).";

@@ -405,3 +405,7 @@
 "Previous caption" = "上一句";
 "Next caption" = "下一句";
 "No caption contains that." = "沒有字幕包含這個。";
+"Play from this caption" = "從這一句開始播放";
+"Dismiss this suggestion" = "關閉這個建議";
+"Fix them too" = "一起改掉";
+"The same change fits %lld other line(s)." = "同樣的修改也適合另外 %lld 句。";

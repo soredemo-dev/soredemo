@@ -391,3 +391,7 @@
 "Previous caption" = "上一句";
 "Next caption" = "下一句";
 "No caption contains that." = "没有字幕包含这个。";
+"Play from this caption" = "从这一句开始播放";
+"Dismiss this suggestion" = "关闭这个建议";
+"Fix them too" = "一起改掉";
+"The same change fits %lld other line(s)." = "同样的修改也适合另外 %lld 句。";

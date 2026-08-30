@@ -185,3 +185,79 @@ private func cue(_ text: String, _ start: Double, _ end: Double,
     #expect(CaptionTrack().index(steppingFrom: ns(0), by: 1) == nil,
             "an empty track produced an index into nothing")
 }
+
+// MARK: - one correction, applied everywhere it belongs
+
+/// **The thing that makes correcting a transcript hard is not one line — it is the same word
+/// forty times.** A demo says a product's name forty times and the recogniser gets it wrong
+/// forty times. Catching what changed in one edit is what turns forty corrections into one.
+@Test func whatChangedInOneEditIsTheRunThatDiffers() throws {
+    // "Sorodimo" → "Soredemo" shares the prefix "Sor" and the suffix "mo", so the run that
+    // differs is the three characters between them. Narrower than the word, and that is correct:
+    // it is exactly what the person changed, and replacing it elsewhere replaces the same
+    // mistake wherever the recogniser made it.
+    let edit = try #require(RunEdit(from: "Open Sorodimo and press record",
+                                    to: "Open Soredemo and press record"))
+    #expect(edit.was == "odi")
+    #expect(edit.now == "ede")
+    #expect("Sorodimo".replacingOccurrences(of: edit.was, with: edit.now) == "Soredemo",
+            "applying the run to the word it came from does not produce what was typed")
+
+    // A run with nothing shared inside it comes back whole.
+    let clean = RunEdit(from: "press the Cog button", to: "press the Gear button")
+    #expect(clean?.was == "Cog" && clean?.now == "Gear")
+}
+
+/// **Prefix and suffix rather than word splitting**, because half the languages this app
+/// recognises have no word gaps — and a Chinese product name corrected once is exactly the case
+/// worth catching.
+@Test func aRunIsFoundInAScriptWithNoWordGaps() {
+    let edit = RunEdit(from: "請開啟索雷德莫並按下錄製", to: "請開啟 Soredemo 並按下錄製")
+    #expect(edit?.was == "索雷德莫")
+    #expect(edit?.now == " Soredemo ")
+}
+
+/// Three things that are not a term being corrected, and each says so rather than offering a
+/// replacement somebody would have to undo everywhere.
+@Test func aRewriteAnInsertionAndAOneCharacterChangeAreNotOffers() {
+    // The whole line replaced is a rewrite.
+    #expect(RunEdit(from: "one thing", to: "something else entirely") == nil)
+    // A pure insertion has nothing to replace.
+    #expect(RunEdit(from: "press record", to: "press the record") == nil)
+    // One character is too short to replace everywhere on the strength of one edit.
+    #expect(RunEdit(from: "the cat sat", to: "the bat sat") == nil)
+    // And no change at all is not an edit.
+    #expect(RunEdit(from: "same", to: "same") == nil)
+}
+
+/// The offer is counted before it is made. "Fix this everywhere" is safe to press only when a
+/// person can see how far everywhere reaches.
+@Test func theOfferSaysHowManyOtherLinesItWillChange() {
+    let track = CaptionTrack(cues: [
+        cue("Open Sorodimo now", 0, 1),
+        cue("Sorodimo records the screen", 2, 3),
+        cue("then press stop", 4, 5),
+        cue("Sorodimo saves it", 6, 7),
+    ])
+    #expect(track.cuesContaining("Sorodimo", excluding: 0) == 2,
+            "the cue being edited was counted as one of the others")
+    #expect(track.cuesContaining("Sorodimo") == 3)
+    #expect(track.cuesContaining("nothing here") == 0)
+    #expect(track.cuesContaining("") == 0, "an empty run matched every line")
+}
+
+/// Applying it changes the text everywhere and **leaves the word runs alone**: they carry the
+/// recogniser's own text and times, and a corrected spelling on a span the recogniser never said
+/// it about would put the highlight on a word that was not spoken.
+@Test func applyingACorrectionLeavesTheTimesAndTheWordRunsAlone() {
+    let words = [TranscribedWord(text: "Sorodimo", start: ns(0), end: ns(0.6)),
+                 TranscribedWord(text: "now", start: ns(0.6), end: ns(1))]
+    let track = CaptionTrack(cues: [cue("Sorodimo now", 0, 1, words: words),
+                                    cue("and Sorodimo again", 2, 3)])
+    let fixed = track.replacing("Sorodimo", with: "Soredemo")
+
+    #expect(fixed.cues.map(\.text) == ["Soredemo now", "and Soredemo again"])
+    #expect(fixed.cues.map(\.start) == track.cues.map(\.start))
+    #expect(fixed.cues.map(\.end) == track.cues.map(\.end))
+    #expect(fixed.cues[0].words == words, "the recogniser's own runs were rewritten")
+}

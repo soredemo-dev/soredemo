@@ -136,6 +136,19 @@ final class CaptionsModel {
         publish()
     }
 
+    /// One correction applied to every line that has the same run in it, and remembered.
+    ///
+    /// **Both, because they answer different halves of the same question.** Replacing fixes the
+    /// captions that exist; adding the corrected spelling to `spokenTerms` means transcribing
+    /// this recording again does not undo the work — `Transcript.correcting(terms:)` puts it
+    /// back. Doing only the first is a correction that survives until somebody presses
+    /// Transcribe; doing only the second changes nothing on screen now.
+    func applyEverywhere(_ edit: RunEdit, correctedWord: String?) {
+        track = track.replacing(edit.was, with: edit.now)
+        if let correctedWord, addTerm(correctedWord) { }
+        publish()
+    }
+
     func setBurnsIn(_ value: Bool) {
         burnsIn = value
         publish()
@@ -286,37 +299,70 @@ struct CaptionsPanel: View {
     let onSeek: (Nanoseconds) -> Void
 
     @State private var maximumWords: Int?
-    @State private var editingIndex: Int?
-    @State private var draft = ""
     /// Why a chosen font did not take, or `nil`. Said rather than left to look like the picker
     /// did nothing: a copy that fails silently is a font somebody chose and cannot find.
     @State private var fontFailure: String?
     /// The name being typed. Cleared on add, so the field is ready for the next one.
     @State private var newTerm = ""
-    /// Which cue's timing controls are open. Separate from `editingIndex`: correcting the words
-    /// and correcting the span are different jobs, and showing both sets at once puts six
-    /// controls under a line somebody wanted to retype.
-    @State private var selectedIndex: Int?
     /// What the list is filtered to. **A filter, not a jump-to-match**: on a long recording the
     /// question is "where did I say that", and the answer is every line that says it.
     @State private var search = ""
+    /// Which row has the caret. Also what decides whether the list follows the playhead: a list
+    /// that scrolled itself while somebody was typing in it would move the field out from under
+    /// them.
+    @FocusState private var focused: Int?
+    /// What the focused row said before anybody typed in it, so a commit can tell what changed.
+    @State private var textOnFocus: (index: Int, text: String)?
+    /// A correction worth offering to apply everywhere, with how many other lines it reaches.
+    @State private var offer: (edit: RunEdit, others: Int, word: String)?
 
     var body: some View {
-        List {
-            Section("Transcript") { transcriptControls }
-            if !model.track.isEmpty {
-                Section("Preset") { presetControls }
-                Section("Look") { lookControls }
-                Section("Lines") {
-                    listControls
-                    lines
+        // **`ScrollViewReader` around the LIST, and one row per cue inside it.** Both were wrong
+        // together: the cues were built into a `VStack` inside a single `Section` row, so a
+        // 270-cue recording built 270 views before showing one, and the scroll that follows the
+        // playhead was a scroll view nested inside another one. A row each is lazy and is what
+        // `scrollTo` addresses.
+        ScrollViewReader { scroller in
+            List {
+                Section("Transcript") { transcriptControls }
+                if !model.track.isEmpty {
+                    Section("Preset") { presetControls }
+                    Section("Look") { lookControls }
+                    Section("Lines") {
+                        listControls
+                        ForEach(visibleCues, id: \.index) { entry in
+                            row(index: entry.index, cue: entry.cue).id(entry.index)
+                        }
+                        if visibleCues.isEmpty, !search.isEmpty {
+                            Text("No caption contains that.")
+                                .font(Type.detail).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if let status = model.status {
+                    Section { Text(status).font(Type.detail).foregroundStyle(.secondary) }
                 }
             }
-            if let status = model.status {
-                Section { Text(status).font(Type.detail).foregroundStyle(.secondary) }
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom) { offerBar }
+            .onChange(of: focused) { previous, current in
+                // Leaving a row commits it, the same as Return does — a person who clicks away
+                // has finished with that line as much as one who pressed a key.
+                if let previous, previous != current {
+                    noteCorrection(at: previous)
+                    onChange()
+                }
+                if let current, current < model.track.cues.count {
+                    textOnFocus = (current, model.track.cues[current].text)
+                }
+            }
+            .onChange(of: currentIndex) {
+                guard let currentIndex, focused == nil else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    scroller.scrollTo(currentIndex, anchor: .center)
+                }
             }
         }
-        .listStyle(.sidebar)
     }
 
     @ViewBuilder private var transcriptControls: some View {
@@ -657,76 +703,122 @@ struct CaptionsPanel: View {
     private func jump(by delta: Int) {
         guard let target = model.track.index(steppingFrom: playhead, by: delta) else { return }
         onSeek(model.track.cues[target].start)
-        selectedIndex = target
+        focused = target
     }
 
-    /// **A row per cue, and the row the playhead is in is lit.** The list and the transport are
-    /// the same cursor seen twice: clicking a row moves the playhead to it, and playing moves
-    /// the highlight. A list that did neither is a table of contents.
+    /// **Every row is a live field, and Return goes to the next one.**
     ///
-    /// `ScrollViewReader` keeps the lit row visible during playback. Scrolling only on a CHANGE
-    /// of index, not on every playhead tick — a scroll issued sixty times a second while the
-    /// same row stays current fights a person trying to look somewhere else in the list.
-    @ViewBuilder private var lines: some View {
-        ScrollViewReader { scroller in
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(visibleCues, id: \.index) { entry in
-                    row(index: entry.index, cue: entry.cue).id(entry.index)
-                }
-                if visibleCues.isEmpty, !search.isEmpty {
-                    Text("No caption contains that.")
-                        .font(Type.detail).foregroundStyle(.secondary)
-                        .padding(.vertical, Space.tight)
-                }
-            }
-            .onChange(of: currentIndex) {
-                guard let currentIndex else { return }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    scroller.scrollTo(currentIndex, anchor: .center)
-                }
-            }
-        }
-    }
-
+    /// Correcting a transcript is one continuous pass, not a series of little transactions. The
+    /// version before this made each cue modal — tap the TEXT to open a field, tap Save to
+    /// close, and tap somewhere else in the row for the timing controls — so fixing ten lines
+    /// cost thirty gestures and which one you got depended on hitting text or not hitting text,
+    /// which is a mode nothing on screen announced.
+    ///
+    /// Now: the field is always there, typing edits, Return commits and moves to the next cue
+    /// AND seeks to it, so the line you are fixing is the line you are hearing.
+    ///
+    /// **The model is written on every keystroke and the preview is rebuilt only on commit.**
+    /// Writing is an array copy and a static assignment, which a playing preview picks up on its
+    /// next frame; `onChange` reloads the composition, and doing that per character would make
+    /// typing unusable.
     @ViewBuilder private func row(index: Int, cue: CaptionCue) -> some View {
         let isCurrent = currentIndex == index
         VStack(alignment: .leading, spacing: Space.tight) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(timecode(cue.start)).font(Type.readout)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.primary)
-                                               : AnyShapeStyle(.secondary))
-                Spacer()
+            HStack(alignment: .firstTextBaseline, spacing: Space.snug) {
+                // The timecode seeks. A person who wants to HEAR a line before changing it
+                // should not have to put the caret in it first.
+                Button {
+                    onSeek(cue.start)
+                } label: {
+                    Text(timecode(cue.start))
+                        .font(Type.readout)
+                        .foregroundStyle(isCurrent ? AnyShapeStyle(.primary)
+                                                   : AnyShapeStyle(.secondary))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play from this caption")
+
+                TextField("Caption", text: Binding(
+                    get: { index < model.track.cues.count ? model.track.cues[index].text : "" },
+                    set: { model.setText($0, at: index) }))
+                    .textFieldStyle(.plain)
+                    .font(Type.label)
+                    .focused($focused, equals: index)
+                    .onSubmit { advance(from: index) }
+
                 measurement(of: cue)
             }
-            if editingIndex == index {
-                TextField("Caption", text: $draft, axis: .vertical)
-                    .onSubmit { commit(index) }
-                    // Esc is how a person leaves a field they opened by accident, and a panel
-                    // that only offers a Cancel button makes them reach for the mouse to undo a
-                    // click. `.escape` on a hidden button rather than `.onExitCommand`, which
-                    // the window would take first.
-                    .onKeyPress(.escape) { editingIndex = nil; return .handled }
-                editingControls(index: index)
-            } else {
-                Text(cue.text)
-                    .font(Type.label)
-                    // A recogniser gets a name or an acronym wrong far more often than it
-                    // gets the timing wrong, so correcting text is the common gesture and
-                    // it must not re-time the line.
-                    .onTapGesture { editingIndex = index; draft = cue.text }
-            }
-            if selectedIndex == index { timingControls(index: index, cue: cue) }
+            if focused == index { timingControls(index: index, cue: cue) }
         }
         .padding(.vertical, Space.hairline)
-        .padding(.horizontal, Space.tight)
-        .background(isCurrent ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous))
-        // Anywhere that is not the text: move the playhead here and open this cue's controls.
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onSeek(cue.start)
-            selectedIndex = selectedIndex == index ? nil : index
+        .listRowBackground(isCurrent
+            ? AnyView(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
+                .fill(.quaternary))
+            : AnyView(Color.clear))
+    }
+
+    /// The offer to apply one correction to the rest of the recording.
+    ///
+    /// **It says the number.** "Fix everywhere" with no count is a button whose effect is
+    /// discovered afterwards; with one it is a decision. Dismissable, and it goes away by itself
+    /// the moment another line is edited, because an offer about a line somebody has moved on
+    /// from is in the way.
+    @ViewBuilder private var offerBar: some View {
+        if let offer {
+            HStack(spacing: Space.snug) {
+                Image(systemName: "wand.and.sparkles").foregroundStyle(.secondary)
+                Text("The same change fits \(offer.others) other line(s).")
+                    .font(Type.detail)
+                Spacer()
+                Button("Fix them too") {
+                    model.applyEverywhere(offer.edit, correctedWord: offer.word)
+                    self.offer = nil
+                    onChange()
+                }
+                Button { self.offer = nil } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss this suggestion")
+            }
+            .padding(Space.snug)
+            .background(.thinMaterial)
         }
+    }
+
+    /// Commits what was typed and moves on. **Seeks as well as focuses**, so a pass down the
+    /// list plays the recording as it goes and a person hears the line they are about to read.
+    ///
+    /// At the last cue it commits and leaves the field rather than wrapping: a wrap would put
+    /// somebody back at the top of a recording they had just finished checking.
+    private func advance(from index: Int) {
+        noteCorrection(at: index)
+        onChange()
+        let next = index + 1
+        guard next < model.track.cues.count else { focused = nil; return }
+        onSeek(model.track.cues[next].start)
+        focused = next
+    }
+
+    /// **The reason correcting a transcript is hard is not one line — it is the same word forty
+    /// times.** A demo says a product's name forty times and the recogniser gets it wrong forty
+    /// times, and fixing that by hand is what makes people give up on automatic captions.
+    ///
+    /// So a commit that changed ONE contiguous run of text, in a line whose run appears
+    /// elsewhere, becomes an offer with the count on it. Offered rather than done: a silent
+    /// sweep across a transcript is a change nobody reviewed, and the count is what lets
+    /// somebody predict what pressing it will do.
+    private func noteCorrection(at index: Int) {
+        defer { textOnFocus = nil }
+        guard let before = textOnFocus, before.index == index,
+              index < model.track.cues.count else { return }
+        let after = model.track.cues[index].text
+        guard let edit = RunEdit(from: before.text, to: after) else { return }
+        let others = model.track.cuesContaining(edit.was, excluding: index)
+        guard others > 0 else { return }
+        // The whole word the run sits in is what gets remembered for next time — a term list of
+        // three-letter fragments would match things nobody meant.
+        let word = after.split(whereSeparator: \.isWhitespace)
+            .first { $0.contains(edit.now) }.map(String.init)
+        offer = (edit, others, word ?? edit.now)
     }
 
     /// A cue's own numbers, and the verdict when there is one.
@@ -770,43 +862,37 @@ struct CaptionsPanel: View {
             nudge("arrow.right", "End later") {
                 model.retime(at: index, start: cue.start, end: shifted(cue.end, by: Self.nudge.rawValue))
             }
-            Spacer()
+            Divider().frame(height: 12)
+            nudge("text.insert", "Split in two") {
+                model.split(at: index, atCharacter: splitOffset(of: cue.text))
+                focused = nil
+            }
+            .disabled(splitOffset(of: cue.text) == 0)
             nudge("arrow.triangle.merge", "Merge with the next line") {
                 model.merge(at: index)
-                selectedIndex = nil
+                focused = nil
             }
             .disabled(index + 1 >= model.track.cues.count)
+            Spacer()
             nudge("trash", "Delete this line") {
                 model.remove(at: index)
-                selectedIndex = nil
+                focused = nil
             }
         }
         .font(Type.detail)
     }
 
-    /// Splitting is offered only while editing, because the split point is the CARET — there is
-    /// no other way for a person to say where. `draft`'s own text is what gets split, so the
-    /// text is committed first: splitting a cue whose edits had not landed would discard them.
-    @ViewBuilder private func editingControls(index: Int) -> some View {
-        HStack(spacing: Space.snug) {
-            Button("Save") { commit(index) }
-            Button("Cancel") { editingIndex = nil }
-            Spacer()
-            Button("Split in two") {
-                model.setText(draft, at: index)
-                model.split(at: index, atCharacter: splitOffset(of: draft))
-                editingIndex = nil
-                selectedIndex = nil
-                onChange()
-            }
-            .disabled(splitOffset(of: draft) == 0)
-        }
-        .font(Type.detail)
-    }
-
-    /// Where a line splits when nobody has said: **the space nearest the middle**, which is the
-    /// break a person would have made. Zero when there is no space at all — a dense script with
-    /// no gaps has no offset this can guess, and offering the button would split it mid-word.
+    /// Where a line splits: **the space nearest the middle**, which is the break a person would
+    /// have made.
+    ///
+    /// **Not the caret, which is what a subtitle editor uses and what SwiftUI will not give.**
+    /// A `TextField` does not publish its selection, so the alternative to a computed point is a
+    /// text view of this app's own — a real cost for one control. The computed point is right
+    /// most of the time and `CaptionBuilder`'s balance rule is what produced the line in the
+    /// first place, so it usually agrees with itself.
+    ///
+    /// Zero when there is no space at all — a dense script has no offset this can guess, and the
+    /// button is disabled rather than splitting it mid-word.
     private func splitOffset(of text: String) -> Int {
         let characters = Array(text)
         let middle = characters.count / 2
@@ -826,12 +912,6 @@ struct CaptionsPanel: View {
             .buttonStyle(.borderless)
             .help(LocalizedStringKey(label))
             .accessibilityLabel(LocalizedStringKey(label))
-    }
-
-    private func commit(_ index: Int) {
-        model.setText(draft, at: index)
-        editingIndex = nil
-        onChange()
     }
 
     /// The font a caption is set in: the project's own, or the system's.
