@@ -171,3 +171,128 @@ private extension Array where Element == CaptionCue {
     /// The cue texts rejoined, for asserting that breaking did not lose or duplicate anything.
     func joined() -> String { map(\.text).joined(separator: " ") }
 }
+
+// MARK: - breaking, measured on a real narration
+
+/// **The floor was applied per segment and a segment cannot see the one after it.**
+///
+/// `enforcing` caps a cue at its successor's start so two lines are never on screen at once, and
+/// it was run once per segment — so the LAST cue of each segment had nothing to cap against and
+/// ran into the first cue of the next. Measured on a 28-second narration: six of twenty-nine
+/// cues overlapped, one by 700 ms. `CaptionTrack.cue(at:)` answers with one of an overlapping
+/// pair, so a line flicked back to the previous sentence for a few frames.
+@Test func noCueOutlastsTheNextOneAcrossASegmentBoundary() {
+    // Two segments that abut, each ending in a word short enough to want the minimum display.
+    let transcript = Transcript(
+        text: "How to record your screen. Trim it.",
+        words: [TranscribedWord(text: "How", start: ns(0), end: ns(0.3)),
+                TranscribedWord(text: "to", start: ns(0.3), end: ns(0.5)),
+                TranscribedWord(text: "record", start: ns(0.5), end: ns(0.9)),
+                TranscribedWord(text: "your", start: ns(0.9), end: ns(1.1)),
+                TranscribedWord(text: "screen.", start: ns(1.1), end: ns(1.3)),
+                TranscribedWord(text: "Trim", start: ns(1.4), end: ns(1.7)),
+                TranscribedWord(text: "it.", start: ns(1.7), end: ns(1.9))],
+        segments: [TranscribedSegment(text: "How to record your screen.",
+                                      start: ns(0), end: ns(1.3)),
+                   TranscribedSegment(text: "Trim it.", start: ns(1.4), end: ns(1.9))])
+
+    let cues = CaptionBuilder.cues(for: transcript, fits: fitting(14))
+    #expect(cues.count > 1, "one cue cannot overlap anything — this test decided nothing")
+    for (earlier, later) in zip(cues, cues.dropFirst()) {
+        #expect(earlier.end.rawValue <= later.start.rawValue,
+                """
+                a cue ending at \(earlier.end.rawValue) runs past the next one's start at \
+                \(later.start.rawValue) — two lines are on screen at once and `cue(at:)` picks one
+                """)
+    }
+}
+
+/// **A line can fit the frame and still be unreadable.** `fits` measures pixels; 42 characters
+/// is the broadcast figure for a line of Latin script, and it is a SECOND limit rather than a
+/// replacement. The measured case: "Trim the recording, and export it as a video file you can
+/// share with your team." came out as one 79-character cue, on screen for 4.3 seconds, well
+/// inside the pixel test.
+@Test func aLineThatFitsThePixelsIsStillBrokenAtTheReadingLimit() {
+    let long = "Trim the recording and export it as a video file you can share with your team"
+    let segment = TranscribedSegment(text: long, start: ns(0), end: ns(5))
+    // `fits` says yes to everything, so only the character limit can break this.
+    let cues = CaptionBuilder.cues(for: segment, fits: { _ in true })
+
+    #expect(cues.count > 1, "nothing broke a 76-character line — the reading limit is not applied")
+    for cue in cues {
+        #expect(cue.text.count <= CaptionBuilder.longestLine,
+                "a \(cue.text.count)-character line survived: |\(cue.text)|")
+    }
+    #expect(cues.map(\.text).joined(separator: " ") == long, "breaking changed the words")
+}
+
+/// A script with no spaces is not broken by a limit derived from the Latin alphabet. Chinese
+/// carries far more per character and has no gaps to break on; cutting at 42 would be a rule
+/// applied where its reason does not hold.
+@Test func aScriptWithNoWordGapsIsNotCutAtTheLatinLimit() {
+    let dense = String(repeating: "字", count: 80)
+    let cues = CaptionBuilder.cues(for: TranscribedSegment(text: dense, start: ns(0), end: ns(3)),
+                                   fits: { _ in true })
+    #expect(cues.map(\.text) == [dense])
+}
+
+/// **A one-word clause is an orphan; a one-word sentence is a line somebody said.**
+///
+/// The measured case: splitting at every comma left "First," alone on screen for 0.78 s. The
+/// merge is applied to commas and never to full stops, because "Yes." is a caption and "First,"
+/// is half of one.
+@Test func aOneWordClauseIsMergedAndAOneWordSentenceIsNot() {
+    let clause = CaptionBuilder.cues(
+        for: TranscribedSegment(text: "First, open the app from the menu bar",
+                                start: ns(0), end: ns(3)),
+        fits: { _ in true })
+    #expect(clause.first?.text.hasPrefix("First, open") == true,
+            "the one-word clause is still alone: |\(clause.first?.text ?? "")|")
+
+    // Long enough that it is split at all: a line inside the reading limit is returned whole,
+    // which is what the first version of this test measured without meaning to.
+    let sentence = CaptionBuilder.cues(
+        for: TranscribedSegment(text: "Yes. Open the app from the menu bar and choose a display",
+                                start: ns(0), end: ns(3)),
+        fits: { _ in true })
+    #expect(sentence.first?.text == "Yes.",
+            "a one-word sentence was swallowed by the next one: |\(sentence.first?.text ?? "")|")
+}
+
+/// **Coalescing can collapse a split entirely, and the first version recursed forever on it.**
+/// Two clauses whose first is one word join back into exactly the string that was handed in, and
+/// splitting that finds the same comma. The test is that this returns at all.
+@Test func aCommaSplitThatCollapsesBackDoesNotRecurseForever() {
+    let cues = CaptionBuilder.cues(
+        for: TranscribedSegment(text: "First, open it", start: ns(0), end: ns(2)),
+        fits: { _ in true })
+    #expect(cues.map(\.text) == ["First, open it"])
+}
+
+/// The break is chosen, not taken at the middle word.
+@Test func theBreakIsBalancedByCharactersAndAvoidsEndingOnAWordThatBindsForward() {
+    // Halving by WORD count puts the break after "you"; balancing by characters and penalising
+    // an ending on "how" — which opens a clause and never closes one — moves it one word left.
+    #expect(CaptionBuilder.breakAtMiddleWord("Today I'll show you how to record your screen.")
+            == ["Today I'll show you", "how to record your screen."])
+
+    // Word-count halving would split this 4/4 and leave the two halves at 25 and 9 characters.
+    #expect(CaptionBuilder.breakAtMiddleWord("extraordinarily complicated arrangement here of it")
+            .map(\.count).max()! <= 32)
+
+    // And a single word is not broken: a caption reading "transcrip" then "tion" is worse than
+    // one that overflows.
+    #expect(CaptionBuilder.breakAtMiddleWord("supercalifragilistic")
+            == ["supercalifragilistic"])
+}
+
+/// An orphan on either side is penalised, so a break that leaves one word alone loses to a
+/// slightly less balanced one that does not.
+@Test func theBreakDoesNotStrandASingleWord() {
+    let halves = CaptionBuilder.breakAtMiddleWord("we recorded the entire session yesterday x")
+    #expect(halves.count == 2)
+    for half in halves {
+        #expect(half.split(separator: " ").count > 1,
+                "a break stranded a single word: |\(half)|")
+    }
+}
