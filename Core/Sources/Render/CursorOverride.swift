@@ -12,26 +12,19 @@ import Timeline
 public struct CursorOverride: Hashable, Sendable {
     /// **The boot session `start` is measured in — and the reason this field exists.**
     ///
-    /// `start` is an instant in the ABSOLUTE host clock, the domain every observation record is
-    /// stamped in and the domain `PointerTrack.position(at:)` is queried in. Nothing about a bare
-    /// `Nanoseconds` says so. `HostInstant` and `HostRange` — this project's other two persisted
-    /// time types — both carry their epoch for exactly this reason; this type was the one that
-    /// did not, and a reviewer UI writing `CursorOverride(start: Nanoseconds(3_200_000_000), …)`
-    /// (the shape every unit test writes) would be a silent recurrence of `1a98402`, where a
-    /// composition-relative number was compared against an absolute-clock track and matched
-    /// nothing, on every frame, for a whole phase.
+    /// `start` is an instant in the ABSOLUTE host clock, and nothing about a bare `Nanoseconds`
+    /// says so. `HostInstant` and `HostRange` both carry their epoch for this reason; this type
+    /// was the one that did not, and a reviewer UI writing `CursorOverride(start:
+    /// Nanoseconds(3_200_000_000), …)` — the shape every unit test writes — would be a silent
+    /// recurrence of `1a98402`, where a composition-relative number was compared against an
+    /// absolute-clock track and matched nothing on every frame for a whole phase.
     ///
-    /// **Added while zero files exist.** This type is `Codable` and has no writer: no `.soredemo`
-    /// package on disk carries an override. That is the only window in which adding this field is
-    /// not a migration — after the first file is written, old overrides would be permanently
-    /// ambiguous about which clock they meant, with no way to decide retroactively.
-    ///
-    /// **The deferred behaviour arrived 2026-08-12**: `PointerTrack.position(at:)` now takes a
-    /// `HostInstant` and compares this epoch before the interval, so an override recorded against
-    /// another boot session no longer suppresses by host-time coincidence
-    /// (`anOverrideFromAnotherEpochDoesNotSuppress`). The field is still required on decode rather
-    /// than defaulted precisely so it cannot be quietly omitted: a file without it fails to decode
-    /// instead of inheriting whatever the reader assumes.
+    /// **Added while zero files exist**, which is the only window in which this is not a
+    /// migration: after the first override is written, old ones would be permanently ambiguous
+    /// about which clock they meant. `PointerTrack.position(at:)` compares this epoch before the
+    /// interval (`anOverrideFromAnotherEpochDoesNotSuppress`), and the field is required on
+    /// decode rather than defaulted so a file without it fails loudly instead of inheriting
+    /// whatever the reader assumes.
     public let epoch: BootEpoch
     public let start: Nanoseconds
     public let duration: Nanoseconds

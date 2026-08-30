@@ -73,8 +73,8 @@ public struct PointerTrack: Sendable {
     /// recording, the finest a tap reports on a Retina display.
     public static let motionThreshold: Double = 0.5 / 2160
 
-    /// How long the idle fade takes, out and in. a Rust recorder fades over a similar span; Screen
-    /// Studio's is not published. **Uncalibrated.**
+    /// How long the idle fade takes, out and in. One surveyed recorder fades over a similar span
+    /// and the rest do not publish theirs (`docs/design/2026-08-30-what-the-market-ships.md`). **Uncalibrated.**
     public static let idleFadeSeconds: Double = 0.3
 
     /// **The cursor's opacity under the idle rule: 1 while it has moved within `hideAfter`,

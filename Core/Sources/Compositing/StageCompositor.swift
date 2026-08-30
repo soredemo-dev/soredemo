@@ -100,21 +100,18 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// **The share of the output frame the recording occupies, so zoom depth is decided for
     /// the frame being exported rather than for the recording's shape.**
     ///
-    /// `StagePlanner` fits and never crops, so a variant that is not the recording's own
-    /// shape leaves bars and shrinks everything in the picture — a 16:9 recording covers
-    /// about 0.32 of a 9:16 frame, and a control legible in landscape comes out a little
-    /// over half the length in portrait. Until this seam existed, a portrait export
-    /// inherited landscape's depths and looked it.
+    /// `StagePlanner` fits and never crops, so a variant that is not the recording's own shape
+    /// leaves bars and shrinks everything — a 16:9 recording covers about 0.32 of a 9:16 frame,
+    /// and a control legible in landscape comes out a little over half the length in portrait.
+    /// Until this seam existed, a portrait export inherited landscape's depths and looked it.
     ///
-    /// **A plain `Double` rather than the `AspectVariant` it comes from, because the module
-    /// graph says so**: `Compositing` depends on `Framing`, and `Variants` depends on
-    /// `Framing` too — this target cannot name `AspectVariant`. The app tier computes
-    /// `variant.coverage(ofSourceAspect:)` and publishes the number, the same way it already
-    /// publishes `crop`.
+    /// **A plain `Double` rather than the `AspectVariant` it comes from, because the module graph
+    /// says so**: this target cannot name `AspectVariant`. The app tier computes
+    /// `variant.coverage(ofSourceAspect:)` and publishes the number, as it already does `crop`.
     ///
-    /// **1 is the recording's own shape, and it is the right value to start at** — not a
-    /// "safe default" standing in for a measurement. A composition nobody has told about a
-    /// variant is being asked to render the recording as recorded.
+    /// **1 is the recording's own shape and the right value to start at** — not a "safe default"
+    /// standing in for a measurement: a composition nobody has told about a variant is being
+    /// asked to render the recording as recorded.
     public nonisolated(unsafe) static var outputCoverage: Double = 1
 
     /// **How much of the derived zoom to use, everywhere at once.** 1 is what the gates
@@ -634,23 +631,18 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// **The cursor's own smear for one frame, under the SAME shutter the card gets.**
     ///
     /// A frame is one exposure, so everything that moves across it smears — making the card's
-    /// blur automatic and the cursor's a knob would be two answers to one question. There is
-    /// no `CursorStyle` field here for that reason; `StageCompositor.shutterFraction` governs
-    /// both. Offered as an inspector slider; some tools split the blur
-    /// three ways (cursor / zooming / panning, guide/animations); the effect is theirs, the
-    /// derivation from an exposure is this project's.
+    /// blur automatic and the cursor's a knob would be two answers to one question. There is no
+    /// `CursorStyle` field for that reason; `StageCompositor.shutterFraction` governs both.
     ///
-    /// **The card's pan is added to the cursor's own travel**, because the cursor's smear is
-    /// its displacement across the FRAME and the frame is moving too: a cursor held still
-    /// while the camera pans is travelling across the picture just as fast as one moving over
-    /// a still camera. `plan.motionBlur.panRadius` is half the card's travel, so the whole of
-    /// it is twice that, taken at `panAngle`.
+    /// **The card's pan is added to the cursor's own travel**, because the smear is displacement
+    /// across the FRAME and the frame is moving too: a cursor held still while the camera pans
+    /// crosses the picture just as fast as one moving over a still camera.
+    /// `plan.motionBlur.panRadius` is half the card's travel, so the whole is twice it.
     ///
-    /// **The zoom's radial term is left out**, and that is a real omission rather than an
-    /// oversight: it varies with distance from the card's centre, so a point sample would need
-    /// its own offset threaded through, and at the cursor it is a fraction of a pixel except
-    /// during a whip zoom with the cursor at the frame's edge. Named here so the day it
-    /// matters, it is a known gap and not a discovery.
+    /// **The zoom's radial term is left out**, a real omission rather than an oversight: it
+    /// varies with distance from the card's centre, so a point sample would need its own offset
+    /// threaded through, and at the cursor it is a fraction of a pixel except during a whip zoom
+    /// with the cursor at the frame's edge. Named so it is a known gap, not a discovery.
     nonisolated static func cursorSmear(velocity: (x: Double, y: Double), plan: RenderPlan,
                                         frameSeconds: Double) -> (radius: Double, angle: Double)? {
         guard frameSeconds > 0, frameSeconds.isFinite,

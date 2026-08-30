@@ -187,8 +187,8 @@ struct RecordingBarView: View {
         }
     }
 
-    /// The microphone, with its level under it — a Rust recorder puts a two-pixel meter inside the mic
-    /// button for the same reason: the question a person has during a recording is not "is the
+    /// The microphone, with its level under it — a surveyed recorder puts a two-pixel meter inside
+    /// the mic button for the same reason: the question a person has during a recording is not "is the
     /// microphone on" but "is it hearing me", and only a moving bar answers that.
     @ViewBuilder private var microphone: some View {
         VStack(spacing: Space.tight) {

@@ -298,7 +298,7 @@ struct StageStylePicker: View {
         }
         // **Four named amounts, plus off.** One hard-coded response was the defect and it
         // sat at the fastest value anybody ships — see `PointerPath.Tuning.Movement`, which
-        // carries the measurement against a Rust recorder's. Changing this re-bakes the cursor's path, so
+        // carries the measurement against a surveyed recorder's. Changing this re-bakes the cursor's path, so
         // it takes effect on the next composition rather than on the next frame.
         Picker("Cursor movement", selection: Binding(
             get: { model.cursor.movement },

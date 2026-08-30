@@ -199,7 +199,7 @@ public struct StageStyle: Hashable, Codable, Sendable {
     /// What it is for: a shadow separates the card from the background by darkening what is
     /// behind it, which works everywhere except at the corners, where the card's own edge meets
     /// the shadow's softest part. A one-pixel light edge is what interface chrome uses there,
-    /// and a Rust recorder offers it beside the shadow for the same reason.
+    /// and a surveyed recorder offers it beside the shadow for the same reason.
     ///
     /// **Light, not a colour of its own.** A border that could be any colour is a second
     /// background control, and the job here is edge definition rather than decoration — which a
@@ -218,11 +218,10 @@ public struct StageStyle: Hashable, Codable, Sendable {
 
     /// How much the background PICTURE is blurred, from 0 to 1.
     ///
-    /// **For a wallpaper, which is what makes it worth having.** Somebody's desktop picture is a
-    /// photograph: it has a horizon, a face, a logo, and all of that competes with the recording
-    /// sitting on top of it. Blurred, the same picture keeps its colours and its light and stops
-    /// being a picture — which is why this slider belongs directly under
-    /// its wallpaper grid rather than in a settings panel.
+    /// **For a wallpaper, which is what makes it worth having.** A desktop picture has a horizon,
+    /// a face, a logo, and all of it competes with the recording on top. Blurred, the same picture
+    /// keeps its colours and light and stops being a picture — which is why the slider sits under
+    /// the wallpaper grid rather than in a settings panel.
     ///
     /// **A blur here is nothing like the one `Redaction` refuses.** That refusal is a security
     /// argument: a Gaussian is a convolution, a convolution with a known kernel is reversible,

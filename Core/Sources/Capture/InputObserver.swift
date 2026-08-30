@@ -480,26 +480,22 @@ final class InputObserver: @unchecked Sendable {
 
     // MARK: - The conversion, in one place
 
-    /// Steps 2, 3 and 4 of the conversion; step 1
-    /// (`CGGeometryBridge.location(from:)`) stays at the call site, where the
-    /// CoreGraphics value exists.
+    /// Steps 2, 3 and 4 of the conversion; step 1 (`CGGeometryBridge.location(from:)`) stays at
+    /// the call site, where the CoreGraphics value exists.
     ///
-    /// **Takes a `CaptureViewport`, not a `DisplayArrangement`, and that is the
-    /// repair.** The arrangement is the right rectangle only when the capture IS
-    /// a display; a window recording normalised every sample against the display
-    /// while the video was in the window's space, so the drawn cursor was
-    /// systematically offset — two rectangles treated as one, `1a98402`'s family
-    /// in the geometry domain. The viewport is whatever is actually being
-    /// recorded, both capture kinds construct one, and neither is a branch here.
+    /// **Takes a `CaptureViewport`, not a `DisplayArrangement`, and that is the repair.** The
+    /// arrangement is the right rectangle only when the capture IS a display; a window recording
+    /// normalised every sample against the display while the video was in the window's space, so
+    /// the drawn cursor was systematically offset — two rectangles treated as one, `1a98402`'s
+    /// family in the geometry domain. The viewport is whatever is actually being recorded, both
+    /// capture kinds construct one, and neither is a branch here.
     ///
-    /// The conversion itself is `CaptureViewport.normalise`, not restated: it
-    /// owns global→local and delegates local→normalised to
-    /// `NormalizationContext`. One rule, one owner — this function is the seam,
-    /// not a second implementation of the arithmetic.
+    /// The conversion itself is `CaptureViewport.normalise`, not restated: it owns global→local
+    /// and delegates local→normalised to `NormalizationContext`. This function is the seam, not a
+    /// second implementation of the arithmetic.
     ///
-    /// Returns `nil` when the location is outside the recording — not a clamp
-    /// and not a nearest-display guess: a pointer that was not in shot has no
-    /// position in the recording.
+    /// Returns `nil` when the location is outside the recording — not a clamp and not a
+    /// nearest-display guess: a pointer that was not in shot has no position in the recording.
     public nonisolated static func normalizedPosition(
         globalTopLeftX: Double, globalTopLeftY: Double, in viewport: CaptureViewport
     ) -> (position: NormalizedPoint, revision: GeometryRevision)? {

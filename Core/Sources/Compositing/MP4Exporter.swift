@@ -197,27 +197,20 @@ public enum MP4Exporter {
 
     /// **One loop feeding both inputs, and the alternative is a deadlock.**
     ///
-    /// The first version wrote all the video and then all the audio, with a comment asserting
-    /// that `AVAssetWriter` accepts its inputs' data in any interleaving. That assertion is
-    /// false, and a real export found it: the writer stops signalling
-    /// `isReadyForMoreMediaData` on an input that has run far ahead of its siblings, because
-    /// it cannot lay out the file until the others catch up. A 15-second recording with audio
-    /// stalled at frame 134 — 2.23 seconds at 60 fps, which is the writer's interleaving
-    /// window, not a coincidence. The two-second fixture the tests used fit inside that window
-    /// and passed.
+    /// The first version wrote all the video and then all the audio, asserting that
+    /// `AVAssetWriter` accepts its inputs' data in any interleaving. That is false: the writer
+    /// stops signalling `isReadyForMoreMediaData` on an input that has run far ahead of its
+    /// siblings. A 15-second recording stalled at frame 134 — 2.23 s at 60 fps, which is the
+    /// writer's interleaving window, and the two-second fixture the tests used fit inside it.
     ///
-    /// So both inputs are fed from one loop, whichever is behind in presentation time and
-    /// ready. Preferring the one that is behind is what keeps them within the window; falling
-    /// through to the other when the preferred one is momentarily not ready is what stops a
-    /// wait on one input from starving the other, which would reproduce the same deadlock with
-    /// extra steps.
+    /// So both are fed from one loop, preferring whichever is behind in presentation time and
+    /// ready, and falling through to the other when the preferred one momentarily is not —
+    /// otherwise a wait on one input starves the other and the deadlock returns with extra steps.
     ///
-    /// **The video is resampled to a CONSTANT frame rate — a separate repair, kept here.**
-    /// `AVVideoComposition.frameDuration` does not resample: measured on the 10 fps fixture
-    /// with `frameDuration` set to 1/60, the export came out as 20 frames at exactly the
-    /// source's 100 ms spacing. That is fatal for screen recording, because ScreenCaptureKit
-    /// emits a frame when the screen changes and not otherwise — a real 11.4 s recording
-    /// measured 501 frames with gaps from 6.7 ms to 35 ms.
+    /// **The video is resampled to a CONSTANT frame rate — a separate repair, kept here**,
+    /// because `AVVideoComposition.frameDuration` does not resample and ScreenCaptureKit emits a
+    /// frame only when the screen changes. `docs/design/what-the-exporter-reads.md` has both
+    /// measurements.
     private nonisolated static func writeInterleaved(
         asset: AVAsset, videoTracks: [AVAssetTrack], audioTracks: [AVAssetTrack],
         composition: AVVideoComposition, frameDuration: CMTime, sessionStart: CMTime,

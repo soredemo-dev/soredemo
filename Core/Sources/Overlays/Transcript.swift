@@ -66,27 +66,18 @@ public struct Transcript: Sendable, Equatable, Codable {
     /// the sentence.**
     ///
     /// `nil` for an index outside `segments`, or for a segment whose own times are degenerate —
-    /// a recogniser can report a zero-length run, and cutting nothing while telling somebody
-    /// their sentence was deleted is worse than refusing.
+    /// cutting nothing while telling somebody their sentence was deleted is worse than refusing.
     ///
-    /// **The pause after it is deliberately left, and a first draft took it.** Speech is
-    /// separated by pauses, so cutting only the words leaves one on each side of the join and
-    /// a doubled pause reads as a fault rather than as an edit — which is the argument for
-    /// extending the cut to where the next sentence begins. It is the wrong argument here for
-    /// two reasons. A gap between sentences can be ten seconds of deliberate pause as easily as
-    /// a breath, and a rule that swallows it removes content nobody asked to remove. And this
-    /// app already has one owner for where the silences are and what to do about them —
-    /// `SilenceFinder`, the Silence lane, and `Remove Silent Span(s)` — so deciding it a second
-    /// time here would be a second answer to a question already answered, the same fault
-    /// `MusicDucking.speech(betweenSilences:over:)` exists to avoid.
-    ///
-    /// In practice the gap is usually small anyway: a recogniser endpoints AFTER a silence
-    /// threshold, so a segment's own end already carries part of the pause that ended it.
+    /// **The pause after it is deliberately left, and a first draft took it.** A gap between
+    /// sentences can be ten seconds of deliberate pause as easily as a breath, and this app
+    /// already has one owner for where the silences are — `SilenceFinder`, the Silence lane, and
+    /// `Remove Silent Span(s)`. Deciding it a second time here would be a second answer to a
+    /// question already answered. `docs/design/deleting-a-sentence.md` has the argument in full.
     ///
     /// **Source time, so a second deletion needs no re-mapping.** A transcript is timed against
-    /// the recording, not against the edit, and `EditTimeline.removing(sourceRange:)` takes
+    /// the recording rather than the edit, and `EditTimeline.removing(sourceRange:)` takes
     /// source time too — so deleting three sentences one at a time gives the same result in any
-    /// order, and none of the three ranges has to be recomputed after the others land.
+    /// order.
     public func removalRange(ofSegmentAt index: Int) -> Range<Int64>? {
         guard segments.indices.contains(index) else { return nil }
         let segment = segments[index]
@@ -143,13 +134,10 @@ public struct Transcript: Sendable, Equatable, Codable {
     /// **Non-adjacent choices stay separate**, because the words between them are being kept and
     /// merging across would delete them without being asked.
     ///
-    /// Returned in source time and in order, so the caller can hand each to
-    /// `EditTimeline.removing(sourceRange:)` in any order and get the same edit — the property
-    /// `removalRange(ofSegmentAt:)` relies on for repeated sentence deletions.
-    ///
-    /// Words with degenerate times are dropped rather than refused: one unusable word in a
-    /// chosen run is not a reason to refuse the run, and a zero-length cut would do nothing while
-    /// claiming to have done something.
+    /// Returned in source time and in order, so a caller can hand each to
+    /// `EditTimeline.removing(sourceRange:)` in any order and get the same edit. Words with
+    /// degenerate times are dropped rather than refused: one unusable word is not a reason to
+    /// refuse the run, and a zero-length cut would do nothing while claiming otherwise.
     public func removalRanges(ofWordsAt indices: some Sequence<Int>) -> [Range<Int64>] {
         let usable = Set(indices).filter { removalRange(ofWordAt: $0) != nil }.sorted()
         guard !usable.isEmpty else { return [] }

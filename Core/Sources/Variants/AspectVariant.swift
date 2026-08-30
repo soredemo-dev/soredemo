@@ -67,18 +67,16 @@ public struct AspectVariant: Hashable, Sendable, Codable {
 
     /// **The recording's own shape, so the export has no bars.**
     ///
-    /// The three presets above are the shapes a person posts to, and none of them is the shape
-    /// a Mac records in: a 14-inch display is 3024 × 1964, which is 1.539, against 16:9's
-    /// 1.778. `StagePlanner` fits and never crops — that is the whole point of it — so a
-    /// laptop recording in a Landscape output is pillarboxed by about 6% of the width on each
-    /// side, on top of the padding the style asks for. That is correct behaviour and it is
-    /// also, for somebody who just wants their recording back looking like their screen, the
-    /// wrong output. This variant is that output.
+    /// The three presets above are the shapes a person posts to, and none is the shape a Mac
+    /// records in: a 14-inch display is 3024 × 1964, or 1.539, against 16:9's 1.778.
+    /// `StagePlanner` fits and never crops, so a laptop recording in a Landscape output is
+    /// pillarboxed by about 6% of the width on each side. Correct behaviour, and the wrong output
+    /// for somebody who wants their recording back looking like their screen.
     ///
     /// **Reduced to lowest terms rather than stored as pixels**, because `widthRatio` and
-    /// `heightRatio` are `Int` for a reason this file already gives: 16:9 and 1.778 are the
-    /// same shape but only one of them can be compared for equality or printed back as the
-    /// thing a person chose. 3024 × 1964 reduces to 756 × 491.
+    /// `heightRatio` are `Int` for a reason this file already gives: 16:9 and 1.778 are the same
+    /// shape but only one can be compared for equality or printed back as the thing a person
+    /// chose. 3024 × 1964 reduces to 756 × 491.
     ///
     /// `nil` for a degenerate size — a caller may be asking before a recording has loaded, and
     /// a variant with a zero side would divide by it in `aspect`.

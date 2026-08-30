@@ -99,17 +99,15 @@ final class FramingReviewModel {
     /// pass, becomes a `FramedClick`, and becomes a `ZoomBlock` like any other. What was
     /// missing was a way to make one — every override until now hung on a click.
     ///
-    /// **Centred on the pointer**, because during a demo that is where the action is, and it
-    /// is the same argument `pointerFallbackExtent` rests on. The sample at or before the
-    /// instant, so the answer is a position the recording actually observed rather than one
-    /// interpolated between two; the first sample after it when the playhead sits before any
-    /// pointer was seen; and the middle of the frame when the log has no pointer at all,
-    /// which is a recording made without the input tap.
+    /// **Centred on the pointer**, because during a demo that is where the action is — the same
+    /// argument `pointerFallbackExtent` rests on. The sample at or before the instant, so the
+    /// answer is a position the recording observed rather than one interpolated between two; the
+    /// first sample after it when the playhead precedes any pointer; and the middle of the frame
+    /// when the log has no pointer at all, which is a recording made without the input tap.
     ///
-    /// Returns the instant it authored, so the caller can scroll to it — or `nil` when there
-    /// is no anchor, which means the log had no header and no offset can be turned into an
-    /// absolute instant. A `nil` here is "this recording cannot carry one", not a failure to
-    /// report as an error.
+    /// Returns the instant it authored so the caller can scroll to it, or `nil` when the log had
+    /// no header and no offset can become an absolute instant — "this recording cannot carry
+    /// one", not a failure to report as an error.
     @discardableResult
     func authorZoom(atOffset offset: Nanoseconds) -> HostInstant? {
         guard let anchor else { return nil }

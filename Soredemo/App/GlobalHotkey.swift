@@ -8,8 +8,8 @@ import Carbon.HIToolbox
 /// only fires when this app's window is key, and the floating bar is a `.nonactivatingPanel` on
 /// purpose, so it never becomes key either. Without a system-wide registration there is no key
 /// that stops a recording, which is exactly what happened: ⌘R worked in the app's own window and
-/// nowhere else. a Rust recorder registers global shortcuts for start, stop, pause and restart
-/// (`apps/desktop/src-tauri/src/hotkeys.rs`); this is the same thing without the plugin.
+/// nowhere else. Every recorder surveyed in `docs/design/2026-08-30-what-the-market-ships.md`
+/// registers global shortcuts for the same reason; this is that, without a plugin.
 ///
 /// **Carbon's `RegisterEventHotKey`, not an `NSEvent` global monitor.** A global monitor needs
 /// Accessibility permission, sees every keystroke in the system, and cannot consume the event —
@@ -43,8 +43,8 @@ final class GlobalHotkey {
 
     /// ⌘⇧R — start a recording, or stop the one running. **One key for both**, because the
     /// question a person has mid-recording is "how do I stop this", and an answer that depends on
-    /// remembering a second combination is not an answer. a Rust recorder binds start and stop separately and
-    /// also ships a toggle; the toggle is the one people use.
+    /// remembering a second combination is not an answer. A surveyed recorder binds start and stop
+    /// separately AND ships a toggle; the toggle is the one people use.
     static let toggleRecordingKeyCode = UInt32(kVK_ANSI_R)
     static let toggleRecordingModifiers = UInt32(cmdKey | shiftKey)
 

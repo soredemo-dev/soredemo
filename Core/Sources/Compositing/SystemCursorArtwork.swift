@@ -4,36 +4,18 @@ import Project
 
 /// A cursor's own picture, as macOS draws it, handed in by the app tier.
 ///
-/// **The drawn art in `CursorArt` is an approximation and looks like one.** Its
-/// header says the real shape is "lost and unrecoverable" because capture runs
-/// with `showsCursor = false` — which was true of the FRAME and was never true of
-/// the cursor itself: `NSCursor` has the image the whole time, and
+/// **The drawn art in `CursorArt` is an approximation and looks like one.** Its header said the
+/// real shape was "lost and unrecoverable" because capture runs with `showsCursor = false` —
+/// true of the FRAME, never true of the cursor: `NSCursor` has the image the whole time, and
 /// `SystemCursorShape` already reads it on every sample to classify the shape.
-/// Only the bytes were being thrown away.
 ///
-/// Measured on macOS 26, and the numbers decide the design:
+/// **The pixels are kept as macOS drew them** — no trimming, no re-rendering at a reference
+/// size, no upscale, each of which is a decision about somebody else's artwork. The arrow ships
+/// at 10× density, which is why a bitmap costs nothing here; the measured table is in
+/// `docs/design/how-the-drawn-cursor-behaves.md`.
 ///
-///     arrow            280×400 px for  28×40 pt   →  10×
-///     iBeam            230×220 px for  23×22 pt   →  10×
-///     pointingHand      64×64  px for  32×32 pt   →   2×
-///     crosshair         48×48  px for  24×24 pt   →   2×
-///
-/// The arrow ships at TEN times density — sharper than any export this app
-/// produces — so the usual argument for vector art, that a bitmap softens when
-/// magnified, does not apply to the shape that is on screen almost all the time.
-/// The 2× ones are exactly the density of the recording they sit on, which is the
-/// honest answer rather than a compromise: a cursor sharper than the screen under
-/// it reads as pasted on.
-///
-/// **The pixels are kept as macOS drew them.** No trimming, no re-rendering at a
-/// reference size, no nearest-neighbour upscale — each of those is a decision
-/// about somebody else's artwork, and the padding is transparent PNG that costs
-/// nothing (the arrow is 13 KB). One scale, at draw time, and nothing else.
-///
-/// **Handed in rather than bundled**, for `SystemCursorShape`'s reason: artwork
-/// baked into this app is a fact about one macOS version pinned inside a binary,
-/// and it goes stale silently. Asking the running system means a macOS that
-/// redraws its cursors is followed rather than contradicted.
+/// **Handed in rather than bundled**, for `SystemCursorShape`'s reason: artwork baked into this
+/// app is a fact about one macOS version pinned inside a binary, and it goes stale silently.
 ///
 /// `@unchecked Sendable`: `CGImage` is immutable and this type only reads it.
 public struct CursorArtwork: @unchecked Sendable {
@@ -83,7 +65,18 @@ public enum SystemCursorArtwork {
     /// look up. Both draw the arrow's PATH rather than the arrow's ARTWORK, which
     /// keeps them visibly distinguishable from a genuine arrow in a review.
     public static func artwork(for shape: PointerShape?) -> CursorArtwork? {
+        artwork(for: shape, in: nil)
+    }
+
+    /// The same lookup against a table a caller supplies, falling back to the published one.
+    ///
+    /// The `nil` case is the app's and reads the static, so publishing artwork after a renderer
+    /// exists still takes effect. A test passes its own table instead of writing `byShape`,
+    /// which every cursor render reads concurrently — see `CoreImageFrameRenderer`'s override.
+    public static func artwork(for shape: PointerShape?,
+                               in table: [PointerShape: CursorArtwork]?) -> CursorArtwork? {
         guard let shape, shape != .other else { return nil }
+        if let table { return table[shape] }
         return unsafe byShape[shape]
     }
 }

@@ -48,25 +48,6 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
     public let plateRed: Double
     public let plateGreen: Double
     public let plateBlue: Double
-    /// A drop shadow under the glyphs. **The cheapest thing that keeps white text legible over a
-    /// white window**, and the reason it is here when tracking and underline are not.
-    /// The outline drawn around each glyph, as a fraction of the type size, and its colour.
-    ///
-    /// **The half of legibility that does not cover the picture.** A plate is a rectangle across
-    /// the frame and a shadow is a soft edge; an outline follows the letterforms, so it works
-    /// over footage that is light in one part of the line and dark in another — which is the
-    /// case a plate exists for and the case a shadow handles worst.
-    ///
-    /// Drawn by Core Text's own `strokeWidth`, which is a PERCENTAGE OF THE TYPE SIZE and is
-    /// therefore already the fraction this file expresses everything in. Negative there means
-    /// "fill and stroke"; positive would leave the letters hollow, which is a different effect
-    /// and not this one.
-    ///
-    /// **Centred on the glyph outline, not outside it.** Core Text strokes down the middle of
-    /// the path, so half the width eats into the letterform and a wide outline thins the type.
-    /// Drawing it outside means extracting each glyph's path and stroking it separately, which
-    /// is a second layout and the thing `line(_:pointSize:bold:dim:colour:)` exists to avoid.
-    /// The cap is set where the thinning is still invisible.
     /// A font file inside the project, or `nil` for the system's own.
     ///
     /// The FILE rather than an installed name: a name that is not installed on the machine the
@@ -74,10 +55,25 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
     /// travels with the project. `TextArt.font` resolves it and falls back when it will not
     /// load, which is safe only because line breaking measures through the same function.
     public let fontFilename: String?
+    /// The outline drawn around each glyph, as a fraction of the type size, and its colour.
+    ///
+    /// **The half of legibility that does not cover the picture.** A plate is a rectangle across
+    /// the frame and a shadow is a soft edge; an outline follows the letterforms, so it works
+    /// over footage that is light in one part of the line and dark in another — the case a plate
+    /// exists for and the case a shadow handles worst.
+    ///
+    /// Drawn by Core Text's own `strokeWidth`, a PERCENTAGE OF THE TYPE SIZE and therefore
+    /// already the fraction this file expresses everything in; negative there means "fill and
+    /// stroke", positive would leave the letters hollow. **Centred on the glyph outline, not
+    /// outside it** — Core Text strokes down the middle of the path, so half the width eats into
+    /// the letterform and a wide outline thins the type. The cap is set where that is invisible;
+    /// drawing it outside would mean a second layout, which `line(...)` exists to avoid.
     public let outlineWidthFraction: Double
     public let outlineRed: Double
     public let outlineGreen: Double
     public let outlineBlue: Double
+    /// A drop shadow under the glyphs. **The cheapest thing that keeps white text legible over a
+    /// white window**, and the reason it is here when tracking and underline are not.
     public let shadowOpacity: Double
     public let shadowBlurFraction: Double
     /// The widest a line may be measured against, as a fraction of the frame's width.

@@ -116,7 +116,11 @@ prose. Leave one line pointing at it. If the reasoning is worth 300 words, it is
 **No competitor is named in the source.** Not as evidence, not as attribution. State the technical
 fact — the fact is what the reader needs, it survives the other product changing, and a repository
 does not audit its own reasoning by pointing at somebody else's. Comparisons live in
-`docs/research/`.
+`docs/research/` and in dated surveys under `docs/design/`, which can be superseded as a whole.
+
+`noSourceFileNamesACompetitor` checks this, because for weeks the rule was written down and nine
+sentences in the source quietly broke it. That is the shape of every rule here that is worth
+having: if it can be checked, check it.
 
 ### Where a long reasoning goes
 
@@ -132,9 +136,57 @@ said, a comparison. Those are documents.
 
 ### Comment budget
 
-Roughly **one line of comment to five of code** across a file, and a file well past that is telling
-you its reasoning wants to be a document. This is a smell to check, not a limit to enforce: a
-tricky 40-line algorithm may be half comment and be right.
+**Thirty lines above a type declaration, sixteen anywhere else.** Past that, the reasoning goes
+in `docs/design/` and a sentence stays at the site naming the decision and pointing at the
+document. `noCommentBlockIsLongEnoughToBeADocument` checks it, and it is the only rule in this
+section a machine can check.
+
+Both numbers come from counting rather than from taste. On 2026-08-30 there were 93 blocks of
+sixteen lines or more, and they split almost exactly in half by what they sat above: 43 on a type
+declaration, 50 everywhere else. Those are different things. A type's doc comment *is* that type's
+documentation, and 39 of the 43 were 16–30 lines — that is the shape, not an excess. Twenty lines
+above a `let`, or in the middle of a function, is narrative, and narrative reads better in order
+somewhere else. Thirty was chosen because it separates the four documents from the thirty-nine
+doc comments instead of condemning both.
+
+**Blocks of nine lines or fewer are not in the budget at all.** They are what a doc comment and a
+per-decision note look like, and this project would be worse without them.
+
+The ratio this section used to give — one line of comment to five of code — was measured against
+the codebase and does not survive the measurement. Comment lines, by the size of the block they
+sit in, before and after the rule above was applied:
+
+```
+                      before   after
+ 1–2 line blocks       17.6%   18.2%
+ 3–5 line blocks       28.8%   29.7%
+ 6–9 line blocks       21.1%   22.1%
+10–15 line blocks      18.5%   21.1%
+  16+ line blocks      14.0%    9.0%
+
+comment share of all
+non-blank source lines 37.7%   37.0%
+```
+
+Seventy per cent of every comment line in this repository sits in a block of nine lines or fewer.
+Applying the rule moved 771 lines out of long blocks and took the whole codebase from 37.7% to
+**37.0%** — not to 17%, and not to the ~30% an earlier draft of this section predicted, because
+most long blocks were *tightened in place* rather than exported: the measurement belongs beside
+the constant it justifies. The material that would have to go next is the two and three lines
+that say why a constant is that constant.
+
+So the old ratio could only have been met by deleting the thing this project is actually made of.
+A budget nobody can meet without making the code worse is not a budget; it is a number somebody
+will eventually hit by deleting the wrong lines. The rule above can be met, and it is met today
+with **no exemptions on the permitted list**.
+
+**What the budget turned out to be good for, which was not the length.** Every one of the ten
+blocks that held an exemption when the check was written shrank without losing a measurement, and
+several were not one comment at all: a declaration had been inserted between a doc comment and the
+thing it documented, so `retimed`, `gradientImage`, `cardBorder`, `cursorImage`,
+`pointSize(forOutputHeight:)`, `measure(_ asset:)` and three properties of `TextOverlayStyle` were
+each carrying no documentation while their paragraphs piled up on a neighbour. Reading did not
+find that. A length budget did.
 
 ### Named values, never a silent default
 

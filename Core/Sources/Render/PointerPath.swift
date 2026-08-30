@@ -3,46 +3,23 @@ import Geometry
 import Project
 import Timeline
 
-/// **The cursor a viewer sees: the recorded path, followed by a spring.**
+/// The cursor a viewer sees: the recorded path, followed by a spring.
 ///
-/// `PointerTrack.position(at:)` is the review path's truth and `smoothedPosition(at:)` is the
-/// lerp between brackets. Both preserve every turn the hand made — a lerp is C0, its velocity
-/// jumps at every sample, and the sample stream IS the hand tremor, sub-pixel wobble and
-/// hesitation of a person operating a mouse. That is why a rendered cursor built from either
-/// reads as "a person operating a mouse" rather than as a demo. This type is the third query:
-/// the presentation path, and the only one allowed to be gentle about the shape of the motion.
+/// `PointerTrack` has the other two queries — `position(at:)` is the review path's truth and
+/// `smoothedPosition(at:)` is the lerp between brackets, and both keep every tremor the hand
+/// made. This is the presentation path, the only one allowed to be gentle about the shape of
+/// the motion: a cardinal spline resampled onto a fixed grid, a spring at damping ratio 0.9
+/// following it, idle stabilisation, phase lead, and a stiffer spring into a click. What each
+/// stage is for, and the number attached to it, is in `docs/design/how-the-drawn-cursor-behaves.md`.
 ///
-/// Five stages, each answering a way the raw path looks wrong:
+/// **It refuses exactly what `smoothedPosition` refuses**: no spline across a gap wider than
+/// `PointerTrack.maxInterpolationGap` and none across a blind interval — across either the
+/// target holds, so the cursor follows observation rather than inventing motion nothing saw.
 ///
-/// 1. **Resample onto a fixed grid through a cardinal spline.** C1 continuity is what turns a
-///    corner into an arc. Parameterised by TIME, not by index: the tap emits on motion and the
-///    sampler at 60 Hz, so consecutive samples are never evenly spaced.
-/// 2. **A spring follows the spline.** Damping ratio 0.9 rather than 1.0 — the barest overshoot
-///    is what reads as weight, and critically damped reads as a robot arm. The response is
-///    `Tuning.Movement`'s, shortened toward `adaptiveMinScale` as the cursor speeds up so a fast
-///    flick does not trail the recording visibly.
-/// 3. **Idle stabilisation.** When the target barely moves it is blended toward where the spring
-///    already is. `PointerSampler`'s 60 Hz floor emits a still pointer as positions a fraction of
-///    a pixel apart, and a spring chasing those shimmers.
-/// 4. **Phase lead.** A spring chasing a moving target trails it by `2ζ/ω` seconds at steady
-///    state; sampling the target that far ahead cancels the trail, so the drawn cursor sits where
-///    the real one was at render time rather than visibly behind it.
-/// 5. **A stiffer spring into a click.** 175 ms before every button-down the response drops to
-///    `clickResponseSeconds`, so the cursor has arrived when the ripple starts. Without it the
-///    ripple draws at a point the cursor reaches a few frames later.
-///
-/// **What it refuses, in the same terms `PointerTrack.smoothedPosition` refuses.** The spline
-/// never crosses a gap wider than `PointerTrack.maxInterpolationGap` and never crosses a
-/// blind interval: across either the TARGET holds the last sample, exactly as the lerp does.
-/// The spring then glides to the next observed position after it is observed — motion that
-/// follows the observation by a few frames, not motion invented across a span nothing saw.
-///
-/// **Baked once, queried by binary search.** The spring is stateful — its answer at `t`
-/// depends on everything before `t` — so a per-frame query that integrated from the start
-/// would be the O(n²) `CameraMotion` was; instead the whole path is integrated once in `init`
-/// at `step` and a frame reads its bracket. A three-minute recording is ~45,000 entries.
-/// Deterministic: the same samples produce the same path on every machine and at every
-/// output frame rate, which is what `render-parity` needs.
+/// **Baked once in `init`, queried by binary search**, because the spring's answer at `t`
+/// depends on everything before `t` and a per-frame integration would be the O(n²) that
+/// `CameraMotion` was. Deterministic across machines and output frame rates — `render-parity`
+/// depends on that.
 public struct PointerPath: Sendable {
     /// One baked entry. `speed` is the spring's own, in normalised units per second — the
     /// measure a cursor's presentation can key off (rotation, auto-hide) without re-deriving.

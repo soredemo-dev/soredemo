@@ -198,26 +198,18 @@ struct MenuBarRecorderPanel: View {
         }
     }
 
-    /// Both audio sources: which microphone, and whether the machine's own output
-    /// is recorded.
+    /// Both audio sources: which microphone, and whether the machine's own output is recorded.
     ///
-    /// **One row rather than two, because they are one question.** A person
-    /// thinking about sound is thinking about sound, and a second row costs the
-    /// panel height it has none of. The microphone is what has a list, so it keeps
-    /// the label; system audio is a switch inside the same menu, and the row shows
-    /// a struck-through speaker when it is off — state a person turned off has to
-    /// be visible without opening anything.
+    /// **One row rather than two, because they are one question.** The microphone is what has a
+    /// list, so it keeps the label; system audio is a switch inside the same menu, and the row
+    /// shows a struck-through speaker when it is off — state a person turned off has to be
+    /// visible without opening anything.
     ///
-    /// **This used to say the asymmetry was deliberate, and the reason has since
-    /// stopped being true.** It read: turning system audio off leaves an
-    /// `AVAssetWriter` input nothing feeds, which is the condition that starved a
-    /// fed audio track down to three packets, and
-    /// `closeAudioTracksNothingIsFeeding` only recovers after ninety frames. All
-    /// of that is still accurate — and `HeldAudioQueue` now holds about eight
-    /// seconds of buffers against a grace period of one and a half, so the audio
-    /// that would once have been dropped is queued and drains when the unfed track
-    /// closes. Nothing is lost. The microphone's own `.off` has been taking
-    /// exactly this path since it shipped.
+    /// **System audio can be turned off here, and it could not before.** The old objection — an
+    /// unfed `AVAssetWriter` input starves a fed one — is still accurate and no longer binding:
+    /// `HeldAudioQueue` holds about eight seconds against a grace period of one and a half.
+    /// A written reason its own codebase overtook; `docs/design/hearing-the-scrub.md` has it.
+    ///
     /// **The source rows do not wear the accent.** A `Menu`'s label inherits the tint, which put
     /// the brand colour on two rows that only report what is selected — and left the button that
     /// starts the recording competing with them. The accent marks the primary action; these are
@@ -587,44 +579,22 @@ struct MenuBarRecorderPanel: View {
         }
     }
 
-    /// **Four links on two rows, and the gear that used to hold two of them is gone.**
+    /// The four places this panel can send you: two openers, Settings, and Quit.
     ///
-    /// The measurement that put Settings and Permissions behind a gear stands — the four need
-    /// 357pt of a 260pt row and SwiftUI truncated them into a jam of half-words — but it was a
-    /// measurement about ONE row, and the conclusion drawn from it was the wrong one of the two
-    /// available. A `Menu` inside a panel opens a system popup that AppKit positions itself: it
-    /// hangs outside the panel it belongs to, overlaps the controls beneath it, and near the
-    /// right edge of a display it is placed where there is room rather than where the gear is.
-    /// A second row costs 18 points of a panel that had them and puts every destination in the
-    /// panel, where a person can see all four without opening anything.
-    /// The four places this panel can send you.
+    /// **Icon-only, because the words truncate and an icon cannot.** These were labelled links:
+    /// three to a row rendered as "Op…", "O…", "Set…", and two to a row still rendered as
+    /// "Open Proj… ⌘O". The panel is 292 points wide, the English labels with their shortcuts
+    /// fit at no arrangement of rows, and a shorter label was not available — these are the
+    /// names of the things they open. So the words move to `.help` and to an accessibility
+    /// label, both the full name; the shortcuts still work from the panel; and nothing here can
+    /// truncate in the next translation either, which the labelled version could not promise.
     ///
-    /// **Icons, and no ellipses.** The ellipsis is the macOS convention for "this asks you
-    /// something before it happens", and in a menu it is the only signal available. This is not
-    /// a menu: it is a custom panel whose every other row already leads with an icon, and four
-    /// rows of small grey text with three trailing dots among them read as noise rather than as
-    /// a distinction. The icon says what each one is faster than the punctuation said what it
-    /// would do.
+    /// **No gear.** An earlier version put Settings and Permissions behind one. A `Menu` inside
+    /// a panel opens a system popup AppKit positions itself: it hangs outside the panel, covers
+    /// the controls beneath it, and near a display's right edge lands where there is room.
     ///
-    /// **Quit is bottom-right, which is the corner nothing is next to.** It used to sit beside
-    /// Open Project, at the top of the group, one slip away from the row a person actually came
-    /// for. Reading order puts the thing you most rarely want last.
-    /// The four places to go from here.
-    ///
-    /// **Icons, and the reason is that words truncate and icons cannot.** These were labelled
-    /// links: three to a row rendered as "Op…", "O…", "Set…", and two to a row still rendered as
-    /// "Open Proj… ⌘O" and "Open Vi… ⇧⌘O" — the panel is 292 points wide and English labels with
-    /// their shortcuts do not fit at any arrangement of rows. A shorter label was not available
-    /// either: these are the names of the things they open.
-    ///
-    /// So the words move to where there is room for them. Every button carries `.help` for the
-    /// pointer and an accessibility label for VoiceOver, both the full name, and the keyboard
-    /// shortcut still works from the panel. Nothing here can truncate in any language, which the
-    /// labelled version could not promise for the next translation either.
-    ///
-    /// **Not an overflow menu**, which was the other candidate and would also never truncate: it
-    /// puts every one of these two clicks away, and Settings and Open Video are things somebody
-    /// reaches for while the panel is already open.
+    /// **Quit is last, the corner nothing is next to** — it used to sit beside Open Project,
+    /// one slip from the row a person actually came for.
     @ViewBuilder private var footer: some View {
         HStack(spacing: Space.snug) {
             FooterButton(icon: "folder", title: "Open Project", shortcut: "\u{2318}O") {

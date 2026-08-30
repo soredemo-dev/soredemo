@@ -49,11 +49,11 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     /// passing zero.
     public let shadowOpacity: Double
     public let shadowBlurFraction: Double
-    /// The outline around each letter, as a fraction of the type size, and its colour.
-    /// See `TextOverlayStyle.outlineWidthFraction` for what it costs and why it is centred.
     /// A font file inside the project, or `nil` for the system's own. See
     /// `TextOverlayStyle.fontFilename`.
     public let fontFilename: String?
+    /// The outline around each letter, as a fraction of the type size, and its colour.
+    /// See `TextOverlayStyle.outlineWidthFraction` for what it costs and why it is centred.
     public let outlineWidthFraction: Double
     public let outlineRed: Double
     public let outlineGreen: Double
@@ -177,7 +177,6 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
             fontFilename: try container.decodeIfPresent(String.self, forKey: .fontFilename))
     }
 
-    /// The type size in output pixels.
     /// The same style with one field changed — `TextOverlayStyle.changing`'s shape, for its
     /// reason: a nine-argument initialiser repeated per control is nine chances to misplace one.
     public func changing(heightFraction: Double? = nil, bottomInsetFraction: Double? = nil,
@@ -221,6 +220,7 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                      fontFilename: fontFilename ?? self.fontFilename)
     }
 
+    /// The type size in output pixels.
     public func pointSize(forOutputHeight height: Int) -> Double {
         Double(height) * heightFraction
     }

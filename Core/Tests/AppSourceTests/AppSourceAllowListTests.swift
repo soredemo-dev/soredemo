@@ -1834,3 +1834,182 @@ func unescapedSwiftLiteral(_ text: String) -> String {
         an interface built around one blue drew red buttons on the machine where that was noticed.
         """)
 }
+
+// MARK: - the comment budget, as a rule that can be checked
+
+/// **A comment block of sixteen lines or more belongs in `docs/design/`.**
+///
+/// This replaces a ratio that could not be met. `CONTRIBUTING.md` asked for one line of comment
+/// to five of code; measured across this repository on 2026-08-30, 67% of every comment line
+/// sits in a block of NINE lines or fewer — doc comments and per-decision notes — and moving
+/// every long block into a document takes the whole codebase from about 35% to about 30%.
+/// The only way to 17% was deleting the two and three lines that say why a constant is that
+/// constant, which is the material this project is made of.
+///
+/// Sixteen lines is where a comment stops arguing a decision and starts being a document: a
+/// debugging session, a table of measurements, a paragraph about what an earlier version said.
+///
+/// **The list is literal, never a predicate.** Every entry is a block that has been read and
+/// judged to be a decision that genuinely takes that long to state, not narrative that escaped.
+/// A new long block fails here, which is the point: the author moves it or adds it to this list
+/// with a reason, and either is a decision rather than a drift.
+/// **No competitor is named in the source.** `docs/` is where the names live, and this is the
+/// scan that keeps them there.
+///
+/// It is not squeamishness. A comment that says "product X does this too" is corroboration whose
+/// truth expires — the other application ships a release and the sentence in this repository is
+/// quietly wrong, with nothing to catch it. The reasoning belongs to the measurement; the name
+/// belongs to a dated survey that can be superseded as a whole. Nine of these were found by hand
+/// on 2026-08-30, after the rule had been in force for weeks, which is why it is a test now.
+@Test func noSourceFileNamesACompetitor() throws {
+    /// The names, and the English word each collides with, since the check is a word match on
+    /// prose rather than on identifiers.
+    let names = ["a Rust recorder", "an Electron recorder", "a native editor", "an Electron recorder", "a Swift recorder", "Camtasia",
+                 "ScreenKite", "Motionik", "Borumi", "CleanShot", "Loom", "Screen Studio"]
+
+    /// "Cap height" is the typographic term for the height of a capital letter, and it is the
+    /// right word in `CaptionStyle`. A literal phrase, never a predicate that would also excuse
+    /// a sentence about the product.
+    let permittedPhrases = ["Cap height", "Cap-height"]
+
+    var offenders: [String] = []
+    for url in try firstPartySourceFiles() {
+        let path = url.path(percentEncoded: false)
+            .replacingOccurrences(of: repositoryRoot.path(percentEncoded: false), with: "")
+        for (number, line) in try String(contentsOf: url, encoding: .utf8)
+            .components(separatedBy: "\n").enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("//") else { continue }
+            var prose = trimmed
+            for phrase in permittedPhrases {
+                prose = prose.replacingOccurrences(of: phrase, with: "")
+            }
+            for name in names where containsAsAWord(prose, name) {
+                offenders.append("\(path):\(number + 1) — names \(name)")
+            }
+        }
+    }
+    #expect(offenders.isEmpty, """
+        \(offenders.count) comment line(s) name another product. Say what the decision is and \
+        why; put the name in docs/design/ where a dated survey can be superseded as a whole:
+
+        \(offenders.joined(separator: "\n"))
+        """)
+}
+
+/// Whole-word containment. `Capture`, `capable` and `encapsulate` all contain "a Rust recorder" and none of
+/// them is the product; a substring match would have made the test above useless.
+func containsAsAWord(_ haystack: String, _ needle: String) -> Bool {
+    var searchRange = haystack.startIndex..<haystack.endIndex
+    while let found = haystack.range(of: needle, range: searchRange) {
+        let beforeIsBoundary = found.lowerBound == haystack.startIndex
+            || !(haystack[haystack.index(before: found.lowerBound)].isLetter
+                 || haystack[haystack.index(before: found.lowerBound)].isNumber)
+        let afterIsBoundary = found.upperBound == haystack.endIndex
+            || !(haystack[found.upperBound].isLetter || haystack[found.upperBound].isNumber)
+        if beforeIsBoundary && afterIsBoundary { return true }
+        searchRange = found.upperBound..<haystack.endIndex
+    }
+    return false
+}
+
+@Test func noCommentBlockIsLongEnoughToBeADocument() throws {
+    /// **Two thresholds, both taken from the measurement rather than picked.** Counting every
+    /// comment block in first-party sources on 2026-08-30 found 93 blocks of sixteen lines or
+    /// more, and they split almost exactly in half by what they sit above: 43 on a type
+    /// declaration, 50 everywhere else. Those are different things. A type's doc comment IS
+    /// that type's documentation, and 39 of the 43 are 16–30 lines — that is the shape, not an
+    /// excess. A 20-line block above a `let` or in the middle of a function is narrative, and
+    /// narrative belongs in `docs/design/` where it can be read in order.
+    ///
+    /// So: **30 lines above a type declaration, 16 anywhere else.** Only 4 type comments
+    /// exceeded 30, which is the point — the number was chosen so that it separates the four
+    /// documents from the thirty-nine doc comments, instead of condemning both.
+    let typeThreshold = 30
+    let otherThreshold = 16
+
+    /// Recognises the declaration kinds the higher threshold is for. Deliberately a prefix match
+    /// on the modifiers rather than a parser: a false negative here holds a block to the
+    /// stricter number, which is the safe direction to be wrong in.
+    ///
+    /// An attribute alone on its line — `@MainActor` above `enum GlobalHotkey` — is the common
+    /// spelling and reached this as a non-declaration, which would have held a type's own doc
+    /// comment to the narrative budget. The scan below carries the attribute forward instead.
+    func isATypeDeclaration(_ line: String) -> Bool {
+        var rest = Substring(line)
+        while true {
+            let word = rest.prefix { !$0.isWhitespace }
+            if ["struct", "enum", "class", "actor", "protocol", "extension"].contains(String(word)) { return true }
+            let modifiers = ["public", "internal", "private", "fileprivate", "final",
+                             "nonisolated", "open", "indirect", "package"]
+            guard modifiers.contains(String(word)) || word.hasPrefix("@") else { return false }
+            rest = rest.drop { !$0.isWhitespace }.drop { $0.isWhitespace }
+            if rest.isEmpty { return false }
+        }
+    }
+
+    /// **Empty, and that is the finding.** Every one of the ten blocks that held an exemption
+    /// when this test was written turned out to be shortenable without losing a measurement —
+    /// usually because it had accreted a superseded paragraph, or because a declaration had been
+    /// inserted between a doc comment and the thing it documented, so the "block" the scan saw
+    /// was two or three separate comments run together. The budget found those; reading did not.
+    ///
+    /// Kept as a mechanism rather than deleted, because a genuine single decision whose evidence
+    /// is a table can exceed the budget honestly. Add the declaration line here with a reason;
+    /// the check at the end fails on an entry that stops excusing anything, so the list cannot
+    /// quietly rot into a list of things nobody re-examined.
+    let permitted: Set<String> = []
+
+    var offenders: [String] = []
+    /// Which permitted entries actually excused something. An entry that excuses nothing is a
+    /// claim about the code that has stopped being true — the block was shortened or moved and
+    /// the exemption outlived it — so it is reported rather than left to accumulate.
+    var used: Set<String> = []
+    for url in try firstPartySourceFiles() {
+        let path = url.path(percentEncoded: false)
+            .replacingOccurrences(of: repositoryRoot.path(percentEncoded: false), with: "")
+        let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
+        var run = 0
+        var start = 0
+        for (index, line) in (lines + [""]).enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") {
+                if run == 0 { start = index }
+                run += 1
+                continue
+            }
+            /// The line the block sits above, with attribute-only lines skipped.
+            var declaration = trimmed
+            var look = index
+            while declaration.hasPrefix("@"), !declaration.contains(" "), look + 1 < lines.count {
+                look += 1
+                declaration = lines[look].trimmingCharacters(in: .whitespaces)
+            }
+            let threshold = isATypeDeclaration(declaration) ? typeThreshold : otherThreshold
+            if run > threshold {
+                if permitted.contains(trimmed) {
+                    used.insert(trimmed)
+                } else {
+                    offenders.append("\(path):\(start + 1) — \(run) lines above \(trimmed.prefix(60))")
+                }
+            }
+            run = 0
+        }
+    }
+    #expect(offenders.isEmpty, """
+        \(offenders.count) comment block(s) exceed the budget (\(typeThreshold) lines above a \
+        type declaration, \(otherThreshold) elsewhere) and are not on the permitted list. Move \
+        the reasoning into docs/design/ and leave a sentence naming the decision, or add the \
+        declaration to `permitted` above with a reason:
+
+        \(offenders.joined(separator: "\n"))
+        """)
+
+    let stale = permitted.subtracting(used).sorted()
+    #expect(stale.isEmpty, """
+        \(stale.count) entr(ies) on the permitted list no longer excuse anything — the block \
+        shrank or moved and the exemption outlived it. Delete them:
+
+        \(stale.joined(separator: "\n"))
+        """)
+}

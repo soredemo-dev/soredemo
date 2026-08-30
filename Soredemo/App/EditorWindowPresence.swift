@@ -8,45 +8,22 @@ import AppKit
 /// The policy is switched rather than chosen once, so each surface gets the one it needs.
 @MainActor
 enum EditorWindowPresence {
-    /// **`LSUIElement` stays, and an experiment is why.**
+    /// Opens the editor, or brings the one that exists forward, full screen either way.
     ///
-    /// It was removed on 2026-08-26 on the reasoning that a UIElement app's windows cannot go
-    /// full screen, which is what `WindowConfigurator`'s header claimed and what the folklore
-    /// says. Two measurements killed that. First, the app still reported
-    /// `type="UIElement"` to LaunchServices with the flag gone, because this very function
-    /// makes it one a moment later — the flag was not what decided the process's type. Second,
-    /// an isolated AppKit app entered full screen under EVERY policy, `.accessory` included.
-    /// So the flag was neither the cause nor a cost worth paying to remove, and putting it back
-    /// is cheaper than a launch that shows a Dock tile for a frame.
+    /// **`WindowGroup` permits a second window and this is what refuses one** — a group's
+    /// `openWindow(id:)` makes a NEW window every call, and two editors would be two sets of
+    /// models over one set of process-global `StageCompositor` statics. Matched on the window's
+    /// `identifier` rather than its title, which is the recording's name and changes with it.
     ///
-    /// What was actually missing is the row in the green button's menu, which no app controls.
-    /// `StageWindow` offers the command on ⌃⌘F instead.
-    /// Opens the editor, or brings the one that exists forward.
+    /// **Full screen is a property of being shown, not an event on the window's first key.** A
+    /// one-shot `didBecomeKey` observer fires when SwiftUI CREATES the window and never again,
+    /// so the first recording opened full screen and no later one did. A rule spent by one
+    /// event stops applying — the same correction the opening SIZE went through.
     ///
-    /// **`WindowGroup` permits a second window and this is what refuses one.** The scene had to
-    /// become a group so its window would be full-screen capable — see `SoredemoApp` for the
-    /// measurement — and a group's `openWindow(id:)` makes a NEW window every call. Two editors
-    /// would be two sets of models over one set of process-global `StageCompositor` statics,
-    /// which is the arrangement the scene was a `Window` to avoid.
-    ///
-    /// Matched on the window's `identifier`, which SwiftUI stamps from the scene's id, rather
-    /// than on the title: the title is the recording's name and changes with it.
-    ///
-    /// **Full screen is a property of being shown, not an event on the window's first key.**
-    /// `WindowConfigurator` enters it from a one-shot `didBecomeKey` observer, which fires when
-    /// SwiftUI CREATES the window and never again — so the first recording opened full screen
-    /// and every later one, arriving at a window that already existed, did not. Reported as
-    /// exactly that: "when finish recording it still doesn't go into full screen for the
-    /// editor".
-    ///
-    /// This is the same correction the opening SIZE went through: a rule spent by one event is
-    /// a rule that stops applying, and the honest shape is a property re-established each time.
-    ///
-    /// **The cost, stated rather than discovered**: somebody who deliberately left the editor
-    /// windowed and then records again is put back into full screen. Acceptable here and not in
-    /// general, because this function has ONE caller — a new recording or a newly opened project
-    /// — and that is precisely the moment full screen is wanted. It is not a general
-    /// "bring the editor forward".
+    /// **The cost, stated rather than discovered**: leave the editor windowed, record again,
+    /// and you are put back into full screen. Acceptable only because this has ONE caller — a
+    /// new recording or a newly opened project — which is the moment full screen is wanted.
+    /// Why `LSUIElement` is still in the Info.plist: `docs/design/full-screen-and-window-behaviour.md`.
     static func openEditor(_ open: (String) -> Void) {
         willOpen()
         if let existing = NSApp.windows.first(where: {

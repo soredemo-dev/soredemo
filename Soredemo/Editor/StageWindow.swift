@@ -433,26 +433,20 @@ struct StageWindow: View {
                               toleranceBefore: .zero, toleranceAfter: .zero)
         }
         // `reviewRevision` and not `review.overrides`: the composition is rebuilt when a
-        // decision changes, and a counter says exactly that. Observing the array would also
-        // fire on a load that merely restored the same decisions.
-        // **A style change does not rebuild anything.** `StageCompositor` reads its style,
-        // cursor, captions, text and redactions from statics at render time, so a change is
-        // already in force for the next frame — while playing, it simply appears. What a PAUSED
-        // player needs is a reason to draw the frame it is already showing, which a zero-distance
-        // seek is. Rebuilding instead reloaded the asset, lost the position and stopped the
-        // sound, which is why every slider used to interrupt playback.
-        // **Every control bumps this on EVERY change, not when a drag ends.** The statics
-        // reach the compositor immediately — `.task(id: cameraStyle)` and its siblings below —
-        // so a PLAYING preview already shows a change as it happens. A PAUSED one has no reason
-        // to redraw the frame it is holding, and this is that reason. Deferring the bump to
-        // `onEditingChanged`'s end-of-drag meant a paused preview did not move while a slider
-        // did, and the picture caught up only when the drag finished or playback resumed —
-        // which is a control people learn not to trust.
+        // decision changes, and a counter says exactly that. Observing the array would also fire
+        // on a load that merely restored the same decisions.
         //
-        // **Seeking on every tick is safe, and it is AVPlayer that makes it so.** A seek issued
-        // while one is in progress supersedes it: the earlier completion handler is called with
-        // `finished: false` and only the last one lands. `.task(id:)` cancels the previous task
-        // on each new id as well, so nothing accumulates on either side.
+        // **A style change rebuilds nothing; it seeks zero distance.** `StageCompositor` reads
+        // style, cursor, captions, text and redactions from statics at render time, so a change
+        // is already in force for the next frame and a PLAYING preview simply shows it. A PAUSED
+        // one needs a reason to redraw the frame it is holding, which this is. Rebuilding instead
+        // reloaded the asset, lost the position and stopped the sound — why every slider used to
+        // interrupt playback — and deferring the bump to end-of-drag left a paused preview frozen
+        // while the slider moved, which is a control people learn not to trust.
+        //
+        // **Seeking on every tick is safe, and AVPlayer is what makes it so.** A seek issued
+        // while one is in progress supersedes it — the earlier handler gets `finished: false` —
+        // and `.task(id:)` cancels the previous task, so nothing accumulates on either side.
         .task(id: reviewRevision) {
             guard reviewRevision > 0, let player else { return }
             // **Only when PAUSED, and that is the fix.** The seek is here to give a stopped
@@ -505,24 +499,17 @@ struct StageWindow: View {
             // A plain toolbar `Button`, not a `.commands { CommandGroup }` menu item: `.commands`
             // can only attach to a `Scene`, never to a plain `View`.
             ToolbarItem {
-                // **Always enabled once there is something to save.** It used to disable itself
-                // when nothing had changed and say "Saved", which is a correct statement and a
-                // dead end: a person who wants a second copy somewhere else has no way to ask
-                // for one, and a button that cannot be pressed cannot explain that either.
-                // The dirty state is still shown — in the title — rather than in whether the
-                // control works.
-                // **The menu carries the ALTERNATIVE, not a copy of the button.** It used to
-                // repeat "Save" as its first item, which is the action pressing the button
-                // already performs — the same command written twice, which reads as a control
-                // nobody finished. A split button's menu is for what the button does not do.
+                // **Always enabled once there is something to save**, and the menu carries the
+                // ALTERNATIVE rather than a copy of the button. It used to disable itself when
+                // nothing had changed, say "Saved", and repeat Save as the menu's first item:
+                // a person wanting a second copy elsewhere had no way to ask, a button that
+                // cannot be pressed cannot explain that, and a split button whose menu repeats
+                // its own action reads as a control nobody finished.
                 //
-                // **And the label is an action, not a status.** It read "Save…" whenever
-                // anything was unsaved and "Saved" otherwise: the ellipsis promised a dialog
-                // that a project with a home never shows, and "Saved" labelled a button that
-                // is deliberately still pressable (see above) with a statement rather than a
-                // verb. The ellipsis is now exactly the HIG's rule — present only while
-                // saving really would ask where — and the dirty state stays in the title,
-                // where this file already put it.
+                // **The label is an action, not a status.** "Save…" whenever anything was
+                // unsaved promised a dialog that a project with a home never shows. The ellipsis
+                // is now the HIG's rule — present only while saving really would ask where —
+                // and the dirty state stays in the title, where this file already put it.
                 Menu {
                     Button("Save As…") { saveProject(askingForDestination: true) }
                         .keyboardShortcut("s", modifiers: [.command, .shift])

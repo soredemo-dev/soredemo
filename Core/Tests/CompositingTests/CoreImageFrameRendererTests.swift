@@ -692,12 +692,22 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
 /// may not touch AppKit, and what is being checked is the wiring, not macOS's artwork.
 @Test func handedOverArtworkIsWhatGetsDrawn() throws {
     let width = 640, height = 360
-    let renderer: any FrameRendering
-    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
-        Issue.record("no Metal render device on this machine — a real answer, not a skip")
-        return
+    /// Two renderers, one with the artwork and one without, **instead of one renderer and a
+    /// write to `SystemCursorArtwork.byShape`.** That static is read on the cursor path of
+    /// every frame, so writing it here raced every other test that draws a cursor: they saw
+    /// this test's synthetic 32×32 arrow, hotspot (16, 16), and reported a tip 16 columns and
+    /// 15 rows from the placement — intermittently, for exactly as long as the two overlapped.
+    /// The version of this test that wrote the static said the suite was "serialised on this
+    /// static by construction". There was no suite, and nothing serialised anything.
+    func makeRenderer(artwork: [PointerShape: CursorArtwork]?) throws -> (any FrameRendering)? {
+        do { return try CoreImageFrameRenderer(cursorArtworkOverride: artwork) }
+        catch FrameRenderingError.noRenderDevice {
+            Issue.record("no Metal render device on this machine — a real answer, not a skip")
+            return nil
+        }
     }
-    func rendered() throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+    guard let renderer = try makeRenderer(artwork: nil) else { return }
+    func rendered(_ renderer: any FrameRendering) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
         let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
         let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
         let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
@@ -715,7 +725,7 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
         a.count == b.count && zip(a, b).allSatisfy { $0 == $1 }
     }
 
-    let drawnPath = try rendered()
+    let drawnPath = try rendered(renderer)
 
     // A solid magenta square, 32×32 points, hotspot in the middle. Nothing macOS would ever
     // draw, which is the point: if these pixels appear, the artwork was consulted.
@@ -735,25 +745,50 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
         bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
 
-    // `unsafe`: a `nonisolated(unsafe)` static, written and read by this test alone.
-    // The suite is serialised on this static by construction — no other test in it
-    // touches artwork — and the `defer` puts it back whichever way this one exits.
-    unsafe SystemCursorArtwork.byShape = [.arrow: CursorArtwork(
+    let table: [PointerShape: CursorArtwork] = [.arrow: CursorArtwork(
         image: synthetic, pointWidth: 32, pointHeight: 32, hotspotX: 16, hotspotY: 16)]
-    defer { unsafe SystemCursorArtwork.byShape = [:] }
+    guard let withArtworkRenderer = try makeRenderer(artwork: table) else { return }
 
-    let withArtwork = try rendered()
+    let withArtwork = try rendered(withArtworkRenderer)
     let artworkChangedThePixels = !identical(drawnPath, withArtwork)
     #expect(artworkChangedThePixels,
             "artwork was handed over and the frame came out identical — nothing consulted it")
 
-    // And the fallback is a fallback, not a hole: clearing the table returns the drawn path
+    // And the fallback is a fallback, not a hole: an EMPTY table returns the drawn path
     // exactly, so a shape macOS has no artwork for still draws.
-    unsafe SystemCursorArtwork.byShape = [:]
-    let clearedAgain = try rendered()
-    let fallbackIsExact = identical(drawnPath, clearedAgain)
-    #expect(fallbackIsExact,
-            "clearing the artwork did not return the drawn path — the fallback is not a fallback")
+    guard let emptyTableRenderer = try makeRenderer(artwork: [:]) else { return }
+    let clearedAgain = try rendered(emptyTableRenderer)
+    #expect(identical(drawnPath, clearedAgain),
+            "an empty artwork table did not return the drawn path — the fallback is not a fallback")
+}
+
+/// `SystemCursorArtwork`'s lookup, which is the seam between the app tier and the renderer.
+///
+/// Tested directly rather than through a render, because the render path used to be the only
+/// thing that named this type — and when `handedOverArtworkIsWhatGetsDrawn` stopped writing the
+/// global, nothing named it at all. A lookup with three answers deserves three assertions.
+@Test func theArtworkLookupRefusesTheTwoShapesThatHaveNone() {
+    let arrow = CursorArtwork(image: onePixel(), pointWidth: 28, pointHeight: 40,
+                              hotspotX: 5, hotspotY: 5)
+    let table: [PointerShape: CursorArtwork] = [.arrow: arrow]
+
+    #expect(SystemCursorArtwork.artwork(for: .arrow, in: table) != nil)
+
+    // `nil` is "unrecorded" and `.other` is "recorded, and not a shape this schema names".
+    // Neither has artwork to look up, and both draw the PATH so a review can still tell them
+    // apart from a genuine arrow.
+    #expect(SystemCursorArtwork.artwork(for: nil, in: table) == nil,
+            "an unrecorded shape found artwork — it has no shape to look one up by")
+    #expect(SystemCursorArtwork.artwork(for: .other, in: table) == nil,
+            "`.other` found artwork — it is the case that names no artwork by construction")
+
+    // A shape the table does not carry falls through to the drawn path rather than to a
+    // neighbouring shape's picture.
+    #expect(SystemCursorArtwork.artwork(for: .iBeam, in: table) == nil)
+
+    // An EMPTY table is not the same as no table: empty means "this renderer draws paths",
+    // which is what the app's headless contexts and every test rely on.
+    #expect(SystemCursorArtwork.artwork(for: .arrow, in: [:]) == nil)
 }
 
 /// The canvas is sized from whatever is actually drawn. The arrow's real artwork reaches

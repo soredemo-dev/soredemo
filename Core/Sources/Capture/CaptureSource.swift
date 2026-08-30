@@ -259,19 +259,15 @@ public enum CaptureSource: Sendable {
     /// The `SCContentFilter` this source captures through, and the reverse of
     /// `init(pickerFilter:availableDisplays:)`.
     ///
-    /// A WINDOW gets a window filter, not a display filter plus a crop: other
-    /// windows, the Dock, the menu bar and notifications are then excluded by
-    /// construction. A DISPLAY excludes this process's own applications, because a
-    /// recorder that puts a control strip over the screen and then records the
-    /// screen records the strip.
+    /// A WINDOW gets a window filter, not a display filter plus a crop: other windows, the Dock,
+    /// the menu bar and notifications are then excluded by construction. A DISPLAY excludes this
+    /// process's own applications, because a recorder that puts a control strip over the screen
+    /// and then records the screen records the strip.
     ///
-    /// `excepting` names windows that come back DESPITE their application being
-    /// excluded — the Dock's process also draws the wallpaper. `showsMenuBar` is
-    /// `SCContentFilter.includeMenuBar` passed through.
-    ///
-    /// The list is an argument with an empty default rather than a static, because
-    /// the applications come from an `async` query and a static would be wrong
-    /// exactly once — on the first recording after launch.
+    /// `excepting` names windows that come back DESPITE their application being excluded — the
+    /// Dock's process also draws the wallpaper. `showsMenuBar` is `includeMenuBar` passed through.
+    /// The list is an argument with an empty default rather than a static, because the
+    /// applications come from an `async` query and a static would be wrong exactly once.
     ///
     /// See `docs/design/what-a-filter-excludes.md`.
     public nonisolated func filter(excluding applications: [SCRunningApplication] = [],

@@ -12,28 +12,18 @@ public enum EditedAsset {
     /// **One asset containing only what survived, in output order.**
     ///
     /// Each surviving clip's source range is inserted into a composition track, so the result's
-    /// own timeline IS the edited one and everything downstream — the reader, the video
-    /// composition, the writer — counts in output time without knowing an edit happened.
+    /// own timeline IS the edited one and everything downstream counts in output time without
+    /// knowing an edit happened. `merged()` first, so two clips that abut in the source are one
+    /// read here.
     ///
-    /// `merged()` first: two clips that abut in the source are one read here. The unmerged form
-    /// exists so a reviewer's timeline can show where a cut was made, which an exporter has no
-    /// use for.
+    /// **One composition track per SOURCE audio track, not one mixed track**, and
+    /// `substitutingAudio` replaces them individually by index: a master carries system sound
+    /// and the microphone separately, noise removal produces a cleaned MICROPHONE, and the shape
+    /// of that parameter is what stops a cleaned track being pasted over both. A substitute that
+    /// cannot be read leaves the original in place — losing the voice is worse than keeping its
+    /// hiss, and a cache file deleted under the app is an ordinary thing.
     ///
-    /// One composition track per SOURCE audio track, not one mixed track: a master carries
-    /// system sound and the microphone separately, and mixing is `AVAssetReaderAudioMixOutput`'s
-    /// job further down. Doing it here would mix twice.
-    /// `substitutingAudio` replaces individual audio tracks with the first audio track of
-    /// another asset, keyed by index into the source's own audio tracks.
-    ///
-    /// **Per track, not for the whole asset, because the two tracks are not interchangeable.**
-    /// A Soredemo recording carries system audio and a microphone separately
-    /// (`AudioMixBuilder.trackOrder`) and a person mixes them separately. Noise removal produces
-    /// a cleaned MICROPHONE and must leave system audio exactly as recorded — so the shape of
-    /// this parameter is what stops a cleaned track being pasted over both.
-    ///
-    /// A substitute that cannot be read leaves the original in place rather than dropping the
-    /// track: losing the voice is a worse outcome than keeping its hiss, and a cache file that
-    /// has been deleted under the app is an ordinary thing.
+    /// `docs/design/what-the-exporter-reads.md` has the rest.
     public nonisolated static func make(from asset: AVAsset,
                                        by timeline: EditTimeline,
                                        substitutingAudio: [Int: AVAsset] = [:])

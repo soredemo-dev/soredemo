@@ -302,31 +302,29 @@ public enum Loudness {
 // MARK: - reading a recording
 
 extension Loudness {
+    /// **The recording's own level, read from the file rather than from a composed asset.**
+    ///
+    /// Two reasons, and the second matters more. `AVAsset` is not `Sendable`, so an asset a
+    /// caller already holds cannot also be handed here without the compiler objecting. And
+    /// levelling should not move every time an edit does: measuring the cut asset would change
+    /// the answer when a loud passage is trimmed, so the microphone's level would drift as a
+    /// person works. `AudioMixBuilder.trackOrder` is the order a composition keeps, so the
+    /// indices line up either way.
+    public nonisolated static func measure(contentsOf url: URL) async -> [Int: Reading] {
+        await measure(AVURLAsset(url: url))
+    }
+
     /// **The integrated loudness of each audio track of `asset`, by track index.**
     ///
-    /// Keyed by index because that is the only thing that identifies a master's audio tracks —
+    /// Keyed by index because that is the only thing identifying a master's audio tracks —
     /// `AVAssetTrack` carries no name, and the order is the writer's, which
     /// `AudioMixBuilder.trackOrder` names. A track that could not be read, or that is silence,
     /// is absent rather than present with a very negative number.
     ///
-    /// **Streaming through `Meter`, so a long recording is never held in memory.** A half hour
-    /// of stereo float PCM is over 600 MB; this reads it in the decoder's own buffers and keeps
-    /// 400 ms.
+    /// **Streaming through `Meter`, so a long recording is never held in memory**: half an hour
+    /// of stereo float PCM is over 600 MB, and this keeps 400 ms of it.
     ///
-    /// `nonisolated` and taking a `sending` asset for `AudioMixBuilder.apply`'s reason: `AVAsset`
-    /// is not `Sendable` and this is called across an isolation boundary.
-    /// **The recording's own level, read from the file rather than from a composed asset.**
-    ///
-    /// Two reasons, and the second is the one that matters. `AVAsset` is not `Sendable`, so an
-    /// asset a caller is already holding cannot also be handed here without the compiler
-    /// objecting — building one from the URL sidesteps that entirely. And levelling should not
-    /// move every time an edit does: measuring the composed, cut asset would change the answer
-    /// when a loud passage is trimmed, so the microphone's level would drift as a person works.
-    /// The master's audio tracks are in `AudioMixBuilder.trackOrder`, which is the order a
-    /// composition built from it keeps, so the indices line up.
-    public nonisolated static func measure(contentsOf url: URL) async -> [Int: Reading] {
-        await measure(AVURLAsset(url: url))
-    }
+    /// `nonisolated` and taking a `sending` asset for `AudioMixBuilder.apply`'s reason.
 
     public nonisolated static func measure(_ asset: sending AVAsset) async -> [Int: Reading] {
         guard let tracks = try? await asset.loadTracks(withMediaType: .audio) else { return [:] }

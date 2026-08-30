@@ -124,3 +124,88 @@ cursor is already moving under the spring when the glide begins, and a glide
 starting at full speed would kink its path visibly. Easing in lets the return take
 over gradually; easing out lets it settle on home rather than arriving at speed
 and stopping dead, which is the other visible kink.
+
+## The five stages of the presentation path
+
+*Moved out of `Core/Sources/Render/PointerPath.swift`'s header 2026-08-30 — a numbered
+five-item list is a document, and it reads better next to the rest of the cursor's behaviour.*
+
+**The cursor a viewer sees: the recorded path, followed by a spring.**
+
+`PointerTrack.position(at:)` is the review path's truth and `smoothedPosition(at:)` is the
+lerp between brackets. Both preserve every turn the hand made — a lerp is C0, its velocity
+jumps at every sample, and the sample stream IS the hand tremor, sub-pixel wobble and
+hesitation of a person operating a mouse. That is why a rendered cursor built from either
+reads as "a person operating a mouse" rather than as a demo. This type is the third query:
+the presentation path, and the only one allowed to be gentle about the shape of the motion.
+
+Five stages, each answering a way the raw path looks wrong:
+
+1. **Resample onto a fixed grid through a cardinal spline.** C1 continuity is what turns a
+   corner into an arc. Parameterised by TIME, not by index: the tap emits on motion and the
+   sampler at 60 Hz, so consecutive samples are never evenly spaced.
+2. **A spring follows the spline.** Damping ratio 0.9 rather than 1.0 — the barest overshoot
+   is what reads as weight, and critically damped reads as a robot arm. The response is
+   `Tuning.Movement`'s, shortened toward `adaptiveMinScale` as the cursor speeds up so a fast
+   flick does not trail the recording visibly.
+3. **Idle stabilisation.** When the target barely moves it is blended toward where the spring
+   already is. `PointerSampler`'s 60 Hz floor emits a still pointer as positions a fraction of
+   a pixel apart, and a spring chasing those shimmers.
+4. **Phase lead.** A spring chasing a moving target trails it by `2ζ/ω` seconds at steady
+   state; sampling the target that far ahead cancels the trail, so the drawn cursor sits where
+   the real one was at render time rather than visibly behind it.
+5. **A stiffer spring into a click.** 175 ms before every button-down the response drops to
+   `clickResponseSeconds`, so the cursor has arrived when the ripple starts. Without it the
+   ripple draws at a point the cursor reaches a few frames later.
+
+**What it refuses, in the same terms `PointerTrack.smoothedPosition` refuses.** The spline
+never crosses a gap wider than `PointerTrack.maxInterpolationGap` and never crosses a
+blind interval: across either the TARGET holds the last sample, exactly as the lerp does.
+The spring then glides to the next observed position after it is observed — motion that
+follows the observation by a few frames, not motion invented across a span nothing saw.
+
+**Baked once, queried by binary search.** The spring is stateful — its answer at `t`
+depends on everything before `t` — so a per-frame query that integrated from the start
+would be the O(n²) `CameraMotion` was; instead the whole path is integrated once in `init`
+at `step` and a frame reads its bracket. A three-minute recording is ~45,000 entries.
+Deterministic: the same samples produce the same path on every machine and at every
+output frame rate, which is what `render-parity` needs.
+
+## The cursor's own artwork, and its measured densities
+
+*Moved out of `Core/Sources/Compositing/SystemCursorArtwork.swift`'s header 2026-08-30.*
+
+A cursor's own picture, as macOS draws it, handed in by the app tier.
+
+**The drawn art in `CursorArt` is an approximation and looks like one.** Its
+header says the real shape is "lost and unrecoverable" because capture runs
+with `showsCursor = false` — which was true of the FRAME and was never true of
+the cursor itself: `NSCursor` has the image the whole time, and
+`SystemCursorShape` already reads it on every sample to classify the shape.
+Only the bytes were being thrown away.
+
+Measured on macOS 26, and the numbers decide the design:
+
+    arrow            280×400 px for  28×40 pt   →  10×
+    iBeam            230×220 px for  23×22 pt   →  10×
+    pointingHand      64×64  px for  32×32 pt   →   2×
+    crosshair         48×48  px for  24×24 pt   →   2×
+
+The arrow ships at TEN times density — sharper than any export this app
+produces — so the usual argument for vector art, that a bitmap softens when
+magnified, does not apply to the shape that is on screen almost all the time.
+The 2× ones are exactly the density of the recording they sit on, which is the
+honest answer rather than a compromise: a cursor sharper than the screen under
+it reads as pasted on.
+
+**The pixels are kept as macOS drew them.** No trimming, no re-rendering at a
+reference size, no nearest-neighbour upscale — each of those is a decision
+about somebody else's artwork, and the padding is transparent PNG that costs
+nothing (the arrow is 13 KB). One scale, at draw time, and nothing else.
+
+**Handed in rather than bundled**, for `SystemCursorShape`'s reason: artwork
+baked into this app is a fact about one macOS version pinned inside a binary,
+and it goes stale silently. Asking the running system means a macOS that
+redraws its cursors is followed rather than contradicted.
+
+`@unchecked Sendable`: `CGImage` is immutable and this type only reads it.

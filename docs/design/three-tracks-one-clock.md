@@ -95,3 +95,27 @@ Two honest options remain, and neither is in this change:
   sees a sample. Already reachable from the recorder's microphone menu.
 - **Offline cancellation** using the recorded system-audio track as the reference.
   Now possible, because the two tracks finally share a timeline.
+
+## How a rebase inflated every audio track
+
+*Moved out of `Core/Sources/Capture/CaptureSession.swift` 2026-08-30 — a defect walk-through belongs where the rest of the clock story is.*
+
+`sampleBuffer` with its presentation timestamp replaced, every sample's own duration and
+every other timing field untouched. `nil` when CoreMedia refuses, which the caller counts
+rather than writing a buffer whose timing it did not set.
+
+**The previous version inflated every audio track it touched, and this is why.**
+It built ONE `CMSampleTimingInfo` with `duration: CMSampleBufferGetDuration(buffer)`
+and passed `sampleTimingEntryCount: 1`. CoreMedia applies a single entry to EVERY
+sample in the buffer, and in that form `duration` is the duration of ONE sample —
+while `CMSampleBufferGetDuration` returns the duration of the whole buffer. A video
+buffer holds one sample, so the two are equal and the video path was never affected.
+An audio buffer holds hundreds, so each of them claimed the whole buffer's length.
+
+A `.mov` audio track's duration is the SUM of its samples' declared durations, so the
+track grew far past the recording; `AVAsset.duration` is the longest track, so the
+editor showed a 16-second recording as 38 — and, in a case a user reported, 57.
+
+Shifting the original timing array instead keeps every per-sample duration exactly as
+the source declared it, which is the only thing a rebase should be changing: WHEN the
+buffer is presented, not how long its samples are.

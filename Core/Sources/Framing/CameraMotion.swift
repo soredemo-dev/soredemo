@@ -35,39 +35,20 @@ public struct CameraState: Hashable, Sendable {
 /// The camera, integrated from zoom blocks by a critically damped spring.
 ///
 /// **Fixed timestep, and that is the load-bearing decision.** A spring stepped by whatever
-/// interval the caller happens to ask for accumulates differently on a 60 Hz preview and a
-/// 24 fps export — the same recording would produce two different camera paths, and
-/// `render-parity`'s claim that one compositor drives both would quietly become false in
-/// the one place nobody thinks to look. The path is integrated at a fixed `timestep`, so
-/// the answer is a function of the instant alone (`theSameInstantAlwaysYieldsTheSameState`).
+/// interval the caller asks for accumulates differently on a 60 Hz preview and a 24 fps export,
+/// and `render-parity`'s claim that one compositor drives both would quietly become false in the
+/// one place nobody looks (`theSameInstantAlwaysYieldsTheSameState`).
 ///
-/// **Baked once in `init`, read by binary search — and that is a correctness fix twice
-/// over.** The first draft integrated from absolute zero per query and never finished on six
-/// seconds of a real recording; the second started at the first block, which was still a
-/// full re-integration PER FRAME: the frame at minute ten paid 75,000 steps, each scanning
-/// the block list, on `AVPlayer`'s real-time path. That is the stutter a long recording
-/// showed on every zoom. `state(at:)` now costs a binary search whatever the instant.
+/// **Baked once in `init`, read by binary search**, which is a correctness fix twice over: two
+/// earlier drafts re-integrated per query and per frame, and the second was the stutter a long
+/// recording showed on every zoom.
 ///
-/// **Critically damped, not tuned by feel.** `camera-motion`'s row says "settles without
-/// overshoot", and for a spring-mass-damper that is exactly ζ = 1 — not a value found by
-/// watching footage. The one free knob left is ω, chosen so the move settles to within 2%
-/// in ~0.9 s: slower than `ZoomBlock.preRoll`, so the camera is still moving when the click
-/// lands, which is what makes the motion read as following the action rather than
-/// anticipating it.
+/// **Critically damped is ζ = 1, derived not tuned**; ω is the one free knob, set so a move
+/// settles within 2% in ~0.9 s — slower than `ZoomBlock.preRoll`, so the camera is still moving
+/// when the click lands and reads as following rather than anticipating.
 ///
-/// **Inside a zoom the camera follows the cursor, by the least it can.** A block aims at
-/// the clicked control; a cursor that then travels toward the edge of the zoomed viewport
-/// pushes the aim along with it only once it crosses into `followMargin`'s band, and only
-/// by the excess — so the camera holds still while a person reads and moves when they
-/// leave. The complaint this answers is a menu opening beside a button and leaving the
-/// frame; the rule is a dead-zone follow, and the motion is this spring's.
-///
-/// **The target is eased before the spring sees it.** A block's aim is a step function —
-/// one centre and depth until the next block, then another — and a spring fed a step has a
-/// discontinuous acceleration at the step: a jerk, which the eye reads as a lurch even when
-/// the position curve looks fine. `targetTimeConstant` low-passes the aim first, so the
-/// spring's input is C1 and its output C2. Good transitions read as one motion
-/// rather than a start and a stop for this reason.
+/// Why the camera follows the cursor only inside `followMargin`'s band, and why the aim is
+/// low-passed before the spring sees it: `docs/design/how-deep-the-camera-goes.md`.
 public struct CameraMotion: Sendable {
     /// Where the presented cursor is at an instant, or `nil` where it is not drawn. The
     /// cursor lives in `Render` and this module does not depend on it, so it arrives as a

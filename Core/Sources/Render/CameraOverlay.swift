@@ -262,27 +262,20 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
 
     /// The camera's rectangle in output pixels, given the source's aspect.
     ///
-    /// **A circle is square before it is masked.** Fitting a 4:3 camera into a circle by using
-    /// its own aspect would give an ellipse; the frame is squared and the source is cropped to
-    /// fill it, which is what every video-call application does with a round self-view.
+    /// **A circle is square before it is masked** — fitting a 4:3 camera into a circle by its own
+    /// aspect would give an ellipse, so the frame is squared and the source cropped to fill it.
     ///
-    /// **Held inside the frame, which it was not.** `x` and `y` place the camera's CENTRE and
-    /// are clamped to 0…1, so `x = 1` hung half a face off the right edge of the export — and
-    /// the self-view writes exactly that value when somebody drags into a corner, which is where
-    /// people put cameras. Placing the overlay inside `container − overlay − margin × 2` makes
-    /// a half-cropped camera unreachable at any setting.
+    /// **Held inside the frame, which it was not.** `x` and `y` place the CENTRE and are clamped
+    /// to 0…1, so `x = 1` hung half a face off the right edge of the export — and the self-view
+    /// writes exactly that when somebody drags into a corner, which is where people put cameras.
+    /// Placing it inside `container − overlay − margin × 2` makes that unreachable at any
+    /// setting. **Clamped rather than remapped**, deliberately: remapping would change what a
+    /// stored `x` MEANS and open an existing project with its camera somewhere else — the
+    /// producer-value rule broken to fix a rendering bug.
     ///
-    /// Clamped rather than remapped, deliberately. Remapping would change what a stored `x`
-    /// MEANS, and a project saved before this would open with its camera somewhere else — the
-    /// producer-value rule broken to fix a rendering bug. A drag that saturates at the edge is
-    /// also what a person dragging expects.
-    ///
-    /// A camera too big for the frame is centred rather than clamped to a corner: with no room
-    /// to satisfy both margins, the symmetric answer is the only one that is not arbitrary.
-    ///
-    /// `contentZoom` is the stage's zoom for this frame; the camera keeps `scaleDuringZoom` of
-    /// its width while the stage is zoomed in, interpolated so it shrinks as the zoom rises
-    /// rather than snapping the moment a zoom starts.
+    /// A camera too big for the frame is centred, since with no room to satisfy both margins the
+    /// symmetric answer is the only one that is not arbitrary. `contentZoom` shrinks it to
+    /// `scaleDuringZoom` of its width, interpolated rather than snapping when a zoom starts.
     public func rect(inOutputWidth outputWidth: Int, outputHeight: Int,
                      sourceAspect: Double, contentZoom: Double = 1)
     -> (x: Double, y: Double, width: Double, height: Double) {

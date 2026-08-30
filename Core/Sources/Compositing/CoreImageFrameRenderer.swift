@@ -15,7 +15,26 @@ import Render
 public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private let context: CIContext
 
-    public init() throws {
+    /// Cursor artwork for THIS renderer, or `nil` to read whatever the app tier published.
+    ///
+    /// **It exists so a test never writes `SystemCursorArtwork.byShape`.** That static is read
+    /// on the cursor path of every frame, and a test that installed a synthetic arrow into it
+    /// raced two other tests that render cursors without naming artwork at all — they saw a
+    /// 32×32 arrow with its hotspot at (16, 16) and reported the drawn tip 16 columns and 15
+    /// rows from the placement, intermittently, for as long as the two happened to overlap.
+    /// The comment on the test that wrote it claimed the suite was "serialised on this static
+    /// by construction"; there was no suite and nothing serialised anything.
+    ///
+    /// `nil` in the app, so nothing about how a recording renders changes: the global is still
+    /// read at draw time, which is what lets the app publish artwork after a renderer exists.
+    private let cursorArtworkOverride: [PointerShape: CursorArtwork]?
+
+    public convenience init() throws {
+        try self.init(cursorArtworkOverride: nil)
+    }
+
+    public init(cursorArtworkOverride: [PointerShape: CursorArtwork]?) throws {
+        self.cursorArtworkOverride = cursorArtworkOverride
         guard let device = MTLCreateSystemDefaultDevice() else {
             throw FrameRenderingError.noRenderDevice
         }
@@ -155,16 +174,6 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         }
     }
 
-    /// **`CISmoothLinearGradient`, not `CILinearGradient`.** The linear filter ramps the
-    /// channels evenly, which on a full-frame fill shows Mach banding — the eye finds edges
-    /// in a perfectly even ramp. The smooth variant applies a smoothstep easing, which costs
-    /// nothing here and removes it.
-    ///
-    /// The two points are placed on the frame's diagonal at `angleDegrees`, measured
-    /// counter-clockwise from +x as `StageBackground.linearGradient` documents. The span is
-    /// half the frame's diagonal in each direction from the centre, so the gradient always
-    /// covers the whole frame whatever the angle: projecting the frame's width and height
-    /// onto the axis separately would leave a flat band at every angle but 0° and 90°.
     /// How much of the frame's width the strongest blur spans, as a Gaussian sigma.
     ///
     /// **Expressed against the width so the slider means the same thing at every export size.** A
@@ -230,6 +239,16 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             .transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
     }
 
+    /// **`CISmoothLinearGradient`, not `CILinearGradient`.** The linear filter ramps the
+    /// channels evenly, which on a full-frame fill shows Mach banding — the eye finds edges
+    /// in a perfectly even ramp. The smooth variant applies a smoothstep easing, which costs
+    /// nothing here and removes it.
+    ///
+    /// The two points are placed on the frame's diagonal at `angleDegrees`, measured
+    /// counter-clockwise from +x as `StageBackground.linearGradient` documents. The span is
+    /// half the frame's diagonal in each direction from the centre, so the gradient always
+    /// covers the whole frame whatever the angle: projecting the frame's width and height
+    /// onto the axis separately would leave a flat band at every angle but 0° and 90°.
     private func gradientImage(_ plan: RenderPlan, start: CIColor, end: CIColor,
                                angleDegrees: Double) -> CIImage {
         let width = Double(plan.outputWidth)
@@ -258,8 +277,8 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// 1080 px between two colours a few dozen levels apart steps once every twenty or thirty
     /// pixels, and the eye finds every step; the smooth filter's easing removes the Mach bands
     /// at the ends and not the steps in the middle. Adding noise of ±`ditherLevels` / 255 —
-    /// below what anyone sees as grain — breaks each step into a dither, which is how a Rust recorder's
-    /// gradient layer (`noise_intensity`) and every film scan handle the same thing.
+    /// below what anyone sees as grain — breaks each step into a dither, which is how a surveyed
+    /// recorder's gradient layer and every film scan handle the same thing.
     /// `CIRandomGenerator` is procedural in position, so the same frame dithers the same way
     /// in the preview and in the export (`aDitheredGradientIsDeterministic`).
     static let ditherLevels: Double = 1.5
@@ -296,8 +315,7 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// a rectangle glowing looks like and not what a window on a surface looks like. A real
     /// shadow has two parts — a wide, faint ambient one from light everywhere, and a tighter,
     /// darker key one displaced away from the light. Anything that reads as "a window sitting
-    /// there" draws both, and a card whose shadow visibly hangs below it is the tell. Both here
-    /// are
+    /// there" draws both, and a card whose shadow visibly hangs below it is the tell. Both are
     /// derived from the style's two knobs, so nothing a person saved changes meaning:
     ///
     /// * ambient — the silhouette at `opacity × ambientShare`, sigma `radius / 2`, centred;
@@ -305,10 +323,9 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     ///   moved down by `radius × keyDropFraction`.
     ///
     /// `nil` when either knob is zero, so a shadowless style costs no filter pass at all
-    /// (`aZeroOpacityShadowChangesNothing`). The proportions are **uncalibrated**: chosen so a
-    /// default style (radius 32, opacity 0.35) reads as a card on a desk rather than a card in
-    /// fog, measured by eye on the "Dusk" preset and pinned by
-    /// `theShadowFallsBelowTheCardMoreThanAboveIt`.
+    /// (`aZeroOpacityShadowChangesNothing`). The proportions are **uncalibrated** — chosen so a
+    /// default style reads as a card on a desk rather than a card in fog, by eye on the "Dusk"
+    /// preset, and pinned by `theShadowFallsBelowTheCardMoreThanAboveIt`.
     static let ambientShare: Double = 0.6
     static let keyShare: Double = 0.75
     static let keySigmaFraction: Double = 0.3
@@ -364,23 +381,19 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return rounded(placed, plan: plan)
     }
 
-    /// **The screen's pixels are sRGB, whatever the master's tag says, and this is where that
-    /// is declared.** `CaptureSession` asks ScreenCaptureKit for `colorSpaceName = sRGB` and
-    /// writes the master tagged Rec.709 — the convention every screen recording on this
-    /// platform follows, since 709 and sRGB share primaries and the tag is what players
-    /// expect. They do NOT share a transfer curve. A decoded master frame arrives with 709
-    /// attachments, and `CIImage(cvPixelBuffer:)` honours them: it converts the pixels
-    /// through 709's curve into the context's sRGB working space, the context renders sRGB
-    /// out, and the writer tags 709 again without converting back. **Measured: mid grey 128
-    /// left the export as 141 and 200 as 208**, on every frame, with every tag agreeing with
-    /// every other tag — the failure the colour-pipeline note (2026-08-24) said this chain
-    /// did not have, because it checked the tags and not the pixels.
+    /// **The screen's pixels are sRGB, whatever the master's tag says, and this is where that is
+    /// declared.** Capture asks ScreenCaptureKit for sRGB and writes the master tagged Rec.709 —
+    /// the platform convention, since the two share primaries. They do NOT share a transfer
+    /// curve, and `CIImage(cvPixelBuffer:)` honours the 709 attachments: it converts through
+    /// 709's curve into an sRGB working space, renders sRGB out, and the writer tags 709 again
+    /// without converting back. **Measured: mid grey 128 left the export as 141, and 200 as
+    /// 208**, on every frame, with every tag agreeing with every other — the failure the
+    /// 2026-08-24 colour note said this chain did not have, because it checked tags not pixels.
     ///
-    /// Declaring the buffer sRGB on the way in makes the round trip the identity: the
-    /// values the capture wrote are the values the export writes
-    /// (`theExportPreservesTheSourcesPixelValues`). **The camera's frames are not treated
-    /// this way** — `cameraImage` reads its buffer with its own tags, because a webcam's
-    /// pixels really are the video the tag says they are.
+    /// Declaring the buffer sRGB on the way in makes the round trip the identity
+    /// (`theExportPreservesTheSourcesPixelValues`). **The camera's frames are not treated this
+    /// way** — `cameraImage` reads its buffer with its own tags, because a webcam's pixels really
+    /// are the video the tag says they are.
     static let screenColourSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
     static func screenImage(_ buffer: CVPixelBuffer) -> CIImage {
@@ -454,16 +467,6 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return result.cropped(to: bounds)
     }
 
-    /// **A hairline light edge on the card, or nothing.**
-    ///
-    /// The ring is the difference between the card's shape and a slightly smaller one — the same
-    /// construction the camera overlay's border already uses, and for the same reason:
-    /// `CIRoundedRectangleGenerator` makes shapes rather than paths, so there is nothing for a
-    /// stroke filter to stroke.
-    ///
-    /// **Its width is a fraction of the card, floored at one pixel.** A border fixed in pixels is
-    /// invisible in a 4K export and heavy in a 720p one; a border fixed in fractions vanishes
-    /// entirely on a small card. The floor is what stops the second.
     /// The device's body: a rounded rectangle filled with a vertical gradient.
     ///
     /// **A gradient, not a fill.** A device is lit from above in every product photograph
@@ -498,6 +501,16 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         ])
     }
 
+    /// **A hairline light edge on the card, or nothing.**
+    ///
+    /// The ring is the difference between the card's shape and a slightly smaller one — the same
+    /// construction the camera overlay's border already uses, and for the same reason:
+    /// `CIRoundedRectangleGenerator` makes shapes rather than paths, so there is nothing for a
+    /// stroke filter to stroke.
+    ///
+    /// **Its width is a fraction of the card, floored at one pixel.** A border fixed in pixels is
+    /// invisible in a 4K export and heavy in a 720p one; a border fixed in fractions vanishes
+    /// entirely on a small card. The floor is what stops the second.
     private func cardBorder(_ plan: RenderPlan) -> CIImage {
         guard plan.style.borderOpacity > 0 else { return CIImage.empty() }
         let width = max(plan.card.width * 0.0015, 1)
@@ -829,24 +842,17 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return ring.composited(over: result)
     }
 
-    /// The pointer art for one placement, translated to its output-pixel position. Returns an empty
-    /// image if the bitmap could not be created, so a hiccup loses the pointer, not the frame.
-    /// `cursorCanvasLock` is never held across the caller's GPU render.
     /// The system's own artwork, drawn so its HOTSPOT lands on the canvas origin.
     ///
-    /// The origin is where the pointer actually is, and every drawn path in
-    /// `CursorArt` is built around it for the same reason. An artwork placed by
-    /// its corner instead would put the arrow's tip 5 points away from where
-    /// somebody clicked, which is exactly the error `PointerSample.hotspot` exists
-    /// to prevent.
+    /// The origin is where the pointer actually is, and every drawn path in `CursorArt` is built
+    /// around it for the same reason. Artwork placed by its corner would put the arrow's tip 5
+    /// points from where somebody clicked, which is the error `PointerSample.hotspot` prevents.
+    /// The context is already translated to the canvas centre and rotated by the lean, so this
+    /// draws in hotspot-relative coordinates.
     ///
-    /// The context has been translated to the canvas centre and rotated by the
-    /// lean already, so this draws in hotspot-relative coordinates.
-    ///
-    /// **Sized in POINTS times `scale`, not in its own pixels.** A 10× arrow and a
-    /// 2× hand are the same size on screen, and `scale` is the same multiplier the
-    /// paths take — so turning artwork on does not change how big the cursor is,
-    /// only what it is made of.
+    /// **Sized in POINTS times `scale`, not in its own pixels.** A 10× arrow and a 2× hand are
+    /// the same size on screen, and `scale` is the multiplier the paths take — so turning artwork
+    /// on changes what the cursor is made of, not how big it is.
     private func drawArtwork(_ artwork: CursorArtwork, into bitmap: CGContext, scale: Double) {
         let width = artwork.pointWidth * scale
         let height = artwork.pointHeight * scale
@@ -899,6 +905,9 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return filter.outputImage ?? image
     }
 
+    /// The pointer art for one placement, translated to its output-pixel position. Returns an empty
+    /// image if the bitmap could not be created, so a hiccup loses the pointer, not the frame.
+    /// `cursorCanvasLock` is never held across the caller's GPU render.
     private func cursorImage(for placement: NormalizedPointerPlacement, outputHeight: Int,
                              style: CursorStyle) -> CIImage {
         // The chosen scale multiplies the density scale rather than replacing it: the second is
@@ -908,7 +917,7 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // do — the arrow is 40 points tall with its hotspot 5 points down — so the
         // canvas is sized from whichever is actually going to be drawn. Sizing it
         // for the path alone clips the artwork at the bitmap's edge.
-        let artwork = SystemCursorArtwork.artwork(for: placement.shape)
+        let artwork = SystemCursorArtwork.artwork(for: placement.shape, in: cursorArtworkOverride)
         let drawnExtent = artwork?.maxExtentFromHotspot ?? CursorArt.pointerMaxExtent
         let halfExtent = max(CursorArt.rippleEndRadius * style.clickSize,
                              scale * drawnExtent)
@@ -973,14 +982,10 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // the I-beam's centre; its own header says so. Drawing that origin at the recorded
         // position is therefore already correct, and nothing needs to move it.
         //
-        // An earlier version shifted the art by `placement.hotspot`, which is the hotspot of
-        // the SYSTEM cursor's IMAGE — a different picture with different padding. That
-        // measurement was taken from one live cursor reading of (0.52, 0.50), its image's
-        // centre, and generalised. Applied to art whose origin is already the hotspot it
-        // moved a correct placement by half a cursor, every frame. Anything that draws art
-        // (Apache 2.0) draws its own cursor art too and derives each hotspot from its own
-        // design coordinates — the arrow's tip at (1.5, 1.0) in a 17×25 space — never from
-        // the system image, for exactly this reason.
+        // An earlier version shifted the art by `placement.hotspot`, the hotspot of the SYSTEM
+        // cursor's IMAGE — a different picture with different padding, measured once at
+        // (0.52, 0.50), its image's centre, and generalised. Applied to art whose origin already
+        // IS the hotspot, it moved a correct placement by half a cursor, every frame.
         //
         // `hotspot` is still RECORDED. It is the right value for a renderer that draws the
         // system image, which is what a real cursor-shape table would enable; it is simply

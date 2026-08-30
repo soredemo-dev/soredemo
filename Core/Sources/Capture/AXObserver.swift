@@ -180,13 +180,11 @@ final class AXObserver: @unchecked Sendable {
     /// then disagreed in every mode except whole-display capture, where the viewport IS the
     /// display and the numbers coincide.
     ///
-    /// What that cost, in a window or region recording: the click arrives normalised against
-    /// the WINDOW, `globalPoint` denormalised it against the DISPLAY, and accessibility was
-    /// asked what sits at the middle of the screen for a click at the middle of the window.
-    /// Whatever came back was then normalised against the display too, so
-    /// `AXChainRecord.clickContainment` compared two rectangles from two coordinate systems
-    /// and answered `doesNotContainTheClick`. `FramingGate` refused every chain, and the
-    /// symptom a person saw was that window and region recordings never zoom.
+    /// What that cost, in a window or region recording: a click normalised against the WINDOW
+    /// was denormalised against the DISPLAY, so accessibility was asked what sits at the middle
+    /// of the screen for a click at the middle of the window. `AXChainRecord.clickContainment`
+    /// then compared two rectangles from two coordinate systems, `FramingGate` refused every
+    /// chain, and the symptom a person saw was that window and region recordings never zoom.
     ///
     /// A `var` for `InputObserver`'s reason: a followed window moves and resizes mid-recording,
     /// and a viewport frozen at `start()` would put every later hit-test at a stale place.

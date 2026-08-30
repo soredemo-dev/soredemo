@@ -35,24 +35,16 @@ public enum CameraComposition {
     /// The screen recording with the camera's video laid alongside it.
     ///
     /// **They do not both start at zero, and `cameraStartOffset` is the difference.** This used
-    /// to insert both at the same instant and say in this comment that it was an approximation
-    /// pending the camera's first-frame host time. That time is now recorded —
-    /// `CameraRecorder.firstFrameHostTimeNanos` beside
-    /// `CaptureSession.Diagnostics.firstFrameHostTimeNanos` — which is the same anchor
-    /// `openObservationLog(atFirstFrame:)` takes for the pointer.
+    /// to insert both at the same instant and call it an approximation pending the camera's
+    /// first-frame host time. That time is now recorded — `CameraRecorder.firstFrameHostTimeNanos`
+    /// beside `CaptureSession.Diagnostics.firstFrameHostTimeNanos`, the same anchor
+    /// `openObservationLog(atFirstFrame:)` takes for the pointer — so it need not be approximate.
     ///
-    /// It need not be approximate: a recording can carry a
-    /// `start_time`, and `calculate_audio_offsets` aligns them all to whichever began LAST.
-    /// The same number, applied as a seek on the camera element.
-    ///
-    /// **Positive means the camera started LATER**, so its picture belongs that far into the
-    /// recording and the overlay is simply absent before then — which is true, and is what the
-    /// person saw. Negative means the camera started FIRST, so that much of its head is footage
-    /// of a screen recording that had not begun, and it is trimmed off.
-    ///
-    /// A camera is a slow device: it takes hundreds of milliseconds to wake and expose, so this
-    /// offset is usually the camera being late by more than a frame. On a small overlay a few
-    /// frames of error is visible in a hand wave; that is the error this closes.
+    /// **Positive means the camera started LATER**, so its picture belongs that far in and the
+    /// overlay is absent before then, which is what the person saw; negative means it started
+    /// first, so that much of its head is footage of a recording that had not begun and is
+    /// trimmed off. A camera takes hundreds of milliseconds to wake and expose, so this is
+    /// usually lateness of more than a frame — visible in a hand wave on a small overlay.
     ///
     /// Returns the screen asset untouched when there is no camera, so the common path builds no
     /// composition at all.

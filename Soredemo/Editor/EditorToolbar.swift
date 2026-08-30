@@ -63,21 +63,16 @@ struct EditorToolbar: View {
     /// How far the running export has got, and how long is left.
     ///
     /// **Here rather than only in the window's toolbar, because that toolbar is not on screen
-    /// when it matters.** The export progress lives in an `ExportQueueButton` toolbar item,
-    /// which is the right place for the queue — and the editor opens FULL SCREEN, where
-    /// `NSApplicationPresentationOptions.autoHideToolbar` takes the whole toolbar away until
-    /// somebody reaches for it. So the one moment a person wants to see how long an export has
-    /// left is the one moment the answer is hidden, which is what was reported: "i dont see the
-    /// 匯出進度條".
+    /// when it matters.** The queue lives in an `ExportQueueButton` toolbar item, and the editor
+    /// opens FULL SCREEN, where `autoHideToolbar` takes the whole toolbar away until somebody
+    /// reaches for it — so the one moment a person wants to know how long is left is the one
+    /// moment the answer is hidden. This row is content, not chrome, so full screen leaves it.
     ///
-    /// This row is content, not chrome, so full screen does not touch it.
+    /// **Only while something is running**: a bar that is always there, usually at zero, is a
+    /// control people learn not to read.
     ///
-    /// **Only while something is running.** A bar that is always there, usually at zero, is a
-    /// control people learn not to read — the same argument `ExportQueueButton` makes for not
-    /// living in the toolbar permanently.
-    ///
-    /// The time is the words `ExportETA` already produces and the tables already carry; the
-    /// fraction is the same one the queue draws. Nothing here is a second opinion about either.
+    /// The time is the words `ExportETA` already produces and the fraction is the one the queue
+    /// draws. Nothing here is a second opinion about either.
     @ViewBuilder private var exportProgress: some View {
         if let job = exportQueue.jobs.first(where: { $0.status == .running }) {
             HStack(spacing: Space.snug) {

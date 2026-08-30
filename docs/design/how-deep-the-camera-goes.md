@@ -109,3 +109,102 @@ round half to even behind anyone's back.
 It lives beside the curve rather than in the view because the reason it is subtle
 is `quantisationStep`, which lives there — and because a formatter in the app tier
 could not be tested.
+
+## How the camera moves
+
+*Moved out of `Core/Sources/Framing/CameraMotion.swift`'s header 2026-08-30.*
+
+The camera, integrated from zoom blocks by a critically damped spring.
+
+**Fixed timestep, and that is the load-bearing decision.** A spring stepped by whatever
+interval the caller happens to ask for accumulates differently on a 60 Hz preview and a
+24 fps export — the same recording would produce two different camera paths, and
+`render-parity`'s claim that one compositor drives both would quietly become false in
+the one place nobody thinks to look. The path is integrated at a fixed `timestep`, so
+the answer is a function of the instant alone (`theSameInstantAlwaysYieldsTheSameState`).
+
+**Baked once in `init`, read by binary search — and that is a correctness fix twice
+over.** The first draft integrated from absolute zero per query and never finished on six
+seconds of a real recording; the second started at the first block, which was still a
+full re-integration PER FRAME: the frame at minute ten paid 75,000 steps, each scanning
+the block list, on `AVPlayer`'s real-time path. That is the stutter a long recording
+showed on every zoom. `state(at:)` now costs a binary search whatever the instant.
+
+**Critically damped, not tuned by feel.** `camera-motion`'s row says "settles without
+overshoot", and for a spring-mass-damper that is exactly ζ = 1 — not a value found by
+watching footage. The one free knob left is ω, chosen so the move settles to within 2%
+in ~0.9 s: slower than `ZoomBlock.preRoll`, so the camera is still moving when the click
+lands, which is what makes the motion read as following the action rather than
+anticipating it.
+
+**Inside a zoom the camera follows the cursor, by the least it can.** A block aims at
+the clicked control; a cursor that then travels toward the edge of the zoomed viewport
+pushes the aim along with it only once it crosses into `followMargin`'s band, and only
+by the excess — so the camera holds still while a person reads and moves when they
+leave. The complaint this answers is a menu opening beside a button and leaving the
+frame; the rule is a dead-zone follow, and the motion is this spring's.
+
+**The target is eased before the spring sees it.** A block's aim is a step function —
+one centre and depth until the next block, then another — and a spring fed a step has a
+discontinuous acceleration at the step: a jerk, which the eye reads as a lurch even when
+the position curve looks fine. `targetTimeConstant` low-passes the aim first, so the
+spring's input is C1 and its output C2. Good transitions read as one motion
+rather than a start and a stop for this reason.
+
+## Aligning the camera with the screen
+
+*Moved out of `Core/Sources/Compositing/CameraComposition.swift` 2026-08-30 — a set of measured decisions is a document.*
+
+The screen recording with the camera's video laid alongside it.
+
+**They do not both start at zero, and `cameraStartOffset` is the difference.** This used
+to insert both at the same instant and say in this comment that it was an approximation
+pending the camera's first-frame host time. That time is now recorded —
+`CameraRecorder.firstFrameHostTimeNanos` beside
+`CaptureSession.Diagnostics.firstFrameHostTimeNanos` — which is the same anchor
+`openObservationLog(atFirstFrame:)` takes for the pointer.
+
+It need not be approximate: a recording can carry a
+`start_time`, and `calculate_audio_offsets` aligns them all to whichever began LAST.
+The same number, applied as a seek on the camera element.
+
+**Positive means the camera started LATER**, so its picture belongs that far into the
+recording and the overlay is simply absent before then — which is true, and is what the
+person saw. Negative means the camera started FIRST, so that much of its head is footage
+of a screen recording that had not begun, and it is trimmed off.
+
+A camera is a slow device: it takes hundreds of milliseconds to wake and expose, so this
+offset is usually the camera being late by more than a frame. On a small overlay a few
+frames of error is visible in a hand wave; that is the error this closes.
+
+Returns the screen asset untouched when there is no camera, so the common path builds no
+composition at all.
+@MainActor
+
+## Placing the camera overlay
+
+*Moved out of `Core/Sources/Render/CameraOverlay.swift` 2026-08-30 — a set of measured decisions is a document.*
+
+The camera's rectangle in output pixels, given the source's aspect.
+
+**A circle is square before it is masked.** Fitting a 4:3 camera into a circle by using
+its own aspect would give an ellipse; the frame is squared and the source is cropped to
+fill it, which is what every video-call application does with a round self-view.
+
+**Held inside the frame, which it was not.** `x` and `y` place the camera's CENTRE and
+are clamped to 0…1, so `x = 1` hung half a face off the right edge of the export — and
+the self-view writes exactly that value when somebody drags into a corner, which is where
+people put cameras. Placing the overlay inside `container − overlay − margin × 2` makes
+a half-cropped camera unreachable at any setting.
+
+Clamped rather than remapped, deliberately. Remapping would change what a stored `x`
+MEANS, and a project saved before this would open with its camera somewhere else — the
+producer-value rule broken to fix a rendering bug. A drag that saturates at the edge is
+also what a person dragging expects.
+
+A camera too big for the frame is centred rather than clamped to a corner: with no room
+to satisfy both margins, the symmetric answer is the only one that is not arbitrary.
+
+`contentZoom` is the stage's zoom for this frame; the camera keeps `scaleDuringZoom` of
+its width while the stage is zoomed in, interpolated so it shrinks as the zoom rises
+rather than snapping the moment a zoom starts.

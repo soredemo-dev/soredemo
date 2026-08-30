@@ -63,11 +63,10 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     /// How long the recording takes to appear at this clip's start, and to leave at its end,
     /// in OUTPUT seconds.
     ///
-    /// **A fade on each clip rather than a transition on each seam**, and one model covers
-    /// three things people ask for: a seam where one clip's fade-out meets the next one's
-    /// fade-in reads as a dip, the first clip's fade-in is an opening, and the last one's
-    /// fade-out is an ending. A seam list would express only the middle case and would need
-    /// its own place in the file.
+    /// **A fade on each clip rather than a transition on each seam**, and one model covers three
+    /// things people ask for: one clip's fade-out meeting the next one's fade-in reads as a dip,
+    /// the first clip's fade-in is an opening, the last one's fade-out is an ending. A seam list
+    /// would express only the middle case and would need its own place in the file.
     ///
     /// **And it needs no arithmetic.** A cross-dissolve overlaps two clips, which shortens the
     /// output and changes every conversion `sourceTime(atOutput:)` stands under — the pointer
@@ -352,31 +351,19 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// The timeline restricted to one span of OUTPUT time — an in point and an out point.
     ///
     /// **This is how "export just this part" is expressed, and expressing it as an EDIT is the
-    /// whole design.** The alternative is a range parameter threaded through the exporter, the
-    /// compositor, the observation-log mapping and the caption track, each of which would then
-    /// have two notions of "where are we" to keep in step. A restricted timeline has one:
-    /// everything downstream already knows how to render a timeline, so a range costs nothing
-    /// new anywhere.
-    ///
-    /// Without it the workaround is to duplicate the project and trim the copy, once per
-    /// section. The
-    /// coordinate transforms this needs — `sourceTime(atOutput:)` and the speed-aware `split`
-    /// below it — were already here for other reasons.
+    /// whole design.** The alternative threads a range through the exporter, the compositor, the
+    /// observation-log mapping and the caption track, each of which would then have two notions
+    /// of "where are we" to keep in step. A restricted timeline has one.
     ///
     /// **Output time, not source time.** A person setting an in point is pointing at the video
-    /// they are watching, which is the edited one; a cut earlier in the timeline has already
-    /// moved every later frame. Converting to source at the edges is this function's job, and
-    /// `split` does it speed-aware — a clip at 2× covers twice as much recording per second of
-    /// playback.
+    /// they are watching, which is the edited one. Converting to source at the edges is this
+    /// function's job, and `split` does it speed-aware — a clip at 2× covers twice as much
+    /// recording per second of playback.
     ///
-    /// Returns `nil` for a range that selects nothing: empty, or entirely outside the output. A
-    /// named refusal rather than an empty timeline, because an empty timeline exports a
-    /// zero-length file and looks like the export failing for some other reason.
-    ///
-    /// **Not "reversed", though the guard below would catch it.** `Range` traps at construction
-    /// on `lowerBound > upperBound`, so an out point before the in point cannot reach this
-    /// function at all — the type has already refused it, and a comment claiming this guard
-    /// handles a case the type forbids would be describing work nothing does.
+    /// Returns `nil` for a range that selects nothing, because an empty timeline exports a
+    /// zero-length file and looks like the export failing for some other reason. **Not
+    /// "reversed"**: `Range` traps at construction on `lowerBound > upperBound`, so the type has
+    /// already refused an out point before the in point.
     public func restricted(toOutput range: Range<Int64>) -> EditTimeline? {
         guard range.lowerBound < range.upperBound else { return nil }
         let total = outputDuration.rawValue

@@ -394,8 +394,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         ///
         /// **What a second capture has to be lined up against.** It is already computed here —
         /// the observation log's anchor IS this instant — and was not reachable from outside, so
-        /// `CameraComposition` had to assume the camera and the screen began together. a Rust recorder gives
-        /// every track in a recording a `start_time` for this reason.
+        /// `CameraComposition` had to assume the camera and the screen began together. Recorders that
+        /// get this right give every track in a recording its own start instant, for this reason.
         public internal(set) var firstFrameHostTimeNanos: Int64 = 0
         /// Observations discarded because the first frame had not arrived by
         /// `maxBufferedObservations`. Non-zero means the capture was not producing frames, and
@@ -1193,30 +1193,25 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         ]
     }
 
-    /// Routes one `InputObserver.Observation` to the segment's
-    /// `ObservationWriter` and, for a button-down, enqueues its AX chain. Called
-    /// on the tap callback thread, so `nonisolated`, with everything it touches
-    /// behind `lock`.
-    ///
-    /// The writer is captured once at the top and that single reference is what
-    /// the AX completion closure uses: an AX chain belongs to the segment its
-    /// click happened in, and it answers after that segment's writer may have
-    /// been replaced. `finalizingCurrentSegment` must be read in the SAME
-    /// `lock.withLock` as `observationWriter`, or a close running between two
-    /// separate reads would misattribute a drop to the wrong counter.
     /// The writer and the closing flag, read together under one lock.
     ///
-    /// **The pairing is the point, and this exists so a third caller cannot get
-    /// it wrong.** Two facts once shared one counter — an observation dropped
-    /// because a segment was closing, a real loss, and one arriving while no
-    /// segment was open, not uniformly a loss — and telling them apart needs
-    /// both values from the same instant. Read separately, a close running
+    /// **The pairing is the point, and this exists so a third caller cannot get it wrong.** Two
+    /// facts once shared one counter — an observation dropped because a segment was closing, a
+    /// real loss, and one arriving while no segment was open, not uniformly a loss — and telling
+    /// them apart needs both values from the same instant. Read separately, a close running
     /// between the two reads misattributes the drop to the other counter.
     private nonisolated func writerAndClosingFlag() -> (ObservationWriter?, Bool) {
         let (writer, finalizing) = lock.withLock { unsafe (observationWriter, finalizingCurrentSegment) }
         return (writer, finalizing)
     }
 
+    /// Routes one `InputObserver.Observation` to the segment's `ObservationWriter` and, for a
+    /// button-down, enqueues its AX chain. Called on the tap callback thread, so `nonisolated`,
+    /// with everything it touches behind `lock`.
+    ///
+    /// The writer is captured once at the top and that single reference is what the AX completion
+    /// closure uses: an AX chain belongs to the segment its click happened in, and it answers
+    /// after that segment's writer may have been replaced.
     private nonisolated func routeInputObservation(_ observation: InputObserver.Observation) {
         let (writer, finalizing) = writerAndClosingFlag()
         switch observation {
@@ -1598,35 +1593,25 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
     }
 
-    /// `sampleBuffer` with its presentation timestamp replaced, duration and every other
-    /// timing field untouched. `nil` when CoreMedia refuses, which the caller counts rather
-    /// than writing a buffer whose timing it did not set.
-    /// The same buffer presented at `presentationTime`, with every sample's own duration
-    /// preserved.
-    ///
-    /// **The previous version inflated every audio track it touched, and this is why.**
-    /// It built ONE `CMSampleTimingInfo` with `duration: CMSampleBufferGetDuration(buffer)`
-    /// and passed `sampleTimingEntryCount: 1`. CoreMedia applies a single entry to EVERY
-    /// sample in the buffer, and in that form `duration` is the duration of ONE sample —
-    /// while `CMSampleBufferGetDuration` returns the duration of the whole buffer. A video
-    /// buffer holds one sample, so the two are equal and the video path was never affected.
-    /// An audio buffer holds hundreds, so each of them claimed the whole buffer's length.
-    ///
-    /// A `.mov` audio track's duration is the SUM of its samples' declared durations, so the
-    /// track grew far past the recording; `AVAsset.duration` is the longest track, so the
-    /// editor showed a 16-second recording as 38 — and, in a case a user reported, 57.
-    ///
-    /// Shifting the original timing array instead keeps every per-sample duration exactly as
-    /// the source declared it, which is the only thing a rebase should be changing: WHEN the
-    /// buffer is presented, not how long its samples are.
     /// The rebase, reachable from a test. `retimed` is private because nothing outside this
-    /// file should be re-timing capture buffers; the defect it carried was invisible for a
+    /// file should be re-timing capture buffers; the defect described on it was invisible for a
     /// phase precisely because nothing could ask it a question.
     nonisolated static func retimedForTesting(_ sampleBuffer: CMSampleBuffer,
                                               to presentationTime: CMTime) -> CMSampleBuffer? {
         retimed(sampleBuffer, to: presentationTime)
     }
 
+    /// `sampleBuffer` with its presentation timestamp replaced, every sample's own duration and
+    /// every other timing field untouched. `nil` when CoreMedia refuses, which the caller counts
+    /// rather than writing a buffer whose timing it did not set.
+    ///
+    /// **Shifting the ORIGINAL timing array, not building one entry.** A previous version built
+    /// one `CMSampleTimingInfo` with the whole buffer's duration and `sampleTimingEntryCount: 1`,
+    /// which CoreMedia applies to every sample — harmless for video, where a buffer holds one
+    /// sample, and catastrophic for audio, where hundreds each claimed the whole buffer's length.
+    /// A 16-second recording opened as 38, and in one report as 57.
+    /// `docs/design/three-tracks-one-clock.md` has the walk-through. A rebase changes WHEN a
+    /// buffer is presented, never how long its samples are.
     private nonisolated static func retimed(_ sampleBuffer: CMSampleBuffer,
                                             to presentationTime: CMTime) -> CMSampleBuffer? {
         let originalPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
@@ -1774,14 +1759,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// video and 0.046 seconds of audio — three AAC packets — because the microphone input was
     /// added, never fed and never finished.
     ///
-    /// **Measured rather than predicted.** The obvious version checks the microphone
-    /// permission at segment start, which is one of several reasons a source delivers nothing:
-    /// no device, a device muted in the OS, an app holding it exclusively, or system audio
-    /// simply having nothing to play. Waiting a fixed number of frames and asking what has
-    /// actually arrived covers all of them, and needs no list of them.
-    ///
-    /// The grace period is generous on purpose: closing a track that was merely slow to start
-    /// loses the rest of its audio, which is worse than the delay it saves.
+    /// **Measured rather than predicted.** Checking the microphone permission at segment start
+    /// catches one of several reasons a source delivers nothing — no device, one muted in the OS,
+    /// an app holding it exclusively, or system audio with nothing to play. Waiting a fixed
+    /// number of frames and asking what actually arrived covers all of them and lists none. The
+    /// grace period is generous on purpose: closing a track that was merely slow to start loses
+    /// the rest of its audio, which is worse than the delay it saves.
     private nonisolated func closeAudioTracksNothingIsFeeding() {
         let toClose = lock.withLock { () -> [MasterTrack] in
             unsafe framesSinceSegmentStart += 1

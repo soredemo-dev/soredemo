@@ -49,3 +49,36 @@ So the field holds encoded bytes and each tier's own type does the decoding. The
 format is still one file and still one version; what changes is which tier may
 read which part of it. `encoding(_:)` and `decoding(_:as:)` are the seam, so no
 caller writes an encoder by hand and gets different bytes.
+
+## Exporting part of a recording
+
+*Moved out of `Core/Sources/Timeline/EditTimeline.swift` 2026-08-30 — a measurement table is a document.*
+
+The timeline restricted to one span of OUTPUT time — an in point and an out point.
+
+**This is how "export just this part" is expressed, and expressing it as an EDIT is the
+whole design.** The alternative is a range parameter threaded through the exporter, the
+compositor, the observation-log mapping and the caption track, each of which would then
+have two notions of "where are we" to keep in step. A restricted timeline has one:
+everything downstream already knows how to render a timeline, so a range costs nothing
+new anywhere.
+
+Without it the workaround is to duplicate the project and trim the copy, once per
+section. The
+coordinate transforms this needs — `sourceTime(atOutput:)` and the speed-aware `split`
+below it — were already here for other reasons.
+
+**Output time, not source time.** A person setting an in point is pointing at the video
+they are watching, which is the edited one; a cut earlier in the timeline has already
+moved every later frame. Converting to source at the edges is this function's job, and
+`split` does it speed-aware — a clip at 2× covers twice as much recording per second of
+playback.
+
+Returns `nil` for a range that selects nothing: empty, or entirely outside the output. A
+named refusal rather than an empty timeline, because an empty timeline exports a
+zero-length file and looks like the export failing for some other reason.
+
+**Not "reversed", though the guard below would catch it.** `Range` traps at construction
+on `lowerBound > upperBound`, so an out point before the in point cannot reach this
+function at all — the type has already refused it, and a comment claiming this guard
+handles a case the type forbids would be describing work nothing does.

@@ -63,3 +63,20 @@ a drag, so nothing is ever a cache hit. On a grid, a drag through one window's
 worth of recording reads once. The window is widened by a grain at each end so a
 grain centred anywhere inside the grid cell still lies wholly within what was read
 — the case `cut` refuses.
+
+## Why the system-audio toggle could not exist, and now can
+
+*Moved out of `Soredemo/Recording/MenuBarRecorder.swift` 2026-08-30 — a superseded
+reason, kept because deleting it would invite the same objection to be raised again.*
+
+The panel's microphone row used to say the asymmetry between the two sources was
+deliberate: turning system audio off leaves an `AVAssetWriter` input that nothing
+feeds, which is the condition that starved a *fed* audio track down to three
+packets, and `closeAudioTracksNothingIsFeeding` only recovers after ninety frames.
+
+All of that is still accurate. It stopped being binding when `HeldAudioQueue`
+landed: it holds about eight seconds of buffers against a grace period of one and
+a half, so audio that would once have been dropped is queued and drains when the
+unfed track closes. Nothing is lost. The microphone's own `.off` had been taking
+exactly this path since it shipped, which is the detail that showed the objection
+had already been answered elsewhere in the same codebase.
