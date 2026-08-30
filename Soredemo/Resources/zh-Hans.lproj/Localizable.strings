@@ -397,3 +397,11 @@
 "The same change fits %lld other line(s)." = "同样的修改也适合另外 %lld 句。";
 "Line up with the speech" = "对齐语音";
 "Least sure of" = "最没把握的字";
+"Taking the sound out" = "抽出声音";
+"Downloading the language" = "下载语言模型";
+"Listening" = "听打中";
+"Breaking it into lines" = "断成句子";
+"The longer the recording, the longer this takes — it is the slow step." = "视频越长这一步越久 —— 它是慢的那一步。";
+"First time for this language only. It is a few hundred megabytes." = "这个语言只有第一次要下载,大约几百 MB。";
+"You can look at something else while this runs." = "这段期间可以先去看别的地方。";
+"Stopped. Nothing was changed." = "已停止,什么都没有改动。";

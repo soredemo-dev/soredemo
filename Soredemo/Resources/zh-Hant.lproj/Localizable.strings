@@ -411,3 +411,11 @@
 "The same change fits %lld other line(s)." = "同樣的修改也適合另外 %lld 句。";
 "Line up with the speech" = "對齊語音";
 "Least sure of" = "最沒把握的字";
+"Taking the sound out" = "抽出聲音";
+"Downloading the language" = "下載語言模型";
+"Listening" = "聽打中";
+"Breaking it into lines" = "斷成句子";
+"The longer the recording, the longer this takes — it is the slow step." = "影片越長這一步越久 —— 它是慢的那一步。";
+"First time for this language only. It is a few hundred megabytes." = "這個語言只有第一次要下載,大約幾百 MB。";
+"You can look at something else while this runs." = "這段期間可以先去看別的地方。";
+"Stopped. Nothing was changed." = "已停止,什麼都沒有改動。";

@@ -165,7 +165,7 @@ paying.
 | Waveform with cue blocks | ● zoomable | ○ |
 | Safe-frame overlay | ● | ○ |
 | Import corrected subtitles | ● | ● *(2026-08-31)* |
-| Named stages while generating | ● five, each timed | ◐ three phases, one line of text |
+| Named stages while generating | ● five, each timed | ● *three steps, each timed, with Stop (2026-08-31)* |
 | Caption style presets | ○ | ● four, added 2026-08-30 |
 | Word-by-word highlight | ● | ● |
 | Vocabulary for the recogniser | ● *(cloud model)* | ◐ spelling pass only — `teaching-the-recogniser-a-word.md` |

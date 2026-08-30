@@ -37,6 +37,56 @@ public enum TranscriptionProgress: Sendable, Equatable {
     /// app had hung.
     case installingModel(language: String)
     case listening
+    /// Turning what came back into lines: cutting at pauses, breaking to width, timing each cue.
+    /// Fast, and named anyway — a stage that finishes instantly still tells somebody the one
+    /// before it is over.
+    case breakingLines
+
+    /// **Every stage, in order, so a person can see the whole shape of the wait.**
+    ///
+    /// One line saying "Listening" answers "is it stuck?" with a shrug. A list with the finished
+    /// ones ticked, the running one lit and the rest ahead answers it: this is the third of four
+    /// and the slow one. `installingModel` is absent because it happens once per language ever
+    /// and listing it every time would put a step in front of people that will not run.
+    public static let ordinarySteps: [TranscriptionProgress] =
+        [.extractingAudio, .listening, .breakingLines]
+
+    public var displayName: String {
+        switch self {
+        case .extractingAudio: "Taking the sound out"
+        case .installingModel: "Downloading the language"
+        case .listening: "Listening"
+        case .breakingLines: "Breaking it into lines"
+        }
+    }
+
+    /// What this step is doing, for the one that is running. **Only the slow one says anything**:
+    /// a sentence under a step that takes 200 ms is noise, and the sentence people need is why
+    /// the wait has a shape they cannot predict.
+    public var detail: String? {
+        switch self {
+        case .listening:
+            "The longer the recording, the longer this takes — it is the slow step."
+        case .installingModel:
+            "First time for this language only. It is a few hundred megabytes."
+        default: nil
+        }
+    }
+
+    /// Whether `other` has already happened by the time this one is running. Used to tick the
+    /// finished steps; `installingModel` counts as before `listening` because that is when it
+    /// runs, on the first time for a language.
+    public func hasPassed(_ other: TranscriptionProgress) -> Bool {
+        func rank(_ step: TranscriptionProgress) -> Int {
+            switch step {
+            case .extractingAudio: 0
+            case .installingModel: 1
+            case .listening: 2
+            case .breakingLines: 3
+            }
+        }
+        return rank(other) < rank(self)
+    }
 }
 
 /// The on-device implementation, over macOS 26's `SpeechAnalyzer`.
@@ -156,15 +206,27 @@ public struct OnDeviceTranscription: TranscriptionSource {
         }
 
         do {
-            if let lastSample = try await analyzer.analyzeSequence(from: audioFile) {
-                try await analyzer.finalizeAndFinish(through: lastSample)
-            } else {
-                await analyzer.cancelAndFinishNow()
+            // **Cancellation has to reach the ANALYZER, not only this task.**
+            // `analyzeSequence(from:)` is one long await over the whole file; a cancelled task
+            // waiting on it would keep waiting, so a person who pressed Cancel would watch the
+            // spinner until the recording finished anyway. `cancelAndFinishNow` is what stops
+            // it, and the handler is the only place that can be called from.
+            try await withTaskCancellationHandler {
+                if let lastSample = try await analyzer.analyzeSequence(from: audioFile) {
+                    try await analyzer.finalizeAndFinish(through: lastSample)
+                } else {
+                    await analyzer.cancelAndFinishNow()
+                }
+            } onCancel: {
+                Task { await analyzer.cancelAndFinishNow() }
             }
         } catch {
             collecting.cancel()
             throw TranscriptionError.recognitionFailed(String(describing: error))
         }
+        // Checked AFTER the analyzer stopped rather than before: a cancelled run must not
+        // return half a transcript as though it were the whole one.
+        try Task.checkCancellation()
 
         let results: [SpeechTranscriber.Result]
         do {
@@ -173,6 +235,7 @@ public struct OnDeviceTranscription: TranscriptionSource {
             throw TranscriptionError.recognitionFailed(String(describing: error))
         }
 
+        onProgress?(.breakingLines)
         let transcript = Self.transcript(from: results, locale: locale)
         // Back into the recording's own time — a caller who transcribed a selection asked about
         // the recording, not about the extract.

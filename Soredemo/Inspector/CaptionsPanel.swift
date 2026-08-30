@@ -27,6 +27,17 @@ final class CaptionsModel {
     /// off, and a person who wanted a sidecar has not asked for one in their video.
     private(set) var burnsIn = false
     private(set) var phase: TranscriptionProgress?
+    /// The steps that have finished this run, with how long each took.
+    ///
+    /// **A stage list with times, rather than one line saying what is happening now.** "Listening"
+    /// answers "is it stuck?" with a shrug; three steps with the finished ones ticked and their
+    /// seconds beside them answers it. Cleared when a run starts, so it is always this run's.
+    private(set) var finishedSteps: [(step: TranscriptionProgress, seconds: Double)] = []
+    /// When the running step began, for the same reason.
+    private var stepStarted: ContinuousClock.Instant?
+    /// The run itself, so it can be stopped. Cancelling reaches the analyzer, not only the wait:
+    /// measured at 0.16 s to return against 1.94 s to finish.
+    private var transcribing: Task<Void, Never>?
     private(set) var status: String?
     /// The transcript **as recognised**, kept so a change to the caption style or the output
     /// size can re-break the lines without transcribing again. Breaking is instant; recognising
@@ -61,6 +72,24 @@ final class CaptionsModel {
     }
 
     var isTranscribing: Bool { phase != nil }
+
+    /// Records how long the step that just ended took, and starts timing the new one.
+    private func note(_ next: TranscriptionProgress) {
+        if let phase, let stepStarted {
+            let seconds = Double((ContinuousClock.now - stepStarted)
+                .components.seconds) + Double((ContinuousClock.now - stepStarted)
+                .components.attoseconds) / 1e18
+            finishedSteps.append((phase, seconds))
+        }
+        phase = next
+        stepStarted = ContinuousClock.now
+    }
+
+    /// Stops a run. The work is dropped rather than kept: half a transcript timed against the
+    /// first half of a recording is not a shorter transcript, it is a wrong one.
+    func cancelTranscription() {
+        transcribing?.cancel()
+    }
     var canTranscribe: Bool { OnDeviceTranscription.isAvailable && !isTranscribing }
 
     init() { publish() }
@@ -72,25 +101,42 @@ final class CaptionsModel {
     @MainActor
     func transcribe(mediaURL: URL, outputWidth: Int, outputHeight: Int,
                     maximumWords: Int?, pauses: [SilenceFinder.Span]) async {
-        phase = .extractingAudio
+        finishedSteps = []
+        stepStarted = nil
+        note(.extractingAudio)
         status = nil
-        defer { phase = nil }
-        do {
-            let source = OnDeviceTranscription(locale: locale)
-            let recognised = try await source.transcript(of: mediaURL, range: nil,
-                                                         onProgress: { [weak self] progress in
-                Task { @MainActor in self?.phase = progress }
-            })
-            transcript = recognised
-            languageLooksWrong = OnDeviceTranscription.languageLooksWrong(recognised)
-            rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
-                    maximumWords: maximumWords, pauses: pauses)
-            status = track.isEmpty
-                ? "No speech was recognised in this recording."
-                : "\(track.cues.count) caption(s) from \(recognised.words.count) word(s)."
-        } catch {
-            status = "Could not transcribe: \(error)"
+        defer { phase = nil; stepStarted = nil; transcribing = nil }
+
+        // Held so `cancelTranscription` has something to cancel, and awaited so the caller's
+        // `onChange` still runs after it — cancelled or not.
+        let run = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let source = OnDeviceTranscription(locale: locale)
+                let recognised = try await source.transcript(
+                    of: mediaURL, range: nil,
+                    onProgress: { [weak self] progress in
+                        Task { @MainActor in self?.note(progress) }
+                    })
+                transcript = recognised
+                languageLooksWrong = OnDeviceTranscription.languageLooksWrong(recognised)
+                rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
+                        maximumWords: maximumWords, pauses: pauses)
+                status = track.isEmpty
+                    ? "No speech was recognised in this recording."
+                    : "\(track.cues.count) caption(s) from \(recognised.words.count) word(s)."
+            } catch is CancellationError {
+                status = "Stopped. Nothing was changed."
+            } catch {
+                // A cancelled analyzer surfaces as its own failure rather than as
+                // `CancellationError`, so the task's own state is what decides which this was.
+                status = Task.isCancelled
+                    ? "Stopped. Nothing was changed."
+                    : "Could not transcribe: \(error)"
+            }
         }
+        transcribing = run
+        await run.value
     }
 
     /// Re-breaks the kept transcript for a new size or word cap, WITHOUT transcribing again —
@@ -378,10 +424,7 @@ struct CaptionsPanel: View {
 
     @ViewBuilder private var transcriptControls: some View {
         if model.isTranscribing {
-            HStack(spacing: Space.snug) {
-                ProgressView().controlSize(.small)
-                Text(phaseLabel).font(Type.detail).foregroundStyle(.secondary)
-            }
+            transcriptionSteps
         } else {
             Button(model.track.isEmpty ? "Transcribe" : "Transcribe again") {
                 Task {
@@ -1046,12 +1089,60 @@ struct CaptionsPanel: View {
             ?? locale.identifier(.bcp47)
     }
 
-    private var phaseLabel: String {
-        switch model.phase {
-        case .extractingAudio: "Reading the audio…"
-        case .installingModel(let language): "Downloading the \(language) speech model…"
-        case .listening, nil: "Listening…"
+    /// The whole shape of the wait: every step, the finished ones ticked with what they took,
+    /// the running one lit, the rest ahead.
+    ///
+    /// **One line saying "Listening…" answers "is it stuck?" with a shrug.** A person watching a
+    /// spinner cannot tell a slow step from a hung one, and the slow step here is genuinely slow
+    /// — it scales with the recording. Showing the list says which of three this is, that the
+    /// two before it took a second each, and that this one is the long one.
+    ///
+    /// `installingModel` is not in the list because it runs once per language ever; when it IS
+    /// running it appears in place, rather than standing in the list every other time as a step
+    /// that will not happen.
+    @ViewBuilder private var transcriptionSteps: some View {
+        let running = model.phase
+        let steps: [TranscriptionProgress] = {
+            guard case .installingModel = running else { return TranscriptionProgress.ordinarySteps }
+            var all = TranscriptionProgress.ordinarySteps
+            all.insert(running!, at: 1)
+            return all
+        }()
+
+        ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+            let done = running.map { $0.hasPassed(step) } ?? false
+            let isRunning = running == step
+            HStack(spacing: Space.snug) {
+                if done {
+                    // No colour: `Signal` has none for "done", and the accent in this app marks
+                    // the primary action rather than state — the tick is already the difference.
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
+                } else if isRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "circle").foregroundStyle(.tertiary)
+                }
+                Text(LocalizedStringKey(step.displayName))
+                    .foregroundStyle(done || isRunning ? AnyShapeStyle(.primary)
+                                                       : AnyShapeStyle(.secondary))
+                Spacer()
+                if let seconds = model.finishedSteps.first(where: { $0.step == step })?.seconds {
+                    Text(verbatim: String(format: "%.1fs", seconds))
+                        .font(Type.readout).foregroundStyle(.secondary)
+                }
+            }
+            .font(Type.label)
+            if isRunning, let detail = step.detail {
+                Text(LocalizedStringKey(detail))
+                    .font(Type.detail).foregroundStyle(.secondary)
+            }
         }
+
+        // **The work survives leaving this panel**, and saying so is most of what it is for: a
+        // person who does not know that sits and watches. The model outlives the tab.
+        Text("You can look at something else while this runs.")
+            .font(Type.detail).foregroundStyle(.secondary)
+        Button("Stop") { model.cancelTranscription() }
     }
 
     /// `m:ss.t` — a caption list is scanned for WHERE something was said, and hours of leading

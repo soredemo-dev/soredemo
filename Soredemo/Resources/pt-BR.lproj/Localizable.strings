@@ -396,3 +396,11 @@
 "The same change fits %lld other line(s)." = "A mesma alteração serve para %lld outra(s) linha(s).";
 "Line up with the speech" = "Alinhar com a fala";
 "Least sure of" = "Menos certo de";
+"Taking the sound out" = "Extraindo o som";
+"Downloading the language" = "Baixando o idioma";
+"Listening" = "Ouvindo";
+"Breaking it into lines" = "Dividindo em linhas";
+"The longer the recording, the longer this takes — it is the slow step." = "Quanto mais longa a gravação, mais demora esta etapa — é a etapa lenta.";
+"First time for this language only. It is a few hundred megabytes." = "Só na primeira vez para este idioma. São algumas centenas de megabytes.";
+"You can look at something else while this runs." = "Você pode olhar outra coisa enquanto isso.";
+"Stopped. Nothing was changed." = "Parado. Nada foi alterado.";

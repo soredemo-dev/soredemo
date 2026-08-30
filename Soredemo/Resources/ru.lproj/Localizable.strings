@@ -395,3 +395,11 @@
 "The same change fits %lld other line(s)." = "То же исправление подходит ещё для %lld строк(и).";
 "Line up with the speech" = "Выровнять по речи";
 "Least sure of" = "Меньше всего уверен в";
+"Taking the sound out" = "Извлечение звука";
+"Downloading the language" = "Загрузка языка";
+"Listening" = "Слушает";
+"Breaking it into lines" = "Разбиение на строки";
+"The longer the recording, the longer this takes — it is the slow step." = "Чем длиннее запись, тем дольше этот шаг — он самый медленный.";
+"First time for this language only. It is a few hundred megabytes." = "Только в первый раз для этого языка. Несколько сотен мегабайт.";
+"You can look at something else while this runs." = "Пока это идёт, можно заняться другим.";
+"Stopped. Nothing was changed." = "Остановлено. Ничего не изменено.";

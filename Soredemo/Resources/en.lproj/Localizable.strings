@@ -411,3 +411,11 @@
 "The same change fits %lld other line(s)." = "The same change fits %lld other line(s).";
 "Line up with the speech" = "Line up with the speech";
 "Least sure of" = "Least sure of";
+"Taking the sound out" = "Taking the sound out";
+"Downloading the language" = "Downloading the language";
+"Listening" = "Listening";
+"Breaking it into lines" = "Breaking it into lines";
+"The longer the recording, the longer this takes — it is the slow step." = "The longer the recording, the longer this takes — it is the slow step.";
+"First time for this language only. It is a few hundred megabytes." = "First time for this language only. It is a few hundred megabytes.";
+"You can look at something else while this runs." = "You can look at something else while this runs.";
+"Stopped. Nothing was changed." = "Stopped. Nothing was changed.";

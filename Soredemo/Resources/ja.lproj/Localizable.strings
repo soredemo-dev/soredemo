@@ -397,3 +397,11 @@
 "The same change fits %lld other line(s)." = "同じ修正が他の %lld 件にも当てはまります。";
 "Line up with the speech" = "音声に合わせる";
 "Least sure of" = "最も自信がない語";
+"Taking the sound out" = "音声を取り出す";
+"Downloading the language" = "言語モデルをダウンロード";
+"Listening" = "聞き取り中";
+"Breaking it into lines" = "行に分割";
+"The longer the recording, the longer this takes — it is the slow step." = "録画が長いほどこの工程は長くなります — ここが遅い工程です。";
+"First time for this language only. It is a few hundred megabytes." = "この言語は初回のみ。数百 MB あります。";
+"You can look at something else while this runs." = "この間、他の場所を見ていて構いません。";
+"Stopped. Nothing was changed." = "停止しました。何も変更されていません。";

@@ -395,3 +395,11 @@
 "The same change fits %lld other line(s)." = "같은 수정이 다른 %lld개 줄에도 맞습니다.";
 "Line up with the speech" = "음성에 맞추기";
 "Least sure of" = "가장 확신 없는 단어";
+"Taking the sound out" = "소리 추출";
+"Downloading the language" = "언어 모델 다운로드";
+"Listening" = "듣는 중";
+"Breaking it into lines" = "줄로 나누기";
+"The longer the recording, the longer this takes — it is the slow step." = "녹화가 길수록 이 단계가 오래 걸립니다 — 느린 단계입니다.";
+"First time for this language only. It is a few hundred megabytes." = "이 언어는 처음 한 번만. 수백 MB입니다.";
+"You can look at something else while this runs." = "그동안 다른 곳을 보셔도 됩니다.";
+"Stopped. Nothing was changed." = "중지했습니다. 아무것도 바뀌지 않았습니다.";
