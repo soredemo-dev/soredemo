@@ -384,3 +384,8 @@
 "Too long" = "Слишком долго";
 "Import…" = "Импорт…";
 "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "Импорт заменяет все субтитры содержимым файла. Во внешнем файле нет времени по словам, поэтому подсветка останется выключенной для импортированного, пока эта запись не будет распознана заново.";
+"Search the captions" = "Поиск по субтитрам";
+"Clear the search" = "Очистить поиск";
+"Previous caption" = "Предыдущий субтитр";
+"Next caption" = "Следующий субтитр";
+"No caption contains that." = "Ни один субтитр не содержит этого.";

@@ -297,6 +297,9 @@ struct CaptionsPanel: View {
     /// and correcting the span are different jobs, and showing both sets at once puts six
     /// controls under a line somebody wanted to retype.
     @State private var selectedIndex: Int?
+    /// What the list is filtered to. **A filter, not a jump-to-match**: on a long recording the
+    /// question is "where did I say that", and the answer is every line that says it.
+    @State private var search = ""
 
     var body: some View {
         List {
@@ -304,7 +307,10 @@ struct CaptionsPanel: View {
             if !model.track.isEmpty {
                 Section("Preset") { presetControls }
                 Section("Look") { lookControls }
-                Section("Lines") { lines }
+                Section("Lines") {
+                    listControls
+                    lines
+                }
             }
             if let status = model.status {
                 Section { Text(status).font(Type.detail).foregroundStyle(.secondary) }
@@ -605,6 +611,55 @@ struct CaptionsPanel: View {
         model.track.cues.firstIndex { $0.contains(playhead) }
     }
 
+    /// The cues the search allows through, each with its index into the unfiltered track — which
+    /// is what every edit below addresses, so filtering can never retime the wrong line.
+    private var visibleCues: [(index: Int, cue: CaptionCue)] {
+        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+        return model.track.cues.enumerated()
+            .filter { needle.isEmpty || $0.element.text.lowercased().contains(needle) }
+            .map { (index: $0.offset, cue: $0.element) }
+    }
+
+    /// A field over the list, and the two keys that move between cues.
+    ///
+    /// **⌥↑ and ⌥↓ rather than bare arrows**, which belong to the list itself, and rather than
+    /// Space, `i`, `o` or `s`, which the timeline has already taken. Hidden buttons because
+    /// `keyboardShortcut` has to hang on a live view and these are keys rather than controls.
+    @ViewBuilder private var listControls: some View {
+        HStack(spacing: Space.snug) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search the captions", text: $search)
+                .textFieldStyle(.plain)
+            if !search.isEmpty {
+                Text(verbatim: "\(visibleCues.count)/\(model.track.cues.count)")
+                    .font(Type.readout).foregroundStyle(.secondary)
+                Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear the search")
+            }
+        }
+        .font(Type.label)
+
+        Button("Previous caption") { jump(by: -1) }
+            .keyboardShortcut(.upArrow, modifiers: [.option])
+            .hidden().frame(height: 0)
+        Button("Next caption") { jump(by: 1) }
+            .keyboardShortcut(.downArrow, modifiers: [.option])
+            .hidden().frame(height: 0)
+    }
+
+    /// Moves the playhead to the cue before or after wherever it is.
+    ///
+    /// **Measured from the playhead, not from a selection**, so the keys do the same thing
+    /// whether or not a row was clicked. Which cue a step lands on — including from a gap
+    /// between two of them, which is most of a recording — is `CaptionTrack`'s decision, where
+    /// it can be tested.
+    private func jump(by delta: Int) {
+        guard let target = model.track.index(steppingFrom: playhead, by: delta) else { return }
+        onSeek(model.track.cues[target].start)
+        selectedIndex = target
+    }
+
     /// **A row per cue, and the row the playhead is in is lit.** The list and the transport are
     /// the same cursor seen twice: clicking a row moves the playhead to it, and playing moves
     /// the highlight. A list that did neither is a table of contents.
@@ -615,8 +670,13 @@ struct CaptionsPanel: View {
     @ViewBuilder private var lines: some View {
         ScrollViewReader { scroller in
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(model.track.cues.enumerated()), id: \.offset) { index, cue in
-                    row(index: index, cue: cue).id(index)
+                ForEach(visibleCues, id: \.index) { entry in
+                    row(index: entry.index, cue: entry.cue).id(entry.index)
+                }
+                if visibleCues.isEmpty, !search.isEmpty {
+                    Text("No caption contains that.")
+                        .font(Type.detail).foregroundStyle(.secondary)
+                        .padding(.vertical, Space.tight)
                 }
             }
             .onChange(of: currentIndex) {
@@ -641,6 +701,11 @@ struct CaptionsPanel: View {
             if editingIndex == index {
                 TextField("Caption", text: $draft, axis: .vertical)
                     .onSubmit { commit(index) }
+                    // Esc is how a person leaves a field they opened by accident, and a panel
+                    // that only offers a Cancel button makes them reach for the mouse to undo a
+                    // click. `.escape` on a hidden button rather than `.onExitCommand`, which
+                    // the window would take first.
+                    .onKeyPress(.escape) { editingIndex = nil; return .handled }
                 editingControls(index: index)
             } else {
                 Text(cue.text)

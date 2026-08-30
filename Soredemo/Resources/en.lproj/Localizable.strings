@@ -400,3 +400,8 @@
 "Too long" = "Too long";
 "Import…" = "Import…";
 "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again.";
+"Search the captions" = "Search the captions";
+"Clear the search" = "Clear the search";
+"Previous caption" = "Previous caption";
+"Next caption" = "Next caption";
+"No caption contains that." = "No caption contains that.";

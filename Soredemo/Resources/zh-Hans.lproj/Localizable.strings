@@ -386,3 +386,8 @@
 "Too long" = "太长";
 "Import…" = "导入…";
 "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "导入会用文件的内容取代全部字幕。外挂字幕文件没有逐字时间,所以带回来的部分会关闭逐字高亮,直到这段录影重新识别过。";
+"Search the captions" = "搜索字幕";
+"Clear the search" = "清除搜索";
+"Previous caption" = "上一句";
+"Next caption" = "下一句";
+"No caption contains that." = "没有字幕包含这个。";

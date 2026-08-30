@@ -384,3 +384,8 @@
 "Too long" = "Zu lang";
 "Import…" = "Importieren…";
 "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "Der Import ersetzt alle Untertitel durch die der Datei. Eine Sidecar-Datei enthält keine Wortzeiten, daher bleibt die Hervorhebung für das Zurückgelesene aus, bis diese Aufnahme erneut transkribiert wird.";
+"Search the captions" = "Untertitel durchsuchen";
+"Clear the search" = "Suche löschen";
+"Previous caption" = "Vorheriger Untertitel";
+"Next caption" = "Nächster Untertitel";
+"No caption contains that." = "Kein Untertitel enthält das.";

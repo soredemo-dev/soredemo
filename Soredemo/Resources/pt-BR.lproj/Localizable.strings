@@ -385,3 +385,8 @@
 "Too long" = "Longo demais";
 "Import…" = "Importar…";
 "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "A importação substitui todas as legendas pelas do arquivo. Um arquivo sidecar não traz tempos por palavra, então o destaque fica desligado para o que voltar até esta gravação ser transcrita de novo.";
+"Search the captions" = "Buscar nas legendas";
+"Clear the search" = "Limpar a busca";
+"Previous caption" = "Legenda anterior";
+"Next caption" = "Próxima legenda";
+"No caption contains that." = "Nenhuma legenda contém isso.";

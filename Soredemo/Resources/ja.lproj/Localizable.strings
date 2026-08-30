@@ -386,3 +386,8 @@
 "Too long" = "長すぎ";
 "Import…" = "読み込み…";
 "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "読み込むとすべての字幕がファイルの内容に置き換わります。サイドカーには語ごとの時間がないため、この録画を再認識するまで、戻した分の単語ハイライトは無効のままです。";
+"Search the captions" = "字幕を検索";
+"Clear the search" = "検索をクリア";
+"Previous caption" = "前の字幕";
+"Next caption" = "次の字幕";
+"No caption contains that." = "それを含む字幕はありません。";

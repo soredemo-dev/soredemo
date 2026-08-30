@@ -384,3 +384,8 @@
 "Too long" = "너무 김";
 "Import…" = "가져오기…";
 "Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "가져오면 모든 자막이 파일의 내용으로 대체됩니다. 사이드카에는 단어별 시간이 없으므로, 이 녹화를 다시 인식할 때까지 가져온 부분의 단어 강조는 꺼진 채로 유지됩니다.";
+"Search the captions" = "자막 검색";
+"Clear the search" = "검색 지우기";
+"Previous caption" = "이전 자막";
+"Next caption" = "다음 자막";
+"No caption contains that." = "그것을 포함한 자막이 없습니다.";

@@ -114,10 +114,10 @@ cues`.
 | Cue list | ● right-hand pane, full height | ◐ a section in a narrow inspector |
 | Click a cue to seek | ● | ● *(2026-08-31)* |
 | Follows the playhead | ● highlight + auto-scroll | ● *(2026-08-31)* |
-| Search the cues | ● | ○ |
+| Search the cues | ● | ● *(2026-08-31)* |
 | Per-cue duration / characters / CPS | ● with an out-of-range verdict | ● *(2026-08-31)* |
 | Recogniser confidence per word | ● names the weakest word | ○ *(the API returns it; nothing reads it)* |
-| Edit in place | ● Esc / Done | ◐ tap, then Save / Cancel buttons |
+| Edit in place | ● Esc / Done | ◐ tap, Esc leaves; Save is still a button |
 | Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
 | Split a cue / merge two | ● one key each | ● *buttons, not keys (2026-08-31)* |
 | Snap a boundary to speech | ● | ○ |
@@ -131,7 +131,9 @@ cues`.
 
 The row that mattered most was the one that used to be in bold: a caption whose timing
 was wrong could not be fixed in this app at all. **Closed 2026-08-31.** Five of the six
-below are now built; what is left is the waveform, and a keymap instead of buttons.
+below are now built, and the list has a search field and ⌥↑/⌥↓ between cues. What is
+left is the waveform, snapping a boundary to speech, a safe-frame overlay, per-word
+confidence, and the named stages while generating.
 
 ## The order these are worth building in
 

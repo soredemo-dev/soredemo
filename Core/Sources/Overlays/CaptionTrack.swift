@@ -64,6 +64,25 @@ public struct CaptionTrack: Sendable, Equatable, Codable {
         })
     }
 
+    /// The cue a step from `time` lands on, or `nil` for an empty track.
+    ///
+    /// **The interesting case is a playhead in a GAP**, which is most of a recording: between
+    /// two cues, "next" has to go forward to the one after the gap and "previous" back to the
+    /// one before it. Anchoring on "the last cue that has started" gives both — from a gap,
+    /// `+1` is the cue ahead and `-1` is the one just left — and it is why this is here rather
+    /// than in the panel, where it could not be tested.
+    ///
+    /// Clamped at both ends: stepping past the last cue stays on it. A wrap would move the
+    /// playhead to the other end of the recording, which is never what a repeated key press
+    /// means.
+    public func index(steppingFrom time: Nanoseconds, by delta: Int) -> Int? {
+        guard !cues.isEmpty else { return nil }
+        let anchor = cues.lastIndex { $0.start.rawValue <= time.rawValue } ?? -1
+        // Before the first cue, "next" is the first one rather than the second.
+        let stepped = anchor < 0 ? (delta > 0 ? 0 : 0) : anchor + delta
+        return Swift.min(Swift.max(stepped, 0), cues.count - 1)
+    }
+
     /// How long a span of the RECORDING takes to PLAY at a clip's speed. The same arithmetic
     /// `EditTimeline.outputTime(atSource:)` does, spelled once here so a duration and an instant
     /// cannot disagree about it.

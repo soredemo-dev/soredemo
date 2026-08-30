@@ -153,3 +153,35 @@ private func cue(_ text: String, _ start: Double, _ end: Double,
     #expect(round.cues[0].start == track.cues[0].start)
     #expect(round.cues[0].end == track.cues[0].end)
 }
+
+// MARK: - stepping between cues
+
+/// **The interesting case is a playhead in a GAP**, which is most of a recording: "next" has to
+/// go forward to the cue after the gap and "previous" back to the one before it. Anchoring on
+/// "the last cue that has started" is what gives both from one rule.
+@Test func steppingFromAGapGoesForwardAndBackToTheRightNeighbours() {
+    let track = CaptionTrack(cues: [cue("one", 0, 1), cue("two", 3, 4), cue("three", 6, 7)])
+
+    // Inside a cue: an ordinary step.
+    #expect(track.index(steppingFrom: ns(3.5), by: 1) == 2)
+    #expect(track.index(steppingFrom: ns(3.5), by: -1) == 0)
+
+    // In the gap between "one" and "two": forward is "two", back is "one".
+    #expect(track.index(steppingFrom: ns(2), by: 1) == 1,
+            "next from a gap went somewhere other than the cue ahead of it")
+    #expect(track.index(steppingFrom: ns(2), by: -1) == 0)
+}
+
+/// Before the first cue and past the last, a step clamps. A wrap would move the playhead to the
+/// other end of the recording, which is never what a repeated key press means.
+@Test func steppingPastEitherEndStaysThere() {
+    let track = CaptionTrack(cues: [cue("one", 1, 2), cue("two", 3, 4)])
+    #expect(track.index(steppingFrom: ns(0), by: -1) == 0)
+    #expect(track.index(steppingFrom: ns(0), by: 1) == 0,
+            "next from before the first cue skipped it")
+    #expect(track.index(steppingFrom: ns(9), by: 1) == 1)
+    #expect(track.index(steppingFrom: ns(9), by: -1) == 0)
+
+    #expect(CaptionTrack().index(steppingFrom: ns(0), by: 1) == nil,
+            "an empty track produced an index into nothing")
+}
