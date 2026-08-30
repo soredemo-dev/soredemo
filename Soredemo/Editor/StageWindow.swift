@@ -707,7 +707,8 @@ struct StageWindow: View {
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 },
                               playhead: timeline.playhead,
-                              onSeek: { timeline.movePlayhead(to: $0) })
+                              onSeek: { timeline.movePlayhead(to: $0) },
+                              pauses: timeline.silences)
             case .text:
                 TextPanel(model: texts, playhead: timeline.playhead,
                           onChange: { reviewRevision += 1 })

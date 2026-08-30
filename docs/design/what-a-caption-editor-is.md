@@ -161,7 +161,7 @@ paying.
 | Edit in place | ● Esc / Done | ● every row is a live field |
 | Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
 | Split a cue / merge two | ● one key each | ● Return at the caret / Backspace at the start |
-| Snap a boundary to speech | ● | ○ |
+| Snap a boundary to speech | ● | ◐ cues are CUT at silence; a dragged boundary does not snap yet |
 | Waveform with cue blocks | ● zoomable | ○ |
 | Safe-frame overlay | ● | ○ |
 | Import corrected subtitles | ● | ● *(2026-08-31)* |
@@ -206,3 +206,46 @@ into once you ask which of them a person hits first.
 * [Subtitle limits by language: CPS and line length](https://sublingo.cc/guides/subtitle-specs-by-language)
 * [Aegisub — Editing Subtitles](https://aegisub.org/docs/latest/editing_subtitles/)
 * [Subtitle Edit — Main Window](https://subtitleedit.github.io/subtitleedit/features/main-window.html)
+
+
+## Word gaps carry no silence, and that is why this cuts on audio instead
+
+*Measured 2026-08-31, on the same 28-second narration.*
+
+A third reference (`SmartSub`, open source) builds cues UP from word timings: it splits
+wherever two tokens are more than 0.5 s apart, which is a real pause. That looked like
+the structural improvement this project was missing — it builds cues DOWN from the
+recogniser's segments — so it was measured before it was built.
+
+**`SpeechTranscriber`'s word runs partition the segment.** Each word's `end` is the next
+word's `start`, exactly:
+
+```
+|Welcome|       0 → 480000000
+|to|    480000000 → 600000000
+|this|  600000000 → 720000000
+|walkthrough.|  720000000 → 1500000000
+|Today| 1560000000 → 1800000000
+```
+
+The largest gap inside any of the nine segments was 0.000 s. At a segment boundary it
+was 60 ms — the endpointer's own margin, not a pause. So a gap rule has nothing to read
+here: it is not that it fails to help on this input, it is that the data does not
+contain the thing it reads. `SmartSub` can use one because whisper.cpp emits raw token
+times; Apple's transcriber hands back a partition.
+
+What DOES carry it is the audio, and this project already measures it: `SilenceFinder`
+finds the spans the Silence lane and the music ducking both read. `CaptionBuilder.cues`
+now takes them and cuts a segment where the recording is quiet, **before** punctuation
+or length get a say — a pause a person can hear is the break they would have made,
+where punctuation is where they would have written one, which is not the same thing and
+is often absent.
+
+A span that overlaps a word rather than falling between two is ignored: the runs
+partition the segment, so such a span is silence found in the middle of somebody
+speaking, and cutting there splits a word from itself.
+
+Two things also measured and worth keeping: the word runs **do** carry punctuation
+(`walkthrough.`, `First,`), and joined with single spaces they reproduce the segment's
+own text exactly — on all nine segments. That is what makes the cut safe to reconstruct
+text from.

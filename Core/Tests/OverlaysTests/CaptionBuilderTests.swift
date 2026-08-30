@@ -301,3 +301,84 @@ private extension Array where Element == CaptionCue {
                 "a break stranded a single word: |\(half)|")
     }
 }
+
+// MARK: - cutting where the recording is silent
+
+/// **A pause a person can hear is the break they would have made**, and it beats punctuation
+/// — which is where they would have WRITTEN one, and is often absent from a recogniser's
+/// output altogether.
+///
+/// Measured first, and the measurement is why this takes silence spans rather than word
+/// gaps: `SpeechTranscriber`'s runs PARTITION a segment — each word's end is the next one's
+/// start exactly — so the gap between any two of them is zero and a gap rule has nothing to
+/// read. `SilenceFinder` measures the audio instead.
+@Test func aSegmentIsCutWhereTheRecordingIsSilent() {
+    let words = [TranscribedWord(text: "open", start: ns(0), end: ns(0.5)),
+                 TranscribedWord(text: "the", start: ns(0.5), end: ns(0.8)),
+                 TranscribedWord(text: "app", start: ns(0.8), end: ns(1.2)),
+                 // A second of silence sits here, and no punctuation marks it.
+                 TranscribedWord(text: "then", start: ns(2.2), end: ns(2.6)),
+                 TranscribedWord(text: "press", start: ns(2.6), end: ns(3.0)),
+                 TranscribedWord(text: "record", start: ns(3.0), end: ns(3.6))]
+    let transcript = Transcript(
+        text: "open the app then press record",
+        words: words,
+        segments: [TranscribedSegment(text: "open the app then press record",
+                                      start: ns(0), end: ns(3.6))])
+
+    // Long enough to fit whole, so only the pause can break it.
+    let whole = CaptionBuilder.cues(for: transcript, fits: { _ in true })
+    #expect(whole.map(\.text) == ["open the app then press record"],
+            "the premise is gone — something else already broke this line")
+
+    let cut = CaptionBuilder.cues(for: transcript, fits: { _ in true },
+                                  pauses: [.init(start: ns(1.2), end: ns(2.2))])
+    #expect(cut.map(\.text) == ["open the app", "then press record"])
+    // The first piece ends where the silence began, not where the next word starts: the cue
+    // is not left on screen through a second of nothing.
+    #expect(cut[0].end == ns(1.2))
+    #expect(cut[1].start == ns(2.2))
+}
+
+/// A pause outside the segment, or one that leaves only one piece, changes nothing — and the
+/// segment keeps its OWN text rather than a reconstruction from the runs.
+@Test func aPauseThatCutsNothingLeavesTheSegmentAlone() {
+    let words = [TranscribedWord(text: "open", start: ns(0), end: ns(0.5)),
+                 TranscribedWord(text: "it", start: ns(0.5), end: ns(1))]
+    let transcript = Transcript(
+        text: "open it", words: words,
+        segments: [TranscribedSegment(text: "open it", start: ns(0), end: ns(1))])
+
+    // Entirely outside.
+    #expect(CaptionBuilder.cues(for: transcript, fits: { _ in true },
+                                pauses: [.init(start: ns(5), end: ns(6))])
+            .map(\.text) == ["open it"])
+    // **Inside a WORD, which is not a boundary.** The runs partition the segment, so a span
+    // overlapping one is silence the detector found in the middle of somebody speaking —
+    // cutting there would split a word from itself.
+    #expect(CaptionBuilder.cues(for: transcript, fits: { _ in true },
+                                pauses: [.init(start: ns(0.1), end: ns(0.2))])
+            .map(\.text) == ["open it"])
+    // And no pauses at all is what every caller had before this existed.
+    #expect(CaptionBuilder.cues(for: transcript, fits: { _ in true })
+            .map(\.text) == ["open it"])
+}
+
+/// Two pauses cut a segment into three, and the pieces still never overlap.
+@Test func severalPausesCutASegmentIntoSeveralPieces() {
+    let words = (0..<6).map {
+        TranscribedWord(text: "w\($0)", start: ns(Double($0)), end: ns(Double($0) + 0.4))
+    }
+    let transcript = Transcript(
+        text: words.map(\.text).joined(separator: " "), words: words,
+        segments: [TranscribedSegment(text: words.map(\.text).joined(separator: " "),
+                                      start: ns(0), end: ns(5.4))])
+    let cues = CaptionBuilder.cues(
+        for: transcript, fits: { _ in true },
+        pauses: [.init(start: ns(1.4), end: ns(2)), .init(start: ns(3.4), end: ns(4))])
+
+    #expect(cues.map(\.text) == ["w0 w1", "w2 w3", "w4 w5"])
+    for (earlier, later) in zip(cues, cues.dropFirst()) {
+        #expect(earlier.end.rawValue <= later.start.rawValue)
+    }
+}

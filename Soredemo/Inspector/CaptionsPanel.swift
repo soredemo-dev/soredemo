@@ -71,7 +71,7 @@ final class CaptionsModel {
     /// lines break — see `CaptionArt.fits`.
     @MainActor
     func transcribe(mediaURL: URL, outputWidth: Int, outputHeight: Int,
-                    maximumWords: Int?) async {
+                    maximumWords: Int?, pauses: [SilenceFinder.Span]) async {
         phase = .extractingAudio
         status = nil
         defer { phase = nil }
@@ -84,7 +84,7 @@ final class CaptionsModel {
             transcript = recognised
             languageLooksWrong = OnDeviceTranscription.languageLooksWrong(recognised)
             rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
-                    maximumWords: maximumWords)
+                    maximumWords: maximumWords, pauses: pauses)
             status = track.isEmpty
                 ? "No speech was recognised in this recording."
                 : "\(track.cues.count) caption(s) from \(recognised.words.count) word(s)."
@@ -95,13 +95,15 @@ final class CaptionsModel {
 
     /// Re-breaks the kept transcript for a new size or word cap, WITHOUT transcribing again —
     /// and therefore discarding text corrections, which is why the caller has to mean it.
-    func rebuild(outputWidth: Int, outputHeight: Int, maximumWords: Int?) {
+    func rebuild(outputWidth: Int, outputHeight: Int, maximumWords: Int?,
+                 pauses: [SilenceFinder.Span]) {
         guard let transcript = correctedTranscript else { return }
         track = CaptionTrack(cues: CaptionBuilder.cues(
             for: transcript,
             fits: CaptionArt.fits(style: style, outputWidth: outputWidth,
                                   outputHeight: outputHeight),
-            maximumWords: maximumWords))
+            maximumWords: maximumWords,
+            pauses: pauses))
         publish()
     }
 
@@ -297,6 +299,10 @@ struct CaptionsPanel: View {
     /// contents: a caption is corrected at the pace of playback, and a row that cannot be
     /// listened to is a row somebody has to find in the scrubber first.
     let onSeek: (Nanoseconds) -> Void
+    /// Where the RECORDING is silent, from the timeline's own detection. **The same spans the
+    /// Silence lane and the music ducking read**, so "where did they stop talking" has one
+    /// answer in this app rather than three.
+    let pauses: [SilenceFinder.Span]
 
     @State private var maximumWords: Int?
     /// Why a chosen font did not take, or `nil`. Said rather than left to look like the picker
@@ -376,7 +382,7 @@ struct CaptionsPanel: View {
                 Task {
                     await model.transcribe(mediaURL: mediaURL, outputWidth: outputWidth,
                                            outputHeight: outputHeight,
-                                           maximumWords: maximumWords)
+                                           maximumWords: maximumWords, pauses: pauses)
                     onChange()
                 }
             }
@@ -425,7 +431,7 @@ struct CaptionsPanel: View {
         }
         .onChange(of: maximumWords) {
             model.rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
-                          maximumWords: maximumWords)
+                          maximumWords: maximumWords, pauses: pauses)
             onChange()
         }
         .disabled(model.transcript == nil)
@@ -483,7 +489,7 @@ struct CaptionsPanel: View {
     /// recognising anything.
     private func rebuildAndPublish() {
         model.rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
-                      maximumWords: maximumWords)
+                      maximumWords: maximumWords, pauses: pauses)
         onChange()
     }
 
