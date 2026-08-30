@@ -300,10 +300,9 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               redactions: redactedRegions(at: request.compositionTime),
                               cursorStyle: unsafe Self.cursorStyle,
                               // **A hidden camera produces no overlay at all**, rather than one
-                              // the renderer then has to know to skip. `Camera.hide` is a Rust recorder's
-                              // switch for "not in this one" as distinct from "throw the footage
-                              // away", and the cheapest place to honour it is before a plan
-                              // carries it.
+                              // the renderer then has to know to skip. Hiding is "not in this
+                              // one" as distinct from "throw the footage away", and the
+                              // cheapest place to honour it is before a plan carries it.
                               camera: cameraOverlay(
                                   at: request.compositionTime, basePlan: basePlan,
                                   sourcePixelWidth: cropped.width,
@@ -322,7 +321,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               // placed against the un-zoomed plan would sit where nobody drew
                               // it on every frame the camera was in.
                               annotations: annotationOverlays(at: request.compositionTime,
-                                                              in: aimed))
+                                                              in: aimed),
+                              // The fade at a clip's start or end. Read through the same
+                              // `editTimeline` static every other time conversion goes through,
+                              // and against the OUTPUT offset — a fade is measured in what a
+                              // viewer watches, not in what the recording contains.
+                              cardOpacity: Self.cardOpacity(at: request.compositionTime))
         do {
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             // The camera's buffer, when the composition carries one. Read inside the same
@@ -356,6 +360,20 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// phase at that instant; every other `PointerReading` draws nothing. Cases are named, not
     /// defaulted, so a new one is a compile error. `public` as the test seam, since
     /// `startRequest(_:)` takes a type only AVFoundation can construct.
+    /// How visible the recording is at this composition time.
+    ///
+    /// `1` with no edit and `1` past the end, for `EditTimeline.visibility(atOutput:)`'s reason:
+    /// a frame nobody can see has nothing to be wrong about, and an optional here would put the
+    /// same `?? 1` at every call site.
+    nonisolated static func cardOpacity(at compositionTime: CMTime) -> Double {
+        guard compositionTime.isValid,
+              let timeline = unsafe editTimeline, timeline.hasAnyFade,
+              let offset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                       timescale: compositionTime.timescale)
+        else { return 1 }
+        return timeline.visibility(atOutput: offset)
+    }
+
     /// **Output time → source time, through the edit.** The one conversion that stands between
     /// a composition frame and the recording it was made from.
     ///

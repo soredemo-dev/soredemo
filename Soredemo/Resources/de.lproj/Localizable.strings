@@ -352,3 +352,7 @@
 "Outline" = "Kontur";
 "Outline colour" = "Konturfarbe";
 "Font" = "Schrift";
+"Fade in" = "Einblenden";
+"Fade out" = "Ausblenden";
+"Select a clip to fade it" = "Clip auswählen, um ihn zu blenden";
+"Fade this clip in or out" = "Diesen Clip ein- oder ausblenden";

@@ -376,6 +376,13 @@ public struct RenderPlan: Hashable, Sendable {
     public let outputHeight: Int
     public let card: StageRect
     public let cornerRadius: Double
+    /// How visible the recording is in this frame, 0…1 — the fade at a clip's start or end.
+    ///
+    /// **The card fades into the STAGE, not to black.** A dip to black is the conventional
+    /// answer and it is the wrong one here: the stage is a designed background, and a black
+    /// flash across it reads as a fault rather than as a transition. Fading the recording into
+    /// its own backdrop is the same beat and looks like the app it is in.
+    public let cardOpacity: Double
     public let style: StageStyle
     public let pointer: NormalizedPointerPlacement?
 
@@ -448,7 +455,8 @@ public struct RenderPlan: Hashable, Sendable {
                 motionBlur: MotionBlur? = nil,
                 keystroke: KeystrokeBadge? = nil,
                 annotations: [AnnotationOverlay] = [],
-                deviceFrame: DeviceFrame.Placement? = nil) {
+                deviceFrame: DeviceFrame.Placement? = nil,
+                cardOpacity: Double = 1) {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.card = card
@@ -467,6 +475,7 @@ public struct RenderPlan: Hashable, Sendable {
         self.keystroke = keystroke
         self.annotations = annotations
         self.deviceFrame = deviceFrame
+        self.cardOpacity = cardOpacity.isFinite ? min(max(cardOpacity, 0), 1) : 1
     }
 }
 

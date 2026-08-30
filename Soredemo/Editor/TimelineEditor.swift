@@ -484,6 +484,34 @@ final class TimelineEditorModel {
                            nextID: edit.nextID))
     }
 
+    /// The fade lengths the toolbar offers, in seconds.
+    ///
+    /// **Round numbers rather than a slider**, for `speedChoices`' reason: a fade is felt, not
+    /// measured, and a slider invites 0.37 s — a number nobody chose. Half a second is a beat,
+    /// one second is a breath, two is a scene ending.
+    static let fadeChoices: [Double] = [0, 0.25, 0.5, 1, 2]
+
+    /// The selected clip's fades, or `nil` when nothing is selected.
+    var selectedFades: (in: Double, out: Double)? {
+        selectedClip.flatMap { id in
+            edit.clips.first { $0.id == id }.map { ($0.fadeInSeconds, $0.fadeOutSeconds) }
+        }
+    }
+
+    /// Fades the selected clip in, out, or both. `nil` leaves that end alone.
+    func setSelectedFade(in fadeIn: Double? = nil, out fadeOut: Double? = nil) {
+        guard let id = selectedClip,
+              let clip = edit.clips.first(where: { $0.id == id }) else { return }
+        let changed = clip.fading(in: fadeIn, out: fadeOut)
+        guard changed != clip else { return }
+        // Named for what a person will look for in the undo menu: they faded something, and
+        // which end is the part they will be unsure about.
+        let what = fadeIn != nil ? "In" : "Out"
+        apply("Fade \(what)",
+              EditTimeline(clips: edit.clips.map { $0.id == id ? changed : $0 },
+                           nextID: edit.nextID))
+    }
+
     /// Cuts the selected clip in two at the playhead.
     ///
     /// **The playhead is in SOURCE time and `split` takes OUTPUT time**, so it converts —

@@ -353,3 +353,7 @@
 "Outline" = "Contorno";
 "Outline colour" = "Cor do contorno";
 "Font" = "Fonte";
+"Fade in" = "Fade de entrada";
+"Fade out" = "Fade de saída";
+"Select a clip to fade it" = "Selecione um clipe para aplicar o fade";
+"Fade this clip in or out" = "Aplicar fade de entrada ou saída neste clipe";

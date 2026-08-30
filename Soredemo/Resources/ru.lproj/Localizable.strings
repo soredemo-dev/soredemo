@@ -352,3 +352,7 @@
 "Outline" = "Обводка";
 "Outline colour" = "Цвет обводки";
 "Font" = "Шрифт";
+"Fade in" = "Появление";
+"Fade out" = "Затухание";
+"Select a clip to fade it" = "Выберите клип, чтобы добавить затухание";
+"Fade this clip in or out" = "Появление или затухание этого клипа";

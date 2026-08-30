@@ -60,8 +60,29 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     /// a viewer can follow, which is the opposite of what a walkthrough is for.
     public let speed: Double
 
+    /// How long the recording takes to appear at this clip's start, and to leave at its end,
+    /// in OUTPUT seconds.
+    ///
+    /// **A fade on each clip rather than a transition on each seam**, and one model covers
+    /// three things people ask for: a seam where one clip's fade-out meets the next one's
+    /// fade-in reads as a dip, the first clip's fade-in is an opening, and the last one's
+    /// fade-out is an ending. A seam list would express only the middle case and would need
+    /// its own place in the file.
+    ///
+    /// **And it needs no arithmetic.** A cross-dissolve overlaps two clips, which shortens the
+    /// output and changes every conversion `sourceTime(atOutput:)` stands under — the pointer
+    /// track, the captions, the zoom blocks. A fade does not move a single frame: it is an
+    /// opacity ramp over frames that are already where they were. That is the whole reason this
+    /// is the transition that exists and a dissolve is not.
+    ///
+    /// In OUTPUT seconds, not source: a fade is a thing a viewer watches, and at double speed a
+    /// fade specified in source time would take half as long on screen as the person asked for.
+    public let fadeInSeconds: Double
+    public let fadeOutSeconds: Double
+
     public init(id: ClipID, sourceStart: Nanoseconds, duration: Nanoseconds,
-                speed: Double = 1) {
+                speed: Double = 1,
+                fadeInSeconds: Double = 0, fadeOutSeconds: Double = 0) {
         precondition(sourceStart.rawValue >= 0, "a clip cannot start before the recording")
         precondition(duration.rawValue > 0, "a clip with no duration is not a clip")
         self.id = id
@@ -70,6 +91,41 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
         // Clamped rather than trapped: a speed reaches here from a slider and from a decoder,
         // and rule 8 forbids trapping on an untrusted input.
         self.speed = Swift.min(Swift.max(speed.isFinite ? speed : 1, 0.25), 4)
+        // **Neither fade may be longer than half of what this clip plays for.** Two that
+        // overlapped would ramp against each other in the middle and the clip would never reach
+        // full opacity — a person would see a shot that dims and brightens with no moment of
+        // being simply visible. Halving both is the answer that keeps the ASKED-FOR ratio
+        // between them, which clamping each separately would not.
+        let playing = Double(duration.rawValue) / Double(Swift.min(Swift.max(
+            speed.isFinite ? speed : 1, 0.25), 4)) / 1_000_000_000
+        let wantedIn = Swift.max(fadeInSeconds.isFinite ? fadeInSeconds : 0, 0)
+        let wantedOut = Swift.max(fadeOutSeconds.isFinite ? fadeOutSeconds : 0, 0)
+        let total = wantedIn + wantedOut
+        let scale = total > playing && total > 0 ? playing / total : 1
+        self.fadeInSeconds = wantedIn * scale
+        self.fadeOutSeconds = wantedOut * scale
+    }
+
+    /// How visible this clip is `offset` seconds into its own play time, 0…1.
+    ///
+    /// **Linear, and the fade is measured from each end rather than as a curve over the whole
+    /// clip.** An eased fade is the usual answer for a title, which appears against something
+    /// already on screen; a shot dipping to the stage is the picture leaving, and a linear ramp
+    /// is what reads as time passing rather than as an effect.
+    public func visibility(atPlayOffsetSeconds offset: Double) -> Double {
+        guard offset.isFinite else { return 1 }
+        var value = 1.0
+        if fadeInSeconds > 0, offset < fadeInSeconds {
+            value = Swift.min(value, Swift.max(offset, 0) / fadeInSeconds)
+        }
+        if fadeOutSeconds > 0 {
+            let playing = Double(outputDuration.rawValue) / 1_000_000_000
+            let remaining = playing - offset
+            if remaining < fadeOutSeconds {
+                value = Swift.min(value, Swift.max(remaining, 0) / fadeOutSeconds)
+            }
+        }
+        return Swift.min(Swift.max(value, 0), 1)
     }
 
     /// How long this clip PLAYS. Every output-space position is a sum of these.
@@ -79,14 +135,36 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
 
     /// The same clip at a different speed. Keeps the id, for `spanning`'s reason.
     public func playing(at speed: Double) -> EditClip {
-        EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed)
+        EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed,
+                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds)
+    }
+
+    /// The same clip under a new id. Only for a caller splitting one clip into two, where the
+    /// second piece is genuinely a new clip and everything else about it is unchanged.
+    public func withID(_ newID: ClipID) -> EditClip {
+        EditClip(id: newID, sourceStart: sourceStart, duration: duration, speed: speed,
+                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds)
+    }
+
+    /// The same clip with different fades. **`nil` keeps what is there**, so setting one does
+    /// not clear the other.
+    public func fading(in fadeIn: Double? = nil, out fadeOut: Double? = nil) -> EditClip {
+        EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed,
+                 fadeInSeconds: fadeIn ?? fadeInSeconds,
+                 fadeOutSeconds: fadeOut ?? fadeOutSeconds)
     }
 
     /// The same clip covering a different span of the recording. **Keeps the id**, which is
     /// what makes a trim an edit to a clip rather than a replacement of it: a selection
     /// survives, and so does anything else keyed on the clip.
     public func spanning(sourceStart: Nanoseconds, duration: Nanoseconds) -> EditClip {
-        EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed)
+        // **Everything the clip had, not only its span.** This is a trim, and the three times
+        // this project has reconstructed a value and dropped a field, the field went missing
+        // silently — a `StageStyle` that lost its blur, a `CameraOverlayStyle` that lost its
+        // shape, and the tail of a cut below, which lost its speed. Listing every field here is
+        // what makes the next one a compile error rather than a report.
+        EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed,
+                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds)
     }
 
     /// **Validated on decode, not by the `precondition` above** (D6 rule 8). The synthesised
@@ -108,11 +186,27 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
         self.duration = duration
         // **Absence-tolerant.** A project written before speeds existed has no key, and its
         // clips play at the recording's own pace — which is what they did when it was saved.
-        self.speed = Swift.min(
+        let speed = Swift.min(
             Swift.max(try container.decodeIfPresent(Double.self, forKey: .speed) ?? 1, 0.25), 4)
+        self.speed = speed
+        // Absence-tolerant for `speed`'s reason: a project written before fades existed has no
+        // key and its clips do not fade, which is what they did when it was saved. Clamped
+        // through the same halving the initialiser does rather than assigned raw — a corrupt
+        // file could otherwise carry a fade longer than the clip.
+        let playing = Double(duration.rawValue) / speed / 1_000_000_000
+        let wantedIn = Swift.max(
+            try container.decodeIfPresent(Double.self, forKey: .fadeInSeconds) ?? 0, 0)
+        let wantedOut = Swift.max(
+            try container.decodeIfPresent(Double.self, forKey: .fadeOutSeconds) ?? 0, 0)
+        let total = wantedIn + wantedOut
+        let scale = total > playing && total > 0 ? playing / total : 1
+        self.fadeInSeconds = wantedIn.isFinite ? wantedIn * scale : 0
+        self.fadeOutSeconds = wantedOut.isFinite ? wantedOut * scale : 0
     }
 
-    private enum CodingKeys: String, CodingKey { case id, sourceStart, duration, speed }
+    private enum CodingKeys: String, CodingKey {
+        case id, sourceStart, duration, speed, fadeInSeconds, fadeOutSeconds
+    }
 
     /// One past the last nanosecond this clip reads from the recording.
     public var sourceEnd: Nanoseconds { Nanoseconds(sourceStart.rawValue + duration.rawValue) }
@@ -399,6 +493,36 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         return nil
     }
 
+    /// How visible the recording is at `outputTime`, 0…1.
+    ///
+    /// **`1` past the end rather than `nil`**, unlike `sourceTime(atOutput:)`. That function
+    /// returns an optional because a frame past the end HAS no source and drawing one would be
+    /// inventing a picture; a visibility past the end has nothing to be wrong about, and an
+    /// optional here would make every caller write the same `?? 1` against a case that cannot
+    /// be seen.
+    ///
+    /// Read per frame by the compositor, so it walks the clips rather than building anything:
+    /// the list is short and the alternative is a cache to keep in step with every edit.
+    public func visibility(atOutput outputTime: Nanoseconds) -> Double {
+        guard outputTime.rawValue >= 0 else { return 1 }
+        var running: Int64 = 0
+        for clip in clips {
+            let next = running + clip.outputDuration.rawValue
+            if outputTime.rawValue < next {
+                let into = Double(outputTime.rawValue - running) / 1_000_000_000
+                return clip.visibility(atPlayOffsetSeconds: into)
+            }
+            running = next
+        }
+        return 1
+    }
+
+    /// Whether any clip fades at all — asked once per composition rather than per frame, so a
+    /// timeline nobody has faded costs nothing beyond this.
+    public var hasAnyFade: Bool {
+        clips.contains { $0.fadeInSeconds > 0 || $0.fadeOutSeconds > 0 }
+    }
+
     /// Where in the edited video `sourceTime` plays, or `nil` if it was cut.
     ///
     /// **`nil` means CUT, and it is a different answer from zero.** A caller drawing the
@@ -496,8 +620,12 @@ public struct EditTimeline: Hashable, Sendable, Codable {
             let headEnd = min(end, range.lowerBound)
             let hasHead = headEnd > start
             if hasHead {
+                // **The head keeps its fade-IN and loses its fade-out.** Its start is where the
+                // clip started, so a fade in is still the fade in; its end is now a cut, and a
+                // fade out belongs to an ending that no longer exists there.
                 kept.append(clip.spanning(sourceStart: Nanoseconds(start),
-                                          duration: Nanoseconds(headEnd - start)))
+                                          duration: Nanoseconds(headEnd - start))
+                    .fading(out: 0))
             }
             // The part after it. It keeps the clip's own id only when there is no head to
             // have taken it — a cut off the FRONT shortens the clip rather than splitting it.
@@ -510,8 +638,15 @@ public struct EditTimeline: Hashable, Sendable, Codable {
                 } else {
                     id = clip.id
                 }
-                kept.append(EditClip(id: id, sourceStart: Nanoseconds(tailStart),
-                                     duration: Nanoseconds(end - tailStart)))
+                // **`spanning`, not a fresh `EditClip`** — and this line is where the shape
+                // above was actually costing something: built from the initialiser it took the
+                // default speed, so cutting a range out of the middle of a sped-up clip reset
+                // its tail to 1×. It keeps its fade-OUT, whose end is unchanged, and loses its
+                // fade-in for the head's reason.
+                kept.append(clip.spanning(sourceStart: Nanoseconds(tailStart),
+                                          duration: Nanoseconds(end - tailStart))
+                    .fading(in: 0))
+                if hasHead { kept[kept.count - 1] = kept[kept.count - 1].withID(id) }
             }
         }
         return EditTimeline(clips: kept, nextID: ClipID(rawValue: minting))

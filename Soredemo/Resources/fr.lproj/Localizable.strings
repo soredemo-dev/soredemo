@@ -352,3 +352,7 @@
 "Outline" = "Contour";
 "Outline colour" = "Couleur du contour";
 "Font" = "Police";
+"Fade in" = "Fondu d\u2019ouverture";
+"Fade out" = "Fondu de fermeture";
+"Select a clip to fade it" = "Sélectionnez un plan pour le fondre";
+"Fade this clip in or out" = "Fondu d\u2019ouverture ou de fermeture de ce plan";

@@ -368,3 +368,7 @@
 "Outline" = "Outline";
 "Outline colour" = "Outline colour";
 "Font" = "Font";
+"Fade in" = "Fade in";
+"Fade out" = "Fade out";
+"Select a clip to fade it" = "Select a clip to fade it";
+"Fade this clip in or out" = "Fade this clip in or out";

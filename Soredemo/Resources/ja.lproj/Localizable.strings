@@ -354,3 +354,7 @@
 "Outline" = "縁取り";
 "Outline colour" = "縁取りの色";
 "Font" = "フォント";
+"Fade in" = "フェードイン";
+"Fade out" = "フェードアウト";
+"Select a clip to fade it" = "フェードするクリップを選んでください";
+"Fade this clip in or out" = "このクリップをフェードイン・アウトする";

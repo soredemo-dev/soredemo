@@ -41,6 +41,7 @@ struct EditorToolbar: View {
             cutting
             separator
             speed
+            fades
             silence
             stillness
             reverting
@@ -151,6 +152,56 @@ struct EditorToolbar: View {
     /// **Per clip, not per timeline.** The point of the control is that the boring middle of a
     /// walkthrough plays at 2× while the part being explained plays at 1 — a single rate for the
     /// whole video is a different feature, and a less useful one.
+    /// Fade the selected clip in and out.
+    ///
+    /// **One control for both ends, because they are one decision.** A person fading a clip is
+    /// deciding how it starts and how it stops, and two toolbar items for that would cost the
+    /// width the timeline needs. The menu names each end; the label says whether either is set.
+    ///
+    /// A clip's fade-out meeting the next one's fade-in is what a dip between two shots is —
+    /// there is no separate "transition" to place, which is why this sits beside the speed
+    /// rather than in a menu of effects.
+    @ViewBuilder private var fades: some View {
+        Menu {
+            Section("Fade in") {
+                ForEach(TimelineEditorModel.fadeChoices, id: \.self) { value in
+                    Button(Self.fadeLabel(value)) {
+                        model.setSelectedFade(in: value)
+                        onChange()
+                    }
+                }
+            }
+            Section("Fade out") {
+                ForEach(TimelineEditorModel.fadeChoices, id: \.self) { value in
+                    Button(Self.fadeLabel(value)) {
+                        model.setSelectedFade(out: value)
+                        onChange()
+                    }
+                }
+            }
+        } label: {
+            let fades = model.selectedFades
+            let any = (fades?.in ?? 0) > 0 || (fades?.out ?? 0) > 0
+            Image(systemName: any ? "circle.lefthalf.filled" : "circle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(any ? Theme.accent : Theme.Ink.secondary)
+                .frame(width: 20)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(model.selectedClip == nil)
+        .opacity(model.selectedClip == nil ? 0.35 : 1)
+        .help(model.selectedClip == nil ? "Select a clip to fade it"
+                                        : "Fade this clip in or out")
+    }
+
+    /// A fade length as a person reads it. Zero is "None" rather than "0 s": the absence of a
+    /// fade is a state, not a duration of nothing.
+    static func fadeLabel(_ seconds: Double) -> LocalizedStringKey {
+        seconds <= 0 ? "None" : "\(seconds, specifier: "%g") s"
+    }
+
     @ViewBuilder private var speed: some View {
         Menu {
             ForEach(TimelineEditorModel.speedChoices, id: \.self) { value in

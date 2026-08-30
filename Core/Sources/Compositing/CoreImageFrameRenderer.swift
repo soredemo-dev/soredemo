@@ -40,11 +40,15 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let device = plan.deviceFrame {
             composed = deviceBody(device).composited(over: composed)
         }
-        composed = card.composited(over: composed)
+        // **The fade is on the card and its border, and on nothing else.** A caption, a text
+        // overlay or a camera bubble is not part of the recording; fading the whole frame would
+        // take them with it, which is a different effect and not the one a clip's fade asks
+        // for. What leaves is the picture.
+        composed = faded(card, by: plan.cardOpacity).composited(over: composed)
         // **After the card and before everything else.** The border belongs to the card's edge,
         // so it must sit over the picture — but under the pointer, the captions and the camera,
         // none of which are inside the card's frame in the sense the border describes.
-        composed = cardBorder(plan).composited(over: composed)
+        composed = faded(cardBorder(plan), by: plan.cardOpacity).composited(over: composed)
         // Whether to draw a pointer is `StageCompositor`'s decision, not this file's.
         if let pointer = plan.pointer {
             composed = cursorImage(for: pointer, outputHeight: plan.outputHeight,
@@ -877,6 +881,22 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         }
         bitmap.addPath(art)
         bitmap.drawPath(using: .fillStroke)
+    }
+
+    /// `image` at `opacity`, or `image` itself when there is nothing to do.
+    ///
+    /// **The early return is not a micro-optimisation.** `CIColorMatrix` is a filter in the
+    /// graph whether or not it changes anything, and every frame of every recording that nobody
+    /// has faded would otherwise carry one. The common case is opacity 1.
+    private func faded(_ image: CIImage, by opacity: Double) -> CIImage {
+        guard opacity < 1 else { return image }
+        guard opacity > 0 else { return CIImage.empty() }
+        // Alpha only: scaling the colour channels too would darken the picture as well as
+        // thinning it, which over a light background reads as the recording turning grey.
+        let filter = CIFilter.colorMatrix()
+        filter.inputImage = image
+        filter.aVector = CIVector(x: 0, y: 0, z: 0, w: opacity)
+        return filter.outputImage ?? image
     }
 
     private func cursorImage(for placement: NormalizedPointerPlacement, outputHeight: Int,

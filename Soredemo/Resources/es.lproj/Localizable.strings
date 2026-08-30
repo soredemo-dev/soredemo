@@ -354,3 +354,7 @@
 "Outline" = "Contorno";
 "Outline colour" = "Color del contorno";
 "Font" = "Tipografía";
+"Fade in" = "Fundido de entrada";
+"Fade out" = "Fundido de salida";
+"Select a clip to fade it" = "Selecciona un clip para fundirlo";
+"Fade this clip in or out" = "Fundir este clip a la entrada o a la salida";

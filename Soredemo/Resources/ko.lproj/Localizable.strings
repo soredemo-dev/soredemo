@@ -352,3 +352,7 @@
 "Outline" = "외곽선";
 "Outline colour" = "외곽선 색";
 "Font" = "글꼴";
+"Fade in" = "페이드 인";
+"Fade out" = "페이드 아웃";
+"Select a clip to fade it" = "페이드할 클립을 선택하세요";
+"Fade this clip in or out" = "이 클립을 페이드 인/아웃";

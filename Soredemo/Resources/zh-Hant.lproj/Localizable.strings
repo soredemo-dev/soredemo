@@ -368,3 +368,7 @@
 "Outline" = "描邊";
 "Outline colour" = "描邊顏色";
 "Font" = "字型";
+"Fade in" = "淡入";
+"Fade out" = "淡出";
+"Select a clip to fade it" = "選一個片段才能設定淡化";
+"Fade this clip in or out" = "讓這個片段淡入或淡出";
