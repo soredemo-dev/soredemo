@@ -59,7 +59,19 @@ enum Radius {
 enum InspectorWidth {
     static let minimum: Double = 260
     static let ideal: Double = 300
-    static let maximum: Double = 380
+    /// **How far a person may drag it, set by the widest thing the inspector has to show.**
+    ///
+    /// That is a caption row, and it was measurably too narrow. `CaptionBuilder` breaks lines at
+    /// 42 characters, and the line being edited is the one thing that must be readable whole —
+    /// measured at the 13pt body font, a 42-character line is 263pt, beside a 35pt timecode, a
+    /// 59pt reading-speed column and a 42pt fault label. With the spacing and the list's insets
+    /// that is about 437pt of content, and 380 could not show it: the row this panel exists to
+    /// edit was truncated at every width it could be dragged to.
+    ///
+    /// **The maximum only, not the ideal.** 300 is still what it opens at — this is how far it
+    /// GOES, and a panel that opened wide would take the width from the picture for the sake of
+    /// one tab.
+    static let maximum: Double = 440
 }
 
 /// The floating recording bar's surface.

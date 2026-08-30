@@ -818,6 +818,7 @@ struct CaptionsPanel: View {
                 measurement(of: cue)
             }
             if focused == index {
+                reading(of: cue)
                 uncertainty(of: cue)
                 timingControls(index: index, cue: cue)
             }
@@ -897,6 +898,12 @@ struct CaptionsPanel: View {
     /// without telling them what to do, and the three faults have three different fixes — see
     /// `CaptionFault`. The reading speed is shown whatever the verdict, because the number is
     /// what a person adjusts against.
+    /// **On a row: the fault if there is one, and the width. Nothing else.**
+    ///
+    /// The full reading is 59pt of a row that has 437pt to give a 42-character line, a timecode
+    /// and a fault label — measured, and it is why the inspector's maximum moved. A count is
+    /// about 20 and says the thing a person scans a column for; the seconds and the rate belong
+    /// to the cue being looked at, and they are on its own line below.
     @ViewBuilder private func measurement(of cue: CaptionCue) -> some View {
         let reading = cue.measurement
         HStack(spacing: Space.tight) {
@@ -905,12 +912,21 @@ struct CaptionsPanel: View {
                     .font(Type.detail)
                     .foregroundStyle(Signal.record)
             }
-            Text(verbatim: String(format: "%d · %.1f/s", reading.characters,
-                                  reading.charactersPerSecond.isFinite
-                                      ? reading.charactersPerSecond : 0))
+            Text(verbatim: "\(reading.characters)")
                 .font(Type.readout)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// The whole reading, for the cue the caret is in: how long it is on screen, how much there
+    /// is to read, and how fast that is.
+    @ViewBuilder private func reading(of cue: CaptionCue) -> some View {
+        let reading = cue.measurement
+        Text(verbatim: String(format: "%.2fs · %d · %.1f/s", reading.seconds, reading.characters,
+                              reading.charactersPerSecond.isFinite
+                                  ? reading.charactersPerSecond : 0))
+            .font(Type.readout)
+            .foregroundStyle(.secondary)
     }
 
     /// The word the recogniser was least sure of, for the cue being looked at.

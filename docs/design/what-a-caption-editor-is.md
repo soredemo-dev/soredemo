@@ -152,11 +152,11 @@ paying.
 
 | | What'Sub | Soredemo today |
 |---|---|---|
-| Cue list | ● right-hand pane, full height | ◐ a section in a narrow inspector |
+| Cue list | ● right-hand pane, full height | ● an inspector column, widened to fit a whole line |
 | Click a cue to seek | ● | ● *(2026-08-31)* |
 | Follows the playhead | ● highlight + auto-scroll | ● *(2026-08-31)* |
 | Search the cues | ● | ● *(2026-08-31)* |
-| Per-cue duration / characters / CPS | ● with an out-of-range verdict | ● *(2026-08-31)* |
+| Per-cue duration / characters / CPS | ● with an out-of-range verdict | ● count on the row, the rest for the focused cue |
 | Recogniser confidence per word | ● names the weakest word | ● *(2026-08-31)* |
 | Edit in place | ● Esc / Done | ● every row is a live field |
 | Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
@@ -321,3 +321,31 @@ carry no text label, and their edges cannot be dragged. Dragging is what the nud
 the snap in the panel do instead, on a lane fourteen points tall where a two-point
 block would be a target nobody can hit — which is also why the tappable width has a
 floor the drawn width does not.
+
+
+## The panel was too narrow to show the line it edits, measured
+
+*2026-08-31.* The last `◐` in the table was the caption list living in an inspector
+column rather than a full-height pane. The column is already draggable — 260 to 380
+points, plus a 40-point rail — so the question was whether its maximum was enough,
+and that has an answer rather than an opinion.
+
+`CaptionBuilder` breaks lines at 42 characters, and the line being edited is the one
+thing that has to be readable whole. Measured at the 13pt body font:
+
+| | width |
+|---|---|
+| a 42-character line | 263pt |
+| the timecode | 35pt |
+| the reading-speed column | 59pt |
+| a fault label | 42pt |
+
+That is about 437pt of content with the spacing and the list's insets. **At 380 the row
+this panel exists to edit was truncated at every width it could be dragged to.** The
+maximum is now 440; the ideal stays 300, because a panel that opened wide would take
+that width from the picture for the sake of one tab.
+
+And the row gave some back: the full reading is 59pt on every row, where a character
+count is about 20 and is what a person scans a column for. The seconds and the rate
+moved to the focused cue's own line, beside the least-certain word — which is where the
+reference puts them too, and for the same reason.
