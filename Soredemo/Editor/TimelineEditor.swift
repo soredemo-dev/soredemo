@@ -751,7 +751,17 @@ struct TimelineEditor: View {
                 }
                 if !captions.isEmpty {
                     lane("Captions", "captions.bubble", height: 14) {
-                        blocks(captions.cues.map { ($0.start, $0.end) }, tint: Theme.Lane.caption)
+                        // **Clicking a block moves the playhead to that cue**, which is the one
+                        // connection the two surfaces were missing: the caption panel already
+                        // lights and scrolls to the cue the playhead is in, so selecting follows
+                        // from seeking rather than being a second kind of selection to keep in
+                        // step with the first.
+                        blocks(captions.cues.map { ($0.start, $0.end) },
+                               tint: Theme.Lane.caption,
+                               onTap: { index in
+                                   guard captions.cues.indices.contains(index) else { return }
+                                   model.movePlayhead(to: captions.cues[index].start)
+                               })
                     }
                 }
                 if !redactions.isEmpty {
@@ -1052,20 +1062,32 @@ struct TimelineEditor: View {
 
     /// A lane of plain blocks. Read-only: the panel that owns each kind is where it is edited,
     /// and a block here that could be dragged would be a second place to change the same value.
+    /// - Parameter onTap: what to do when a block is clicked, given its index. **Given the
+    ///   BLOCK's index rather than the time under the pointer**: a lane of blocks is a list seen
+    ///   sideways, and clicking one means "that one" — landing the playhead a few milliseconds
+    ///   inside a caption would put it on the same cue but not at its start, which is where
+    ///   somebody clicking it wants to hear from.
     @ViewBuilder private func blocks(_ spans: [(Nanoseconds, Nanoseconds)],
-                                     tint: Color) -> some View {
+                                     tint: Color,
+                                     onTap: ((Int) -> Void)? = nil) -> some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
-                ForEach(Array(spans.enumerated()), id: \.offset) { _, span in
+                ForEach(Array(spans.enumerated()), id: \.offset) { index, span in
                     let x = model.window.fraction(of: span.0) * width
                     let w = (model.window.fraction(of: span.1)
                              - model.window.fraction(of: span.0)) * width
                     RoundedRectangle(cornerRadius: Radius.block)
                         .fill(tint.opacity(0.75))
+                        // **A hit target wider than the block when the block is a hairline.** At
+                        // a whole-recording zoom a one-second caption is two points across, and
+                        // a two-point target is one nobody can hit; the drawn width stays honest
+                        // about the span while the tappable one does not go below a finger.
                         .frame(width: max(w, 2))
+                        .contentShape(Rectangle().inset(by: -max(0, (8 - max(w, 2)) / 2)))
                         .offset(x: x)
+                        .onTapGesture { onTap?(index) }
                 }
             }
         }

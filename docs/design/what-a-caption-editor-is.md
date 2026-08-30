@@ -162,7 +162,7 @@ paying.
 | Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
 | Split a cue / merge two | ● one key each | ● Return at the caret / Backspace at the start |
 | Snap a boundary to speech | ● | ● *both ends at once, 2026-08-31* |
-| Waveform with cue blocks | ● zoomable | ○ |
+| Waveform with cue blocks | ● zoomable | ● *on the timeline, not in the panel — see below* |
 | Safe-frame overlay | ● | ● *(2026-08-31)* |
 | Import corrected subtitles | ● | ● *(2026-08-31)* |
 | Named stages while generating | ● five, each timed | ● *three steps, each timed, with Stop (2026-08-31)* |
@@ -289,3 +289,35 @@ That is a signal worth consulting and not worth alarming with, so:
 * `nil` rather than 1 when the recogniser did not say, because "did not say" and "was
   certain" are different answers and a default of 1 would make an older project claim a
   confidence nothing measured.
+
+
+## The waveform row was wrong, and this is the second time
+
+*Corrected 2026-08-31.* The table above marked "waveform with cue blocks" as absent on
+the strength of the caption PANEL not having one. The editor's timeline has had all of
+it the whole time: an audio waveform lane, a Captions lane of blocks, a Text lane, a
+Zooms lane and a Silence lane, every one of them aligned to the same ruler, crossed by
+one playhead, inside a `TimelineWindow` that zooms.
+
+That is the second row in this project's own comparisons to be wrong about this
+codebase rather than about somebody else's — region capture was the first, in
+`2026-08-30-what-the-market-ships.md`. The failure is the same both times: a row
+written by reading another product and then guessing at this one. **A comparison table
+is a claim about this repository as much as about anyone else's, and the half about
+this one is the half that can actually be checked.**
+
+What was genuinely missing was one connection, and it is now there: **clicking a
+caption block on the timeline moves the playhead to that cue.** The panel already
+lights and scrolls to the cue the playhead is inside, so selecting follows from
+seeking rather than being a second kind of selection to keep in step with the first.
+
+The block's own index decides where the playhead lands, not the time under the
+pointer: a lane of blocks is a list seen sideways, and clicking one means "that one" —
+landing a few milliseconds inside a caption puts the playhead on the same cue but not
+at its start, which is where somebody who clicked it wants to hear from.
+
+Still different from the reference, and named rather than pretended away: the blocks
+carry no text label, and their edges cannot be dragged. Dragging is what the nudge and
+the snap in the panel do instead, on a lane fourteen points tall where a two-point
+block would be a target nobody can hit — which is also why the tappable width has a
+floor the drawn width does not.
