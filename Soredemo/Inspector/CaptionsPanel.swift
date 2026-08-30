@@ -138,6 +138,11 @@ final class CaptionsModel {
         publish()
     }
 
+    func snap(at index: Int, to pauses: [SilenceFinder.Span]) {
+        track = track.snapping(at: index, to: pauses)
+        publish()
+    }
+
     /// One correction applied to every line that has the same run in it, and remembered.
     ///
     /// **Both, because they answer different halves of the same question.** Replacing fixes the
@@ -881,6 +886,15 @@ struct CaptionsPanel: View {
             nudge("arrow.right", "End later") {
                 model.retime(at: index, start: cue.start, end: shifted(cue.end, by: Self.nudge.rawValue))
             }
+            Divider().frame(height: 12)
+            // **Both ends at once, because that is the intention.** "Line this up with what was
+            // said" is one decision, and a start that snapped while the end did not would leave
+            // the cue describing half of something. Disabled when neither end has anywhere
+            // better to be, so the control never does nothing quietly.
+            nudge("wand.and.rays", "Line up with the speech") {
+                model.snap(at: index, to: pauses)
+            }
+            .disabled(!model.track.canSnap(at: index, to: pauses))
             Spacer()
             nudge("trash", "Delete this line") {
                 model.remove(at: index)

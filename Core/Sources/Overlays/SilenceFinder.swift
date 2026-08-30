@@ -111,3 +111,48 @@ public enum SilenceFinder {
         Nanoseconds(spans.reduce(0) { $0 + $1.duration.rawValue })
     }
 }
+
+// MARK: - where speech starts and stops
+
+/// The edges of the silences are the edges of the speech, and a caption belongs on the speech.
+///
+/// **A recogniser's idea of where a sentence starts is usually a little early**, because an
+/// endpointer opens on the first hint of sound and pads what it returns. Nudging a boundary a
+/// tenth of a second at a time to correct that is thirty presses; putting it where the recording
+/// actually goes quiet is one.
+extension SilenceFinder {
+    /// How far a boundary may move to reach an edge. **Half a second**, which is long enough to
+    /// cover an endpointer's padding and short enough that a boundary never jumps to a pause
+    /// belonging to a different sentence — at which point the caption would describe the wrong
+    /// words, which is worse than being a little early.
+    public static let snapReach = Nanoseconds(500_000_000)
+
+    /// Where speech RESUMES nearest `time`: the end of a silence. What a cue's start wants.
+    ///
+    /// `nil` when nothing is within reach, which is a refusal a caller can report rather than a
+    /// value that silently did not move.
+    public static func speechResumes(nearest time: Nanoseconds, in spans: [Span],
+                                     within reach: Nanoseconds = snapReach) -> Nanoseconds? {
+        nearest(time, among: spans.map(\.end), within: reach)
+    }
+
+    /// Where speech STOPS nearest `time`: the start of a silence. What a cue's end wants.
+    public static func speechStops(nearest time: Nanoseconds, in spans: [Span],
+                                   within reach: Nanoseconds = snapReach) -> Nanoseconds? {
+        nearest(time, among: spans.map(\.start), within: reach)
+    }
+
+    /// Ties go to the EARLIER candidate. Deliberate rather than arbitrary: a caption that starts
+    /// a moment early is read from its first word, and one that starts a moment late has lost
+    /// it — so where the two are equally close, being early is the harmless direction.
+    static func nearest(_ time: Nanoseconds, among candidates: [Nanoseconds],
+                        within reach: Nanoseconds) -> Nanoseconds? {
+        candidates
+            .filter { abs($0.rawValue - time.rawValue) <= reach.rawValue }
+            .min { left, right in
+                let a = abs(left.rawValue - time.rawValue)
+                let b = abs(right.rawValue - time.rawValue)
+                return a == b ? left.rawValue < right.rawValue : a < b
+            }
+    }
+}

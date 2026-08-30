@@ -308,3 +308,68 @@ private func cue(_ text: String, _ start: Double, _ end: Double,
     #expect(CaptionMeasurement.width(of: "  ") == 0)
     #expect(CaptionMeasurement.width(of: "") == 0)
 }
+
+// MARK: - snapping a cue onto the speech
+
+private func pause(_ start: Double, _ end: Double) -> SilenceFinder.Span {
+    .init(start: ns(start), end: ns(end))
+}
+
+/// **A recogniser's idea of where a sentence starts is usually a little early**, and correcting
+/// that a tenth of a second at a time is thirty presses. Snapping puts both boundaries where the
+/// recording actually goes quiet, in one.
+@Test func snappingPutsBothBoundariesOnTheSpeech() {
+    // Silence up to 1.0, speech, silence from 3.0. The cue is 200 ms early at both ends.
+    let track = CaptionTrack(cues: [cue("the line", 0.8, 3.2)])
+    let pauses = [pause(0, 1.0), pause(3.0, 4.0)]
+
+    #expect(track.canSnap(at: 0, to: pauses))
+    let snapped = track.snapping(at: 0, to: pauses)
+    #expect(snapped.cues[0].start == ns(1.0), "the start did not move to where speech resumes")
+    #expect(snapped.cues[0].end == ns(3.0), "the end did not move to where speech stops")
+
+    // And pressing it again changes nothing, so it is safe to press twice.
+    #expect(snapped.snapping(at: 0, to: pauses) == snapped)
+    #expect(!snapped.canSnap(at: 0, to: pauses))
+}
+
+/// **An end with nothing in reach keeps its own value.** A boundary that can be improved is, and
+/// one that cannot is left where a person put it — refusing the whole cue would throw away the
+/// half that was correctable.
+@Test func oneEndSnapsWhenTheOtherHasNowhereToGo() {
+    let track = CaptionTrack(cues: [cue("the line", 0.8, 9.0)])
+    let snapped = track.snapping(at: 0, to: [pause(0, 1.0)])
+    #expect(snapped.cues[0].start == ns(1.0))
+    #expect(snapped.cues[0].end == ns(9.0), "an end with no candidate was moved anyway")
+}
+
+/// Half a second of reach, and past it nothing moves: a boundary that jumped to a pause
+/// belonging to a different sentence would leave the caption describing the wrong words, which
+/// is worse than being a little early.
+@Test func aPauseOutOfReachDoesNotPullABoundaryToIt() {
+    let track = CaptionTrack(cues: [cue("the line", 5, 6)])
+    #expect(!track.canSnap(at: 0, to: [pause(0, 1.0), pause(9, 10)]))
+    #expect(track.snapping(at: 0, to: [pause(0, 1.0), pause(9, 10)]) == track)
+
+    // Exactly at the reach still counts; a hair past it does not.
+    #expect(SilenceFinder.speechResumes(nearest: ns(5), in: [pause(4, 4.5)]) == ns(4.5))
+    #expect(SilenceFinder.speechResumes(nearest: ns(5), in: [pause(3.9, 4.49)]) == nil)
+}
+
+/// Ties go to the EARLIER candidate: a caption that starts a moment early is read from its first
+/// word, and one that starts a moment late has lost it.
+@Test func aTieBetweenTwoEdgesGoesToTheEarlierOne() {
+    // Equally distant from 5: an edge at 4.8 and one at 5.2.
+    let resumes = SilenceFinder.speechResumes(nearest: ns(5), in: [pause(4, 4.8), pause(5.2, 6)])
+    #expect(resumes == ns(4.8))
+}
+
+/// A snap is clamped like any other retime, so it can never cross a neighbour.
+@Test func aSnapCannotCrossTheCueBeforeIt() {
+    let track = CaptionTrack(cues: [cue("first", 0, 2), cue("second", 2.2, 4)])
+    // A pause ending at 1.0 would pull the second cue's start back into the first one.
+    let snapped = track.snapping(at: 1, to: [pause(0.5, 1.0)])
+    #expect(snapped.cues[1].start.rawValue
+            >= track.cues[0].end.rawValue + CaptionTrack.shortestGap.rawValue,
+            "a snap crossed into the cue before it")
+}

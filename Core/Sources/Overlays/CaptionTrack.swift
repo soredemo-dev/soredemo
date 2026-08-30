@@ -160,6 +160,40 @@ extension CaptionTrack {
         return CaptionTrack(cues: updated)
     }
 
+    /// A cue's two boundaries moved to where the speech around it actually starts and stops.
+    ///
+    /// **Both ends at once, because that is the thing a person wants.** "Make this line line up
+    /// with what was said" is one intention; two controls for it would be two presses for one
+    /// decision, and a start that snapped while the end did not would leave the cue describing
+    /// half of something.
+    ///
+    /// An end with nothing in reach keeps its own value rather than the cue being refused — a
+    /// boundary that could be improved is improved, and one that could not is left where a
+    /// person put it. `retiming` then clamps the pair, so a snap can never cross a neighbour or
+    /// go under the floor.
+    public func snapping(at index: Int, to pauses: [SilenceFinder.Span],
+                         within reach: Nanoseconds = SilenceFinder.snapReach) -> CaptionTrack {
+        guard cues.indices.contains(index) else { return self }
+        let cue = cues[index]
+        let start = SilenceFinder.speechResumes(nearest: cue.start, in: pauses, within: reach)
+            ?? cue.start
+        let end = SilenceFinder.speechStops(nearest: cue.end, in: pauses, within: reach)
+            ?? cue.end
+        guard start != cue.start || end != cue.end else { return self }
+        return retiming(at: index, start: start, end: end)
+    }
+
+    /// True when either boundary has somewhere better to be, so a control can say whether
+    /// pressing it will do anything rather than doing nothing quietly.
+    public func canSnap(at index: Int, to pauses: [SilenceFinder.Span],
+                        within reach: Nanoseconds = SilenceFinder.snapReach) -> Bool {
+        guard cues.indices.contains(index) else { return false }
+        let cue = cues[index]
+        let start = SilenceFinder.speechResumes(nearest: cue.start, in: pauses, within: reach)
+        let end = SilenceFinder.speechStops(nearest: cue.end, in: pauses, within: reach)
+        return (start.map { $0 != cue.start } ?? false) || (end.map { $0 != cue.end } ?? false)
+    }
+
     /// One cue split in two at a character offset into its text.
     ///
     /// **The join is timed from the WORD RUNS when there are any**, not by sharing the span out

@@ -395,3 +395,4 @@
 "Dismiss this suggestion" = "この提案を閉じる";
 "Fix them too" = "まとめて直す";
 "The same change fits %lld other line(s)." = "同じ修正が他の %lld 件にも当てはまります。";
+"Line up with the speech" = "音声に合わせる";

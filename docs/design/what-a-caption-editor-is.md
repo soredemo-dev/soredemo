@@ -161,7 +161,7 @@ paying.
 | Edit in place | ● Esc / Done | ● every row is a live field |
 | Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
 | Split a cue / merge two | ● one key each | ● Return at the caret / Backspace at the start |
-| Snap a boundary to speech | ● | ◐ cues are CUT at silence; a dragged boundary does not snap yet |
+| Snap a boundary to speech | ● | ● *both ends at once, 2026-08-31* |
 | Waveform with cue blocks | ● zoomable | ○ |
 | Safe-frame overlay | ● | ○ |
 | Import corrected subtitles | ● | ● *(2026-08-31)* |

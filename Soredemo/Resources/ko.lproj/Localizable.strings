@@ -393,3 +393,4 @@
 "Dismiss this suggestion" = "이 제안 닫기";
 "Fix them too" = "한꺼번에 고치기";
 "The same change fits %lld other line(s)." = "같은 수정이 다른 %lld개 줄에도 맞습니다.";
+"Line up with the speech" = "음성에 맞추기";
