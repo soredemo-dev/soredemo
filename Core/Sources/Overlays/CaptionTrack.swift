@@ -37,22 +37,38 @@ public struct CaptionTrack: Sendable, Equatable, Codable {
                 guard end > start else { return nil }
                 guard let outputStart = timeline.outputTime(atSource: Nanoseconds(start))
                 else { return nil }
-                let outputEnd = outputStart.rawValue + (end - start)
+                // **A source span takes `1/speed` as long to play, and this used to ignore that.**
+                // The START went through `outputTime(atSource:)`, which divides; the END was
+                // `outputStart + (end - start)`, which does not. Measured on a 2× clip: a cue at
+                // source 0–2 came out at output 0–2 instead of 0–1, and the cue after it at 1–3
+                // instead of 1–2 — every caption on a sped-up clip drawn for twice its length and
+                // overlapping its successor by half of it. `played(_:)` is the one conversion now.
+                let outputEnd = outputStart.rawValue + played(end - start, at: clip.speed)
                 // Words are clipped to the surviving span too, so a highlight cannot point at a
-                // word the cut removed.
+                // word the cut removed — and they take the same conversion, or a highlight lands
+                // on the wrong word for the whole of a sped-up clip.
                 let words = cue.words.compactMap { word -> TranscribedWord? in
                     let wordStart = max(word.start.rawValue, start)
                     let wordEnd = min(word.end.rawValue, end)
                     guard wordEnd > wordStart else { return nil }
                     return TranscribedWord(
                         text: word.text,
-                        start: Nanoseconds(outputStart.rawValue + (wordStart - start)),
-                        end: Nanoseconds(outputStart.rawValue + (wordEnd - start)))
+                        start: Nanoseconds(outputStart.rawValue
+                                           + played(wordStart - start, at: clip.speed)),
+                        end: Nanoseconds(outputStart.rawValue
+                                         + played(wordEnd - start, at: clip.speed)))
                 }
                 return CaptionCue(text: cue.text, start: outputStart,
                                   end: Nanoseconds(outputEnd), words: words)
             }
         })
+    }
+
+    /// How long a span of the RECORDING takes to PLAY at a clip's speed. The same arithmetic
+    /// `EditTimeline.outputTime(atSource:)` does, spelled once here so a duration and an instant
+    /// cannot disagree about it.
+    private func played(_ sourceSpan: Int64, at speed: Double) -> Int64 {
+        Int64((Double(sourceSpan) / speed).rounded())
     }
 
     /// A cue's text replaced, keeping its timing. What editing a caption is: a recogniser gets a

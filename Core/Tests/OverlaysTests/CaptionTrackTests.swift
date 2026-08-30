@@ -160,4 +160,49 @@ private func cue(_ text: String, _ start: Double, _ end: Double,
             #expect(format.displayName.contains(format.fileExtension))
         }
     }
+
+    /// **A source span takes `1/speed` as long to play, and `retimed` used to ignore that.**
+    ///
+    /// The START went through `EditTimeline.outputTime(atSource:)`, which divides by the clip's
+    /// speed; the END was `outputStart + (end - start)`, which does not. Measured on a 2× clip: a
+    /// cue at source 0–2 came out at output 0–2 instead of 0–1, and the one after it at 1–3
+    /// instead of 1–2 — every caption on a sped-up clip drawn for twice its length and
+    /// overlapping its successor by half of it, in the exported sidecar and in the burnt-in
+    /// picture alike.
+    @Test func aCueOnASpedUpClipIsPlayedForTheTimeItTakesToPlay() {
+        let clip = EditClip(id: ClipID(rawValue: 1), sourceStart: ns(0), duration: ns(10),
+                            speed: 2)
+        let timeline = EditTimeline(clips: [clip])
+        let track = CaptionTrack(cues: [cue("one", 0, 2), cue("two", 2, 4)])
+
+        let output = track.retimed(through: timeline)
+        #expect(output.cues.map(\.start) == [ns(0), ns(1)])
+        #expect(output.cues.map(\.end) == [ns(1), ns(2)],
+                "a cue on a 2x clip is still drawn for its SOURCE length")
+        for (earlier, later) in zip(output.cues, output.cues.dropFirst()) {
+            #expect(earlier.end.rawValue <= later.start.rawValue,
+                    "the speed conversion left two captions on screen at once")
+        }
+    }
+
+    /// The word runs take the same conversion, or a highlight lands on the wrong word for the
+    /// whole of a sped-up clip.
+    @Test func wordRunsAreScaledByTheClipsSpeedToo() {
+        let clip = EditClip(id: ClipID(rawValue: 1), sourceStart: ns(0), duration: ns(10),
+                            speed: 2)
+        let words = [TranscribedWord(text: "open", start: ns(0), end: ns(1)),
+                     TranscribedWord(text: "it", start: ns(1), end: ns(2))]
+        let output = CaptionTrack(cues: [cue("open it", 0, 2, words: words)])
+            .retimed(through: EditTimeline(clips: [clip]))
+
+        #expect(output.cues[0].words.map(\.start) == [ns(0), ns(0.5)])
+        #expect(output.cues[0].words.map(\.end) == [ns(0.5), ns(1)])
+    }
+
+    /// At 1x nothing moves, which is what says the conversion is a conversion and not a shift.
+    @Test func anOrdinarySpeedIsUnchangedByTheConversion() {
+        let clip = EditClip(id: ClipID(rawValue: 1), sourceStart: ns(0), duration: ns(10))
+        let track = CaptionTrack(cues: [cue("one", 0, 2), cue("two", 3, 4)])
+        #expect(track.retimed(through: EditTimeline(clips: [clip])).cues == track.cues)
+    }
 }

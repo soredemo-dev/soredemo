@@ -29,9 +29,16 @@ The CJK figures are roughly half the Latin ones for the same reason a CJK line i
 half the length: a full-width character carries about what two or three letters do,
 so 9 CPS of Chinese is about the information rate of 20 CPS of English.
 
-`CaptionBuilder.longestLine` is 42 for the Latin case and deliberately does not apply
-where the text has no word gaps — see its own header. **The CJK line length and every
-reading-speed figure above are not implemented anywhere in this project yet.**
+**Implemented 2026-08-31** in `CaptionScript`, which carries both columns, and in
+`CaptionMeasurement`, which judges a cue against the column its text belongs to.
+`CaptionBuilder.longestLine` is now `CaptionScript.spaced.longestLine` rather than a
+42 of its own, and `CaptionBuilder.minimumDisplay` is
+`CaptionMeasurement.shortestDisplay` — it had been 700 ms, chosen before this project
+had a source, and two numbers would have meant the panel warning about lines the
+builder had just produced.
+
+The one figure still not enforced anywhere is **two lines per cue**: nothing counts
+the lines a cue will occupy once drawn, so a long CJK caption can still wrap to three.
 
 ## What the interface of a shipping subtitle tool actually has
 
@@ -105,27 +112,26 @@ cues`.
 | | What'Sub | Soredemo today |
 |---|---|---|
 | Cue list | ● right-hand pane, full height | ◐ a section in a narrow inspector |
-| Click a cue to seek | ● | ○ — tapping opens a text field |
-| Follows the playhead | ● highlight + auto-scroll | ○ |
+| Click a cue to seek | ● | ● *(2026-08-31)* |
+| Follows the playhead | ● highlight + auto-scroll | ● *(2026-08-31)* |
 | Search the cues | ● | ○ |
-| Per-cue duration / characters / CPS | ● with an out-of-range verdict | ○ |
+| Per-cue duration / characters / CPS | ● with an out-of-range verdict | ● *(2026-08-31)* |
 | Recogniser confidence per word | ● names the weakest word | ○ *(the API returns it; nothing reads it)* |
 | Edit in place | ● Esc / Done | ◐ tap, then Save / Cancel buttons |
-| Adjust a cue's start or end | ● waveform handles + millisecond fields | **○ — timing cannot be corrected at all** |
-| Split a cue / merge two | ● one key each | ○ |
+| Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
+| Split a cue / merge two | ● one key each | ● *buttons, not keys (2026-08-31)* |
 | Snap a boundary to speech | ● | ○ |
 | Waveform with cue blocks | ● zoomable | ○ |
 | Safe-frame overlay | ● | ○ |
-| Import corrected subtitles | ● | ○ *(`SubtitleFile` writes `.srt`/`.vtt`; there is no reader)* |
+| Import corrected subtitles | ● | ● *(2026-08-31)* |
 | Named stages while generating | ● five, each timed | ◐ three phases, one line of text |
 | Caption style presets | ○ | ● four, added 2026-08-30 |
 | Word-by-word highlight | ● | ● |
 | Vocabulary for the recogniser | ● *(cloud model)* | ◐ spelling pass only — `teaching-the-recogniser-a-word.md` |
 
-The row that matters most is the one in bold. **A caption whose timing is wrong cannot
-be fixed in this app at all** — the text can be retyped and the line can be deleted,
-and that is the whole of it. Everything else on this list is a convenience; that one
-is a hole.
+The row that mattered most was the one that used to be in bold: a caption whose timing
+was wrong could not be fixed in this app at all. **Closed 2026-08-31.** Five of the six
+below are now built; what is left is the waveform, and a keymap instead of buttons.
 
 ## The order these are worth building in
 
@@ -141,9 +147,10 @@ into once you ask which of them a person hits first.
    retimed cue and needs the boundaries not to cross their neighbours.
 4. **Split at the caret and merge with the next.** The two operations the recogniser
    gets wrong most often, and they are what a person reaches for after (3).
-5. **Import `.srt`/`.vtt`.** The escape hatch: whatever this app cannot do, a
-   dedicated editor can, and a reader is half a day's work beside the writer that
-   already exists.
+5. ~~**Import `.srt`/`.vtt`.**~~ **Built 2026-08-31.** `SubtitleFile.read` takes
+   either format, detected from the content rather than the extension, and reports
+   every cue it could not use with the line it was on. The panel maps the file back
+   through the edit, because the export wrote it in the export's clock.
 6. A waveform with cue blocks. The largest of these by far, and the one the first five
    make less necessary rather than more.
 

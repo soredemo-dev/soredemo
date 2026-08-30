@@ -175,6 +175,65 @@ final class CaptionsModel {
 
     // MARK: - the sidecar
 
+    /// Reads an `.srt` or `.vtt` somebody edited elsewhere, back into this recording's captions.
+    ///
+    /// **The file is in the EXPORT's clock and the track is in the recording's**, because that
+    /// is what `exportSidecar` wrote — so every cue is mapped back through the same edit. A cue
+    /// whose output time falls past the end of the edit has no source instant and is counted
+    /// rather than placed at zero.
+    ///
+    /// **Replaces rather than merges.** A file somebody corrected IS the answer; offering to
+    /// merge it with what is here would need a rule for which of two versions of a line wins,
+    /// and there is no such rule that is not a guess.
+    @MainActor
+    func importSidecar(edit: EditTimeline?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = SubtitleFile.Format.allCases.compactMap {
+            UTType(filenameExtension: $0.fileExtension)
+        } + [.plainText]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let reading = try SubtitleFile.read(try String(contentsOf: url, encoding: .utf8))
+            var placed: [CaptionCue] = []
+            var unplaceable = 0
+            for cue in reading.track.cues {
+                guard let edit else { placed.append(cue); continue }
+                guard let start = edit.sourceTime(atOutput: cue.start),
+                      let end = edit.sourceTime(atOutput: cue.end), end.rawValue > start.rawValue
+                else { unplaceable += 1; continue }
+                placed.append(CaptionCue(text: cue.text, start: start, end: end))
+            }
+            guard !placed.isEmpty else {
+                status = "None of \(reading.track.cues.count) cue(s) fall inside this edit."
+                return
+            }
+            track = CaptionTrack(cues: placed)
+            publish()
+
+            var note = "Read \(placed.count) cue(s) from \(url.lastPathComponent)."
+            if !reading.refused.isEmpty {
+                note += " \(reading.refused.count) line(s) could not be read"
+                    + " (first at line \(reading.refused[0].line))."
+            }
+            if reading.overlapsTrimmed > 0 {
+                note += " \(reading.overlapsTrimmed) overlapping cue(s) were trimmed."
+            }
+            if unplaceable > 0 { note += " \(unplaceable) fell outside the edit." }
+            // Word runs are not in a sidecar, so the highlight has nothing to point at until
+            // this recording is transcribed again. Said, rather than left to look like the
+            // style being broken.
+            if style.highlightsSpokenWord {
+                note += " Word-by-word highlighting is off for these."
+            }
+            status = note
+        } catch SubtitleFile.ReadError.noCues {
+            status = "\(url.lastPathComponent) has no subtitles in it."
+        } catch {
+            status = "Could not read \(url.lastPathComponent): \(error)"
+        }
+    }
+
     /// Writes an `.srt` or `.vtt` beside wherever a person chooses, retimed through `edit` so
     /// the cues line up with the exported video rather than with the uncut recording.
     @MainActor
@@ -527,7 +586,18 @@ struct CaptionsPanel: View {
                         defaultName: mediaURL.deletingPathExtension().lastPathComponent)
                 }
             }
+            Spacer()
+            Button("Import…") {
+                model.importSidecar(edit: edit)
+                onChange()
+            }
         }
+        // **The escape hatch, and it is worth saying it is one.** Whatever this panel cannot do,
+        // a dedicated subtitle editor can — and an export with no import is a one-way door.
+        Text("Import replaces every caption with the file's. A sidecar carries no word times, so "
+             + "highlighting stays off for what comes back until this recording is transcribed "
+             + "again.")
+            .font(Type.detail).foregroundStyle(.secondary)
     }
 
     /// The index of the cue the playhead is inside, or `nil` between cues.

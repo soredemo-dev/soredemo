@@ -398,3 +398,5 @@
 "Too fast" = "太快";
 "Too brief" = "太短";
 "Too long" = "太長";
+"Import…" = "匯入…";
+"Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "匯入會用檔案的內容取代全部字幕。外掛字幕檔沒有逐字時間,所以帶回來的部分會關閉逐字高亮,直到這段錄影重新辨識過。";

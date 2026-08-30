@@ -384,3 +384,5 @@
 "Too fast" = "Demasiado rápido";
 "Too brief" = "Demasiado breve";
 "Too long" = "Demasiado largo";
+"Import…" = "Importar…";
+"Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "La importación sustituye todos los subtítulos por los del archivo. Un archivo adjunto no lleva tiempos por palabra, así que el resaltado queda desactivado para lo importado hasta que se vuelva a transcribir esta grabación.";

@@ -382,3 +382,5 @@
 "Too fast" = "너무 빠름";
 "Too brief" = "너무 짧음";
 "Too long" = "너무 김";
+"Import…" = "가져오기…";
+"Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "가져오면 모든 자막이 파일의 내용으로 대체됩니다. 사이드카에는 단어별 시간이 없으므로, 이 녹화를 다시 인식할 때까지 가져온 부분의 단어 강조는 꺼진 채로 유지됩니다.";

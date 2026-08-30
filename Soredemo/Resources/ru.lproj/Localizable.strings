@@ -382,3 +382,5 @@
 "Too fast" = "Слишком быстро";
 "Too brief" = "Слишком коротко";
 "Too long" = "Слишком долго";
+"Import…" = "Импорт…";
+"Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again." = "Импорт заменяет все субтитры содержимым файла. Во внешнем файле нет времени по словам, поэтому подсветка останется выключенной для импортированного, пока эта запись не будет распознана заново.";
