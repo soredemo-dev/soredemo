@@ -15,8 +15,13 @@ public enum CaptionArt {
     /// How wide this text draws, in output pixels, including the plate's padding. What a caller
     /// compares against `CaptionStyle.maximumWidth(forOutputWidth:)`.
     public static func width(of text: String, style: CaptionStyle, outputHeight: Int) -> Double {
+        // **Bold and the font are passed, and passing neither was a defect.** This is the
+        // measurement `CaptionBuilder` breaks lines by, and the drawing uses `style.isBold` and
+        // `style.fontFilename`; measuring a lighter, narrower face than the one that will be
+        // drawn breaks the lines too late and the caption overflows its own limit. The seam
+        // this function IS only holds while both sides ask the same question.
         TextArt.width(of: text, pointSize: style.pointSize(forOutputHeight: outputHeight),
-                      bold: false)
+                      bold: style.isBold, filename: style.fontFilename)
     }
 
     /// A `fits` closure for `CaptionBuilder`, bound to one output size and style — the seam that

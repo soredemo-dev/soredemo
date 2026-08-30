@@ -615,6 +615,11 @@ struct StageWindow: View {
         // Where an image background is read from. Set before the composition reaches
         // AVFoundation, on the same terms as every other static here.
         CoreImageFrameRenderer.imageBaseURL = mediaURL.map(ProjectStore.packageURL(forMediaAt:))
+        // Where a project's own fonts are read from. Set beside the image base and cleared with
+        // it: a stale base would resolve THIS project's caption font out of the LAST project's
+        // package, which draws correctly and is the wrong font.
+        TextArt.fontBaseURL = CoreImageFrameRenderer.imageBaseURL
+        TextArt.forgetProjectFonts()
         // The system's own cursor artwork, which the compositor cannot fetch for
         // itself — `HeadlessCheck` bans AppKit from that tier. Handed over here so
         // the preview and the export draw the same thing, and re-read on every

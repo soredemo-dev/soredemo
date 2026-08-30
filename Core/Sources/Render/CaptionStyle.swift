@@ -51,6 +51,9 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     public let shadowBlurFraction: Double
     /// The outline around each letter, as a fraction of the type size, and its colour.
     /// See `TextOverlayStyle.outlineWidthFraction` for what it costs and why it is centred.
+    /// A font file inside the project, or `nil` for the system's own. See
+    /// `TextOverlayStyle.fontFilename`.
+    public let fontFilename: String?
     public let outlineWidthFraction: Double
     public let outlineRed: Double
     public let outlineGreen: Double
@@ -82,7 +85,8 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                 plateRed: Double = 0, plateGreen: Double = 0, plateBlue: Double = 0,
                 shadowOpacity: Double = 0, shadowBlurFraction: Double = 0,
                 outlineWidthFraction: Double = 0, outlineRed: Double = 0,
-                outlineGreen: Double = 0, outlineBlue: Double = 0) {
+                outlineGreen: Double = 0, outlineBlue: Double = 0,
+                fontFilename: String? = nil) {
         // Clamped rather than trapped: every one of these reaches here from a slider, and a
         // style is also decoded from a saved project — rule 8 says never `precondition` on an
         // untrusted input. Clamping is the same answer on both paths, so there is one path.
@@ -108,6 +112,9 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
         // Floored at zero and capped well below the frame: a blur wider than the text is a
         // smear rather than a shadow, and a very large one is minutes of Core Image per frame.
         self.shadowBlurFraction = min(max(shadowBlurFraction, 0), 0.05)
+        self.fontFilename = fontFilename.flatMap {
+            StageBackground.isSafeImageFilename($0) ? $0 : nil
+        }
         self.outlineWidthFraction = min(max(outlineWidthFraction, 0), 0.14)
         self.outlineRed = min(max(outlineRed, 0), 1)
         self.outlineGreen = min(max(outlineGreen, 0), 1)
@@ -121,6 +128,7 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
         case alignment, horizontalFraction, isBold
         case plateRed, plateGreen, plateBlue, shadowOpacity, shadowBlurFraction
         case outlineWidthFraction, outlineRed, outlineGreen, outlineBlue
+        case fontFilename
     }
 
     /// **Every field optional on the way in, and routed through the clamping initialiser.**
@@ -165,7 +173,8 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                                             fallback.outlineWidthFraction),
             outlineRed: try value(.outlineRed, fallback.outlineRed),
             outlineGreen: try value(.outlineGreen, fallback.outlineGreen),
-            outlineBlue: try value(.outlineBlue, fallback.outlineBlue))
+            outlineBlue: try value(.outlineBlue, fallback.outlineBlue),
+            fontFilename: try container.decodeIfPresent(String.self, forKey: .fontFilename))
     }
 
     /// The type size in output pixels.
@@ -184,7 +193,8 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                          shadowBlurFraction: Double? = nil,
                          outlineWidthFraction: Double? = nil,
                          outlineRed: Double? = nil, outlineGreen: Double? = nil,
-                         outlineBlue: Double? = nil) -> CaptionStyle {
+                         outlineBlue: Double? = nil,
+                         fontFilename: String?? = nil) -> CaptionStyle {
         CaptionStyle(heightFraction: heightFraction ?? self.heightFraction,
                      bottomInsetFraction: bottomInsetFraction ?? self.bottomInsetFraction,
                      maximumWidthFraction: maximumWidthFraction,
@@ -204,7 +214,11 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                      outlineWidthFraction: outlineWidthFraction ?? self.outlineWidthFraction,
                      outlineRed: outlineRed ?? self.outlineRed,
                      outlineGreen: outlineGreen ?? self.outlineGreen,
-                     outlineBlue: outlineBlue ?? self.outlineBlue)
+                     outlineBlue: outlineBlue ?? self.outlineBlue,
+                     // A double optional, so "set it to nothing" and "leave it alone" are
+                     // different asks — `MusicBed.changing(filename:)`'s shape, for its reason:
+                     // choosing the system font is a decision and not an absence of one.
+                     fontFilename: fontFilename ?? self.fontFilename)
     }
 
     public func pointSize(forOutputHeight height: Int) -> Double {

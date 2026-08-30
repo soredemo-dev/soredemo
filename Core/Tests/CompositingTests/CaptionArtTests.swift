@@ -772,3 +772,76 @@ import Timeline
     #expect(plain > 0)
     #expect(outlined > plain, "an outline did not make the drawn shape any larger")
 }
+
+// MARK: - a project's own font
+
+/// **The seam, which is the only reason a font fallback is safe.**
+///
+/// `TextArt.font` falls back to the system face when a project font will not load. That is
+/// harmless ONLY because `CaptionBuilder` decides its line breaks through `TextArt.width`, which
+/// asks the same function with the same arguments — so a failed load changes what is measured
+/// and what is drawn by exactly the same amount, and nothing overflows.
+///
+/// This pins the half that was actually wrong: `CaptionArt.width` passed `bold: false` and no
+/// font at all, so a bold or custom-font caption was broken into lines by the width of a
+/// lighter, narrower face than the one drawn.
+@Test func lineBreakingMeasuresTheFaceThatWillBeDrawn() {
+    let plain = CaptionStyle.default
+    let bold = CaptionStyle.default.changing(isBold: true)
+    let text = "The quick brown fox jumps over the lazy dog"
+
+    let plainWidth = CaptionArt.width(of: text, style: plain, outputHeight: 1080)
+    let boldWidth = CaptionArt.width(of: text, style: bold, outputHeight: 1080)
+    #expect(boldWidth > plainWidth,
+            "bold measured the same as regular — the measurement is not asking about the face")
+}
+
+/// A font this project does not have falls back rather than failing, and the fallback is the
+/// system face — the same one a style naming no font gets.
+@Test func aMissingProjectFontFallsBackToTheSystemFace() {
+    // `unsafe`: a `nonisolated(unsafe)` static. Written and read by this test alone — no other
+    // test in this target names a project font — and the `defer` puts it back whichever way
+    // this one exits, including a failed `#expect`.
+    unsafe TextArt.fontBaseURL = URL(fileURLWithPath: "/no/such/place")
+    TextArt.forgetProjectFonts()
+    defer { unsafe TextArt.fontBaseURL = nil; TextArt.forgetProjectFonts() }
+
+    let named = CaptionStyle.default.changing(fontFilename: .some("NotThere.ttf"))
+    let system = CaptionStyle.default
+    let text = "Measured either way"
+    #expect(CaptionArt.width(of: text, style: named, outputHeight: 1080)
+            == CaptionArt.width(of: text, style: system, outputHeight: 1080),
+            "a missing font measured differently from the fallback it becomes")
+}
+
+/// **A name that is not a filename is refused, not repaired.** The value reaches this type from
+/// a decoder as well as from a panel, and a `../` in it is not a typo somebody made.
+@Test func aFontNameThatEscapesTheProjectIsRefused() {
+    #expect(CaptionStyle.default.changing(fontFilename: .some("../../etc/passwd"))
+                .fontFilename == nil)
+    #expect(CaptionStyle.default.changing(fontFilename: .some(".hidden")).fontFilename == nil)
+    #expect(CaptionStyle.default.changing(fontFilename: .some("")).fontFilename == nil)
+    #expect(CaptionStyle.default.changing(fontFilename: .some("Brand.ttf"))
+                .fontFilename == "Brand.ttf")
+}
+
+/// Choosing the system font is a decision, not an absence of one — so `changing` takes a double
+/// optional and "set it to nothing" is reachable. `MusicBed.changing(filename:)`'s shape.
+@Test func theSystemFontCanBeChosenBackAgain() {
+    let named = CaptionStyle.default.changing(fontFilename: .some("Brand.ttf"))
+    #expect(named.fontFilename == "Brand.ttf")
+    #expect(named.changing(fontFilename: .some(nil)).fontFilename == nil)
+    // And leaving it alone is a different call from clearing it.
+    #expect(named.changing(heightFraction: 0.06).fontFilename == "Brand.ttf")
+}
+
+/// A project saved before fonts existed opens with the system face, like every other field
+/// added to this style.
+@Test func aStyleSavedBeforeFontsDecodesToTheSystemFace() throws {
+    let older = Data("""
+        {"heightFraction":0.05,"bottomInsetFraction":0.08,"maximumWidthFraction":0.9,
+         "backgroundOpacity":0.5,"backgroundCornerFraction":0.012,
+         "red":1,"green":1,"blue":1,"highlightsSpokenWord":false,"unspokenOpacity":0.55}
+        """.utf8)
+    #expect(try JSONDecoder().decode(CaptionStyle.self, from: older).fontFilename == nil)
+}

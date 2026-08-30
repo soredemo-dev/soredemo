@@ -171,6 +171,9 @@ struct CaptionsPanel: View {
     @State private var maximumWords: Int?
     @State private var editingIndex: Int?
     @State private var draft = ""
+    /// Why a chosen font did not take, or `nil`. Said rather than left to look like the picker
+    /// did nothing: a copy that fails silently is a font somebody chose and cannot find.
+    @State private var fontFailure: String?
 
     var body: some View {
         List {
@@ -312,6 +315,8 @@ struct CaptionsPanel: View {
                     onChange()
                 }), supportsOpacity: false)
         }
+        fontRow
+
         // **Offered above the plate and the shadow, because it is the one that reads over
         // anything.** A plate covers the picture and a shadow softens an edge; an outline
         // follows the letters, so a caption crossing a light region and a dark one in the same
@@ -414,6 +419,84 @@ struct CaptionsPanel: View {
         model.setText(draft, at: index)
         editingIndex = nil
         onChange()
+    }
+
+    /// The font a caption is set in: the project's own, or the system's.
+    ///
+    /// **The file is copied into the project, not referenced.** `adoptMusic`'s argument
+    /// exactly: a caption pointing at a `.ttf` on somebody's Desktop is a caption that changes
+    /// when the file moves, and a project opened on another machine would silently fall back to
+    /// a different width. Inside the package it travels with the recording.
+    ///
+    /// **A name rather than a preview of the type.** Rendering a sample means loading the font
+    /// into this view, and the view is not where fonts are resolved — `TextArt` is, once, for
+    /// both measurement and drawing. A second loader here is the second answer that seam exists
+    /// to prevent.
+    @ViewBuilder private var fontRow: some View {
+        HStack(spacing: Space.snug) {
+            Text("Font").font(Type.label)
+            Spacer(minLength: Space.tight)
+            Text(model.style.fontFilename.map { LocalizedStringKey($0) }
+                    ?? LocalizedStringKey("System"))
+                .font(Type.detail)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Button("Choose\u{2026}") { chooseFont() }
+            if model.style.fontFilename != nil {
+                Button("System") {
+                    model.setStyle(model.style.changing(fontFilename: .some(nil)))
+                    onChange()
+                }
+            }
+        }
+        if let fontFailure {
+            Label(LocalizedStringKey(fontFailure), systemImage: "exclamationmark.triangle")
+                .font(Type.detail).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Copies a chosen font into the project and points the style at it.
+    ///
+    /// **The font cache is cleared on the way through.** It is keyed on a filename, and
+    /// replacing a `Brand.ttf` with a different `Brand.ttf` would otherwise keep drawing the
+    /// first — which reads as the new font not working rather than as a stale cache.
+    private func chooseFont() {
+        guard let source = Self.chooseFontFile() else { return }
+        let packageURL = ProjectStore.packageURL(forMediaAt: mediaURL)
+        let directory = packageURL.appending(path: TextArt.fontDirectory,
+                                             directoryHint: .isDirectory)
+        let name = source.lastPathComponent
+        guard StageBackground.isSafeImageFilename(name) else {
+            fontFailure = "\(name) is not a name this can use."
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+            let destination = directory.appending(path: name)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: source, to: destination)
+        } catch {
+            fontFailure = "Could not copy \(name) into the project: \(error)"
+            return
+        }
+        TextArt.forgetProjectFonts()
+        fontFailure = nil
+        model.setStyle(model.style.changing(fontFilename: .some(name)))
+        onChange()
+    }
+
+    /// The open panel, fonts only.
+    @MainActor
+    private static func chooseFontFile() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.font]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     /// A colour's own components, in the space the renderer draws in.

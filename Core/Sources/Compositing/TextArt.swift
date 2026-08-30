@@ -21,16 +21,85 @@ public enum TextArt {
     static let horizontalPaddingRatio = 0.7
     static let verticalPaddingRatio = 0.32
 
-    /// The system UI font at a size.
+    /// Where a project's own font files live, set by the app tier alongside the image base.
     ///
-    /// `CTFontCreateUIFontForLanguage` rather than a font named as a string: a name that is not
-    /// installed silently falls back to Helvetica, which is a different width, and the text then
-    /// overflows on exactly the machines that lack the font. Carrying a font name
-    /// field and a cache keyed on it; that is the right shape once a font PICKER exists, and a
-    /// wrong-width fallback with no picker to explain it until then.
-    static func font(pointSize: Double, bold: Bool) -> CTFont {
+    /// A URL rather than the bytes, and the FILE rather than an installed name — which is what
+    /// makes the old objection to naming fonts go away. A name that is not installed falls back
+    /// silently to something of a different width; a file that travels inside the project is
+    /// either there or it is not, and it is there on every machine the project is opened on.
+    public nonisolated(unsafe) static var fontBaseURL: URL?
+
+    /// The directory a project keeps its fonts in, beside `backgrounds` and `music`.
+    public static let fontDirectory = "fonts"
+
+    /// Loaded fonts, keyed by file, size and weight.
+    ///
+    /// **A cache because this is called per line per frame**, and building a `CTFont` from a
+    /// file reads and parses it. The key includes the size because a `CTFont` IS a size —
+    /// there is no cheap way to rescale one — and the weight because a family's bold face is a
+    /// different file inside the same collection.
+    private nonisolated(unsafe) static var fontCache: [FontKey: CTFont] = [:]
+    private static let fontCacheLock = NSLock()
+
+    private struct FontKey: Hashable {
+        let filename: String
+        let pointSize: Double
+        let bold: Bool
+    }
+
+    /// The font to lay text out in: a project's own if it names one and the file loads, the
+    /// system UI font otherwise.
+    ///
+    /// **A fallback here cannot make text overflow**, which was the objection that kept fonts
+    /// out. `CaptionBuilder` decides its line breaks through `TextArt.width`, which calls this
+    /// same function with the same arguments — so a font that fails to load changes what the
+    /// breaking measures and what the drawing draws by exactly the same amount. The seam is what
+    /// makes the fallback safe, and it is why measurement and drawing must never grow two ways
+    /// of choosing a font.
+    static func font(pointSize: Double, bold: Bool, filename: String? = nil) -> CTFont {
+        if let filename, let loaded = projectFont(filename, pointSize: pointSize, bold: bold) {
+            return loaded
+        }
         let ui = CTFontCreateUIFontForLanguage(bold ? .emphasizedSystem : .system, pointSize, nil)
         return ui ?? CTFontCreateWithName("Helvetica" as CFString, pointSize, nil)
+    }
+
+    /// One font file, or `nil` for every way that can fail: no base, an unsafe name, a missing
+    /// file, bytes Core Graphics will not read.
+    ///
+    /// **`bold` is applied as a trait rather than by picking a face.** A single `.ttf` is one
+    /// weight, and asking Core Text to synthesise the bold is the same thing AppKit does when a
+    /// family has no bold member — the alternative is refusing to embolden a project font at
+    /// all, which would make the toggle silently do nothing for exactly the fonts a person went
+    /// to the trouble of choosing.
+    private static func projectFont(_ filename: String, pointSize: Double,
+                                    bold: Bool) -> CTFont? {
+        let key = FontKey(filename: filename, pointSize: pointSize, bold: bold)
+        if let cached = fontCacheLock.withLock({ unsafe fontCache[key] }) { return cached }
+        guard StageBackground.isSafeImageFilename(filename),
+              let base = unsafe fontBaseURL else { return nil }
+        let url = base.appending(path: fontDirectory, directoryHint: .isDirectory)
+            .appending(path: filename)
+        guard let provider = CGDataProvider(url: url as CFURL),
+              let graphics = CGFont(provider) else { return nil }
+        var font = CTFontCreateWithGraphicsFont(graphics, pointSize, nil, nil)
+        if bold, let emboldened = CTFontCreateCopyWithSymbolicTraits(
+            font, pointSize, nil, .traitBold, .traitBold) {
+            font = emboldened
+        }
+        fontCacheLock.withLock { unsafe fontCache[key] = font }
+        return font
+    }
+
+    /// Forgets every loaded font.
+    ///
+    /// **Because a project can be closed and another opened in one process.** The cache is keyed
+    /// on a filename, and two projects may each have a `Brand.ttf` that is not the same file —
+    /// a cache that outlived the base URL would draw the first project's font in the second's
+    /// captions, which is the kind of wrong that looks like a rendering bug rather than a stale
+    /// cache.
+    public static func forgetProjectFonts() {
+        fontCacheLock.withLock { unsafe fontCache.removeAll() }
     }
 
     /// One laid-out line, with its colour, its dimmed runs and its outline already in it.
@@ -40,13 +109,15 @@ public enum TextArt {
     /// `line`'s dimmed-run comment describes: two layouts of one string are not guaranteed to
     /// agree at every size. Core Text strokes the glyphs it is laying out.
     private static func line(_ text: String, pointSize: Double, bold: Bool,
+                             filename: String? = nil,
                              dim: DimmedRun? = nil, colour: CGColor? = nil,
                              outline: (width: Double, colour: CGColor)? = nil) -> CTLine {
         // `kCTFontAttributeName`, not `.font`: that key is AppKit's, and `HeadlessCheck` bans
         // AppKit in this target. Core Text reads its own key regardless of who set it.
         let attributed = NSMutableAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): font(pointSize: pointSize,
-                                                                        bold: bold),
+                                                                        bold: bold,
+                                                                        filename: filename),
         ])
         if let colour {
             attributed.addAttribute(
@@ -112,11 +183,12 @@ public enum TextArt {
 
     /// How wide this text draws, in output pixels, including the plate's padding. The WIDEST
     /// line, since a plate has to hold all of them.
-    public static func width(of text: String, pointSize: Double, bold: Bool) -> Double {
+    public static func width(of text: String, pointSize: Double, bold: Bool,
+                             filename: String? = nil) -> Double {
         let widest = lines(of: text).reduce(0.0) { widest, one in
             guard !one.isEmpty else { return widest }
             return max(widest, HeadlessGeometryBridge.typographicBounds(
-                of: line(one, pointSize: pointSize, bold: bold)).width)
+                of: line(one, pointSize: pointSize, bold: bold, filename: filename)).width)
         }
         return widest == 0 ? 0 : widest + pointSize * horizontalPaddingRatio * 2
     }
@@ -166,6 +238,7 @@ public enum TextArt {
             // A dimmed run is only meaningful on a single-line caption; a title broken over two
             // lines has no spoken word, so nothing is dimmed there.
             let made = line(text, pointSize: size, bold: style.isBold,
+                            filename: style.fontFilename,
                             dim: drawnLines.count == 1 ? dim : nil, colour: glyphColour,
                             outline: outline)
             let bounds = HeadlessGeometryBridge.typographicBounds(of: made)

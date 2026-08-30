@@ -67,6 +67,13 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
     /// Drawing it outside means extracting each glyph's path and stroking it separately, which
     /// is a second layout and the thing `line(_:pointSize:bold:dim:colour:)` exists to avoid.
     /// The cap is set where the thinning is still invisible.
+    /// A font file inside the project, or `nil` for the system's own.
+    ///
+    /// The FILE rather than an installed name: a name that is not installed on the machine the
+    /// project is opened on falls back silently to something of a different width. A file
+    /// travels with the project. `TextArt.font` resolves it and falls back when it will not
+    /// load, which is safe only because line breaking measures through the same function.
+    public let fontFilename: String?
     public let outlineWidthFraction: Double
     public let outlineRed: Double
     public let outlineGreen: Double
@@ -93,7 +100,8 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
                 shadowOpacity: Double, shadowBlurFraction: Double,
                 maximumWidthFraction: Double, lineGapRatio: Double,
                 outlineWidthFraction: Double = 0,
-                outlineRed: Double = 0, outlineGreen: Double = 0, outlineBlue: Double = 0) {
+                outlineRed: Double = 0, outlineGreen: Double = 0, outlineBlue: Double = 0,
+                fontFilename: String? = nil) {
         // Clamped rather than trapped, for `CaptionStyle`'s reason: every one of these arrives
         // from a slider AND from a decoder, and rule 8 forbids trapping on an untrusted input.
         self.heightFraction = min(max(heightFraction, 0.005), 0.6)
@@ -113,6 +121,11 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
         // 0.14 of the type size, which is thick by any published caption standard and is the
         // point past which the centred stroke visibly thins the letters. A cap here rather than
         // in the slider: the value also arrives from a decoder.
+        // Refused rather than sanitised: a name with a slash in it is not a filename somebody
+        // typed slightly wrong, and repairing it would be inventing a file to look for.
+        self.fontFilename = fontFilename.flatMap {
+            StageBackground.isSafeImageFilename($0) ? $0 : nil
+        }
         self.outlineWidthFraction = min(max(outlineWidthFraction, 0), 0.14)
         self.outlineRed = min(max(outlineRed, 0), 1)
         self.outlineGreen = min(max(outlineGreen, 0), 1)
@@ -129,6 +142,7 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
         case plateOpacity, plateCornerFraction, plateRed, plateGreen, plateBlue
         case outlineWidthFraction, outlineRed, outlineGreen, outlineBlue
         case shadowOpacity, shadowBlurFraction, maximumWidthFraction, lineGapRatio
+        case fontFilename
     }
 
     /// **Every field optional, routed through the clamping initialiser** — `CaptionStyle`'s
@@ -162,7 +176,8 @@ public struct TextOverlayStyle: Hashable, Codable, Sendable {
             outlineWidthFraction: try value(.outlineWidthFraction, 0),
             outlineRed: try value(.outlineRed, 0),
             outlineGreen: try value(.outlineGreen, 0),
-            outlineBlue: try value(.outlineBlue, 0))
+            outlineBlue: try value(.outlineBlue, 0),
+            fontFilename: try container.decodeIfPresent(String.self, forKey: .fontFilename))
     }
 
     public func pointSize(forOutputHeight height: Int) -> Double {
@@ -298,6 +313,7 @@ extension CaptionStyle {
             shadowOpacity: shadowOpacity, shadowBlurFraction: shadowBlurFraction,
             maximumWidthFraction: maximumWidthFraction, lineGapRatio: 0.2,
             outlineWidthFraction: outlineWidthFraction, outlineRed: outlineRed,
-            outlineGreen: outlineGreen, outlineBlue: outlineBlue)
+            outlineGreen: outlineGreen, outlineBlue: outlineBlue,
+            fontFilename: fontFilename)
     }
 }
