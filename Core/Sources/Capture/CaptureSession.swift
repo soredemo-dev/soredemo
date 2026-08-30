@@ -868,7 +868,23 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // the next one — the
         // `SCFrameStatus` counters this session already keeps are how a change here is judged.
         configuration.queueDepth = 6
-        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        // **4:2:0 full range, and BGRA was 2.67 times the bandwidth for the same picture.**
+        //
+        // Measured on a static window, so the three runs saw identical content:
+        //
+        //     32BGRA   IOSurface 5892 KiB/frame   luma 21…240
+        //     420v     IOSurface 2209 KiB/frame   luma 36…225
+        //     420f     IOSurface 2209 KiB/frame   luma 23…244
+        //
+        // The master is H.264, which IS 4:2:0 — so BGRA hands the encoder something it
+        // subsamples immediately, having paid two and a half times the bandwidth to carry it.
+        //
+        // **FULL range, not video range**, and that row is why. `420v` maps the picture into
+        // 16–235: the same content came back spanning 36…225, which is the mapping arriving
+        // exactly as arithmetic predicts and 220 levels where there were 256. A screen recording
+        // is full of pure black and pure white, which is where that costs most. `420f` is the
+        // same bandwidth with the range left alone.
+        configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         unsafe configuration.colorSpaceName = CGColorSpace.sRGB    // D2-15 — pinned; see the header and the 2026-08-24 colour note
         // A floor, not a cadence — presentation times come from each sample
         // buffer and are never assumed from this number.
@@ -1968,26 +1984,31 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private nonisolated func checkForBlackFrame(_ pixelBuffer: CVPixelBuffer) {
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return }
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-        guard let base = unsafe CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+        // Plane 0 of a bi-planar buffer is the luma. `getBaseAddress` on a planar buffer
+        // returns nil, so this is the plane accessor rather than the whole-buffer one — a
+        // difference that would otherwise turn this check into a silent no-op.
+        guard let base = unsafe CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0)
+        else { return }
 
-        let width = CVPixelBufferGetWidth(pixelBuffer)
-        let height = CVPixelBufferGetHeight(pixelBuffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        let bytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
         guard width > 0, height > 0, bytesPerRow > 0 else { return }
 
         // 4x4 interior points, never the very edge (menu-bar/notch chrome sits at
-        // a different luminance). BGRA 8-bit, matching the configured format.
+        // a different luminance).
+        //
+        // **The Y plane, which is what the capture format made simpler rather than harder.**
+        // This used to weight three BGRA samples into a luminance; the planar format hands the
+        // luminance over already computed, at full range, so the reading is the byte. One
+        // fewer arithmetic step and one fewer place for a colour-space assumption to hide.
         let buffer = unsafe base.assumingMemoryBound(to: UInt8.self)
         var allAtFloor = true
         outer: for row in 1...4 {
             for col in 1...4 {
                 let x = min(width - 1, (width * col) / 5)
                 let y = min(height - 1, (height * row) / 5)
-                let offset = y * bytesPerRow + x * 4
-                let b = unsafe Double(buffer[offset]) / 255.0
-                let g = unsafe Double(buffer[offset + 1]) / 255.0
-                let r = unsafe Double(buffer[offset + 2]) / 255.0
-                let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                let luminance = unsafe Double(buffer[y * bytesPerRow + x]) / 255.0
                 if luminance > Self.blackFrameLuminanceFloor {
                     allAtFloor = false
                     break outer
