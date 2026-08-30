@@ -41,6 +41,10 @@ struct StageWindow: View {
     /// The part of the recording used at all, and whether its handles are showing.
     @State private var crop = CropRect.whole
     @State private var isCropping = false
+    /// Whether the safe-frame guides are drawn. **Off by default and not saved**: it is a thing
+    /// to look at while deciding where something sits, not a property of the recording, and a
+    /// guide left on from last week is furniture rather than information.
+    @State private var showsSafeFrame = false
     @State private var failure: String?
     // MARK: - export-basic
     @State private var exportStatus: String?
@@ -269,6 +273,7 @@ struct StageWindow: View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 CanvasBar(variant: $variant, crop: $crop, isCropping: $isCropping,
+                          showsSafeFrame: $showsSafeFrame,
                           outputWidth: Self.size(for: variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide).width,
                           outputHeight: Self.size(for: variant, resolution: resolution,
@@ -310,6 +315,13 @@ struct StageWindow: View {
                                    onChange: { reviewRevision += 1 },
                                    cameraStyle: $cameraStyle,
                                    hasCamera: cameraURL != nil && !cameraStyle.isHidden)
+                }
+                .overlay {
+                    if showsSafeFrame {
+                        let size = Self.size(for: variant, resolution: resolution,
+                                recordingShortSide: recordingShortSide)
+                        SafeFrameOverlay(outputWidth: size.width, outputHeight: size.height)
+                    }
                 }
                 .overlay {
                     if isCropping {

@@ -403,3 +403,6 @@
 "First time for this language only. It is a few hundred megabytes." = "이 언어는 처음 한 번만. 수백 MB입니다.";
 "You can look at something else while this runs." = "그동안 다른 곳을 보셔도 됩니다.";
 "Stopped. Nothing was changed." = "중지했습니다. 아무것도 바뀌지 않았습니다.";
+"Guides" = "가이드";
+"Show where captions may be cut off or covered" = "자막이 잘리거나 가려질 수 있는 곳 표시";
+"Covered on most vertical platforms" = "대부분의 세로형 플랫폼이 여기를 가립니다";

@@ -163,7 +163,7 @@ paying.
 | Split a cue / merge two | ● one key each | ● Return at the caret / Backspace at the start |
 | Snap a boundary to speech | ● | ● *both ends at once, 2026-08-31* |
 | Waveform with cue blocks | ● zoomable | ○ |
-| Safe-frame overlay | ● | ○ |
+| Safe-frame overlay | ● | ● *(2026-08-31)* |
 | Import corrected subtitles | ● | ● *(2026-08-31)* |
 | Named stages while generating | ● five, each timed | ● *three steps, each timed, with Stop (2026-08-31)* |
 | Caption style presets | ○ | ● four, added 2026-08-30 |

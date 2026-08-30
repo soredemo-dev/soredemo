@@ -405,3 +405,6 @@
 "First time for this language only. It is a few hundred megabytes." = "这个语言只有第一次要下载,大约几百 MB。";
 "You can look at something else while this runs." = "这段期间可以先去看别的地方。";
 "Stopped. Nothing was changed." = "已停止,什么都没有改动。";
+"Guides" = "参考线";
+"Show where captions may be cut off or covered" = "显示字幕可能被裁掉或盖住的地方";
+"Covered on most vertical platforms" = "多数竖版平台会盖住这里";

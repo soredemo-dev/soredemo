@@ -419,3 +419,6 @@
 "First time for this language only. It is a few hundred megabytes." = "這個語言只有第一次要下載,大約幾百 MB。";
 "You can look at something else while this runs." = "這段期間可以先去看別的地方。";
 "Stopped. Nothing was changed." = "已停止,什麼都沒有改動。";
+"Guides" = "參考線";
+"Show where captions may be cut off or covered" = "顯示字幕可能被裁掉或蓋住的地方";
+"Covered on most vertical platforms" = "多數直式平台會蓋住這裡";

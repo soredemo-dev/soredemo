@@ -403,3 +403,6 @@
 "First time for this language only. It is a few hundred megabytes." = "Только в первый раз для этого языка. Несколько сотен мегабайт.";
 "You can look at something else while this runs." = "Пока это идёт, можно заняться другим.";
 "Stopped. Nothing was changed." = "Остановлено. Ничего не изменено.";
+"Guides" = "Направляющие";
+"Show where captions may be cut off or covered" = "Показать, где субтитры могут быть обрезаны или закрыты";
+"Covered on most vertical platforms" = "Закрыто на большинстве вертикальных платформ";

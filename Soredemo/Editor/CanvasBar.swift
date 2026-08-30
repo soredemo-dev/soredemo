@@ -13,6 +13,9 @@ struct CanvasBar: View {
     @Binding var variant: AspectVariant
     @Binding var crop: CropRect
     @Binding var isCropping: Bool
+    /// Whether the safe-frame guides are drawn over the preview. Beside Crop because both are
+    /// about the SHAPE of the export rather than about what is in it.
+    @Binding var showsSafeFrame: Bool
     let outputWidth: Int
     let outputHeight: Int
     let onChange: () -> Void
@@ -43,6 +46,15 @@ struct CanvasBar: View {
             .controlSize(.small)
             .tint(Theme.accent)
             .help("Choose the part of the recording to use")
+
+            Toggle(isOn: $showsSafeFrame) {
+                Label("Guides", systemImage: "square.dashed")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .toggleStyle(.button)
+            .controlSize(.small)
+            .tint(Theme.accent)
+            .help("Show where captions may be cut off or covered")
 
             if !crop.isWhole {
                 Text(Self.cropLabel(crop))

@@ -331,15 +331,17 @@ extension CaptionStyle {
                    outlineWidthFraction: 0.05)),
 
         // For a vertical export, where the bottom of the frame belongs to somebody else's
-        // interface. **`bottomInsetFraction` 0.22 is uncalibrated** — chosen by eye against the
-        // share of a 9:16 frame that platform chrome typically occupies, not measured, because
-        // it differs per platform and changes without notice. The number a person actually
-        // wants is theirs; this is a starting point that is not under the buttons.
+        // interface. **The inset is `SafeArea.verticalChromeFraction`, not a number of its own**:
+        // the safe-frame overlay draws the same band, so looking at the picture is how somebody
+        // checks this preset rather than a second opinion about it. Uncalibrated there and
+        // uncalibrated here — every platform covers a different amount and none publishes it.
         Preset(name: "Vertical",
                detail: "Larger type, sat well clear of the bottom, where a vertical video's "
                    + "interface sits. Takes more of the frame.",
                style: CaptionStyle(
-                   heightFraction: 0.062, bottomInsetFraction: 0.22, maximumWidthFraction: 0.86,
+                   heightFraction: 0.062,
+                   bottomInsetFraction: SafeArea.verticalChromeFraction,
+                   maximumWidthFraction: 0.86,
                    backgroundOpacity: 0.8, backgroundCornerFraction: 0.016,
                    red: 1, green: 1, blue: 1,
                    isBold: true,

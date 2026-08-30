@@ -405,3 +405,6 @@
 "First time for this language only. It is a few hundred megabytes." = "この言語は初回のみ。数百 MB あります。";
 "You can look at something else while this runs." = "この間、他の場所を見ていて構いません。";
 "Stopped. Nothing was changed." = "停止しました。何も変更されていません。";
+"Guides" = "ガイド";
+"Show where captions may be cut off or covered" = "字幕が切れたり隠れたりする範囲を表示";
+"Covered on most vertical platforms" = "縦型プラットフォームの多くはここを覆います";
