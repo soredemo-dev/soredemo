@@ -356,3 +356,14 @@
 "Fade out" = "Ausblenden";
 "Select a clip to fade it" = "Clip auswählen, um ihn zu blenden";
 "Fade this clip in or out" = "Diesen Clip ein- oder ausblenden";
+"Preset" = "Vorlage";
+"Broadcast" = "Broadcast";
+"Over the picture" = "Über dem Bild";
+"Word by word" = "Wort für Wort";
+"Vertical" = "Hochformat";
+"Custom" = "Eigen";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "Weiß auf dunkler Fläche. Über allem lesbar; verdeckt einen Streifen des Bildes.";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "Keine Fläche — stattdessen Kontur und Schatten. Verdeckt nichts; braucht ruhiges Material hinter jeder Zeile.";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "Hebt jedes Wort beim Sprechen hervor. Braucht Wortzeiten — ohne sie wird die Zeile ganz gezeichnet.";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "Größere Schrift, deutlich vom unteren Rand abgesetzt, wo die Bedienelemente eines Hochformat-Videos sitzen. Braucht mehr Bildfläche.";
+"Edited from a preset. Picking one above replaces every value below." = "Von einer Vorlage abgeändert. Eine Auswahl oben ersetzt jeden Wert darunter.";

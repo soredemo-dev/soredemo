@@ -356,3 +356,14 @@
 "Fade out" = "페이드 아웃";
 "Select a clip to fade it" = "페이드할 클립을 선택하세요";
 "Fade this clip in or out" = "이 클립을 페이드 인/아웃";
+"Preset" = "프리셋";
+"Broadcast" = "방송";
+"Over the picture" = "화면 위에";
+"Word by word" = "단어별";
+"Vertical" = "세로형";
+"Custom" = "사용자 지정";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "어두운 판에 흰 글자. 어떤 영상에서도 읽히지만 화면의 한 줄을 가립니다.";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "판 없이 외곽선과 그림자로. 아무것도 가리지 않지만 줄 뒤가 복잡하지 않은 영상이 필요합니다.";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "말하는 단어를 하나씩 밝힙니다. 단어 단위 시간이 필요 — 없으면 줄 전체를 그립니다.";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "글자가 크고 아래쪽에서 충분히 떨어집니다. 세로형 영상의 인터페이스가 거기 있습니다. 화면을 더 차지합니다.";
+"Edited from a preset. Picking one above replaces every value below." = "프리셋에서 수정되었습니다. 위에서 하나를 고르면 아래 모든 값이 대체됩니다.";

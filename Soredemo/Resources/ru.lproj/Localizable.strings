@@ -356,3 +356,14 @@
 "Fade out" = "Затухание";
 "Select a clip to fade it" = "Выберите клип, чтобы добавить затухание";
 "Fade this clip in or out" = "Появление или затухание этого клипа";
+"Preset" = "Пресет";
+"Broadcast" = "Вещание";
+"Over the picture" = "Поверх картинки";
+"Word by word" = "Слово за словом";
+"Vertical" = "Вертикальный";
+"Custom" = "Свой";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "Белый текст на тёмной подложке. Читается поверх чего угодно; закрывает полосу кадра.";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "Без подложки — вместо неё контур и тень. Ничего не закрывает; нужен спокойный кадр за каждой строкой.";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "Подсвечивает каждое слово, когда оно произнесено. Нужны тайминги слов — без них строка рисуется целиком.";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "Крупнее и заметно выше нижнего края, где находится интерфейс вертикального видео. Занимает больше кадра.";
+"Edited from a preset. Picking one above replaces every value below." = "Изменено из пресета. Выбор выше заменит все значения ниже.";

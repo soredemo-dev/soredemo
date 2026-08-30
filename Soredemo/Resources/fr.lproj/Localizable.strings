@@ -356,3 +356,14 @@
 "Fade out" = "Fondu de fermeture";
 "Select a clip to fade it" = "Sélectionnez un plan pour le fondre";
 "Fade this clip in or out" = "Fondu d\u2019ouverture ou de fermeture de ce plan";
+"Preset" = "Préréglage";
+"Broadcast" = "Diffusion";
+"Over the picture" = "Sur l’image";
+"Word by word" = "Mot à mot";
+"Vertical" = "Vertical";
+"Custom" = "Personnalisé";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "Blanc sur un fond sombre. Lisible sur tout ; masque une bande de l’image.";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "Sans fond — un contour et une ombre à la place. Ne masque rien ; demande une image peu chargée derrière chaque ligne.";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "Éclaire chaque mot au moment où il est dit. Nécessite le minutage par mot — sans lui, la ligne est tracée d’un bloc.";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "Texte plus grand, placé bien au-dessus du bas, là où se trouve l’interface d’une vidéo verticale. Occupe plus d’image.";
+"Edited from a preset. Picking one above replaces every value below." = "Modifié depuis un préréglage. En choisir un ci-dessus remplace toutes les valeurs en dessous.";

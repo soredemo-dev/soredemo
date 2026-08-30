@@ -372,3 +372,14 @@
 "Fade out" = "淡出";
 "Select a clip to fade it" = "選一個片段才能設定淡化";
 "Fade this clip in or out" = "讓這個片段淡入或淡出";
+"Preset" = "預設樣式";
+"Broadcast" = "廣播";
+"Over the picture" = "疊在畫面上";
+"Word by word" = "逐字";
+"Vertical" = "直式";
+"Custom" = "自訂";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "白字配深色底板。在任何畫面上都看得清楚;會蓋掉畫面的一條。";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "不用底板,改用外框與陰影。什麼都不蓋;需要每一行後面都不太雜亂的畫面。";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "唸到哪個字就亮哪個字。需要逐字時間 —— 沒有的話整行一起畫。";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "字更大,離底部留得更開,直式影片的介面就在那裡。會佔掉畫面更多。";
+"Edited from a preset. Picking one above replaces every value below." = "已從預設樣式改過。在上面選一個會取代下面每一個值。";

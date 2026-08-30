@@ -262,3 +262,96 @@ public struct CaptionOverlay: Hashable, Sendable {
         self.words = words
     }
 }
+
+// MARK: - presets
+
+/// Named starting points, because fourteen controls with one starting point is not a choice.
+///
+/// **The values are persisted, never the name.** A project stores a `CaptionStyle`; nothing
+/// stores "this one was Broadcast". Storing the name would mean a recording opens looking
+/// different after somebody edits the table below — the producer-value rule, applied to a
+/// preset: what a person saw when they chose it is what the file has to keep.
+///
+/// Each answers a different question about the footage underneath, and each costs something.
+/// A set that differed only in colour would be a palette, not a set of starting points.
+extension CaptionStyle {
+    public struct Preset: Hashable, Sendable {
+        /// What the picker shows.
+        public let name: String
+        /// One line saying what it is for, shown under the picker. Not a description of the
+        /// values — a person reading it is deciding, not auditing.
+        public let detail: String
+        public let style: CaptionStyle
+
+        public init(name: String, detail: String, style: CaptionStyle) {
+            self.name = name
+            self.detail = detail
+            self.style = style
+        }
+    }
+
+    public static let presets: [Preset] = [
+        // The default, and the one that is legible over anything at the cost of a strip across
+        // the picture. Named rather than left implicit so a person who wandered off it can get
+        // back without knowing which four sliders they moved.
+        Preset(name: "Broadcast",
+               detail: "White on a dark plate. Legible over anything; covers a strip of the picture.",
+               style: .default),
+
+        // No plate at all. The outline follows the letterforms, so a line crossing a bright
+        // region and a dark one stays readable where a plate would have covered both — the
+        // argument `CaptionsPanel` already makes for offering the outline above the plate.
+        // Bold because an outline eats into the letterform from both sides (Core Text strokes
+        // down the middle of the path) and light type at this width thins visibly.
+        Preset(name: "Over the picture",
+               detail: "No plate — an outline and a shadow instead. Covers nothing; needs footage "
+                   + "that is not busy behind every line.",
+               style: CaptionStyle(
+                   heightFraction: 0.045, bottomInsetFraction: 0.07, maximumWidthFraction: 0.9,
+                   backgroundOpacity: 0, backgroundCornerFraction: 0.012,
+                   red: 1, green: 1, blue: 1,
+                   isBold: true,
+                   shadowOpacity: 0.7, shadowBlurFraction: 0.006,
+                   outlineWidthFraction: 0.06)),
+
+        // The word being said, lit. **Falls back honestly**: a recording with no word timings
+        // draws the line whole (`StageCompositor.words(of:at:)` returns empty and the renderer
+        // draws it unmarked), so picking this on a transcript that has none costs nothing and
+        // claims nothing.
+        Preset(name: "Word by word",
+               detail: "Lights each word as it is said. Needs word timings — without them the "
+                   + "line is drawn whole.",
+               style: CaptionStyle(
+                   heightFraction: 0.05, bottomInsetFraction: 0.09, maximumWidthFraction: 0.8,
+                   backgroundOpacity: 0, backgroundCornerFraction: 0.012,
+                   red: 1, green: 1, blue: 1,
+                   highlightsSpokenWord: true, unspokenOpacity: 0.45,
+                   isBold: true,
+                   shadowOpacity: 0.8, shadowBlurFraction: 0.006,
+                   outlineWidthFraction: 0.05)),
+
+        // For a vertical export, where the bottom of the frame belongs to somebody else's
+        // interface. **`bottomInsetFraction` 0.22 is uncalibrated** — chosen by eye against the
+        // share of a 9:16 frame that platform chrome typically occupies, not measured, because
+        // it differs per platform and changes without notice. The number a person actually
+        // wants is theirs; this is a starting point that is not under the buttons.
+        Preset(name: "Vertical",
+               detail: "Larger type, sat well clear of the bottom, where a vertical video's "
+                   + "interface sits. Takes more of the frame.",
+               style: CaptionStyle(
+                   heightFraction: 0.062, bottomInsetFraction: 0.22, maximumWidthFraction: 0.86,
+                   backgroundOpacity: 0.8, backgroundCornerFraction: 0.016,
+                   red: 1, green: 1, blue: 1,
+                   isBold: true,
+                   shadowOpacity: 0.5, shadowBlurFraction: 0.005)),
+    ]
+
+    /// The preset this style IS, or `nil` once a control has moved it off every one of them.
+    ///
+    /// **Full equality, including the font.** A picker that kept saying "Broadcast" after four
+    /// sliders moved would be naming something that is not on the screen; `nil` is what the app
+    /// draws as "Custom". Nothing here is a tolerance — two styles that differ are two styles.
+    public var matchingPreset: Preset? {
+        Self.presets.first { $0.style == self }
+    }
+}

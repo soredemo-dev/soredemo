@@ -372,3 +372,14 @@
 "Fade out" = "Fade out";
 "Select a clip to fade it" = "Select a clip to fade it";
 "Fade this clip in or out" = "Fade this clip in or out";
+"Preset" = "Preset";
+"Broadcast" = "Broadcast";
+"Over the picture" = "Over the picture";
+"Word by word" = "Word by word";
+"Vertical" = "Vertical";
+"Custom" = "Custom";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "White on a dark plate. Legible over anything; covers a strip of the picture.";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line.";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "Lights each word as it is said. Needs word timings — without them the line is drawn whole.";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame.";
+"Edited from a preset. Picking one above replaces every value below." = "Edited from a preset. Picking one above replaces every value below.";

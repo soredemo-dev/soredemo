@@ -179,6 +179,7 @@ struct CaptionsPanel: View {
         List {
             Section("Transcript") { transcriptControls }
             if !model.track.isEmpty {
+                Section("Preset") { presetControls }
                 Section("Look") { lookControls }
                 Section("Lines") { lines }
             }
@@ -253,6 +254,40 @@ struct CaptionsPanel: View {
             onChange()
         }
         .disabled(model.transcript == nil)
+    }
+
+    /// The named starting points, above every slider because that is the order a person works
+    /// in: pick the one closest, then move what is wrong with it.
+    ///
+    /// **"Custom" is a real row, not a placeholder.** It is selected — and cannot be picked —
+    /// the moment a control moves the style off every preset, because a picker still naming
+    /// "Broadcast" after four sliders moved would be naming something that is not on the screen.
+    /// `CaptionStyle.matchingPreset` decides, on full equality.
+    @ViewBuilder private var presetControls: some View {
+        Picker("Preset", selection: Binding(
+            get: { model.style.matchingPreset?.name },
+            set: { name in
+                guard let preset = CaptionStyle.presets.first(where: { $0.name == name })
+                else { return }
+                model.setStyle(preset.style)
+                onChange()
+            })) {
+            ForEach(CaptionStyle.presets, id: \.name) { preset in
+                Text(LocalizedStringKey(preset.name)).tag(String?.some(preset.name))
+            }
+            // Only present while it is the answer, so the list is not permanently one row
+            // longer for a state most recordings are never in.
+            if model.style.matchingPreset == nil {
+                Divider()
+                Text("Custom").tag(String?.none)
+            }
+        }
+        if let detail = model.style.matchingPreset?.detail {
+            Text(LocalizedStringKey(detail)).font(Type.detail).foregroundStyle(.secondary)
+        } else {
+            Text("Edited from a preset. Picking one above replaces every value below.")
+                .font(Type.detail).foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder private var lookControls: some View {

@@ -358,3 +358,14 @@
 "Fade out" = "フェードアウト";
 "Select a clip to fade it" = "フェードするクリップを選んでください";
 "Fade this clip in or out" = "このクリップをフェードイン・アウトする";
+"Preset" = "プリセット";
+"Broadcast" = "放送";
+"Over the picture" = "映像の上に";
+"Word by word" = "1語ずつ";
+"Vertical" = "縦型";
+"Custom" = "カスタム";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "濃い下地に白文字。どんな映像でも読めますが、画面の一部を覆います。";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "下地なし、縁取りと影で読ませます。何も覆いませんが、行の後ろが騒がしくない映像が必要です。";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "話した語を1つずつ光らせます。語ごとの時間が必要 — ない場合は行全体を描きます。";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "文字を大きく、下端から十分に離します。縦型動画の操作部がそこにあるためです。画面を多く使います。";
+"Edited from a preset. Picking one above replaces every value below." = "プリセットから編集済みです。上で選び直すと下の値がすべて置き換わります。";

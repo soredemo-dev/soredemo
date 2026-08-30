@@ -357,3 +357,14 @@
 "Fade out" = "Fade de saída";
 "Select a clip to fade it" = "Selecione um clipe para aplicar o fade";
 "Fade this clip in or out" = "Aplicar fade de entrada ou saída neste clipe";
+"Preset" = "Predefinição";
+"Broadcast" = "Transmissão";
+"Over the picture" = "Sobre a imagem";
+"Word by word" = "Palavra por palavra";
+"Vertical" = "Vertical";
+"Custom" = "Personalizado";
+"White on a dark plate. Legible over anything; covers a strip of the picture." = "Branco sobre uma placa escura. Legível sobre qualquer coisa; cobre uma faixa da imagem.";
+"No plate — an outline and a shadow instead. Covers nothing; needs footage that is not busy behind every line." = "Sem placa — contorno e sombra no lugar. Não cobre nada; exige imagem pouco carregada atrás de cada linha.";
+"Lights each word as it is said. Needs word timings — without them the line is drawn whole." = "Acende cada palavra conforme é dita. Precisa dos tempos por palavra — sem eles a linha é desenhada inteira.";
+"Larger type, sat well clear of the bottom, where a vertical video's interface sits. Takes more of the frame." = "Texto maior, bem afastado da base, onde fica a interface de um vídeo vertical. Ocupa mais da imagem.";
+"Edited from a preset. Picking one above replaces every value below." = "Editado a partir de uma predefinição. Escolher uma acima substitui todos os valores abaixo.";
