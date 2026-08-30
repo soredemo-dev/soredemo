@@ -122,7 +122,11 @@ public struct OnDeviceTranscription: TranscriptionSource {
             reportingOptions: [],
             // **Without this the words have no times**, and a caption track timed by sharing out
             // a sentence is the fallback rather than the design — see `CaptionBuilder`.
-            attributeOptions: [.audioTimeRange])
+            // **Both, and the confidence is information rather than a warning.** Measured: a
+            // value comes back for every run, and on audio the recogniser mangles it ranks the
+            // mangling lowest — but on clean speech the low scores are almost all at segment
+            // boundaries and correct. See `TranscribedWord.confidence`.
+            attributeOptions: [.audioTimeRange, .transcriptionConfidence])
 
         if let install = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
             onProgress?(.installingModel(language: locale.identifier(.bcp47)))
@@ -261,7 +265,8 @@ public struct OnDeviceTranscription: TranscriptionSource {
                 guard !text.isEmpty, let span = run.audioTimeRange else { continue }
                 words.append(TranscribedWord(text: text,
                                              start: nanoseconds(span.start),
-                                             end: nanoseconds(span.start + span.duration)))
+                                             end: nanoseconds(span.start + span.duration),
+                                             confidence: run.transcriptionConfidence))
             }
         }
 

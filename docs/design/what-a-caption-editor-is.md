@@ -157,7 +157,7 @@ paying.
 | Follows the playhead | ● highlight + auto-scroll | ● *(2026-08-31)* |
 | Search the cues | ● | ● *(2026-08-31)* |
 | Per-cue duration / characters / CPS | ● with an out-of-range verdict | ● *(2026-08-31)* |
-| Recogniser confidence per word | ● names the weakest word | ○ *(the API returns it; nothing reads it)* |
+| Recogniser confidence per word | ● names the weakest word | ● *(2026-08-31)* |
 | Edit in place | ● Esc / Done | ● every row is a live field |
 | Adjust a cue's start or end | ● waveform handles + millisecond fields | ● *nudged in 100 ms steps (2026-08-31)* |
 | Split a cue / merge two | ● one key each | ● Return at the caret / Backspace at the start |
@@ -249,3 +249,43 @@ Two things also measured and worth keeping: the word runs **do** carry punctuati
 (`walkthrough.`, `First,`), and joined with single spaces they reproduce the segment's
 own text exactly — on all nine segments. That is what makes the cut safe to reconstruct
 text from.
+
+
+## What confidence is good for, measured before it was shown
+
+*2026-08-31.* The gap table said "the API returns it; nothing reads it". That was an
+unverified claim, so it was verified: `SpeechTranscriber` with
+`.transcriptionConfidence` returns a value for **93 of 93** runs. It works.
+
+Whether it is worth SHOWING is a different question, and the answer decided the design.
+
+On a clean 28-second narration the distribution was: lowest 0.603, 5th percentile
+0.782, 10th 0.867, median 0.997. The ten lowest were almost all sentence-initial or
+sentence-final — `Trim`, `If`, `When`, `Once`, `A`, `screen.`, `makes.` — and **every
+one of them was recognised correctly.** They are where the endpointer cut, not where it
+was wrong. Flagging everything under 0.8 would mark 8% of words and be wrong about most
+of them, which is exactly the "an alarm that is usually wrong is one people learn to
+dismiss" failure this project names elsewhere.
+
+Then the decisive test: the same probe on audio the recogniser genuinely mangles —
+"Soredemo", which comes back as "Sorodimo" and "Sorodemo".
+
+```
+|Sorodimo| 0.462   ← wrong
+|Open|     0.589      boundary
+|Sorodemo| 0.610   ← wrong
+|screen.|  0.675      boundary
+```
+
+Both mangled words rank in the lowest three. So confidence **does** find the wrong word
+— it is just noisy, with boundary words interleaved.
+
+That is a signal worth consulting and not worth alarming with, so:
+
+* `CaptionCue.leastCertainWord` names the weakest word below **0.8**, which is where the
+  measured tail starts — about the worst one word in ten.
+* It is shown for the cue somebody has the caret in, and **nothing is coloured or marked
+  by it anywhere**.
+* `nil` rather than 1 when the recogniser did not say, because "did not say" and "was
+  certain" are different answers and a default of 1 would make an older project claim a
+  confidence nothing measured.

@@ -373,3 +373,52 @@ private func pause(_ start: Double, _ end: Double) -> SilenceFinder.Span {
             >= track.cues[0].end.rawValue + CaptionTrack.shortestGap.rawValue,
             "a snap crossed into the cue before it")
 }
+
+// MARK: - the word the recogniser was least sure of
+
+/// **Information, not a marker**, and the threshold comes from a measured distribution rather
+/// than from taste: on a clean narration the 5th percentile of confidence was 0.78 and the 10th
+/// was 0.87, so 0.8 is about the worst one word in ten.
+@Test func theLeastCertainWordIsTheOneWorthChecking() {
+    let words = [TranscribedWord(text: "Open", start: ns(0), end: ns(0.4), confidence: 0.589),
+                 TranscribedWord(text: "Sorodimo", start: ns(0.4), end: ns(1), confidence: 0.462),
+                 TranscribedWord(text: "now", start: ns(1), end: ns(1.4), confidence: 0.997)]
+    let track = CaptionTrack(cues: [cue("Open Sorodimo now", 0, 1.4, words: words)])
+
+    // The measured case: the mangled word ranks lowest of its cue, which is what makes this
+    // worth showing at all.
+    #expect(track.cues[0].leastCertainWord?.text == "Sorodimo")
+}
+
+/// A cue with nothing below the threshold says nothing, rather than naming its weakest word
+/// anyway — every cue has one, and naming it always would be a marker on every line.
+@Test func aConfidentCueNamesNoWord() {
+    let sure = [TranscribedWord(text: "all", start: ns(0), end: ns(0.5), confidence: 0.98),
+                TranscribedWord(text: "fine", start: ns(0.5), end: ns(1), confidence: 0.91)]
+    #expect(CaptionCue(text: "all fine", start: ns(0), end: ns(1), words: sure)
+                .leastCertainWord == nil)
+
+    // And a cue whose words carry no confidence at all — an older project, or a language whose
+    // model does not report it — is treated as certain rather than as suspect.
+    let silent = [TranscribedWord(text: "no", start: ns(0), end: ns(0.5)),
+                  TranscribedWord(text: "value", start: ns(0.5), end: ns(1))]
+    #expect(CaptionCue(text: "no value", start: ns(0), end: ns(1), words: silent)
+                .leastCertainWord == nil)
+}
+
+/// **`nil` rather than 1 when the recogniser did not say**, because "did not say" and "was
+/// certain" are different answers and a default of 1 would make an old project claim a
+/// confidence nothing measured. Out-of-range values are clamped, never trapped.
+@Test func anAbsentConfidenceIsNotACertainOne() {
+    #expect(TranscribedWord(text: "a", start: ns(0), end: ns(1)).confidence == nil)
+    #expect(TranscribedWord(text: "a", start: ns(0), end: ns(1), confidence: 1.4).confidence == 1)
+    #expect(TranscribedWord(text: "a", start: ns(0), end: ns(1), confidence: -2).confidence == 0)
+    #expect(TranscribedWord(text: "a", start: ns(0), end: ns(1),
+                            confidence: .nan).confidence == 0)
+
+    // A project saved before this field existed still decodes, and decodes as "did not say".
+    let older = #"{"text":"a","start":{"rawValue":0},"end":{"rawValue":1000000000}}"#
+    let decoded = try? JSONDecoder().decode(TranscribedWord.self, from: Data(older.utf8))
+    #expect(decoded?.confidence == nil, "an older word decoded with a confidence it never had")
+    #expect(decoded?.text == "a")
+}

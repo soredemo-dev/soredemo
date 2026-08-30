@@ -774,7 +774,10 @@ struct CaptionsPanel: View {
 
                 measurement(of: cue)
             }
-            if focused == index { timingControls(index: index, cue: cue) }
+            if focused == index {
+                uncertainty(of: cue)
+                timingControls(index: index, cue: cue)
+            }
         }
         .padding(.vertical, Space.hairline)
         .listRowBackground(isCurrent
@@ -864,6 +867,27 @@ struct CaptionsPanel: View {
                                       ? reading.charactersPerSecond : 0))
                 .font(Type.readout)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The word the recogniser was least sure of, for the cue being looked at.
+    ///
+    /// **Shown here and nowhere else, which is the whole design.** The measurement says
+    /// confidence finds a mangled word — a name heard wrong scored 0.46, the lowest of its cue —
+    /// and also that on clean speech most low scores are sentence-initial words that were
+    /// recognised correctly. Marking cues by it would mark 8% of them and be wrong about most,
+    /// which is how people learn to ignore a marker. In one row, for one cue, it is a place to
+    /// look rather than an alarm.
+    @ViewBuilder private func uncertainty(of cue: CaptionCue) -> some View {
+        if let weakest = cue.leastCertainWord, let confidence = weakest.confidence {
+            HStack(spacing: Space.tight) {
+                Image(systemName: "questionmark.circle").foregroundStyle(.secondary)
+                Text("Least sure of")
+                Text(verbatim: "\u{201C}\(weakest.text)\u{201D}").fontWeight(.medium)
+                Text(verbatim: String(format: "%.0f%%", confidence * 100))
+                    .foregroundStyle(.secondary)
+            }
+            .font(Type.detail)
         }
     }
 

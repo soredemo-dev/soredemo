@@ -10,11 +10,31 @@ public struct TranscribedWord: Sendable, Equatable, Codable {
     public let text: String
     public let start: Nanoseconds
     public let end: Nanoseconds
+    /// How sure the recogniser was, 0…1, or `nil` when it did not say.
+    ///
+    /// **Information, never a warning — and that distinction is measured.** Requesting
+    /// `.transcriptionConfidence` returns a value for every run (93 of 93 on a narration), and
+    /// on audio the recogniser genuinely mangles it finds the mangling: "Soredemo" heard as
+    /// "Sorodimo" scored 0.462, the lowest of nine.
+    ///
+    /// But it is noisy in a way that matters. On a clean narration the low scores were almost
+    /// all sentence-INITIAL or sentence-final — "Trim", "If", "When", "screen." — every one of
+    /// them recognised correctly. They are where the endpointer cut, not where it was wrong.
+    /// Flagging everything under 0.8 would mark 8% of words and most of those would be right,
+    /// which is how people learn to ignore a marker.
+    ///
+    /// So this is shown for the cue somebody is looking at and nothing is coloured by it.
+    /// `nil` rather than 1 when absent: "did not say" and "was certain" are different answers,
+    /// and a default of 1 would make an old project claim a confidence nothing measured.
+    public let confidence: Double?
 
-    public init(text: String, start: Nanoseconds, end: Nanoseconds) {
+    public init(text: String, start: Nanoseconds, end: Nanoseconds, confidence: Double? = nil) {
         self.text = text
         self.start = start
         self.end = end
+        // Clamped rather than trapped: it arrives from a framework and from a decoder, and
+        // rule 8 forbids trapping on an untrusted input.
+        self.confidence = confidence.map { $0.isFinite ? min(max($0, 0), 1) : 0 }
     }
 }
 
