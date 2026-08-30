@@ -374,3 +374,13 @@
 "Add" = "追加";
 "Remove this name" = "この名前を削除";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "認識結果の**つづり**を直します。知らない名前を聞き取れるようにはできません — まったく別のものとして聞き取られた名前はそのままです。";
+"Start earlier" = "開始を早める";
+"Start later" = "開始を遅らせる";
+"End earlier" = "終了を早める";
+"End later" = "終了を遅らせる";
+"Merge with the next line" = "次の行と結合";
+"Delete this line" = "この行を削除";
+"Split in two" = "2つに分割";
+"Too fast" = "速すぎ";
+"Too brief" = "短すぎ";
+"Too long" = "長すぎ";

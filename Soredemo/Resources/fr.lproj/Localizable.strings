@@ -372,3 +372,13 @@
 "Add" = "Ajouter";
 "Remove this name" = "Retirer ce nom";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "Ceci corrige l’ORTHOGRAPHE de ce qui a été reconnu. Cela ne fait pas entendre à la reconnaissance un nom qu’elle ignore — un nom entendu comme tout autre chose le reste.";
+"Start earlier" = "Commencer plus tôt";
+"Start later" = "Commencer plus tard";
+"End earlier" = "Finir plus tôt";
+"End later" = "Finir plus tard";
+"Merge with the next line" = "Fusionner avec la ligne suivante";
+"Delete this line" = "Supprimer cette ligne";
+"Split in two" = "Diviser en deux";
+"Too fast" = "Trop rapide";
+"Too brief" = "Trop bref";
+"Too long" = "Trop long";

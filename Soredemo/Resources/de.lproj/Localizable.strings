@@ -372,3 +372,13 @@
 "Add" = "Hinzufügen";
 "Remove this name" = "Diesen Namen entfernen";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "Diese korrigieren die SCHREIBWEISE des Erkannten. Sie bringen die Erkennung nicht dazu, einen unbekannten Namen zu hören — ein Name, der als etwas ganz anderes verstanden wurde, bleibt so.";
+"Start earlier" = "Früher beginnen";
+"Start later" = "Später beginnen";
+"End earlier" = "Früher enden";
+"End later" = "Später enden";
+"Merge with the next line" = "Mit nächster Zeile verbinden";
+"Delete this line" = "Diese Zeile löschen";
+"Split in two" = "In zwei teilen";
+"Too fast" = "Zu schnell";
+"Too brief" = "Zu kurz";
+"Too long" = "Zu lang";

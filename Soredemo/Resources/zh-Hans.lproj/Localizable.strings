@@ -374,3 +374,13 @@
 "Add" = "加入";
 "Remove this name" = "移除这个名字";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "这些会校正识别结果的**拼写**。它们没办法让识别器听出一个它不认识的名字 —— 被听成完全别的东西的名字,仍然是那样。";
+"Start earlier" = "起点提前";
+"Start later" = "起点延后";
+"End earlier" = "终点提前";
+"End later" = "终点延后";
+"Merge with the next line" = "与下一句合并";
+"Delete this line" = "删除这一句";
+"Split in two" = "切成两句";
+"Too fast" = "太快";
+"Too brief" = "太短";
+"Too long" = "太长";

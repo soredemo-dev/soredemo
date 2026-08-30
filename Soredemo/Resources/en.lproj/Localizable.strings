@@ -388,3 +388,13 @@
 "Add" = "Add";
 "Remove this name" = "Remove this name";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way.";
+"Start earlier" = "Start earlier";
+"Start later" = "Start later";
+"End earlier" = "End earlier";
+"End later" = "End later";
+"Merge with the next line" = "Merge with the next line";
+"Delete this line" = "Delete this line";
+"Split in two" = "Split in two";
+"Too fast" = "Too fast";
+"Too brief" = "Too brief";
+"Too long" = "Too long";

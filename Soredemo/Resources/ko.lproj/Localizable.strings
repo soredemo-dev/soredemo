@@ -372,3 +372,13 @@
 "Add" = "추가";
 "Remove this name" = "이 이름 제거";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "인식된 결과의 **철자**를 고칩니다. 모르는 이름을 알아듣게 만들지는 못합니다 — 전혀 다른 것으로 들린 이름은 그대로입니다.";
+"Start earlier" = "시작 앞으로";
+"Start later" = "시작 뒤로";
+"End earlier" = "끝 앞으로";
+"End later" = "끝 뒤로";
+"Merge with the next line" = "다음 줄과 합치기";
+"Delete this line" = "이 줄 삭제";
+"Split in two" = "둘로 나누기";
+"Too fast" = "너무 빠름";
+"Too brief" = "너무 짧음";
+"Too long" = "너무 김";

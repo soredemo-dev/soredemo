@@ -388,3 +388,13 @@
 "Add" = "加入";
 "Remove this name" = "移除這個名字";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "這些會校正辨識結果的**拼寫**。它們沒辦法讓辨識器聽出一個它不認識的名字 —— 被聽成完全別的東西的名字,仍然是那樣。";
+"Start earlier" = "起點提前";
+"Start later" = "起點延後";
+"End earlier" = "終點提前";
+"End later" = "終點延後";
+"Merge with the next line" = "與下一句合併";
+"Delete this line" = "刪除這一句";
+"Split in two" = "切成兩句";
+"Too fast" = "太快";
+"Too brief" = "太短";
+"Too long" = "太長";

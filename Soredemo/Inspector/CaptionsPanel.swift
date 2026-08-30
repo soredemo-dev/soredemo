@@ -117,6 +117,25 @@ final class CaptionsModel {
         publish()
     }
 
+    /// **The three edits that could not be made before.** Text could be retyped and a line
+    /// deleted, and that was the whole of it — a cue whose timing was wrong could not be
+    /// corrected at all. Each clamps against its neighbours in `CaptionTrack` rather than
+    /// refusing, so a nudge at the end of the room available does as much as it can.
+    func retime(at index: Int, start: Nanoseconds, end: Nanoseconds) {
+        track = track.retiming(at: index, start: start, end: end)
+        publish()
+    }
+
+    func split(at index: Int, atCharacter offset: Int) {
+        track = track.splitting(at: index, atCharacter: offset)
+        publish()
+    }
+
+    func merge(at index: Int) {
+        track = track.merging(at: index)
+        publish()
+    }
+
     func setBurnsIn(_ value: Bool) {
         burnsIn = value
         publish()
@@ -199,6 +218,13 @@ struct CaptionsPanel: View {
     /// Rebuild the preview: turning burn-in on has to change the picture, or the toggle is a
     /// form field rather than a control.
     let onChange: () -> Void
+    /// Where the playhead is, in the RECORDING's own time — the same clock a cue is stamped in,
+    /// so no conversion happens here.
+    let playhead: Nanoseconds
+    /// Move the playhead. **The list is a way of navigating the recording**, not a table of its
+    /// contents: a caption is corrected at the pace of playback, and a row that cannot be
+    /// listened to is a row somebody has to find in the scrubber first.
+    let onSeek: (Nanoseconds) -> Void
 
     @State private var maximumWords: Int?
     @State private var editingIndex: Int?
@@ -208,6 +234,10 @@ struct CaptionsPanel: View {
     @State private var fontFailure: String?
     /// The name being typed. Cleared on add, so the field is ready for the next one.
     @State private var newTerm = ""
+    /// Which cue's timing controls are open. Separate from `editingIndex`: correcting the words
+    /// and correcting the span are different jobs, and showing both sets at once puts six
+    /// controls under a line somebody wanted to retype.
+    @State private var selectedIndex: Int?
 
     var body: some View {
         List {
@@ -500,37 +530,167 @@ struct CaptionsPanel: View {
         }
     }
 
+    /// The index of the cue the playhead is inside, or `nil` between cues.
+    private var currentIndex: Int? {
+        model.track.cues.firstIndex { $0.contains(playhead) }
+    }
+
+    /// **A row per cue, and the row the playhead is in is lit.** The list and the transport are
+    /// the same cursor seen twice: clicking a row moves the playhead to it, and playing moves
+    /// the highlight. A list that did neither is a table of contents.
+    ///
+    /// `ScrollViewReader` keeps the lit row visible during playback. Scrolling only on a CHANGE
+    /// of index, not on every playhead tick — a scroll issued sixty times a second while the
+    /// same row stays current fights a person trying to look somewhere else in the list.
     @ViewBuilder private var lines: some View {
-        ForEach(Array(model.track.cues.enumerated()), id: \.offset) { index, cue in
-            VStack(alignment: .leading, spacing: Space.tight) {
-                HStack {
-                    Text(timecode(cue.start)).font(Type.readout).foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        model.remove(at: index)
-                        onChange()
-                    } label: { Image(systemName: "trash") }
-                        .buttonStyle(.borderless)
-                }
-                if editingIndex == index {
-                    TextField("Caption", text: $draft, axis: .vertical)
-                        .onSubmit { commit(index) }
-                    HStack(spacing: Space.snug) {
-                        Button("Save") { commit(index) }
-                        Button("Cancel") { editingIndex = nil }
-                    }
-                    .font(Type.detail)
-                } else {
-                    Text(cue.text)
-                        .font(Type.label)
-                        // A recogniser gets a name or an acronym wrong far more often than it
-                        // gets the timing wrong, so correcting text is the common gesture and
-                        // it must not re-time the line.
-                        .onTapGesture { editingIndex = index; draft = cue.text }
+        ScrollViewReader { scroller in
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(model.track.cues.enumerated()), id: \.offset) { index, cue in
+                    row(index: index, cue: cue).id(index)
                 }
             }
-            .padding(.vertical, Space.hairline)
+            .onChange(of: currentIndex) {
+                guard let currentIndex else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    scroller.scrollTo(currentIndex, anchor: .center)
+                }
+            }
         }
+    }
+
+    @ViewBuilder private func row(index: Int, cue: CaptionCue) -> some View {
+        let isCurrent = currentIndex == index
+        VStack(alignment: .leading, spacing: Space.tight) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(timecode(cue.start)).font(Type.readout)
+                    .foregroundStyle(isCurrent ? AnyShapeStyle(.primary)
+                                               : AnyShapeStyle(.secondary))
+                Spacer()
+                measurement(of: cue)
+            }
+            if editingIndex == index {
+                TextField("Caption", text: $draft, axis: .vertical)
+                    .onSubmit { commit(index) }
+                editingControls(index: index)
+            } else {
+                Text(cue.text)
+                    .font(Type.label)
+                    // A recogniser gets a name or an acronym wrong far more often than it
+                    // gets the timing wrong, so correcting text is the common gesture and
+                    // it must not re-time the line.
+                    .onTapGesture { editingIndex = index; draft = cue.text }
+            }
+            if selectedIndex == index { timingControls(index: index, cue: cue) }
+        }
+        .padding(.vertical, Space.hairline)
+        .padding(.horizontal, Space.tight)
+        .background(isCurrent ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous))
+        // Anywhere that is not the text: move the playhead here and open this cue's controls.
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSeek(cue.start)
+            selectedIndex = selectedIndex == index ? nil : index
+        }
+    }
+
+    /// A cue's own numbers, and the verdict when there is one.
+    ///
+    /// **The fault is a word, not a colour alone.** A red number tells somebody a line is wrong
+    /// without telling them what to do, and the three faults have three different fixes — see
+    /// `CaptionFault`. The reading speed is shown whatever the verdict, because the number is
+    /// what a person adjusts against.
+    @ViewBuilder private func measurement(of cue: CaptionCue) -> some View {
+        let reading = cue.measurement
+        HStack(spacing: Space.tight) {
+            if let fault = reading.fault {
+                Text(LocalizedStringKey(fault.displayName))
+                    .font(Type.detail)
+                    .foregroundStyle(Signal.record)
+            }
+            Text(verbatim: String(format: "%d · %.1f/s", reading.characters,
+                                  reading.charactersPerSecond.isFinite
+                                      ? reading.charactersPerSecond : 0))
+                .font(Type.readout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Start and end, nudged. **A hundred milliseconds**, which is about three frames: a step
+    /// small enough that two of them are a fine adjustment and large enough that a person is not
+    /// pressing it thirty times. `CaptionTrack.retiming` clamps, so holding a button at the end
+    /// of the room available stops rather than corrupting the neighbour.
+    @ViewBuilder private func timingControls(index: Int, cue: CaptionCue) -> some View {
+        HStack(spacing: Space.tight) {
+            nudge("arrow.left.to.line", "Start earlier") {
+                model.retime(at: index, start: shifted(cue.start, by: -Self.nudge.rawValue), end: cue.end)
+            }
+            nudge("arrow.right.to.line", "Start later") {
+                model.retime(at: index, start: shifted(cue.start, by: Self.nudge.rawValue), end: cue.end)
+            }
+            Divider().frame(height: 12)
+            nudge("arrow.left", "End earlier") {
+                model.retime(at: index, start: cue.start, end: shifted(cue.end, by: -Self.nudge.rawValue))
+            }
+            nudge("arrow.right", "End later") {
+                model.retime(at: index, start: cue.start, end: shifted(cue.end, by: Self.nudge.rawValue))
+            }
+            Spacer()
+            nudge("arrow.triangle.merge", "Merge with the next line") {
+                model.merge(at: index)
+                selectedIndex = nil
+            }
+            .disabled(index + 1 >= model.track.cues.count)
+            nudge("trash", "Delete this line") {
+                model.remove(at: index)
+                selectedIndex = nil
+            }
+        }
+        .font(Type.detail)
+    }
+
+    /// Splitting is offered only while editing, because the split point is the CARET — there is
+    /// no other way for a person to say where. `draft`'s own text is what gets split, so the
+    /// text is committed first: splitting a cue whose edits had not landed would discard them.
+    @ViewBuilder private func editingControls(index: Int) -> some View {
+        HStack(spacing: Space.snug) {
+            Button("Save") { commit(index) }
+            Button("Cancel") { editingIndex = nil }
+            Spacer()
+            Button("Split in two") {
+                model.setText(draft, at: index)
+                model.split(at: index, atCharacter: splitOffset(of: draft))
+                editingIndex = nil
+                selectedIndex = nil
+                onChange()
+            }
+            .disabled(splitOffset(of: draft) == 0)
+        }
+        .font(Type.detail)
+    }
+
+    /// Where a line splits when nobody has said: **the space nearest the middle**, which is the
+    /// break a person would have made. Zero when there is no space at all — a dense script with
+    /// no gaps has no offset this can guess, and offering the button would split it mid-word.
+    private func splitOffset(of text: String) -> Int {
+        let characters = Array(text)
+        let middle = characters.count / 2
+        let spaces = characters.indices.filter { characters[$0] == " " }
+        return spaces.min(by: { abs($0 - middle) < abs($1 - middle) }).map { $0 + 1 } ?? 0
+    }
+
+    private static let nudge = Nanoseconds(100_000_000)
+
+    private func shifted(_ time: Nanoseconds, by delta: Int64) -> Nanoseconds {
+        Nanoseconds(max(0, time.rawValue + delta))
+    }
+
+    @ViewBuilder private func nudge(_ symbol: String, _ label: String,
+                                    action: @escaping () -> Void) -> some View {
+        Button(action: { action(); onChange() }) { Image(systemName: symbol) }
+            .buttonStyle(.borderless)
+            .help(LocalizedStringKey(label))
+            .accessibilityLabel(LocalizedStringKey(label))
     }
 
     private func commit(_ index: Int) {

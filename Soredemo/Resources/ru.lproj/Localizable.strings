@@ -372,3 +372,13 @@
 "Add" = "Добавить";
 "Remove this name" = "Удалить это имя";
 "These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way." = "Это исправляет НАПИСАНИЕ распознанного. Это не заставит распознаватель услышать незнакомое имя — имя, услышанное как что-то совсем другое, таким и останется.";
+"Start earlier" = "Начать раньше";
+"Start later" = "Начать позже";
+"End earlier" = "Закончить раньше";
+"End later" = "Закончить позже";
+"Merge with the next line" = "Объединить со следующей строкой";
+"Delete this line" = "Удалить эту строку";
+"Split in two" = "Разделить на две";
+"Too fast" = "Слишком быстро";
+"Too brief" = "Слишком коротко";
+"Too long" = "Слишком долго";
