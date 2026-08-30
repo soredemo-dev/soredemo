@@ -342,3 +342,10 @@
 "Play audio while dragging the playhead" = "재생 헤드를 끌 때 소리 재생";
 "While editing" = "편집 중";
 "The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "데스크탑의 날씨, 캘린더, 배터리 링. 보이는 것보다 많은 것을 말합니다 — 어디에 있는지, 오늘 오후 일정이 무엇인지. Dock과 마찬가지로 Mac은 전혀 바뀌지 않으며 녹화 중에도 알림 센터는 정상적으로 열립니다.";
+"Alignment" = "정렬";
+"Across the frame" = "가로 위치";
+"Plate colour" = "판 색";
+"Left" = "왼쪽";
+"Centre" = "가운데";
+"Right" = "오른쪽";
+"A shadow separates the words from what is behind them without covering it, which is what a plate does instead." = "그림자는 글자와 뒤에 있는 화면을 가리지 않고 분리합니다. 판은 가려서 그렇게 합니다.";

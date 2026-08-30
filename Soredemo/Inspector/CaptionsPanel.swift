@@ -269,6 +269,62 @@ struct CaptionsPanel: View {
                               set: { model.setStyle(styleChanging(plate: $0)); onChange() }),
                in: 0...1) { Text("Plate") }
 
+        // **Six controls that were literals in `CaptionStyle.asTextStyle`.** Every one of them
+        // was already drawable — the conversion passed `x: 0.5`, `.center`, `isBold: false`, a
+        // black plate and no shadow as constants, so a caption could be sized and raised and
+        // nothing else.
+        Picker("Alignment", selection: Binding(
+            get: { model.style.alignment },
+            set: { model.setStyle(model.style.changing(alignment: $0)); onChange() })) {
+            ForEach(TextAnchor.allCases, id: \.self) { anchor in
+                Text(LocalizedStringKey(anchor.displayName)).tag(anchor)
+            }
+        }
+        // Only where it can do anything: a centred caption is at the middle by definition, and
+        // a slider that moves nothing is a slider people learn not to trust.
+        if model.style.alignment != .center {
+            Slider(value: Binding(
+                get: { model.style.horizontalFraction },
+                set: { model.setStyle(model.style.changing(horizontalFraction: $0)); onChange() }),
+                   in: 0...1) { Text("Across the frame") }
+        }
+        Toggle("Bold", isOn: Binding(
+            get: { model.style.isBold },
+            set: { model.setStyle(model.style.changing(isBold: $0)); onChange() }))
+        ColorPicker("Text", selection: Binding(
+            get: { Color(red: model.style.red, green: model.style.green, blue: model.style.blue) },
+            set: { colour in
+                let rgb = Self.components(of: colour)
+                model.setStyle(model.style.changing(red: rgb.red, green: rgb.green,
+                                                    blue: rgb.blue))
+                onChange()
+            }), supportsOpacity: false)
+        // Offered only when there is a plate to colour. At zero opacity it draws nothing, and a
+        // colour well for an invisible rectangle is a control that answers nothing.
+        if model.style.backgroundOpacity > 0 {
+            ColorPicker("Plate colour", selection: Binding(
+                get: { Color(red: model.style.plateRed, green: model.style.plateGreen,
+                             blue: model.style.plateBlue) },
+                set: { colour in
+                    let rgb = Self.components(of: colour)
+                    model.setStyle(model.style.changing(plateRed: rgb.red, plateGreen: rgb.green,
+                                                        plateBlue: rgb.blue))
+                    onChange()
+                }), supportsOpacity: false)
+        }
+        Slider(value: Binding(
+            get: { model.style.shadowOpacity },
+            set: { model.setStyle(model.style.changing(shadowOpacity: $0,
+                                                       shadowBlurFraction: $0 > 0
+                                                           ? max(model.style.shadowBlurFraction,
+                                                                 0.004)
+                                                           : model.style.shadowBlurFraction))
+                   onChange() }),
+               in: 0...1) { Text("Shadow") }
+        Text("A shadow separates the words from what is behind them without covering it, which "
+             + "is what a plate does instead.")
+            .font(Type.detail).foregroundStyle(.secondary)
+
         // **The recogniser has been giving word times all along and nothing read them.**
         // `TranscribedWord.start`/`.end` were stored, retimed through cuts and clipped at cut
         // boundaries, and never drawn.
@@ -337,6 +393,18 @@ struct CaptionsPanel: View {
         model.setText(draft, at: index)
         editingIndex = nil
         onChange()
+    }
+
+    /// A colour's own components, in the space the renderer draws in.
+    ///
+    /// **Converted to sRGB rather than read raw.** A `Color` from the picker can be in the
+    /// display's P3 space, and its raw components in that space are different numbers for the
+    /// same colour — a red picked on a P3 display would export as a duller one. sRGB is what
+    /// `CoreImageFrameRenderer` composites in and what the recording is pinned to.
+    static func components(of colour: Color) -> (red: Double, green: Double, blue: Double) {
+        let converted = NSColor(colour).usingColorSpace(.sRGB) ?? NSColor(colour)
+        return (Double(converted.redComponent), Double(converted.greenComponent),
+                Double(converted.blueComponent))
     }
 
     private func styleChanging(height: Double? = nil, inset: Double? = nil,

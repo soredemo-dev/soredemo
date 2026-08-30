@@ -344,3 +344,10 @@
 "Play audio while dragging the playhead" = "拖动播放头时播放声音";
 "While editing" = "编辑时";
 "The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "桌面上的天气、日历和电池环。它们透露的比看起来多 —— 你在哪里、今天下午日历上有什么。跟 Dock 一样,你的 Mac 不会有任何改变,录制时通知中心也照常打得开。";
+"Alignment" = "对齐";
+"Across the frame" = "水平位置";
+"Plate colour" = "底板颜色";
+"Left" = "靠左";
+"Centre" = "居中";
+"Right" = "靠右";
+"A shadow separates the words from what is behind them without covering it, which is what a plate does instead." = "阴影把文字和背后的画面分开,而不遮住它 —— 底板则是用遮的。";

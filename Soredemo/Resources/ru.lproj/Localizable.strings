@@ -342,3 +342,10 @@
 "Play audio while dragging the playhead" = "Звук при перетаскивании курсора";
 "While editing" = "При монтаже";
 "The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "Погода, календарь и кольцо заряда на рабочем столе. Они говорят больше, чем кажется, — где вы находитесь и что у вас сегодня днём. Как и с Dock, на вашем Mac ничего не меняется, а Центр уведомлений во время записи открывается как обычно.";
+"Alignment" = "Выравнивание";
+"Across the frame" = "Положение по горизонтали";
+"Plate colour" = "Цвет подложки";
+"Left" = "Слева";
+"Centre" = "По центру";
+"Right" = "Справа";
+"A shadow separates the words from what is behind them without covering it, which is what a plate does instead." = "Тень отделяет слова от того, что за ними, не закрывая это, — в отличие от подложки.";

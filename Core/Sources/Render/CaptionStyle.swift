@@ -25,6 +25,30 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     public let red: Double
     public let green: Double
     public let blue: Double
+    /// Which edge the caption is aligned to, and where across the frame it sits.
+    ///
+    /// **Both, because one without the other cannot express what people ask for.** Alignment
+    /// alone puts every caption at the middle; a position alone leaves a left-aligned block
+    /// growing rightwards off the frame. `TextOverlayStyle` has carried the pair since it
+    /// shipped and the caption conversion was passing `x: 0.5, anchor: .center` as literals.
+    public let alignment: TextAnchor
+    public let horizontalFraction: Double
+    /// Heavier type, which is the usual answer for a caption over moving footage.
+    public let isBold: Bool
+    /// The plate's colour. Black was a literal in the conversion until now, which is right for
+    /// most footage and wrong for a light brand.
+    public let plateRed: Double
+    public let plateGreen: Double
+    public let plateBlue: Double
+    /// A drop shadow behind the text, as a fraction of full opacity and a blur in fractions of
+    /// the frame's height.
+    ///
+    /// **The cheap half of legibility over arbitrary footage.** A plate is the other half and
+    /// costs a rectangle across the picture; a shadow separates the text from what is behind it
+    /// without covering anything. `TextOverlayStyle` could already draw one and captions were
+    /// passing zero.
+    public let shadowOpacity: Double
+    public let shadowBlurFraction: Double
     /// **Highlight the word being said.** The recogniser gives a time for every word and until
     /// now nothing read them — `TranscribedWord.start`/`.end` were stored, retimed through cuts,
     /// clipped at cut boundaries, and never drawn. Comparable editors all
@@ -46,7 +70,11 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
                 maximumWidthFraction: Double, backgroundOpacity: Double,
                 backgroundCornerFraction: Double,
                 red: Double, green: Double, blue: Double,
-                highlightsSpokenWord: Bool = false, unspokenOpacity: Double = 0.55) {
+                highlightsSpokenWord: Bool = false, unspokenOpacity: Double = 0.55,
+                alignment: TextAnchor = .center, horizontalFraction: Double = 0.5,
+                isBold: Bool = false,
+                plateRed: Double = 0, plateGreen: Double = 0, plateBlue: Double = 0,
+                shadowOpacity: Double = 0, shadowBlurFraction: Double = 0) {
         // Clamped rather than trapped: every one of these reaches here from a slider, and a
         // style is also decoded from a saved project — rule 8 says never `precondition` on an
         // untrusted input. Clamping is the same answer on both paths, so there is one path.
@@ -62,6 +90,64 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
         // Floored well above zero: at 0 the unspoken words disappear and the caption becomes one
         // word at a time, which is a different feature and a worse one to arrive at by accident.
         self.unspokenOpacity = min(max(unspokenOpacity, 0.15), 1)
+        self.alignment = alignment
+        self.horizontalFraction = min(max(horizontalFraction, 0), 1)
+        self.isBold = isBold
+        self.plateRed = min(max(plateRed, 0), 1)
+        self.plateGreen = min(max(plateGreen, 0), 1)
+        self.plateBlue = min(max(plateBlue, 0), 1)
+        self.shadowOpacity = min(max(shadowOpacity, 0), 1)
+        // Floored at zero and capped well below the frame: a blur wider than the text is a
+        // smear rather than a shadow, and a very large one is minutes of Core Image per frame.
+        self.shadowBlurFraction = min(max(shadowBlurFraction, 0), 0.05)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case heightFraction, bottomInsetFraction, maximumWidthFraction
+        case backgroundOpacity, backgroundCornerFraction
+        case red, green, blue, highlightsSpokenWord, unspokenOpacity
+        case alignment, horizontalFraction, isBold
+        case plateRed, plateGreen, plateBlue, shadowOpacity, shadowBlurFraction
+    }
+
+    /// **Every field optional on the way in, and routed through the clamping initialiser.**
+    ///
+    /// Two things the synthesised decode got wrong, and adding fields made the first fatal. A
+    /// synthesised decode requires every key, so a project saved before these existed would have
+    /// stopped opening — every project anybody has. And it assigns straight past the clamping
+    /// above, so a corrupt file could set a height of a thousand and this would carry it into the
+    /// renderer. `decodeIfPresent` and one constructor answer both.
+    ///
+    /// The defaults are `CaptionStyle.default`'s, not zeroes: a missing key means the field did
+    /// not exist when the file was written, and what it looked like then is what the default was.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value(_ key: CodingKeys, _ fallback: Double) throws -> Double {
+            try container.decodeIfPresent(Double.self, forKey: key) ?? fallback
+        }
+        let fallback = CaptionStyle.default
+        self.init(
+            heightFraction: try value(.heightFraction, fallback.heightFraction),
+            bottomInsetFraction: try value(.bottomInsetFraction, fallback.bottomInsetFraction),
+            maximumWidthFraction: try value(.maximumWidthFraction, fallback.maximumWidthFraction),
+            backgroundOpacity: try value(.backgroundOpacity, fallback.backgroundOpacity),
+            backgroundCornerFraction: try value(.backgroundCornerFraction,
+                                                fallback.backgroundCornerFraction),
+            red: try value(.red, fallback.red),
+            green: try value(.green, fallback.green),
+            blue: try value(.blue, fallback.blue),
+            highlightsSpokenWord: try container.decodeIfPresent(
+                Bool.self, forKey: .highlightsSpokenWord) ?? fallback.highlightsSpokenWord,
+            unspokenOpacity: try value(.unspokenOpacity, fallback.unspokenOpacity),
+            alignment: try container.decodeIfPresent(TextAnchor.self, forKey: .alignment)
+                ?? fallback.alignment,
+            horizontalFraction: try value(.horizontalFraction, fallback.horizontalFraction),
+            isBold: try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? fallback.isBold,
+            plateRed: try value(.plateRed, fallback.plateRed),
+            plateGreen: try value(.plateGreen, fallback.plateGreen),
+            plateBlue: try value(.plateBlue, fallback.plateBlue),
+            shadowOpacity: try value(.shadowOpacity, fallback.shadowOpacity),
+            shadowBlurFraction: try value(.shadowBlurFraction, fallback.shadowBlurFraction))
     }
 
     /// The type size in output pixels.
@@ -70,15 +156,30 @@ public struct CaptionStyle: Hashable, Codable, Sendable {
     public func changing(heightFraction: Double? = nil, bottomInsetFraction: Double? = nil,
                          backgroundOpacity: Double? = nil,
                          highlightsSpokenWord: Bool? = nil,
-                         unspokenOpacity: Double? = nil) -> CaptionStyle {
+                         unspokenOpacity: Double? = nil,
+                         red: Double? = nil, green: Double? = nil, blue: Double? = nil,
+                         alignment: TextAnchor? = nil, horizontalFraction: Double? = nil,
+                         isBold: Bool? = nil,
+                         plateRed: Double? = nil, plateGreen: Double? = nil,
+                         plateBlue: Double? = nil,
+                         shadowOpacity: Double? = nil,
+                         shadowBlurFraction: Double? = nil) -> CaptionStyle {
         CaptionStyle(heightFraction: heightFraction ?? self.heightFraction,
                      bottomInsetFraction: bottomInsetFraction ?? self.bottomInsetFraction,
                      maximumWidthFraction: maximumWidthFraction,
                      backgroundOpacity: backgroundOpacity ?? self.backgroundOpacity,
                      backgroundCornerFraction: backgroundCornerFraction,
-                     red: red, green: green, blue: blue,
+                     red: red ?? self.red, green: green ?? self.green, blue: blue ?? self.blue,
                      highlightsSpokenWord: highlightsSpokenWord ?? self.highlightsSpokenWord,
-                     unspokenOpacity: unspokenOpacity ?? self.unspokenOpacity)
+                     unspokenOpacity: unspokenOpacity ?? self.unspokenOpacity,
+                     alignment: alignment ?? self.alignment,
+                     horizontalFraction: horizontalFraction ?? self.horizontalFraction,
+                     isBold: isBold ?? self.isBold,
+                     plateRed: plateRed ?? self.plateRed,
+                     plateGreen: plateGreen ?? self.plateGreen,
+                     plateBlue: plateBlue ?? self.plateBlue,
+                     shadowOpacity: shadowOpacity ?? self.shadowOpacity,
+                     shadowBlurFraction: shadowBlurFraction ?? self.shadowBlurFraction)
     }
 
     public func pointSize(forOutputHeight height: Int) -> Double {

@@ -213,12 +213,17 @@ extension CaptionStyle {
     /// tuned in one and not the other, and nobody notices until a screenshot puts them side by
     /// side.
     public var asTextStyle: TextOverlayStyle {
+        // **Six literals used to sit here**, and each one was a control a person could not
+        // reach: the caption was always centred, always at mid-frame, never bold, always on a
+        // black plate, and never had a shadow. `TextOverlayStyle` could draw all of it the
+        // whole time; only the conversion said otherwise.
         TextOverlayStyle(
-            heightFraction: heightFraction, x: 0.5, y: bottomInsetFraction, anchor: .center,
-            isBold: false, red: red, green: green, blue: blue, alpha: 1,
+            heightFraction: heightFraction, x: horizontalFraction, y: bottomInsetFraction,
+            anchor: alignment,
+            isBold: isBold, red: red, green: green, blue: blue, alpha: 1,
             plateOpacity: backgroundOpacity, plateCornerFraction: backgroundCornerFraction,
-            plateRed: 0, plateGreen: 0, plateBlue: 0,
-            shadowOpacity: 0, shadowBlurFraction: 0,
+            plateRed: plateRed, plateGreen: plateGreen, plateBlue: plateBlue,
+            shadowOpacity: shadowOpacity, shadowBlurFraction: shadowBlurFraction,
             maximumWidthFraction: maximumWidthFraction, lineGapRatio: 0.2)
     }
 }

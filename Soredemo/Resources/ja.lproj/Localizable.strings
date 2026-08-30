@@ -344,3 +344,10 @@
 "Play audio while dragging the playhead" = "再生ヘッドのドラッグ中に音を鳴らす";
 "While editing" = "編集中";
 "The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "デスクトップの天気、カレンダー、バッテリーリング。見た目より多くを語ります — あなたの居場所、今日の午後の予定。Dock と同じく Mac には何の変更もなく、録画中も通知センターは普通に開けます。";
+"Alignment" = "配置";
+"Across the frame" = "水平位置";
+"Plate colour" = "プレートの色";
+"Left" = "左";
+"Centre" = "中央";
+"Right" = "右";
+"A shadow separates the words from what is behind them without covering it, which is what a plate does instead." = "影は文字と背後の映像を分けます。プレートのように覆い隠すことはありません。";
