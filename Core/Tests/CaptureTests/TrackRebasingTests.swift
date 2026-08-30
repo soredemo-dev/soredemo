@@ -70,13 +70,55 @@ import Testing
     #expect(rebase.rebased(real) == .zero, "an invalid first sample anchored the track")
 }
 
-/// Rebasing is per TRACK, not shared: video and audio have their own bases because they
-/// have their own clocks, and one shared base would reintroduce the offset it removes.
-@Test func eachTrackHoldsItsOwnBase() {
-    var video = TrackRebase()
-    var audio = TrackRebase()
-    _ = video.rebased(CMTime(seconds: 1, preferredTimescale: 600))
-    #expect(audio.hasBase == false, "one track's first sample set another's base")
-    _ = audio.rebased(CMTime(seconds: 39_600, preferredTimescale: 600))
-    #expect(video.hasBase && audio.hasBase)
+/// **One base for the whole recording, which is the reverse of what this test used to
+/// assert.**
+///
+/// It read: "Rebasing is per TRACK, not shared: video and audio have their own bases
+/// because they have their own clocks, and one shared base would reintroduce the offset it
+/// removes." Measured on macOS 26 with a live stream carrying video, system audio and
+/// microphone at once, that premise is false — all three arrive on the same clock, and the
+/// per-track base was not removing an offset between clocks but destroying one between
+/// tracks:
+///
+///     first video   pts   1092810.2436
+///     first system  pts   1092810.2554     +11.8 ms after the video
+///     first mic     pts   1092810.3569    +101.5 ms after the system audio
+///
+/// A tenth of a second is audible. A demo with music playing captures it twice — once
+/// through the system tap, once through the microphone — and forced to a common zero the
+/// two copies flange against each other, which is what was reported.
+@Test func oneBaseSpansEveryTrackSoTheOffsetsBetweenThemSurvive() {
+    var rebase = TrackRebase()
+    // The numbers are the measured ones, on the clock they were measured on.
+    let video = CMTime(value: 1_092_810_243_617_375, timescale: 1_000_000_000)
+    let system = CMTime(value: 1_092_810_255_370_250, timescale: 1_000_000_000)
+    let microphone = CMTime(value: 1_092_810_356_916_099, timescale: 1_000_000_000)
+
+    #expect(rebase.rebased(video) == .zero, "the first sample is composition time zero")
+    let systemOffset = rebase.rebased(system).seconds
+    let microphoneOffset = rebase.rebased(microphone).seconds
+
+    // Both land where they actually were, not at a zero of their own.
+    #expect(abs(systemOffset - 0.0118) < 0.0005,
+            "system audio came out at \(systemOffset)s, not 11.8 ms after the video")
+    #expect(abs(microphoneOffset - 0.1133) < 0.0005,
+            "the microphone came out at \(microphoneOffset)s, not 113.3 ms after the video")
+    // And the distance BETWEEN the two audio tracks — the one a person hears — survives.
+    #expect(abs((microphoneOffset - systemOffset) - 0.1015) < 0.0005,
+            "the 101.5 ms between the two audio tracks was not preserved")
+}
+
+/// A different timescale is not a different clock, and the microphone reports one: 44100
+/// against the other two tracks' 1e9. `CMTimeSubtract` reconciles them, and this pins that
+/// the reconciliation is exact rather than merely close — a rounding here is a drift that
+/// accumulates over a long recording.
+@Test func aTrackReportingItsOwnTimescaleIsStillOnTheSameClock() {
+    var rebase = TrackRebase()
+    let base = CMTime(value: 1_092_810_243_617_375, timescale: 1_000_000_000)
+    #expect(rebase.rebased(base) == .zero)
+    // Exactly one second later, expressed at the microphone's own timescale.
+    let oneSecondLater = CMTime(value: 1_092_811 * 44_100 + 10_738, timescale: 44_100)
+    let offset = rebase.rebased(oneSecondLater).seconds
+    #expect(abs(offset - (oneSecondLater.seconds - base.seconds)) < 1e-9,
+            "subtracting across timescales lost precision")
 }

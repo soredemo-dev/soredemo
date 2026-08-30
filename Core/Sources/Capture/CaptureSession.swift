@@ -95,9 +95,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// The queues take their own lock, so they are not guarded by this type's.
     private let heldSystemAudio = HeldAudioQueue()
     private let heldMicrophone = HeldAudioQueue()
-    private nonisolated(unsafe) var videoRebase = TrackRebase()
-    private nonisolated(unsafe) var systemAudioRebase = TrackRebase()
-    private nonisolated(unsafe) var microphoneRebase = TrackRebase()
+    /// ONE base for all three tracks. See `TrackRebase` for the measurement that
+    /// replaced the three that used to be here — the microphone's first sample
+    /// arrives 101.5 ms after the system audio's, on the same clock, and a
+    /// per-track base threw that offset away.
+    private nonisolated(unsafe) var rebase = TrackRebase()
 
     /// Passed through to `InputObserver` — see its doc for why this is a closure.
     private let pointerShapeReader: @Sendable () -> PointerShape?
@@ -1534,7 +1536,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // ScreenCaptureKit reports them on two clocks. `startSession(at: .zero)` rather
         // than at the first PTS: the rebase has already made that first PTS zero, and
         // passing the raw value would put the offset back.
-        let rebasedVideoPTS = lock.withLock { unsafe videoRebase.rebased(pts) }
+        // The first complete video frame is what establishes the recording's base,
+        // and it is the right one to: the writer's session starts here, so this
+        // frame IS composition time zero and everything else is measured from it.
+        let rebasedVideoPTS = lock.withLock { unsafe rebase.rebased(pts) }
         if !sessionAlreadyStarted {
             masterRef.startSession(at: .zero)
             lock.withLock { unsafe writerSessionStarted = true }
@@ -1689,13 +1694,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             updateAudioAccounting(isSystemAudio) { $0.uninterleavable += 1 }
             return
         }
-        // Rebased onto the same zero the video track starts at — each track by its OWN
-        // base, since sharing one would reintroduce the uptime offset this removes.
+        // Rebased against the recording's ONE base, which the first video frame
+        // established. Audio arriving before that frame has already been dropped
+        // above, so this is never the call that sets the base — and the result is
+        // the audio's real distance from composition time zero rather than a
+        // manufactured zero of its own.
         let audioPTS = CMSampleBufferGetPresentationTimeStamp(writable)
-        let rebasedAudioPTS = lock.withLock {
-            isSystemAudio ? unsafe systemAudioRebase.rebased(audioPTS)
-                          : unsafe microphoneRebase.rebased(audioPTS)
-        }
+        let rebasedAudioPTS = lock.withLock { unsafe rebase.rebased(audioPTS) }
         guard let retimedAudio = Self.retimed(writable, to: rebasedAudioPTS) else {
             updateAudioAccounting(isSystemAudio) { $0.uninterleavable += 1 }
             return
