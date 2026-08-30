@@ -1,5 +1,6 @@
 import AppKit
 import Capture
+import Compositing
 import Graph
 import Geometry
 import Project
@@ -103,20 +104,8 @@ nonisolated enum SystemCursorShape {
         // It is already alive in this app; this is here so the table is still right if anything
         // ever builds it before the application object exists.
         _ = NSApplication.shared
-        let sources: [(NSCursor, PointerShape)] = [
-            (.arrow, .arrow),
-            (.iBeam, .iBeam),
-            (.pointingHand, .pointingHand),
-            (.crosshair, .crosshair),
-            (.resizeLeftRight, .resizeLeftRight),
-            (.resizeUpDown, .resizeUpDown),
-            (.resizeLeft, .resizeLeftRight),
-            (.resizeRight, .resizeLeftRight),
-            (.resizeUp, .resizeUpDown),
-            (.resizeDown, .resizeUpDown),
-        ]
         var table: [ContentDigest: PointerShape] = [:]
-        for (cursor, shape) in sources {
+        for (cursor, shape) in classCursors {
             guard let data = cursor.image.tiffRepresentation else { continue }
             // **First writer wins.** Two class properties can be the same image — if a future
             // macOS drew `resizeLeft` exactly as `resizeLeftRight`, the more specific entry
@@ -126,6 +115,27 @@ nonisolated enum SystemCursorShape {
         }
         return table
     }()
+
+    /// Every class cursor this app names a shape for, most specific first.
+    ///
+    /// **One list, read by two things.** The digest table classifies what is on
+    /// screen; the artwork table supplies what to draw. Two lists would be two
+    /// lists that drift, and the drift would be silent: a shape classified with
+    /// no artwork falls back to the drawn path, which looks like a rendering
+    /// choice rather than like a missing entry.
+    @MainActor
+    static let classCursors: [(NSCursor, PointerShape)] = [
+        (.arrow, .arrow),
+        (.iBeam, .iBeam),
+        (.pointingHand, .pointingHand),
+        (.crosshair, .crosshair),
+        (.resizeLeftRight, .resizeLeftRight),
+        (.resizeUpDown, .resizeUpDown),
+        (.resizeLeft, .resizeLeftRight),
+        (.resizeRight, .resizeLeftRight),
+        (.resizeUp, .resizeUpDown),
+        (.resizeDown, .resizeUpDown),
+    ]
 
     /// The shape reader `CaptureSession` injects. Non-blocking: returns the last sample and
     /// asks for the next.
@@ -145,5 +155,56 @@ nonisolated enum SystemCursorShape {
             cache.scheduleRefresh()
             return value
         }
+    }
+}
+
+// MARK: - the artwork itself, not only its name
+
+extension SystemCursorShape {
+    /// Hands the system's own cursor artwork to the compositor.
+    ///
+    /// **Called before a preview or an export composes anything**, and cheap
+    /// enough to call again: six images, already in memory, wrapped rather than
+    /// rendered. The compositor cannot fetch them itself — `HeadlessCheck` bans
+    /// AppKit from that tier, which is the same boundary that makes the shape
+    /// READER a closure this file supplies.
+    ///
+    /// Idempotent, and re-run rather than cached across a macOS update: the point
+    /// of asking the system is that a macOS which redraws its cursors is followed.
+    @MainActor
+    static func handArtworkToTheCompositor() {
+        // The application object has to exist before any class cursor has an
+        // image — the measurement that took a whole phase to find. See the
+        // design doc.
+        _ = NSApplication.shared
+        var artwork: [PointerShape: CursorArtwork] = [:]
+        for (cursor, shape) in Self.classCursors where artwork[shape] == nil {
+            // First listed wins, matching `knownCursors`' own rule: `resizeLeft`
+            // and `resizeLeftRight` map to one shape, and the two-headed one is
+            // the artwork that shape should be drawn with.
+            guard let made = Self.artwork(from: cursor) else { continue }
+            artwork[shape] = made
+        }
+        SystemCursorArtwork.byShape = artwork
+    }
+
+    /// One cursor's artwork, or `nil` when it has no usable image.
+    ///
+    /// `cgImage(forProposedRect:)` at the cursor's own POINT size returns the
+    /// backing bitmap at whatever density macOS holds it — 10× for the arrow on
+    /// macOS 26, 2× for the hand — so the density is read back from the result
+    /// rather than assumed. Assuming 2× would draw the arrow five times too big.
+    @MainActor
+    private static func artwork(from cursor: NSCursor) -> CursorArtwork? {
+        let pointSize = cursor.image.size
+        guard pointSize.width > 0, pointSize.height > 0 else { return nil }
+        var proposed = NSRect(origin: .zero, size: pointSize)
+        guard let image = cursor.image.cgImage(forProposedRect: &proposed,
+                                               context: nil, hints: nil) else { return nil }
+        return CursorArtwork(image: image,
+                             pointWidth: Double(pointSize.width),
+                             pointHeight: Double(pointSize.height),
+                             hotspotX: Double(cursor.hotSpot.x),
+                             hotspotY: Double(cursor.hotSpot.y))
     }
 }

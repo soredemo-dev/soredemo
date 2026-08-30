@@ -106,12 +106,12 @@ private func growToFloor(_ window: NSWindow, within visible: NSRect) {
                     display: false, animate: false)
 }
 
-    /// Applies the floor whenever the window leaves full screen — where it lives
-    /// now, because AppKit restores whatever was autosaved and that has already
-    /// once been a frame smaller than this window's own minimum.
-    ///
-    /// On every exit rather than once: a flag is spent by things that are not a
-    /// person's decision.
+/// Applies the floor whenever the window leaves full screen — where it lives
+/// now, because AppKit restores whatever was autosaved and that has already
+/// once been a frame smaller than this window's own minimum.
+///
+/// On every exit rather than once: a flag is spent by things that are not a
+/// person's decision.
 private func keepUsablyLarge(_ window: NSWindow) {
     NotificationCenter.default.addObserver(
         forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { _ in
@@ -122,30 +122,29 @@ private func keepUsablyLarge(_ window: NSWindow) {
         }
 }
 
-    /// The editor goes full screen when it opens, and never OPENS smaller than
-    /// `openingFraction` of the screen it opens on.
-    ///
-    /// A property rather than an event, and the third design: two earlier
-    /// one-shot flags were both spent by things that were not a person's
-    /// decision. It grows a window under the fraction and never shrinks one over
-    /// it, so somebody who made theirs larger keeps it — and somebody who made it
-    /// deliberately small does not, which is the trade the design doc records.
+/// The editor goes full screen when it opens, and never OPENS smaller than
+/// `openingFraction` of the screen it opens on.
+///
+/// A property rather than an event, and the third design: two earlier
+/// one-shot flags were both spent by things that were not a person's
+/// decision. It grows a window under the fraction and never shrinks one over
+/// it, so somebody who made theirs larger keeps it — and somebody who made it
+/// deliberately small does not, which is the trade the design doc records.
 private func openFullScreen(_ window: NSWindow) {
     // A floor regardless, so the editor cannot be dragged into a size where the timeline has no
     // length. AppKit enforces it from here on — and note it did NOT stop a smaller frame being
     // restored from an autosave written under a different scene identity.
     window.minSize = NSSize(width: 1000, height: 680)
 
-            // After the window has become key, not here: `makeNSView` runs while
-            // the hierarchy is still being assembled, and AppKit restores an
-            // autosaved frame after that — a frame set now is one the restore
-            // overwrites.
-            //
-            // The token lives in a reference rather than a captured `var` because a
-            // `@Sendable` closure may not mutate a local, and it is the closure that
-            // has to remove the observer. `@unchecked Sendable` is sound for
-            // `assumeIsolated`'s reason: written on the main actor, read only from a
-            // closure delivered on `.main`.
+    // After the window has become key, not here: `makeNSView` runs while the
+    // hierarchy is still being assembled, and AppKit restores an autosaved frame
+    // after that — a frame set now is one the restore overwrites.
+    //
+    // The token lives in a reference rather than a captured `var` because a
+    // `@Sendable` closure may not mutate a local, and it is the closure that has to
+    // remove the observer. `@unchecked Sendable` is sound for `assumeIsolated`'s
+    // reason: written on the main actor, read only from a closure delivered on
+    // `.main`.
     let holder = ObserverHolder()
     holder.token = NotificationCenter.default.addObserver(
         forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { _ in

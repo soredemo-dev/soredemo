@@ -615,6 +615,12 @@ struct StageWindow: View {
         // Where an image background is read from. Set before the composition reaches
         // AVFoundation, on the same terms as every other static here.
         CoreImageFrameRenderer.imageBaseURL = mediaURL.map(ProjectStore.packageURL(forMediaAt:))
+        // The system's own cursor artwork, which the compositor cannot fetch for
+        // itself — `HeadlessCheck` bans AppKit from that tier. Handed over here so
+        // the preview and the export draw the same thing, and re-read on every
+        // composition rather than cached: a macOS that redraws its cursors between
+        // two exports should change the second one.
+        await MainActor.run { SystemCursorShape.handArtworkToTheCompositor() }
         // A fresh recording gets a fresh drop count; a stale one must not read as this file's.
         StageCompositor.resetDiagnostics()
         // `expectedLogURL(forMediaURL:)` names where a log for this media would be; it does not

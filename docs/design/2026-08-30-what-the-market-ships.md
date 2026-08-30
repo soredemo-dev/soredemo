@@ -18,7 +18,7 @@ Legend: ● shipped, ◐ partial, ○ absent, — not applicable.
 | macOS native | ● | ● | ● | ● | ● | ● |
 | Windows | ○ | ● | ● | ● | ○ | ○ |
 | Web | ○ | ○ | ● | ○ | ○ | ○ |
-| Region / area capture | ● | ● | ● | ● | ● | ○ |
+| Region / area capture | ● | ● | ● | ● | ● | ● |
 | Window capture | ● | ● | ● | ● | ● | ● |
 | iPhone / iPad capture | ● | ● | ◐ | ○ | ◐ | ● |
 | Webcam capture | ● | ● | ● | ● | ● | ● |
@@ -104,12 +104,14 @@ Legend: ● shipped, ◐ partial, ○ absent, — not applicable.
 
 ## What this reading changes
 
-**Three gaps worth taking seriously.**
+**Two gaps worth taking seriously.**
 
-*Region capture* is on every one of the five. It is the only recording-side
-capability that is universal and absent here, and the machinery is present —
-`SCStreamConfiguration.sourceRect` is already set for window capture, so a
-region is the same code with a rectangle a person drew.
+*(A third was listed here and was wrong: region capture was marked absent on the
+strength of a week-old sweep that was never re-checked. It ships —
+`RegionPickerOverlay`, the "Area" card, `RegionCapture` handled through every
+branch of `CaptureSource`. Corrected 2026-08-30. A comparison table is a claim
+about this codebase as much as about anyone else's, and this row was not
+verified against it.)*
 
 *Transitions* are on all five. A cut with no transition is a defensible default
 and an editor that cannot make one at all is a missing feature, not a stance.

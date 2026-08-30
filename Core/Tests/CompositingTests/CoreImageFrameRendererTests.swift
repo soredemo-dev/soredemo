@@ -683,3 +683,106 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
             \(changed) of \(with.count) pixels changed — that is a fill or a tint, not a border
             """)
 }
+
+/// **Artwork reaches the pixels, and its absence falls back rather than blanking.**
+///
+/// The artwork path is new and the drawn path is not, so the failure worth catching is the
+/// quiet one: artwork handed over and never consulted, which looks exactly like a build where
+/// nobody handed any over. A synthetic image is used rather than a real cursor — this target
+/// may not touch AppKit, and what is being checked is the wiring, not macOS's artwork.
+@Test func handedOverArtworkIsWhatGetsDrawn() throws {
+    let width = 640, height = 360
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    func rendered() throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+        let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                     sourceWidth: width, sourceHeight: height, style: .default)
+        let placement = NormalizedPointerPlacement(
+            x: Double(width) / 2, y: Double(height) / 2, ripplePhase: nil, shape: .arrow)
+        let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
+                              card: base.card, cornerRadius: base.cornerRadius,
+                              style: base.style, pointer: placement)
+        try renderer.render(plan, source: source, camera: nil, into: destination)
+        return try pixels(of: destination)
+    }
+    func identical(_ a: [(r: UInt8, g: UInt8, b: UInt8)],
+                   _ b: [(r: UInt8, g: UInt8, b: UInt8)]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { $0 == $1 }
+    }
+
+    let drawnPath = try rendered()
+
+    // A solid magenta square, 32×32 points, hotspot in the middle. Nothing macOS would ever
+    // draw, which is the point: if these pixels appear, the artwork was consulted.
+    let side = 64
+    var bytes = [UInt8](repeating: 0, count: side * side * 4)
+    for index in stride(from: 0, to: bytes.count, by: 4) {
+        bytes[index] = 255; bytes[index + 1] = 0; bytes[index + 2] = 255; bytes[index + 3] = 255
+    }
+    // `unsafe`: `CGImage` reads through the provider's bytes without the compiler
+    // being able to see that they outlive it. Safe here — `Data(bytes) as CFData`
+    // is retained by the provider, which is retained by the image, for as long as
+    // this test holds it.
+    let provider = try unsafe #require(CGDataProvider(data: Data(bytes) as CFData))
+    let synthetic = try unsafe #require(unsafe CGImage(
+        width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32,
+        bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+
+    // `unsafe`: a `nonisolated(unsafe)` static, written and read by this test alone.
+    // The suite is serialised on this static by construction — no other test in it
+    // touches artwork — and the `defer` puts it back whichever way this one exits.
+    unsafe SystemCursorArtwork.byShape = [.arrow: CursorArtwork(
+        image: synthetic, pointWidth: 32, pointHeight: 32, hotspotX: 16, hotspotY: 16)]
+    defer { unsafe SystemCursorArtwork.byShape = [:] }
+
+    let withArtwork = try rendered()
+    let artworkChangedThePixels = !identical(drawnPath, withArtwork)
+    #expect(artworkChangedThePixels,
+            "artwork was handed over and the frame came out identical — nothing consulted it")
+
+    // And the fallback is a fallback, not a hole: clearing the table returns the drawn path
+    // exactly, so a shape macOS has no artwork for still draws.
+    unsafe SystemCursorArtwork.byShape = [:]
+    let clearedAgain = try rendered()
+    let fallbackIsExact = identical(drawnPath, clearedAgain)
+    #expect(fallbackIsExact,
+            "clearing the artwork did not return the drawn path — the fallback is not a fallback")
+}
+
+/// The canvas is sized from whatever is actually drawn. The arrow's real artwork reaches
+/// 35 points below its hotspot against the drawn path's 24.5, so a canvas sized for the path
+/// would clip it — a corner missing from every frame, which reads as a rendering artefact
+/// rather than as a bug.
+@Test func theCanvasIsSizedForTheArtworkNotOnlyForThePath() {
+    let arrowLike = CursorArtwork(image: onePixel(), pointWidth: 28, pointHeight: 40,
+                                  hotspotX: 5, hotspotY: 5)
+    #expect(arrowLike.maxExtentFromHotspot == 35)
+    #expect(arrowLike.maxExtentFromHotspot > CursorArt.pointerMaxExtent,
+            "the measurement this canvas rule exists for no longer holds")
+
+    // A hotspot at the centre reaches half the artwork in every direction.
+    let centred = CursorArtwork(image: onePixel(), pointWidth: 32, pointHeight: 32,
+                                hotspotX: 16, hotspotY: 16)
+    #expect(centred.maxExtentFromHotspot == 16)
+}
+
+/// One opaque white pixel, for the two artwork values whose EXTENT is what is being
+/// checked — `maxExtentFromHotspot` reads the point size and the hotspot and never
+/// the image, so the image only has to exist.
+private func onePixel() -> CGImage {
+    // `unsafe`: same argument as the synthetic image above — the provider retains
+    // the bytes and the image retains the provider.
+    let provider = unsafe CGDataProvider(data: Data([255, 255, 255, 255]) as CFData)!
+    return unsafe CGImage(width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32,
+                   bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                   provider: provider, decode: nil, shouldInterpolate: false,
+                   intent: .defaultIntent)!
+}

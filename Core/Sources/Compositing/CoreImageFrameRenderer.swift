@@ -3,6 +3,7 @@ import CoreVideo
 import Foundation
 // `CursorArt` and `HeadlessGeometryBridge` are same-module names and need no import.
 import Metal
+import Project
 import Render
 
 /// A `FrameRendering` implementation on Core Image over a Metal-backed context.
@@ -827,13 +828,70 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// The pointer art for one placement, translated to its output-pixel position. Returns an empty
     /// image if the bitmap could not be created, so a hiccup loses the pointer, not the frame.
     /// `cursorCanvasLock` is never held across the caller's GPU render.
+    /// The system's own artwork, drawn so its HOTSPOT lands on the canvas origin.
+    ///
+    /// The origin is where the pointer actually is, and every drawn path in
+    /// `CursorArt` is built around it for the same reason. An artwork placed by
+    /// its corner instead would put the arrow's tip 5 points away from where
+    /// somebody clicked, which is exactly the error `PointerSample.hotspot` exists
+    /// to prevent.
+    ///
+    /// The context has been translated to the canvas centre and rotated by the
+    /// lean already, so this draws in hotspot-relative coordinates.
+    ///
+    /// **Sized in POINTS times `scale`, not in its own pixels.** A 10× arrow and a
+    /// 2× hand are the same size on screen, and `scale` is the same multiplier the
+    /// paths take — so turning artwork on does not change how big the cursor is,
+    /// only what it is made of.
+    private func drawArtwork(_ artwork: CursorArtwork, into bitmap: CGContext, scale: Double) {
+        let width = artwork.pointWidth * scale
+        let height = artwork.pointHeight * scale
+        // Core Graphics draws bottom-up and the hotspot is measured from the top,
+        // so the vertical offset is the distance from the hotspot to the BOTTOM.
+        let originX = -artwork.hotspotX * scale
+        let originY = -(artwork.pointHeight - artwork.hotspotY) * scale
+        bitmap.interpolationQuality = .high
+        bitmap.draw(artwork.image,
+                    in: HeadlessGeometryBridge.rect(x: originX, y: originY,
+                                                    width: width, height: height))
+    }
+
+    /// The drawn approximation, for a shape with no artwork.
+    ///
+    /// Every case named, no `default`: a new `PointerShape` is a compile error
+    /// here, so its art — or its explicit fallback — is a decision rather than an
+    /// accident. `nil` is "unrecorded" and `.other` is "recorded, unnamed"; both
+    /// draw the arrow by design, and the review UI tells them apart.
+    private func drawPath(for shape: PointerShape?, into bitmap: CGContext, scale: Double) {
+        bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        bitmap.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        bitmap.setLineWidth(1.5)
+        let art: CGPath
+        switch shape {
+        case .iBeam:            art = CursorArt.iBeamPath(scale: scale)
+        case .arrow, .other, nil: art = CursorArt.pointerPath(scale: scale)
+        case .pointingHand:     art = CursorArt.pointingHandPath(scale: scale)
+        case .crosshair:        art = CursorArt.crosshairPath(scale: scale)
+        case .resizeLeftRight:  art = CursorArt.resizeLeftRightPath(scale: scale)
+        case .resizeUpDown:     art = CursorArt.resizeUpDownPath(scale: scale)
+        }
+        bitmap.addPath(art)
+        bitmap.drawPath(using: .fillStroke)
+    }
+
     private func cursorImage(for placement: NormalizedPointerPlacement, outputHeight: Int,
                              style: CursorStyle) -> CIImage {
         // The chosen scale multiplies the density scale rather than replacing it: the second is
         // about the export's pixels and the first is about how big a person wants the cursor.
         let scale = Self.pointerScale(forOutputHeight: outputHeight) * style.scale
+        // The real artwork reaches further from its hotspot than the drawn paths
+        // do — the arrow is 40 points tall with its hotspot 5 points down — so the
+        // canvas is sized from whichever is actually going to be drawn. Sizing it
+        // for the path alone clips the artwork at the bitmap's edge.
+        let artwork = SystemCursorArtwork.artwork(for: placement.shape)
+        let drawnExtent = artwork?.maxExtentFromHotspot ?? CursorArt.pointerMaxExtent
         let halfExtent = max(CursorArt.rippleEndRadius * style.clickSize,
-                             scale * CursorArt.pointerMaxExtent)
+                             scale * drawnExtent)
             + Self.cursorCanvasPadding
         let size = Int((halfExtent * 2).rounded(.up))
         // The tip, the origin both paths are built around, sits at the canvas centre.
@@ -854,30 +912,15 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             }
             bitmap.setAlpha(placement.opacity)
 
-            bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-            bitmap.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
-            bitmap.setLineWidth(1.5)
-            // Every case named, no `default`: a new `PointerShape` is a compile error here,
-            // so its art (or its explicit fallback) is a decision rather than an accident.
-            // `nil` is "unrecorded" and `.other` is "recorded, unnamed" — both draw the
-            // arrow by design (`PointerShape`'s own doc); the review UI tells them apart.
-            let art: CGPath
-            switch placement.shape {
-            case .iBeam:
-                art = CursorArt.iBeamPath(scale: scale)
-            case .arrow, .other, nil:
-                art = CursorArt.pointerPath(scale: scale)
-            case .pointingHand:
-                art = CursorArt.pointingHandPath(scale: scale)
-            case .crosshair:
-                art = CursorArt.crosshairPath(scale: scale)
-            case .resizeLeftRight:
-                art = CursorArt.resizeLeftRightPath(scale: scale)
-            case .resizeUpDown:
-                art = CursorArt.resizeUpDownPath(scale: scale)
+            // **The system's own artwork when there is any, the drawn path when
+            // there is not.** The fallback is not a lesser path taken on failure:
+            // every headless test composes without artwork, and so does any shape
+            // a future macOS adds before this app has classified it.
+            if let artwork {
+                drawArtwork(artwork, into: bitmap, scale: scale)
+            } else {
+                drawPath(for: placement.shape, into: bitmap, scale: scale)
             }
-            bitmap.addPath(art)
-            bitmap.drawPath(using: .fillStroke)
 
             // `ripplePhase == nil` means "not clicking", so nothing is drawn.
             if let phase = placement.ripplePhase, style.clickEffect != .none {
