@@ -31,16 +31,48 @@ enum EditorWindowPresence {
     ///
     /// Matched on the window's `identifier`, which SwiftUI stamps from the scene's id, rather
     /// than on the title: the title is the recording's name and changes with it.
+    ///
+    /// **Full screen is a property of being shown, not an event on the window's first key.**
+    /// `WindowConfigurator` enters it from a one-shot `didBecomeKey` observer, which fires when
+    /// SwiftUI CREATES the window and never again — so the first recording opened full screen
+    /// and every later one, arriving at a window that already existed, did not. Reported as
+    /// exactly that: "when finish recording it still doesn't go into full screen for the
+    /// editor".
+    ///
+    /// This is the same correction the opening SIZE went through: a rule spent by one event is
+    /// a rule that stops applying, and the honest shape is a property re-established each time.
+    ///
+    /// **The cost, stated rather than discovered**: somebody who deliberately left the editor
+    /// windowed and then records again is put back into full screen. Acceptable here and not in
+    /// general, because this function has ONE caller — a new recording or a newly opened project
+    /// — and that is precisely the moment full screen is wanted. It is not a general
+    /// "bring the editor forward".
     static func openEditor(_ open: (String) -> Void) {
         willOpen()
         if let existing = NSApp.windows.first(where: {
             $0.identifier?.rawValue.contains(WindowID.editor) == true && $0.isVisible
         }) {
             existing.makeKeyAndOrderFront(nil)
+            showFullScreen(existing)
         } else {
+            // A window SwiftUI has not built yet has no `NSWindow` to toggle;
+            // `WindowConfigurator` takes that path when the window becomes key.
             open(WindowID.editor)
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Puts an already-open editor into full screen, if it is not there.
+    ///
+    /// Reads `WindowConfigurator.opensFullScreen` rather than a switch of its own: two switches
+    /// for one behaviour is two switches that disagree, and the one over there is the one the
+    /// creation path already obeys.
+    private static func showFullScreen(_ window: NSWindow) {
+        guard WindowConfigurator.opensFullScreen,
+              !window.styleMask.contains(.fullScreen) else { return }
+        // After the window is key, for `WindowConfigurator`'s reason: AppKit is still settling
+        // the frame, and a toggle issued into that produces the transition from the old size.
+        DispatchQueue.main.async { window.toggleFullScreen(nil) }
     }
 
     static func willOpen() {

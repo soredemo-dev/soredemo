@@ -149,6 +149,24 @@ struct ExportJob: Identifiable, Sendable {
 
     var filename: String { destination.lastPathComponent }
 
+    /// One reading, in the reader's own language.
+    ///
+    /// **Six keys, one per case, and the numbers interpolated here rather than in `Core`.** The
+    /// first version built the sentence in the package — `"about 3 minutes left"` — which cannot
+    /// be a string-table key: there is one key per number. Interpolating on this side turns
+    /// `\(value)` into `%lld`, which the tables carry as a single entry.
+    static func timeText(_ reading: ExportETA.Reading) -> Text {
+        switch reading {
+        case .aFewSeconds: Text("a few seconds left")
+        case .seconds(let value): Text("about \(value) seconds left")
+        case .aMinute: Text("about a minute left")
+        case .minutes(let value): Text("about \(value) minutes left")
+        case .anHour: Text("about an hour left")
+        case .hours(let value): Text("about \(value) hours left")
+        }
+    }
+
+
     enum Status: Sendable {
         case waiting, running, finished, failed, cancelled
 
@@ -225,7 +243,7 @@ private struct ExportJobRow: View {
                     HStack(spacing: Space.tight) {
                         Text("\(job.filename) \u{2014} \(Self.label(job))")
                         Text("\u{00B7}").foregroundStyle(.secondary)
-                        Self.timeText(reading).foregroundStyle(.secondary)
+                        ExportJob.timeText(reading).foregroundStyle(.secondary)
                     }
                 }
             } else {
@@ -249,22 +267,6 @@ private struct ExportJobRow: View {
         }
     }
 
-    /// One reading, in the reader's own language.
-    ///
-    /// **Six keys, one per case, and the numbers interpolated here rather than in `Core`.** The
-    /// first version built the sentence in the package — `"about 3 minutes left"` — which cannot
-    /// be a string-table key: there is one key per number. Interpolating on this side turns
-    /// `\(value)` into `%lld`, which the tables carry as a single entry.
-    static func timeText(_ reading: ExportETA.Reading) -> Text {
-        switch reading {
-        case .aFewSeconds: Text("a few seconds left")
-        case .seconds(let value): Text("about \(value) seconds left")
-        case .aMinute: Text("about a minute left")
-        case .minutes(let value): Text("about \(value) minutes left")
-        case .anHour: Text("about an hour left")
-        case .hours(let value): Text("about \(value) hours left")
-        }
-    }
 
     /// **Puts the FILE on the pasteboard, not its path.** Pasting into Mail, Slack or Messages
     /// then attaches the video, which is what "copy" means for a thing somebody just exported.

@@ -182,7 +182,7 @@ private func tone(hz: Double, amplitude: Double, seconds: Double,
 /// silently discard a slider they had just moved.
 @Test func levellingMultipliesTheChosenGain() {
     let levelled = AudioMix(gains: [.microphone: 0.5], targetLoudness: -16)
-    let volume = AudioMixBuilder.volume(for: .microphone, in: levelled, measured: -22)
+    let volume = AudioMixBuilder.volume(for: .microphone, in: levelled, measured: Loudness.Reading(integrated: -22, peak: 0))
     // −22 → −16 is +6 dB, and the slider is at a half.
     #expect(abs(volume - 0.5 * pow(10, 6.0 / 20)) < 1e-9, "volume was \(volume)")
 }
@@ -191,21 +191,21 @@ private func tone(hz: Double, amplitude: Double, seconds: Double,
 /// measures, because muting is applied before levelling can multiply it.
 @Test func levellingOffOrUnmeasuredLeavesTheLevelAlone() {
     let plain = AudioMix(gains: [.microphone: 0.8])
-    #expect(abs(AudioMixBuilder.volume(for: .microphone, in: plain, measured: -30) - 0.8) < 1e-9)
+    #expect(abs(AudioMixBuilder.volume(for: .microphone, in: plain, measured: Loudness.Reading(integrated: -30, peak: 0)) - 0.8) < 1e-9)
 
     let levelled = AudioMix(gains: [.microphone: 0.8], targetLoudness: -16)
     #expect(abs(AudioMixBuilder.volume(for: .microphone, in: levelled, measured: nil) - 0.8) < 1e-9,
             "an unmeasured source was levelled from a measurement that does not exist")
 
     let muted = AudioMix(muted: [.microphone], targetLoudness: -16)
-    #expect(AudioMixBuilder.volume(for: .microphone, in: muted, measured: -40) == 0,
+    #expect(AudioMixBuilder.volume(for: .microphone, in: muted, measured: Loudness.Reading(integrated: -40, peak: 0)) == 0,
             "a muted source was levelled back into audibility")
 }
 
 /// A track the recorder did not write is passed through untouched.
 @Test func aTrackWithNoKnownSourceIsLeftAtUnity() {
     let levelled = AudioMix(gains: [.microphone: 0.2], targetLoudness: -16)
-    #expect(AudioMixBuilder.volume(for: nil, in: levelled, measured: -40) == 1)
+    #expect(AudioMixBuilder.volume(for: nil, in: levelled, measured: Loudness.Reading(integrated: -40, peak: 0)) == 1)
 }
 
 // MARK: - the target on the model
@@ -234,4 +234,70 @@ private func tone(hz: Double, amplitude: Double, seconds: Double,
     let levelled = AudioMix.unchanged.settingTargetLoudness(-16)
     #expect(levelled.setting(.microphone, gain: 0.5).targetLoudness == -16)
     #expect(levelled.setting(.microphone, muted: true).targetLoudness == -16)
+}
+
+// MARK: - the ceiling levelling may not push a track through
+
+/// **Levelling is an average and says nothing about peaks, which is how an export came to
+/// clip.** Measured in a real one before this ceiling existed: 544 samples over full scale,
+/// peaking at 1.0292. Nothing reported it, because nothing was looking.
+///
+/// A track at −24 LUFS asked for −16 wants 8 dB. If it already peaks at 0.98 it has 0.18 dB of
+/// room, and the gain has to be the smaller of the two.
+@Test func levellingIsCappedByHowCloseATrackAlreadyIsToTheTop() {
+    let quietButPeaky = Loudness.Reading(integrated: -24, peak: 0.98)
+    let wanted = Loudness.gain(from: -24, to: -16)
+    let allowed = Loudness.levellingGain(for: quietButPeaky, to: -16)
+    #expect(wanted > 2.5, "the loudness gain this test is about is not what it was")
+    #expect(allowed < wanted, "levelling was not capped by the peak at all")
+    // And what comes out lands ON the ceiling rather than under it by a margin nobody chose.
+    #expect(abs(quietButPeaky.peak * allowed - Loudness.peakCeiling) < 1e-9)
+}
+
+/// A track with room to spare is levelled by exactly what loudness asked for. The ceiling is a
+/// bound, not a second opinion about the target.
+@Test func aTrackWithHeadroomIsLevelledByExactlyWhatLoudnessAsked() {
+    let quiet = Loudness.Reading(integrated: -30, peak: 0.05)
+    let target = -16.0
+    #expect(Loudness.levellingGain(for: quiet, to: target)
+            == Loudness.gain(from: -30, to: target))
+}
+
+/// Silence has no peak to protect and no loudness to correct; the ceiling must not turn that
+/// into a division by zero or a gain of infinity.
+@Test func silenceIsNotDividedBy() {
+    let silent = Loudness.Reading(integrated: nil, peak: 0)
+    #expect(Loudness.levellingGain(for: silent, to: -16) == 1)
+    #expect(silent.peak == 0)
+}
+
+/// The ceiling is a SAMPLE peak and the claim is written as the weaker one. A track brought
+/// exactly to it cannot clip; whether it exceeds 0 dBTP after reconstruction is a question this
+/// measurement does not answer, and the constant's own doc says so.
+@Test func theCeilingSitsOneDecibelUnderFullScale() {
+    #expect(Loudness.peakCeilingDB == -1)
+    #expect(abs(Loudness.peakCeiling - 0.8912509) < 1e-6)
+    #expect(Loudness.peakCeiling < 1, "a ceiling at or above full scale is not a ceiling")
+}
+
+/// **A reading refuses a peak it cannot use.** The value arrives from a decoder walking someone
+/// else's file, and a NaN would propagate into the division and out through the whole mix.
+@Test func aReadingRefusesANonFinitePeak() {
+    #expect(Loudness.Reading(integrated: -20, peak: .nan).peak == 0)
+    #expect(Loudness.Reading(integrated: -20, peak: .infinity).peak == 0)
+    #expect(Loudness.Reading(integrated: -20, peak: -0.5).peak == 0)
+}
+
+/// The person's own gain is not capped — only the levelling is. Somebody who drives a track
+/// into the red has authored that, and quietly undoing it is the producer-value rule broken.
+@Test func onlyTheDerivedGainIsCappedNotThePersonsOwn() {
+    let peaky = Loudness.Reading(integrated: -10, peak: 0.99)
+    var settings = AudioMix(targetLoudness: -16)
+    settings = settings.setting(.microphone, gain: 2)
+    let volume = AudioMixBuilder.volume(for: .microphone, in: settings, measured: peaky)
+    let levellingAlone = Loudness.levellingGain(for: peaky, to: -16)
+    #expect(abs(volume - 2 * levellingAlone) < 1e-9,
+            "the person's gain of 2 was not carried through untouched")
+    #expect(volume > Loudness.peakCeiling,
+            "the authored gain was silently capped, which is the rule this test exists for")
 }

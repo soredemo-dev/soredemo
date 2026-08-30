@@ -96,6 +96,8 @@ public enum Loudness {
         private var filled = 0
         private var runningSum = 0.0
         private var sinceLastBlock = 0
+        /// The largest absolute sample seen, unfiltered. See `Reading.peak`.
+        private var observedPeak = 0.0
 
         /// One entry per emitted 400 ms block.
         private(set) public var blockPower: [Double] = []
@@ -123,6 +125,9 @@ public enum Loudness {
                 var sum = 0.0
                 for channel in 0..<channels {
                     let x = Double(samples[frame * channels + channel])
+                    // Before the filters, and over EVERY channel rather than the counted ones:
+                    // a peak in a channel the loudness ignores still clips the file.
+                    if abs(x) > observedPeak { observedPeak = abs(x) }
                     let stage1 = shelf[channel].step(x, shelfC)
                     let y = highPass[channel].step(stage1, highPassC)
                     if channel < counted { sum += y * y }
@@ -140,6 +145,12 @@ public enum Loudness {
                     blockPower.append(max(runningSum, 0) / Double(blockLength))
                 }
             }
+        }
+
+        /// Everything one pass saw. The peak is available even when the loudness is `nil`:
+        /// a track can be too quiet to have a loudness and still have a sample in it.
+        public func reading() -> Reading {
+            Reading(integrated: integrated(), peak: observedPeak)
         }
 
         public func integrated() -> Double? {
@@ -176,6 +187,60 @@ public enum Loudness {
 
     /// The linear gain that moves `measured` to `target`, bounded by `maximumAdjustmentDB`.
     /// `1` when there is nothing to move — a caller may pass a measurement it could not make.
+    /// What one pass over a track saw: how loud it is, and how close it already is to the top.
+    ///
+    /// **Two numbers because levelling needs both and loudness alone cannot say the second.**
+    /// Integrated loudness is an average over gated 400 ms blocks — by construction it says
+    /// nothing about peaks, which is right for choosing a target and useless for staying under
+    /// the ceiling on the way there. A track measured at −24 LUFS with a sample already at
+    /// 0.98 has 8 dB of levelling to do and 0.2 dB of room to do it in.
+    ///
+    /// Measured in a real export before this existed: 544 samples over 1.0, peaking at 1.0292.
+    /// Nothing reported it, because nothing was looking.
+    public struct Reading: Hashable, Sendable {
+        /// Integrated loudness in LUFS, or `nil` when nothing passed the gates — silence has
+        /// no loudness, and a very negative number is not the same answer as no answer.
+        public let integrated: Double?
+        /// The largest absolute sample, on the UNFILTERED signal.
+        ///
+        /// Not the K-weighted one: the shelf lifts everything above 2 kHz by about 4 dB, so a
+        /// peak taken after it is a peak of a signal no file contains. Zero for a silent track,
+        /// which is honest — there is nothing to clip.
+        public let peak: Double
+
+        public init(integrated: Double?, peak: Double) {
+            self.integrated = integrated
+            self.peak = max(0, peak.isFinite ? peak : 0)
+        }
+    }
+
+    /// How close to full scale a levelled track is allowed to come.
+    ///
+    /// **−1 dBFS, and this is a SAMPLE peak rather than a true peak.** A true-peak meter
+    /// oversamples four times to catch what the reconstruction filter will do between samples,
+    /// and broadcast practice asks for −1 dBTP against that. This measures the samples that are
+    /// actually in the file, which is cheaper by a factor of four and is what the one pass this
+    /// already makes can see. The claim is therefore the weaker one, and it is written here
+    /// rather than implied: a track at exactly this ceiling may still exceed 0 dBTP after
+    /// reconstruction. It cannot CLIP, which is what was happening.
+    public static let peakCeilingDB: Double = -1
+    public static var peakCeiling: Double { pow(10, peakCeilingDB / 20) }
+
+    /// The levelling gain, capped so it cannot push a track into the ceiling.
+    ///
+    /// **The cap is on the DERIVED gain, never on the person's own.** Levelling is this app's
+    /// arithmetic and may be overruled by arithmetic; a gain somebody set by hand is an authored
+    /// value, and silently quietening it would be the producer-value rule broken. So a person
+    /// who deliberately drives a track into clipping still can.
+    ///
+    /// `peak == 0` — a silent track — has no ceiling to hit and the loudness gain stands. It
+    /// will be `1` anyway, since silence has no measured loudness.
+    public static func levellingGain(for reading: Reading, to target: Double) -> Double {
+        let wanted = gain(from: reading.integrated, to: target)
+        guard reading.peak > 0 else { return wanted }
+        return min(wanted, peakCeiling / reading.peak)
+    }
+
     public static func gain(from measured: Double?, to target: Double) -> Double {
         guard let measured, measured.isFinite, target.isFinite else { return 1 }
         let decibels = min(max(target - measured, -maximumAdjustmentDB), maximumAdjustmentDB)
@@ -259,13 +324,13 @@ extension Loudness {
     /// when a loud passage is trimmed, so the microphone's level would drift as a person works.
     /// The master's audio tracks are in `AudioMixBuilder.trackOrder`, which is the order a
     /// composition built from it keeps, so the indices line up.
-    public nonisolated static func measure(contentsOf url: URL) async -> [Int: Double] {
+    public nonisolated static func measure(contentsOf url: URL) async -> [Int: Reading] {
         await measure(AVURLAsset(url: url))
     }
 
-    public nonisolated static func measure(_ asset: sending AVAsset) async -> [Int: Double] {
+    public nonisolated static func measure(_ asset: sending AVAsset) async -> [Int: Reading] {
         guard let tracks = try? await asset.loadTracks(withMediaType: .audio) else { return [:] }
-        var measured: [Int: Double] = [:]
+        var measured: [Int: Reading] = [:]
         for (index, track) in tracks.enumerated() {
             if let value = await measure(track: track, of: asset) { measured[index] = value }
         }
@@ -274,7 +339,7 @@ extension Loudness {
 
     /// One track, read start to finish. `nil` when the reader refuses, the format is not one
     /// this can describe, or nothing passed the gates.
-    static func measure(track: AVAssetTrack, of asset: AVAsset) async -> Double? {
+    static func measure(track: AVAssetTrack, of asset: AVAsset) async -> Reading? {
         guard let descriptions = try? await track.load(.formatDescriptions),
               let description = descriptions.first,
               let basic = description.audioStreamBasicDescription else { return nil }
@@ -315,6 +380,6 @@ extension Loudness {
             meter.append(samples)
         }
         guard reader.status == .completed || reader.status == .cancelled else { return nil }
-        return meter.integrated()
+        return meter.reading()
     }
 }

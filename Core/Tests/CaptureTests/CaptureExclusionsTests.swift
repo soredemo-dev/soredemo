@@ -206,3 +206,63 @@ struct CaptureExclusionsTests {
         #expect(fields(of: all).count >= 2)
     }
 }
+
+// MARK: - the desktop widgets
+
+/// **The sign is the discriminator, not the level.** Measured on macOS 26 with three widgets
+/// on the desktop, one process draws both them and Notification Center:
+///
+///     layer -2147483601   360×360   the calendar
+///     layer -2147483601   360×180   the weather
+///     layer -2147483601   360×180   the battery
+///     layer          21  1512×982   Notification Center
+///
+/// Excluding the application takes both, so the panel has to come back — and it is separated
+/// by SIGN rather than by that measured number, which has no published constant behind it.
+@Test func aDesktopWidgetIsToldApartFromTheNotificationPanel() {
+    let widgets = DesktopWidgetWindow.bundleIdentifier
+    // The three measured widget layers, and the panel's.
+    #expect(DesktopWidgetWindow.isADesktopWidget(bundleIdentifier: widgets,
+                                                 windowLayer: -2_147_483_601))
+    #expect(DesktopWidgetWindow.isADesktopWidget(bundleIdentifier: widgets, windowLayer: 21)
+            == false, "the notification panel was taken for a widget")
+    // A level Apple might move it to, still below every ordinary window.
+    #expect(DesktopWidgetWindow.isADesktopWidget(bundleIdentifier: widgets, windowLayer: -5),
+            "the rule pinned one measured level instead of the sign")
+}
+
+/// Both halves are required, for `DockWindow.isTheDock`'s reason: excluding somebody else's
+/// desktop-level window from their own recording is worse than leaving a widget in.
+@Test func anotherApplicationsDesktopWindowIsNotAWidget() {
+    #expect(DesktopWidgetWindow.isADesktopWidget(bundleIdentifier: "com.example.wallpaper",
+                                                 windowLayer: -2_147_483_601) == false)
+    #expect(DesktopWidgetWindow.isADesktopWidget(bundleIdentifier: nil,
+                                                 windowLayer: -2_147_483_601) == false)
+}
+
+/// Widgets cost a window query, so they belong in `wantsAnything` — unlike the menu bar,
+/// which is a property on the filter and needs no list. A person who wants nothing hidden
+/// still pays for nothing.
+@Test func askingForWidgetsCostsTheQueryAndAskingForTheMenuBarDoesNot() {
+    #expect(CaptureExclusions.none.wantsAnything == false)
+    #expect(CaptureExclusions(hidesMenuBar: true).wantsAnything == false)
+    #expect(CaptureExclusions(hidesDesktopWidgets: true).wantsAnything)
+    #expect(CaptureExclusions(hidesDock: true).wantsAnything)
+}
+
+/// A project written before this switch existed opens with it off, which is the honest
+/// reading of a file made when the switch did not exist.
+@Test func aProjectWithoutTheWidgetSwitchDecodesWithItOff() throws {
+    let older = Data(#"{"hidesDock":true,"hidesMenuBar":true}"#.utf8)
+    let decoded = try JSONDecoder().decode(CaptureExclusions.self, from: older)
+    #expect(decoded.hidesDock)
+    #expect(decoded.hidesMenuBar)
+    #expect(decoded.hidesDesktopWidgets == false)
+
+    // And it survives its own round trip once it is set.
+    let asked = CaptureExclusions(hidesDock: false, hidesMenuBar: false,
+                                  hidesDesktopWidgets: true)
+    let coded = try JSONDecoder().decode(CaptureExclusions.self,
+                                         from: try JSONEncoder().encode(asked))
+    #expect(coded == asked)
+}

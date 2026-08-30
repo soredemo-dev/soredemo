@@ -67,7 +67,7 @@ public enum MP4Exporter {
                                           edit: EditTimeline? = nil,
                                           assetIsAlreadyEdited: Bool = false,
                                           audioMix: AudioMix = .unchanged,
-                                          measuredLoudness: [Int: Double] = [:],
+                                          measuredLoudness: [Int: Loudness.Reading] = [:],
                                           musicTrackID: CMPersistentTrackID? = nil,
                                           musicRamps: [MusicDucking.Ramp] = [],
                                           frameRate: Int = 60,
@@ -222,7 +222,7 @@ public enum MP4Exporter {
         asset: AVAsset, videoTracks: [AVAssetTrack], audioTracks: [AVAssetTrack],
         composition: AVVideoComposition, frameDuration: CMTime, sessionStart: CMTime,
         writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?,
-        audioMix: AudioMix, measuredLoudness: [Int: Double],
+        audioMix: AudioMix, measuredLoudness: [Int: Loudness.Reading],
         musicTrackID: CMPersistentTrackID?, musicRamps: [MusicDucking.Ramp],
         onProgress: (@Sendable (ExportProgress) -> Void)?
     ) async throws -> (framesRead: Int, framesWritten: Int, audioWritten: Int) {
@@ -425,7 +425,7 @@ public enum MP4Exporter {
     /// three audio tracks did not come from this recorder, and silencing something because it
     /// was not expected is worse than passing it through.
     nonisolated static func mix(_ settings: AudioMix, over tracks: [AVAssetTrack],
-                                measured: [Int: Double] = [:],
+                                measured: [Int: Loudness.Reading] = [:],
                                 musicTrackID: CMPersistentTrackID? = nil,
                                 musicRamps: [MusicDucking.Ramp] = []) -> AVAudioMix {
         AudioMixBuilder.mix(settings, over: tracks, measured: measured,

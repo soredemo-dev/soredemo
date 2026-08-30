@@ -309,6 +309,22 @@ final class RecordingCoordinator {
     }
     static let hidesMenuBarKey = "hidesMenuBar"
 
+    /// Whether the desktop widgets are kept out of the picture.
+    ///
+    /// **Off by default, like the other three, and for the same reason**: a
+    /// recording that silently omits part of the screen is not what pressing
+    /// Record is understood to mean. The case for ON is the strongest of the four
+    /// — the widgets say what is in somebody's calendar this afternoon, where
+    /// they are and what their battery is doing, which is a row of small
+    /// disclosures nobody meant to publish — and it is still not enough to
+    /// decide for them.
+    var hidesDesktopWidgets: Bool {
+        didSet {
+            UserDefaults.standard.set(hidesDesktopWidgets, forKey: Self.hidesDesktopWidgetsKey)
+        }
+    }
+    static let hidesDesktopWidgetsKey = "hidesDesktopWidgets"
+
     /// Whether dragging the playhead plays the moment under it.
     ///
     /// **On by default, unlike the three recording switches above.** Those change what a
@@ -404,6 +420,7 @@ final class RecordingCoordinator {
         hidesDesktopIcons = UserDefaults.standard.bool(forKey: Self.hidesDesktopIconsKey)
         hidesDock = UserDefaults.standard.bool(forKey: Self.hidesDockKey)
         hidesMenuBar = UserDefaults.standard.bool(forKey: Self.hidesMenuBarKey)
+        hidesDesktopWidgets = UserDefaults.standard.bool(forKey: Self.hidesDesktopWidgetsKey)
         // **Defaults to ON, so `bool(forKey:)`'s zero is not the answer.** A key never written
         // answers `false`, which for a switch that should start on is the same silent defect
         // `countdownSeconds` documents.
@@ -692,7 +709,8 @@ final class RecordingCoordinator {
                                         // second segment opens. See `CaptureExclusions`.
                                         exclusions: CaptureExclusions(
                                             hidesDock: hidesDock,
-                                            hidesMenuBar: hidesMenuBar))
+                                            hidesMenuBar: hidesMenuBar,
+                                            hidesDesktopWidgets: hidesDesktopWidgets))
         session = newSession
         // **The camera starts BEFORE the countdown, not after.** A camera takes a moment to
         // wake and expose; started with the capture, its first second is a dark frame settling.

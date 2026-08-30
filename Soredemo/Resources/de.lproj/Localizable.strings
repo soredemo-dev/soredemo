@@ -299,6 +299,7 @@
 "Hide desktop icons" = "Schreibtischsymbole ausblenden";
 "Hide the Dock" = "Dock ausblenden";
 "Hide the menu bar" = "Menüleiste ausblenden";
+"Hide the desktop widgets" = "Schreibtisch-Widgets ausblenden";
 "Screen recording, microphone and camera" = "Bildschirmaufnahme, Mikrofon und Kamera";
 "Review…" = "Prüfen…";
 "Resize the timeline" = "Zeitleiste in der Größe ändern";
@@ -340,3 +341,4 @@
 "Revert every edit" = "Alle Änderungen zurücknehmen";
 "Play audio while dragging the playhead" = "Beim Ziehen des Abspielkopfs Ton wiedergeben";
 "While editing" = "Beim Bearbeiten";
+"The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "Wetter, Kalender und Batterieanzeige auf dem Schreibtisch. Sie verraten mehr, als sie scheinen — wo Sie sind, was heute Nachmittag ansteht. Wie beim Dock ändert sich nichts an Ihrem Mac, und die Mitteilungszentrale lässt sich beim Aufnehmen weiterhin öffnen.";

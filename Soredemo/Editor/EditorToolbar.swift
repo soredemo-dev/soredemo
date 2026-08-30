@@ -1,3 +1,4 @@
+import Compositing
 import AppKit
 import Overlays
 import SwiftUI
@@ -22,6 +23,8 @@ struct EditorToolbar: View {
     /// control disabled rather than absent: a control that appears when a recording loads is one
     /// people do not find.
     var mediaURL: URL?
+    /// The shared queue, observed so this row appears and disappears with a job.
+    @State private var exportQueue = ExportQueue.shared
     /// True while the timeline below is collapsed, so the chevron points the right way.
     var isCollapsed = false
     /// `nil` leaves the collapse control out — the toolbar is useful without one.
@@ -42,6 +45,7 @@ struct EditorToolbar: View {
             stillness
             reverting
             Spacer(minLength: Space.regular)
+            exportProgress
             zoom
             if let onToggleCollapse {
                 separator
@@ -53,6 +57,48 @@ struct EditorToolbar: View {
         .padding(.horizontal, Space.regular)
         .frame(height: Self.height)
         .background(Theme.Surface.raised)
+    }
+
+    /// How far the running export has got, and how long is left.
+    ///
+    /// **Here rather than only in the window's toolbar, because that toolbar is not on screen
+    /// when it matters.** The export progress lives in an `ExportQueueButton` toolbar item,
+    /// which is the right place for the queue — and the editor opens FULL SCREEN, where
+    /// `NSApplicationPresentationOptions.autoHideToolbar` takes the whole toolbar away until
+    /// somebody reaches for it. So the one moment a person wants to see how long an export has
+    /// left is the one moment the answer is hidden, which is what was reported: "i dont see the
+    /// 匯出進度條".
+    ///
+    /// This row is content, not chrome, so full screen does not touch it.
+    ///
+    /// **Only while something is running.** A bar that is always there, usually at zero, is a
+    /// control people learn not to read — the same argument `ExportQueueButton` makes for not
+    /// living in the toolbar permanently.
+    ///
+    /// The time is the words `ExportETA` already produces and the tables already carry; the
+    /// fraction is the same one the queue draws. Nothing here is a second opinion about either.
+    @ViewBuilder private var exportProgress: some View {
+        if let job = exportQueue.jobs.first(where: { $0.status == .running }) {
+            HStack(spacing: Space.snug) {
+                if let fraction = job.progress?.fraction {
+                    ProgressView(value: fraction)
+                        .frame(width: 90)
+                        .controlSize(.small)
+                } else {
+                    // `finishWriting` reports nothing, and a bar pinned at 100% reads as
+                    // stopped rather than as nearly done.
+                    ProgressView().controlSize(.small)
+                }
+                if let reading = job.timeReading {
+                    ExportJob.timeText(reading)
+                        .font(Type.detail)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            separator
+        }
     }
 
     @ViewBuilder private var history: some View {

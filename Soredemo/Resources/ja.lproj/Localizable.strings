@@ -301,6 +301,7 @@
 "Hide desktop icons" = "デスクトップのアイコンを隠す";
 "Hide the Dock" = "Dock を隠す";
 "Hide the menu bar" = "メニューバーを隠す";
+"Hide the desktop widgets" = "デスクトップウィジェットを隠す";
 "Screen recording, microphone and camera" = "画面収録・マイク・カメラ";
 "Review…" = "確認…";
 "Resize the timeline" = "タイムラインのサイズを変更";
@@ -342,3 +343,4 @@
 "Revert every edit" = "すべての編集を元に戻す";
 "Play audio while dragging the playhead" = "再生ヘッドのドラッグ中に音を鳴らす";
 "While editing" = "編集中";
+"The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "デスクトップの天気、カレンダー、バッテリーリング。見た目より多くを語ります — あなたの居場所、今日の午後の予定。Dock と同じく Mac には何の変更もなく、録画中も通知センターは普通に開けます。";

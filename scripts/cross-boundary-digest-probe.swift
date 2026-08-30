@@ -522,8 +522,9 @@ enum CrossBoundaryProbe {
         let menuBarKey = RecordingCoordinator.hidesMenuBarKey
         let scrubKey = RecordingCoordinator.scrubAudioKey
         let systemAudioKey = RecordingCoordinator.capturesSystemAudioKey
+        let widgetsKey = RecordingCoordinator.hidesDesktopWidgetsKey
         let keys = [countdownKey, frameRateKey, qualityKey, styleKey, iconsKey, dockKey,
-                    menuBarKey, scrubKey, systemAudioKey]
+                    menuBarKey, scrubKey, systemAudioKey, widgetsKey]
 
         print("        preferences domain: "
               + (Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName)
@@ -599,7 +600,8 @@ enum CrossBoundaryProbe {
                           ("Dock switch", dockKey, "hidesDock"),
                           ("menu-bar switch", menuBarKey, "hidesMenuBar"),
                           ("scrub-audio switch", scrubKey, "scrubAudio"),
-                          ("system-audio switch", systemAudioKey, "capturesSystemAudio")]
+                          ("system-audio switch", systemAudioKey, "capturesSystemAudio"),
+                          ("desktop-widget switch", widgetsKey, "hidesDesktopWidgets")]
         for (what, declared, pinned) in pinnedKeys {
             check(declared == pinned,
                   "17.2 the \(what) is stored under the key it has always been stored under",
@@ -617,6 +619,7 @@ enum CrossBoundaryProbe {
         firstLaunch.hidesMenuBar = true
         firstLaunch.scrubAudio = false
         firstLaunch.capturesSystemAudio = false
+        firstLaunch.hidesDesktopWidgets = true
 
         check(defaults.object(forKey: countdownKey) as? Int == 5,
               "17.2 the countdown is written under '\(countdownKey)'",
@@ -663,6 +666,8 @@ enum CrossBoundaryProbe {
               "17.3 a relaunch still keeps the menu bar out of the picture")
         // **Deliberately turned OFF above**, which is the distinction 17.4 makes for the
         // countdown: a switch whose default is on must remember being turned off.
+        check(relaunched.hidesDesktopWidgets,
+              "17.3 a desktop-widget switch deliberately turned on stays on across a relaunch")
         check(!relaunched.capturesSystemAudio,
               "17.3 system audio deliberately turned off stays off across a relaunch")
         check(!relaunched.scrubAudio,

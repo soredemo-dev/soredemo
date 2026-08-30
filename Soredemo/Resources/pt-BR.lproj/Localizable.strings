@@ -300,6 +300,7 @@
 "Hide desktop icons" = "Ocultar os ícones da mesa";
 "Hide the Dock" = "Ocultar o Dock";
 "Hide the menu bar" = "Ocultar a barra de menus";
+"Hide the desktop widgets" = "Ocultar os widgets da mesa";
 "Screen recording, microphone and camera" = "Gravação de tela, microfone e câmera";
 "Review…" = "Revisar…";
 "Resize the timeline" = "Redimensionar a linha do tempo";
@@ -341,3 +342,4 @@
 "Revert every edit" = "Reverter todas as edições";
 "Play audio while dragging the playhead" = "Reproduzir o áudio ao arrastar o cabeçote";
 "While editing" = "Ao editar";
+"The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "A previsão do tempo, o calendário e o anel de bateria da sua mesa. Eles dizem mais do que parecem — onde você está, o que tem hoje à tarde. Como no Dock, nada muda no seu Mac e a Central de Notificações continua abrindo normalmente durante a gravação.";

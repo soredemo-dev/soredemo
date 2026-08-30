@@ -18,9 +18,9 @@ public enum AudioMixBuilder {
     /// The order the master writer lays the audio tracks down in.
     public static let trackOrder: [AudioMix.Source] = [.systemAudio, .microphone]
 
-    /// `measured` is each track's integrated loudness, by index, from `Loudness.measure` — the
-    /// recording's own level, which is a derived value and so is passed in rather than stored.
-    /// Empty means "not measured", which levelling treats as "leave it alone".
+    /// `measured` is each track's `Loudness.Reading`, by index — its own level AND how close it
+    /// already is to full scale, which is a derived value and so is passed in rather than
+    /// stored. Empty means "not measured", which levelling treats as "leave it alone".
     ///
     /// **Levelling multiplies the person's gain rather than replacing it.** Someone who levels
     /// and then pulls the microphone down means both: the target is what the source is brought
@@ -28,7 +28,7 @@ public enum AudioMixBuilder {
     /// whatever it measures — `effectiveGain` has already applied that, and multiplying zero
     /// keeps it zero.
     public nonisolated static func mix(_ settings: AudioMix, over tracks: [AVAssetTrack],
-                                       measured: [Int: Double] = [:],
+                                       measured: [Int: Loudness.Reading] = [:],
                                        musicTrackID: CMPersistentTrackID? = nil,
                                        musicRamps: [MusicDucking.Ramp] = []) -> AVAudioMix {
         let mix = AVMutableAudioMix()
@@ -77,11 +77,19 @@ public enum AudioMixBuilder {
     /// Levelling MULTIPLIES the person's gain rather than replacing it: the target is what the
     /// source is brought to, the slider is where they want it relative to that, and a muted
     /// source stays silent because `effectiveGain` has already made it zero.
+    ///
+    /// **The levelling is capped at the peak ceiling and the person's gain is not.** Levelling
+    /// is this app's arithmetic and may be overruled by arithmetic; a slider somebody moved is
+    /// an authored value. So a track that measures quiet but already peaks near full scale is
+    /// brought up only as far as it can go without clipping, and somebody who deliberately
+    /// drives a track into the red still can. See `Loudness.levellingGain`.
     public nonisolated static func volume(for source: AudioMix.Source?, in settings: AudioMix,
-                                          measured: Double?) -> Double {
+                                          measured: Loudness.Reading?) -> Double {
         guard let source else { return 1 }
         let gain = settings.effectiveGain(for: source)
-        let levelling = settings.targetLoudness.map { Loudness.gain(from: measured, to: $0) } ?? 1
+        let levelling = settings.targetLoudness.flatMap { target in
+            measured.map { Loudness.levellingGain(for: $0, to: target) }
+        } ?? 1
         return gain * levelling
     }
 
@@ -101,7 +109,7 @@ public enum AudioMixBuilder {
     /// UNCUT asset's tracks would address tracks the item does not have.
     @MainActor
     public static func apply(_ settings: AudioMix, to item: AVPlayerItem,
-                             of asset: sending AVAsset, measured: [Int: Double] = [:],
+                             of asset: sending AVAsset, measured: [Int: Loudness.Reading] = [:],
                              musicTrackID: CMPersistentTrackID? = nil,
                              musicRamps: [MusicDucking.Ramp] = []) async {
         guard let tracks = try? await asset.loadTracks(withMediaType: .audio),

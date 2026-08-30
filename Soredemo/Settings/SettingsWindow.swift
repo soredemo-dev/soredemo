@@ -141,6 +141,18 @@ struct SettingsWindow: View {
                  + "nothing on your Mac changes — the menu bar is still there and still works, "
                  + "it just is not in the recording.")
                 .font(Type.detail).foregroundStyle(.secondary)
+
+            Toggle("Hide the desktop widgets", isOn: Binding(
+                get: { coordinator.hidesDesktopWidgets },
+                set: { coordinator.hidesDesktopWidgets = $0 }))
+            // **What they say about somebody is the reason**, and the switch's name does not
+            // say it. A widget is read as decoration until it is pointed out that the calendar
+            // one lists this afternoon's meetings by name.
+            Text("The weather, the calendar and the battery ring on your desktop. They can say "
+                 + "more than they look like they do — where you are, what is in your calendar "
+                 + "this afternoon. Like the Dock, nothing on your Mac changes and Notification "
+                 + "Center still opens normally while you record.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("While editing") {
             Toggle("Play audio while dragging the playhead", isOn: Binding(

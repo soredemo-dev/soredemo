@@ -23,9 +23,21 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// Measured: it takes the items with it and does not change `contentRect`.
     public var hidesMenuBar: Bool
 
-    public init(hidesDock: Bool = false, hidesMenuBar: Bool = false) {
+    /// Whether the desktop widgets — the weather, the calendar, the battery ring —
+    /// should be kept out.
+    ///
+    /// **Widgets are a row of small disclosures nobody meant to publish**: what is
+    /// in somebody's calendar for the afternoon, where they are, what their
+    /// battery is doing. A recording of the desktop shows all of it.
+    ///
+    /// Costs a window query, like the Dock, so it is part of `wantsAnything`.
+    public var hidesDesktopWidgets: Bool
+
+    public init(hidesDock: Bool = false, hidesMenuBar: Bool = false,
+                hidesDesktopWidgets: Bool = false) {
         self.hidesDock = hidesDock
         self.hidesMenuBar = hidesMenuBar
+        self.hidesDesktopWidgets = hidesDesktopWidgets
     }
 
     /// Nothing hidden — what a display capture uses unless somebody asked otherwise.
@@ -37,7 +49,7 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// The menu bar is deliberately not counted: it is a property on the filter,
     /// not an entry in an exclusion list, and counting it would send `resolve()`
     /// enumerating every window on the machine for an answer it does not need.
-    public var wantsAnything: Bool { hidesDock }
+    public var wantsAnything: Bool { hidesDock || hidesDesktopWidgets }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -46,9 +58,13 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
         // switch existed is that the switch was off.
         hidesDock = try container.decodeIfPresent(Bool.self, forKey: .hidesDock) ?? false
         hidesMenuBar = try container.decodeIfPresent(Bool.self, forKey: .hidesMenuBar) ?? false
+        hidesDesktopWidgets = try container
+            .decodeIfPresent(Bool.self, forKey: .hidesDesktopWidgets) ?? false
     }
 
-    private enum CodingKeys: String, CodingKey { case hidesDock, hidesMenuBar }
+    private enum CodingKeys: String, CodingKey {
+        case hidesDock, hidesMenuBar, hidesDesktopWidgets
+    }
 }
 
 // MARK: - Which window is the Dock
@@ -78,6 +94,40 @@ public enum DockWindow {
     /// Dock in it.
     public static func isTheDock(bundleIdentifier: String?, windowLayer: Int) -> Bool {
         bundleIdentifier == Self.bundleIdentifier && windowLayer == Self.level
+    }
+}
+
+// MARK: - Which windows are the desktop widgets
+
+/// The desktop widgets, told apart from the notification UI drawn by the same
+/// process.
+///
+/// Measured on macOS 26, with three widgets on the desktop:
+///
+///     layer -2147483601   360×360   "即將到來"            the calendar
+///     layer -2147483601   360×180   "天氣預報"            the weather
+///     layer -2147483601   360×180   "狀態"                the battery
+///     layer          21  1512×982   "Notification Center"
+///
+/// One process owns both, so excluding the application would take the
+/// notification panel with the widgets. The two are separated by SIGN rather than
+/// by that measured level: a widget sits below every ordinary window and the
+/// panel sits above the Dock, and a rule written as `windowLayer < 0` survives
+/// Apple moving the exact number — which they have no published constant for, so
+/// pinning -2147483601 would be pinning a value nothing promises.
+public enum DesktopWidgetWindow {
+    /// The process that draws both the desktop widgets and Notification Center.
+    public static let bundleIdentifier = "com.apple.notificationcenterui"
+
+    /// Whether a window owned by `bundleIdentifier` at `windowLayer` is a desktop
+    /// widget rather than the notification UI.
+    ///
+    /// Both halves are required, for `DockWindow.isTheDock`'s reason. The
+    /// identifier alone would take the notification panel; the sign alone would
+    /// catch any other application's desktop-level window, and excluding somebody
+    /// else's window from their own recording is worse than leaving a widget in.
+    public static func isADesktopWidget(bundleIdentifier: String?, windowLayer: Int) -> Bool {
+        bundleIdentifier == Self.bundleIdentifier && windowLayer < 0
     }
 }
 
@@ -113,6 +163,10 @@ extension CaptureExclusions {
         /// with a Dock, and reported rather than folded into `contentUnavailable` because the
         /// two have different causes and only one of them is a permission problem.
         case dockNotRunning
+        /// Desktop widgets were the only thing asked for, and they are being kept
+        /// out. Named separately from `dockExcluded` so a recording that still
+        /// shows the Dock cannot report that the Dock was excluded.
+        case desktopWidgetsExcluded
     }
 
     /// Resolves against the live window list.
@@ -128,17 +182,50 @@ extension CaptureExclusions {
             false, onScreenWindowsOnly: false) else {
             return Resolution(applications: [], exceptedWindows: [], outcome: .contentUnavailable)
         }
-        guard let dock = content.applications.first(where: {
-            $0.bundleIdentifier == DockWindow.bundleIdentifier
-        }) else {
-            return Resolution(applications: [], exceptedWindows: [], outcome: .dockNotRunning)
+        var applications: [SCRunningApplication] = []
+        var kept: [SCWindow] = []
+        var outcome = Outcome.notAsked
+
+        if hidesDock {
+            guard let dock = content.applications.first(where: {
+                $0.bundleIdentifier == DockWindow.bundleIdentifier
+            }) else {
+                return Resolution(applications: [], exceptedWindows: [], outcome: .dockNotRunning)
+            }
+            applications.append(dock)
+            // Everything the Dock owns EXCEPT the Dock — see the header on the
+            // wallpaper.
+            kept += content.windows.filter {
+                $0.owningApplication?.bundleIdentifier == DockWindow.bundleIdentifier
+                    && !DockWindow.isTheDock(bundleIdentifier: DockWindow.bundleIdentifier,
+                                             windowLayer: $0.windowLayer)
+            }
+            outcome = .dockExcluded
         }
-        // Everything the Dock owns EXCEPT the Dock — see the header on the wallpaper.
-        let kept = content.windows.filter {
-            $0.owningApplication?.bundleIdentifier == DockWindow.bundleIdentifier
-                && !DockWindow.isTheDock(bundleIdentifier: DockWindow.bundleIdentifier,
-                                         windowLayer: $0.windowLayer)
+
+        if hidesDesktopWidgets {
+            // Not a failure when the process is missing: a Mac with no widgets on
+            // the desktop has nothing to hide, and the recording is exactly what
+            // was asked for. Only the Dock's absence is reported, because a Mac
+            // without a Dock is a Mac something is wrong with.
+            if let widgets = content.applications.first(where: {
+                $0.bundleIdentifier == DesktopWidgetWindow.bundleIdentifier
+            }) {
+                applications.append(widgets)
+                // The notification panel comes back: excluding the application
+                // takes everything the process draws, and a person demonstrating
+                // Notification Center is demonstrating Notification Center.
+                kept += content.windows.filter {
+                    $0.owningApplication?.bundleIdentifier
+                        == DesktopWidgetWindow.bundleIdentifier
+                        && !DesktopWidgetWindow.isADesktopWidget(
+                            bundleIdentifier: DesktopWidgetWindow.bundleIdentifier,
+                            windowLayer: $0.windowLayer)
+                }
+                if outcome == .notAsked { outcome = .desktopWidgetsExcluded }
+            }
         }
-        return Resolution(applications: [dock], exceptedWindows: kept, outcome: .dockExcluded)
+
+        return Resolution(applications: applications, exceptedWindows: kept, outcome: outcome)
     }
 }

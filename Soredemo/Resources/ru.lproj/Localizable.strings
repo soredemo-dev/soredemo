@@ -299,6 +299,7 @@
 "Hide desktop icons" = "Скрыть значки рабочего стола";
 "Hide the Dock" = "Скрыть Dock";
 "Hide the menu bar" = "Скрыть строку меню";
+"Hide the desktop widgets" = "Скрывать виджеты рабочего стола";
 "Screen recording, microphone and camera" = "Запись экрана, микрофон и камера";
 "Review…" = "Проверить…";
 "Resize the timeline" = "Изменить размер шкалы времени";
@@ -340,3 +341,4 @@
 "Revert every edit" = "Отменить все правки";
 "Play audio while dragging the playhead" = "Звук при перетаскивании курсора";
 "While editing" = "При монтаже";
+"The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "Погода, календарь и кольцо заряда на рабочем столе. Они говорят больше, чем кажется, — где вы находитесь и что у вас сегодня днём. Как и с Dock, на вашем Mac ничего не меняется, а Центр уведомлений во время записи открывается как обычно.";

@@ -315,6 +315,7 @@
 "Hide desktop icons" = "Hide desktop icons";
 "Hide the Dock" = "Hide the Dock";
 "Hide the menu bar" = "Hide the menu bar";
+"Hide the desktop widgets" = "Hide the desktop widgets";
 "Screen recording, microphone and camera" = "Screen recording, microphone and camera";
 "Review…" = "Review…";
 "Resize the timeline" = "Resize the timeline";
@@ -356,3 +357,4 @@
 "Revert every edit" = "Revert every edit";
 "Play audio while dragging the playhead" = "Play audio while dragging the playhead";
 "While editing" = "While editing";
+"The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do — where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record.";

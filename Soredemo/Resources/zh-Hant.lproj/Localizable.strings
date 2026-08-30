@@ -315,6 +315,7 @@
 "Hide desktop icons" = "隱藏桌面圖示";
 "Hide the Dock" = "隱藏 Dock";
 "Hide the menu bar" = "隱藏選單列";
+"Hide the desktop widgets" = "隱藏桌面小工具";
 "Screen recording, microphone and camera" = "螢幕錄製、麥克風與相機";
 "Review…" = "檢視…";
 "Resize the timeline" = "調整時間軸大小";
@@ -356,3 +357,4 @@
 "Revert every edit" = "還原所有編輯";
 "Play audio while dragging the playhead" = "拖曳播放頭時播放聲音";
 "While editing" = "編輯時";
+"The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do \u2014 where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record." = "桌面上的天氣、行事曆和電池環。它們透露的比看起來多 —— 你在哪裡、今天下午行事曆上有什麼。跟 Dock 一樣,你的 Mac 不會有任何改變,錄影時通知中心也照常打得開。";

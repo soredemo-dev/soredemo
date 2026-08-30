@@ -75,7 +75,7 @@ struct StageWindow: View {
     /// Each audio track's integrated loudness, by index — see `Loudness`. Measured lazily, the
     /// first time levelling is asked for, because it decodes the whole audio track and most
     /// recordings are never levelled. Cleared when a different recording is loaded.
-    @State private var measuredLoudness: [Int: Double] = [:]
+    @State private var measuredLoudness: [Int: Loudness.Reading] = [:]
     /// The music bed under the recording — see `MusicBed`. Its file lives in the package, so
     /// this is a filename and the URL is derived where it is needed.
     @State private var music = MusicBed.none
@@ -1814,7 +1814,7 @@ struct StageWindow: View {
     /// has one. `StageCompositor.cameraTrackID` names a track in that composition too.
     static func runExport(asset: sending AVAsset, to destination: URL, isGIF: Bool,
                           size: (width: Int, height: Int), edit: EditTimeline,
-                          audioMix: AudioMix, measuredLoudness: [Int: Double],
+                          audioMix: AudioMix, measuredLoudness: [Int: Loudness.Reading],
                           musicTrackID: CMPersistentTrackID?, musicRamps: [MusicDucking.Ramp],
                           quality: ExportQuality, codec: ExportCodec,
                           frameRate: Int, gifSettings: GIFSettings,
