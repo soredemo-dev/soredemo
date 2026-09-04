@@ -103,6 +103,7 @@ build it, the four gates, and the handful of standards that will otherwise surpr
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Eight binding decisions (D1–D8) and the module map |
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | **How to contribute.** Build, the four gates in order, the house standards, and what will be declined |
+| [`docs/TESTING.md`](docs/TESTING.md) | **The test strategy**, counted rather than claimed: what each level owns, the gates' exit criteria, the known flake and how to tell it from a real failure, and the levels that are empty |
 | [`docs/research/competitors.md`](docs/research/competitors.md) | Every feature of the leading recorders against this codebase, verified file by file — and the ranked gap list |
 
 `docs/design/` holds one document per phase — the questions asked, the alternatives rejected, and

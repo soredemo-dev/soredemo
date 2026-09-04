@@ -57,6 +57,10 @@ xcodebuild -project Soredemo.xcodeproj -scheme Soredemo   # 4. the app target
 There is no CI in this repository yet, so these are gates a person runs. A pull request that has
 not been through all four will be asked to go through all four.
 
+**Which level a new test belongs to, and what each one may be wrong about, is
+[`docs/TESTING.md`](docs/TESTING.md).** It also carries the known parallel-run flake and the rule
+for telling it apart from a real failure — they look the same in a red gate and they are not.
+
 **In zsh, `./script | tail -4` reports `tail`'s exit code, not the script's.** If you are checking
 a gate's status in a pipeline, `$pipestatus[1]` is the one you want — `$PIPESTATUS[0]` is bash.
 
