@@ -422,3 +422,8 @@
 "Guides" = "Guides";
 "Show where captions may be cut off or covered" = "Show where captions may be cut off or covered";
 "Covered on most vertical platforms" = "Covered on most vertical platforms";
+"You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off." = "You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off.";
+"Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off." = "Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off.";
+"Zoom, off" = "Zoom, off";
+"Zoom, adjusted" = "Zoom, adjusted";
+"Zoom, derived from a click" = "Zoom, derived from a click";

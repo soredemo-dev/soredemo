@@ -407,3 +407,8 @@
 "Guides" = "Guias";
 "Show where captions may be cut off or covered" = "Mostrar onde as legendas podem ser cortadas ou cobertas";
 "Covered on most vertical platforms" = "Coberto na maioria das plataformas verticais";
+"You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off." = "Você moveu este zoom. Arraste para mover, arraste a borda direita para a duração, clique para desligar.";
+"Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off." = "Derivado de um clique. Arraste para mover, arraste a borda direita para a duração, clique para desligar.";
+"Zoom, off" = "Zoom, desligado";
+"Zoom, adjusted" = "Zoom, ajustado";
+"Zoom, derived from a click" = "Zoom, derivado de um clique";

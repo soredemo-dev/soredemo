@@ -242,6 +242,18 @@ final class TimelineEditorModel {
         publish()
     }
 
+    /// Whether a person has moved or resized this zoom, as distinct from the gate having derived
+    /// it and nobody having touched it.
+    ///
+    /// **Suppression is not an adjustment for this purpose**, even though it is stored as one:
+    /// a switched-off zoom is already drawn hollow, and marking it a second way would say the
+    /// same thing twice while leaving the case that has no mark at all — a block somebody
+    /// dragged, which looks exactly like a derived one the moment they let go.
+    func isZoomAdjusted(_ origin: HostInstant) -> Bool {
+        let adjustment = zoomAdjustments.adjustment(for: origin)
+        return adjustment.startDelta.rawValue != 0 || adjustment.endDelta.rawValue != 0
+    }
+
     func isZoomSuppressed(_ origin: HostInstant) -> Bool {
         zoomAdjustments.adjustment(for: origin).suppressed
     }
@@ -1271,6 +1283,7 @@ struct TimelineEditor: View {
                         let w = (model.window.fraction(of: end)
                                  - model.window.fraction(of: start)) * width
                         zoomBlockView(origin: derived.origin, suppressed: suppressed,
+                                      adjusted: model.isZoomAdjusted(derived.origin),
                                       width: max(w, 3), height: geometry.size.height,
                                       laneWidth: width, duration: duration, zoom: shown.zoom)
                             .offset(x: x)
@@ -1280,7 +1293,17 @@ struct TimelineEditor: View {
         }
     }
 
+    /// - Parameter adjusted: whether a person moved or resized this one.
+    ///
+    /// **A derived value should be visibly derived**, which this project argues everywhere else
+    /// and this lane did not do: a block somebody dragged looked exactly like one the gate
+    /// authored the moment they let go. Reviewing an automatic zoom means knowing which of them
+    /// are still the machine's opinion.
+    ///
+    /// Marked with a bar along the bottom edge rather than a dot or a corner, because a block
+    /// here can be three points wide — an edge survives that and a glyph does not.
     @ViewBuilder private func zoomBlockView(origin: HostInstant, suppressed: Bool,
+                                            adjusted: Bool,
                                             width: Double, height: Double,
                                             laneWidth: Double, duration: Nanoseconds,
                                             zoom: Double = 1) -> some View {
@@ -1302,6 +1325,11 @@ struct TimelineEditor: View {
                         .font(.system(size: 9, weight: .semibold).monospacedDigit())
                         .foregroundStyle(.black.opacity(0.75))
                         .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if adjusted, !suppressed {
+                    Rectangle().fill(Theme.accent).frame(height: 2).allowsHitTesting(false)
                 }
             }
             .frame(width: width, height: height)
@@ -1330,7 +1358,11 @@ struct TimelineEditor: View {
                     }
             )
             .help(suppressed ? "This zoom is off. Click to turn it back on."
-                  : "Drag to move, drag the right edge to change how long it lasts, click to turn it off.")
+                  : adjusted
+                      ? "You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off."
+                      : "Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off.")
+            .accessibilityLabel(suppressed ? "Zoom, off"
+                                : adjusted ? "Zoom, adjusted" : "Zoom, derived from a click")
     }
 
     /// One edge of the selected clip, draggable.

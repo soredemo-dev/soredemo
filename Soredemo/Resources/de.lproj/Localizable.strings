@@ -406,3 +406,8 @@
 "Guides" = "Hilfslinien";
 "Show where captions may be cut off or covered" = "Zeigen, wo Untertitel beschnitten oder verdeckt werden";
 "Covered on most vertical platforms" = "Auf den meisten Hochformat-Plattformen verdeckt";
+"You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off." = "Diesen Zoom haben Sie verschoben. Ziehen zum Verschieben, rechte Kante ziehen für die Dauer, Klick zum Ausschalten.";
+"Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off." = "Aus einem Klick abgeleitet. Ziehen zum Verschieben, rechte Kante ziehen für die Dauer, Klick zum Ausschalten.";
+"Zoom, off" = "Zoom, aus";
+"Zoom, adjusted" = "Zoom, angepasst";
+"Zoom, derived from a click" = "Zoom, aus einem Klick abgeleitet";
