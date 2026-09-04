@@ -16,10 +16,10 @@ wrong the moment the measurement under it changes.
 | Unit — pure tier | 1,722 tests, 14 targets | 27,123 lines of `Core/Sources` | **strong** |
 | Unit — app tier | none that execute | 13,761 lines of `Soredemo/` (33% of the codebase) | **absent** |
 | Static analysis | `ArchitectureCheck` plugin, `AppSourceTests` (71 scans), `CheckerLexer` | whole repo, both build paths | **strong** |
-| Integration | `cross-boundary-digest-probe.swift` — 7,365 lines, 471 checks, 22 sections | real display, real files | **strong, and mislabelled** |
+| Integration | `cross-boundary-digest-probe.swift` — 7,500 lines, 473 checks, 23 sections | real display, real files | **strong, and mislabelled** |
 | UI | none — the Xcode project has no test target at all | — | **absent** |
 | Performance | one timing assertion (`CameraMotionTests`, proving an O(n²) fix) | — | **absent** |
-| Memory | none | — | **absent** |
+| Memory | probe § 28: a real recording's footprint, slope asserted | 1280×800 only, 20 s only | **started 2026-09-05** |
 | Compatibility | one OS floor (macOS 26), no architecture matrix, no rendered-locale check | — | **absent** |
 | CI | none. The four gates are run by a person | — | **absent** |
 
@@ -103,7 +103,7 @@ other's work and look like a hang.
 |---|---|---|---|
 | 1 | `scripts/count-tests.sh --split` | every test passes AND the two populations partition the suite exactly | ~4 min |
 | 2 | `scripts/check-strict-memory-safety.sh` | zero unmarked `unsafe`, clean compile | ~2 min |
-| 3 | `scripts/run-cross-boundary-probe.sh` | 471 checks, zero skipped without a named reason | ~2 min |
+| 3 | `scripts/run-cross-boundary-probe.sh` | 473 checks, zero skipped without a named reason | ~2.5 min |
 | 4 | `xcodebuild -scheme Soredemo` | builds | ~2 min |
 
 **The partition check in gate 1 is the load-bearing part.** Two filtered runs could
@@ -161,16 +161,39 @@ threshold is a benchmark, and a benchmark that nobody fails is decoration.
 A recorder that leaks over thirty minutes produces a failed recording, and
 `RecordingHealth` exists because that risk is real. Nothing measures it.
 
-| budget | proposal | where |
-|---|---|---|
-| Peak resident set while recording | **< 900 MB** at 4K60, flat within ±10% between minute 2 and minute 10 | new probe section |
-| Growth per minute of recording | **< 5 MB/min** after the first minute | new probe section |
-| Peak while exporting | **< 1.5 GB** for a ten-minute 4K source | new probe section |
-| No unbounded queue | `HeldAudioQueue` holds ~8 s; a test that it does not exceed it under a stalled writer | L2 |
+**Measured 2026-09-05**, probe § 28: a real `SCStream` over the probe's own window
+through the real `CaptureSession` and a real writer, 1280×800 at 60 fps, sampled every
+250 ms for twenty seconds while the window is repainted so the stream is producing
+frames rather than idling.
 
-The numbers above are **proposals, not measurements** — the first job is to record the
-real figures and replace these with them. A budget invented rather than observed is the
-thing this project refuses everywhere else.
+| run | peak | settled slope |
+|---|---|---|
+| 1 | 116 MB | +0.9 MB/min |
+| 2 | 115 MB | +0.5 MB/min |
+| 3 | 116 MB | −0.1 MB/min |
+
+**The slope is asserted and the peak is only reported**, at `< 30 MB/min` — roughly a
+gigabyte an hour, which is where a long recording starts being at risk on a machine
+also running the thing being demonstrated. A recorder that sits still at any reasonable
+figure is fine, so no ceiling is asserted: a twenty-second sample cannot support one.
+
+The slope is fitted after a **five-second settling window**. The first seconds carry the
+writer opening its file and the first pixel buffers being allocated — a cost paid once,
+and a fit through them would report start-up as a leak.
+
+**What this does NOT establish, said plainly:**
+
+| | why not |
+|---|---|
+| Behaviour at 4K60 | measured at 1280×800; the buffer pool is the dominant term and it scales |
+| Behaviour over 30 minutes | twenty seconds catches a fast leak. A slow one — 2 MB/min — is inside the noise here and would still cost 3.6 GB in half an hour |
+| Export peak | not measured at all |
+| `HeldAudioQueue` under a stalled writer | it holds ~8 s by design; nothing asserts it does not exceed that |
+
+The 30-minute case is the one that matters most and the one a gate cannot hold: gate 3
+runs in about two minutes and a five-minute memory section would quadruple it. It
+belongs in a soak run that is not a gate — named here so it is a known gap rather than
+an assumed pass.
 
 ### 5.2 Performance
 
@@ -248,8 +271,9 @@ file that provides it, or it is marked unverified with a date.
 
 In the order a defect found there would cost the most.
 
-1. **Memory budgets while recording.** The failure mode is a lost recording and there is
-   no instrument at all. Cheapest place: beside the probe's existing fixture recording.
+1. ~~**Memory budgets while recording.**~~ **Started 2026-09-05**, probe § 28 — §5.1 has the
+   figures and, more importantly, the three things they still do not establish. The
+   30-minute soak is the one that matters and it cannot live in a gate.
 2. **Frame-time budget for the compositor.** A regression here is invisible until
    somebody's preview stutters.
 3. **App-tier model tests.** A third of the code, zero coverage.

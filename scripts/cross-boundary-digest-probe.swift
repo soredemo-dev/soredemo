@@ -463,6 +463,9 @@ enum CrossBoundaryProbe {
         print("18.1-18.3 a real SCStream over this process's own window, still, measured twice over")
         try await duplicateFramesAreContentIdenticalNotSurfaceIdentical()
 
+        print("28. what a recording costs in memory, and whether it grows while it runs")
+        try await aRecordingDoesNotGrowWhileItRuns()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -6482,6 +6485,119 @@ enum CrossBoundaryProbe {
     /// inherits that terminal's grant, so this run could not tell "no grant needed" from "a grant
     /// was present". Recorded as unknown rather than guessed at.
     @MainActor
+    /// **What a recording costs in memory, and whether it costs more the longer it runs.**
+    ///
+    /// The failure this exists for is not a crash. It is a person who records for thirty minutes
+    /// and gets a file that stopped at nine, because the process grew until the system took it —
+    /// and `RecordingHealth` exists precisely because that risk is real. Nothing in this
+    /// repository measured it until now, so the budgets below were written as proposals in
+    /// `docs/TESTING.md` and are replaced here by what a real capture actually does.
+    ///
+    /// **Growth is the assertion, not the peak.** A recorder that sits at 400 MB for an hour is
+    /// fine; one that climbs 30 MB a minute is a lost recording however low it starts. So the
+    /// peak is reported and the SLOPE is checked, measured after a settling window rather than
+    /// from the first sample — the first seconds carry the writer's own start-up and the first
+    /// pixel buffers, which are a cost paid once and not a leak.
+    ///
+    /// A real `SCStream` over this process's own window, through the real `CaptureSession` and a
+    /// real writer, because a synthetic frame source would measure the sampler.
+    static func aRecordingDoesNotGrowWhileItRuns() async throws {
+        guard CGPreflightScreenCaptureAccess() else {
+            print("        SKIPPED — no Screen Recording grant for this binary, so there is no "
+                  + "recording to measure. A memory figure from a stream that never opened would "
+                  + "be a fact about this probe.")
+            return
+        }
+        guard probeMemoryFootprintBytes() != nil else {
+            print("        SKIPPED — task_info(TASK_VM_INFO) refused, so there is no instrument.")
+            return
+        }
+
+        let window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 640, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.title = "cross-boundary-digest-probe (memory)"
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(500))
+
+        let content = try await SCShareableContent.currentProcess
+        guard let scWindow = content.windows.first(where: { $0.title == window.title }),
+              let display = content.displays.first else {
+            print("        SKIPPED — the probe's own window did not appear in "
+                  + "SCShareableContent.currentProcess; there is nothing to record.")
+            return
+        }
+
+        let sink: TemporaryFileMediaSink
+        do { sink = try TemporaryFileMediaSink() } catch {
+            print("        SKIPPED — could not open a media sink: \(error)")
+            return
+        }
+        defer { if let directory = sink.packageURL { try? FileManager.default.removeItem(at: directory) } }
+
+        let session = CaptureSession(
+            source: probeWindowSource(scWindow, on: display, bufferSize: (1280, 800)),
+            scale: 2, displayUUID: UUID(), mediaSink: sink, epoch: Minting.bootEpoch(),
+            microphone: .off, capturesSystemAudio: false, frameRate: .sixty)
+
+        do { try await session.start() } catch {
+            print("        SKIPPED — the capture session refused to start: \(error)")
+            return
+        }
+
+        // Sampled while the window is being redrawn, so the stream is producing frames rather
+        // than idling on a still picture — an idle capture is the cheap case and would measure
+        // the wrong thing.
+        var samples: [(seconds: Double, bytes: Int64)] = []
+        let clock = ContinuousClock()
+        let began = clock.now
+        while clock.now - began < .seconds(20) {
+            window.backgroundColor = samples.count % 2 == 0 ? .systemBlue : .systemOrange
+            window.displayIfNeeded()
+            try await Task.sleep(for: .milliseconds(250))
+            if let bytes = probeMemoryFootprintBytes() {
+                let elapsed = Double((clock.now - began).components.seconds)
+                    + Double((clock.now - began).components.attoseconds) / 1e18
+                samples.append((elapsed, bytes))
+            }
+        }
+        _ = try? await session.stop()
+
+        guard samples.count >= 40 else {
+            print("        SKIPPED — only \(samples.count) samples; not enough to fit a slope.")
+            return
+        }
+
+        // **Measured after a settling window.** The first seconds carry the writer opening its
+        // file and the first pixel buffers being allocated, which is a cost paid once. A slope
+        // fitted through them would report start-up as a leak.
+        let settled = samples.filter { $0.seconds >= 5 }
+        let peak = samples.map(\.bytes).max() ?? 0
+        let first = settled.first!, last = settled.last!
+        let span = last.seconds - first.seconds
+        let growthPerMinute = span > 0
+            ? probeMegabytes(last.bytes - first.bytes) / span * 60 : 0
+
+        print(String(format: "        peak %.0f MB, settled %.0f → %.0f MB over %.0fs "
+                             + "(%.1f MB/min)",
+                     probeMegabytes(peak), probeMegabytes(first.bytes),
+                     probeMegabytes(last.bytes), span, growthPerMinute))
+
+        // **The slope is the budget; the peak is reported.** 30 MB a minute is roughly a
+        // gigabyte an hour, which is where a long recording starts being at risk on a machine
+        // that is also running the thing being demonstrated. A recorder that sits still at any
+        // reasonable figure is fine, so no ceiling is asserted from a twenty-second sample —
+        // that would be a number this measurement cannot support.
+        check(growthPerMinute < 30,
+              "28.1 a running recording does not grow without bound",
+              actual: String(format: "%.1f MB/min", growthPerMinute),
+              expected: "< 30 MB/min")
+
+        // And the recording is real: a measurement taken while nothing was being written would
+        // be a fact about an idle process.
+        check(sink.packageURL != nil, "28.2 the measured run actually wrote a recording")
+    }
+
     static func duplicateFramesAreContentIdenticalNotSurfaceIdentical() async throws {
         guard CGPreflightScreenCaptureAccess() else {
             print("        SKIPPED — no Screen Recording grant for this binary, so no SCStream. "
@@ -7363,3 +7479,25 @@ private func probeWriteStillMoveStill(to url: URL) async -> Bool {
     return writer.status == .completed
 }
 
+// MARK: - § 28. what a recording costs in memory
+
+/// This process's memory as macOS accounts for it.
+///
+/// **`phys_footprint`, not `resident_size`.** Resident size counts pages this process shares with
+/// every other one and pages the kernel has not reclaimed yet, so it moves for reasons that have
+/// nothing to do with the recording. Footprint is what Xcode's gauge shows and what the jetsam
+/// killer reads — it is the number that decides whether a long recording survives.
+private func probeMemoryFootprintBytes() -> Int64? {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size
+                                       / MemoryLayout<integer_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    guard result == KERN_SUCCESS else { return nil }
+    return Int64(info.phys_footprint)
+}
+
+private func probeMegabytes(_ bytes: Int64) -> Double { Double(bytes) / 1_048_576 }
