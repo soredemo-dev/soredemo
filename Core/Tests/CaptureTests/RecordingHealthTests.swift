@@ -216,14 +216,27 @@ struct RecordingHealthTests {
         #expect(!RecordingHealth.sound(duration: Nanoseconds(1)).needsSaying)
     }
 
-    /// Five damages, five distinct reasons. A duplicate would be two different causes reported
-    /// as one, and they have different fixes.
-    @Test("the damages are distinct reasons rather than one reason spelled six ways")
+    /// Distinct reasons, not one reason spelled several ways. A duplicate would be two different
+    /// causes reported as one, and they have different fixes.
+    ///
+    /// **Built from `allCases` rather than a hand-written list**, because a list here is a thing
+    /// that goes stale: a case added without a line added would be a damage nothing checked, and
+    /// the previous version of this test had a hand-written six that its own comment called five.
+    @Test("the damages are distinct reasons rather than one reason spelled several ways")
     func theDamagesAreDistinct() {
-        let all: [RecordingHealth.Damage] = [
-            .theFileIsNotThere, .theFileIsEmpty, .theContainerWillNotOpen,
-            .thereIsNoVideoTrack, .theVideoWillNotDecode, .itIsShorterThanTheSession,
-        ]
+        let all = RecordingHealth.Damage.allCases
+        #expect(all.count >= 6)
         #expect(Set(all.map(\.rawValue)).count == all.count)
+    }
+
+    /// **A size that cannot be READ is not a file that is EMPTY.** The check used to fold a
+    /// failed `attributesOfItem` into zero and report an empty file — a fact about the read
+    /// stated as a fact about the recording, which sends somebody looking for a writer bug that
+    /// is not there. The compiler had been saying so all along, in a warning about a `??` whose
+    /// left side could not be nil.
+    @Test func anUnreadableSizeIsItsOwnDamage() {
+        #expect(RecordingHealth.Damage.theSizeCannotBeRead != .theFileIsEmpty)
+        #expect(RecordingHealth.damaged(.theSizeCannotBeRead).needsSaying,
+                "a file this app cannot measure is worth interrupting somebody for")
     }
 }

@@ -28,11 +28,22 @@ public enum RecordingHealth: Sendable, Equatable {
     /// answers: a missing file may be a permissions problem, an unopenable one is usually a
     /// crash mid-write, and a short one means the writer stopped early. A person told only that
     /// something is wrong can act on none of them.
-    public enum Damage: String, Sendable, Equatable, Hashable {
+    /// `CaseIterable` so a test can enumerate every damage rather than repeating a list that
+    /// goes stale — a case added without a line added would be a damage nothing checked.
+    public enum Damage: String, Sendable, Equatable, Hashable, CaseIterable {
         /// Nothing at that path.
         case theFileIsNotThere
         /// The file exists and has no bytes — a writer killed before its first flush.
         case theFileIsEmpty
+        /// The file exists and its size could not be read: a permission, a broken link, or the
+        /// file going away between the two calls.
+        ///
+        /// **Separate from `theFileIsEmpty`, and the separation is the point.** This check used
+        /// to fold a failed read into zero and report an empty file — a fact about the READ
+        /// stated as a fact about the recording, which sends somebody to look for a writer bug
+        /// that is not there. The compiler was saying so the whole time, in a warning about a
+        /// `??` whose left side could not be nil.
+        case theSizeCannotBeRead
         /// The container will not open. What a power cut during a `.mov` leaves behind: the
         /// samples are on disk and the index that describes them never was.
         case theContainerWillNotOpen
@@ -72,9 +83,11 @@ public enum RecordingCheck {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .damaged(.theFileIsNotThere)
         }
-        let size = (try? FileManager.default
-            .attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-        guard (size ?? 0) > 0 else { return .damaged(.theFileIsEmpty) }
+        guard let size = try? FileManager.default
+            .attributesOfItem(atPath: url.path)[.size] as? Int else {
+            return .damaged(.theSizeCannotBeRead)
+        }
+        guard size > 0 else { return .damaged(.theFileIsEmpty) }
 
         let asset = AVURLAsset(url: url)
         guard let duration = try? await asset.load(.duration), duration.isNumeric else {

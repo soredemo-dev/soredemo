@@ -18,7 +18,7 @@ wrong the moment the measurement under it changes.
 | Static analysis | `ArchitectureCheck` plugin, `AppSourceTests` (71 scans), `CheckerLexer` | whole repo, both build paths | **strong** |
 | Integration | `cross-boundary-digest-probe.swift` — 7,500 lines, 473 checks, 23 sections | real display, real files | **strong, and mislabelled** |
 | UI | none — the Xcode project has no test target at all | — | **absent** |
-| Performance | one timing assertion (`CameraMotionTests`, proving an O(n²) fix) | — | **absent** |
+| Performance | `CameraMotionTests` + `FrameTimeBudgetTests` (frame time, and the 4K:1080p ratio) | compositor only | **started 2026-09-05** |
 | Memory | probe § 28: a real recording's footprint, slope asserted | 1280×800 only, 20 s only | **started 2026-09-05** |
 | Compatibility | one OS floor (macOS 26), no architecture matrix, no rendered-locale check | — | **absent** |
 | CI | none. The four gates are run by a person | — | **absent** |
@@ -197,16 +197,41 @@ an assumed pass.
 
 ### 5.2 Performance
 
-| budget | proposal | where |
-|---|---|---|
-| Compositing one frame at 1920×1080 | **< 16 ms** median, < 33 ms p99 | L2 |
-| Compositing at 3840×2160 | **< 33 ms** median | L2 |
-| Caption rebuild, 270 cues | **< 50 ms** | L1 |
-| Timeline redraw, 270 caption blocks | measured, then bounded | L4 or a harness |
-| Export throughput | **> 2× realtime** for 1080p HEVC | L3 |
+**Measured 2026-09-05**, `FrameTimeBudgetTests`: sixty renders after a five-render
+warm-up, a card over a background with a cursor mid-ripple — a frame with nothing on it
+measures the cheapest case, and the cheapest case is not the one that stutters.
 
-`CameraMotionTests`' existing timing assertion is the model: it exists because a real
-recording stuttered, it names the number, and it fails if the O(n²) comes back.
+| | median | p90 | p99 | budget |
+|---|---|---|---|---|
+| 1920×1080 | **3.61 ms** | 4.95 | 5.76 | median < 12 |
+| 3840×2160 | **8.69 ms** | 9.88 | 11.48 | median < 25 |
+| 4K ÷ 1080p | **2.4×** | | | < 4× |
+
+The budgets are about **three times** the measured medians, and that looseness is
+deliberate: this runs on whatever machine a person has, beside a full Xcode, and a
+budget tuned to one laptop fails on the next for a reason that has nothing to do with
+the code. Three times is far more than scheduling noise and far less than an
+algorithmic regression — which is the only thing a budget like this can honestly claim
+to catch.
+
+The proposals this table replaced were 16 ms and 33 ms, taken from the frame durations
+at 60 and 30 fps. **A fourfold regression would have passed both.** A budget nothing can
+fail is not a budget, which is the argument for measuring before setting one.
+
+**The median is asserted and the tail only reported**, for § 5.1's reason: a single slow
+sample on a machine also compiling something is scheduling, not the compositor.
+
+**The RATIO is the assertion that survives a change of machine.** A compositor whose
+cost went linear in pixels would still pass both absolute budgets on a fast Mac while
+being wrong; 4K costs 2.4× 1080p today for four times the pixels, and above 4× it has
+stopped amortising anything across the frame.
+
+Still unmeasured: caption rebuild at 270 cues (L1), timeline redraw, and export
+throughput.
+
+`CameraMotionTests`' existing timing assertion is the model for all of these: it exists
+because a real recording stuttered, it names the number, and it fails if the O(n²)
+comes back.
 
 ### 5.3 Compatibility
 
@@ -274,8 +299,9 @@ In the order a defect found there would cost the most.
 1. ~~**Memory budgets while recording.**~~ **Started 2026-09-05**, probe § 28 — §5.1 has the
    figures and, more importantly, the three things they still do not establish. The
    30-minute soak is the one that matters and it cannot live in a gate.
-2. **Frame-time budget for the compositor.** A regression here is invisible until
-   somebody's preview stutters.
+2. ~~**Frame-time budget for the compositor.**~~ **Done 2026-09-05** — §5.2. What is
+   still unmeasured there is the caption rebuild, the timeline redraw and export
+   throughput.
 3. **App-tier model tests.** A third of the code, zero coverage.
 4. **Rendered locale check.** Ten languages, one of them the author's, nine unverified
    at the pixel.

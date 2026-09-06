@@ -975,6 +975,9 @@ final class RecordingCoordinator {
             "\(file) is not there. The recording did not reach the disk."
         case .theFileIsEmpty:
             "\(file) has no data in it. The recording stopped before anything was written."
+        case .theSizeCannotBeRead:
+            "\(file) is there and its size could not be read. Check the file rather than the "
+                + "recording — this says nothing about what was captured."
         case .theContainerWillNotOpen:
             "\(file) will not open. The recording was interrupted before it could be closed."
         case .thereIsNoVideoTrack:
