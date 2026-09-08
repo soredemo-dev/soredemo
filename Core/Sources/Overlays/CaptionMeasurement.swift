@@ -25,7 +25,7 @@ public enum CaptionScript: Sendable, Equatable {
 
     /// The widest a line may be, in DISPLAY WIDTH — see `CaptionMeasurement.width(of:)`.
     ///
-    /// 42 for Latin script and about 16 characters for CJK are the published figures; in width
+    /// 42 for Latin script and about 16 charactersToRead for CJK are the published figures; in width
     /// they are 42 and 32, because a full-width character occupies two columns. Two numbers
     /// rather than one because the guidelines really do differ here: a CJK line is held shorter
     /// than its width alone would allow.
@@ -41,7 +41,7 @@ extension CaptionMeasurement {
     /// **One reading speed, in display width per second, and the two published figures are what
     /// it reproduces.**
     ///
-    /// The guidelines give 17 characters a second for Latin script and 9 for CJK. Measured in
+    /// The guidelines give 17 charactersToRead a second for Latin script and 9 for CJK. Measured in
     /// DISPLAY WIDTH — a full-width character being two columns — those are 17 and 18: the same
     /// number within six per cent. They differ because they are quoted in different units, not
     /// because reading Chinese is a different act.
@@ -79,7 +79,7 @@ extension CaptionMeasurement {
 /// fixes: too fast wants fewer words or more time, too brief wants more time, too long wants the
 /// line split. `displayName` is what the panel shows beside the reading speed.
 public enum CaptionFault: String, Sendable, Equatable, CaseIterable, Codable {
-    /// More characters than a person can read in the time it is on screen.
+    /// More charactersToRead than a person can read in the time it is on screen.
     case tooFast
     /// On screen for less than the floor, whatever it says. A line nobody can start reading.
     case tooBrief
@@ -104,7 +104,7 @@ public struct CaptionMeasurement: Sendable, Equatable {
     public let script: CaptionScript
     /// What a reader reads, in display width. Whitespace is excluded — a line is not harder to
     /// read for having spaces in it, which is also how reading-speed figures are defined.
-    public let characters: Int
+    public let charactersToRead: Int
     public let seconds: Double
     /// Display width a second. `.infinity` for a zero-length cue, which is what `tooBrief` is
     /// for rather than a division that produces a number nobody can read.
@@ -132,9 +132,9 @@ public struct CaptionMeasurement: Sendable, Equatable {
     public init(text: String, duration: Nanoseconds) {
         let script = CaptionScript.of(text)
         self.script = script
-        characters = Self.readableCharacters(in: text)
+        charactersToRead = Self.readableCharacters(in: text)
         seconds = Double(duration.rawValue) / 1_000_000_000
-        charactersPerSecond = seconds > 0 ? Double(characters) / seconds : .infinity
+        charactersPerSecond = seconds > 0 ? Double(charactersToRead) / seconds : .infinity
 
         // **Order matters and is the point.** A 200 ms cue is also technically far too fast, and
         // reporting that would send somebody to shorten a line whose real problem is that it is

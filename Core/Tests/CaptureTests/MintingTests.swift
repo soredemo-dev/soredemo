@@ -84,11 +84,23 @@ private func hex(_ bytes: [UInt8]) -> String {
 /// cannot be negative. This also catches the two clocks being wired to each other's
 /// `mach_*` source — a swap that leaves both monotonic and both plausible.
 @Test func theContinuousClockIsNeverBehindTheHostClock() {
-    // Continuous first: reading it second would let elapsed time between the two reads
-    // hide a small negative difference, and the test would pass for the wrong reason.
-    let continuous = Minting.continuousNow()
+    // **Host first, and the original reasoning here was backwards.** It read continuous first
+    // so that elapsed time could not "hide a small negative difference" — which silently
+    // assumed the machine had slept. On one that has not, the two clocks are the SAME number,
+    // and reading continuous first makes the ~80 ns between the two reads a guaranteed
+    // failure: host lands later, so it lands higher. It failed exactly that way.
+    //
+    // Reading host first puts the read gap on the side of the invariant instead of against it.
+    // The cost is stated rather than hidden: this cannot catch a swap smaller than the gap, and
+    // on a machine that has never slept it cannot catch a swap at all — there is nothing to
+    // tell the clocks apart until the system has slept once.
     let host = Minting.hostNow()
-    #expect(continuous.rawValue >= host.rawValue)
+    let continuous = Minting.continuousNow()
+    #expect(continuous.rawValue >= host.rawValue,
+            """
+            continuous \(continuous.rawValue) is behind host \(host.rawValue) — the clocks are \
+            wired to each other's mach source
+            """)
 }
 
 /// Both clocks are converted from `mach` ticks through the timebase; a timebase fetched

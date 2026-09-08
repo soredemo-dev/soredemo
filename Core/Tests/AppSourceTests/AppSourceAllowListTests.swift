@@ -66,6 +66,49 @@ func pathRelativeToRepositoryRoot(_ url: URL) -> String {
     return path
 }
 
+/// Whether a line names a banned symbol, rather than merely containing its letters.
+///
+/// **Two boundary rules, and both were written because a plain `contains` was wrong about this
+/// codebase.**
+///
+/// *Leading*, applied to every needle beginning with an identifier character: the character
+/// before it must not be one. `time(`'s own comment argued that "a lowercase `time` immediately
+/// before `(` is close to unwritable by accident" — and `CaptionsModel.retime(at:start:end:)`
+/// wrote it, along with four call sites. Nothing there reads a clock. A scan that cries at a
+/// caption nudge is a scan somebody eventually silences, which is the expensive failure.
+///
+/// *Trailing*, opt-in with a `$` suffix on the needle: the character after it must not be an
+/// identifier character. Exactly one needle needs it — `.characters`, whose letters are also the
+/// English word a caption measurement counts. The alternative was renaming
+/// `CaptionMeasurement.charactersPerSecond`, which is the subtitling standard's own term, to
+/// avoid a substring of an AppKit property. Naming both real AppKit spellings is the honest
+/// direction; the prefix trick was never a rule, only a coincidence of spelling.
+///
+/// Neither rule is a permit. Nothing is excused by path or by name — both make the needle mean
+/// the symbol it was written for.
+extension String {
+    func namesTheBannedSymbol(_ needle: String) -> Bool {
+        func isIdentifier(_ character: Character) -> Bool {
+            character.isLetter || character.isNumber || character == "_"
+        }
+        let mustEndAtABoundary = needle.hasSuffix("$")
+        let symbol = mustEndAtABoundary ? String(needle.dropLast()) : needle
+        guard let first = symbol.first else { return false }
+        let boundedAtTheStart = isIdentifier(first)
+
+        var search = startIndex
+        while let range = self.range(of: symbol, range: search..<endIndex) {
+            search = index(after: range.lowerBound)
+            if boundedAtTheStart, range.lowerBound > startIndex,
+               isIdentifier(self[index(before: range.lowerBound)]) { continue }
+            if mustEndAtABoundary, range.upperBound < endIndex,
+               isIdentifier(self[range.upperBound]) { continue }
+            return true
+        }
+        return false
+    }
+}
+
 /// One violation, in the `file:line:` form the checker prints. Each permitted path is
 /// repository-relative and matched WHOLE, not by file name: matching on
 /// `lastPathComponent` would keep the file permitted wherever it moved to.
@@ -104,7 +147,7 @@ func violations(
         let text = try String(contentsOf: file, encoding: .utf8)
         for (index, line) in SwiftSourceLexer.codeViewLines(of: text).enumerated() {
             linesScanned += 1
-            for name in banned where line.contains(name) {
+            for name in banned where line.namesTheBannedSymbol(name) {
                 found.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1): names '\(name)'")
             }
         }
@@ -169,8 +212,10 @@ let ambientBannedNames: [String] = [
     // C `clock()` — processor time, a different reading and still ambient. Broad
     // on purpose: it also fires on a hypothetical `refreshClock(`, the loud direction.
     "clock(",
-    // C `time()`. Broad on purpose: Swift's camelCase means a lowercase
-    // `time` immediately before `(` is close to unwritable by accident.
+    // C `time()`. `namesTheBannedSymbol` requires a boundary before it: the original
+    // reasoning — "a lowercase `time` immediately before `(` is close to unwritable by
+    // accident" — was overtaken by `retime(at:start:end:)`, which writes exactly that and
+    // reads no clock at all.
     "time(",
     "NSDate", "systemUptime",
 
@@ -281,7 +326,7 @@ func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] 
         let text = try String(contentsOf: file, encoding: .utf8)
         for (index, line) in SwiftSourceLexer.codeViewLines(of: text).enumerated() {
             linesScanned += 1
-            for name in banned where line.contains(name) {
+            for name in banned where line.namesTheBannedSymbol(name) {
                 found.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1): names '\(name)'")
             }
         }
@@ -308,9 +353,13 @@ func violationsEverywhere(banned: [String], in files: [URL]) throws -> [String] 
             // is not listen-only.
             "keyboardSetUnicodeString",
             "keyboardEventUnicodeString",
-            // AppKit: `.characters` also covers `.charactersIgnoringModifiers`,
-            // which begins with the same substring including the dot.
-            ".characters",
+            // AppKit, both spellings NAMED. `.characters` used to be relied on to cover
+            // `.charactersIgnoringModifiers` by prefix — which also made it fire on
+            // `CaptionMeasurement.charactersPerSecond`, a count of letters in a subtitle. The
+            // `$` bounds the first at its own end; the second is now needled in its own right,
+            // which is what the ban was always about.
+            ".characters$",
+            ".charactersIgnoringModifiers",
             // The manual keycode → character route, and the input source it
             // needs. Either name alone is enough to make the attempt visible.
             "UCKeyTranslate",
@@ -1712,6 +1761,149 @@ func unescapedSwiftLiteral(_ text: String) -> String {
         These titles have no entry in the string tables, so they draw in English whatever \
         language the app is in:
         \(missing.joined(separator: "\n"))
+        """)
+}
+
+
+/// **A sentence a person reads is not exempt because it is not a control label.**
+///
+/// `everyControlLabelIsInEveryStringTable` looks at the positions where SwiftUI takes a
+/// `LocalizedStringKey` — a `Button`'s title, a `Toggle`'s, a tooltip. The status line is none
+/// of those. `ContentView.statusText` is a `String`, drawn through SwiftUI's **verbatim**
+/// overload, so no table entry could reach it however carefully one was written; twenty-six
+/// sentences sat there in English in all ten languages, including all seven that tell somebody
+/// their recording is damaged. That is the same defect `ToolbarAction.help` had — a `String`
+/// where a key was meant — found again in a place nothing looked at.
+///
+/// The fix was `String(localized:)`, which looks the table up at the point the sentence is
+/// built. This scan is what stops the twenty-seventh from being written the old way.
+///
+/// **Interpolation is the reason this cannot reuse the other scan.** That one skips any literal
+/// containing `\(`, because an interpolated *title* is not a key. Here it is: the compiler turns
+/// `"Recorded \(name)."` into the key `"Recorded %@."`. So both sides are reduced to the same
+/// shape — every interpolation in the source and every format specifier in the table becomes one
+/// marker — and compared. Reducing rather than predicting is deliberate: guessing `%@` against
+/// `%lld` per site would make this scan wrong about the one Int sentence in the app, and a scan
+/// that is wrong is worse than none.
+@Test func everyStatusSentenceIsInEveryStringTable() throws {
+    let resources = repositoryRoot.appending(path: "Soredemo/Resources")
+    let marker = "\u{1}"
+
+    /// `%@`, `%lld`, `%.1f` — anything the table uses for a value — becomes the marker.
+    func reduced(_ key: String) -> String {
+        var result = ""
+        var rest = Substring(key)
+        while let percent = rest.firstIndex(of: "%") {
+            result += rest[..<percent]
+            var cursor = rest.index(after: percent)
+            // `%%` is a literal percent sign, not a value.
+            if cursor < rest.endIndex, rest[cursor] == "%" {
+                result += "%"
+                rest = rest[rest.index(after: cursor)...]
+                continue
+            }
+            while cursor < rest.endIndex, "0123456789.#-+ lhqzt".contains(rest[cursor]) {
+                cursor = rest.index(after: cursor)
+            }
+            guard cursor < rest.endIndex else { return result + rest[percent...] }
+            result += marker
+            rest = rest[rest.index(after: cursor)...]
+        }
+        return result + rest
+    }
+
+    func keys(of language: String) throws -> Set<String> {
+        let url = resources.appending(path: "\(language).lproj/Localizable.strings")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        var found: Set<String> = []
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("\""), let range = trimmed.range(of: "\" = \"") else { continue }
+            let key = String(trimmed[trimmed.index(after: trimmed.startIndex)..<range.lowerBound])
+            found.insert(reduced(key))
+        }
+        return found
+    }
+    let english = try keys(of: "en")
+    try #require(english.count > 100, "the English table read as \(english.count) keys — parsed wrong")
+
+    // **Every sentence in the source, with its interpolations reduced to the same marker.**
+    var sentences: [(where: String, reduced: String)] = []
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        var cursor = text.startIndex
+        while let call = text.range(of: "String(localized:", range: cursor..<text.endIndex) {
+            cursor = call.upperBound
+            // The literal may be on the next line — this project wraps at 100 columns.
+            var open = call.upperBound
+            while open < text.endIndex, text[open] == " " || text[open] == "\n" {
+                open = text.index(after: open)
+            }
+            guard open < text.endIndex, text[open] == "\"" else { continue }
+
+            var body = ""
+            var depth = 0
+            var index = text.index(after: open)
+            var closed = false
+            while index < text.endIndex {
+                let character = text[index]
+                if depth == 0, character == "\"" { closed = true; break }
+                if depth == 0, character == "\\",
+                   text.index(after: index) < text.endIndex,
+                   text[text.index(after: index)] == "(" {
+                    body += marker
+                    depth = 1
+                    index = text.index(index, offsetBy: 2)
+                    continue
+                }
+                // Inside an interpolation nothing is kept — only its parentheses are counted, so
+                // that `\(String(describing: error))` ends where it really ends.
+                if depth > 0 {
+                    if character == "(" { depth += 1 }
+                    if character == ")" { depth -= 1 }
+                } else {
+                    body.append(character)
+                }
+                index = text.index(after: index)
+            }
+            guard closed else { continue }
+            let line = text[..<open].reduce(into: 1) { $0 += $1 == "\n" ? 1 : 0 }
+            sentences.append((where: "\(pathRelativeToRepositoryRoot(file)):\(line)",
+                              reduced: unescapedSwiftLiteral(body)))
+            cursor = index
+        }
+    }
+
+    #expect(sentences.count >= 26,
+            "only \(sentences.count) localised sentences were found — this scan decided nothing")
+    let missing = sentences
+        .filter { !english.contains($0.reduced) }
+        .map { "\($0.where) \"\($0.reduced.replacingOccurrences(of: marker, with: "%…"))\"" }
+    #expect(missing.isEmpty, """
+        These sentences have no entry in the string tables, so they draw in English whatever \
+        language the app is in:
+        \(missing.joined(separator: "\n"))
+        """)
+
+    // **And a `String` where a key was meant is the defect this whole test exists for.**
+    // A status line assigned a bare literal compiles, runs, and is English forever.
+    var verbatim: [String] = []
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for (index, line) in text.components(separatedBy: .newlines).enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("statusText = \"") || trimmed.hasPrefix("statusText = \"\"") else {
+                continue
+            }
+            // `statusText = ""` clears it — an empty string is not a sentence.
+            guard trimmed != "statusText = \"\"" else { continue }
+            verbatim.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1) \(trimmed)")
+        }
+    }
+    #expect(verbatim.isEmpty, """
+        These assign a bare literal to the status line, which SwiftUI draws verbatim — wrap them \
+        in String(localized:) and add the key to the ten tables:
+        \(verbatim.joined(separator: "\n"))
         """)
 }
 

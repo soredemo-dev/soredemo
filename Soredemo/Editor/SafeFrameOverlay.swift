@@ -21,7 +21,8 @@ struct SafeFrameOverlay: View {
             // The frame as drawn, which is the output's aspect fitted into whatever the preview
             // is — a guide measured against the container rather than the picture would be in
             // the wrong place at every size but one.
-            let fitted = Self.fitting(width: outputWidth, height: outputHeight, in: proxy.size)
+            let fitted = Self.fitting(width: outputWidth, height: outputHeight,
+                                      inWidth: proxy.size.width, inHeight: proxy.size.height)
             ZStack {
                 Rectangle()
                     .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
@@ -50,9 +51,17 @@ struct SafeFrameOverlay: View {
     }
 
     /// The output's shape fitted inside the preview, the way the player letterboxes it.
-    static func fitting(width: Int, height: Int, in container: CGSize) -> CGSize {
-        guard width > 0, height > 0, container.width > 0, container.height > 0 else { return .zero }
-        let scale = min(container.width / Double(width), container.height / Double(height))
-        return CGSize(width: Double(width) * scale, height: Double(height) * scale)
+    ///
+    /// **Two `Double`s in and two out, rather than the `CGSize` this obviously wants to be.**
+    /// ARCHITECTURE.md D6 rule 5 is zero-permit in the app target: no app file names `CGRect`,
+    /// `CGPoint`, `CGSize` or `CGFloat` at all, because a geometry type that crosses freely is
+    /// how a coordinate space crosses with it unnoticed. `proxy.size` still *is* a `CGSize` —
+    /// what the rule buys is that nothing here can pass one onward or store one.
+    static func fitting(
+        width: Int, height: Int, inWidth: Double, inHeight: Double
+    ) -> (width: Double, height: Double) {
+        guard width > 0, height > 0, inWidth > 0, inHeight > 0 else { return (0, 0) }
+        let scale = min(inWidth / Double(width), inHeight / Double(height))
+        return (Double(width) * scale, Double(height) * scale)
     }
 }

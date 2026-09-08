@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Capture
 import Overlays
 import Compositing
 import Foundation
@@ -34,7 +35,13 @@ final class CaptionsModel {
     /// seconds beside them answers it. Cleared when a run starts, so it is always this run's.
     private(set) var finishedSteps: [(step: TranscriptionProgress, seconds: Double)] = []
     /// When the running step began, for the same reason.
-    private var stepStarted: ContinuousClock.Instant?
+    ///
+    /// **`Minting.continuousNow()`, not a clock this file obtains.** ARCHITECTURE.md rule 3 is
+    /// zero-permit in the app target: an ambient reading enters at one audited place and travels
+    /// as a plain value. The version that read `ContinuousClock.now` also read it TWICE in one
+    /// subtraction — seconds from one instant, attoseconds from another — so a step could be
+    /// reported a whole second short. One reading, subtracted, cannot do that.
+    private var stepStarted: Nanoseconds?
     /// The run itself, so it can be stopped. Cancelling reaches the analyzer, not only the wait:
     /// measured at 0.16 s to return against 1.94 s to finish.
     private var transcribing: Task<Void, Never>?
@@ -75,14 +82,12 @@ final class CaptionsModel {
 
     /// Records how long the step that just ended took, and starts timing the new one.
     private func note(_ next: TranscriptionProgress) {
+        let now = Minting.continuousNow()
         if let phase, let stepStarted {
-            let seconds = Double((ContinuousClock.now - stepStarted)
-                .components.seconds) + Double((ContinuousClock.now - stepStarted)
-                .components.attoseconds) / 1e18
-            finishedSteps.append((phase, seconds))
+            finishedSteps.append((phase, Double(now.rawValue - stepStarted.rawValue) / 1e9))
         }
         phase = next
-        stepStarted = ContinuousClock.now
+        stepStarted = now
     }
 
     /// Stops a run. The work is dropped rather than kept: half a transcript timed against the
@@ -912,7 +917,7 @@ struct CaptionsPanel: View {
                     .font(Type.detail)
                     .foregroundStyle(Signal.record)
             }
-            Text(verbatim: "\(reading.characters)")
+            Text(verbatim: "\(reading.charactersToRead)")
                 .font(Type.readout)
                 .foregroundStyle(.secondary)
         }
@@ -922,7 +927,7 @@ struct CaptionsPanel: View {
     /// is to read, and how fast that is.
     @ViewBuilder private func reading(of cue: CaptionCue) -> some View {
         let reading = cue.measurement
-        Text(verbatim: String(format: "%.2fs · %d · %.1f/s", reading.seconds, reading.characters,
+        Text(verbatim: String(format: "%.2fs · %d · %.1f/s", reading.seconds, reading.charactersToRead,
                               reading.charactersPerSecond.isFinite
                                   ? reading.charactersPerSecond : 0))
             .font(Type.readout)

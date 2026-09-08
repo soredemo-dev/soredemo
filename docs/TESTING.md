@@ -130,6 +130,23 @@ while two other tests rendered cursors. Fixed by giving the renderer a per-insta
 override. **The rule that came out of it: a red gate is a HANG or a FAILURE, and which
 one it is decides whose defect it is.** Never file the second as the first.
 
+**And a third kind, found 2026-09-07: a gate reported green that was not.** Five tests were
+red at `e10c57d` and reported as passing. Four were real house-rule violations that had been
+introduced with the files that broke them; the fifth,
+`theContinuousClockIsNeverBehindTheHostClock`, was a test whose stated reasoning was backwards
+and which fails deterministically on a machine that has not slept since boot. None of them are
+flakes and none of them were the Apple hang. The rule: **a gate's verdict is the line it
+prints, read after the run, not the run one remembers starting.**
+
+Three of the four also say something about the scans themselves. `noAppSourceReadsAnAmbientValueAtAll`
+fired on `retime(at:start:end:)` because its needle `time(` was documented as "close to
+unwritable by accident"; `noAppSourceReadsKeystrokeText` fired on a caption's character count
+because `.characters` was relied on as a prefix for `.charactersIgnoringModifiers`. A scan that
+cries at a caption nudge is a scan somebody eventually silences — so both needles were made to
+mean the symbol they were written for (a boundary rule, and both AppKit spellings named), which
+is the opposite of a permit. The two copies of the matching loop that had to be edited to do it
+were themselves the reason one of them had drifted.
+
 ---
 
 ## 4. Test data
@@ -304,7 +321,15 @@ In the order a defect found there would cost the most.
    throughput.
 3. **App-tier model tests.** A third of the code, zero coverage.
 4. **Rendered locale check.** Ten languages, one of them the author's, nine unverified
-   at the pixel.
+   at the pixel. **Narrowed 2026-09-07:** the status line was not merely unverified, it was
+   untranslatable — `statusText` is a `String`, which binds SwiftUI's *verbatim* overload, so
+   twenty-seven sentences drew in English in all ten languages, including all seven that tell
+   somebody their recording is damaged. Same defect as `ToolbarAction.help`, in a position
+   nothing scanned. Now `String(localized:)`, with `everyStatusSentenceIsInEveryStringTable`
+   holding it: it reduces every interpolation and every format specifier to one marker and
+   compares, rather than predicting `%@` against `%lld` per site and being wrong about the one
+   `Int` sentence in the app. What remains at this item is the original claim — nothing has
+   been looked at rendered, and German and Russian run ~30% longer than English.
 5. **CI.** Not first: four gates a person runs is a real process, and a CI that cannot
    open a display cannot run gate 3 — which is where this project's hardest tests are.
 6. UI tests, and only the three flows in §6.
