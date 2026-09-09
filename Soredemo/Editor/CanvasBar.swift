@@ -30,7 +30,7 @@ struct CanvasBar: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .fixedSize()
-            .help("The shape of the export")
+            .tooltip("The shape of the export")
 
             Text("\(outputWidth)\u{00D7}\(outputHeight)")
                 .font(Type.readout)
@@ -45,7 +45,7 @@ struct CanvasBar: View {
             .toggleStyle(.button)
             .controlSize(.small)
             .tint(Theme.accent)
-            .help("Choose the part of the recording to use")
+            .tooltip("Choose the part of the recording to use")
 
             Toggle(isOn: $showsSafeFrame) {
                 Label("Guides", systemImage: "square.dashed")
@@ -54,7 +54,7 @@ struct CanvasBar: View {
             .toggleStyle(.button)
             .controlSize(.small)
             .tint(Theme.accent)
-            .help("Show where captions may be cut off or covered")
+            .tooltip("Show where captions may be cut off or covered")
 
             if !crop.isWhole {
                 Text(Self.cropLabel(crop))
@@ -65,7 +65,7 @@ struct CanvasBar: View {
                     onChange()
                 }
                 .controlSize(.small)
-                .help("Use the whole recording again")
+                .tooltip("Use the whole recording again")
             }
 
             Spacer()

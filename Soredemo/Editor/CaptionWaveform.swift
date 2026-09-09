@@ -104,6 +104,9 @@ struct CaptionWaveform: View {
                 RoundedRectangle(cornerRadius: Radius.block, style: .continuous)
                     .strokeBorder(faulty ? Signal.paused : .clear, lineWidth: 1))
             .onTapGesture { onSeek(cue.start) }
+            // **A cue's own text is content, not a key** — `verbatim` for the same reason
+            // `TargetCard` has a `verbatimTitle`: a sentence somebody said must not be looked
+            // up in a table, where it would fall through to itself and cost a lookup per hover.
             .help(cue.text)
     }
 
@@ -135,7 +138,7 @@ struct CaptionWaveform: View {
                 Image(systemName: "arrow.left.and.right")
             }
             .buttonStyle(.borderless)
-            .help("Show the whole recording")
+            .tooltip("Show the whole recording")
         }
         .padding(.horizontal, Space.regular)
         .frame(height: 22)

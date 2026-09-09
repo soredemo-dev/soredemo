@@ -84,7 +84,7 @@ struct TransportBar: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.space, modifiers: [])
-            .help(isPlaying ? "Pause (Space)" : "Play (Space)")
+            .tooltip(isPlaying ? "Pause (Space)" : "Play (Space)")
 
             Button { player.seek(to: .zero) } label: {
                 Image(systemName: "backward.end.fill")
@@ -94,7 +94,7 @@ struct TransportBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Back to the start")
+            .tooltip("Back to the start")
 
             Text(Self.timecode(position))
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
@@ -129,7 +129,7 @@ struct TransportBar: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Preview speed \u{2014} the export is unaffected")
+            .tooltip("Preview speed \u{2014} the export is unaffected")
 
             // What the export will be, stated where a person is looking at the picture rather
             // than only in the inspector three tabs away.
@@ -212,6 +212,6 @@ private struct PlaybackMeter: View {
         }
         .frame(height: 14)
         .animation(.linear(duration: 0.08), value: level)
-        .help("Level at the playhead")
+        .tooltip("Level at the playhead")
     }
 }

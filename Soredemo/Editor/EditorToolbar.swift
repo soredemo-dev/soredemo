@@ -103,7 +103,7 @@ struct EditorToolbar: View {
                         .fixedSize()
                 }
             }
-            .help("Exporting \(job.filename)")
+            .tooltip("Exporting \(job.filename)")
             separator
         }
     }
@@ -198,7 +198,7 @@ struct EditorToolbar: View {
         .fixedSize()
         .disabled(model.selectedClip == nil)
         .opacity(model.selectedClip == nil ? 0.35 : 1)
-        .help(model.selectedClip == nil ? "Select a clip to fade it"
+        .tooltip(model.selectedClip == nil ? "Select a clip to fade it"
                                         : "Fade this clip in or out")
     }
 
@@ -228,7 +228,7 @@ struct EditorToolbar: View {
         .fixedSize()
         .disabled(model.selectedClip == nil)
         .opacity(model.selectedClip == nil ? 0.35 : 1)
-        .help(model.selectedClip == nil ? "Select a clip to change its speed"
+        .tooltip(model.selectedClip == nil ? "Select a clip to change its speed"
               : "How fast the selected clip plays")
     }
 
@@ -277,7 +277,7 @@ struct EditorToolbar: View {
             ProgressView(value: progress)
                 .progressViewStyle(.circular)
                 .controlSize(.small)
-                .help("Looking for still stretches\u{2026}")
+                .tooltip("Looking for still stretches\u{2026}")
         } else if model.stillness.isEmpty {
             ToolbarAction(icon: "rectangle.on.rectangle.slash",
                           help: "Find the stretches where nothing moves",
@@ -325,7 +325,7 @@ struct EditorToolbar: View {
             .font(Type.readout)
             .foregroundStyle(Theme.Ink.secondary)
             .frame(width: 54, alignment: .trailing)
-            .help("How much of the recording the strip is showing")
+            .tooltip("How much of the recording the strip is showing")
     }
 
     @ViewBuilder private var separator: some View {
@@ -371,7 +371,10 @@ private struct ToolbarAction: View {
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.35)
         .onHover { isHovering = $0 }
-        .help(help)
+        // **`.tooltip`, not `.help`.** AppKit shows nothing for a disabled control, and half
+        // this row is disabled at any moment — which made the icons whose meaning is least
+        // guessable the ones that would not say. See `Tooltip`.
+        .tooltip(help)
         .accessibilityLabel(help)
     }
 }

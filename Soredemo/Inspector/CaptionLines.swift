@@ -379,7 +379,7 @@ struct CaptionLines: View {
                                     action: @escaping () -> Void) -> some View {
         Button(action: { action(); onChange() }) { Image(systemName: symbol) }
             .buttonStyle(.borderless)
-            .help(LocalizedStringKey(label))
+            .tooltip(LocalizedStringKey(label))
             .accessibilityLabel(LocalizedStringKey(label))
     }
 

@@ -1731,7 +1731,12 @@ func unescapedSwiftLiteral(_ text: String) -> String {
                    // `String`, which binds to SwiftUI's verbatim overload, so no table entry
                    // could have reached it even if one had existed. Both spellings are scanned.
                    "help: \"",
-                   ".help(\""]
+                   ".help(\"",
+                   // **`.tooltip(` too, from the day it replaced `.help(` on icon controls.**
+                   // A modifier renamed is a position this scan stops looking at, and every
+                   // string that moved with it would have gone quietly back to being English
+                   // in nine languages — which is the exact failure `.help` was added here for.
+                   ".tooltip(\""]
     var missing: [String] = []
     var scanned = 0
     for file in try appSourceFiles() {
