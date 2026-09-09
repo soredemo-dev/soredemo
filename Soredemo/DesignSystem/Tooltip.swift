@@ -26,6 +26,10 @@ struct Tooltip: ViewModifier {
 
     @State private var isHovering = false
     @State private var isShown = false
+    /// How wide the bubble turned out. **Measured, not assumed.** Clamping a three-word label
+    /// as if it were the full 260 points pushes it further from the edge than it needs to be,
+    /// which reads as a tooltip pointing at the wrong button.
+    @State private var bubbleWidth = Tooltip.maximumWidth
     /// Where the button is on the screen, so the bubble can be kept on it.
     @State private var anchor: Anchor?
 
@@ -78,7 +82,7 @@ struct Tooltip: ViewModifier {
                 if isShown, let anchor {
                     bubble
                         .offset(x: Self.shift(centreX: anchor.centreX,
-                                              width: Self.maximumWidth,
+                                              width: bubbleWidth,
                                               screenX: anchor.screenX,
                                               screenWidth: anchor.screenWidth),
                                 // **Below when there is no room above.** The canvas bar is the
@@ -97,15 +101,28 @@ struct Tooltip: ViewModifier {
     }
 
     @ViewBuilder private var bubble: some View {
+        // **`.fixedSize()` AFTER the width cap, and without it the bubble is one character
+        // wide.** An overlay is proposed its host's size, and the host here is a 24-point icon
+        // button — so `maxWidth` capped a proposal that was already tiny and the text wrapped to
+        // a vertical column of single letters. Reported as "why is it vertical", and it was.
+        // `.fixedSize()` makes the frame ignore the proposal and take its own ideal width, which
+        // the cap then limits; the text wraps against THAT, which is what a tooltip is.
         Text(text)
             .font(Type.detail)
             .foregroundStyle(Theme.Ink.primary)
             .lineLimit(3)
             .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: Self.maximumWidth)
+            .fixedSize()
             .padding(.horizontal, Space.snug)
             .padding(.vertical, Space.hairline)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.size.width, initial: true) {
+                        bubbleWidth = Double(geometry.size.width)
+                    }
+                }
+            }
             .background {
                 RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
                     .fill(Theme.Surface.raised)

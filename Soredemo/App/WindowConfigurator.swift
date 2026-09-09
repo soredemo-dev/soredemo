@@ -145,32 +145,7 @@ private func openFullScreen(_ window: NSWindow) {
     // remove the observer. `@unchecked Sendable` is sound for `assumeIsolated`'s
     // reason: written on the main actor, read only from a closure delivered on
     // `.main`.
-    // **Invisible until it is where it is going.** AppKit orders the window front and paints it
-    // at the autosaved size BEFORE `didBecomeKey`, so the toggle below — synchronous, and meant
-    // to leave one visible state — animates out of a small window somebody has already seen.
-    // Growing first was tried and made it three states. Alpha removes the first state instead of
-    // replacing it: still a window to AppKit, so the transition runs; nothing to see until then.
-    if WindowConfigurator.opensFullScreen, !window.styleMask.contains(.fullScreen) {
-        window.alphaValue = 0
-    }
-
     let holder = ObserverHolder()
-    /// Show it, once, whoever gets here first.
-    ///
-    /// **A window left at alpha 0 is an app that did not launch**, so this cannot depend on the
-    /// transition succeeding. Three things call it: arriving in full screen, deciding not to go,
-    /// and a deadline for the case where the transition never reports either — a Space change
-    /// refused mid-animation, or a screen disconnected under it.
-    func reveal() {
-        guard window.alphaValue < 1 else { return }
-        window.animator().alphaValue = 1
-    }
-    NotificationCenter.default.addObserver(
-        forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
-            MainActor.assumeIsolated { reveal() }
-        }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { MainActor.assumeIsolated { reveal() } }
-
     holder.token = NotificationCenter.default.addObserver(
         forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { _ in
             // `queue: .main` is the guarantee this rests on: the notification centre delivers
@@ -191,9 +166,29 @@ private func openFullScreen(_ window: NSWindow) {
                     // Not going full screen — either it is off or the window is already there —
                     // so this is the only moment the floor gets applied on the way in.
                     growToFloor(window, within: visible)
-                    reveal()
                     return
                 }
+                // **Full size first, then the toggle.** AppKit paints at the autosaved size
+                // before `didBecomeKey`, so the transition zooms out of a small window somebody
+                // has already seen. `alphaValue = 0` was tried on 2026-09-10 to cover that and
+                // BROKE full screen: a window at alpha 0 is not on screen as far as
+                // `toggleFullScreen` is concerned. Growing to `openingFraction` was the attempt
+                // before that, and stopping in between is what made three states.
+                //
+                // `chosen` is kept because AppKit restores the pre-full-screen frame on exit,
+                // and that frame is now the whole screen.
+                let chosen = window.frame
+                NotificationCenter.default.addObserver(
+                    forName: NSWindow.didExitFullScreenNotification, object: window,
+                    queue: .main) { _ in
+                        MainActor.assumeIsolated {
+                            window.setFrame(chosen, display: true, animate: false)
+                            if let visible = (window.screen ?? NSScreen.main)?.visibleFrame {
+                                growToFloor(window, within: visible)
+                            }
+                        }
+                    }
+                window.setFrame(visible, display: false, animate: false)
                 window.toggleFullScreen(nil)
             }
         }
