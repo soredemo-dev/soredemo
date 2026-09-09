@@ -189,7 +189,21 @@ struct ExportQueueButton: View {
 
     var body: some View {
         if !queue.jobs.isEmpty {
-            Menu {
+            // **One running export is said out loud, not filed in a menu.**
+            //
+            // The menu below is right for a queue — several jobs, each with its own state. It is
+            // wrong for the ordinary case, which is one export running, because everything a
+            // person wants then (which file, how far, how do I stop it) was behind a click on a
+            // chevron that looks like a disclosure control for the Export button beside it.
+            // Reported as "the UI for export is terrible, it's hidden if the user didn't click",
+            // and that is what it was: the app knew the filename, the percentage and how to
+            // cancel, and showed none of the three until asked.
+            //
+            // The menu stays for two or more, where a row per job is the only way to show them.
+            if queue.jobs.count == 1, let job = queue.jobs.first, job.status == .running {
+                running(job)
+            } else {
+                Menu {
                 ForEach(queue.jobs) { job in
                     ExportJobRow(job: job)
                 }
@@ -216,9 +230,49 @@ struct ExportQueueButton: View {
                     let waiting = queue.jobs.filter { $0.status == .waiting }.count
                     if waiting > 0 { Text("\(waiting)").font(.caption) }
                 }
+                }
+                .help("Exports")
             }
-            .help("Exports")
         }
+    }
+
+    /// The single running export, in the toolbar: what it is, how far, and Stop.
+    ///
+    /// **A button that says Stop rather than an ✕.** Cancelling an export throws away minutes of
+    /// work, and a glyph does not say that; the word does. It is not confirmed beyond that,
+    /// because the alternative — a sheet over a running export — is worse for the far more
+    /// common case of somebody who meant it.
+    @ViewBuilder private func running(_ job: ExportJob) -> some View {
+        HStack(spacing: Space.snug) {
+            Image(systemName: "square.and.arrow.up").foregroundStyle(.secondary)
+            Text(verbatim: job.filename)
+                .font(Type.detail)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 160)
+            if let fraction = job.progress?.fraction {
+                ProgressView(value: fraction).frame(width: 70)
+                Text(verbatim: "\(Int(fraction * 100))%")
+                    .font(Type.readout)
+                    .foregroundStyle(.secondary)
+                    // Fixed width, or the row twitches sideways at every percent — see
+                    // `ExportETA` for the same reason the time is smoothed.
+                    .frame(width: 34, alignment: .trailing)
+            } else {
+                ProgressView().controlSize(.small)
+                // **`finishWriting` reports nothing**, and a bar pinned at 100% reads as stopped
+                // rather than as nearly done. The word says which it is.
+                Text("Finishing\u{2026}").font(Type.readout).foregroundStyle(.secondary)
+            }
+            Button("Stop") { ExportQueue.shared.cancel(job.id) }
+                .buttonStyle(.borderless)
+                .font(Type.detail)
+        }
+        .padding(.horizontal, Space.snug)
+        .frame(height: 22)
+        .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
+            .fill(.quaternary))
+        .help("Exporting \(job.filename)")
     }
 }
 

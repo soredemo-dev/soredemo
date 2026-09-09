@@ -32,17 +32,25 @@ struct CaptionLines: View {
     /// Where the RECORDING is silent, from the timeline's own detection.
     let pauses: [SilenceFinder.Span]
 
-    /// What the list is filtered to. **A filter, not a jump-to-match**: on a long recording the
-    /// question is "where did I say that", and the answer is every line that says it.
-    @State private var search = ""
-    /// Which row has the caret. Also what decides whether the list follows the playhead: a list
-    /// that scrolled itself while somebody was typing in it would move the field out from under
-    /// them.
-    @FocusState private var focused: Int?
-    /// What the focused row said before anybody typed in it, so a commit can tell what changed.
-    @State private var textOnFocus: (index: Int, text: String)?
-    /// A correction worth offering to apply everywhere, with how many other lines it reaches.
-    @State private var offer: (edit: RunEdit, others: Int, word: String)?
+    /// Everything this list remembers, owned by whoever hosts it.
+    ///
+    /// **`@State` here was a defect, and the runtime said so out loud.** These rows are handed
+    /// to the host's `List` from a value the host rebuilds on every redraw, so state declared
+    /// here was never installed on anything: *"Accessing State's value outside of being
+    /// installed on a View. This will result in a constant Binding of the initial value and
+    /// will not update."* The search field could be typed in and would never filter; the caret
+    /// could move and no row would know. That is what "the caption editing has so many bugs"
+    /// was, and it arrived with the extraction that made this file.
+    ///
+    /// A reference type held by the host with `@State` is what survives the struct being thrown
+    /// away — and sharing one deliberately is what makes the inspector and the caption editor
+    /// agree about what is selected when both are showing the same recording.
+    /// `@Bindable`, not `let`: the search field needs a two-way binding into the class, and a
+    /// plain stored property has no `$`.
+    @Bindable var state: CaptionListState
+    /// Which row has the caret, as a binding from the host. Same reason: focus belongs to a live
+    /// view hierarchy, not to a value rebuilt between redraws.
+    @FocusState.Binding var focused: Int?
 
     /// The rows alone, for a host that supplies its own `List` and sections.
     @ViewBuilder var rows: some View {
@@ -50,7 +58,7 @@ struct CaptionLines: View {
         ForEach(visibleCues, id: \.index) { entry in
             row(index: entry.index, cue: entry.cue).id(entry.index)
         }
-        if visibleCues.isEmpty, !search.isEmpty {
+        if visibleCues.isEmpty, !state.search.isEmpty {
             Text("No caption contains that.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
@@ -68,7 +76,7 @@ struct CaptionLines: View {
                         onChange()
                     }
                     if let current, current < model.track.cues.count {
-                        textOnFocus = (current, model.track.cues[current].text)
+                        state.textOnFocus = (current, model.track.cues[current].text)
                     }
                 }
                 .onChange(of: currentIndex) {
@@ -88,7 +96,7 @@ struct CaptionLines: View {
     /// The cues the search allows through, each with its index into the unfiltered track — which
     /// is what every edit below addresses, so filtering can never retime the wrong line.
     private var visibleCues: [(index: Int, cue: CaptionCue)] {
-        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let needle = state.search.trimmingCharacters(in: .whitespaces).lowercased()
         return model.track.cues.enumerated()
             .filter { needle.isEmpty || $0.element.text.lowercased().contains(needle) }
             .map { (index: $0.offset, cue: $0.element) }
@@ -102,12 +110,12 @@ struct CaptionLines: View {
     @ViewBuilder private var listControls: some View {
         HStack(spacing: Space.snug) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search the captions", text: $search)
+            TextField("Search the captions", text: $state.search)
                 .textFieldStyle(.plain)
-            if !search.isEmpty {
+            if !state.search.isEmpty {
                 Text(verbatim: "\(visibleCues.count)/\(model.track.cues.count)")
                     .font(Type.readout).foregroundStyle(.secondary)
-                Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                Button { state.search = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear the search")
             }
@@ -211,7 +219,7 @@ struct CaptionLines: View {
     /// the moment another line is edited, because an offer about a line somebody has moved on
     /// from is in the way.
     @ViewBuilder private var offerBar: some View {
-        if let offer {
+        if let offer = state.offer {
             HStack(spacing: Space.snug) {
                 Image(systemName: "wand.and.sparkles").foregroundStyle(.secondary)
                 Text("The same change fits \(offer.others) other line(s).")
@@ -219,10 +227,10 @@ struct CaptionLines: View {
                 Spacer()
                 Button("Fix them too") {
                     model.applyEverywhere(offer.edit, correctedWord: offer.word)
-                    self.offer = nil
+                    state.offer = nil
                     onChange()
                 }
-                Button { self.offer = nil } label: { Image(systemName: "xmark") }
+                Button { state.offer = nil } label: { Image(systemName: "xmark") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss this suggestion")
             }
@@ -252,8 +260,8 @@ struct CaptionLines: View {
     /// sweep across a transcript is a change nobody reviewed, and the count is what lets
     /// somebody predict what pressing it will do.
     private func noteCorrection(at index: Int) {
-        defer { textOnFocus = nil }
-        guard let before = textOnFocus, before.index == index,
+        defer { state.textOnFocus = nil }
+        guard let before = state.textOnFocus, before.index == index,
               index < model.track.cues.count else { return }
         let after = model.track.cues[index].text
         guard let edit = RunEdit(from: before.text, to: after) else { return }
@@ -263,7 +271,7 @@ struct CaptionLines: View {
         // three-letter fragments would match things nobody meant.
         let word = after.split(whereSeparator: \.isWhitespace)
             .first { $0.contains(edit.now) }.map(String.init)
-        offer = (edit, others, word ?? edit.now)
+        state.offer = (edit, others, word ?? edit.now)
     }
 
     /// A cue's own numbers, and the verdict when there is one.
@@ -381,4 +389,23 @@ struct CaptionLines: View {
         let tenths = max(0, time.rawValue) / 100_000_000
         return "\(tenths / 600):" + String(format: "%02d.%01d", (tenths / 10) % 60, tenths % 10)
     }
+}
+
+/// What a cue list remembers between redraws.
+///
+/// **A class, because the list is a value that gets thrown away.** `CaptionLines` is handed to a
+/// host's `List` as rows; SwiftUI rebuilds that struct constantly, and `@State` inside it is
+/// never installed, so every binding is a constant of its initial value. The runtime reports
+/// exactly that, and the symptom is a search field that filters nothing.
+///
+/// Held by the host with `@State`, so the host's identity is what keeps it alive.
+@Observable
+final class CaptionListState {
+    /// What the list is filtered to. **A filter, not a jump-to-match**: on a long recording the
+    /// question is "where did I say that", and the answer is every line that says it.
+    var search = ""
+    /// What the focused row said before anybody typed in it, so a commit can tell what changed.
+    var textOnFocus: (index: Int, text: String)?
+    /// A correction worth offering to apply everywhere, with how many other lines it reaches.
+    var offer: (edit: RunEdit, others: Int, word: String)?
 }

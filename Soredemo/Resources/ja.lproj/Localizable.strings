@@ -448,3 +448,4 @@
 "between lines" = "行の移動";
 "%lld caption(s)" = "字幕 %lld 件";
 "Show the whole recording" = "収録全体を表示";
+"Make captions first — the Captions section in the inspector" = "先に字幕を作ってください — インスペクタの「字幕」セクション";

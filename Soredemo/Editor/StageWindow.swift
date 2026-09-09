@@ -573,6 +573,22 @@ struct StageWindow: View {
                 Button("Export…") { startExport() }
                     .disabled(player == nil)
             }
+            // **A mode this app has needs a way in that does not require finding it.** The
+            // button inside the Captions inspector section is where somebody already working on
+            // captions will look; ⌘⇧C is what somebody who has used the mode once will reach
+            // for, and neither of those is somebody discovering it. A toolbar item is.
+            ToolbarItem {
+                Button {
+                    isCaptionEditorShown = true
+                } label: {
+                    Label("Captions", systemImage: "captions.bubble")
+                }
+                .disabled(captions.track.isEmpty)
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .help(captions.track.isEmpty
+                      ? "Make captions first \u{2014} the Captions section in the inspector"
+                      : "Captions at full width, with the waveform")
+            }
             ToolbarItem { ExportQueueButton() }
             // **Full screen, because the green button does not offer it here.**
             //

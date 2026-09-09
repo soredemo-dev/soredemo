@@ -366,17 +366,14 @@ struct CaptionsPanel: View {
     @State private var fontFailure: String?
     /// The name being typed. Cleared on add, so the field is ready for the next one.
     @State private var newTerm = ""
-    /// What the list is filtered to. **A filter, not a jump-to-match**: on a long recording the
-    /// question is "where did I say that", and the answer is every line that says it.
-    @State private var search = ""
     /// Which row has the caret. Also what decides whether the list follows the playhead: a list
     /// that scrolled itself while somebody was typing in it would move the field out from under
     /// them.
     @FocusState private var focused: Int?
-    /// What the focused row said before anybody typed in it, so a commit can tell what changed.
-    @State private var textOnFocus: (index: Int, text: String)?
     /// A correction worth offering to apply everywhere, with how many other lines it reaches.
-    @State private var offer: (edit: RunEdit, others: Int, word: String)?
+    /// What the cue list remembers. See `CaptionListState` — it is a class because the list
+    /// itself is a value SwiftUI throws away between redraws.
+    @State private var listState = CaptionListState()
 
     var body: some View {
         // **`ScrollViewReader` around the LIST, and one row per cue inside it.** Both were wrong
@@ -413,10 +410,12 @@ struct CaptionsPanel: View {
         }
     }
 
-    /// The shared cue list, configured for this panel.
+    /// The shared cue list, configured for this panel. **The state it reads is held HERE**, by
+    /// this view's `@State`, because the struct below is rebuilt on every redraw.
     private var lines: CaptionLines {
         CaptionLines(model: model, onChange: onChange, playhead: playhead,
-                     onSeek: onSeek, pauses: pauses)
+                     onSeek: onSeek, pauses: pauses,
+                     state: listState, focused: $focused)
     }
 
     /// The index of the cue the playhead is inside, or `nil` between cues. Kept here only to

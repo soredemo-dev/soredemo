@@ -447,3 +447,4 @@
 "between lines" = "entre as linhas";
 "%lld caption(s)" = "%lld legenda(s)";
 "Show the whole recording" = "Mostrar toda a gravação";
+"Make captions first — the Captions section in the inspector" = "Crie as legendas primeiro — a seção Legendas do inspetor";

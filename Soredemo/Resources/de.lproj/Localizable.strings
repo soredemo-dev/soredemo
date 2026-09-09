@@ -446,3 +446,4 @@
 "between lines" = "zwischen den Zeilen";
 "%lld caption(s)" = "%lld Untertitel";
 "Show the whole recording" = "Ganze Aufnahme zeigen";
+"Make captions first — the Captions section in the inspector" = "Erst Untertitel erzeugen – im Abschnitt „Untertitel“ des Inspektors";

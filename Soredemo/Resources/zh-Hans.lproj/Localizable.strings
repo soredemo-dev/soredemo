@@ -448,3 +448,4 @@
 "between lines" = "上下行之间";
 "%lld caption(s)" = "%lld 句字幕";
 "Show the whole recording" = "显示整段录制";
+"Make captions first — the Captions section in the inspector" = "先生成字幕 —— 在 inspector 的「字幕」区";

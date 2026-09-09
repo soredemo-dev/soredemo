@@ -42,6 +42,10 @@ struct CaptionEditor: View {
     /// timeline's zoom**: the timeline is zoomed to look at cuts and this is zoomed to look at
     /// a sentence, and sharing one number would make each of them fight the other.
     @State private var visibleFraction: Double = 1
+    /// What the cue list remembers — held here, not inside the list, for `CaptionListState`'s
+    /// reason.
+    @State private var listState = CaptionListState()
+    @FocusState private var focused: Int?
 
     var body: some View {
         HSplitView {
@@ -59,7 +63,8 @@ struct CaptionEditor: View {
 
             VStack(spacing: 0) {
                 CaptionLines(model: model, onChange: onChange, playhead: playhead,
-                             onSeek: onSeek, pauses: pauses)
+                             onSeek: onSeek, pauses: pauses,
+                             state: listState, focused: $focused)
                 Divider().overlay(Theme.Line.hairline)
                 keys
             }

@@ -72,9 +72,16 @@ struct CaptionField: NSViewRepresentable {
         if isFocused, !holdsCaret {
             // Deferred: `updateNSView` can run inside a layout pass, and changing the first
             // responder there is a change to the hierarchy while it is being read.
-            DispatchQueue.main.async { window.makeFirstResponder(field) }
+            //
+            // **`Task`, not `DispatchQueue.main.async`.** The dispatch spelling enqueues at the
+            // DEFAULT quality of service, and the main thread — which is user-interactive while
+            // somebody is typing — then has to wait behind it. The runtime says so out loud:
+            // "Thread running at User-interactive QoS waiting on a lower QoS thread running at
+            // Default". A `Task` on the main actor carries the enqueueing context's priority, so
+            // there is no inversion to warn about, and it is the same one-turn deferral.
+            Task { @MainActor in window.makeFirstResponder(field) }
         } else if !isFocused, holdsCaret {
-            DispatchQueue.main.async { window.makeFirstResponder(nil) }
+            Task { @MainActor in window.makeFirstResponder(nil) }
         }
     }
 

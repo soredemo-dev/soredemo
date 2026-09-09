@@ -446,3 +446,4 @@
 "between lines" = "줄 사이 이동";
 "%lld caption(s)" = "자막 %lld개";
 "Show the whole recording" = "녹화 전체 보기";
+"Make captions first — the Captions section in the inspector" = "먼저 자막을 만드세요 — 인스펙터의 자막 섹션";

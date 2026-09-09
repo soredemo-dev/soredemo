@@ -446,3 +446,4 @@
 "between lines" = "между строками";
 "%lld caption(s)" = "%lld субтитр(ов)";
 "Show the whole recording" = "Показать всю запись";
+"Make captions first — the Captions section in the inspector" = "Сначала создайте субтитры — раздел «Субтитры» в инспекторе";

@@ -448,3 +448,4 @@
 "between lines" = "entre líneas";
 "%lld caption(s)" = "%lld subtítulo(s)";
 "Show the whole recording" = "Mostrar toda la grabación";
+"Make captions first — the Captions section in the inspector" = "Crea primero los subtítulos: la sección Subtítulos del inspector";
