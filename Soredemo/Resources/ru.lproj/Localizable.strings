@@ -438,3 +438,11 @@
 "%@ opens but its picture cannot be read." = "%@ открывается, но изображение прочитать нельзя.";
 "%@ is much shorter than the time you recorded for. Check it before you rely on it." = "%@ намного короче записанного времени. Проверьте, прежде чем полагаться на него.";
 "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video." = "%@ открыт. Приближения выводятся из изменений на экране — у импортированного видео нет дорожки указателя.";
+"Exporting %@" = "Экспорт %@";
+"Open the caption editor" = "Открыть редактор субтитров";
+"Captions at full width, with the waveform" = "Субтитры во всю ширину, с формой волны";
+"split here" = "разделить здесь";
+"merge with the line above" = "объединить со строкой выше";
+"between lines" = "между строками";
+"%lld caption(s)" = "%lld субтитр(ов)";
+"Show the whole recording" = "Показать всю запись";

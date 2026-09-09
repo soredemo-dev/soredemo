@@ -1130,6 +1130,32 @@ enum CrossBoundaryProbe {
         let windowFilter = SCContentFilter(desktopIndependentWindow: scWindowAfterMove)
         print("        window's own filter.contentRect = \(windowFilter.contentRect), " +
               "pointPixelScale = \(windowFilter.pointPixelScale) — NOT the bufferSize input under D2-13a")
+
+        // **The precondition, checked before the thing that depends on it.**
+        //
+        // `setFrameOrigin` is a REQUEST. Observed 2026-09-10: the probe asked for x = 700 and
+        // the window server put the window at x = 2094 — past the right edge of the only
+        // display — and the derivation below correctly returned nil, because
+        // `CaptureSource.init(pickerFilter:)` refuses a window no display hosts (see its own
+        // comment: a window with no host is a capture that cannot start). The probe then
+        // reported that refusal as "CaptureSource does not derive a .window from a window-style
+        // filter", which is a fact about the WINDOW PLACEMENT stated as a fact about the code
+        // under test — and it took a stashed-tree comparison to find that out.
+        //
+        // So the placement is asserted here, by name, and the remainder is skipped rather than
+        // blamed on the derivation. A skip is honest; a red check pointing at the wrong file is
+        // worse than no check at all, because somebody spends an afternoon in that file.
+        let placed = CGGeometryBridge.pointRect(from: scWindowAfterMove.frame)
+        let screen = CGGeometryBridge.pointRect(from: display.frame)
+        let onADisplay = placed.x < screen.x + screen.width && placed.x + placed.width > screen.x
+            && placed.y < screen.y + screen.height && placed.y + placed.height > screen.y
+        guard onADisplay else {
+            print("        SKIPPED remainder — the window server did not honour the placement: "
+                  + "asked for x = 700, the window is at \(placed), and the display is \(screen). "
+                  + "Nothing below can be decided about CaptureSource from a window no display hosts.")
+            return
+        }
+
         guard let derivedWindowSource = CaptureSource(pickerFilter: windowFilter, availableDisplays: [display])
         else {
             check(false, "CaptureSource(pickerFilter:) derives a .window from a window-style filter")

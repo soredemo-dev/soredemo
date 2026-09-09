@@ -454,3 +454,11 @@
 "%@ opens but its picture cannot be read." = "%@ opens but its picture cannot be read.";
 "%@ is much shorter than the time you recorded for. Check it before you rely on it." = "%@ is much shorter than the time you recorded for. Check it before you rely on it.";
 "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video." = "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video.";
+"Exporting %@" = "Exporting %@";
+"Open the caption editor" = "Open the caption editor";
+"Captions at full width, with the waveform" = "Captions at full width, with the waveform";
+"split here" = "split here";
+"merge with the line above" = "merge with the line above";
+"between lines" = "between lines";
+"%lld caption(s)" = "%lld caption(s)";
+"Show the whole recording" = "Show the whole recording";

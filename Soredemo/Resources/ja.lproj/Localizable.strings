@@ -440,3 +440,11 @@
 "%@ opens but its picture cannot be read." = "%@ は開きますが、映像を読み取れません。";
 "%@ is much shorter than the time you recorded for. Check it before you rely on it." = "%@ は収録した時間よりかなり短いです。使う前に確認してください。";
 "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video." = "%@ を開きました。ズームは画面の変化から求められます — 読み込んだ動画にはポインタのトラックがありません。";
+"Exporting %@" = "%@ を書き出し中";
+"Open the caption editor" = "字幕エディタを開く";
+"Captions at full width, with the waveform" = "全幅の字幕と波形";
+"split here" = "ここで分割";
+"merge with the line above" = "前の行と結合";
+"between lines" = "行の移動";
+"%lld caption(s)" = "字幕 %lld 件";
+"Show the whole recording" = "収録全体を表示";

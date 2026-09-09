@@ -76,6 +76,16 @@ struct EditorToolbar: View {
     @ViewBuilder private var exportProgress: some View {
         if let job = exportQueue.jobs.first(where: { $0.status == .running }) {
             HStack(spacing: Space.snug) {
+                // **An unlabelled bar is not a progress bar, it is a moving rectangle.** This row
+                // sits between the timeline's tools and the zoom controls, and for as long as it
+                // was only a bar and a time it read as one more timeline thing — somebody
+                // watching an export run reported the app had no export progress while this was
+                // on screen showing it. The icon says which of the app's slow things this is;
+                // the tooltip says which file, because two exports of the same project differ
+                // only by name.
+                Image(systemName: "square.and.arrow.up")
+                    .font(Type.detail)
+                    .foregroundStyle(.secondary)
                 if let fraction = job.progress?.fraction {
                     ProgressView(value: fraction)
                         .frame(width: 90)
@@ -93,6 +103,7 @@ struct EditorToolbar: View {
                         .fixedSize()
                 }
             }
+            .help("Exporting \(job.filename)")
             separator
         }
     }

@@ -107,6 +107,9 @@ struct StageWindow: View {
     @State private var editRevision = 0
     @State private var isReviewShown = true
     @State private var inspectorTab = InspectorTab.project
+    /// Whether the window is given over to captions. See `CaptionEditor` for why an hour of
+    /// caption work is not inspector work.
+    @State private var isCaptionEditorShown = false
     /// How tall the timeline area is, remembered between launches — see the divider's comment.
     @AppStorage("timelineHeight") private var timelineHeight: Double = 210
     @AppStorage("timelineCollapsed") private var isTimelineCollapsed = false
@@ -270,6 +273,35 @@ struct StageWindow: View {
         //
         // **The timeline sits under the preview**, because a timeline is read along its length
         // while watching the picture above it, and an inspector is read down a column.
+        stage
+            // **The caption editor REPLACES the stage rather than floating over it.** A sheet
+            // would have kept the timeline and the inspector behind it, which is exactly the
+            // arrangement this mode exists to get out of the way — and there is one `AVPlayer`,
+            // so two pictures of it on screen at once would be two views fighting over one
+            // position. Swapping means the transport a person was using is the transport they
+            // keep.
+            .opacity(isCaptionEditorShown ? 0 : 1)
+            .overlay {
+                if isCaptionEditorShown, let player {
+                    CaptionEditor(
+                        model: captions, playhead: timeline.playhead,
+                        duration: timeline.duration, waveform: timeline.waveform,
+                        pauses: timeline.silences,
+                        onSeek: { timeline.movePlayhead(to: $0) },
+                        onChange: { reviewRevision += 1 },
+                        onClose: { isCaptionEditorShown = false },
+                        picture: {
+                            AnyView(VStack(spacing: 0) {
+                                PreviewView(player: player)
+                                Divider().overlay(Theme.Line.hairline)
+                                TransportBar(player: player, model: timeline)
+                            })
+                        })
+                }
+            }
+    }
+
+    @ViewBuilder private var stage: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 CanvasBar(variant: $variant, crop: $crop, isCropping: $isCropping,
@@ -715,6 +747,16 @@ struct StageWindow: View {
             case .captions:
                 let size = Self.size(for: variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
+                // **The way in is in the Captions tab, beside the work it is for.** A menu item
+                // alone would be a mode nobody found; a toolbar button would be a control for
+                // captions sitting in the window's chrome whatever tab was open.
+                Button {
+                    isCaptionEditorShown = true
+                } label: {
+                    Label("Open the caption editor", systemImage: "rectangle.split.2x1")
+                }
+                .disabled(captions.track.isEmpty)
+                .help("Captions at full width, with the waveform")
                 CaptionsPanel(model: captions, mediaURL: mediaURL, edit: timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 },

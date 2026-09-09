@@ -145,6 +145,9 @@ xcrun swiftc \
   Soredemo/Inspector/CaptionsPanel.swift \
   Soredemo/Inspector/CaptionField.swift \
   Soredemo/Editor/SafeFrameOverlay.swift \
+  Soredemo/Inspector/CaptionLines.swift \
+  Soredemo/Editor/CaptionEditor.swift \
+  Soredemo/Editor/CaptionWaveform.swift \
   Soredemo/Inspector/TranscriptPanel.swift \
   Soredemo/Inspector/TextPanel.swift \
   Soredemo/Inspector/RedactionPanel.swift \

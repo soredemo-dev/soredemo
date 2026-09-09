@@ -11,11 +11,27 @@
 		A1B2C3D4E5F60718293A4B5C /* SoredemoHeadless in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B5D /* SoredemoHeadless */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		5D1E570A0000000000000000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8824C348301E13DE00E18130 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8824C34F301E13DE00E18130;
+			remoteInfo = Soredemo;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		5D1E57000000000000000000 /* SoredemoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SoredemoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8824C350301E13DE00E18130 /* Soredemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Soredemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		5D1E57010000000000000000 /* SoredemoTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SoredemoTests;
+			sourceTree = "<group>";
+		};
 		8824C352301E13DE00E18130 /* Soredemo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Soredemo;
@@ -24,6 +40,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		5D1E57040000000000000000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8824C34D301E13DE00E18130 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -40,6 +63,7 @@
 			isa = PBXGroup;
 			children = (
 				8824C352301E13DE00E18130 /* Soredemo */,
+				5D1E57010000000000000000 /* SoredemoTests */,
 				8824C351301E13DE00E18130 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -48,6 +72,7 @@
 			isa = PBXGroup;
 			children = (
 				8824C350301E13DE00E18130 /* Soredemo.app */,
+				5D1E57000000000000000000 /* SoredemoTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,6 +80,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		5D1E57020000000000000000 /* SoredemoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5D1E57060000000000000000 /* Build configuration list for PBXNativeTarget "SoredemoTests" */;
+			buildPhases = (
+				5D1E57030000000000000000 /* Sources */,
+				5D1E57040000000000000000 /* Frameworks */,
+				5D1E57050000000000000000 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5D1E57090000000000000000 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5D1E57010000000000000000 /* SoredemoTests */,
+			);
+			name = SoredemoTests;
+			packageProductDependencies = (
+			);
+			productName = SoredemoTests;
+			productReference = 5D1E57000000000000000000 /* SoredemoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		8824C34F301E13DE00E18130 /* Soredemo */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8824C35B301E13E000E18130 /* Build configuration list for PBXNativeTarget "Soredemo" */;
@@ -89,6 +137,10 @@
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					5D1E57020000000000000000 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 8824C34F301E13DE00E18130;
+					};
 					8824C34F301E13DE00E18130 = {
 						CreatedOnToolsVersion = 26.6;
 					};
@@ -121,11 +173,19 @@
 			projectRoot = "";
 			targets = (
 				8824C34F301E13DE00E18130 /* Soredemo */,
+				5D1E57020000000000000000 /* SoredemoTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		5D1E57050000000000000000 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8824C34E301E13DE00E18130 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -136,6 +196,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		5D1E57030000000000000000 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8824C34C301E13DE00E18130 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -145,7 +212,57 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		5D1E57090000000000000000 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8824C34F301E13DE00E18130 /* Soredemo */;
+			targetProxy = 5D1E570A0000000000000000 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		5D1E57070000000000000000 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GJRVCWA2U3;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.soredemo.mac.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Soredemo.app/Contents/MacOS/Soredemo";
+			};
+			name = Debug;
+		};
+		5D1E57080000000000000000 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GJRVCWA2U3;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.soredemo.mac.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Soredemo.app/Contents/MacOS/Soredemo";
+			};
+			name = Release;
+		};
 		8824C359301E13E000E18130 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -359,6 +476,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		5D1E57060000000000000000 /* Build configuration list for PBXNativeTarget "SoredemoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5D1E57070000000000000000 /* Debug */,
+				5D1E57080000000000000000 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		8824C34B301E13DE00E18130 /* Build configuration list for PBXProject "Soredemo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

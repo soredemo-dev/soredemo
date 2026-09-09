@@ -438,3 +438,11 @@
 "%@ opens but its picture cannot be read." = "%@ 은(는) 열리지만 영상을 읽을 수 없습니다.";
 "%@ is much shorter than the time you recorded for. Check it before you rely on it." = "%@ 은(는) 녹화한 시간보다 훨씬 짧습니다. 사용하기 전에 확인하세요.";
 "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video." = "%@ 을(를) 열었습니다. 확대는 화면의 변화에서 구합니다 — 가져온 영상에는 포인터 트랙이 없습니다.";
+"Exporting %@" = "%@ 내보내는 중";
+"Open the caption editor" = "자막 편집기 열기";
+"Captions at full width, with the waveform" = "전체 너비 자막과 파형";
+"split here" = "여기서 분할";
+"merge with the line above" = "위 줄과 병합";
+"between lines" = "줄 사이 이동";
+"%lld caption(s)" = "자막 %lld개";
+"Show the whole recording" = "녹화 전체 보기";

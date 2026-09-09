@@ -130,6 +130,20 @@ while two other tests rendered cursors. Fixed by giving the renderer a per-insta
 override. **The rule that came out of it: a red gate is a HANG or a FAILURE, and which
 one it is decides whose defect it is.** Never file the second as the first.
 
+**A fourth kind, found 2026-09-10: a red check pointing at the wrong file.** The probe asks the
+window server to put its window at x = 700 and then derives a `CaptureSource` from a filter over
+it. One run in several, the placement is not honoured — observed at x = 2094, past the right edge
+of the only display — and `CaptureSource.init(pickerFilter:)` then correctly returns nil, because
+it refuses a window no display hosts. The probe reported that refusal as "CaptureSource does not
+derive a .window from a window-style filter", and the seven checks after the `guard`'s `return`
+silently stopped running, so the total dropped from 473 to 466 with nothing saying why.
+
+It took a stashed-tree comparison to establish the failure was not in the working tree at all.
+**A red check pointing at the wrong file is worse than no check**, because somebody spends an
+afternoon in that file. The placement is now asserted by name and the remainder skipped with the
+reason printed. This is the same shape as the empty-file and absent-title defects: **a fact about
+the setup stated as a fact about the thing under test.**
+
 **And a third kind, found 2026-09-07: a gate reported green that was not.** Five tests were
 red at `e10c57d` and reported as passing. Four were real house-rule violations that had been
 introduced with the files that broke them; the fifth,
@@ -319,7 +333,11 @@ In the order a defect found there would cost the most.
 2. ~~**Frame-time budget for the compositor.**~~ **Done 2026-09-05** — §5.2. What is
    still unmeasured there is the caption rebuild, the timeline redraw and export
    throughput.
-3. **App-tier model tests.** A third of the code, zero coverage.
+3. ~~**App-tier model tests.**~~ **Started 2026-09-10.** There is a `SoredemoTests` target now,
+   hosted by the app, run by `scripts/run-app-tests.sh` as a fifth gate — six tests over
+   `CaptionsModel` and `TimelineEditorModel`. The infrastructure was the whole obstacle: the
+   models were always testable, and there was nowhere to put a test. What remains is coverage,
+   which is now an ordinary matter of writing them.
 4. **Rendered locale check.** Ten languages, one of them the author's, nine unverified
    at the pixel. **Narrowed 2026-09-07:** the status line was not merely unverified, it was
    untranslatable — `statusText` is a `String`, which binds SwiftUI's *verbatim* overload, so

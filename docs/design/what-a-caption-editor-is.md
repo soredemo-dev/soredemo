@@ -194,8 +194,38 @@ into once you ask which of them a person hits first.
    either format, detected from the content rather than the extension, and reports
    every cue it could not use with the line it was on. The panel maps the file back
    through the edit, because the export wrote it in the export's clock.
-6. A waveform with cue blocks. The largest of these by far, and the one the first five
-   make less necessary rather than more.
+6. ~~A waveform with cue blocks.~~ **Built 2026-09-10**, and not in the inspector — see below.
+
+## The width was the thing the inspector could not give it
+
+*2026-09-10, prompted by somebody using it.*
+
+By 2026-08-31 the gap table above was nearly all filled in, and the panel was still hard to
+edit captions in. The reason was not a missing feature. `InspectorWidth` had the measurement
+written down since the day the list was widened: a 42-character line at the body font is 263pt,
+and with the timecode, the reading-speed column and the fault label a row needs about **437pt**.
+The inspector opens at **300**. The maximum was raised to 440 so the row *could* fit — but only
+for somebody who knew to drag it, and the ideal was deliberately left alone, for a reason that
+was right at the time: a panel that opens wide takes the width from the picture, for one tab.
+
+So by default every caption row was truncated, and the red **too long** beside a line you cannot
+see is an accusation rather than a help. That reason has been overtaken by its own codebase:
+captions are no longer "one tab", they are the tab with the most work in them, and the only one
+whose content has a measured minimum width.
+
+**The answer is not a wider inspector.** It is that an hour of caption work is not inspector
+work — it has its own transport, its own selection and its own keymap, and it wants the window.
+`CaptionEditor` is the three panes this note concluded a caption editor *is*: the picture with
+the caption burnt in, a waveform with a block per cue, and the list at full width. The inspector
+stays exactly as it was, for the correction you make while looking at the shot.
+
+`CaptionLines` is the list, extracted so there is one of it. Width belongs to whoever hosts it.
+
+**What the waveform is for, since a list already has the numbers.** A cue that starts a beat
+late is the most common thing wrong with machine timings and the one thing a list cannot show:
+`0:19.6 → 0:27.3` says nothing, a box against the sound it covers says it at a glance. And a
+stretch of audio with no box over it is a line the recogniser dropped — invisible in a list,
+because a list has nothing to draw for a cue that is not there.
 
 ## Sources
 

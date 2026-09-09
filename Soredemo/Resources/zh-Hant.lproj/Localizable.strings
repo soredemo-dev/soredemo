@@ -454,3 +454,11 @@
 "%@ opens but its picture cannot be read." = "%@ 打得開,但它的畫面讀不出來。";
 "%@ is much shorter than the time you recorded for. Check it before you rely on it." = "%@ 比你實際錄的時間短很多。在依賴它之前先檢查一下。";
 "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video." = "已開啟 %@。縮放會從畫面上的變化推得 —— 匯入的影片裡沒有指標軌。";
+"Exporting %@" = "正在匯出 %@";
+"Open the caption editor" = "開啟字幕編輯器";
+"Captions at full width, with the waveform" = "整個視窗寬度的字幕,含波形";
+"split here" = "在這裡分割";
+"merge with the line above" = "與上一行合併";
+"between lines" = "上下行之間";
+"%lld caption(s)" = "%lld 句字幕";
+"Show the whole recording" = "顯示整段錄影";

@@ -439,3 +439,11 @@
 "%@ opens but its picture cannot be read." = "%@ abre, mas a imagem não pode ser lida.";
 "%@ is much shorter than the time you recorded for. Check it before you rely on it." = "%@ é bem mais curto que o tempo gravado. Verifique antes de confiar nele.";
 "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video." = "%@ aberto. Os zooms são deduzidos do que muda na tela — um vídeo importado não tem trilha de ponteiro.";
+"Exporting %@" = "Exportando %@";
+"Open the caption editor" = "Abrir o editor de legendas";
+"Captions at full width, with the waveform" = "Legendas em largura total, com a forma de onda";
+"split here" = "dividir aqui";
+"merge with the line above" = "unir com a linha acima";
+"between lines" = "entre as linhas";
+"%lld caption(s)" = "%lld legenda(s)";
+"Show the whole recording" = "Mostrar toda a gravação";

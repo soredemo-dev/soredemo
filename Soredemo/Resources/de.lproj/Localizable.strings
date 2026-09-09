@@ -438,3 +438,11 @@
 "%@ opens but its picture cannot be read." = "%@ öffnet sich, aber das Bild lässt sich nicht lesen.";
 "%@ is much shorter than the time you recorded for. Check it before you rely on it." = "%@ ist viel kürzer als die aufgenommene Zeit. Prüfen Sie es, bevor Sie sich darauf verlassen.";
 "Opened %@. Zooms will be found from what changes on screen — there is no pointer track in an imported video." = "%@ geöffnet. Zooms werden aus den Bildschirmänderungen abgeleitet – ein importiertes Video hat keine Zeigerspur.";
+"Exporting %@" = "%@ wird exportiert";
+"Open the caption editor" = "Untertitel-Editor öffnen";
+"Captions at full width, with the waveform" = "Untertitel in voller Breite, mit Wellenform";
+"split here" = "hier teilen";
+"merge with the line above" = "mit der Zeile darüber verbinden";
+"between lines" = "zwischen den Zeilen";
+"%lld caption(s)" = "%lld Untertitel";
+"Show the whole recording" = "Ganze Aufnahme zeigen";

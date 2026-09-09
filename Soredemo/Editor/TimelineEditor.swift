@@ -1567,7 +1567,11 @@ struct TimelineEditor: View {
 ///
 /// **No CoreGraphics geometry is named here**, which rule 5 requires of this tier: the heights
 /// arrive as plain numbers from `WaveformEnvelope` and become bars through `frame`/`offset`.
-private struct WaveformBars: View, Equatable {
+/// **Internal, not private: two lanes draw a waveform and there is one way to do it.**
+/// The timeline draws the recording's audio under its clips; `CaptionWaveform` draws the same
+/// audio under a block per cue. A second copy would be a second set of bar widths, a second
+/// silence rule, and eventually two waveforms of the same recording that did not agree.
+struct WaveformBars: View, Equatable {
     let heights: [Double]
     let height: Double
     /// **The frame's width, and without it nothing is drawn.** `.offset` moves a view without
