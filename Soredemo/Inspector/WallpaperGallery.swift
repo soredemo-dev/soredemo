@@ -170,8 +170,7 @@ struct WallpaperPicker: View {
                                              blue: Double(srgb.blueComponent))
                     onChange()
                 }), supportsOpacity: false)
-            Text("One flat colour behind the recording. Match it to a brand, or to the slide "
-                 + "this is going into.")
+            Text("One flat colour behind the recording. Match it to a brand, or to the slide this is going into.")
                 .font(Type.detail).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -204,10 +203,7 @@ struct WallpaperPicker: View {
             }
             .buttonStyle(.plain)
 
-            Text("Nothing behind the card, so the recording can be dropped onto a page or over "
-                 + "another clip. Export as HEVC with Alpha — it is the smallest of the two "
-                 + "formats that keep transparency, and ProRes 4444 is around a hundred times "
-                 + "larger for the same picture.")
+            Text("Nothing behind the card, so the recording can be dropped onto a page or over another clip. Export as HEVC with Alpha — it is the smallest of the two formats that keep transparency, and ProRes 4444 is around a hundred times larger for the same picture.")
                 .font(Type.detail).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

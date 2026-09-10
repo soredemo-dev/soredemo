@@ -90,8 +90,7 @@ struct AnnotationPanel: View {
                     model.add(at: playhead)
                     onChange()
                 }
-                Text("An annotation is anchored to the recording, not to the frame — it moves "
-                     + "with the picture when the camera zooms in on what it points at.")
+                Text("An annotation is anchored to the recording, not to the frame — it moves with the picture when the camera zooms in on what it points at.")
                     .font(Type.detail).foregroundStyle(.secondary)
             }
             if model.track.isEmpty {

@@ -833,8 +833,7 @@ struct StageWindow: View {
             // frame — measured — on top of everything else a frame costs, and somebody whose
             // preview has just become less smooth is owed the reason rather than left to
             // conclude the app got slower. Nothing is sent anywhere: this runs on this Mac.
-            Text("Cut out on this Mac, frame by frame — around 21 ms each, so previews and "
-                 + "exports take longer with this on.")
+            Text("Cut out on this Mac, frame by frame — around 21 ms each, so previews and exports take longer with this on.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
         // **A cut-out person has no card**, so the controls that shape one are not offered while
@@ -980,9 +979,7 @@ struct StageWindow: View {
             }
         }
         if stageStyle.isTransparent {
-            Text("The background is transparent, so only formats that keep an alpha channel are "
-                 + "offered. HEVC with Alpha is around a hundred times smaller than ProRes 4444 "
-                 + "for the same picture.")
+            Text("The background is transparent, so only formats that keep an alpha channel are offered. HEVC with Alpha is around a hundred times smaller than ProRes 4444 for the same picture.")
                 .font(Type.detail).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -1037,9 +1034,7 @@ struct StageWindow: View {
         // is that it carries the cut and none of the look — which is exactly what somebody
         // finishing in another application wants, and nothing like what they would expect if
         // nobody said so.
-        Text("The cut only — your clips and their in-points, against the original recording, with "
-             + "the camera on its own lane. None of the look travels: no zooms, no cursor, no "
-             + "background. DaVinci Resolve reads the same file.")
+        Text("The cut only — your clips and their in-points, against the original recording, with the camera on its own lane. None of the look travels: no zooms, no cursor, no background. DaVinci Resolve reads the same file.")
             .font(Type.detail).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -1342,8 +1337,7 @@ struct StageWindow: View {
                         attack: settings.attack, release: settings.release, hold: settings.hold))
                 }
                 if timeline.silences.isEmpty {
-                    Text("Nothing on the microphone track reads as speech yet, so the bed stays "
-                         + "at its own level.")
+                    Text("Nothing on the microphone track reads as speech yet, so the bed stays at its own level.")
                         .font(Type.detail).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

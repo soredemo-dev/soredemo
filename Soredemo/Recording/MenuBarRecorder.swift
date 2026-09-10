@@ -174,8 +174,7 @@ struct MenuBarRecorderPanel: View {
                 // zooms they get on a Mac is owed that in advance, along with the one thing that
                 // does work: a Bluetooth mouse paired to the device puts a real cursor in the
                 // recording, and everything that follows a cursor then has one to follow.
-                Text("Zooms are manual here \u{2014} iOS does not share where you tap. "
-                     + "A Bluetooth mouse paired to the device gives it a cursor to follow.")
+                Text("Zooms are manual here \u{2014} iOS does not share where you tap. A Bluetooth mouse paired to the device gives it a cursor to follow.")
                     .font(Type.detail).foregroundStyle(.secondary)
             }
             .padding(.top, Space.snug)

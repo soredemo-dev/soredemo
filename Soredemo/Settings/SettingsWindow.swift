@@ -101,8 +101,7 @@ struct SettingsWindow: View {
                     Text(value == 0 ? "Off" : "\(value) seconds").tag(value)
                 }
             }
-            Text("The pause before capture starts. It is also what hides a camera's first "
-                 + "second, which is a dark frame settling.")
+            Text("The pause before capture starts. It is also what hides a camera's first second, which is a dark frame settling.")
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide desktop icons", isOn: Binding(
@@ -111,10 +110,7 @@ struct SettingsWindow: View {
             // **The cost is on screen, not in a header nobody reads.** This is the only setting
             // in the app that restarts another application, and somebody who has Finder windows
             // open is owed that fact before they turn it on rather than after.
-            Text("Your files stay where they are — only the drawing stops. Turning this on "
-                 + "restarts Finder, which closes any Finder windows you have open. The icons "
-                 + "come back when the recording ends, and also if Soredemo is quit or crashes "
-                 + "while one is running.")
+            Text("Your files stay where they are — only the drawing stops. Turning this on restarts Finder, which closes any Finder windows you have open. The icons come back when the recording ends, and also if Soredemo is quit or crashes while one is running.")
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide the Dock", isOn: Binding(
@@ -124,10 +120,7 @@ struct SettingsWindow: View {
             // sound alike, and one of them restarts an application while the other changes
             // nothing on the machine at all. Somebody comparing the two is owed that difference
             // here rather than after they have tried both.
-            Text("Kept out of the picture, not moved. Your Dock stays where it is and still "
-                 + "works while you record — it is simply not in the video. Nothing on your Mac "
-                 + "is changed, so there is nothing to put back. Recordings of a single window "
-                 + "never include the Dock anyway.")
+            Text("Kept out of the picture, not moved. Your Dock stays where it is and still works while you record — it is simply not in the video. Nothing on your Mac is changed, so there is nothing to put back. Recordings of a single window never include the Dock anyway.")
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide the menu bar", isOn: Binding(
@@ -137,9 +130,7 @@ struct SettingsWindow: View {
             // the name. Somebody reading "hide the menu bar" thinks about tidiness; the clock,
             // the battery and the row of app icons are the part that ends up in a published
             // video saying more than they meant.
-            Text("The clock, battery, network and every icon beside them go too. Like the Dock, "
-                 + "nothing on your Mac changes — the menu bar is still there and still works, "
-                 + "it just is not in the recording.")
+            Text("The clock, battery, network and every icon beside them go too. Like the Dock, nothing on your Mac changes — the menu bar is still there and still works, it just is not in the recording.")
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide the desktop widgets", isOn: Binding(
@@ -148,10 +139,7 @@ struct SettingsWindow: View {
             // **What they say about somebody is the reason**, and the switch's name does not
             // say it. A widget is read as decoration until it is pointed out that the calendar
             // one lists this afternoon's meetings by name.
-            Text("The weather, the calendar and the battery ring on your desktop. They can say "
-                 + "more than they look like they do — where you are, what is in your calendar "
-                 + "this afternoon. Like the Dock, nothing on your Mac changes and Notification "
-                 + "Center still opens normally while you record.")
+            Text("The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do — where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("While editing") {
@@ -161,8 +149,7 @@ struct SettingsWindow: View {
             // **Off is a real answer**, which is why this is a switch rather than a constant:
             // somebody editing beside a sleeping child, or with the recording already playing
             // through a speaker, wants the drag silent.
-            Text("Dragging the playhead plays the moment under it, so a sentence can be found by "
-                 + "ear instead of by scrubbing and watching.")
+            Text("Dragging the playhead plays the moment under it, so a sentence can be found by ear instead of by scrubbing and watching.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("Sources") {
@@ -195,9 +182,7 @@ struct SettingsWindow: View {
             // **System audio has no toggle, and the reason is recorded rather than hidden.**
             LabeledContent("System audio", value: "Always recorded")
                 .foregroundStyle(.secondary)
-            Text("Turning system audio off would leave a writer input nothing ever feeds, which "
-                 + "costs a second and a half of every recording to recover from. It goes in "
-                 + "when the writer can be told up front that a track will not exist.")
+            Text("Turning system audio off would leave a writer input nothing ever feeds, which costs a second and a half of every recording to recover from. It goes in when the writer can be told up front that a track will not exist.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
         // **Locked for the length of a take, like the menu bar panel's whole source list.**
@@ -218,16 +203,14 @@ struct SettingsWindow: View {
     @ViewBuilder private var export: some View {
         SwiftUI.Section("Shortcut") {
             LabeledContent("Start and stop", value: MenuBarRecorderPanel.toggleShortcut)
-            Text("Works while another application is in front, which is when a recording is "
-                 + "stopped.")
+            Text("Works while another application is in front, which is when a recording is stopped.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("Defaults") {
             // Export settings live on the recording being exported, not here: a GIF's frame rate
             // is a property of that export. What is here is the statement of where they are, so
             // a person looking for them in the obvious place is told the non-obvious answer.
-            Text("An export's shape, size and GIF settings belong to the recording being "
-                 + "exported and are in the editor's Project tab, saved with the project.")
+            Text("An export's shape, size and GIF settings belong to the recording being exported and are in the editor's Project tab, saved with the project.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
     }
@@ -282,8 +265,7 @@ struct SettingsWindow: View {
                     NSApp.activate(ignoringOtherApps: true)
                 }
             }
-            Text("This page opens on its own whenever something Soredemo needs has not been "
-                 + "granted, or is taken away later.")
+            Text("This page opens on its own whenever something Soredemo needs has not been granted, or is taken away later.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
     }

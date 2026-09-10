@@ -59,6 +59,18 @@ public final class PointerSampler: @unchecked Sendable {
     private let queue: DispatchQueue
     private let lock = NSLock()
     private nonisolated(unsafe) var timer: (any DispatchSourceTimer)?
+    /// Which run a tick belongs to.
+    ///
+    /// **`cancel()` stops FUTURE ticks and does not recall the one already in flight.** A tick
+    /// dispatched a moment before `stop()` still runs its handler afterwards, and the handler
+    /// appends a pointer sample — to a track whose range the caller has by then closed. Caught
+    /// by `stoppingEndsTheCadence` under load: one sample arrived 30 ms after `stop()` returned.
+    ///
+    /// A generation is what a cancelled timer's late tick can be checked against. The window is
+    /// narrowed, not closed: a handler that has already passed this check delivers. Closing it
+    /// completely means `queue.sync` inside `stop()`, which deadlocks the day somebody stops the
+    /// sampler from inside its own callback — a worse failure than one sample.
+    private nonisolated(unsafe) var generation = 0
 
     public init(interval: Nanoseconds = PointerSampler.defaultInterval,
                 read: @escaping LocationReader = PointerSampler.systemLocationReader,
@@ -84,6 +96,10 @@ public final class PointerSampler: @unchecked Sendable {
     public func start(epoch: BootEpoch,
                       onSample: @escaping @Sendable (HostInstant, (x: Double, y: Double)) -> Void) {
         stop()
+        let mine = lock.withLock { () -> Int in
+            unsafe generation += 1
+            return unsafe generation
+        }
         let source = DispatchSource.makeTimerSource(queue: queue)
         source.schedule(deadline: .now() + .nanoseconds(Int(interval.rawValue)),
                         repeating: .nanoseconds(Int(interval.rawValue)),
@@ -92,15 +108,30 @@ public final class PointerSampler: @unchecked Sendable {
                         // the guarantee it exists to make.
                         leeway: .nanoseconds(Int(interval.rawValue / 10)))
         source.setEventHandler { [weak self] in
-            guard let self, let location = self.read() else { return }
+            guard let self, self.isCurrent(mine), let location = self.read() else { return }
+            // **Checked AGAIN, after the reading, because the reading is where the time goes.**
+            // A check before it only catches a tick that had not started; the tick that matters
+            // is the one already inside `read()` when `stop()` was called, and it comes out
+            // holding a location for a run that has ended. The first version of this guard sat
+            // above and let exactly that one through — `aTickAlreadyRunningWhenStopIsCalledIsDropped`
+            // was written to arrange it, and did.
+            guard self.isCurrent(mine) else { return }
             onSample(HostInstant(epoch: epoch, hostTime: Minting.hostNow()), location)
         }
         lock.withLock { unsafe timer = source }
         source.resume()
     }
 
+    /// Whether the run a tick belongs to is still the one this sampler is on.
+    private func isCurrent(_ run: Int) -> Bool {
+        lock.withLock { unsafe generation == run }
+    }
+
     public func stop() {
         let existing = lock.withLock { () -> (any DispatchSourceTimer)? in
+            // Bumped here as well as in `start`, so a late tick from THIS timer is stale even
+            // when nothing is started after it.
+            unsafe generation += 1
             let value = unsafe timer
             unsafe timer = nil
             return value

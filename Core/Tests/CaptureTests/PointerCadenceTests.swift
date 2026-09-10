@@ -14,6 +14,14 @@ import Timeline
 @Suite struct PointerSamplerTests {
     private let epoch = BootEpoch(id: UUID(uuidString: "9B1DE104-6C3E-4E2A-8B3C-2B6A6F1F9C07")!)
 
+    /// One bit, set on the sampler's queue and read from the test's task.
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var raised = false
+        func raise() { lock.withLock { raised = true } }
+        var isRaised: Bool { lock.withLock { raised } }
+    }
+
     private final class Counter: @unchecked Sendable {
         private let lock = NSLock()
         private var samples: [(x: Double, y: Double)] = []
@@ -47,6 +55,45 @@ import Timeline
         sampler.stop()
 
         #expect(counter.count == 0)
+    }
+
+    /// **A tick already in flight when `stop()` is called must not be delivered.**
+    ///
+    /// `stoppingEndsTheCadence` below asks the same question and cannot make the answer happen:
+    /// on an idle machine the in-flight tick lands before `stop()` returns and there is nothing
+    /// to catch. It caught this ONCE, in a full suite run on a machine that was also compiling
+    /// — one sample arrived 30 ms after the sampler had been stopped, which in production is a
+    /// pointer sample appended to a track whose range the caller has already closed.
+    ///
+    /// This one arranges it rather than waiting for it: the reader blocks inside the handler
+    /// until the test has called `stop()`, so the handler is unarguably mid-flight across the
+    /// cancel. `cancel()` cannot recall it; the generation check is what drops it.
+    @Test func aTickAlreadyRunningWhenStopIsCalledIsDropped() async {
+        let counter = Counter()
+        let entered = Flag()
+        let mayFinish = DispatchSemaphore(value: 0)
+        let sampler = PointerSampler(interval: Nanoseconds(2_000_000), read: {
+            entered.raise()
+            // A bounded wait: a test that can hang is worse than the defect it is about.
+            _ = mayFinish.wait(timeout: .now() + 2)
+            return (x: 1, y: 1)
+        })
+        sampler.start(epoch: epoch) { _, location in counter.note(location) }
+
+        // The handler is inside `read()` and cannot leave until this test lets it. Polled
+        // rather than waited on: `DispatchSemaphore.wait` is unavailable from an async context,
+        // and blocking a cooperative thread here is exactly what this suite must not do.
+        for _ in 0..<200 where !entered.isRaised {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        sampler.stop()
+        mayFinish.signal()
+        try? await Task.sleep(for: .milliseconds(60))
+
+        #expect(counter.count == 0, """
+            a tick that was already running when stop() was called delivered its sample             anyway — cancel() does not recall an in-flight handler, so something has to
+            check that the run it belongs to is still the current one
+            """)
     }
 
     /// `stop()` has to actually stop: the sampler outlives a segment and a timer still

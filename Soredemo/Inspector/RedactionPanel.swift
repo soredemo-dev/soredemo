@@ -66,8 +66,7 @@ struct RedactionPanel: View {
                     model.add()
                     onChange()
                 }
-                Text("A mosaic averages away what it covers; a solid fill leaves nothing at all. "
-                     + "Neither is a blur — a blur can be undone.")
+                Text("A mosaic averages away what it covers; a solid fill leaves nothing at all. Neither is a blur — a blur can be undone.")
                     .font(Type.detail).foregroundStyle(.secondary)
             }
             if model.track.isEmpty {

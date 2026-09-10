@@ -315,8 +315,7 @@ private struct AccessibilityDragHelper: View {
                     Text("If Soredemo is not in the Accessibility list, drag it there")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Theme.Ink.primary)
-                    Text("Drop it anywhere in the list. macOS has no way for an app to add "
-                         + "itself.")
+                    Text("Drop it anywhere in the list. macOS has no way for an app to add itself.")
                         .font(Type.detail).foregroundStyle(Theme.Ink.secondary)
                 }
             }

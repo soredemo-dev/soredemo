@@ -1790,6 +1790,120 @@ func unescapedSwiftLiteral(_ text: String) -> String {
 /// marker — and compared. Reducing rather than predicting is deliberate: guessing `%@` against
 /// `%lld` per site would make this scan wrong about the one Int sentence in the app, and a scan
 /// that is wrong is worse than none.
+
+/// `"one " + "sentence"` is ONE string by the time anybody reads it, wrapped across lines or
+/// not. A scan that does not join them reads every sentence wrapped at the column limit as
+/// missing — which is the shape that gets a scan switched off rather than believed.
+func joinedAdjacentLiterals(in text: String) -> String {
+    var result = ""
+    var index = text.startIndex
+    while index < text.endIndex {
+        guard text[index] == "\"" else {
+            result.append(text[index])
+            index = text.index(after: index)
+            continue
+        }
+        // A closing quote, maybe: look past whitespace for `+` and another quote.
+        var look = text.index(after: index)
+        while look < text.endIndex, text[look].isWhitespace { look = text.index(after: look) }
+        guard look < text.endIndex, text[look] == "+" else {
+            result.append(text[index])
+            index = text.index(after: index)
+            continue
+        }
+        look = text.index(after: look)
+        while look < text.endIndex, text[look].isWhitespace { look = text.index(after: look) }
+        guard look < text.endIndex, text[look] == "\"" else {
+            result.append(text[index])
+            index = text.index(after: index)
+            continue
+        }
+        // Both quotes and the `+` between them disappear, which is what the compiler does.
+        index = text.index(after: look)
+    }
+    return result
+}
+
+/// The longest stretch of a key with no format specifier in it — what the source must contain
+/// verbatim, whatever it interpolates. `%lld` is `\(count)` on the other side and no text scan
+/// can bridge that.
+///
+/// **The conversion character is part of the specifier**, and forgetting it leaves the `d` of
+/// `%lld` glued to the run, which then matches nothing. Flags and lengths are dropped by
+/// membership; the one character after them is dropped by position.
+func longestLiteralRun(of key: String) -> String? {
+    let flagsAndLengths = Set("0123456789.-+ #lhqzt")
+    var runs: [String] = []
+    var rest = Substring(key)
+    while let percent = rest.firstIndex(of: "%") {
+        runs.append(String(rest[..<percent]))
+        var cursor = rest.index(after: percent)
+        while cursor < rest.endIndex, flagsAndLengths.contains(rest[cursor]) {
+            cursor = rest.index(after: cursor)
+        }
+        guard cursor < rest.endIndex else { rest = ""; break }
+        rest = rest[rest.index(after: cursor)...]
+    }
+    runs.append(String(rest))
+    return runs.max { $0.count < $1.count }
+}
+
+/// **The scan the other two do not do: table \u{2192} source.**
+///
+/// `everyControlLabelIsInEveryStringTable` and `everyStatusSentenceIsInEveryStringTable` both
+/// walk from the SOURCE to the tables and ask whether a translation exists. Nothing walked the
+/// other way, and that is where twenty-four sentences were hiding.
+///
+/// A key no source can produce is one of two things and both are worth failing on. It is dead
+/// weight — a sentence the interface stopped saying, translated into nine languages nobody will
+/// ever see. Or, far more often, it is the corpse of a sentence the source still says in a
+/// SPELLING that no longer matches: `Text("half " + "a sentence")` builds a `String`, which
+/// binds SwiftUI's verbatim overload, so it is never looked up at all — and somebody dutifully
+/// added ten translations of it that could not be reached. Twenty-four of those were found the
+/// day this test was written, including one whose table key carried a literal `—` where
+/// the source had an em dash.
+///
+/// **Two normalisations, and each is a thing the compiler does that a text scan must copy.**
+/// `\u{XXXX}` in a Swift literal is one character in the key. Two literals joined with `+` are
+/// one string at runtime, so the scan joins them too — otherwise every sentence wrapped at the
+/// column limit reads as missing, which is the shape that makes a scan get switched off.
+///
+/// Compared on the longest literal RUN rather than the whole key, because an interpolated key
+/// is `%@` in the table and `\(something)` in the source, and no text scan can bridge that.
+@Test func noStringTableKeyIsUnreachableFromTheSource() throws {
+    let resources = repositoryRoot.appending(path: "Soredemo/Resources/en.lproj/Localizable.strings")
+    let table = try String(contentsOf: resources, encoding: .utf8)
+    var keys: [String] = []
+    for line in table.components(separatedBy: .newlines) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("\""), let range = trimmed.range(of: "\" = \"") else { continue }
+        keys.append(unescapedSwiftLiteral(
+            String(trimmed[trimmed.index(after: trimmed.startIndex)..<range.lowerBound])))
+    }
+    try #require(keys.count > 100, "the English table read as \(keys.count) keys — parsed wrong")
+
+    var source = ""
+    for file in try firstPartySourceFiles() {
+        source += try String(contentsOf: file, encoding: .utf8)
+    }
+    source = unescapedSwiftLiteral(joinedAdjacentLiterals(in: source))
+
+    var dead: [String] = []
+    for key in keys {
+        guard let longest = longestLiteralRun(of: key), longest.count >= 5 else { continue }
+        if !source.contains(longest) { dead.append(key) }
+    }
+    #expect(dead.isEmpty, """
+        These keys are in the string tables and no first-party source can produce them, so \
+        their translations can never be drawn. Either the sentence is gone and the key is dead \
+        weight, or the source still says it in a spelling that no longer matches — a `+` \
+        between two literals being the usual one, since that builds a String and is never \
+        looked up:
+        \(dead.joined(separator: "\n"))
+        """)
+}
+
+
 @Test func everyStatusSentenceIsInEveryStringTable() throws {
     let resources = repositoryRoot.appending(path: "Soredemo/Resources")
     let marker = "\u{1}"

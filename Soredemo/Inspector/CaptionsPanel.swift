@@ -471,8 +471,7 @@ struct CaptionsPanel: View {
         // English part-way is transcribed by whichever model was chosen, and the other
         // language's words come back wrong — a property of the on-device model, not of how it is
         // driven. Leaving a person to discover that from a page of nonsense is the worse option.
-        Text("One language per recording. A sentence that switches part-way is recognised as "
-             + "the chosen language throughout.")
+        Text("One language per recording. A sentence that switches part-way is recognised as the chosen language throughout.")
             .font(Type.detail).foregroundStyle(.secondary)
 
         Picker("Words per line", selection: $maximumWords) {
@@ -522,9 +521,7 @@ struct CaptionsPanel: View {
                 .accessibilityLabel("Remove this name")
             }
         }
-        Text("These correct the SPELLING of what was recognised. They cannot make the "
-             + "recogniser hear a name it does not know — a name it heard as something else "
-             + "entirely stays that way.")
+        Text("These correct the SPELLING of what was recognised. They cannot make the recogniser hear a name it does not know — a name it heard as something else entirely stays that way.")
             .font(Type.detail).foregroundStyle(.secondary)
     }
 
@@ -662,8 +659,7 @@ struct CaptionsPanel: View {
                                                            : model.style.shadowBlurFraction))
                    onChange() }),
                in: 0...1) { Text("Shadow") }
-        Text("A shadow separates the words from what is behind them without covering it, which "
-             + "is what a plate does instead.")
+        Text("A shadow separates the words from what is behind them without covering it, which is what a plate does instead.")
             .font(Type.detail).foregroundStyle(.secondary)
 
         // **The recogniser has been giving word times all along and nothing read them.**
@@ -702,9 +698,7 @@ struct CaptionsPanel: View {
         }
         // **The escape hatch, and it is worth saying it is one.** Whatever this panel cannot do,
         // a dedicated subtitle editor can — and an export with no import is a one-way door.
-        Text("Import replaces every caption with the file's. A sidecar carries no word times, so "
-             + "highlighting stays off for what comes back until this recording is transcribed "
-             + "again.")
+        Text("Import replaces every caption with the file's. A sidecar carries no word times, so highlighting stays off for what comes back until this recording is transcribed again.")
             .font(Type.detail).foregroundStyle(.secondary)
     }
 
