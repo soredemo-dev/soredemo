@@ -1848,6 +1848,46 @@ func longestLiteralRun(of key: String) -> String? {
     return runs.max { $0.count < $1.count }
 }
 
+/// **A notification observer that captures its window keeps that window alive forever.**
+///
+/// `NotificationCenter.addObserver(forName:object:queue:using:)` retains the block until the
+/// token is removed. It does NOT hold the `object:` strongly, so filtering on a window is safe
+/// — but a block that mentions `window` inside itself does hold it, and the thing that would
+/// remove the token usually lives in that same window. That is a cycle: the window waits for
+/// the observer to go, the observer waits for the window. Found 2026-09-10 in
+/// `WindowConfigurator`, where every editor window ever opened was kept alive along with its
+/// player, its compositor and its waveforms.
+///
+/// The needle is a block-form `addObserver` whose closure does not begin with a capture list.
+/// Narrow on purpose: a capture list is what `[weak window]` needs, so requiring one is
+/// requiring the author to have thought about the question. A closure that captures nothing
+/// writes `{ _ in` and is caught here too — which is the cost, and it is one line of `[]`.
+@Test func everyBlockObserverDeclaresWhatItCaptures() throws {
+    var found: [String] = []
+    var scanned = 0
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let lines = SwiftSourceLexer.codeViewLines(of: text)
+        for (index, line) in lines.enumerated() where line.contains("addObserver(") {
+            // The `queue:` argument marks the block form; the selector form has no closure.
+            let block = lines[index...min(index + 4, lines.count - 1)].joined(separator: " ")
+            guard block.contains("queue:") else { continue }
+            scanned += 1
+            // `{ [` — a capture list, whatever it lists.
+            guard !block.contains("{ [") else { continue }
+            found.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1)")
+        }
+    }
+    #expect(scanned > 3, "only \(scanned) block observers were found — this scan decided nothing")
+    #expect(found.isEmpty, """
+        These register a notification block with no capture list, so anything they mention is \
+        held until the token is removed — and a block that holds its own window is a window \
+        that can never be freed:
+        \(found.joined(separator: "\n"))
+        """)
+}
+
+
 /// **The scan the other two do not do: table \u{2192} source.**
 ///
 /// `everyControlLabelIsInEveryStringTable` and `everyStatusSentenceIsInEveryStringTable` both

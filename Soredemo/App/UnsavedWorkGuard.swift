@@ -110,7 +110,7 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
         // version of this feature.
         if !registered { GlobalHotkeyStatus.shared.failed = true }
         NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [] _ in
                 // After the close, not during it: the window being closed is still in
                 // `NSApp.windows` while the notification is being delivered.
                 Task { @MainActor in EditorWindowPresence.windowClosed() }

@@ -237,7 +237,27 @@ extension SubtitleFile {
                 ? value / Int64(pow(10, Double(digits.count - 3)))
                 : value * Int64(pow(10, Double(3 - digits.count)))
         }
-        return Nanoseconds((((hours * 60 + minutes) * 60 + seconds) * 1_000 + milliseconds)
-                           * 1_000_000)
+        // **Every step reports overflow, and this is a file somebody else wrote.**
+        //
+        // `Int64(field)` accepts anything up to 9.2 × 10^18, so `00000000999999999999999999:00:00`
+        // is a timecode as far as the parse above is concerned — and `hours * 60` then traps,
+        // which is a crash on opening a subtitle file rather than a refusal to read one. Checked
+        // rather than reasoned about: the multiplication really does overflow at that value.
+        //
+        // Refused, not clamped. A clamp would turn a corrupt line into a cue at some plausible
+        // time, which is worse than saying the line could not be read — `times(in:)` reports
+        // every line it refused with its number, so the person can see which one.
+        func step(_ value: Int64, times factor: Int64, plus addend: Int64) -> Int64? {
+            let (scaled, scaleOverflowed) = value.multipliedReportingOverflow(by: factor)
+            guard !scaleOverflowed else { return nil }
+            let (sum, sumOverflowed) = scaled.addingReportingOverflow(addend)
+            return sumOverflowed ? nil : sum
+        }
+        guard let inMinutes = step(hours, times: 60, plus: minutes),
+              let inSeconds = step(inMinutes, times: 60, plus: seconds),
+              let inMilliseconds = step(inSeconds, times: 1_000, plus: milliseconds),
+              let inNanoseconds = step(inMilliseconds, times: 1_000_000, plus: 0)
+        else { return nil }
+        return Nanoseconds(inNanoseconds)
     }
 }

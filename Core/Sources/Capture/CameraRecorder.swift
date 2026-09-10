@@ -100,6 +100,18 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     private let output = AVCaptureMovieFileOutput()
     /// Built during `start`'s configuration block — see `previewLayer()`.
     private var preview: AVCaptureVideoPreviewLayer?
+    /// Guards the two fields AVFoundation's delegate queue touches.
+    ///
+    /// **This class was `@unchecked Sendable` with no synchronisation and no reason given.**
+    /// `started` is written in `didStartRecordingTo` and `finished` is read, resumed and
+    /// cleared in `didFinishRecordingTo` — both delivered on AVFoundation's own queue — while
+    /// `stop()` writes `finished` from whatever thread called it. Two threads writing the same
+    /// non-atomic optional is a race whether or not it has bitten yet, and a torn
+    /// `CheckedContinuation?` is an `await` that never returns.
+    ///
+    /// Only these two. Everything else here is touched by `start`/`stop` alone, which the
+    /// caller serialises.
+    private let lock = NSLock()
     private var started: Int64?
 
     /// When this recorder's file begins, on the host clock — the thing that makes the camera
@@ -118,7 +130,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
     /// observe. A frame or two beats the several hundred milliseconds a camera takes to wake.
     ///
     /// `nil` until the file starts.
-    public nonisolated var firstFrameHostTimeNanos: Int64? { started }
+    public nonisolated var firstFrameHostTimeNanos: Int64? { lock.withLock { started } }
     private var destination: URL?
     private var finished: CheckedContinuation<URL?, Never>?
 
@@ -351,7 +363,7 @@ public final class CameraRecorder: NSObject, @unchecked Sendable {
             return nil
         }
         let url = await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
-            finished = continuation
+            lock.withLock { finished = continuation }
             output.stopRecording()
         }
         session.stopRunning()
@@ -366,7 +378,7 @@ extension CameraRecorder: AVCaptureFileOutputRecordingDelegate {
     public func fileOutput(_ output: AVCaptureFileOutput,
                            didStartRecordingTo fileURL: URL,
                            from connections: [AVCaptureConnection]) {
-        started = Minting.hostNow().rawValue
+        lock.withLock { started = Minting.hostNow().rawValue }
     }
 
     public func fileOutput(_ output: AVCaptureFileOutput,
@@ -377,8 +389,15 @@ extension CameraRecorder: AVCaptureFileOutputRecordingDelegate {
         // "recording stopped" error for an ordinary stop on some configurations, and treating
         // every error as a failure would throw away a good file. The caller checks the file.
         let wrote = FileManager.default.fileExists(atPath: outputFileURL.path)
-        finished?.resume(returning: wrote ? outputFileURL : nil)
-        finished = nil
+        // **Taken under the lock, resumed outside it.** `resume` hands control to whatever was
+        // awaiting, and running that with a lock held is how a lock ends up in a deadlock
+        // somebody spends a day on.
+        let continuation = lock.withLock { () -> CheckedContinuation<URL?, Never>? in
+            let value = finished
+            finished = nil
+            return value
+        }
+        continuation?.resume(returning: wrote ? outputFileURL : nil)
     }
 }
 

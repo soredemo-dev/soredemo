@@ -142,3 +142,22 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64(seconds * 
     #expect(SubtitleFile.nanoseconds("1") == nil)
     #expect(SubtitleFile.nanoseconds("") == nil)
 }
+
+/// **A timecode from a file nobody in this project wrote.**
+///
+/// `Int64(field)` accepts anything up to 9.2 × 10^18, so the parse above is happy with an hours
+/// field of eighteen nines — and the arithmetic that turns it into nanoseconds then traps. That
+/// is a crash on OPENING a subtitle file, which is the worst possible answer to a corrupt one:
+/// the person has done nothing but choose a file, and the app disappears.
+///
+/// Refused rather than clamped. A clamp would put a cue at some plausible time and say nothing;
+/// `times(in:)` names the line it could not read.
+@Test func aTimecodeTooLargeToConvertIsRefusedRatherThanTrapping() {
+    #expect(SubtitleFile.nanoseconds("999999999999999999:00:00,000") == nil)
+    #expect(SubtitleFile.nanoseconds("00:999999999999999999:00,000") == nil)
+    #expect(SubtitleFile.nanoseconds("00:00:999999999999999999,000") == nil)
+    // The largest hours field that still converts is well past any real recording, and it is
+    // the boundary that proves the check is on the arithmetic rather than on a made-up limit.
+    #expect(SubtitleFile.nanoseconds("2562047:00:00,000") != nil)
+    #expect(SubtitleFile.nanoseconds("99999999:00:00,000") == nil)
+}
