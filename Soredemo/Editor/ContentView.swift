@@ -452,6 +452,12 @@ final class RecordingCoordinator {
     func openProject() {
         guard mayReplaceWhatIsOpen() else { return }
         guard let packageURL = ProjectStore.chooseProjectToOpen() else { return }
+        openProject(at: packageURL)
+    }
+
+    /// Opens a package whose location is already known — the menu item's own work, with the
+    /// panel's answer supplied. See `--open-project` in `SoredemoApp`.
+    func openProject(at packageURL: URL) {
         do {
             let opened = try ProjectStore.open(packageURL)
             mediaURL = nil                   // swaps the window's branch, as recording does

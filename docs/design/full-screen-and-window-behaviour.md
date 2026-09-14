@@ -243,3 +243,84 @@ windowed and then records again is put back into full screen. Acceptable here an
 general, because this function has ONE caller — a new recording or a newly opened project
 — and that is precisely the moment full screen is wanted. It is not a general
 "bring the editor forward".
+
+## `.moveToActiveSpace` and full screen are mutually exclusive
+
+*Measured 2026-09-15, after the editor was reported as "not full screen" for the third time.*
+
+They ask for opposite things. Full screen gives a window its **own Space**; `.moveToActiveSpace`
+says follow whichever Space is in front. AppKit resolves the contradiction by **silently
+refusing the transition** — no error, no warning, a window that sits at the size it was given.
+
+Measured in an isolated forty-line AppKit app, one variable changed:
+
+| collection behaviour | result |
+|---|---|
+| `fullScreenPrimary \| moveToActiveSpace` | `fullScreen=false`, frame `(0, 84, 1512, 865)` |
+| `fullScreenPrimary` | `fullScreen=true`, frame `(0, 0, 1512, 949)` |
+| inserted, then removed before the toggle | `fullScreen=true` |
+
+**Where the removal goes matters, and the first fix put it in the wrong place.** Removing it
+next to `toggleFullScreen` looked right and changed nothing: `configure()` runs on every SwiftUI
+update and re-inserted it before the asynchronous transition finished. The only place that
+survives re-assertion is the one that runs every time — so the removal is in `configure()`,
+conditioned on a `hasBeenFullScreen` flag that puts the behaviour back once the window has been
+full screen once. The reason it is wanted survives for the windowed case: an editor opened from
+the menu bar should appear on the Space somebody is looking at.
+
+This note's own measurements above already showed `WindowGroup` sets `moveToActiveSpace` by
+default, so *not inserting* it would have changed nothing. Removing it is the only thing that
+does.
+
+**Why it took three attempts.** The repair of 2026-09-10 set the window's frame to the whole
+visible area before toggling, to stop a small window flashing on the way. That made the failure
+look almost like success — the editor filled the screen except for a menu bar and a title bar —
+and there was nothing to tell it apart from the real thing until `SoredemoUITests` compared the
+window's frame against the screen's safe area and printed both numbers.
+
+## One registration per window, not one per SwiftUI update
+
+*2026-09-10.* `configure()` runs on every SwiftUI update, and of its three registrations only
+`watchFullScreen` was guarded — by a comment that said exactly why a second registration is
+wrong. The other two were not, and both consequences were real:
+
+* every accumulated `didBecomeKey` observer fires on the **same** notification, so
+  `toggleFullScreen` ran once per registration. Two calls is enter-then-exit;
+* the blocks captured `window` strongly and were never removed, so every editor window ever
+  opened stayed alive with its player, its compositor and its waveforms.
+
+Registration is keyed on the window now, the blocks hold it weakly, and the tokens go when the
+view leaves the window — which can only happen *because* the blocks hold it weakly. The style
+mask and collection behaviour stay outside the guard: setting a bit twice is setting it once,
+and SwiftUI re-asserts them.
+
+## `toggleFullScreen` at `didBecomeKey` is too early, and AppKit does not say so
+
+*Measured 2026-09-15, four attempts deep into "the editor is not full screen".*
+
+At the moment the editor's window becomes key, every documented precondition for the call is
+met — the window is key, the application is `.regular` (`activationPolicy` 0) and active, the
+collection behaviour is `primary | fullScreenPrimary` with no `moveToActiveSpace`, and the
+style mask is resizable. `toggleFullScreen(nil)` there does nothing: no error, no warning, and
+`styleMask` never gains `.fullScreen`. The identical call against the identical window five
+seconds later succeeds.
+
+| what was tried | result |
+|---|---|
+| synchronous at `didBecomeKey` | `fullScreen=false` |
+| deferred one turn with `Task { @MainActor }` | `fullScreen=false` |
+| deferred 150 ms | `fullScreen=false` |
+| without the preceding `setFrame` | `fullScreen=false` |
+| again, five seconds later | **`fullScreen=true`** |
+| asked repeatedly until it takes | **`fullScreen=true`** |
+
+**One earlier measurement said it worked, and was not repeated.** It came from a build carrying
+a temporary diagnostic that wrote to a file between `setFrame` and the toggle; the file I/O was
+the delay. A timing dependency wearing a fix's clothes, and a single unrepeated measurement is
+how it got believed.
+
+`enterFullScreen(_:attemptsLeft:)` asks again rather than naming a number: eight attempts over
+two seconds, stopping **on success** rather than after a fixed count — `toggleFullScreen`
+toggles, so one call too many takes the window straight back out, which is the same
+even-number-of-calls defect that made the editor open windowed for a week.
+

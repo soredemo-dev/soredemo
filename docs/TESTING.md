@@ -135,6 +135,19 @@ while two other tests rendered cursors. Fixed by giving the renderer a per-insta
 override. **The rule that came out of it: a red gate is a HANG or a FAILURE, and which
 one it is decides whose defect it is.** Never file the second as the first.
 
+**A fifth kind, found 2026-09-15: a gate whose failure could not be read.** `xcodebuild`
+reports an infrastructure failure as `Testing failed:` and nothing else, and the gate
+scripts piped that through a `grep` that kept only lines matching `error:|failed` — so the
+verdict was "APP TESTS FAILED" with no evidence under it. The same run succeeded when
+issued by hand. Three separate readings were needed to establish that the gate was fine and
+the intermittency was in the test host, and one of those readings was itself wrong: a
+hand-typed `grep "Test Case"` against output that says `Test case` reported zero tests run.
+
+Every gate script now writes its whole run to a file and names it on failure, which is the
+same repair the probe had on 2026-09-15. **A gate that cannot show its evidence sends
+somebody back to re-run it, and an intermittent failure that is re-run instead of read
+becomes a rumour.**
+
 **A fourth kind, found 2026-09-10: a red check pointing at the wrong file.** The probe asks the
 window server to put its window at x = 700 and then derives a `CaptureSource` from a filter over
 it. One run in several, the placement is not honoured — observed at x = 2094, past the right edge
@@ -292,18 +305,92 @@ comes back.
 
 ---
 
-## 6. If UI testing is ever bought, buy exactly this
+## 6. The L4 design, worked through rather than listed
 
-Three flows, because each one is a way to lose a recording and none is reachable from
-L3:
+The three flows below were named on 2026-09-05 because each is a way to lose a recording.
+**Designed 2026-09-15** against `DESIGNING-A-TEST.md`, and the design changed the order:
+risk is impact × likelihood, and the escapes of the intervening ten days were all in a
+fourth flow nobody had listed.
 
-1. **Permission denied, then granted.** Screen Recording and Accessibility, including
-   the case where the grant arrives while the app is running.
-2. **Start, pause, resume, stop** from the menu bar panel, asserting the file exists and
-   `RecordingHealth` passes.
-3. **Quit while recording.** The one path where the app itself is the thing that stops.
+### 6.0 The editor opens, and it is full screen — build this first
 
-Anything beyond those three is more expensive than the defect it catches.
+| | |
+|---|---|
+| **impact** | Annoying. Nothing is lost. |
+| **likelihood** | **Observed twice in three days**, and both times a person reported it. |
+| **partitions** | opened from a new recording; opened from a project; opened a second time into a window that already exists |
+| **oracle** | **Exact.** The window's frame equals the screen's. Not "looks right" — a number against a number. |
+| **size** | large: a real window on a real display |
+
+Impact × likelihood puts this above the three below, and it is the cheapest of the four.
+
+**Built 2026-09-15** as `scripts/check-editor-opens-full-screen.sh`, and it found the defect
+on its first run. Two earlier shapes were built and measured before this one, and both are
+recorded in the script because the reasons are the interesting part: XCUITest cannot see a
+window that has moved to its own Space, and an XCTest inside the app's own test target cannot
+launch a second instance of its own bundle with arguments. **A flow that cannot be observed
+reliably needs a different observer, not a longer timeout.**
+
+The oracle is `styleMask.contains(.fullScreen)`, written out by `--report-window-state`. The
+app is not marking its own homework: it is not asked whether it MEANT to be full screen, it is
+asked what the window system made of it.
+
+*(An earlier note here said L4 was gated behind an Accessibility grant. That was true of the
+XCUITest shape and of one machine on one morning; it is not a property of the platform, and
+the shape that replaced it needs no grant at all.)*
+
+**Superseded:** the first attempt was `SoredemoUITests`, and it did not run. macOS requires the
+process driving the tests to hold **Accessibility** — `xcodebuild` fails with *"Timed out
+while enabling automation mode"* until Terminal (or Xcode) is granted it in System
+Settings → Privacy & Security → Accessibility. That is a one-time grant by a person, not a
+per-run flake, and it is worth stating plainly because it is the same cost § 6.3 refuses to
+pay for the permission flow: **L4 on this platform is gated behind a permission no test can
+grant itself.** The difference is that this one is paid once and then every L4 test runs,
+where the permission flow would need a system dialog driven on every run.
+
+The fixture is synthesised in the test — one black frame written with AVFoundation, under a
+kilobyte — rather than checked in or pointed at by an environment variable, so there is no
+setup step to be told about beyond the grant.
+The two defects it would have caught were an observer registered once per SwiftUI update
+(so `toggleFullScreen` ran twice: enter, then exit) and an `alphaValue = 0` that stopped
+the toggle working at all. Neither is reachable from any smaller test: both are about what
+AppKit does with a real window.
+
+**`--open-project <path>`** exists for this, beside `--present-picker`: `openProject()`
+goes through an `NSOpenPanel`, so without it the whole editor tier is unreachable from a
+test. A verification flag rather than a test-only hook — a person can use it too.
+
+### 6.1 Start, pause, resume, stop
+
+| | |
+|---|---|
+| **impact** | Catastrophic — the recording is the product. |
+| **likelihood** | Low. This path is covered at L3 for everything except the menu bar panel driving it. |
+| **partitions** | stop with no pause; one pause; several pauses; pause and stop while paused |
+| **oracle** | **Exact and already written**: `RecordingHealth` on the file, plus the segment count against the number of pauses. |
+| **size** | large, and it needs Screen Recording granted — so it can never run where that cannot be granted |
+
+### 6.2 Quit while recording
+
+| | |
+|---|---|
+| **impact** | Catastrophic, and it is the one path where the app itself is what stops. |
+| **likelihood** | Low, but the failure is silent: a file that looks present and will not open. |
+| **oracle** | `RecordingHealth` after `terminate()`. |
+| **size** | large — **but not a UI test.** Launch the binary, start a recording, terminate the process, examine the file. No automation of controls, so none of XCUITest's flakiness. |
+
+### 6.3 Permission denied, then granted — **not bought, and here is why**
+
+TCC dialogs belong to the system, not to this app. Driving them means `tccutil reset`
+plus clicking a window no test framework owns, and the result would be a test that fails
+for reasons unrelated to this code more often than for related ones — which is the
+definition of a test that gets disabled.
+
+What exists instead: `--dump-permissions` prints the state of every grant, so the flow can
+be verified by a person in one command. **A flow that cannot be tested honestly is better
+named than faked**, and `PermissionsWindow` is small, pure, and covered at L1.
+
+Anything beyond these four is more expensive than the defect it catches.
 
 ---
 

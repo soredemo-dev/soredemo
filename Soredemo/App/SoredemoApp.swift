@@ -61,6 +61,63 @@ struct SoredemoApp: App {
     /// with `open -a Soredemo.app --args --dump-permissions`, not the raw
     /// executable: TCC attributes a direct `fork`/`exec` to the responsible
     /// parent process, so the grants reported would not be this bundle's.
+    @Environment(\.openWindow) private var openWindow
+
+    /// Acts on the flags that need the app to be up.
+    ///
+    /// **`--open-project <path>`, beside the picker flags and for the same reason.**
+    /// `openProject()` goes through an `NSOpenPanel`, so without this the entire editor —
+    /// every window behaviour, every full-screen transition, every toolbar — is unreachable
+    /// from anything but a person with a mouse. Two defects in three days were exactly there,
+    /// and both were reported by one rather than found by anything.
+    ///
+    /// **The window is opened first.** The menu item this stands in for is only reachable when
+    /// an editor is already up; at launch there is none, and a project loaded into a window
+    /// that does not exist is a flag that silently does nothing — which is what the first
+    /// version did, and what the first UI test caught.
+    ///
+    /// A verification flag, not a test hook: a person can use it too.
+    @MainActor private func handleLaunchArguments() {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard let index = arguments.firstIndex(of: "--open-project"),
+              index + 1 < arguments.count else { return }
+        let packageURL = URL(fileURLWithPath: arguments[index + 1])
+        EditorWindowPresence.openEditor { openWindow(id: $0) }
+        recordingCoordinator.openProject(at: packageURL)
+
+        // **`--report-window-state <path>`: what the window actually became, from AppKit.**
+        //
+        // The first version of this check drove the app with XCUITest and read the window's
+        // frame out of the accessibility tree. That is unreliable by construction here: a
+        // window that enters full screen moves to its OWN Space, and the element stops being
+        // queryable while it does — the same test passed, then reported "never readable", then
+        // failed inside its own failure message. An oracle that is sometimes right is not one.
+        //
+        // `styleMask.contains(.fullScreen)` is AppKit's own answer to the same question, read
+        // directly instead of inferred from geometry. The app is not marking its own homework:
+        // it is not asked whether it MEANT to be full screen, it is asked what the window
+        // system says it is.
+        guard let reportIndex = arguments.firstIndex(of: "--report-window-state"),
+              reportIndex + 1 < arguments.count else { return }
+        let destination = URL(fileURLWithPath: arguments[reportIndex + 1])
+        Task { @MainActor in
+            // Long enough for the transition, which is animated and cannot be awaited.
+            try? await Task.sleep(for: .seconds(5))
+            let window = NSApp.windows.first {
+                $0.identifier?.rawValue.contains(WindowID.editor) == true && $0.isVisible
+            }
+            let screen = window?.screen ?? NSScreen.main
+            let report = """
+                fullScreen=\(window?.styleMask.contains(.fullScreen) == true)
+                frame=\(window.map { "\($0.frame)" } ?? "none")
+                screen=\(screen.map { "\($0.frame)" } ?? "none")
+                safeAreaTop=\(screen?.safeAreaInsets.top ?? -1)
+                """
+            try? report.write(to: destination, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+        }
+    }
+
     var body: some Scene {
         // The menu bar item, and it is the whole app: a recorder is used from inside
         // what is being demonstrated, and the moment a person opens a window to press
@@ -78,7 +135,14 @@ struct SoredemoApp: App {
                 // a blue interface is the first thing they see.
                 .tint(Theme.accent)
         } label: {
+            // **The launch flags are handled HERE, and that was a defect the first UI test
+            // found on its first run.** `--open-project` was attached to the editor scene's
+            // `.task`, and that scene is `.defaultLaunchBehavior(.suppressed)`: at launch the
+            // window does not exist, so the task never ran and the flag did nothing. The menu
+            // bar label is the one view this app always has — an accessory app is its status
+            // item — so it is the only place a launch-time task can be attached.
             MenuBarRecorderLabel(coordinator: recordingCoordinator)
+                .task { handleLaunchArguments() }
         }
         // `.window`, not the default menu: the contents are controls, not commands.
         .menuBarExtraStyle(.window)
@@ -140,7 +204,7 @@ struct SoredemoApp: App {
                 // so unlike `--dump-permissions` these flags cannot be handled
                 // in `init()`; `.task` fires once the window is up.
                 .task {
-                    let arguments = CommandLine.arguments.dropFirst()
+                    let arguments = Array(CommandLine.arguments.dropFirst())
                     if arguments.contains("--present-picker") {
                         Self.presentPickerForVerification(restricted: true)
                     } else if arguments.contains("--present-picker-unrestricted") {

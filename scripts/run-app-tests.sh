@@ -12,9 +12,21 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# **`-only-testing:SoredemoTests`, and the scoping is the point.** The scheme also holds
+# `SoredemoUITests`, which cannot start without an Accessibility grant — so without this the
+# fifth gate would go red on a machine where nothing is wrong with the code. UI tests are
+# their own gate, `run-ui-tests.sh`, which says what it needs.
 OUTPUT=$(xcodebuild -project Soredemo.xcodeproj -scheme Soredemo \
-                    -destination 'platform=macOS' test 2>&1) || {
-  echo "APP TESTS FAILED. The failures:" >&2
+                    -destination 'platform=macOS' \
+                    -only-testing:SoredemoTests test 2>&1) || {
+  # **The whole run is kept.** This script's own grep has twice thrown away the only line
+  # worth reading — once because the failure said "Testing failed:" and nothing else, once
+  # because a hand-typed `Test Case` did not match `Test case`. A gate that cannot show its
+  # evidence sends somebody back to re-run it, which is how an intermittent failure becomes
+  # a rumour. Same fix as `run-cross-boundary-probe.sh`.
+  LOG="${TMPDIR:-/tmp}run-app-tests.log"
+  printf '%s\n' "$OUTPUT" > "$LOG"
+  echo "APP TESTS FAILED. The whole run is in $LOG. What matched:" >&2
   echo "$OUTPUT" | grep -E "error:|failed" >&2
   exit 1
 }

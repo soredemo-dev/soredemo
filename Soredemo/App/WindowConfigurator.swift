@@ -22,6 +22,7 @@ struct WindowConfigurator: NSViewRepresentable {
     /// excavation.
     static let opensFullScreen = true
 
+
     func makeNSView(context: Context) -> AttachedView { AttachedView() }
 
     func updateNSView(_ view: AttachedView, context: Context) { view.configure() }
@@ -32,20 +33,13 @@ struct WindowConfigurator: NSViewRepresentable {
     final class AttachedView: NSView {
         /// The window this view has already registered for, if any.
         ///
-        /// **`configure()` runs on every SwiftUI update, and only ONE of the three registrations
-        /// below used to be guarded.** The comment that guarded it said exactly why — a second
-        /// registration sets the presentation options twice — and the other two were left open,
-        /// so an editor accumulated one `didExitFullScreen` observer and one `didBecomeKey`
-        /// observer per update. Both consequences are real:
-        ///
-        /// * every one of those `didBecomeKey` observers fires on the SAME notification, so
-        ///   `toggleFullScreen` was called once per registration. Two calls is enter-then-exit,
-        ///   which is an editor that opens windowed for no reason anybody can see;
-        /// * the blocks captured `window` strongly and were never removed, so the window — with
-        ///   its player, its compositor and its waveforms — could never be freed.
-        ///
-        /// Keyed on the window rather than a `Bool`, because a view can be moved to a different
-        /// window and the old registration is then about a window this view no longer has.
+        /// **`configure()` runs on every SwiftUI update, and registering twice is the defect** —
+        /// one `toggleFullScreen` per registration, and a block per registration holding the
+        /// window alive. Keyed on the window rather than a `Bool` because a view can be moved to
+        /// a different one. See docs/design/full-screen-and-window-behaviour.md.
+        /// Whether this window has completed a full-screen transition, which is what decides
+        /// `.moveToActiveSpace` above.
+        private var hasBeenFullScreen = false
         private var configuredWindow: ObjectIdentifier?
         /// What to unregister. Removed when this view goes away, which happens when the window
         /// does — and can only happen because the blocks hold the window weakly.
@@ -83,7 +77,16 @@ struct WindowConfigurator: NSViewRepresentable {
             // actually fixed it; this is the second lock on the same door.
             window.collectionBehavior.remove(.fullScreenNone)
             window.collectionBehavior.insert(.fullScreenPrimary)
-            window.collectionBehavior.insert(.moveToActiveSpace)
+            // **`.moveToActiveSpace` and full screen are mutually exclusive**, and AppKit
+            // refuses the transition rather than saying so. Removed until this window has been
+            // full screen once, and put back after — measurements, and why the removal has to
+            // live in `configure()` rather than beside the toggle, in
+            // docs/design/full-screen-and-window-behaviour.md.
+            if hasBeenFullScreen {
+                window.collectionBehavior.insert(.moveToActiveSpace)
+            } else {
+                window.collectionBehavior.remove(.moveToActiveSpace)
+            }
 
             // Everything above is idempotent — setting a style mask bit twice is setting it
             // once. Everything below registers, and registering twice is the defect.
@@ -110,8 +113,9 @@ struct WindowConfigurator: NSViewRepresentable {
                 // `[]` on purpose: this block mentions only `NSApp`, and an empty capture
                 // list is how it says so. See `everyBlockObserverDeclaresWhatItCaptures`.
                 centre.addObserver(forName: NSWindow.didEnterFullScreenNotification,
-                                   object: window, queue: .main) { [] _ in
+                                   object: window, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
+                        self?.hasBeenFullScreen = true
                         NSApp.presentationOptions = [.autoHideToolbar, .autoHideMenuBar,
                                                      .autoHideDock, .fullScreen]
                     }
@@ -132,6 +136,25 @@ struct WindowConfigurator: NSViewRepresentable {
 /// **Per axis, and only upward.** A window somebody widened but left short gains the height and
 /// keeps the width. `display: false` because every caller either follows this with a transition
 /// that repaints anyway or is running inside one.
+/// Asks for full screen until AppKit takes it, or until it is clear it will not.
+///
+/// **The call at `didBecomeKey` is ignored** — every documented precondition is met and nothing
+/// happens, while the same call seconds later succeeds. Measurements, and the four shapes that
+/// did not work, are in docs/design/full-screen-and-window-behaviour.md.
+///
+/// Stops **on success**, not after a fixed count: `toggleFullScreen` toggles, so one call too
+/// many takes the window straight back out.
+@MainActor private func enterFullScreen(_ window: NSWindow, attemptsLeft: Int = 8) {
+    guard attemptsLeft > 0, !window.styleMask.contains(.fullScreen) else { return }
+    window.toggleFullScreen(nil)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak window] in
+        MainActor.assumeIsolated {
+            guard let window, window.isVisible else { return }
+            enterFullScreen(window, attemptsLeft: attemptsLeft - 1)
+        }
+    }
+}
+
 private func growToFloor(_ window: NSWindow, within visible: NSRect) {
     let wanted = NSSize(width: visible.width * WindowConfigurator.openingFraction,
                         height: visible.height * WindowConfigurator.openingFraction)
@@ -241,7 +264,18 @@ private func openFullScreen(_ window: NSWindow) -> [any NSObjectProtocol] {
                         }
                     }
                 window.setFrame(visible, display: false, animate: false)
-                window.toggleFullScreen(nil)
+                // **The toggle goes in the next turn, and that was measured rather than
+                // guessed.** With the two calls in one turn the transition is ignored: the
+                // window sits at the frame it was just given and `styleMask` never gains
+                // `.fullScreen`. It was found by accident — a temporary diagnostic between the
+                // two lines made it work, and a diagnostic that changes the outcome is a timing
+                // dependency wearing a disguise. AppKit has to be allowed to finish applying
+                // the frame before it is asked to do something else with the window.
+                enterFullScreen(window)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    MainActor.assumeIsolated {
+                    }
+                }
             }
         }
     // The token is returned so the view can drop it if the window goes before it ever became
