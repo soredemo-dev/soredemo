@@ -14,6 +14,43 @@ method — risk first, then partitions and boundaries, then the oracle question,
 size — with this project's own defects as the worked examples. This document is the
 inventory; that one is the technique.
 
+## 0. The number, and what it does not say
+
+*Measured 2026-09-15 by `scripts/coverage.sh`, which is also the gate: it fails below 70%.*
+
+```
+  Capture          5078 lines   34.4%
+  Compositing      4851 lines   80.3%
+  Graph             245 lines   89.4%
+  Geometry          492 lines   89.8%
+  Render           1900 lines   95.5%
+  Project           960 lines   95.9%
+  Variants           71 lines   95.8%
+  Timeline          688 lines   96.2%
+  CheckerLexer      226 lines   97.3%
+  Overlays         2050 lines   97.7%
+  Framing           694 lines   99.1%
+  TOTAL           17255 lines   73.5%
+```
+
+**`Capture`'s 34% is the one figure to read carefully, and it is not what it looks like.** It
+is the module whose behaviour needs a real display, a real `SCStream` and a real writer, so
+most of its checking lives in the probe and runs as a separate binary — 473 checks that this
+report cannot see. Merging the two profiles was attempted: instrument the library, keep the
+probe's binary, merge the profraws. `llvm-cov` would not attribute the probe's run to
+`Capture`'s sources, because the archive it links comes from a different invocation than the
+one carrying the coverage mapping. A merge that silently contributes nothing is worse than no
+merge, so it was taken back out and this paragraph exists instead.
+
+**What the number excludes on purpose**: the app target. The probe COMPILES every app source
+to check that it compiles, so leaving those files in the report would put 17,764 lines in the
+denominator that nothing in this run executes. The app tier has its own tests and its own
+figure — § 5.4.
+
+**Coverage is a floor here, not a target.** A line can be covered by a test that asserts
+nothing about it; `DESIGNING-A-TEST.md` § 1 is what decides where tests go, and this number
+is what stops a module quietly falling out of the habit.
+
 ## 1. What exists today, counted
 
 | level | assets | size | verdict |
