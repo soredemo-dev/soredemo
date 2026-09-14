@@ -84,10 +84,10 @@ public enum CodecSupport {
                                          kCVPixelFormatType_32BGRA, attributes,
                                          &buffer) == kCVReturnSuccess,
               let buffer else { return nil }
-        unsafe CVPixelBufferLockBaseAddress(buffer, [])
-        defer { unsafe CVPixelBufferUnlockBaseAddress(buffer, []) }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         guard let base = unsafe CVPixelBufferGetBaseAddress(buffer) else { return nil }
-        let stride = unsafe CVPixelBufferGetBytesPerRow(buffer)
+        let stride = CVPixelBufferGetBytesPerRow(buffer)
         for y in 0..<probeHeight {
             let row = unsafe base.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)
             for x in 0..<probeWidth {

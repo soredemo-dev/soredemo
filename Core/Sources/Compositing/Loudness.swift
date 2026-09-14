@@ -362,6 +362,15 @@ extension Loudness {
 
         var meter = Meter(sampleRate: sampleRate, channels: channels)
         while let sample = output.copyNextSampleBuffer() {
+            // **Cancellation is checked HERE or it does nothing.** These loops are awaited from
+            // a SwiftUI `.task`, so closing the editor cancels them — and a loop that never
+            // asks decodes the whole recording regardless. Worse than the wasted work: an
+            // `AVAssetReader` still pulling after its caller is gone is one more CONCURRENT
+            // reader, which is the exact condition of the `copyNextSampleBuffer` hang this
+            // project has documented and cannot fix.
+            // `nil`, which this already means "no reading" with: a partial loudness
+            // measurement is a number that would be acted on.
+            guard !Task.isCancelled else { return nil }
             guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
             let bytes = CMBlockBufferGetDataLength(block)
             guard bytes >= MemoryLayout<Float>.size else { continue }
@@ -370,7 +379,7 @@ extension Loudness {
             // the pointer is used only inside `withUnsafeMutableBytes`'s scope, and the copy is
             // the framework's own bounded one rather than a raw read of the block's storage.
             let copied = unsafe samples.withUnsafeMutableBytes { buffer -> OSStatus in
-                guard let base = unsafe buffer.baseAddress else { return -1 }
+                guard let base = buffer.baseAddress else { return -1 }
                 return unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes,
                                                          destination: base)
             }

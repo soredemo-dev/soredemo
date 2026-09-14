@@ -125,6 +125,13 @@ public struct WaveformEnvelope: Hashable, Sendable {
         var sampleRate = 0.0
 
         while let buffer = output.copyNextSampleBuffer() {
+            // **Cancellation is checked HERE or it does nothing.** These are `async` functions
+            // awaited from a SwiftUI `.task`, so closing the editor cancels them — and a loop
+            // that never asks decodes the whole recording anyway. Worse than the wasted work:
+            // an `AVAssetReader` still pulling after its caller is gone is one more CONCURRENT
+            // reader, which is the exact condition of the `copyNextSampleBuffer` hang this
+            // project has documented and cannot fix.
+            try Task.checkCancellation()
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             if hop == 0 {
                 guard let format = CMSampleBufferGetFormatDescription(buffer),

@@ -106,8 +106,11 @@ public enum CameraComposition {
         let cameraRange = CMTimeRange(start: early, duration: min(available, room))
         try cameraSlot.insertTimeRange(cameraRange, of: cameraTrack, at: late)
 
-        let musicTrackID = music.flatMap {
-            try? insertMusic(from: $0, into: composition, over: screenDuration)
+        // `flatMap` cannot take an async body, so the optional is unwrapped in the open.
+        var musicTrackID: CMPersistentTrackID?
+        if let music {
+            musicTrackID = try? await insertMusic(from: music, into: composition,
+                                                  over: screenDuration)
         }
         return Combined(asset: composition, cameraTrackID: cameraSlot.trackID,
                         musicTrackID: musicTrackID)
@@ -132,7 +135,7 @@ public enum CameraComposition {
             else { continue }
             try inserted.insertTimeRange(whole, of: track, at: .zero)
         }
-        let musicTrackID = try? insertMusic(from: musicURL, into: composition,
+        let musicTrackID = try? await insertMusic(from: musicURL, into: composition,
                                             over: screenDuration)
         guard musicTrackID != nil else {
             // Nothing was added, so nothing needs a composition. Handing back the screen asset
@@ -151,13 +154,17 @@ public enum CameraComposition {
     /// recorded. Throws rather than returning `nil` on a file with no audio, so a caller that
     /// picked a video by mistake finds out.
     private static func insertMusic(from url: URL, into composition: AVMutableComposition,
-                                    over duration: CMTime) throws -> CMPersistentTrackID? {
+                                    over duration: CMTime) async throws -> CMPersistentTrackID? {
         let asset = AVURLAsset(url: url)
-        // Synchronous `tracks` rather than the async loader: this runs inside a composition
-        // build that is already off the main actor's critical path, and the async form cannot
-        // be awaited from here without making every caller of `insertMusic` async too.
-        guard let source = asset.tracks(withMediaType: .audio).first else { return nil }
-        let sourceDuration = source.timeRange.duration
+        // **The async loaders, and the reason for the synchronous ones had expired.** It said
+        // the async form "cannot be awaited from here without making every caller of
+        // `insertMusic` async too" — and both callers have been `async throws` for some time.
+        // The synchronous `tracks` and `.timeRange` are deprecated because they BLOCK while the
+        // asset loads, which on a music file somebody just picked is a stall on whichever
+        // thread the composition is being built on.
+        guard let source = try await asset.loadTracks(withMediaType: .audio).first
+        else { return nil }
+        let sourceDuration = try await source.load(.timeRange).duration
         guard sourceDuration > .zero, duration > .zero else { return nil }
         guard let slot = composition.addMutableTrack(
             withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)

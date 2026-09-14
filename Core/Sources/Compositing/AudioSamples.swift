@@ -87,6 +87,13 @@ public enum AudioSamples {
 
         var samples: [Float] = []
         while let buffer = output.copyNextSampleBuffer() {
+            // **Cancellation is checked HERE or it does nothing.** These loops are awaited from
+            // a SwiftUI `.task`, so closing the editor cancels them — and a loop that never
+            // asks decodes the whole recording regardless. Worse than the wasted work: an
+            // `AVAssetReader` still pulling after its caller is gone is one more CONCURRENT
+            // reader, which is the exact condition of the `copyNextSampleBuffer` hang this
+            // project has documented and cannot fix.
+            try Task.checkCancellation()
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             let bytes = CMBlockBufferGetDataLength(block)
             guard bytes >= MemoryLayout<Float>.size else { continue }
@@ -96,7 +103,7 @@ public enum AudioSamples {
             // line up, the pointer never leaves `withUnsafeMutableBytes`'s scope, and the copy is
             // the framework's bounded one rather than a raw read of the block's storage.
             let copied = unsafe block32.withUnsafeMutableBytes { buffer -> OSStatus in
-                guard let base = unsafe buffer.baseAddress else { return -1 }
+                guard let base = buffer.baseAddress else { return -1 }
                 return unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes,
                                                          destination: base)
             }
@@ -133,7 +140,7 @@ public enum AudioSamples {
         // rather than a loop of subscripts — fewer unsafe expressions to justify, and the
         // framework's own bounded move.
         unsafe track.samples.withUnsafeBufferPointer { source in
-            guard let base = unsafe source.baseAddress else { return }
+            guard let base = source.baseAddress else { return }
             unsafe channel[0].update(from: base, count: track.samples.count)
         }
         let file = try AVAudioFile(forWriting: url, settings: format.settings)

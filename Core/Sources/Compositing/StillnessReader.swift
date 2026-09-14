@@ -40,6 +40,10 @@ public enum StillnessReader {
         case theFileWillNotOpen
         case thereIsNoVideoTrack
         case theReaderWouldNotStart
+        /// The caller went away — the editor was closed, or the search was stopped — while the
+        /// recording was being walked. **A named refusal rather than an empty `changes([])`**,
+        /// which would read as "nothing moved in this recording" and suppress every zoom.
+        case theWorkWasCancelled
     }
 
     public enum Outcome: Sendable, Equatable {
@@ -81,6 +85,13 @@ public enum StillnessReader {
         let total = max(duration.seconds, 0.000_001)
 
         while let sample = output.copyNextSampleBuffer() {
+            // **Cancellation is checked HERE or it does nothing.** These loops are awaited from
+            // a SwiftUI `.task`, so closing the editor cancels them — and a loop that never
+            // asks decodes the whole recording regardless. Worse than the wasted work: an
+            // `AVAssetReader` still pulling after its caller is gone is one more CONCURRENT
+            // reader, which is the exact condition of the `copyNextSampleBuffer` hang this
+            // project has documented and cannot fix.
+            guard !Task.isCancelled else { return .refused(.theWorkWasCancelled) }
             let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
             // **One frame per slice, and the FIRST one at or after the boundary.** Averaging the
             // frames inside a slice would smear a short movement into stillness, which is the one
