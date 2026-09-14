@@ -2046,16 +2046,24 @@ func longestLiteralRun(of key: String) -> String? {
 
     // **And a `String` where a key was meant is the defect this whole test exists for.**
     // A status line assigned a bare literal compiles, runs, and is English forever.
+    //
+    // **Every status channel, not just `statusText`.** Naming one field left the others open,
+    // and there were three: `exportStatus` and `projectStatus` in `StageWindow` and `status` on
+    // `CaptionsModel`, eighteen more sentences that could not be translated — all drawn through
+    // `Text(x ?? "")`, which is the `String` overload however carefully the tables were written.
+    // The needle is the SHAPE — an identifier ending in `Status` or `Text`, assigned a bare
+    // literal — because the next one will have a different name and the same defect.
     var verbatim: [String] = []
     for file in try appSourceFiles() {
         let text = try String(contentsOf: file, encoding: .utf8)
         for (index, line) in text.components(separatedBy: .newlines).enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("statusText = \"") || trimmed.hasPrefix("statusText = \"\"") else {
-                continue
-            }
-            // `statusText = ""` clears it — an empty string is not a sentence.
-            guard trimmed != "statusText = \"\"" else { continue }
+            guard let equals = trimmed.range(of: " = \"") else { continue }
+            let name = String(trimmed[..<equals.lowerBound])
+            guard name.hasSuffix("Status") || name.hasSuffix("Text") || name == "status",
+                  !name.contains("("), !name.contains(".") else { continue }
+            // `x = ""` clears it — an empty string is not a sentence.
+            guard !trimmed.hasSuffix(" = \"\"") else { continue }
             verbatim.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1) \(trimmed)")
         }
     }

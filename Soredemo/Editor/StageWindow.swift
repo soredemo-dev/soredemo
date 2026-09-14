@@ -1109,21 +1109,23 @@ struct StageWindow: View {
             case .document(let xml):
                 do {
                     try xml.write(to: destination, atomically: true, encoding: .utf8)
-                    exportStatus = "Wrote \(destination.lastPathComponent)."
+                    exportStatus = String(localized: "Wrote \(destination.lastPathComponent).")
                 } catch {
-                    exportStatus = "Could not write \(destination.lastPathComponent): \(error)"
+                    exportStatus = String(localized:
+                        "Could not write \(destination.lastPathComponent): \(String(describing: error))")
                 }
             case .refused(let refusal):
                 // Named rather than generic: the three reasons have three different fixes, and a
                 // person told only that it failed cannot act on any of them.
                 exportStatus = switch refusal {
                 case .theEditKeepsNothing:
-                    "The edit removes the whole recording, so there is no cut to export."
+                    String(localized:
+                        "The edit removes the whole recording, so there is no cut to export.")
                 case .theFrameRateIsNotAFrameRate:
-                    "The recording reports no frame rate, and every time in the file has to be "
-                        + "a whole frame."
+                    String(localized: "The recording reports no frame rate, and every time in the file has to be a whole frame.")
                 case .theRecordingHasNoSize:
-                    "The recording reports no size, so there is no sequence to describe."
+                    String(localized:
+                        "The recording reports no size, so there is no sequence to describe.")
                 }
             }
         }
@@ -1545,9 +1547,9 @@ struct StageWindow: View {
             try ProjectStore.save(recordingAt: mediaURL, edit: edit, to: destination)
             savedPackage = destination
             savedEdit = edit
-            projectStatus = "Saved to \(destination.lastPathComponent)."
+            projectStatus = String(localized: "Saved to \(destination.lastPathComponent).")
         } catch {
-            projectStatus = "Could not save: \(error)"
+            projectStatus = String(localized: "Could not save: \(String(describing: error))")
         }
     }
 
@@ -1660,7 +1662,7 @@ struct StageWindow: View {
         } catch { failures.append("the marks") }
         savedEdit = edit
         if !failures.isEmpty {
-            projectStatus = "Opened, but could not read \(failures.joined(separator: ", "))."
+            projectStatus = String(localized: "Opened, but could not read \(failures.joined(separator: ", ")).")
         }
     }
 
@@ -1864,7 +1866,7 @@ struct StageWindow: View {
         if queued == nil {
             // Named, because the only way somebody works out which of their jobs they collided
             // with is being told the filename.
-            exportStatus = "An export to \(destination.lastPathComponent) is already waiting."
+            exportStatus = String(localized: "An export to \(destination.lastPathComponent) is already waiting.")
         }
     }
 

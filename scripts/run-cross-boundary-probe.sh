@@ -155,4 +155,20 @@ xcrun swiftc \
   Soredemo/Inspector/AnnotationPanel.swift \
   scripts/cross-boundary-digest-probe.swift
 
-"$OUT/probe" "$@"
+# **Always to a file as well as to the terminal.**
+#
+# A run on 2026-09-15 printed "PROBE FAILED (1 of 473 checks)" through a `grep` that kept only
+# the verdict, and three runs afterwards passed. Which check failed is gone — so the only thing
+# that could be said about it is that something failed once, which is not evidence anybody can
+# act on. The log costs nothing and is the difference between a flake somebody can investigate
+# and a rumour.
+LOG="${SOREDEMO_PROBE_LOG:-$OUT/probe.log}"
+set -o pipefail
+"$OUT/probe" "$@" 2>&1 | tee "$LOG"
+STATUS=$?
+if [ "$STATUS" -ne 0 ]; then
+  echo "" >&2
+  echo "The whole run is in $LOG — read the FAIL line there rather than re-running," >&2
+  echo "which is how a check that fails one time in twenty becomes a rumour." >&2
+fi
+exit "$STATUS"

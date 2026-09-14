@@ -128,16 +128,17 @@ final class CaptionsModel {
                 rebuild(outputWidth: outputWidth, outputHeight: outputHeight,
                         maximumWords: maximumWords, pauses: pauses)
                 status = track.isEmpty
-                    ? "No speech was recognised in this recording."
-                    : "\(track.cues.count) caption(s) from \(recognised.words.count) word(s)."
+                    ? String(localized: "No speech was recognised in this recording.")
+                    : String(localized:
+                        "\(track.cues.count) caption(s) from \(recognised.words.count) word(s).")
             } catch is CancellationError {
-                status = "Stopped. Nothing was changed."
+                status = String(localized: "Stopped. Nothing was changed.")
             } catch {
                 // A cancelled analyzer surfaces as its own failure rather than as
                 // `CancellationError`, so the task's own state is what decides which this was.
                 status = Task.isCancelled
-                    ? "Stopped. Nothing was changed."
-                    : "Could not transcribe: \(error)"
+                    ? String(localized: "Stopped. Nothing was changed.")
+                    : String(localized: "Could not transcribe: \(String(describing: error))")
             }
         }
         transcribing = run
@@ -276,7 +277,8 @@ final class CaptionsModel {
                 placed.append(CaptionCue(text: cue.text, start: start, end: end))
             }
             guard !placed.isEmpty else {
-                status = "None of \(reading.track.cues.count) cue(s) fall inside this edit."
+                status = String(localized:
+                    "None of \(reading.track.cues.count) cue(s) fall inside this edit.")
                 return
             }
             track = CaptionTrack(cues: placed)
@@ -299,9 +301,10 @@ final class CaptionsModel {
             }
             status = note
         } catch SubtitleFile.ReadError.noCues {
-            status = "\(url.lastPathComponent) has no subtitles in it."
+            status = String(localized: "\(url.lastPathComponent) has no subtitles in it.")
         } catch {
-            status = "Could not read \(url.lastPathComponent): \(error)"
+            status = String(localized:
+                "Could not read \(url.lastPathComponent): \(String(describing: error))")
         }
     }
 
@@ -311,7 +314,7 @@ final class CaptionsModel {
     func exportSidecar(format: SubtitleFile.Format, edit: EditTimeline?, defaultName: String) {
         let retimed = edit.map { track.retimed(through: $0) } ?? track
         guard !retimed.isEmpty else {
-            status = "There are no captions to export."
+            status = String(localized: "There are no captions to export.")
             return
         }
         let panel = NSSavePanel()
@@ -322,9 +325,11 @@ final class CaptionsModel {
         do {
             try SubtitleFile.text(for: retimed, format: format)
                 .write(to: url, atomically: true, encoding: .utf8)
-            status = "Wrote \(retimed.cues.count) cue(s) to \(url.lastPathComponent)."
+            status = String(localized:
+                "Wrote \(retimed.cues.count) cue(s) to \(url.lastPathComponent).")
         } catch {
-            status = "Could not write \(url.lastPathComponent): \(error)"
+            status = String(localized:
+                "Could not write \(url.lastPathComponent): \(String(describing: error))")
         }
     }
 

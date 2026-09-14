@@ -29,6 +29,10 @@ enum ImportedRecording {
     enum ImportError: Error, CustomStringConvertible {
         case notAVideo(String)
         case noVideoTrack(String)
+        /// The file could not be examined at all. **Distinct from `noVideoTrack` on purpose**:
+        /// folding a failed read into "there is no video in it" sends somebody looking for a
+        /// track that is there, and says nothing about the thing that actually went wrong.
+        case couldNotRead(name: String, reason: String)
         case couldNotStage(String)
         case truncated(name: String, expected: Double, got: Double)
 
@@ -38,6 +42,8 @@ enum ImportedRecording {
                 "\(name) is not a video file"
             case .noVideoTrack(let name):
                 "\(name) has no video in it"
+            case .couldNotRead(let name, let reason):
+                "\(name) could not be read: \(reason). This says nothing about what is in it."
             case .couldNotStage(let reason):
                 "the recording could not be prepared: \(reason)"
             case .truncated(let name, let expected, let got):
@@ -58,12 +64,27 @@ enum ImportedRecording {
     @MainActor
     static func stage(_ url: URL) async throws -> (mediaURL: URL, sink: TemporaryFileMediaSink) {
         let asset = AVURLAsset(url: url)
-        let tracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+        // **A failed read is not an empty answer.** `(try? …) ?? []` made every unreadable file
+        // — a codec this Mac has no decoder for, a partial download, a permission the sandbox
+        // refused — report "has no video in it", which is a fact about the READ dressed as a
+        // fact about the FILE. The person then goes looking for a video track that is there.
+        let tracks: [AVAssetTrack]
+        do {
+            tracks = try await asset.loadTracks(withMediaType: .video)
+        } catch {
+            throw ImportError.couldNotRead(name: url.lastPathComponent,
+                                           reason: String(describing: error))
+        }
         guard !tracks.isEmpty else {
             throw ImportError.noVideoTrack(url.lastPathComponent)
         }
         // Read now, compared after the file lands. See `truncated` below for what this catches.
-        let sourceSeconds = (try? await asset.load(.duration).seconds) ?? 0
+        //
+        // **Optional, because "unknown" and "zero" are different answers.** As `?? 0` it made
+        // the guard below — `sourceSeconds > 0` — skip the truncation check entirely whenever
+        // the duration could not be read, silently, which is the one case where a short copy is
+        // most likely.
+        let sourceSeconds = try? await asset.load(.duration).seconds
 
         let sink: TemporaryFileMediaSink
         do {
@@ -103,9 +124,17 @@ enum ImportedRecording {
         // because "should never fire" is the claim, not the mechanism: a short recording is
         // indistinguishable from a correct one once it is open, and finding out at export is too
         // late.
-        let stagedSeconds = (try? await AVURLAsset(url: destination).load(.duration).seconds) ?? 0
+        // **`?? 0` here was the worst of the three.** A copy that landed perfectly but whose
+        // duration could not be re-read became `0`, which is less than every source duration —
+        // so a correct import was deleted and reported as "arrived incomplete — 0 s of 12 s".
+        // A false accusation, caused by a read, against a file that was fine.
+        guard let stagedSeconds = try? await AVURLAsset(url: destination)
+            .load(.duration).seconds else {
+            try? FileManager.default.removeItem(at: destination)
+            throw ImportError.couldNotStage("the copied file's length could not be read")
+        }
         // A tenth of a second of slack: re-reading a container can round the last sample.
-        if sourceSeconds > 0, stagedSeconds < sourceSeconds - 0.1 {
+        if let sourceSeconds, sourceSeconds > 0, stagedSeconds < sourceSeconds - 0.1 {
             try? FileManager.default.removeItem(at: destination)
             throw ImportError.truncated(name: url.lastPathComponent,
                                         expected: sourceSeconds, got: stagedSeconds)
