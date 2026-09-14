@@ -9,6 +9,11 @@ wrong the moment the measurement under it changes.
 
 ---
 
+**How to decide what to write is a separate document.** `DESIGNING-A-TEST.md` carries the
+method — risk first, then partitions and boundaries, then the oracle question, then the
+size — with this project's own defects as the worked examples. This document is the
+inventory; that one is the technique.
+
 ## 1. What exists today, counted
 
 | level | assets | size | verdict |
