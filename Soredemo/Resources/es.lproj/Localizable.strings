@@ -484,3 +484,4 @@
 "Could not read %@: %@" = "No se pudo leer %@: %@";
 "There are no captions to export." = "No hay subtítulos que exportar.";
 "Wrote %lld cue(s) to %@." = "%lld subtítulos escritos en %@.";
+"Match my system captions" = "Igual que mis subtítulos del sistema";

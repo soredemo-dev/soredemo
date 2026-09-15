@@ -482,3 +482,4 @@
 "Could not read %@: %@" = "%@ ließ sich nicht lesen: %@";
 "There are no captions to export." = "Es gibt keine Untertitel zum Exportieren.";
 "Wrote %lld cue(s) to %@." = "%lld Untertitel nach %@ geschrieben.";
+"Match my system captions" = "Wie meine Systemuntertitel";

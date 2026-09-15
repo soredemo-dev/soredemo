@@ -484,3 +484,4 @@
 "Could not read %@: %@" = "无法读取 %@:%@";
 "There are no captions to export." = "没有字幕可以导出。";
 "Wrote %lld cue(s) to %@." = "已写入 %lld 句字幕到 %@。";
+"Match my system captions" = "比照我的系统字幕设置";

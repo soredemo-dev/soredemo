@@ -482,3 +482,4 @@
 "Could not read %@: %@" = "Не удалось прочитать %@: %@";
 "There are no captions to export." = "Экспортировать нечего — субтитров нет.";
 "Wrote %lld cue(s) to %@." = "%lld субтитров записано в %@.";
+"Match my system captions" = "Как мои системные субтитры";

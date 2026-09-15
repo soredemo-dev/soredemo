@@ -482,3 +482,4 @@
 "Could not read %@: %@" = "%@ 을(를) 읽을 수 없습니다: %@";
 "There are no captions to export." = "내보낼 자막이 없습니다.";
 "Wrote %lld cue(s) to %@." = "자막 %lld개를 %@ 에 기록했습니다.";
+"Match my system captions" = "시스템 자막 설정에 맞추기";

@@ -483,3 +483,4 @@
 "Could not read %@: %@" = "Não foi possível ler %@: %@";
 "There are no captions to export." = "Não há legendas para exportar.";
 "Wrote %lld cue(s) to %@." = "%lld legendas escritas em %@.";
+"Match my system captions" = "Como minhas legendas do sistema";

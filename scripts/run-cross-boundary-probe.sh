@@ -142,6 +142,7 @@ xcrun swiftc \
   Soredemo/Editor/CanvasBar.swift \
   Soredemo/Editor/TransportBar.swift \
   Soredemo/Project/ProjectStore.swift \
+  Soredemo/Inspector/SystemCaptionStyle.swift \
   Soredemo/Inspector/CaptionsPanel.swift \
   Soredemo/Inspector/CaptionField.swift \
   Soredemo/Editor/SafeFrameOverlay.swift \

@@ -484,3 +484,4 @@
 "Could not read %@: %@" = "%@ を読めませんでした:%@";
 "There are no captions to export." = "書き出す字幕がありません。";
 "Wrote %lld cue(s) to %@." = "字幕 %lld 件を %@ に書き出しました。";
+"Match my system captions" = "システムの字幕設定に合わせる";

@@ -498,3 +498,4 @@
 "Could not read %@: %@" = "Could not read %@: %@";
 "There are no captions to export." = "There are no captions to export.";
 "Wrote %lld cue(s) to %@." = "Wrote %lld cue(s) to %@.";
+"Match my system captions" = "Match my system captions";
