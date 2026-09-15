@@ -44,7 +44,47 @@ demo and exactly right for a repro.
 It fits this app's rule without argument — the clip is written to a file the person chose, and
 nothing leaves the machine.
 
-### `kVTCompressionPreset_ConsistentQuality` — **a claim to measure, not to adopt**
+### `kVTCompressionPreset_ConsistentQuality` — measured, and it does not arrive
+
+*Measured 2026-09-15. The conclusion is not about the feature; it is about the route to it.*
+
+`kVTCompressionPropertyKey_ConstantQualityFactor` passed through
+`AVVideoCompressionPropertiesKey` on an `AVAssetWriterInput` is **ignored**. Four values —
+0.40, 0.50, 0.60, 0.75 — and a control with no quality key at all produced **byte-identical
+output**: the same 105.50 MB and the same 0.564 mean difference from the source. A setting
+whose value cannot change the result is a setting that is not being read.
+
+What made that visible was the control. Without it the first run looked like a win:
+
+| encode | size | difference from source |
+|---|---|---|
+| 20 Mbps average, synthetic screen content | 2.01 MB | 1.025 |
+| "constant quality 0.75", same content | **1.77 MB** | **0.997** |
+
+Twelve per cent smaller and closer to the source — and it was measuring **the absence of a
+bitrate cap**, not the presence of constant quality. The synthetic clip compressed to about
+0.8 Mbps, so the 20 Mbps ceiling never bound and the two runs differed only in that one had
+a cap and one did not.
+
+On a real recording the same pair inverts, which is the number that prompted the control:
+
+| encode | size | difference from source |
+|---|---|---|
+| 20 Mbps average | 48.29 MB | 0.733 |
+| no cap (labelled "constant quality") | 105.50 MB | 0.564 |
+
+**So `ExportQuality` keeps its measured bitrate**, and the open question is narrower than it
+was: not "is constant quality better" but "is there a route to it from an `AVAssetWriter`
+pipeline at all". The next thing to try is `VTCompressionSession` directly, which is where
+those keys are documented to live — a much larger change, and one that now has a number to
+beat rather than a hope.
+
+**Two lessons worth more than the feature.** A parameter sweep that returns identical results
+is not a flat curve, it is a parameter nobody is reading. And a measurement on content chosen
+to *illustrate* the claim — long still stretches, brief busy ones — was too easy to test it:
+it never reached the constraint the claim is about.
+
+### The original note, kept because the reasoning still stands
 
 macOS 27 adds `kVTCompressionPropertyKey_ConstantQualityFactor`, described as consistent visual
 quality with or without a bitrate limit. `ExportQuality` currently sets
