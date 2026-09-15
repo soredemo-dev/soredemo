@@ -3,25 +3,19 @@ import SwiftUI
 
 /// Reaches the editor's `NSWindow` to set what SwiftUI has no modifier for.
 ///
-/// Sets `.fullScreenPrimary` — without it the green button offers tiling rather than full screen
-/// — and `.moveToActiveSpace`, so an editor opened after switching Spaces arrives where the
-/// person is. The two coexist; `collectionBehavior.rawValue` is 130.
+/// **This type coordinates; it decides nothing.** Each decision lives with the thing it is
+/// about — `EditorWindowStyle` for what the window is, `WindowSizeFloor` for how large it
+/// opens, `FullScreenEntry` for getting it full screen, `WindowObservers` for what has been
+/// registered. They were one type until 2026-09-15, and the cost was measured: a full-screen
+/// defect took four attempts to find because the decision was spread across three places and
+/// none of them could state the order the others ran in.
 ///
-/// **Applied on attach AND on every update.** `viewDidMoveToWindow` fires when the view gets a
-/// window, however late; `updateNSView` re-asserts so a later reset is undone on the next SwiftUI
-/// update rather than lasting for the session.
-///
-/// See `docs/design/full-screen-and-window-behaviour.md` for what was measured — including the
-/// folklore that an accessory app's windows cannot go full screen, which is false on this system.
+/// Why `LSUIElement` is still in the Info.plist, and every measurement behind the full-screen
+/// behaviour: `docs/design/full-screen-and-window-behaviour.md`.
 struct WindowConfigurator: NSViewRepresentable {
-    /// Most of the screen, with enough left over that the window still reads as a window and
-    /// whatever is behind it can still be grabbed. **Uncalibrated.**
-    static let openingFraction: Double = 0.92
-    /// Whether the editor enters full screen when it opens. See the `toggleFullScreen` call for
-    /// what it costs; this is the switch, so that turning it off is one word rather than an
-    /// excavation.
+    /// Whether the editor enters full screen when it opens. The switch, so that turning it off
+    /// is one word rather than an excavation.
     static let opensFullScreen = true
-
 
     func makeNSView(context: Context) -> AttachedView { AttachedView() }
 
@@ -31,87 +25,41 @@ struct WindowConfigurator: NSViewRepresentable {
     /// `NSViewRepresentable`'s associated type is this type, and Swift will not let a
     /// public-facing conformance name a private one.
     final class AttachedView: NSView {
-        /// The window this view has already registered for, if any.
-        ///
-        /// **`configure()` runs on every SwiftUI update, and registering twice is the defect** —
-        /// one `toggleFullScreen` per registration, and a block per registration holding the
-        /// window alive. Keyed on the window rather than a `Bool` because a view can be moved to
-        /// a different one. See docs/design/full-screen-and-window-behaviour.md.
+        private let observers = WindowObservers()
         /// Whether this window has completed a full-screen transition, which is what decides
-        /// `.moveToActiveSpace` above.
+        /// `.moveToActiveSpace` — see `EditorWindowStyle.collectionBehavior`.
         private var hasBeenFullScreen = false
-        private var configuredWindow: ObjectIdentifier?
-        /// What to unregister. Removed when this view goes away, which happens when the window
-        /// does — and can only happen because the blocks hold the window weakly.
-        private var tokens: [any NSObjectProtocol] = []
-
-
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            // **Leaving a window is where the observers go**, not `deinit`: a nonisolated
-            // `deinit` may not touch a non-Sendable array, and this is the moment they stop
-            // being about anything anyway. It is also the moment that runs when the editor is
-            // closed, which is what the blocks holding the window weakly makes reachable.
-            guard window != nil else {
-                for token in tokens { NotificationCenter.default.removeObserver(token) }
-                tokens = []
-                configuredWindow = nil
-                return
-            }
+            // **Leaving a window is where the observers go.** It is the moment they stop being
+            // about anything, it runs when the editor is closed, and it is only reachable
+            // because the blocks hold the window weakly.
+            guard window != nil else { return observers.removeAll() }
             configure()
         }
 
         func configure() {
             guard let window else { return }
-            // **The yellow button, which this window did not have.** A `Window` scene comes up
-            // without `.miniaturizable`, so the middle traffic light was drawn and dead — and an
-            // editor holding a recording is exactly the window somebody wants out of the way for
-            // a minute without closing it and being asked about unsaved work.
-            window.styleMask.insert(.miniaturizable)
-            // Full screen additionally requires a resizable window; a green button on a fixed
-            // window offers nothing whatever the collection behaviour says.
-            window.styleMask.insert(.resizable)
-            // Removed first: the two are mutually exclusive and `fullScreenNone`
-            // wins. The scene no longer asks for a default size, which is what
-            // actually fixed it; this is the second lock on the same door.
-            window.collectionBehavior.remove(.fullScreenNone)
-            window.collectionBehavior.insert(.fullScreenPrimary)
-            // **`.moveToActiveSpace` and full screen are mutually exclusive**, and AppKit
-            // refuses the transition rather than saying so. Removed until this window has been
-            // full screen once, and put back after — measurements, and why the removal has to
-            // live in `configure()` rather than beside the toggle, in
-            // docs/design/full-screen-and-window-behaviour.md.
-            if hasBeenFullScreen {
-                window.collectionBehavior.insert(.moveToActiveSpace)
-            } else {
-                window.collectionBehavior.remove(.moveToActiveSpace)
-            }
+            // Idempotent, so it runs on every SwiftUI update — which is what makes it survive
+            // SwiftUI re-asserting what it owns.
+            EditorWindowStyle.apply(to: window, hasBeenFullScreen: hasBeenFullScreen)
 
-            // Everything above is idempotent — setting a style mask bit twice is setting it
-            // once. Everything below registers, and registering twice is the defect.
-            guard configuredWindow != ObjectIdentifier(window) else { return }
-            for token in tokens { NotificationCenter.default.removeObserver(token) }
-            tokens = []
-            configuredWindow = ObjectIdentifier(window)
-
-            tokens += openFullScreen(window)
-            tokens += keepUsablyLarge(window)
-            tokens += watchFullScreen(window)
+            // Registration is not idempotent, and registering twice is the defect.
+            guard !observers.alreadyRegistered(for: window) else { return }
+            observers.adopt(openFullScreen(window) + keepUsablyLarge(window)
+                            + watchFullScreen(window),
+                            for: window)
         }
 
-        /// In full screen the toolbar gets out of the way and comes back when you
-        /// reach for it.
+        /// In full screen the toolbar gets out of the way and comes back when you reach for it.
         ///
-        /// Presentation options set on the notification rather than through a window
-        /// delegate — SwiftUI owns this window's delegate — and all four options
-        /// together, because an incomplete set is an AppKit exception rather than a
-        /// partial effect.
+        /// Presentation options set on the notification rather than through a window delegate —
+        /// SwiftUI owns this window's delegate — and all four together, because an incomplete
+        /// set is an AppKit exception rather than a partial effect.
         private func watchFullScreen(_ window: NSWindow) -> [any NSObjectProtocol] {
             let centre = NotificationCenter.default
             return [
-                // `[]` on purpose: this block mentions only `NSApp`, and an empty capture
-                // list is how it says so. See `everyBlockObserverDeclaresWhatItCaptures`.
                 centre.addObserver(forName: NSWindow.didEnterFullScreenNotification,
                                    object: window, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
@@ -131,158 +79,78 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-/// Grows `window` to at least `openingFraction` of `visible`, never shrinking it.
+/// Applies the size floor whenever the window leaves full screen.
 ///
-/// **Per axis, and only upward.** A window somebody widened but left short gains the height and
-/// keeps the width. `display: false` because every caller either follows this with a transition
-/// that repaints anyway or is running inside one.
-/// Asks for full screen until AppKit takes it, or until it is clear it will not.
-///
-/// **The call at `didBecomeKey` is ignored** — every documented precondition is met and nothing
-/// happens, while the same call seconds later succeeds. Measurements, and the four shapes that
-/// did not work, are in docs/design/full-screen-and-window-behaviour.md.
-///
-/// Stops **on success**, not after a fixed count: `toggleFullScreen` toggles, so one call too
-/// many takes the window straight back out.
-@MainActor private func enterFullScreen(_ window: NSWindow, attemptsLeft: Int = 8) {
-    guard attemptsLeft > 0, !window.styleMask.contains(.fullScreen) else { return }
-    window.toggleFullScreen(nil)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak window] in
-        MainActor.assumeIsolated {
-            guard let window, window.isVisible else { return }
-            enterFullScreen(window, attemptsLeft: attemptsLeft - 1)
-        }
-    }
-}
-
-private func growToFloor(_ window: NSWindow, within visible: NSRect) {
-    let wanted = NSSize(width: visible.width * WindowConfigurator.openingFraction,
-                        height: visible.height * WindowConfigurator.openingFraction)
-    let width = max(window.frame.width, wanted.width)
-    let height = max(window.frame.height, wanted.height)
-    guard width > window.frame.width || height > window.frame.height else { return }
-    window.setFrame(NSRect(x: visible.minX + (visible.width - width) / 2,
-                           y: visible.minY + (visible.height - height) / 2,
-                           width: width, height: height),
-                    display: false, animate: false)
-}
-
-/// Applies the floor whenever the window leaves full screen — where it lives
-/// now, because AppKit restores whatever was autosaved and that has already
-/// once been a frame smaller than this window's own minimum.
-///
-/// On every exit rather than once: a flag is spent by things that are not a
-/// person's decision.
-private func keepUsablyLarge(_ window: NSWindow) -> [any NSObjectProtocol] {
-    // **`[weak window]`, and that is what makes the removal reachable.** A block that holds the
-    // window keeps it alive; the view that would remove this observer lives IN that window, so
-    // its `deinit` never runs and the token is never removed. The strong capture was the whole
-    // cycle.
+/// On every exit rather than once: a flag is spent by things that are not a person's decision,
+/// and AppKit restores whatever was autosaved — which has already been a frame smaller than
+/// this window's own minimum.
+@MainActor private func keepUsablyLarge(_ window: NSWindow) -> [any NSObjectProtocol] {
     [NotificationCenter.default.addObserver(
         forName: NSWindow.didExitFullScreenNotification, object: window,
         queue: .main) { [weak window] _ in
             MainActor.assumeIsolated {
                 guard let window,
                       let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
-                growToFloor(window, within: visible)
+                WindowSizeFloor.grow(window, within: visible)
             }
         }]
 }
 
-/// The editor goes full screen when it opens, and never OPENS smaller than
-/// `openingFraction` of the screen it opens on.
+/// Takes the editor full screen the first time its window becomes key.
 ///
-/// A property rather than an event, and the third design: two earlier
-/// one-shot flags were both spent by things that were not a person's
-/// decision. It grows a window under the fraction and never shrinks one over
-/// it, so somebody who made theirs larger keeps it — and somebody who made it
-/// deliberately small does not, which is the trade the design doc records.
-private func openFullScreen(_ window: NSWindow) -> [any NSObjectProtocol] {
-    // A floor regardless, so the editor cannot be dragged into a size where the timeline has no
-    // length. AppKit enforces it from here on — and note it did NOT stop a smaller frame being
-    // restored from an autosave written under a different scene identity.
-    window.minSize = NSSize(width: 1000, height: 680)
-
-    // After the window has become key, not here: `makeNSView` runs while the
-    // hierarchy is still being assembled, and AppKit restores an autosaved frame
-    // after that — a frame set now is one the restore overwrites.
-    //
-    // The token lives in a reference rather than a captured `var` because a
-    // `@Sendable` closure may not mutate a local, and it is the closure that has to
-    // remove the observer. `@unchecked Sendable` is sound for `assumeIsolated`'s
-    // reason: written on the main actor, read only from a closure delivered on
-    // `.main`.
-    let holder = ObserverHolder()
-    holder.token = NotificationCenter.default.addObserver(
+/// **After the window has become key, not at `makeNSView`**: AppKit restores an autosaved frame
+/// after the hierarchy is assembled, so a frame set earlier is one the restore overwrites.
+@MainActor private func openFullScreen(_ window: NSWindow) -> [any NSObjectProtocol] {
+    let token = ObserverToken()
+    token.value = NotificationCenter.default.addObserver(
         forName: NSWindow.didBecomeKeyNotification, object: window,
         queue: .main) { [weak window] _ in
             // `queue: .main` is the guarantee this rests on: the notification centre delivers
             // this block on the main queue, so it really is main-actor work.
             MainActor.assumeIsolated {
-                if let token = holder.token { NotificationCenter.default.removeObserver(token) }
+                token.remove()
                 guard let window,
                       let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
-                // Grows, never shrinks, each axis on its own — `growToFloor` computes the
-                // wanted size; a second copy here was computed and thrown away.
-                //
-                // Straight to full screen with nothing painted on the way — growing
-                // first and toggling after showed three visible states where a person
-                // wants one. The floor is applied on EXIT instead, in `keepUsablyLarge`.
                 guard WindowConfigurator.opensFullScreen,
                       !window.styleMask.contains(.fullScreen) else {
                     // Not going full screen — either it is off or the window is already there —
                     // so this is the only moment the floor gets applied on the way in.
-                    growToFloor(window, within: visible)
+                    WindowSizeFloor.grow(window, within: visible)
                     return
                 }
                 // **Full size first, then the toggle.** AppKit paints at the autosaved size
-                // before `didBecomeKey`, so the transition zooms out of a small window somebody
-                // has already seen. `alphaValue = 0` was tried on 2026-09-10 to cover that and
-                // BROKE full screen: a window at alpha 0 is not on screen as far as
-                // `toggleFullScreen` is concerned. Growing to `openingFraction` was the attempt
-                // before that, and stopping in between is what made three states.
+                // before `didBecomeKey`, so the transition would otherwise zoom out of a small
+                // window somebody has already seen.
                 //
                 // `chosen` is kept because AppKit restores the pre-full-screen frame on exit,
-                // and that frame is now the whole screen.
+                // and that frame is about to become the whole screen.
                 let chosen = window.frame
-                // **Its own one-shot**, because it is about this entry into full screen and the
-                // frame that was current when it happened. Left registered it would put an old
-                // frame back on every later exit.
-                let restorer = ObserverHolder()
-                restorer.token = NotificationCenter.default.addObserver(
-                    forName: NSWindow.didExitFullScreenNotification, object: window,
-                    queue: .main) { [weak window] _ in
-                        MainActor.assumeIsolated {
-                            if let token = restorer.token {
-                                NotificationCenter.default.removeObserver(token)
-                            }
-                            guard let window else { return }
-                            window.setFrame(chosen, display: true, animate: false)
-                            if let visible = (window.screen ?? NSScreen.main)?.visibleFrame {
-                                growToFloor(window, within: visible)
-                            }
-                        }
-                    }
+                restoreFrameOnExit(chosen, of: window)
                 window.setFrame(visible, display: false, animate: false)
-                // **The toggle goes in the next turn, and that was measured rather than
-                // guessed.** With the two calls in one turn the transition is ignored: the
-                // window sits at the frame it was just given and `styleMask` never gains
-                // `.fullScreen`. It was found by accident — a temporary diagnostic between the
-                // two lines made it work, and a diagnostic that changes the outcome is a timing
-                // dependency wearing a disguise. AppKit has to be allowed to finish applying
-                // the frame before it is asked to do something else with the window.
-                enterFullScreen(window)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    MainActor.assumeIsolated {
-                    }
+                FullScreenEntry.enter(window)
+            }
+        }
+    // Returned so the view can drop it if the window goes before it ever became key; the block
+    // removes it itself on the ordinary path.
+    return token.value.map { [$0] } ?? []
+}
+
+/// Puts back the size somebody had chosen, the first time this window leaves full screen.
+///
+/// **Its own one-shot**, because it is about this entry into full screen and the frame that was
+/// current when it happened. Left registered it would put an old frame back on every later exit.
+@MainActor private func restoreFrameOnExit(_ frame: NSRect, of window: NSWindow) {
+    let token = ObserverToken()
+    token.value = NotificationCenter.default.addObserver(
+        forName: NSWindow.didExitFullScreenNotification, object: window,
+        queue: .main) { [weak window] _ in
+            MainActor.assumeIsolated {
+                token.remove()
+                guard let window else { return }
+                window.setFrame(frame, display: true, animate: false)
+                if let visible = (window.screen ?? NSScreen.main)?.visibleFrame {
+                    WindowSizeFloor.grow(window, within: visible)
                 }
             }
         }
-    // The token is returned so the view can drop it if the window goes before it ever became
-    // key; the block removes it itself on the ordinary path.
-    return holder.token.map { [$0] } ?? []
-}
-
-private final class ObserverHolder: @unchecked Sendable {
-    var token: (any NSObjectProtocol)?
 }

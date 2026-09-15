@@ -145,6 +145,10 @@ xcrun swiftc \
   Soredemo/Inspector/CaptionsPanel.swift \
   Soredemo/Inspector/CaptionField.swift \
   Soredemo/Editor/SafeFrameOverlay.swift \
+  Soredemo/App/EditorWindowStyle.swift \
+  Soredemo/App/WindowSizeFloor.swift \
+  Soredemo/App/FullScreenEntry.swift \
+  Soredemo/App/WindowObservers.swift \
   Soredemo/DesignSystem/Tooltip.swift \
   Soredemo/Inspector/CaptionLines.swift \
   Soredemo/Editor/CaptionEditor.swift \

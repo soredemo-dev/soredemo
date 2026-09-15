@@ -23,14 +23,24 @@ FLOOR=${COVERAGE_FLOOR:-70}
 # not use them. A gate that changes another gate's preconditions is a gate that produces false
 # reports about unrelated code.
 SCRATCH=${COVERAGE_SCRATCH:-Core/.build-coverage}
-BUILD=$SCRATCH/arm64-apple-macosx/debug
 
 (cd Core && swift test --no-parallel --enable-code-coverage \
    --scratch-path "../$SCRATCH" > /dev/null 2>&1)
 
+# **Found, not assumed.** The layout under a scratch path is the toolchain's business and it
+# changed with macOS 27 — `arm64-apple-macosx/debug` became `out/Products/Debug`, and a
+# hard-coded path turned this gate into a silent exit-1 with no output at all. Asking the
+# filesystem costs one `find` and survives the next rearrangement.
+PROFDATA=$(find "$SCRATCH" -name default.profdata -print -quit)
+XCTEST=$(find "$SCRATCH" -name "SoredemoCorePackageTests.xctest" -print -quit)
+if [ -z "$PROFDATA" ] || [ -z "$XCTEST" ]; then
+  echo "No coverage data under $SCRATCH — the test run produced none." >&2
+  exit 1
+fi
+
 REPORT=$(xcrun llvm-cov report \
-  "$BUILD/SoredemoCorePackageTests.xctest/Contents/MacOS/SoredemoCorePackageTests" \
-  -instr-profile "$BUILD/codecov/default.profdata" \
+  "$XCTEST/Contents/MacOS/SoredemoCorePackageTests" \
+  -instr-profile "$PROFDATA" \
   -ignore-filename-regex='(Tests/|\.build/|scripts/|soredemo-main/Soredemo/)' 2>/dev/null)
 
 echo ""
