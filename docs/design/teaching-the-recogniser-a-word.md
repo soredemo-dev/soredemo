@@ -57,6 +57,23 @@ module swap would have been a real loss even if the biasing had worked.
 `prepareCustomLanguageModel(for:clientIdentifier:configuration:)` is also deprecated in
 macOS 26, which is a second reason not to build on it.
 
+## Re-measured on macOS 27, and the answer has not changed
+
+*2026-09-15, the same synthesised clip, the same four spellings.*
+
+```
+no context      : Sorodimo records the screen. Open Sorodemo and press record.
+Soredemo        : IDENTICAL
+soredemo        : IDENTICAL
+SOREDEMO        : IDENTICAL
+Sore demo       : IDENTICAL
+```
+
+Byte-identical, again. **This note is not stale; it is still true**, and the only way to know
+which of those two it was is to run the measurement again — "Apple fixed it" and "Apple did
+not" look exactly the same in source code. The method is written down above precisely so that
+anyone can re-run it against the next release in ten minutes.
+
 ## Why the surveyed recorder can do this and this app cannot
 
 It downloads a Whisper-class model of its own — about 440 MB, offered in the interface

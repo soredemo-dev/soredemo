@@ -4,6 +4,6 @@
 // or Xcode's own Cmd+B leaves it as) is a deliberately-fake placeholder —
 // see BuildProvenance's own doc comment for why.
 enum BuildProvenance {
-    static let builtAt = "2026-09-14 23:49:28 UTC"
-    static let commit = "3d7a443-dirty"
+    static let builtAt = "2026-09-15 00:28:13 UTC"
+    static let commit = "58a1b25-dirty"
 }

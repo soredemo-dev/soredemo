@@ -20,6 +20,17 @@ import Timeline
 ///     1080p   median 3.61 ms   p90 4.95   p99 5.76
 ///     4K      median 8.69 ms   p90 9.88   p99 11.48
 ///
+/// **Re-measured 2026-09-15 on macOS 27, and the budgets came DOWN**: 1080p 2.5 ms, 4K 7.2. The
+/// platform got faster, and budgets set against the old figures had quietly become 4.8x and
+/// 3.5x the median instead of the 3x they are meant to be. A budget a regression can hide
+/// inside is not a budget.
+///
+/// **The first two runs after the upgrade said 4.87 and 4.73 and were wrong.** The machine had
+/// just finished a full build; the next two said 2.61 and 2.47. Which way the evidence pointed
+/// is the useful part: the fastest FRAME had got faster (2.54 -> 2.29) while the median got
+/// slower, and that is a distribution widening under load rather than a compositor slowing
+/// down. A measurement taken straight after a build is a measurement of the build.
+///
 /// The budgets below are about three times those medians. Loose on purpose: this runs on
 /// whatever machine a person has, beside a full Xcode, and a budget tuned to one laptop fails on
 /// the next one for a reason that has nothing to do with the code. Three times is far more than
@@ -96,18 +107,18 @@ import Timeline
 
     @Test func aFrameAt1080pStaysWellInsideItsBudget() throws {
         guard let timing = try Self.time(width: 1920, height: 1080) else { return }
-        #expect(timing.median < 12, """
-            1080p median \(Self.ms(timing.median)) ms, budget 12 — measured at \
-            3.6 in September 2026, so this is a threefold regression rather than a slow machine. \
+        #expect(timing.median < 8, """
+            1080p median \(Self.ms(timing.median)) ms, budget 8 — measured at \
+            2.5 on macOS 27, so this is a threefold regression rather than a slow machine. \
             p90 \(Self.ms(timing.p90)), p99 \(Self.ms(timing.p99)).
             """)
     }
 
     @Test func aFrameAt4KStaysWellInsideItsBudget() throws {
         guard let timing = try Self.time(width: 3840, height: 2160) else { return }
-        #expect(timing.median < 25, """
-            4K median \(Self.ms(timing.median)) ms, budget 25 — measured at 8.7 \
-            in September 2026. p90 \(Self.ms(timing.p90)), \
+        #expect(timing.median < 22, """
+            4K median \(Self.ms(timing.median)) ms, budget 22 — measured at 7.2 \
+            on macOS 27. p90 \(Self.ms(timing.p90)), \
             p99 \(Self.ms(timing.p99)).
             """)
     }

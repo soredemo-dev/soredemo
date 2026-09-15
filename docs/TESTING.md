@@ -51,6 +51,30 @@ figure — § 5.4.
 nothing about it; `DESIGNING-A-TEST.md` § 1 is what decides where tests go, and this number
 is what stops a module quietly falling out of the habit.
 
+## 0.5 What macOS 27 changed, measured rather than assumed
+
+*2026-09-15, the morning after the upgrade. Every number this project had was taken on
+macOS 26; none of them had been re-taken, and a baseline nobody re-measures is a baseline
+that quietly stops describing the machine.*
+
+| baseline | macOS 26 | macOS 27 | |
+|---|---|---|---|
+| 1080p frame | 3.61 ms | **2.5 ms** | 31% faster |
+| 4K frame | 8.69 ms | **7.2 ms** | 17% faster |
+| recording peak memory | 94 MB | **101 MB** | +7%, slope still ~0 |
+| `contextualStrings` biasing | no effect | **no effect** | byte-identical |
+
+**The budgets came down.** 12 ms and 25 ms were three times the old medians; against the new
+ones they had become 4.8x and 3.5x, and a budget a regression can hide inside is not a budget.
+They are 8 ms and 22 ms now.
+
+**The first two runs after the upgrade were wrong, and how they were wrong is the lesson.**
+They said 4.87 and 4.73 ms — a regression — on a machine that had just finished a full build.
+The next two said 2.61 and 2.47. The evidence that settled it was not repetition alone: the
+fastest FRAME had got *faster* (2.54 → 2.29) while the median got slower, which is a
+distribution widening under load and not a compositor slowing down. **A measurement taken
+straight after a build is a measurement of the build.**
+
 ## 1. What exists today, counted
 
 | level | assets | size | verdict |
