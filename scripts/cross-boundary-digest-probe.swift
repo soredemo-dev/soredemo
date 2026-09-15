@@ -466,6 +466,9 @@ enum CrossBoundaryProbe {
         print("28. what a recording costs in memory, and whether it grows while it runs")
         try await aRecordingDoesNotGrowWhileItRuns()
 
+        print("29. a window recorded on a SECOND display — the case a one-screen Mac cannot pose")
+        try await aWindowOnASecondDisplayIsMeasuredAgainstThatDisplay()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -7503,6 +7506,168 @@ private func probeWriteStillMoveStill(to url: URL) async -> Bool {
     input.markAsFinished()
     await writer.finishWriting()
     return writer.status == .completed
+}
+
+// MARK: - § 29. a window recorded on a second display
+
+/// **The two defects this exists for, and why nothing here could have found them before.**
+///
+/// A window recording carries two numbers derived from the display the window sits on: the
+/// `scale` recorded in its `DisplayGeometry`, and the `sourceRect` its viewport is placed at.
+/// Both were taken from the wrong place, and both are invisible on a single-display Mac — the
+/// main display's origin is (0, 0) and its scale is the only scale there is, so the wrong answer
+/// and the right one are the same number.
+///
+///   * `WindowTargets.source(for:)` handed `SCWindow.frame`, which is GLOBAL, into
+///     `WindowCapture.sourceRect`, which is DISPLAY-LOCAL. `viewport(scale:displayUUID:)` then
+///     adds the display's origin to a rectangle that already carried it, placing the recorded
+///     rectangle a whole display away — where every pointer sample falls outside it and
+///     `CaptureViewport.normalise` returns `nil` rather than clamping, so no cursor is drawn at
+///     all for the length of the recording. `WindowFollower` does not rescue it: it fires only
+///     when the frame CHANGES and is seeded with the same global rect, so a window nobody drags
+///     is never corrected.
+///   * `RecordingCoordinator.sizingDisplayID(for:)` answered `CGMainDisplayID()` for a window,
+///     so the recorded geometry claimed the main display's scale.
+///
+/// **The second one does NOT move the cursor, and that correction is load-bearing.** The first
+/// version of this section said it multiplied every sample by `mainScale / trueScale`.
+/// `Core/Tests/GeometryTests/WindowOnAnyDisplayTests.swift` refuted it: `CaptureViewport` does
+/// not divide by the geometry's pixel extent, it rebuilds the divisor as
+/// `widthInPoints * geometry.scale`, so the scale cancels in every conversion it performs. What
+/// the wrong scale leaves behind is a recorded fact that is not true — the `DisplayGeometry` in
+/// the project's registry, and the `GeometryRevision` digested from it, name a scale the display
+/// does not run at. Nothing reads it back today, which is exactly how it sat wrong.
+///
+/// **The oracle is the centre of the window.** Whatever the scales and origins, a pointer at the
+/// centre of the rectangle being recorded is at (0.5, 0.5) of that recording. That is a property
+/// of what the numbers MEAN, not a restatement of how they are computed, which is what lets it
+/// fail when the computation is wrong.
+///
+/// **Every attached display, not the one that happened to be plugged in.** The loop runs the
+/// same five checks on each non-main screen in turn, so a machine with three monitors checks
+/// three; the pure half of the same rule — every panel size, scale and origin in a grid — is in
+/// `WindowOnAnyDisplayTests`, which needs no hardware at all.
+///
+/// **It skips loudly.** This needs a second attached display, which most machines do not have
+/// and CI certainly does not. A skip is named in the verdict; a silent pass would be worse than
+/// not having the section.
+@MainActor
+private func aWindowOnASecondDisplayIsMeasuredAgainstThatDisplay() async throws {
+    guard CGPreflightScreenCaptureAccess() else {
+        skipped.append("29. no Screen Recording grant for this binary, so no SCShareableContent")
+        print("        SKIPPED — no Screen Recording grant.")
+        return
+    }
+    let mainID = CGMainDisplayID()
+    let mainScale = RecordingCoordinator.scale(forDisplay: mainID)
+    func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)
+            .map { CGDirectDisplayID($0.uint32Value) }
+    }
+    let secondaries = NSScreen.screens.filter { displayID(of: $0).map { $0 != mainID } ?? false }
+    guard !secondaries.isEmpty else {
+        skipped.append("29. only one display attached, so the second-display case cannot be posed")
+        print("        SKIPPED — one screen attached, at \(mainScale)x. This section needs a "
+              + "second display; `WindowOnAnyDisplayTests` covers the same rule without one.")
+        return
+    }
+    print("        main display \(mainID) at \(mainScale)x, "
+          + "\(secondaries.count) other screen(s) to check")
+
+    for secondary in secondaries {
+        let name = secondary.localizedName
+        // A window of this process, placed well inside this display so the centre rule picks it
+        // unambiguously.
+        //
+        // **`setFrameOrigin` AFTER ordering front, not a `contentRect` at init.** Measured: an
+        // `NSWindow` created with an origin on the second display opens at (1040, 340) on the
+        // built-in regardless — AppKit cascades a new window onto the active screen and the
+        // requested origin is discarded. The first version of this section did exactly that and
+        // reported the main display's id, which is a probe measuring its own placement failure.
+        let size = NSSize(width: 480, height: 300)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.title = "cross-boundary-digest-probe (\(name))"
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        // Read the frame after ordering rather than before: `visibleFrame` moves with the menu
+        // bar and the Dock, and this run's arrangement is the only one that matters.
+        let visible = secondary.visibleFrame
+        window.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2,
+                                      y: visible.midY - window.frame.height / 2))
+        try await Task.sleep(for: .milliseconds(600))
+        guard window.screen == secondary else {
+            skipped.append("29. the probe's window would not stay on \(name)")
+            print("        SKIPPED \(name) — the window landed on "
+                  + "\(window.screen?.localizedName ?? "no screen").")
+            continue
+        }
+
+        let content = try await SCShareableContent.currentProcess
+        guard let scWindow = content.windows.first(where: { $0.title == window.title }) else {
+            skipped.append("29. the probe's window on \(name) did not appear in SCShareableContent")
+            print("        SKIPPED \(name) — the window is not in SCShareableContent.currentProcess.")
+            continue
+        }
+        let target = WindowTarget(id: scWindow.windowID, applicationName: "probe",
+                                  bundleIdentifier: nil,
+                                  frame: CGGeometryBridge.pointRect(from: scWindow.frame))
+        guard let source = await WindowTargets.source(for: target),
+              case .window(let capture) = source else {
+            skipped.append("29. WindowTargets.source(for:) returned no window source on \(name)")
+            print("        SKIPPED \(name) — no window source came back.")
+            continue
+        }
+
+        let windowDisplayID = capture.display.displayID
+        let windowScale = RecordingCoordinator.scale(forDisplay: windowDisplayID)
+        let bounds = CGGeometryBridge.pointRect(from: capture.display.frame)
+        print("        \(name): display \(windowDisplayID) at \(windowScale)x, "
+              + "origin (\(bounds.x), \(bounds.y))")
+
+        // Not a skip: the window IS on this display — `window.screen` was checked above — so a
+        // disagreement here is a finding about the centre rule, not about the fixture.
+        check(windowDisplayID != mainID,
+              "29.1 \(name): the capture stack agrees the window is not on the main display",
+              actual: "\(windowDisplayID)", expected: "not \(mainID)")
+
+        // The recorded-scale defect. `sizingDisplayID` is what `ContentView` hands
+        // `CaptureSession.init`, and what ends up in the project's geometry registry.
+        check(RecordingCoordinator.sizingDisplayID(for: source) == windowDisplayID,
+              "29.2 \(name): the recorded scale is this display's, not the main one's",
+              actual: "\(RecordingCoordinator.sizingDisplayID(for: source))",
+              expected: "\(windowDisplayID)")
+
+        // The origin defect. `sourceRect` is display-local, so adding the display's origin back
+        // has to land on the window's global frame — the one SCWindow reported.
+        let globalFrame = CGGeometryBridge.pointRect(from: scWindow.frame)
+        check(abs(bounds.x + capture.sourceRect.x - globalFrame.x) < 0.5
+              && abs(bounds.y + capture.sourceRect.y - globalFrame.y) < 0.5,
+              "29.3 \(name): sourceRect is display-local, so rebasing recovers the global frame",
+              actual: "(\(bounds.x + capture.sourceRect.x), \(bounds.y + capture.sourceRect.y))",
+              expected: "(\(globalFrame.x), \(globalFrame.y))")
+
+        // The oracle. **Built with the scale the APP would choose, not the one this section
+        // knows is right** — a check that supplies the correct input and then verifies the
+        // output is a check that cannot see the defect it exists for. The scale cancels inside
+        // the viewport (see this section's header), so what this catches is the ORIGIN.
+        let chosenID = RecordingCoordinator.sizingDisplayID(for: source)
+        let viewport = source.viewport(scale: RecordingCoordinator.scale(forDisplay: chosenID),
+                                       displayUUID: Minting.displayIdentity(of: windowDisplayID)
+                                           ?? Minting.newIdentifier())
+        let centre = viewport.normalise(globalTopLeftX: globalFrame.x + globalFrame.width / 2,
+                                        globalTopLeftY: globalFrame.y + globalFrame.height / 2)
+        check(centre != nil,
+              "29.4 \(name): a pointer at the window's centre is inside the recording at all",
+              actual: centre == nil ? "nil — every sample falls outside the viewport" : "a point",
+              expected: "a point")
+        if let centre {
+            check(abs(centre.x - 0.5) < 0.01 && abs(centre.y - 0.5) < 0.01,
+                  "29.5 \(name): …and it is at the middle of it",
+                  actual: String(format: "(%.4f, %.4f)", centre.x, centre.y),
+                  expected: "(0.5000, 0.5000)")
+        }
+    }
 }
 
 // MARK: - § 28. what a recording costs in memory

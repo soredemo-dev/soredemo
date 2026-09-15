@@ -371,13 +371,33 @@ Still unmeasured: export throughput.
 because a real recording stuttered, it names the number, and it fails if the O(n²)
 comes back.
 
+### 5.2b Multi-display, which no gate could pose until 2026-09-16
+
+**Two defects, twenty minutes after a second monitor was attached** — see
+`docs/design/a-window-on-the-other-display.md`. A window recorded on a display whose origin is
+not (0, 0) had its recording placed a whole display away, so every pointer sample fell outside
+it and `normalise` returned `nil`: **no cursor drawn at all**, for the length of the take. The
+second, a scale taken from the main display rather than the window's, turned out not to move
+anything — the first account of it was wrong and the test written to prove it is what refuted it.
+
+Held in two halves, because neither is enough alone:
+
+| | what it drives | when it runs |
+|---|---|---|
+| probe § 29 | the real capture stack, one window per attached non-main display | only with a second display attached; skips **by name** in the verdict otherwise |
+| `WindowOnAnyDisplayTests` | the rule alone — 11 panel sizes × 8 placements × 3 scales | everywhere, no hardware |
+
+Both fixes were verified by reverting them: the scale fix turns 29.2 red, the origin fix turns
+29.3 and 29.4 red. The pure file carries its own control — feeding a global rectangle where a
+local one belongs must put every sample off the recording, or the other four tests mean nothing.
+
 ### 5.3 Compatibility
 
 | axis | today | proposal |
 |---|---|---|
 | macOS | 26 only | keep the floor; add a **stated** support statement and test the floor in CI when CI exists |
 | Architecture | no matrix | Apple Silicon is the development target; **Intel is untested and should either be tested or dropped from the claim** |
-| Displays | probe covers one and asserts on a second where present | add: mixed scale factors, a display disconnected mid-recording |
+| Displays | **§ 5.2b, 2026-09-16**: probe § 29 drives every attached non-main display, mixed scale factors included; `WindowOnAnyDisplayTests` covers 11 panel sizes × 8 placements × 3 scales without hardware | add: a display **disconnected mid-recording**, and a window **dragged between differently-scaled displays** mid-recording, which is named as still open |
 | Locales | 10 string tables, key-parity scanned | **add a rendered check**: every UI string, laid out at the app's font, fits its control. German and Russian run ~30% longer than English |
 | Caption line length by script | 42 / 32 display width | **add a rendered check** that `CaptionArt.fits` agrees with `CaptionBuilder.longestLine` at 720p, 1080p and 4K |
 

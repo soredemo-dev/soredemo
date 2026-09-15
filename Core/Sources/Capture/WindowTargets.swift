@@ -96,8 +96,16 @@ public enum WindowTargets {
         guard let display else { return nil }
         let scale = Self.scale(of: display)
         let rect = CGGeometryBridge.pointRect(from: window.frame)
+        // **`SCWindow.frame` is GLOBAL; `WindowCapture.sourceRect` is DISPLAY-LOCAL.** This
+        // handed the first straight into the second, which is harmless only on a display whose
+        // origin is zero — elsewhere the recording is placed a whole display away and no cursor
+        // is drawn at all. Rebased, not clipped: the buffer below is sized from the FULL window.
+        // `docs/design/a-window-on-the-other-display.md` has the measurement.
+        let bounds = CGGeometryBridge.pointRect(from: display.frame)
+        let local = PointRect(x: rect.x - bounds.x, y: rect.y - bounds.y,
+                              width: rect.width, height: rect.height)
         return .window(WindowCapture(
-            window: window, display: display, sourceRect: rect,
+            window: window, display: display, sourceRect: local,
             bufferWidth: Self.evenFloor(Int((rect.width * scale).rounded())),
             bufferHeight: Self.evenFloor(Int((rect.height * scale).rounded()))))
     }

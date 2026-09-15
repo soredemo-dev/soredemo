@@ -1037,23 +1037,30 @@ final class RecordingCoordinator {
 
     // MARK: - scale / displayUUID
 
-    /// The display whose mode decides `scale` for `CaptureSession.init`. A `.window` belongs to no
-    /// single display, so the main display is used as an approximation: a window sitting on a
-    /// differently-scaled secondary display gets the wrong `scale`.
-    private static func sizingDisplayID(for source: CaptureSource) -> CGDirectDisplayID {
+    /// The display whose mode decides `scale` for `CaptureSession.init`.
+    ///
+    /// **`.window` answered `CGMainDisplayID()` until 2026-09-16**, on the written grounds that a
+    /// window belongs to no single display — a premise this codebase had outgrown, since
+    /// `WindowCapture` carries the display containing the window's centre and `WindowTargets`
+    /// already sizes the buffer with that display's scale. It does not move the drawn cursor
+    /// (the scale cancels inside `CaptureViewport`; the first account of this was wrong); it put
+    /// an untrue scale in the recorded `DisplayGeometry`.
+    /// `docs/design/a-window-on-the-other-display.md` has the measurement, the correction, and
+    /// the case still open — a window dragged between differently-scaled displays mid-recording.
+    static func sizingDisplayID(for source: CaptureSource) -> CGDirectDisplayID {
         switch source {
         case .display(let display): return display.displayID
-        case .window: return CGMainDisplayID()
-        // **A region knows its display exactly**, unlike a window, so it does not need the main
-        // display as an approximation — and a region dragged out on a secondary panel with a
-        // different backing scale gets the right one.
+        case .window(let capture): return capture.display.displayID
+        // **A region knows its display exactly**, and so, it turns out, does a window — a region
+        // dragged out on a secondary panel with a different backing scale gets the right one,
+        // and now so does a window sitting on it.
         case .region(let capture): return capture.display.displayID
         }
     }
 
     /// `CGDisplayMode.pixelWidth / .width` — native pixels over points for the mode in use, which
     /// is `DisplayGeometry.scale`'s definition. Falls back to `2` when the display cannot be read.
-    private static func scale(forDisplay displayID: CGDirectDisplayID) -> Double {
+    static func scale(forDisplay displayID: CGDirectDisplayID) -> Double {
         guard let mode = CGDisplayCopyDisplayMode(displayID), mode.width > 0 else { return 2 }
         return Double(mode.pixelWidth) / Double(mode.width)
     }
