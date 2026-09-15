@@ -154,3 +154,25 @@ private func streamError(_ code: SCStreamError.Code) -> NSError {
     #expect(withheld.contains("withheld"))
     #expect(withheld.contains("17"), "the refusal should say how long the withheld domain was")
 }
+
+/// **macOS 27 added two stop codes, and both had an action attached.**
+///
+/// Before this they landed in `itWillFailTheSameWayAgain(code:)` — the right verdict about
+/// restarting, and the wrong thing to tell somebody. A person told "the recording stopped"
+/// looks for a bug in this app; a person told the disk filled up goes and empties it.
+@Test func aFullDiskIsItsOwnReasonRatherThanAnAnonymousCode() {
+    let error = NSError(domain: SCStreamErrorDomain, code: -3822)
+    #expect(StreamStopReason(error) == .theDiskFilledUp)
+    // Restarting into a disk that is still full is the same failure a second time.
+    #expect(!StreamStopReason(error).isWorthRestarting)
+    // The raw code travels with it: the name is this project's reading, and a reader who
+    // disagrees needs the number to check it against.
+    #expect(StreamStopReason(error).description.contains("-3822"))
+}
+
+@Test func anUnsupportedCaptureIsItsOwnReason() {
+    let error = NSError(domain: SCStreamErrorDomain, code: -3823)
+    #expect(StreamStopReason(error) == .thisIsNotSupportedHere)
+    #expect(!StreamStopReason(error).isWorthRestarting)
+    #expect(StreamStopReason(error).description.contains("-3823"))
+}

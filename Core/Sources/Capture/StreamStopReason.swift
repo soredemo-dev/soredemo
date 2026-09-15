@@ -28,6 +28,15 @@ public enum StreamStopReason: Sendable, Equatable {
     /// A ScreenCaptureKit error about this recording's SETUP rather than a
     /// passing condition — a permission, an entitlement, an invalid parameter, a
     /// missing source. Rebuilding the same stream reproduces it.
+    /// `SCStreamErrorInsufficientStorage` (-3822), new in macOS 27. **Its own case rather than
+    /// one more anonymous code**, because it is the only stop with an action attached: a person
+    /// told "the recording stopped" looks for a bug in this app, and a person told the disk
+    /// filled up goes and empties it. Restarting is pointless while it is still full, so it
+    /// shares `itWillFailTheSameWayAgain`'s verdict and not its silence.
+    case theDiskFilledUp
+    /// `SCStreamErrorNotSupported` (-3823), new in macOS 27. What was asked for cannot be done
+    /// on this machine or this source — a permanent no, distinct from a failure.
+    case thisIsNotSupportedHere
     case itWillFailTheSameWayAgain(code: Int)
 
     /// Not `SCStreamErrorDomain` at all. Named rather than folded into the case
@@ -38,6 +47,11 @@ public enum StreamStopReason: Sendable, Equatable {
     /// Codes that name a connection to the capture daemon rather than a fault in
     /// the capture. Listed here so the two members of the pair are visibly the
     /// same decision.
+    /// `SCStreamErrorInsufficientStorage`, macOS 27.
+    private static let insufficientStorageCode = -3822
+    /// `SCStreamErrorNotSupported`, macOS 27.
+    private static let notSupportedCode = -3823
+
     private static let daemonConnectionCodes: Set<Int> = [
         SCStreamError.Code.failedApplicationConnectionInvalid.rawValue,
         SCStreamError.Code.failedApplicationConnectionInterrupted.rawValue,
@@ -56,6 +70,14 @@ public enum StreamStopReason: Sendable, Equatable {
             self = .theSystemTookTheDisplayAway
         case let code where Self.daemonConnectionCodes.contains(code):
             self = .theConnectionToTheCaptureDaemonDied(code: code)
+        // **Matched on the raw values, not the enum cases.** `SCStreamError.Code` in the
+        // macOS 27 SDK carries these, but this package's floor is what decides whether naming
+        // them compiles; the numbers are stable and documented in the header, and a raw match
+        // says what it matches.
+        case Self.insufficientStorageCode:
+            self = .theDiskFilledUp
+        case Self.notSupportedCode:
+            self = .thisIsNotSupportedHere
         case let code:
             self = .itWillFailTheSameWayAgain(code: code)
         }
@@ -69,7 +91,8 @@ public enum StreamStopReason: Sendable, Equatable {
         switch self {
         case .theSystemTookTheDisplayAway, .theConnectionToTheCaptureDaemonDied:
             return true
-        case .theUserStoppedIt, .itWillFailTheSameWayAgain, .unrecognised:
+        case .theUserStoppedIt, .itWillFailTheSameWayAgain, .unrecognised,
+             .theDiskFilledUp, .thisIsNotSupportedHere:
             return false
         }
     }
@@ -85,6 +108,10 @@ public enum StreamStopReason: Sendable, Equatable {
             return "the system stopped the stream (SCStreamErrorSystemStoppedStream, -3821)"
         case .theConnectionToTheCaptureDaemonDied(let code):
             return "the capture daemon connection died (SCStreamErrorDomain, \(code))"
+        case .theDiskFilledUp:
+            return "the disk ran out of room (SCStreamErrorInsufficientStorage, -3822)"
+        case .thisIsNotSupportedHere:
+            return "the capture is not supported here (SCStreamErrorNotSupported, -3823)"
         case .itWillFailTheSameWayAgain(let code):
             return "ScreenCaptureKit refused and will refuse again (SCStreamErrorDomain, \(code))"
         case .unrecognised(let domain, let code):

@@ -405,6 +405,12 @@ private func observer() -> Capture.AXObserver {
         return
     }
     observer.handle(type: .mouseMoved, event: event)
+    // **Observed failing once in a full run, 2026-09-15, and passing three times alone and on
+    // the next full run.** The shape is read on `pollQueue` — deliberately not the main queue,
+    // see the note below — so whether it has arrived by the time this line runs is a race this
+    // assertion does not control. Recorded rather than papered over: if it fails again the
+    // answer is to wait for the sample rather than to assume it, and the reason it has not been
+    // changed yet is that one occurrence is not enough to know which sample it lost.
     #expect(sink.shapes == [.iBeam])
 }
 
