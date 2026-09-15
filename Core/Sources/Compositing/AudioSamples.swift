@@ -102,7 +102,7 @@ public enum AudioSamples {
             // doing the same thing: the destination is exactly `bytes` long by construction one
             // line up, the pointer never leaves `withUnsafeMutableBytes`'s scope, and the copy is
             // the framework's bounded one rather than a raw read of the block's storage.
-            let copied = unsafe block32.withUnsafeMutableBytes { buffer -> OSStatus in
+            let copied = block32.withUnsafeMutableBytes { buffer -> OSStatus in
                 guard let base = buffer.baseAddress else { return -1 }
                 return unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes,
                                                          destination: base)
@@ -139,7 +139,7 @@ public enum AudioSamples {
         // source; the pointer never leaves `withUnsafeBufferPointer`'s scope. One bulk copy
         // rather than a loop of subscripts — fewer unsafe expressions to justify, and the
         // framework's own bounded move.
-        unsafe track.samples.withUnsafeBufferPointer { source in
+        track.samples.withUnsafeBufferPointer { source in
             guard let base = source.baseAddress else { return }
             unsafe channel[0].update(from: base, count: track.samples.count)
         }

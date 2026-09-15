@@ -33,6 +33,17 @@ struct Tooltip: ViewModifier {
     /// Where the button is on the screen, so the bubble can be kept on it.
     @State private var anchor: Anchor?
 
+    /// Where the control is, in plain numbers. **Not a `CGRect`** — see the capture below.
+    ///
+    /// `nonisolated` because `onGeometryChange` takes a `Sendable` type, and this file builds
+    /// with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — which would otherwise give even a
+    /// struct of three `Double`s a main-actor conformance that cannot satisfy it.
+    nonisolated struct Placement: Equatable, Sendable {
+        let midX: Double
+        let minY: Double
+        let height: Double
+    }
+
     struct Anchor: Equatable {
         let centreX: Double
         let top: Double
@@ -44,28 +55,36 @@ struct Tooltip: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background {
-                // **Global coordinates, read continuously.** A toolbar scrolls, a window moves,
-                // and a bubble placed from a stale frame is a bubble in the wrong place.
-                GeometryReader { geometry in
-                    let frame = geometry.frame(in: .global)
-                    Color.clear.onChange(of: frame, initial: true) {
-                        // **`.global` in SwiftUI is the WINDOW's space, not the screen's.**
-                        // Clamping window coordinates against screen coordinates only agrees
-                        // while the window is at the origin, which it is on the machine this
-                        // was written on and nowhere else. The window's own frame is what
-                        // converts them.
-                        let origin = NSApp.keyWindow?.frame.origin ?? .zero
-                        let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0,
-                                                                           width: 1e6, height: 1e6)
-                        anchor = Anchor(centreX: Double(frame.midX) + Double(origin.x),
-                                        top: Double(frame.minY),
-                                        height: Double(frame.height),
-                                        screenX: Double(visible.minX),
-                                        screenWidth: Double(visible.width),
-                                        screenTop: 0)
-                    }
-                }
+            // **`onGeometryChange`, not a `GeometryReader` writing `@State`.** The old shape
+            // wrote state during every layout pass on every control with a tooltip, which is a
+            // layout cycle — macOS 27 reported it as "laid out reentrantly … the current layout
+            // pass will be skipped", and a skipped layout is a frame the editor does not draw.
+            // See docs/design/what-macos-27-changed.md.
+            // **Four `Double`s, not the rectangle.** D6 rule 5 is zero-permit in the app target:
+            // no app source names a CoreGraphics geometry type at all, because a type that
+            // crosses freely is how a coordinate space crosses with it unnoticed.
+            .onGeometryChange(for: Placement.self) {
+                Placement(midX: Double($0.frame(in: .global).midX),
+                          minY: Double($0.frame(in: .global).minY),
+                          height: Double($0.size.height))
+            } action: { frame in
+                // The transform runs during layout and writes nothing; the action runs after it
+                // and is where the state moves. Skipped entirely unless the pointer is here,
+                // because the only use of this value is placing a bubble about to appear.
+                guard isHovering else { return }
+                // **`.global` in SwiftUI is the WINDOW's space, not the screen's.** Clamping
+                // window coordinates against screen coordinates only agrees while the window is
+                // at the origin, which it is on the machine this was written on and nowhere
+                // else. The window's own frame is what converts them.
+                let origin = NSApp.keyWindow?.frame.origin ?? .zero
+                let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0,
+                                                                   width: 1e6, height: 1e6)
+                anchor = Anchor(centreX: frame.midX + Double(origin.x),
+                                top: frame.minY,
+                                height: frame.height,
+                                screenX: Double(visible.minX),
+                                screenWidth: Double(visible.width),
+                                screenTop: 0)
             }
             .onHover { hovering in
                 isHovering = hovering
@@ -116,13 +135,9 @@ struct Tooltip: ViewModifier {
             .fixedSize()
             .padding(.horizontal, Space.snug)
             .padding(.vertical, Space.hairline)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.onChange(of: geometry.size.width, initial: true) {
-                        bubbleWidth = Double(geometry.size.width)
-                    }
-                }
-            }
+            // Same reason as the anchor above: a width written from inside a layout pass is a
+            // layout pass that can be asked to run again.
+            .onGeometryChange(for: Double.self) { $0.size.width } action: { bubbleWidth = $0 }
             .background {
                 RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
                     .fill(Theme.Surface.raised)

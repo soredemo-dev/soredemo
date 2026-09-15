@@ -127,3 +127,40 @@ next release costs ten minutes.
 
 The performance baselines all moved and are recorded in `TESTING.md` § 0.5: the compositor got
 faster, and the budgets came down to match.
+
+## Two things macOS 27 says out loud that macOS 26 did not
+
+Both were pre-existing defects the new release made visible, which is the most useful kind of
+upgrade finding: nothing broke, something started reporting.
+
+### `NSHostingView is being laid out reentrantly … the layout pass will be skipped`
+
+Reported by somebody as **"frame rate looks low"** in the editor, alongside six
+`Cycle detected through attribute` lines.
+
+`Tooltip` placed a `GeometryReader` in a `.background` and wrote `@State` from it on every
+layout pass — on every control that has a tooltip, which is most of the toolbar. Writing state
+during layout is how a layout cycle is made, and a skipped layout pass is a frame the editor
+does not draw.
+
+`onGeometryChange(for:action:)` delivers the value *after* the layout pass rather than inside
+it, which is the whole difference. The geometry is also only acted on while the pointer is on
+the control, because its only use is placing a bubble that is about to appear. Measured after:
+zero cycles, zero skipped passes in a full launch-and-open.
+
+**The compositor was measured first and cleared.** Twenty lock-guarded static reads cost
+10.7 ns each — 0.2 µs per frame against an 8 ms budget — so the lock added the same week was
+ruled out before anything was changed.
+
+### `Binding(get:set:)`'s setter is now `@Sendable`
+
+Which says the closure MAY cross actors. The first fix was `MainActor.assumeIsolated`, and this
+repository had already written down why that is wrong: `GlobalHotkey` records that asserting an
+unproven main-thread guarantee that way "is the exact shape that produced an EXC_BREAKPOINT
+earlier in this project". A setter that reaches `WindowConfigurator.configure()` through
+`onChange` would raise AppKit's own *"NSWindow geometry should only be modified on the main
+thread"* — which is exactly what appeared in the console.
+
+`Thread.isMainThread` is asked rather than assumed: synchronous when it is already the main
+thread, a hop when it is not.
+

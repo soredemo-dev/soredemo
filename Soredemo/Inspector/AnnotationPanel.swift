@@ -219,7 +219,10 @@ struct AnnotationPanel: View {
     /// let a caller assign past the clamp — so there is no writable key path into them and the
     /// setter has to go through `changing(...)`. The read is passed alongside rather than
     /// derived, because a key path that could read it is exactly the one that does not exist.
-    private func slider(_ label: String, value: @escaping (Double) -> Void,
+    /// **`@Sendable`, which `Binding(get:set:)` began requiring in the macOS 27 SDK.** The
+    /// closure is called from SwiftUI on the main actor either way; the annotation is the
+    /// compiler being told what was already true rather than a change in behaviour.
+    private func slider(_ label: String, value: @escaping @Sendable (Double) -> Void,
                         read: Double, range: ClosedRange<Double>) -> some View {
         slider(label, value: Binding(get: { read }, set: value), range: range)
     }
@@ -227,13 +230,31 @@ struct AnnotationPanel: View {
     /// Writes one style field back through `AnnotationStyle.changing`, which is the only way in
     /// past its clamps.
     private func styleBinding(_ item: AnnotationItem,
-                              _ change: @escaping (AnnotationStyle, Double) -> AnnotationStyle)
-    -> (Double) -> Void {
+                              _ change: @escaping @Sendable (AnnotationStyle, Double)
+                                  -> AnnotationStyle)
+    -> @Sendable (Double) -> Void {
+        // **Checked, not assumed.** The macOS 27 SDK marks `Binding(get:set:)`'s setter
+        // `@Sendable`, which says the closure MAY cross actors — so the compiler can no longer
+        // see what SwiftUI does in practice, and neither can this code. `MainActor.assumeIsolated`
+        // was the first fix and it is the wrong one: `GlobalHotkey` records that asserting an
+        // unproven main-thread guarantee that way "is the exact shape that produced an
+        // EXC_BREAKPOINT earlier in this project", and a setter that reaches
+        // `WindowConfigurator.configure()` through `onChange` would raise AppKit's own
+        // "NSWindow geometry should only be modified on the main thread".
+        //
+        // Marking the closure `@MainActor` does not type-check — a global-actor function cannot
+        // convert to the `@Sendable` one the initialiser takes — so the thread is asked.
+        // Synchronous when it is already the main one, which is every observed call; a hop when
+        // it is not, which is correctness rather than a slower path.
         { newValue in
-            var changed = item
-            changed.style = change(item.style, newValue)
-            model.update(changed)
-            onChange()
+            let apply = { @MainActor in
+                var changed = item
+                changed.style = change(item.style, newValue)
+                model.update(changed)
+                onChange()
+            }
+            if Thread.isMainThread { MainActor.assumeIsolated { apply() } }
+            else { Task { @MainActor in apply() } }
         }
     }
 

@@ -129,7 +129,7 @@ public enum StillnessReader {
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             .applyingFilter("CIPhotoEffectMono")
         var pixels = [UInt8](repeating: 0, count: analysisWidth * height * 4)
-        unsafe pixels.withUnsafeMutableBytes {
+        pixels.withUnsafeMutableBytes {
             // Through the bridge: D3 keeps CoreGraphics geometry out of this tier, and the
             // allow-list scan caught this line the moment it was written.
             unsafe context.render(scaled, toBitmap: $0.baseAddress!,

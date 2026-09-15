@@ -88,7 +88,7 @@ public enum MP4Exporter {
         // static said another would place every cursor and every zoom by the difference. The
         // static is process-global because AVFoundation owns compositor instances, so the
         // pairing cannot be passed as an argument — it can be checked, which is this.
-        if unsafe StageCompositor.editTimeline != edit {
+        if StageCompositor.editTimeline != edit {
             throw ExportError.editTimelineMismatch
         }
         // **The same shape of check, for the same reason.** The stage's background is
@@ -97,7 +97,7 @@ public enum MP4Exporter {
         // be accepted, encoded opaque, and discovered by whoever opened the file. See
         // `TransparentExport`, which measured all four codecs to establish which two can carry it.
         if case .refused(let refusal) = TransparentExport.outcome(
-            background: unsafe StageCompositor.style.background, codec: codec) {
+            background: StageCompositor.style.background, codec: codec) {
             throw ExportError.transparencyWouldBeLost(refusal, codec: codec)
         }
 

@@ -128,7 +128,7 @@ public enum GIFExporter {
         // export whose asset was cut one way while the static said another places every cursor
         // and every zoom by the difference. Process-global because AVFoundation owns compositor
         // instances, so it cannot be an argument — but it can be checked.
-        if unsafe StageCompositor.editTimeline != edit {
+        if StageCompositor.editTimeline != edit {
             throw ExportError.editTimelineMismatch
         }
 

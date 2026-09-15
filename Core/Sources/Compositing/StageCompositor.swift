@@ -18,8 +18,29 @@ import Timeline
 /// no type in this SDK. `withUnsafeBuffer` is the only public route from the source's read-only
 /// buffer to the plain `CVPixelBuffer` `FrameRendering` takes.
 public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
+    /// Guards every seam below.
+    ///
+    /// **They were `nonisolated(unsafe)` with a comment claiming they are "set once before the
+    /// composition reaches AVFoundation".** That was true when it was written and stopped being
+    /// true when the style picker shipped: `StageStylePicker.publish()` writes `style` on every
+    /// slider tick, while a preview is playing and an existing compositor is reading it on
+    /// AVFoundation's render queue.
+    ///
+    /// **`StageStyle` contains a `String`** — `StageBackground.image(filename:)` — so a torn
+    /// read there is not a frame that looks wrong, it is a retain count read from a pointer
+    /// that is being replaced. Changing the background while the preview plays is an ordinary
+    /// thing to do.
+    ///
+    /// A lock per access, about twenty reads a frame: measured against the frame budgets, which
+    /// are 8 ms at 1080p and 22 at 4K. This costs nothing that instrument can see.
+    private static let seamLock = NSLock()
+
     /// Set once before the composition reaches AVFoundation, so it is published before any callback.
-    public nonisolated(unsafe) static var renderer: (any FrameRendering)?
+    private nonisolated(unsafe) static var _renderer: (any FrameRendering)?
+    public static var renderer: (any FrameRendering)? {
+        get { seamLock.withLock { unsafe _renderer } }
+        set { seamLock.withLock { unsafe _renderer = newValue } }
+    }
     /// The stage's look — background, padding, corner radius, shadow.
     ///
     /// **`public` since the style picker.** It was internal on the stated grounds that "no
@@ -27,13 +48,25 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// shipped one hard-coded look, and every comparable recorder lets a person choose one.
     /// Set on the same terms as the other seams here — before the composition is built,
     /// because AVFoundation owns every compositor instance.
-    public nonisolated(unsafe) static var style: StageStyle = .default
+    private nonisolated(unsafe) static var _style: StageStyle = .default
+    public static var style: StageStyle {
+        get { seamLock.withLock { unsafe _style } }
+        set { seamLock.withLock { unsafe _style = newValue } }
+    }
     /// The observation log the pointer track is read from; `nil` draws no pointer.
-    public nonisolated(unsafe) static var observationLogURL: URL?
+    private nonisolated(unsafe) static var _observationLogURL: URL?
+    public static var observationLogURL: URL? {
+        get { seamLock.withLock { unsafe _observationLogURL } }
+        set { seamLock.withLock { unsafe _observationLogURL = newValue } }
+    }
 
     /// A reviewer's decisions to suppress the pointer, set before playback starts and never read
     /// from the observation log.
-    public nonisolated(unsafe) static var overrides: [CursorOverride] = []
+    private nonisolated(unsafe) static var _overrides: [CursorOverride] = []
+    public static var overrides: [CursorOverride] {
+        get { seamLock.withLock { unsafe _overrides } }
+        set { seamLock.withLock { unsafe _overrides = newValue } }
+    }
     /// **What survived editing, and where each surviving nanosecond came from.**
     ///
     /// `nil` means no edits — output time IS source time, which is the case every recording
@@ -41,16 +74,28 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// `startRequest` is handed OUTPUT times while every observation record is stamped in
     /// SOURCE time, so the pointer and the camera must be looked up through this or they land
     /// by however much was removed before them. Set on the same terms as the seams below.
-    public nonisolated(unsafe) static var editTimeline: EditTimeline?
+    private nonisolated(unsafe) static var _editTimeline: EditTimeline?
+    public static var editTimeline: EditTimeline? {
+        get { seamLock.withLock { unsafe _editTimeline } }
+        set { seamLock.withLock { unsafe _editTimeline = newValue } }
+    }
 
     /// A reviewer's decisions about where the camera frames — set on the same terms and for
     /// the same reason as `overrides`. Applied by `FramingPlan.framedClicks(with:)`, which
     /// consults them BEFORE the gate, so a re-derivation cannot replace an authored value.
-    public nonisolated(unsafe) static var framingOverrides: [FramingOverride] = []
+    private nonisolated(unsafe) static var _framingOverrides: [FramingOverride] = []
+    public static var framingOverrides: [FramingOverride] {
+        get { seamLock.withLock { unsafe _framingOverrides } }
+        set { seamLock.withLock { unsafe _framingOverrides = newValue } }
+    }
     /// A person's changes to the derived zooms — where each starts, how long it lasts, whether
     /// it happens. Set on the same terms as the seams above. See `ZoomAdjustment` for why they
     /// are keyed on the click rather than on the block.
-    public nonisolated(unsafe) static var zoomAdjustments: [ZoomAdjustment] = []
+    private nonisolated(unsafe) static var _zoomAdjustments: [ZoomAdjustment] = []
+    public static var zoomAdjustments: [ZoomAdjustment] {
+        get { seamLock.withLock { unsafe _zoomAdjustments } }
+        set { seamLock.withLock { unsafe _zoomAdjustments = newValue } }
+    }
 
     /// The captions to burn in, in the recording's SOURCE time, or empty for none. Set on the
     /// same terms as the seams above.
@@ -60,42 +105,82 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// wrong afterwards, in exactly the way `editTimeline`'s own comment describes. Retiming for
     /// a SIDECAR file is a different job with a different answer — see
     /// `CaptionTrack.retimed(through:)`, which the export uses and this does not.
-    public nonisolated(unsafe) static var captions = CaptionTrack()
+    private nonisolated(unsafe) static var _captions = CaptionTrack()
+    public static var captions: CaptionTrack {
+        get { seamLock.withLock { unsafe _captions } }
+        set { seamLock.withLock { unsafe _captions = newValue } }
+    }
     /// How a burnt-in caption looks. Separate from `style`, which is the card's look: a person
     /// turning captions off should not have to give up their background.
-    public nonisolated(unsafe) static var captionStyle: CaptionStyle = .default
+    private nonisolated(unsafe) static var _captionStyle: CaptionStyle = .default
+    public static var captionStyle: CaptionStyle {
+        get { seamLock.withLock { unsafe _captionStyle } }
+        set { seamLock.withLock { unsafe _captionStyle = newValue } }
+    }
     /// Whether to draw them at all. False leaves `captions` in place, so turning burn-in off and
     /// on again does not discard a transcript that took a minute to produce.
-    public nonisolated(unsafe) static var burnsInCaptions = false
+    private nonisolated(unsafe) static var _burnsInCaptions = false
+    public static var burnsInCaptions: Bool {
+        get { seamLock.withLock { unsafe _burnsInCaptions } }
+        set { seamLock.withLock { unsafe _burnsInCaptions = newValue } }
+    }
 
     /// Text overlays, in the recording's SOURCE time. Set on the same terms as the seams above,
     /// and looked up the same way — see `captionOverlay(at:)`.
     ///
     /// No `burnsIn` twin: a person who put a word on the screen put it there on purpose, and a
     /// title that could be silently switched off would be a title nobody trusts is in the export.
-    public nonisolated(unsafe) static var texts = TextTrack()
+    private nonisolated(unsafe) static var _texts = TextTrack()
+    public static var texts: TextTrack {
+        get { seamLock.withLock { unsafe _texts } }
+        set { seamLock.withLock { unsafe _texts = newValue } }
+    }
 
     /// Parts of the recording to hide. Set on the same terms as the seams above.
-    public nonisolated(unsafe) static var redactions = RedactionTrack()
+    private nonisolated(unsafe) static var _redactions = RedactionTrack()
+    public static var redactions: RedactionTrack {
+        get { seamLock.withLock { unsafe _redactions } }
+        set { seamLock.withLock { unsafe _redactions = newValue } }
+    }
     /// The arrows, boxes and ellipses a person drew over the recording — see `AnnotationTrack`.
     /// Anchored to the RECORDING, so they move with the camera rather than sitting still while
     /// the thing they point at slides away underneath them.
-    public nonisolated(unsafe) static var annotations = AnnotationTrack()
+    private nonisolated(unsafe) static var _annotations = AnnotationTrack()
+    public static var annotations: AnnotationTrack {
+        get { seamLock.withLock { unsafe _annotations } }
+        set { seamLock.withLock { unsafe _annotations = newValue } }
+    }
 
     /// Whether pressed shortcuts are drawn as badges. **On by default**: the recorder writes
     /// `key` records for exactly this, the row has claimed the badges since Phase 3, and a
     /// recording with no approved shortcut in it draws nothing either way. The track itself
     /// is read from the observation log with the pointer's, not set from outside.
-    public nonisolated(unsafe) static var showsKeystrokes = true
+    private nonisolated(unsafe) static var _showsKeystrokes = true
+    public static var showsKeystrokes: Bool {
+        get { seamLock.withLock { unsafe _showsKeystrokes } }
+        set { seamLock.withLock { unsafe _showsKeystrokes = newValue } }
+    }
 
     /// How the drawn cursor looks. Set on the same terms as the seams above.
-    public nonisolated(unsafe) static var cursorStyle: CursorStyle = .default
+    private nonisolated(unsafe) static var _cursorStyle: CursorStyle = .default
+    public static var cursorStyle: CursorStyle {
+        get { seamLock.withLock { unsafe _cursorStyle } }
+        set { seamLock.withLock { unsafe _cursorStyle = newValue } }
+    }
 
     /// Where the camera sits, or `nil` for a recording without one. Set on the same terms as the
     /// seams above.
-    public nonisolated(unsafe) static var cameraStyle: CameraOverlayStyle?
+    private nonisolated(unsafe) static var _cameraStyle: CameraOverlayStyle?
+    public static var cameraStyle: CameraOverlayStyle? {
+        get { seamLock.withLock { unsafe _cameraStyle } }
+        set { seamLock.withLock { unsafe _cameraStyle = newValue } }
+    }
     /// The part of the recording used at all. Set on the same terms as the seams above.
-    public nonisolated(unsafe) static var crop: CropRect = .whole
+    private nonisolated(unsafe) static var _crop: CropRect = .whole
+    public static var crop: CropRect {
+        get { seamLock.withLock { unsafe _crop } }
+        set { seamLock.withLock { unsafe _crop = newValue } }
+    }
 
     /// **The share of the output frame the recording occupies, so zoom depth is decided for
     /// the frame being exported rather than for the recording's shape.**
@@ -112,7 +197,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// **1 is the recording's own shape and the right value to start at** — not a "safe default"
     /// standing in for a measurement: a composition nobody has told about a variant is being
     /// asked to render the recording as recorded.
-    public nonisolated(unsafe) static var outputCoverage: Double = 1
+    private nonisolated(unsafe) static var _outputCoverage: Double = 1
+    public static var outputCoverage: Double {
+        get { seamLock.withLock { unsafe _outputCoverage } }
+        set { seamLock.withLock { unsafe _outputCoverage = newValue } }
+    }
 
     /// **How much of the derived zoom to use, everywhere at once.** 1 is what the gates
     /// decided; 0 is a recording that never zooms; 2 is the ceiling.
@@ -122,12 +211,20 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// a sensible ceiling. It is applied where the depth is DERIVED, so a person's own
     /// per-block adjustment still lands on top of it: the producer-value rule puts authored
     /// values after derived ones, and a dial that overrode them would have that backwards.
-    public nonisolated(unsafe) static var zoomIntensity: Double = FramingDepth.neutralIntensity
+    private nonisolated(unsafe) static var _zoomIntensity: Double = FramingDepth.neutralIntensity
+    public static var zoomIntensity: Double {
+        get { seamLock.withLock { unsafe _zoomIntensity } }
+        set { seamLock.withLock { unsafe _zoomIntensity = newValue } }
+    }
     /// Which of the composition's video tracks is the camera. **Set by whoever built the
     /// composition** — `CameraComposition.combine` returns it — because nothing about a track
     /// says what it is, and picking "the last video track" would break the moment a composition
     /// carried three.
-    public nonisolated(unsafe) static var cameraTrackID: CMPersistentTrackID?
+    private nonisolated(unsafe) static var _cameraTrackID: CMPersistentTrackID?
+    public static var cameraTrackID: CMPersistentTrackID? {
+        get { seamLock.withLock { unsafe _cameraTrackID } }
+        set { seamLock.withLock { unsafe _cameraTrackID = newValue } }
+    }
 
     /// Everything the compositor renders from, as one value.
     ///
@@ -163,7 +260,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
 
     /// What the compositor would draw right now.
     public nonisolated static func settings() -> Settings {
-        unsafe Settings(style: style, observationLogURL: observationLogURL, overrides: overrides,
+        Settings(style: style, observationLogURL: observationLogURL, overrides: overrides,
                         editTimeline: editTimeline, framingOverrides: framingOverrides,
                         zoomAdjustments: zoomAdjustments, captions: captions,
                         captionStyle: captionStyle, burnsInCaptions: burnsInCaptions,
@@ -177,23 +274,23 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// stale static behind — which is the failure mode a partial restore has and a total one
     /// cannot.
     public nonisolated static func apply(_ settings: Settings) {
-        unsafe style = settings.style
-        unsafe observationLogURL = settings.observationLogURL
-        unsafe overrides = settings.overrides
-        unsafe editTimeline = settings.editTimeline
-        unsafe framingOverrides = settings.framingOverrides
-        unsafe zoomAdjustments = settings.zoomAdjustments
-        unsafe captions = settings.captions
-        unsafe captionStyle = settings.captionStyle
-        unsafe burnsInCaptions = settings.burnsInCaptions
-        unsafe texts = settings.texts
-        unsafe redactions = settings.redactions
-        unsafe annotations = settings.annotations
-        unsafe showsKeystrokes = settings.showsKeystrokes
-        unsafe cursorStyle = settings.cursorStyle
-        unsafe cameraStyle = settings.cameraStyle
-        unsafe crop = settings.crop
-        unsafe cameraTrackID = settings.cameraTrackID
+        style = settings.style
+        observationLogURL = settings.observationLogURL
+        overrides = settings.overrides
+        editTimeline = settings.editTimeline
+        framingOverrides = settings.framingOverrides
+        zoomAdjustments = settings.zoomAdjustments
+        captions = settings.captions
+        captionStyle = settings.captionStyle
+        burnsInCaptions = settings.burnsInCaptions
+        texts = settings.texts
+        redactions = settings.redactions
+        annotations = settings.annotations
+        showsKeystrokes = settings.showsKeystrokes
+        cursorStyle = settings.cursorStyle
+        cameraStyle = settings.cameraStyle
+        crop = settings.crop
+        cameraTrackID = settings.cameraTrackID
     }
 
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
@@ -256,14 +353,14 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // **The screen is the first track that is NOT the camera.** With one video track this
         // is the same as `.first`; with two it is the difference between drawing the recording
         // and drawing a face at full frame.
-        let cameraTrackID = unsafe Self.cameraTrackID
+        let cameraTrackID = Self.cameraTrackID
         guard let trackID = request.sourceTrackIDs
                 .map(\.int32Value)
                 .first(where: { $0 != cameraTrackID }),
               let source = request.sourceReadOnlyPixelBuffer(byTrackID: trackID),
               let context = unsafe renderContext,
               let destination = context.newPixelBuffer(),
-              let renderer = unsafe Self.renderer else {
+              let renderer = Self.renderer else {
             Self.recordDroppedFrame()
             request.finish(with: CompositorError.notConfigured)
             return
@@ -272,13 +369,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // a rectangle inside the output, and handing it the uncropped size would letterbox a
         // cropped recording as though it were still 16:9 — the bars would be exactly the part
         // that was cropped away.
-        let crop = unsafe Self.crop
+        let crop = Self.crop
         let cropped = crop.size(ofSourceWidth: source.size.width,
                                 sourceHeight: source.size.height)
         let basePlan = StagePlanner.plan(
             outputWidth: Int(context.size.width), outputHeight: Int(context.size.height),
             sourceWidth: cropped.width, sourceHeight: cropped.height,
-            style: unsafe Self.style)
+            style: Self.style)
         // The camera first: the pointer's placement is computed THROUGH the resulting plan
         // (`StagePlanner.placement` maps by `RenderPlan.contentX/Y`), so a pointer drawn
         // against the un-zoomed plan would sit where the user never pointed.
@@ -295,7 +392,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               caption: captionOverlay(at: request.compositionTime),
                               texts: textOverlays(at: request.compositionTime),
                               redactions: redactedRegions(at: request.compositionTime),
-                              cursorStyle: unsafe Self.cursorStyle,
+                              cursorStyle: Self.cursorStyle,
                               // **A hidden camera produces no overlay at all**, rather than one
                               // the renderer then has to know to skip. Hiding is "not in this
                               // one" as distinct from "throw the footage away", and the
@@ -364,7 +461,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// same `?? 1` at every call site.
     nonisolated static func cardOpacity(at compositionTime: CMTime) -> Double {
         guard compositionTime.isValid,
-              let timeline = unsafe editTimeline, timeline.hasAnyFade,
+              let timeline = editTimeline, timeline.hasAnyFade,
               let offset = Nanoseconds(rationalSeconds: compositionTime.value,
                                        timescale: compositionTime.timescale)
         else { return 1 }
@@ -381,7 +478,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// With no edit this is the identity, which is exactly why it is written once here and
     /// called from both time-reading sites rather than inlined at each.
     nonisolated static func sourceOffset(forOutput offset: Nanoseconds) -> Nanoseconds? {
-        guard let timeline = unsafe editTimeline else { return offset }
+        guard let timeline = editTimeline else { return offset }
         return timeline.sourceTime(atOutput: offset)
     }
 
@@ -404,7 +501,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // presented reading is the spring-followed cursor with the lerp as its floor.
         switch pointer.presentedPosition(at: instant) {
         case .drawn(let drawnPoint, let shape, let hotspot):
-            let style = unsafe Self.cursorStyle
+            let style = Self.cursorStyle
             // **The loop, before the placement and after the spring.** It reads the presented
             // position — the spring-followed one — so the glide home starts from where the
             // cursor is DRAWN, not from a recorded sample the spring has not reached yet;
@@ -467,7 +564,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// standing up AVFoundation.
     public func cameraOverlay(at compositionTime: CMTime, basePlan: RenderPlan,
                               sourcePixelWidth: Int?, cameraAspect: Double) -> CameraOverlay? {
-        guard let style = unsafe Self.cameraStyle, !style.isHidden else { return nil }
+        guard let style = Self.cameraStyle, !style.isHidden else { return nil }
         guard style.avoidsCursor,
               compositionTime.isValid,
               let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
@@ -568,7 +665,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// Both sources here are already in the compositor's hands — `editTimeline` is checked
     /// against every export, and the render context arrives before the first frame.
     private func outputDuration() -> Nanoseconds? {
-        if let timeline = unsafe Self.editTimeline { return timeline.outputDuration }
+        if let timeline = Self.editTimeline { return timeline.outputDuration }
         guard let context = unsafe renderContext,
               let last = context.videoComposition.instructions.last else { return nil }
         let end = CMTimeRangeGetEnd(last.timeRange)
@@ -579,7 +676,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// The shortcut badge on screen at an OUTPUT time, or `nil`. Converted to source time and
     /// then to the recorder's clock exactly as the pointer is: a press is an observation.
     public func keystrokeBadge(at compositionTime: CMTime) -> KeystrokeBadge? {
-        guard unsafe Self.showsKeystrokes, compositionTime.isValid,
+        guard Self.showsKeystrokes, compositionTime.isValid,
               let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
                                              timescale: compositionTime.timescale),
               let offset = Self.sourceOffset(forOutput: outputOffset) else { return nil }
@@ -707,12 +804,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// in source time and `compositionTime` is an output time, so after the first cut a lookup
     /// that skipped this would show the caption from wherever the cut had moved.
     private func captionOverlay(at compositionTime: CMTime) -> CaptionOverlay? {
-        guard unsafe Self.burnsInCaptions, !(unsafe Self.captions.isEmpty) else { return nil }
+        guard Self.burnsInCaptions, !(Self.captions.isEmpty) else { return nil }
         let outputOffset = Nanoseconds(CMTimeConvertScale(
             compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
         guard let source = Self.sourceOffset(forOutput: outputOffset),
-              let cue = unsafe Self.captions.cue(at: source) else { return nil }
-        let style = unsafe Self.captionStyle
+              let cue = Self.captions.cue(at: source) else { return nil }
+        let style = Self.captionStyle
         // The words are only assembled when they will be drawn: splitting and marking on every
         // frame of a caption nobody asked to highlight is work for nothing.
         let words = style.highlightsSpokenWord ? Self.words(of: cue, at: source) : []
@@ -741,11 +838,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// The text overlays on screen at an OUTPUT time. Converted to source time first, for the
     /// reason `captionOverlay(at:)` gives.
     private func textOverlays(at compositionTime: CMTime) -> [TextOverlay] {
-        guard !(unsafe Self.texts.isEmpty) else { return [] }
+        guard !(Self.texts.isEmpty) else { return [] }
         let outputOffset = Nanoseconds(CMTimeConvertScale(
             compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
         guard let source = Self.sourceOffset(forOutput: outputOffset) else { return [] }
-        return unsafe Self.texts.items(at: source)
+        return Self.texts.items(at: source)
             .map { TextOverlay(text: $0.text, style: $0.style,
                                animation: $0.animationState(at: source)) }
     }
@@ -757,14 +854,14 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// the safe answer for a cursor and the unsafe one for a redaction: the failure mode of the
     /// safe-looking choice is a frame that shows what a person hid.
     private func redactedRegions(at compositionTime: CMTime) -> [RedactionRegion] {
-        guard !(unsafe Self.redactions.isEmpty) else { return [] }
+        guard !(Self.redactions.isEmpty) else { return [] }
         let outputOffset = Nanoseconds(CMTimeConvertScale(
             compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
         guard let source = Self.sourceOffset(forOutput: outputOffset) else {
-            return unsafe Self.redactions.items
+            return Self.redactions.items
                 .filter { $0.coversEverything && !$0.region.isEmpty }.map(\.region)
         }
-        return unsafe Self.redactions.regions(at: source)
+        return Self.redactions.regions(at: source)
     }
 
     /// The annotations on screen at an OUTPUT time, with their points mapped into output pixels.
@@ -782,11 +879,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// failure costs: a missing arrow is a missing hint, and a missing redaction is a leak.
     private func annotationOverlays(at compositionTime: CMTime,
                                     in plan: RenderPlan) -> [AnnotationOverlay] {
-        guard !(unsafe Self.annotations.isEmpty) else { return [] }
+        guard !(Self.annotations.isEmpty) else { return [] }
         let outputOffset = Nanoseconds(CMTimeConvertScale(
             compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
         guard let source = Self.sourceOffset(forOutput: outputOffset) else { return [] }
-        return unsafe Self.annotations.items(at: source).compactMap { item in
+        return Self.annotations.items(at: source).compactMap { item in
             let state = item.animationState(at: source)
             return AnnotationOverlay(
                 shape: item.shape,
@@ -812,8 +909,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         lock.withLock {
             if !(unsafe tracksLoaded) {
                 unsafe tracksLoaded = true
-                if let url = unsafe Self.observationLogURL,
-                   let built = try? unsafe Self.buildTracks(from: url, overrides: Self.overrides,
+                if let url = Self.observationLogURL,
+                   let built = try? Self.buildTracks(from: url, overrides: Self.overrides,
                                                             framingOverrides: Self.framingOverrides) {
                     unsafe pointerTrack = built.pointer
                     unsafe pathMovement = built.movement
@@ -824,7 +921,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                     unsafe logAnchor = built.anchor
                 }
             }
-            let wanted = (unsafe Self.cursorStyle).movement
+            let wanted = (Self.cursorStyle).movement
             if unsafe pathMovement != wanted, let existing = unsafe pointerTrack {
                 unsafe pointerTrack = existing.moving(wanted)
                 unsafe pathMovement = wanted
@@ -889,7 +986,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         }
         // The button-down instants feed the presentation path, where the cursor's spring
         // stiffens into a click so it has arrived when the ripple starts — see `PointerPath`.
-        let movement = (unsafe cursorStyle).movement
+        let movement = (cursorStyle).movement
         let pointer = PointerTrack(samples: samples, blindIntervals: blindIntervals,
                                    overrides: overrides,
                                    clickInstants: buttonEvents.filter { $0.phase == .down }
@@ -907,13 +1004,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         let derived = ZoomBlock.blocks(
             for: plan.framedClicks(with: framingOverrides,
                                    pointerFallbackRevision: plan.fallbackRevision),
-            coverage: unsafe outputCoverage, intensity: unsafe zoomIntensity)
+            coverage: outputCoverage, intensity: zoomIntensity)
         // `unsafe`: `zoomAdjustments` is a `nonisolated(unsafe)` static, read here under the
         // same "published before playback starts" guarantee as every other seam on this type.
         // **The presented cursor is what the camera follows inside a zoom** — the same
         // reading the renderer draws, so the camera and the drawn pointer agree about where
         // the person is. `Framing` cannot name `PointerTrack`, so it arrives as a function.
-        let camera = CameraMotion(blocks: unsafe zoomAdjustments.applied(to: derived),
+        let camera = CameraMotion(blocks: zoomAdjustments.applied(to: derived),
                                   cursor: { instant in
             if case .drawn(let point, _, _) = pointer.presentedPosition(at: instant) { return point }
             return nil

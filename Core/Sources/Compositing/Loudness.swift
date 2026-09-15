@@ -378,7 +378,7 @@ extension Loudness {
             // Safe here: the destination is exactly `bytes` long by construction one line up,
             // the pointer is used only inside `withUnsafeMutableBytes`'s scope, and the copy is
             // the framework's own bounded one rather than a raw read of the block's storage.
-            let copied = unsafe samples.withUnsafeMutableBytes { buffer -> OSStatus in
+            let copied = samples.withUnsafeMutableBytes { buffer -> OSStatus in
                 guard let base = buffer.baseAddress else { return -1 }
                 return unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes,
                                                          destination: base)
