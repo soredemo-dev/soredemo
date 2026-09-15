@@ -483,3 +483,7 @@
 "There are no captions to export." = "내보낼 자막이 없습니다.";
 "Wrote %lld cue(s) to %@." = "자막 %lld개를 %@ 에 기록했습니다.";
 "Match my system captions" = "시스템 자막 설정에 맞추기";
+"Save the last %lld seconds — the recording keeps going" = "마지막 %lld초 저장 — 녹화는 계속됩니다";
+"Saved the last %lld seconds to %@." = "마지막 %lld초를 %@ 에 저장했습니다.";
+"The clip could not be saved: %@" = "클립을 저장할 수 없습니다: %@";
+"There is nowhere to put the clip yet." = "아직 클립을 둘 곳이 없습니다.";

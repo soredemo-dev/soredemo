@@ -485,3 +485,7 @@
 "There are no captions to export." = "没有字幕可以导出。";
 "Wrote %lld cue(s) to %@." = "已写入 %lld 句字幕到 %@。";
 "Match my system captions" = "比照我的系统字幕设置";
+"Save the last %lld seconds — the recording keeps going" = "保存最后 %lld 秒 —— 录制会继续";
+"Saved the last %lld seconds to %@." = "已把最后 %lld 秒存成 %@。";
+"The clip could not be saved: %@" = "这段片段存不下来:%@";
+"There is nowhere to put the clip yet." = "现在还没有地方可以放这段片段。";

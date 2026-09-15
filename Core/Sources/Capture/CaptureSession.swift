@@ -515,6 +515,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     // may outlive the segment boundary its click happened in. Only
     // `observationWriter` rotates per segment.
 
+    /// The rolling clip buffer, when this system has one and the stream took it.
+    ///
+    /// **Typed `AnyObject`, and that is not laziness.** `ClipBuffer` is `@available(macOS 27)`
+    /// and a stored property may not be, so the concrete type cannot appear here while the
+    /// package still supports 26. Every use is behind `#available` and casts back.
+    private nonisolated(unsafe) var clipBuffer: AnyObject?
+    /// Why there is no clip buffer, when the attempt was made and refused. `nil` also means
+    /// "this system has no such API", which the interface distinguishes by version.
+    private nonisolated(unsafe) var clipBufferRefusal: String?
+
     private nonisolated(unsafe) var inputObserver: InputObserver?
     private nonisolated(unsafe) var axObserver: AXObserver?
     /// What `setUpObservation()` found when starting the tap and asking for
@@ -708,6 +718,52 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// reconfiguration observer, and returns an `Outcome` carrying the validated
     /// `SegmentTable`. Deliberately not `@discardableResult`: the record of what
     /// was just recorded is the only interesting output.
+    /// Whether a clip of the last few seconds could be saved right now.
+    ///
+    /// **Three answers, not two.** No API on this system, an API that refused, and a buffer
+    /// that is running are different situations and the interface says different things about
+    /// each — "your Mac cannot do this", "it could not start: <reason>", and a button.
+    public enum ClipReadiness: Equatable, Sendable {
+        case thisSystemHasNoClipBuffer
+        case itCouldNotStart(String)
+        case ready(ceilingSeconds: Double)
+    }
+
+    public nonisolated var clipReadiness: ClipReadiness {
+        guard #available(macOS 27.0, *) else { return .thisSystemHasNoClipBuffer }
+        let (buffer, refusal) = lock.withLock {
+            unsafe (clipBuffer as? ClipBuffer, clipBufferRefusal)
+        }
+        if let refusal { return .itCouldNotStart(refusal) }
+        guard let buffer, buffer.isBuffering else {
+            return .itCouldNotStart("buffering has not started")
+        }
+        return .ready(ceilingSeconds: ClipBuffer.ceilingSeconds)
+    }
+
+    /// Writes the last `seconds` of the live recording to `url`.
+    ///
+    /// The recording is not interrupted and the buffer keeps filling — somebody who saves a
+    /// clip because something went wrong is often about to save a second one.
+    public nonisolated func saveClip(lastSeconds seconds: Double,
+                                     to url: URL) async -> ClipOutcome {
+        guard #available(macOS 27.0, *) else { return .refused("this Mac has no clip buffer") }
+        guard let buffer = lock.withLock({ unsafe clipBuffer as? ClipBuffer }) else {
+            return .refused(lock.withLock { unsafe clipBufferRefusal } ?? "no clip buffer")
+        }
+        switch await buffer.save(lastSeconds: seconds, to: url) {
+        case .wrote(let written): return .wrote(written)
+        case .refused(let refusal): return .refused(String(describing: refusal))
+        }
+    }
+
+    /// What `saveClip` did. **A named refusal carrying the reason**, because "the clip was not
+    /// saved" is not something a person can act on and "the disk is full" is.
+    public enum ClipOutcome: Equatable, Sendable {
+        case wrote(URL)
+        case refused(String)
+    }
+
     public nonisolated func stop() async throws -> Outcome {
         guard lock.withLock({ unsafe isRunning }) else { throw SessionError.notRunning }
 
@@ -909,6 +965,25 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         try scStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
         try scStream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
 
+        // **The rolling clip buffer, when the system has one.** Attached to every recording
+        // rather than switched on by a setting: the value of "save the last fifteen seconds" is
+        // that nobody had to decide in advance to want it, which is the whole point — a setting
+        // somebody has to turn on beforehand is a setting they turn on after the first time
+        // they needed it and did not have it.
+        //
+        // Failure is recorded and never thrown. A stream that will not take the buffer is still
+        // a stream that records, and losing a recording to gain a convenience is not a trade
+        // this makes. `clipBufferRefusal` is what the interface reads to know it has nothing to
+        // offer.
+        if #available(macOS 27.0, *) {
+            let buffer = ClipBuffer()
+            if let refusal = buffer.attach(to: scStream) {
+                lock.withLock { unsafe clipBufferRefusal = String(describing: refusal) }
+            } else {
+                lock.withLock { unsafe clipBuffer = buffer }
+            }
+        }
+
         // One `ObservationWriter` per segment, beside the media. No package means
         // no log for this segment, exactly as it already means no media.
         let packageURL = await MainActor.run { mediaSink.packageURL }
@@ -1071,6 +1146,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                      endedBy: .theSegmentEnded)
 
         if let scStream = snapshot.scStream {
+            // **Released before the stream goes**, or fifteen seconds of frames are held for a
+            // buffer nothing can export from.
+            if #available(macOS 27.0, *) {
+                let buffer = lock.withLock { () -> ClipBuffer? in
+                    let value = unsafe clipBuffer as? ClipBuffer
+                    unsafe clipBuffer = nil
+                    return value
+                }
+                buffer?.detach(from: scStream)
+            }
             try? await scStream.stopCapture()
         }
         if let master = snapshot.master, master.status == .writing {

@@ -53,7 +53,35 @@ writer.finishWriting { done.signal() }
 done.wait()
 SWIFT
 
+# **Nothing else may be driving this app while this runs.**
+#
+# `run-app-tests.sh` launches Soredemo.app as its test host, and a run started while that is
+# still settling measures a window somebody else opened. Observed: the check failed immediately
+# after the app-test gate and passed on its own seconds later, twice. A gate that can be wrong
+# about WHICH app it measured is not a gate — so this one waits for the machine to be quiet
+# rather than reporting on whatever it finds.
+#
+# **Wait for it to be gone, not just ask.** `pkill` returns as soon as the signal is sent, and
+# a second instance launched while the first is still quitting inherits its Space and never
+# becomes key — measured: the window stayed at its default 900x492, the full-screen branch
+# never ran, and the failure pointed at four causes none of which was "another copy was still
+# running". A gate that can be wrong about which app it measured is not a gate.
 pkill -x Soredemo 2>/dev/null || true
+for _ in $(seq 1 30); do
+  pgrep -x Soredemo >/dev/null || break
+  sleep 0.5
+done
+if pgrep -x Soredemo >/dev/null; then
+  echo "EDITOR FULL SCREEN: another Soredemo is running and would not quit." >&2
+  echo "This check measures a window it opens itself; it will not report on somebody" >&2
+  echo "else's. Quit the other copy and run it again." >&2
+  exit 1
+fi
+# The window server needs a moment after the last instance goes, or the next one inherits its
+# Space and never becomes key — which is the exact defect this check exists to catch, arriving
+# from the wrong direction.
+sleep 2
+
 open -n -a "$APP" --args --open-project "$WORK/project" --report-window-state "$REPORT"
 
 # The app writes the report and terminates itself. The ceiling is generous because the

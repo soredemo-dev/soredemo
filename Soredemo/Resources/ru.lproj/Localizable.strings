@@ -483,3 +483,7 @@
 "There are no captions to export." = "Экспортировать нечего — субтитров нет.";
 "Wrote %lld cue(s) to %@." = "%lld субтитров записано в %@.";
 "Match my system captions" = "Как мои системные субтитры";
+"Save the last %lld seconds — the recording keeps going" = "Сохранить последние %lld секунд — запись продолжится";
+"Saved the last %lld seconds to %@." = "Последние %lld секунд сохранены в %@.";
+"The clip could not be saved: %@" = "Клип не удалось сохранить: %@";
+"There is nowhere to put the clip yet." = "Пока некуда положить клип.";

@@ -483,3 +483,7 @@
 "There are no captions to export." = "Es gibt keine Untertitel zum Exportieren.";
 "Wrote %lld cue(s) to %@." = "%lld Untertitel nach %@ geschrieben.";
 "Match my system captions" = "Wie meine Systemuntertitel";
+"Save the last %lld seconds — the recording keeps going" = "Die letzten %lld Sekunden sichern – die Aufnahme läuft weiter";
+"Saved the last %lld seconds to %@." = "Die letzten %lld Sekunden in %@ gesichert.";
+"The clip could not be saved: %@" = "Der Clip ließ sich nicht sichern: %@";
+"There is nowhere to put the clip yet." = "Es gibt noch keinen Ort für den Clip.";

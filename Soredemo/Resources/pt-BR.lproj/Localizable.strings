@@ -484,3 +484,7 @@
 "There are no captions to export." = "Não há legendas para exportar.";
 "Wrote %lld cue(s) to %@." = "%lld legendas escritas em %@.";
 "Match my system captions" = "Como minhas legendas do sistema";
+"Save the last %lld seconds — the recording keeps going" = "Salvar os últimos %lld segundos — a gravação continua";
+"Saved the last %lld seconds to %@." = "Os últimos %lld segundos foram salvos em %@.";
+"The clip could not be saved: %@" = "O clipe não pôde ser salvo: %@";
+"There is nowhere to put the clip yet." = "Ainda não há onde colocar o clipe.";

@@ -324,3 +324,32 @@ two seconds, stopping **on success** rather than after a fixed count — `toggle
 toggles, so one call too many takes the window straight back out, which is the same
 even-number-of-calls defect that made the editor open windowed for a week.
 
+## The window was not becoming key, and that is why it was intermittent
+
+*2026-09-15, after the check went green and then failed three times in four.*
+
+The trace, added to `--report-window-state` for one afternoon:
+
+```
+pass: register key=false visible=false | fired | enter screen=true
+fail: register key=false visible=false
+```
+
+The observer was registered and **the notification never arrived**. On the failing runs the
+window sat at its default 900×492 — not the visible frame the toggle path sets, not the 92% the
+other branch grows to. Neither branch had run, because the window never became key.
+
+`EditorWindowPresence.openEditor` calls `NSApp.activate` immediately after asking SwiftUI for
+the window, which is *before* SwiftUI has made one — so the activation lands on an application
+with no editor in it, and whether the window that appears afterwards becomes key is left to
+timing. One run in four.
+
+`configure()` now asks: `if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }`. This
+window is the thing somebody just asked for; being front is what it should do regardless of who
+else remembered to. Four consecutive runs, four passes.
+
+**Every earlier account of this defect was a symptom.** `.moveToActiveSpace`, the toggle being
+ignored at `didBecomeKey`, `alphaValue = 0`, the duplicated observer — all real, all fixed, and
+none of them was the reason it came and went. Intermittency is the tell: a cause that is
+present every time cannot produce a failure that happens three times in four.
+

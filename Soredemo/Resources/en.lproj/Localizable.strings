@@ -499,3 +499,7 @@
 "There are no captions to export." = "There are no captions to export.";
 "Wrote %lld cue(s) to %@." = "Wrote %lld cue(s) to %@.";
 "Match my system captions" = "Match my system captions";
+"Save the last %lld seconds — the recording keeps going" = "Save the last %lld seconds — the recording keeps going";
+"Saved the last %lld seconds to %@." = "Saved the last %lld seconds to %@.";
+"The clip could not be saved: %@" = "The clip could not be saved: %@";
+"There is nowhere to put the clip yet." = "There is nowhere to put the clip yet.";

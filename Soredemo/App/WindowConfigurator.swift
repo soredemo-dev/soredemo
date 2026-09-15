@@ -47,6 +47,19 @@ struct WindowConfigurator: NSViewRepresentable {
 
             // Registration is not idempotent, and registering twice is the defect.
             guard !observers.alreadyRegistered(for: window) else { return }
+
+            // **Ask to be the key window, because nothing else reliably does.**
+            //
+            // `EditorWindowPresence.openEditor` calls `NSApp.activate` immediately after asking
+            // SwiftUI for the window — which is before SwiftUI has made one, so the activation
+            // lands on an application with no editor in it. Whether the window that appears
+            // afterwards becomes key is then up to timing, and measured over four runs it was
+            // one in four: on the other three the trace read `register key=false` and stopped,
+            // the notification never arrived, and the editor sat at its default 900x492.
+            //
+            // This window is the thing somebody just asked for, so asking to be front is what
+            // it should do regardless of who else remembered to.
+            if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
             observers.adopt(openFullScreen(window) + keepUsablyLarge(window)
                             + watchFullScreen(window),
                             for: window)
@@ -101,6 +114,23 @@ struct WindowConfigurator: NSViewRepresentable {
 /// **After the window has become key, not at `makeNSView`**: AppKit restores an autosaved frame
 /// after the hierarchy is assembled, so a frame set earlier is one the restore overwrites.
 @MainActor private func openFullScreen(_ window: NSWindow) -> [any NSObjectProtocol] {
+    // **The notification can already have happened, and that was the intermittency.**
+    //
+    // `configure()` runs from `viewDidMoveToWindow` and from `updateNSView`; whether either has
+    // run by the time AppKit makes the window key is not something this code controls. Measured
+    // 2026-09-15 over three consecutive runs of the full-screen gate: one pass, two failures,
+    // and on both failures the window sat at its DEFAULT 900x492 — not the visible frame the
+    // toggle path sets, and not the 92% the other branch grows to. Neither branch ran, because
+    // the one-shot observer was registered after the only notification it would ever get.
+    //
+    // A missed notification is not a race to be narrowed; it is a question with an answer
+    // available right now. `isKeyWindow` IS that answer, so it is asked first and the observer
+    // is only for the case where it is not yet true.
+    if window.isKeyWindow {
+        enterFullScreenOrGrow(window)
+        return []
+    }
+
     let token = ObserverToken()
     token.value = NotificationCenter.default.addObserver(
         forName: NSWindow.didBecomeKeyNotification, object: window,
@@ -109,30 +139,35 @@ struct WindowConfigurator: NSViewRepresentable {
             // this block on the main queue, so it really is main-actor work.
             MainActor.assumeIsolated {
                 token.remove()
-                guard let window,
-                      let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
-                guard WindowConfigurator.opensFullScreen,
-                      !window.styleMask.contains(.fullScreen) else {
-                    // Not going full screen — either it is off or the window is already there —
-                    // so this is the only moment the floor gets applied on the way in.
-                    WindowSizeFloor.grow(window, within: visible)
-                    return
-                }
-                // **Full size first, then the toggle.** AppKit paints at the autosaved size
-                // before `didBecomeKey`, so the transition would otherwise zoom out of a small
-                // window somebody has already seen.
-                //
-                // `chosen` is kept because AppKit restores the pre-full-screen frame on exit,
-                // and that frame is about to become the whole screen.
-                let chosen = window.frame
-                restoreFrameOnExit(chosen, of: window)
-                window.setFrame(visible, display: false, animate: false)
-                FullScreenEntry.enter(window)
+                guard let window else { return }
+                enterFullScreenOrGrow(window)
             }
         }
     // Returned so the view can drop it if the window goes before it ever became key; the block
     // removes it itself on the ordinary path.
     return token.value.map { [$0] } ?? []
+}
+
+/// Full screen if that is what this editor does, and the size floor if it is not.
+@MainActor private func enterFullScreenOrGrow(_ window: NSWindow) {
+    guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+    guard WindowConfigurator.opensFullScreen,
+          !window.styleMask.contains(.fullScreen) else {
+        // Not going full screen — either it is off or the window is already there — so this is
+        // the only moment the floor gets applied on the way in.
+        WindowSizeFloor.grow(window, within: visible)
+        return
+    }
+    // **Full size first, then the toggle.** AppKit paints at the autosaved size before the
+    // window becomes key, so the transition would otherwise zoom out of a small window somebody
+    // has already seen.
+    //
+    // `chosen` is kept because AppKit restores the pre-full-screen frame on exit, and that
+    // frame is about to become the whole screen.
+    let chosen = window.frame
+    restoreFrameOnExit(chosen, of: window)
+    window.setFrame(visible, display: false, animate: false)
+    FullScreenEntry.enter(window)
 }
 
 /// Puts back the size somebody had chosen, the first time this window leaves full screen.

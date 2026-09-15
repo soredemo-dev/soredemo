@@ -587,6 +587,37 @@ final class RecordingCoordinator {
 
     func stop() { Task { await stopRecording() } }
 
+    /// Whether the last few seconds could be saved right now. See `CaptureSession.ClipBuffer`.
+    var clipReadiness: CaptureSession.ClipReadiness {
+        session?.clipReadiness ?? .thisSystemHasNoClipBuffer
+    }
+
+    /// Writes the last `seconds` beside the recording and says what happened.
+    ///
+    /// **Into the scratch package, not a save panel.** Somebody pressing this has just watched
+    /// something go wrong; a file dialog in that moment is a dialog they dismiss. It lands
+    /// beside the recording, and the status line says where.
+    func saveClip(lastSeconds seconds: Double) {
+        guard let session, let sink else { return }
+        Task {
+            // **`Minting`, not `Date()`.** Ambient values enter this app at one audited place
+            // and travel as plain values — rule 3, and it is zero-permit in the app target.
+            let stamp = String(Minting.epochAnchor().wallClockUnixNanos / 1_000_000_000)
+            let destination = sink.packageURL?
+                .appending(path: "clip-\(stamp).mov", directoryHint: .notDirectory)
+            guard let destination else {
+                statusText = String(localized: "There is nowhere to put the clip yet.")
+                return
+            }
+            switch await session.saveClip(lastSeconds: seconds, to: destination) {
+            case .wrote(let url):
+                statusText = String(localized: "Saved the last \(Int(seconds)) seconds to \(url.lastPathComponent).")
+            case .refused(let reason):
+                statusText = String(localized: "The clip could not be saved: \(reason)")
+            }
+        }
+    }
+
     /// **Pause writes nothing rather than writing silence.** `CaptureSession.pause()` closes the
     /// segment; `resume()` opens another. The recording is one file per segment and the segment
     /// table stitches them, so a pause costs a cut rather than a stretch of frozen frame.

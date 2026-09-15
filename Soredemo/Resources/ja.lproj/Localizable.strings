@@ -485,3 +485,7 @@
 "There are no captions to export." = "書き出す字幕がありません。";
 "Wrote %lld cue(s) to %@." = "字幕 %lld 件を %@ に書き出しました。";
 "Match my system captions" = "システムの字幕設定に合わせる";
+"Save the last %lld seconds — the recording keeps going" = "最後の %lld 秒を保存 — 収録は続きます";
+"Saved the last %lld seconds to %@." = "最後の %lld 秒を %@ に保存しました。";
+"The clip could not be saved: %@" = "クリップを保存できませんでした:%@";
+"There is nowhere to put the clip yet." = "クリップを置く場所がまだありません。";

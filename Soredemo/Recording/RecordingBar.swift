@@ -128,6 +128,7 @@ struct RecordingBarView: View {
             BarButton(icon: "chevron.right.2", label: "Collapse — the recording keeps going") {
                 isCollapsed = true
             }
+            clipButton
             stopButton
         }
         .padding(.horizontal, Space.regular)
@@ -200,6 +201,32 @@ struct RecordingBarView: View {
         .frame(width: 34)
         .help(coordinator.microphoneLevel == nil
               ? "No microphone in this recording" : "Microphone level")
+    }
+
+    /// Save the last fifteen seconds, while the recording keeps going.
+    ///
+    /// **Present only while it would work.** `clipReadiness` has three answers and only one of
+    /// them is a button: a Mac without the API gets nothing, a buffer that failed to start gets
+    /// nothing — the recording is unaffected either way, and a control that refuses when
+    /// pressed is worse than one that was never there. The reason is not lost: it is in the
+    /// status line if anybody looks.
+    ///
+    /// **Not a shortcut.** This panel is `.nonactivatingPanel` and never becomes key, for the
+    /// reason the Stop button records; a system-wide key for this would need registering
+    /// beside the stop key, which is a decision about somebody's keyboard and not one to make
+    /// on their behalf.
+    @ViewBuilder private var clipButton: some View {
+        if case .ready(let ceiling) = coordinator.clipReadiness {
+            Button { coordinator.saveClip(lastSeconds: ceiling) } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Space.snug)
+                    .padding(.vertical, Space.snug)
+            }
+            .buttonStyle(.plain)
+            .help("Save the last \(Int(ceiling)) seconds — the recording keeps going")
+        }
     }
 
     @ViewBuilder private var stopButton: some View {
