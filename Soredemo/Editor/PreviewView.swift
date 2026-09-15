@@ -14,6 +14,12 @@ struct PreviewView: NSViewRepresentable {
         // over the picture, and carry a second timeline that knows nothing about the edit.
         view.controlsStyle = .none
         view.videoGravity = .resizeAspect
+        // **Live Text off.** `AVPlayerView` analyses video frames for text and subjects by
+        // default, which for a screen recording means running OCR over a screen full of text,
+        // continuously, while it plays — and hanging VisionKit's overlay views inside this
+        // hosting view, where their layout runs during ours. See
+        // `docs/design/why-the-editor-felt-slow.md` for the measurement.
+        view.allowsVideoFrameAnalysis = false
         return view
     }
 
