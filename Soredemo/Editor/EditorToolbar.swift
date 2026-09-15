@@ -128,10 +128,15 @@ struct EditorToolbar: View {
     }
 
     @ViewBuilder private var cutting: some View {
-        ToolbarAction(icon: "square.split.2x1", help: "Split at the playhead (S)",
-                      isEnabled: model.canSplitAtPlayhead) {
-            model.splitAtPlayhead()
-            onChange()
+        // **`canSplitAtPlayhead` reads the playhead, so reading it HERE rebuilt the toolbar ten
+        // times a second while a recording played** — see `AtPlayhead`. The value is not used;
+        // the boundary is. One button's enabled state is what the tick is allowed to touch.
+        AtPlayhead(model: model) { _ in
+            ToolbarAction(icon: "square.split.2x1", help: "Split at the playhead (S)",
+                          isEnabled: model.canSplitAtPlayhead) {
+                model.splitAtPlayhead()
+                onChange()
+            }
         }
         ToolbarAction(icon: "trash", help: "Delete the selected clip (\u{232B})",
                       isEnabled: model.selectedClip != nil) {

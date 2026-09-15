@@ -274,6 +274,9 @@ struct StageWindow: View {
         // **The timeline sits under the preview**, because a timeline is read along its length
         // while watching the picture above it, and an inspector is read down a column.
         stage
+            // **The one view that watches the playhead at the playhead's own rate.** Installed
+            // here because this is where both models are; it draws nothing. See its header.
+            .background(CaptionCueTracker(timeline: timeline, captions: captions))
             // **The caption editor REPLACES the stage rather than floating over it.** A sheet
             // would have kept the timeline and the inspector behind it, which is exactly the
             // arrangement this mode exists to get out of the way — and there is one `AVPlayer`,
@@ -283,8 +286,10 @@ struct StageWindow: View {
             .opacity(isCaptionEditorShown ? 0 : 1)
             .overlay {
                 if isCaptionEditorShown, let player {
+                    // No `AtPlayhead` here: `CaptionEditor` takes the timeline and confines
+                    // the read to the waveform, which is the only part of it that moves.
                     CaptionEditor(
-                        model: captions, playhead: timeline.playhead,
+                        model: captions, timeline: timeline,
                         duration: timeline.duration, waveform: timeline.waveform,
                         pauses: timeline.silences,
                         onSeek: { timeline.movePlayhead(to: $0) },
@@ -750,8 +755,10 @@ struct StageWindow: View {
             case .selection:
                 List {
                     Section("Zoom amount") { zoomIntensityControl }
-                    FramingReviewSections(model: review, onChange: { reviewRevision += 1 },
-                                          playhead: timeline.playhead)
+                    AtPlayhead(model: timeline) { playhead in
+                        FramingReviewSections(model: review, onChange: { reviewRevision += 1 },
+                                              playhead: playhead)
+                    }
                 }
                 .listStyle(.sidebar)
             case .transcript:
@@ -773,21 +780,29 @@ struct StageWindow: View {
                 }
                 .disabled(captions.track.isEmpty)
                 .help("Captions at full width, with the waveform")
+                // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes
+                // when the highlighted cue changes rather than ten times a second.
                 CaptionsPanel(model: captions, mediaURL: mediaURL, edit: timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 },
-                              playhead: timeline.playhead,
+                              playheadNow: { timeline.playhead },
                               onSeek: { timeline.movePlayhead(to: $0) },
                               pauses: timeline.silences)
             case .text:
-                TextPanel(model: texts, playhead: timeline.playhead,
-                          onChange: { reviewRevision += 1 })
+                AtPlayhead(model: timeline) { playhead in
+                    TextPanel(model: texts, playhead: playhead,
+                              onChange: { reviewRevision += 1 })
+                }
             case .hide:
-                RedactionPanel(model: redactions, playhead: timeline.playhead,
-                               onChange: { reviewRevision += 1 })
+                AtPlayhead(model: timeline) { playhead in
+                    RedactionPanel(model: redactions, playhead: playhead,
+                                   onChange: { reviewRevision += 1 })
+                }
             case .mark:
-                AnnotationPanel(model: annotations, playhead: timeline.playhead,
-                                onChange: { reviewRevision += 1 })
+                AtPlayhead(model: timeline) { playhead in
+                    AnnotationPanel(model: annotations, playhead: playhead,
+                                    onChange: { reviewRevision += 1 })
+                }
             }
         }
     }

@@ -133,6 +133,8 @@ xcrun swiftc \
   Soredemo/Editor/ScrubAudio.swift \
   Soredemo/Editor/TimelineEditor.swift \
   Soredemo/Editor/EditorToolbar.swift \
+  Soredemo/Editor/AtPlayhead.swift \
+  Soredemo/Editor/CaptionCueTracker.swift \
   Soredemo/DesignSystem/Theme.swift \
   Soredemo/App/WindowConfigurator.swift \
   Soredemo/Recording/TargetPickerOverlay.swift \

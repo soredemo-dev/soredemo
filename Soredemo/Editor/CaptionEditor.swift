@@ -26,7 +26,12 @@ import Timeline
 /// full width beside them. One playhead drives all three.
 struct CaptionEditor: View {
     let model: CaptionsModel
-    let playhead: Nanoseconds
+    /// **The timeline, for the playhead alone, and read only inside `AtPlayhead`.** This view
+    /// used to take `playhead: Nanoseconds`, which put the moving value in its own inputs: at
+    /// ten ticks a second that rebuilt the picture, the waveform AND the whole cue list. The
+    /// waveform genuinely needs the value — it draws a line at it — and nothing else here does,
+    /// so the read is confined to the one boundary that needs it.
+    let timeline: TimelineEditorModel
     let duration: Nanoseconds?
     let waveform: WaveformEnvelope?
     let pauses: [SilenceFinder.Span]
@@ -54,15 +59,19 @@ struct CaptionEditor: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Theme.Surface.preview)
                 Divider().overlay(Theme.Line.hairline)
-                CaptionWaveform(model: model, playhead: playhead, duration: duration,
-                                waveform: waveform, visibleFraction: $visibleFraction,
-                                onSeek: onSeek, onChange: onChange)
-                    .frame(height: 96)
+                AtPlayhead(model: timeline) { playhead in
+                    CaptionWaveform(model: model, playhead: playhead, duration: duration,
+                                    waveform: waveform, visibleFraction: $visibleFraction,
+                                    onSeek: onSeek, onChange: onChange)
+                }
+                .frame(height: 96)
             }
             .frame(minWidth: 420)
 
             VStack(spacing: 0) {
-                CaptionLines(model: model, onChange: onChange, playhead: playhead,
+                CaptionLines(model: model, onChange: onChange,
+                             currentIndex: model.currentCueIndex,
+                             playheadNow: { timeline.playhead },
                              onSeek: onSeek, pauses: pauses,
                              state: listState, focused: $focused)
                 Divider().overlay(Theme.Line.hairline)

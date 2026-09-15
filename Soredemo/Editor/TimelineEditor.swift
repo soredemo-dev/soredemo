@@ -849,6 +849,20 @@ struct TimelineEditor: View {
     }
 
     @ViewBuilder private func playheadLine(duration: Nanoseconds) -> some View {
+        // **`AtPlayhead` OUTSIDE the `GeometryReader`, and the order was measured.** The first
+        // version of this fix left the read where it is below, on the assumption that a
+        // `GeometryReader`'s closure runs in its own update and so registers the dependency
+        // there. `Self._printChanges()` said otherwise: `\TimelineEditorModel.playhead changed`
+        // against `TimelineEditor`, 68 times in eight seconds of playback, with every other read
+        // in this file already moved out. The closure is built during THIS body, and that is
+        // where `@Observable` attributes what it touches.
+        AtPlayhead(model: model) { playhead in
+            playheadLine(duration: duration, at: playhead)
+        }
+    }
+
+    @ViewBuilder private func playheadLine(duration: Nanoseconds,
+                                           at playhead: Nanoseconds) -> some View {
         GeometryReader { proxy in
             // **The header AND the gap after it.** `lane` is `HStack(spacing: Space.snug)` with
             // an 84-point header, so its content starts at 92 and is 92 narrower than the
@@ -860,7 +874,7 @@ struct TimelineEditor: View {
             Rectangle()
                 .fill(Theme.Ink.primary)
                 .frame(width: 1)
-                .offset(x: contentOrigin + fraction(model.playhead, of: duration) * track)
+                .offset(x: contentOrigin + fraction(playhead, of: duration) * track)
         }
         .allowsHitTesting(false)
     }
@@ -1453,7 +1467,11 @@ struct TimelineEditor: View {
 
     @ViewBuilder private func readout(duration: Nanoseconds) -> some View {
         HStack {
-            Text(Self.stamp(model.playhead))
+            // **The timecode is the whole reason this timeline used to rebuild during playback.**
+            // Reading `model.playhead` in a `@ViewBuilder` method of this struct is a read by
+            // THIS body, so one `Text` dragged every lane, every clip, every caption block and
+            // the waveform through a fresh layout ten times a second. See `AtPlayhead`.
+            AtPlayhead(model: model) { Text(Self.stamp($0)) }
             Spacer()
             if let selection = model.selection {
                 Text("selected \(Self.stamp(Nanoseconds(Int64(selection.count))))")
@@ -1477,11 +1495,18 @@ struct TimelineEditor: View {
     /// toolbar's buttons are the ones a reader should find.
     @ViewBuilder private var shortcutLayer: some View {
         Group {
-            Button("Split at playhead") { model.splitAtPlayhead(); onChange() }
-                .disabled(!model.canSplitAtPlayhead)
-                // `S` unmodified, the spelling every editor uses for a cut
-                // at the playhead. No modifier: it is the most-used key in an editing session.
-                .keyboardShortcut("s", modifiers: [])
+            // **`canSplitAtPlayhead` reads the playhead**, so `.disabled` on it is a read by
+            // this body — the last one in this file, and the one that kept the whole timeline
+            // rebuilding after the other four were moved. Found with `Self._printChanges()`,
+            // not by reading: four rounds of "surely that is the last one" had already been
+            // wrong. See `AtPlayhead`.
+            AtPlayhead(model: model) { _ in
+                Button("Split at playhead") { model.splitAtPlayhead(); onChange() }
+                    .disabled(!model.canSplitAtPlayhead)
+                    // `S` unmodified, the spelling every editor uses for a cut
+                    // at the playhead. No modifier: it is the most-used key in an editing session.
+                    .keyboardShortcut("s", modifiers: [])
+            }
             Button("Delete clip") { model.deleteSelectedClip(); onChange() }
                 .disabled(model.selectedClip == nil)
                 .keyboardShortcut(.delete, modifiers: [])

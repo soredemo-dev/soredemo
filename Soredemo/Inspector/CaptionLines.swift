@@ -22,9 +22,20 @@ struct CaptionLines: View {
     let model: CaptionsModel
     /// Rebuild whatever is drawing the captions — the preview, or the editor's own picture.
     let onChange: () -> Void
-    /// Where the playhead is, in the RECORDING's own time — the same clock a cue is stamped in,
-    /// so no conversion happens here.
-    let playhead: Nanoseconds
+    /// Which cue the playhead is inside, or `nil` between cues.
+    ///
+    /// **An index, not the playhead, and that is the difference between a list that rebuilds
+    /// when the highlight moves and one that rebuilds ten times a second.** This used to be
+    /// `let playhead: Nanoseconds`, from which `currentIndex` was derived here — which made the
+    /// playhead an input to every row. See `CaptionsModel.currentCueIndex`, which holds the
+    /// answer now, and `CaptionCueTracker`, which keeps it in step.
+    let currentIndex: Int?
+    /// The playhead, read at the moment a key is pressed rather than stored.
+    ///
+    /// Stepping to the next cue is measured from wherever the playhead is *now*, so this needs
+    /// the value — but only inside an action, where reading it costs nothing. A stored
+    /// `Nanoseconds` would put it back in the rebuild path, which is the whole defect.
+    let playheadNow: () -> Nanoseconds
     /// Move the playhead. **The list is a way of navigating the recording**, not a table of its
     /// contents: a caption is corrected at the pace of playback, and a row that cannot be
     /// listened to is a row somebody has to find in the scrubber first.
@@ -88,11 +99,6 @@ struct CaptionLines: View {
         }
     }
 
-    /// The index of the cue the playhead is inside, or `nil` between cues.
-    private var currentIndex: Int? {
-        model.track.cues.firstIndex { $0.contains(playhead) }
-    }
-
     /// The cues the search allows through, each with its index into the unfiltered track — which
     /// is what every edit below addresses, so filtering can never retime the wrong line.
     private var visibleCues: [(index: Int, cue: CaptionCue)] {
@@ -137,7 +143,7 @@ struct CaptionLines: View {
     /// between two of them, which is most of a recording — is `CaptionTrack`'s decision, where
     /// it can be tested.
     private func jump(by delta: Int) {
-        guard let target = model.track.index(steppingFrom: playhead, by: delta) else { return }
+        guard let target = model.track.index(steppingFrom: playheadNow(), by: delta) else { return }
         onSeek(model.track.cues[target].start)
         focused = target
     }

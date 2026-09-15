@@ -24,6 +24,21 @@ import UniformTypeIdentifiers
 final class CaptionsModel {
     private(set) var track = CaptionTrack()
     private(set) var style: CaptionStyle = .default
+
+    /// Which cue the playhead is inside, or `nil` between cues.
+    ///
+    /// **Held here rather than derived in the list, and that is a performance decision with a
+    /// measurement behind it.** The list used to take the playhead itself and find the cue from
+    /// it, which made the playhead an input to every row — so a recording playing at 10 ticks a
+    /// second rebuilt all 270 rows ten times a second, and one `sample` over six seconds of
+    /// playback found the main thread **0.1% idle** with `CaptionLines.rows` and `row(index:cue:)`
+    /// alone accounting for a fifth of it. With the caption tab closed the same playback left the
+    /// main thread 23% idle.
+    ///
+    /// An index changes when a cue changes — a few times a minute in a real transcript, not ten
+    /// times a second — so the rows rebuild when the highlight actually moves. `CaptionCueTracker`
+    /// is the one view that watches the playhead at its own rate and writes this.
+    private(set) var currentCueIndex: Int?
     /// Draw the captions into the picture. Off by default: a burnt-in caption cannot be turned
     /// off, and a person who wanted a sidecar has not asked for one in their video.
     private(set) var burnsIn = false
@@ -98,6 +113,14 @@ final class CaptionsModel {
     var canTranscribe: Bool { OnDeviceTranscription.isAvailable && !isTranscribing }
 
     init() { publish() }
+
+    /// Called by `CaptionCueTracker` on every playhead change. **Assigns only when the answer
+    /// differs**, because `@Observable` publishes an assignment rather than a change, and an
+    /// equal write here would undo the whole point of the field.
+    func noteCurrentCue(at playhead: Nanoseconds) {
+        let found = track.cues.firstIndex { $0.contains(playhead) }
+        if found != currentCueIndex { currentCueIndex = found }
+    }
 
     // MARK: - producing
 
@@ -353,9 +376,11 @@ struct CaptionsPanel: View {
     /// Rebuild the preview: turning burn-in on has to change the picture, or the toggle is a
     /// form field rather than a control.
     let onChange: () -> Void
-    /// Where the playhead is, in the RECORDING's own time — the same clock a cue is stamped in,
-    /// so no conversion happens here.
-    let playhead: Nanoseconds
+    /// The playhead, read at the moment a key is pressed rather than stored — see
+    /// `CaptionLines.playheadNow`. This panel itself needs no playhead: which cue is current
+    /// comes from `model.currentCueIndex`, which changes when the highlight moves rather than
+    /// ten times a second.
+    let playheadNow: () -> Nanoseconds
     /// Move the playhead. **The list is a way of navigating the recording**, not a table of its
     /// contents: a caption is corrected at the pace of playback, and a row that cannot be
     /// listened to is a row somebody has to find in the scrubber first.
@@ -418,16 +443,16 @@ struct CaptionsPanel: View {
     /// The shared cue list, configured for this panel. **The state it reads is held HERE**, by
     /// this view's `@State`, because the struct below is rebuilt on every redraw.
     private var lines: CaptionLines {
-        CaptionLines(model: model, onChange: onChange, playhead: playhead,
+        CaptionLines(model: model, onChange: onChange,
+                     currentIndex: model.currentCueIndex, playheadNow: playheadNow,
                      onSeek: onSeek, pauses: pauses,
                      state: listState, focused: $focused)
     }
 
     /// The index of the cue the playhead is inside, or `nil` between cues. Kept here only to
-    /// scroll to it; every other use of it moved into `CaptionLines`.
-    private var currentIndex: Int? {
-        model.track.cues.firstIndex { playhead >= $0.start && playhead < $0.end }
-    }
+    /// scroll to it; every other use of it moved into `CaptionLines`. Read from the model rather
+    /// than derived, for the reason in `CaptionsModel.currentCueIndex`.
+    private var currentIndex: Int? { model.currentCueIndex }
 
     @ViewBuilder private var transcriptControls: some View {
         if model.isTranscribing {

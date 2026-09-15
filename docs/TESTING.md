@@ -307,15 +307,28 @@ an assumed pass.
 
 ### 5.2 Performance
 
-**Measured 2026-09-05**, `FrameTimeBudgetTests`: sixty renders after a five-render
-warm-up, a card over a background with a cursor mid-ripple — a frame with nothing on it
-measures the cheapest case, and the cheapest case is not the one that stutters.
+**Re-measured 2026-09-15 on macOS 27** — see § 0.5 for why, and for the two runs that were
+wrong first. `FrameTimeBudgetTests`: sixty renders after a five-render warm-up, a card over a
+background with a cursor mid-ripple, because a frame with nothing on it measures the cheapest
+case and the cheapest case is not the one that stutters.
 
 | | median | p90 | p99 | budget |
 |---|---|---|---|---|
-| 1920×1080 | **3.61 ms** | 4.95 | 5.76 | median < 12 |
-| 3840×2160 | **8.69 ms** | 9.88 | 11.48 | median < 25 |
-| 4K ÷ 1080p | **2.4×** | | | < 4× |
+| 1920×1080 | **2.5 ms** | | | median < 8 |
+| 3840×2160 | **7.2 ms** | | | median < 22 |
+| 4K ÷ 1080p (min ÷ min) | **2.3×** | | | < 4× |
+| 3492×1964 | **7.13 ms** | 10.29 | 12.33 | not asserted — see below |
+
+The ratio is **min ÷ min**, not median ÷ median, and the test's own header says why: the two
+sizes are timed one after the other, so a burst of load lands on one and not the other. Re-taken
+2026-09-16 at 2.31x on a machine that had just compiled — which is exactly the case the minimum
+is chosen for, and why that run's medians (3.98 and 8.72) are not in the table.
+
+The last row is one recording's own size rather than a standard one, taken while answering
+"why is the editor lagging". It is reported and not asserted: a budget exists to catch a
+regression in a shape the product actually renders, and two sizes already pin the curve the
+ratio row is about. It is here because it is the number that showed the compositor was *not*
+the problem.
 
 The budgets are about **three times** the measured medians, and that looseness is
 deliberate: this runs on whatever machine a person has, beside a full Xcode, and a
@@ -336,8 +349,23 @@ cost went linear in pixels would still pass both absolute budgets on a fast Mac 
 being wrong; 4K costs 2.4× 1080p today for four times the pixels, and above 4× it has
 stopped amortising anything across the frame.
 
-Still unmeasured: caption rebuild at 270 cues (L1), timeline redraw, and export
-throughput.
+**Timeline redraw, measured 2026-09-16** — it was on this list as unmeasured, and the
+measurement found a defect. During playback of a 3,492 x 1,964 recording the main thread
+spent 43% of its samples inside `NSHostingView.layout()` and was idle 21% of the time;
+paused, it was 99.6% idle with zero layout samples. All of it was ten invalidations a
+second from `TransportBar`'s poll, reaching every view that read `playhead` in its own
+body. `TimelineEditor`'s body ran **74 times in eight seconds of playback, and 0 after**
+`AtPlayhead` moved those reads. Release behaves like debug here (40% against 43%), so the
+build configuration is not the explanation.
+
+The oracle for the user-facing half is CoreMedia's own account, not a proxy: over twenty
+seconds, ~1,170 frames decoded, **0 dropped, 0 more than 16 ms late**, both before and
+after. See `docs/design/why-the-editor-felt-slow.md`, whose second half is about the three
+measurements that were wrong first — a shell builtin shadowing `log`, a before/after where
+only one side was playing, and a counter that was never wired. Each returned a confident
+zero.
+
+Still unmeasured: export throughput.
 
 `CameraMotionTests`' existing timing assertion is the model for all of these: it exists
 because a real recording stuttered, it names the number, and it fails if the O(n²)
@@ -483,9 +511,9 @@ In the order a defect found there would cost the most.
 1. ~~**Memory budgets while recording.**~~ **Started 2026-09-05**, probe § 28 — §5.1 has the
    figures and, more importantly, the three things they still do not establish. The
    30-minute soak is the one that matters and it cannot live in a gate.
-2. ~~**Frame-time budget for the compositor.**~~ **Done 2026-09-05** — §5.2. What is
-   still unmeasured there is the caption rebuild, the timeline redraw and export
-   throughput.
+2. ~~**Frame-time budget for the compositor.**~~ **Done 2026-09-05** — §5.2. The caption
+   rebuild followed; the timeline redraw was measured 2026-09-16 and found a defect
+   (`docs/design/why-the-editor-felt-slow.md`). Export throughput is what is left.
 3. ~~**App-tier model tests.**~~ **Started 2026-09-10.** There is a `SoredemoTests` target now,
    hosted by the app, run by `scripts/run-app-tests.sh` as a fifth gate — six tests over
    `CaptionsModel` and `TimelineEditorModel`. The infrastructure was the whole obstacle: the
@@ -504,3 +532,15 @@ In the order a defect found there would cost the most.
 5. **CI.** Not first: four gates a person runs is a real process, and a CI that cannot
    open a display cannot run gate 3 — which is where this project's hardest tests are.
 6. UI tests, and only the three flows in §6.
+7. **A gate for how much the editor redraws while playing.** Added here rather than built,
+   because the honest version is not cheap and the cheap version is a scan that would cry
+   wolf. The invariant is real and now has a name — no view body may read `playhead` except
+   `AtPlayhead`'s — but every legitimate use in the app *also* spells `playhead`: the model's
+   own methods, the panels' `let playhead` parameters, every `Button` action closure. A grep
+   that flags those is a grep somebody turns off, which this project has already learned once.
+   The gate that would work is the one used to find the defect: launch the app against a
+   fixture project, play, and count body evaluations against a ceiling, with a positive
+   control so a zero cannot come from an unwired probe. That needs a committed fixture
+   recording, which the repository does not have and which `SmokeTests` currently builds in
+   Swift at test time — so the first piece of work is a fixture a shell gate can use, not the
+   gate.
