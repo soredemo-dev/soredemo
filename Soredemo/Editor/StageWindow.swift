@@ -20,6 +20,7 @@ import SwiftUI
 /// standard components get Liquid Glass automatically and respond to the system-level Liquid
 /// Glass slider, which a custom surface does not.
 struct StageWindow: View {
+    @Environment(\.undoManager) private var undoManager
     /// Where the self-view was left during the recording, so the stage opens with the camera
     /// there rather than back at the default — see `CameraSelfView`.
     var initialCameraStyle: CameraOverlayStyle = .default
@@ -277,6 +278,12 @@ struct StageWindow: View {
             // **The one view that watches the playhead at the playhead's own rate.** Installed
             // here because this is where both models are; it draws nothing. See its header.
             .background(CaptionCueTracker(timeline: timeline, captions: captions))
+            // **The window's undo stack, handed to the caption model.** ⌘Z and ⇧⌘Z come from
+            // the system's Edit menu once something registers with this manager; the timeline
+            // keeps its own `EditHistory`, which is a different stack for a different surface —
+            // undoing a caption correction should not undo a cut.
+            .onAppear { captions.undoRecorder = undoManager }
+            .onChange(of: undoManager) { captions.undoRecorder = undoManager }
             // **The caption editor REPLACES the stage rather than floating over it.** A sheet
             // would have kept the timeline and the inspector behind it, which is exactly the
             // arrangement this mode exists to get out of the way — and there is one `AVPlayer`,

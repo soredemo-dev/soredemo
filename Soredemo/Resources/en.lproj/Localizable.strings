@@ -503,3 +503,9 @@
 "Saved the last %lld seconds to %@." = "Saved the last %lld seconds to %@.";
 "The clip could not be saved: %@" = "The clip could not be saved: %@";
 "There is nowhere to put the clip yet." = "There is nowhere to put the clip yet.";
+"Edit Caption" = "Edit Caption";
+"Delete Caption" = "Delete Caption";
+"Retime Caption" = "Retime Caption";
+"Split Caption" = "Split Caption";
+"Merge Captions" = "Merge Captions";
+"Snap Caption" = "Snap Caption";

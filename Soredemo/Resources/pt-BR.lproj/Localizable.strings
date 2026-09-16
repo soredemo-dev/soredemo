@@ -488,3 +488,9 @@
 "Saved the last %lld seconds to %@." = "Os últimos %lld segundos foram salvos em %@.";
 "The clip could not be saved: %@" = "O clipe não pôde ser salvo: %@";
 "There is nowhere to put the clip yet." = "Ainda não há onde colocar o clipe.";
+"Edit Caption" = "Editar legenda";
+"Delete Caption" = "Excluir legenda";
+"Retime Caption" = "Reajustar a legenda";
+"Split Caption" = "Dividir a legenda";
+"Merge Captions" = "Mesclar legendas";
+"Snap Caption" = "Alinhar a legenda";

@@ -487,3 +487,9 @@
 "Saved the last %lld seconds to %@." = "Последние %lld секунд сохранены в %@.";
 "The clip could not be saved: %@" = "Клип не удалось сохранить: %@";
 "There is nowhere to put the clip yet." = "Пока некуда положить клип.";
+"Edit Caption" = "Изменить субтитр";
+"Delete Caption" = "Удалить субтитр";
+"Retime Caption" = "Изменить тайминг субтитра";
+"Split Caption" = "Разделить субтитр";
+"Merge Captions" = "Объединить субтитры";
+"Snap Caption" = "Выровнять субтитр";

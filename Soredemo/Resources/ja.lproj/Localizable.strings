@@ -489,3 +489,9 @@
 "Saved the last %lld seconds to %@." = "最後の %lld 秒を %@ に保存しました。";
 "The clip could not be saved: %@" = "クリップを保存できませんでした:%@";
 "There is nowhere to put the clip yet." = "クリップを置く場所がまだありません。";
+"Edit Caption" = "字幕を編集";
+"Delete Caption" = "字幕を削除";
+"Retime Caption" = "字幕のタイミングを変更";
+"Split Caption" = "字幕を分割";
+"Merge Captions" = "字幕を結合";
+"Snap Caption" = "字幕をスナップ";

@@ -1429,9 +1429,9 @@ struct TimelineEditor: View {
     /// key ends up nudging a playhead the person is not looking at.
     @ViewBuilder private func playheadKeys(duration: Nanoseconds) -> some View {
         Group {
-            Button("") { nudge(by: -Self.frameStep, duration: duration) }
+            Button("", action: unlessTyping { nudge(by: -Self.frameStep, duration: duration) })
                 .keyboardShortcut(.leftArrow, modifiers: [])
-            Button("") { nudge(by: Self.frameStep, duration: duration) }
+            Button("", action: unlessTyping { nudge(by: Self.frameStep, duration: duration) })
                 .keyboardShortcut(.rightArrow, modifiers: [])
             // Shift is the coarse step, matching how a person expects a modifier to scale a
             // nudge everywhere else on the system.
@@ -1501,21 +1501,21 @@ struct TimelineEditor: View {
             // not by reading: four rounds of "surely that is the last one" had already been
             // wrong. See `AtPlayhead`.
             AtPlayhead(model: model) { _ in
-                Button("Split at playhead") { model.splitAtPlayhead(); onChange() }
+                Button("Split at playhead", action: unlessTyping { model.splitAtPlayhead(); onChange() })
                     .disabled(!model.canSplitAtPlayhead)
                     // `S` unmodified, the spelling every editor uses for a cut
                     // at the playhead. No modifier: it is the most-used key in an editing session.
                     .keyboardShortcut("s", modifiers: [])
             }
-            Button("Delete clip") { model.deleteSelectedClip(); onChange() }
+            Button("Delete clip", action: unlessTyping { model.deleteSelectedClip(); onChange() })
                 .disabled(model.selectedClip == nil)
                 .keyboardShortcut(.delete, modifiers: [])
             // `I` and `O` unmodified — the spelling every editor that has in and out points
             // uses. No modifier for the same reason `S` has none: these are session keys, not
             // commands.
-            Button("Mark in") { model.markIn() }
+            Button("Mark in", action: unlessTyping { model.markIn() })
                 .keyboardShortcut("i", modifiers: [])
-            Button("Mark out") { model.markOut() }
+            Button("Mark out", action: unlessTyping { model.markOut() })
                 .keyboardShortcut("o", modifiers: [])
             Button("Clear range") { model.clearExportRange() }
                 .disabled(model.inPoint == nil && model.outPoint == nil)

@@ -391,6 +391,33 @@ Both fixes were verified by reverting them: the scale fix turns 29.2 red, the or
 29.3 and 29.4 red. The pure file carries its own control — feeding a global rectangle where a
 local one belongs must put every sample off the recording, or the other four tests mean nothing.
 
+### 5.2c Two environment conditions that read as product bugs
+
+Found 2026-09-16, both while running the gates on a machine that had been in use all day.
+
+**A locked screen turns on secure input, and this app is right to go silent under it.**
+`InputObserver.handle` checks `IsSecureEventInputEnabled()` before it reads anything off an
+event — a password field must never reach an observation log — so with secure input on it emits
+nothing at all. A locked screen sets it system-wide (`kCGSSessionSecureInputPID` in
+`ioreg`, alongside `CGSSessionScreenIsLocked = Yes`). The effect is that
+`aRefreshedShapeStillReachesTheSamples` and four probe checks fail, and they fail looking
+exactly like a regression in the pointer path. The probe already had a precondition check saying
+so in words; the package test did not, and now skips by name. **Gate 3 and gate 6 cannot pass
+with the screen locked** — gate 6 needs a window it can put full screen.
+
+**`UndoManager` cannot be created and released inside the app-hosted test target.** The caption
+undo tests each passed alone and, run as a suite, took the host down with a `SIGSEGV` inside
+`MenuBarRecorderPanel.body` — a view none of them touch — then, after one attempted fix, hung
+with the bundle loaded and no test started. `UndoManager` installs a run-loop observer to close
+its automatic groups and does not retain the targets it is registered with; one that outlives
+its test leaves both behind in a process that keeps running. The fix was a seam — `UndoRecording`
+— and it is a better design anyway: what is worth testing is WHEN this app registers a step, not
+that Foundation's stack works.
+
+**Both lessons are the same one.** A test that fails for a reason outside the code under test
+must say which reason, or the next person spends an afternoon on the wrong thing. That is what
+the probe's named skips have always been for; two more places now do it.
+
 ### 5.3 Compatibility
 
 | axis | today | proposal |

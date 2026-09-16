@@ -70,16 +70,20 @@ struct CaptionField: NSViewRepresentable {
         let holdsCaret = window.firstResponder === field.currentEditor()
             && field.currentEditor() != nil
         if isFocused, !holdsCaret {
-            // Deferred: `updateNSView` can run inside a layout pass, and changing the first
-            // responder there is a change to the hierarchy while it is being read.
+            // **The caret is placed after focusing, because AppKit's answer to "you are now
+            // first responder" is to SELECT ALL** — right for a form field, wrong for a line
+            // somebody stepped into to fix a word in. Only the programmatic path reaches here;
+            // a click sets the responder itself and lands in the branch above.
             //
-            // **`Task`, not `DispatchQueue.main.async`.** The dispatch spelling enqueues at the
-            // DEFAULT quality of service, and the main thread — which is user-interactive while
-            // somebody is typing — then has to wait behind it. The runtime says so out loud:
-            // "Thread running at User-interactive QoS waiting on a lower QoS thread running at
-            // Default". A `Task` on the main actor carries the enqueueing context's priority, so
-            // there is no inversion to warn about, and it is the same one-turn deferral.
-            Task { @MainActor in window.makeFirstResponder(field) }
+            // Deferred, and with a `Task` rather than `DispatchQueue.main.async`: changing the
+            // first responder inside a layout pass changes the hierarchy while it is being
+            // read, and the dispatch spelling enqueues at DEFAULT QoS, which makes the
+            // user-interactive main thread wait behind it and the runtime say so.
+            Task { @MainActor in
+                guard window.makeFirstResponder(field), let editor = field.currentEditor()
+                else { return }
+                editor.selectedRange = CaptionFieldCaret.range(afterFocusing: field.stringValue)
+            }
         } else if !isFocused, holdsCaret {
             Task { @MainActor in window.makeFirstResponder(nil) }
         }
@@ -142,6 +146,27 @@ struct CaptionField: NSViewRepresentable {
                 parent.onMergeWithPrevious()
                 return true
 
+            // **↑ and ↓ move between lines, and the legend already said they did.**
+            // `CaptionEditor`'s key strip has shown "arrow.up.arrow.down — between lines" since
+            // it was written; nothing implemented it, so the keys fell through to AppKit, which
+            // in a single-line field editor moves the caret to the start or the end of the same
+            // line. A legend that names a behaviour the app does not have is the defect this
+            // project's completion rule exists to stop.
+            //
+            // `onCommit` first, for `insertTab`'s reason: leaving a line is when the preview is
+            // worth rebuilding, and the step below changes which line is live.
+            case #selector(NSResponder.moveUp(_:)):
+                parent.text = field.stringValue
+                parent.onCommit()
+                parent.onStep(-1)
+                return true
+
+            case #selector(NSResponder.moveDown(_:)):
+                parent.text = field.stringValue
+                parent.onCommit()
+                parent.onStep(1)
+                return true
+
             case #selector(NSResponder.insertTab(_:)):
                 parent.onCommit()
                 parent.onStep(1)
@@ -156,5 +181,29 @@ struct CaptionField: NSViewRepresentable {
                 return false
             }
         }
+    }
+}
+
+/// Where the caret goes when a caption line is focused by a key rather than by a click.
+///
+/// **A named decision rather than a literal at the call site**, because it is the answer to a
+/// reported bug and the wrong answer looks reasonable. AppKit selects the whole value when a
+/// field becomes first responder; `CaptionField` overrides that, and this says what it
+/// overrides it with.
+enum CaptionFieldCaret {
+    /// The end of the line, with nothing selected.
+    ///
+    /// **The end, not the start.** Stepping into a line with ↓ or Return is how somebody moves
+    /// through a transcript fixing it, and the correction is more often a word near the end than
+    /// the first character — but the argument that settles it is smaller than that: a caret at
+    /// the end is where typing continues the line, and a caret at the start is where typing
+    /// puts new text in front of it. Only one of those is what a person who just arrived here
+    /// meant.
+    ///
+    /// Measured in UTF-16 units because `NSRange` is, and `NSString.length` is the same count —
+    /// the character/UTF-16 distinction that `CaptionField.caret(in:)` has to make for a SPLIT
+    /// offset does not arise for the end of the string, which is the end either way.
+    static func range(afterFocusing text: String) -> NSRange {
+        NSRange(location: (text as NSString).length, length: 0)
     }
 }

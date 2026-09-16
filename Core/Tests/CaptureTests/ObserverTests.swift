@@ -383,7 +383,24 @@ private func observer() -> Capture.AXObserver {
 /// And the shape still reaches the samples: a reader that was simply never called would
 /// pass the test above and silently undo Parity 2. The observer refreshes its cached shape
 /// on demand, so an explicit refresh followed by samples stamps them.
-@Test func aRefreshedShapeStillReachesTheSamples() {
+@Test func aRefreshedShapeStillReachesTheSamples() async {
+    // **Skipped while the system has secure input on, because the product is right to emit
+    // nothing then.** `handle` checks `IsSecureEventInputEnabled()` before it reads anything
+    // off the event: a password field must not reach an observation log. A LOCKED SCREEN
+    // turns that on — measured 2026-09-16, `kCGSSessionSecureInputPID` set and
+    // `CGSSessionScreenIsLocked` Yes — so this failed on every run, on a machine whose
+    // screen had locked itself, and read exactly like a regression in the shape path.
+    // Named rather than waited out: no budget is long enough for a screen somebody has to
+    // come back and unlock.
+    guard !IsSecureEventInputEnabled() else {
+        // Printed, not recorded: `Issue.record` fails the test, and a skip that fails
+        // is a red gate blaming the wrong thing. The line names itself in the run's
+        // output, which is the same discipline the probe applies to its own skips.
+        print("SKIPPED aRefreshedShapeStillReachesTheSamples - secure input is on "
+              + "system-wide (a locked screen does this), so `handle` emits nothing by "
+              + "design. Unlock and re-run.")
+        return
+    }
     let observer = InputObserver(viewport: viewport(), epoch: epoch,
                                  pointerShapeReader: { .iBeam })
     observer.refreshPointerShape()
@@ -405,13 +422,23 @@ private func observer() -> Capture.AXObserver {
         return
     }
     observer.handle(type: .mouseMoved, event: event)
-    // **Observed failing once in a full run, 2026-09-15, and passing three times alone and on
-    // the next full run.** The shape is read on `pollQueue` — deliberately not the main queue,
-    // see the note below — so whether it has arrived by the time this line runs is a race this
-    // assertion does not control. Recorded rather than papered over: if it fails again the
-    // answer is to wait for the sample rather than to assume it, and the reason it has not been
-    // changed yet is that one occurrence is not enough to know which sample it lost.
-    #expect(sink.shapes == [.iBeam])
+    // **Waited for, not assumed — and the comment that used to sit here said this is what to do
+    // if it failed again.** The sample is delivered on `pollQueue`, deliberately not the main
+    // queue (see the note below), so whether it has arrived by the time the expectation runs is
+    // a race the assertion does not control. It was observed failing once on 2026-09-15 and
+    // left alone because one occurrence does not say which sample was lost; on 2026-09-16 it
+    // failed on every run, on a machine that had been busy all day, which is what a race looks
+    // like when the timing tips.
+    //
+    // **A budget, not a sleep.** Polling until the sample arrives costs nothing when it is
+    // already there — the common case — and a fixed sleep would be either flaky or slow. Two
+    // seconds is far longer than a queue hop and far shorter than a person waiting for a gate.
+    let deadline = ContinuousClock.now + .seconds(2)
+    while sink.shapes.isEmpty, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(sink.shapes == [.iBeam],
+            "no pointer sample arrived within two seconds of the synthesised move")
 }
 
 /// **The contract the cursor-flicker repair created, and then broke.** Moving the shape

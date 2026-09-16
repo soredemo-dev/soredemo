@@ -198,7 +198,10 @@ struct CaptionLines: View {
                         focused = index - 1
                     },
                     onStep: { step(from: index, by: $0) },
-                    onCommit: { noteCorrection(at: index); onChange() },
+                    // **`endTypingRun` before anything else.** Leaving a line is what
+                    // separates one undo step from the next; without it a whole correcting
+                    // session collapses into a single ⌘Z. See `CaptionsModel.change`.
+                    onCommit: { model.endTypingRun(); noteCorrection(at: index); onChange() },
                     isFocused: focused == index)
                     .focused($focused, equals: index)
                     .frame(height: 20)

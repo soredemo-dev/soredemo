@@ -49,6 +49,10 @@ struct TransportBar: View {
     var body: some View {
         HStack(spacing: Space.regular) {
             Button {
+                // **Space is the one bare key a person types most.** Unguarded, typing a space
+                // into a caption paused the preview instead of putting a space in the sentence.
+                // See `KeyboardFocus`.
+                guard !KeyboardFocus.aTextFieldIsEditing else { return }
                 if isPlaying {
                     player.pause()
                 } else if atEnd {

@@ -489,3 +489,9 @@
 "Saved the last %lld seconds to %@." = "已把最后 %lld 秒存成 %@。";
 "The clip could not be saved: %@" = "这段片段存不下来:%@";
 "There is nowhere to put the clip yet." = "现在还没有地方可以放这段片段。";
+"Edit Caption" = "编辑字幕";
+"Delete Caption" = "删除字幕";
+"Retime Caption" = "调整字幕时间";
+"Split Caption" = "拆分字幕";
+"Merge Captions" = "合并字幕";
+"Snap Caption" = "对齐字幕";

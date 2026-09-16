@@ -487,3 +487,9 @@
 "Saved the last %lld seconds to %@." = "마지막 %lld초를 %@ 에 저장했습니다.";
 "The clip could not be saved: %@" = "클립을 저장할 수 없습니다: %@";
 "There is nowhere to put the clip yet." = "아직 클립을 둘 곳이 없습니다.";
+"Edit Caption" = "자막 편집";
+"Delete Caption" = "자막 삭제";
+"Retime Caption" = "자막 시간 조정";
+"Split Caption" = "자막 나누기";
+"Merge Captions" = "자막 합치기";
+"Snap Caption" = "자막 맞추기";

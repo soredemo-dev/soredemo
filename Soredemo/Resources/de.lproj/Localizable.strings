@@ -487,3 +487,9 @@
 "Saved the last %lld seconds to %@." = "Die letzten %lld Sekunden in %@ gesichert.";
 "The clip could not be saved: %@" = "Der Clip ließ sich nicht sichern: %@";
 "There is nowhere to put the clip yet." = "Es gibt noch keinen Ort für den Clip.";
+"Edit Caption" = "Untertitel bearbeiten";
+"Delete Caption" = "Untertitel löschen";
+"Retime Caption" = "Untertitel neu takten";
+"Split Caption" = "Untertitel teilen";
+"Merge Captions" = "Untertitel zusammenführen";
+"Snap Caption" = "Untertitel einrasten";

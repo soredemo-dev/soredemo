@@ -184,14 +184,65 @@ final class CaptionsModel {
 
     // MARK: - editing
 
-    func setText(_ text: String, at index: Int) {
-        track = track.replacingText(at: index, with: text)
+    /// The undo stack, handed in by whoever hosts this model. See `UndoRecording` for why it
+    /// is a protocol rather than an `UndoManager`.
+    ///
+    /// **`@ObservationIgnored`, or every view that reads a caption also observes the undo
+    /// stack** — and an `UndoManager` changes on every registration, which is every keystroke.
+    @ObservationIgnored var undoRecorder: (any UndoRecording)?
+
+    /// The cue a run of typing is currently in, so consecutive keystrokes are one undo step.
+    /// `nil` between runs. Not observed, for `undoManager`'s reason.
+    @ObservationIgnored private var typingRun: Int?
+
+    /// Replaces the whole track, undoably.
+    ///
+    /// **One place, because every edit below is a whole-track replacement.** `CaptionTrack` is a
+    /// value: the cheapest correct undo is the previous value. Registering at each call site
+    /// would be eight chances to forget the ninth, and the one forgotten is the one a person
+    /// loses work to.
+    ///
+    /// **Symmetric by construction.** The closure calls this same method, so undoing registers
+    /// its own redo and ⇧⌘Z works without a second mechanism.
+    ///
+    /// **An edit that changed nothing is not a step.** `setText` runs on every keystroke,
+    /// including the ones that retype the same character; a no-op registered as a step is a ⌘Z
+    /// that appears to do nothing.
+    private func change(_ name: String, to next: CaptionTrack, typingAt index: Int? = nil) {
+        guard next != track else { return }
+        // **Typing coalesces into one step per cue.** Registering per keystroke means ⌘Z walks
+        // back a character at a time, which is not what undo means to anybody. The first
+        // keystroke in a cue registers the pre-typing track; the rest of that run register
+        // nothing, so one ⌘Z restores the line as it was before the run began. Any other edit,
+        // or a keystroke in a different cue, ends the run.
+        let continuesRun = index != nil && index == typingRun
+        if !continuesRun {
+            let previous = track
+            let previousRun = typingRun
+            // **Symmetric by construction.** The closure calls this same method, so undoing
+            // registers its own redo and ⇧⌘Z works without a second mechanism. `self` is
+            // captured strongly: the step is worthless if the model it restores has gone.
+            undoRecorder?.register(name) { [self] in
+                typingRun = previousRun
+                change(name, to: previous)
+            }
+        }
+        typingRun = index
+        track = next
         publish()
     }
 
+    /// Ends the current typing run, so the next keystroke starts a new undo step. Called when
+    /// the caret leaves a line — which is what `CaptionField.onCommit` already reports.
+    func endTypingRun() { typingRun = nil }
+
+    func setText(_ text: String, at index: Int) {
+        change(String(localized: "Edit Caption"),
+               to: track.replacingText(at: index, with: text), typingAt: index)
+    }
+
     func remove(at index: Int) {
-        track = track.removing(at: index)
-        publish()
+        change(String(localized: "Delete Caption"), to: track.removing(at: index))
     }
 
     /// **The three edits that could not be made before.** Text could be retyped and a line
@@ -199,23 +250,21 @@ final class CaptionsModel {
     /// corrected at all. Each clamps against its neighbours in `CaptionTrack` rather than
     /// refusing, so a nudge at the end of the room available does as much as it can.
     func retime(at index: Int, start: Nanoseconds, end: Nanoseconds) {
-        track = track.retiming(at: index, start: start, end: end)
-        publish()
+        change(String(localized: "Retime Caption"),
+               to: track.retiming(at: index, start: start, end: end))
     }
 
     func split(at index: Int, atCharacter offset: Int) {
-        track = track.splitting(at: index, atCharacter: offset)
-        publish()
+        change(String(localized: "Split Caption"),
+               to: track.splitting(at: index, atCharacter: offset))
     }
 
     func merge(at index: Int) {
-        track = track.merging(at: index)
-        publish()
+        change(String(localized: "Merge Captions"), to: track.merging(at: index))
     }
 
     func snap(at index: Int, to pauses: [SilenceFinder.Span]) {
-        track = track.snapping(at: index, to: pauses)
-        publish()
+        change(String(localized: "Snap Caption"), to: track.snapping(at: index, to: pauses))
     }
 
     /// One correction applied to every line that has the same run in it, and remembered.

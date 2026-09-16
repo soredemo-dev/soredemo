@@ -487,3 +487,9 @@
 "Saved the last %lld seconds to %@." = "Les %lld dernières secondes ont été enregistrées dans %@.";
 "The clip could not be saved: %@" = "Le clip n’a pas pu être enregistré : %@";
 "There is nowhere to put the clip yet." = "Il n’y a pas encore d’endroit où mettre le clip.";
+"Edit Caption" = "Modifier le sous-titre";
+"Delete Caption" = "Supprimer le sous-titre";
+"Retime Caption" = "Recaler le sous-titre";
+"Split Caption" = "Diviser le sous-titre";
+"Merge Captions" = "Fusionner les sous-titres";
+"Snap Caption" = "Aligner le sous-titre";
