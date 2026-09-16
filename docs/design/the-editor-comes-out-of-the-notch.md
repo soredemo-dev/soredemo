@@ -1,7 +1,9 @@
 # The editor comes out of the notch
 
-*A design, not an implementation. Every number in it was measured on the machine this was written
-on; the ones that still need a human to look at them are named as such.*
+*A design, with the geometry built and tested and the animation not yet written. The measured
+numbers in it are ONE machine's; the part that had to work on every Mac is a value type with a
+thirteen-geometry test matrix behind it, and the part that still needs somebody to look at it is
+named as such.*
 
 ## What already exists, and what does not
 
@@ -25,6 +27,30 @@ notch into a panel that stays near the notch. Growing it into a *window* — and
 a full-screen window — is not a thing any of them do, and no write-up of it turned up. So the
 prior art settles the surface and the metrics, and the rest of this is ours.
 
+## Every number below is one machine's, and the design must not be
+
+This was written from a 14-inch MacBook Pro at 1512 x 982. The numbers in the next section are
+true of it and of nothing else, and treating them as properties of "the notch" is the mistake
+this section exists to stop.
+
+**The same panel offers eleven scaled modes**, from 960 x 600 to 1800 x 1169 points. The notch is
+a fixed number of PIXELS, so its size in points moves with every one of them — roughly 117 points
+wide at the smallest and 220 at the largest. A design that knows "185" knows nothing.
+
+**A notched Mac can report no notch.** macOS lists each mode twice: 1512 x 982 includes the notch
+strip and 1512 x 945 does not, and in the second kind the screen has no auxiliary areas and no
+top safe-area inset. So the question is never "is this a MacBook Pro" — it is "does this screen,
+right now, in this mode, have a notch", asked of the screen.
+
+`NotchGeometry` and `ScreenMetrics` hold the whole decision as a value with no constants in it,
+and `NotchGeometryTests` runs it over thirteen real geometries: this machine, four of its own
+scaled modes, the 16-inch and both Airs, the notch-excluded mode, three external displays and a
+pre-notch MacBook. What is asserted there is **properties** — the shape starts inside its own
+screen, starts centred, always grows, ends on the frame it was handed — never a golden rectangle.
+Two controls confirm the matrix can fail: writing the fallback as this machine's 185 points
+turns `theFallbackIsTheSameShareOfEveryScreen` red, and deciding "has a notch" from the
+safe-area inset alone turns `oneAuxiliaryAreaIsNotANotch` red.
+
 ## The measurement that decides the whole design
 
 On this machine:
@@ -41,6 +67,13 @@ The full-screen window's top edge is at **949**. The notch's bottom edge is at *
 **They are one point apart.** So a shape that starts as the notch and grows into the full-screen
 frame is *continuous* — it grows down and outward from the notch's own bottom edge and lands
 exactly where the editor will be. There is no gap to disguise and no black band to explain.
+
+**On this machine.** The distance is `menubarHeight - safeAreaInsets.top`, and nothing published
+says those two are one point apart on every Mac, in every mode, in every future release. So the
+shape reports `gap` and answers `startsFlush`, and the animation asks rather than assumes: flush
+means grow straight out, and anything else means travel that distance first so the shape reads as
+coming from BEHIND the notch rather than detaching from it. `aScreenWithRoomBetweenTheNotchAndTheWindowSaysSo`
+is the test that keeps the question open.
 
 This matters because it removes a decision that would otherwise have been forced. macOS has two
 kinds of full screen: the native one (`toggleFullScreen`, its own Space, top edge below the
@@ -72,7 +105,9 @@ backdrop fade by 50 ms so the two read as one gesture rather than two.
 
 - **Top corners hold the notch's radius the whole way.** The shape stays attached to the thing it
   came out of. Only the bottom corners open, from the notch's radius to the editor's.
-- **Bottom edge leads.** It travels 918 pt; the sides travel 663 each. Letting the bottom reach
+- **Bottom edge leads.** On this machine it travels 918 pt against the sides' 663 each; the
+  ratio, not the numbers, is what matters and it comes out similar on every geometry in the
+  matrix because a notch is always much wider than it is tall. Letting the bottom reach
   its destination slightly ahead reads as the shape being *pulled down* rather than inflated.
 - Spring, not a curve. `.bouncy` over this distance is likely too much bounce at the end — a
   window that overshoots 949 pt looks like a bug, not a flourish. Start at
@@ -95,9 +130,14 @@ Asking beats assuming, which is the rule the rest of this codebase already runs 
 Not an edge case: this machine's own external display has no notch, and neither does any Mac
 before 2021.
 
-`hasNotch` is `auxiliaryTopLeftArea` and `auxiliaryTopRightArea` both being non-nil.
-a notch library's fallback is a 300 pt strip of the menu bar's height at the top centre, and that
-is the right shape here too — **the idea is "the editor comes out of the top of the screen", and
+`hasNotch` is `auxiliaryTopLeftArea` and `auxiliaryTopRightArea` both being non-nil **and** a
+non-zero `safeAreaInsets.top` — half an answer is not a notch, and a screen mid-reconfiguration
+reports half answers. It is not "is this a MacBook Pro": a notched panel in a notch-excluded mode
+belongs here too.
+a notch library's fallback is a 300 pt strip of the menu bar's height at the top centre. The
+shape is right; the fixed number is not — 300 points is a third of a small external display and a
+sixth of an ultrawide. **A fraction instead**, 12.2%, which is the notch's own share of a
+14-inch, so the gesture is the same size relative to the screen wherever it plays — **the idea is "the editor comes out of the top of the screen", and
 the notch is only the most literal version of it.** A Mac without one gets the same gesture from
 the same place, with all four corners rounded equally because there is no notch shape to stay
 attached to.
@@ -126,7 +166,11 @@ what that setting exists to prevent, and halving it is not honouring it.
   what is happening — the screen is changing Space — and a blur is prettier. It has not been
   looked at either way.
 - **Whether the notch's real corner radius is 15/20.** Those are another library's numbers, not
-  Apple's published ones and not measured here.
+  Apple's published ones and not measured here — and, like every other length, they are in points
+  and so want checking at more than one scale.
+- **Whether `menubarHeight - safeAreaInsets.top` is one point on Macs other than this one.** The
+  code no longer cares, but the answer decides whether `startsFlush` is the common path or the
+  rare one, and nobody here can attach a 16-inch.
 
 [a notch library]: https://github.com/a notch library
 [panaitiu]: https://notes.alinpanaitiu.com/Fullscreen-apps-above-the-MacBook-notch
