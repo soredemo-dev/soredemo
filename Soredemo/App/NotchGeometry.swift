@@ -117,14 +117,18 @@ struct NotchGeometry: Equatable {
     /// another library's numbers at one scale rather than a published answer.
     var startRadius: Double { start.height * 0.5 }
 
-    /// **The top corners hold the notch's radius the whole way, and that is what keeps the
-    /// shape attached to the thing it came out of.** Only the bottom two open.
+    /// **A notch has no rounded top corners, and the first version of this gave it two.**
     ///
-    /// Where there is no notch there is nothing to stay attached to, so all four corners are
-    /// equal at every moment — which is what this returning the same value as
-    /// `bottomRadius(atProgress:)` means.
+    /// The design said the top corners hold the notch's radius the whole way, so that the shape
+    /// stays attached to the thing it came out of. Photographed at the first frame, that is a
+    /// rounded-topped pill hanging under the menu bar — attached to nothing. The hardware's
+    /// sides run STRAIGHT up into the menu bar and curl outward where they meet it, which is
+    /// what `topFlare(atProgress:)` draws, and it is the better expression of the same idea.
+    ///
+    /// Where there is no notch there is nothing to echo, so the corners are ordinary and match
+    /// the bottom — which is what returning `bottomRadius(atProgress:)` means.
     func topRadius(atProgress progress: Double) -> Double {
-        isNotch ? startRadius : bottomRadius(atProgress: progress)
+        isNotch ? 0 : bottomRadius(atProgress: progress)
     }
 
     /// The bottom corners open from the notch's radius to the editor's, which for a window
@@ -132,6 +136,27 @@ struct NotchGeometry: Equatable {
     func bottomRadius(atProgress progress: Double) -> Double {
         startRadius * (1 - min(1, max(0, progress)))
     }
+
+    /// **How far the top corners curl OUTWARD, the way the hardware notch's do.**
+    ///
+    /// The one idea taken from a shipping notch app rather than derived here — a notch assistant's
+    /// `NotchIslandShape`. A surface with ordinary rounded top corners reads as hanging below
+    /// the notch; a concave corner running into the menu bar reads as the notch itself getting
+    /// larger, because that is the shape the hardware has.
+    ///
+    /// **A fraction of the notch's height, not their six points**, for the reason nothing else
+    /// here is a length: six of 32 is 0.1875 on the machine both were measured on. **Gone by
+    /// the end**, squared so it is a quarter of the way at halfway — a full-screen rectangle
+    /// with two wedges at the top is not a shape anything has. Zero without a notch: there is
+    /// no hardware shape to echo. docs/design/the-editor-comes-out-of-the-notch.md.
+    func topFlare(atProgress progress: Double) -> Double {
+        guard isNotch else { return 0 }
+        let p = min(1, max(0, progress))
+        return start.height * Self.flareFraction * (1 - p) * (1 - p)
+    }
+
+    /// See `topFlare(atProgress:)`.
+    static let flareFraction: Double = 0.1875
 }
 
 /// A screen, reduced to the five numbers this decision needs.

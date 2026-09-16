@@ -25,6 +25,7 @@ Read for its decisions rather than its code, it settles three things:
 | the surface | `NSPanel`, `.screenSaver` level, clear background, no shadow, `[.canJoinAllSpaces, .stationary]` | **the same panel Soredemo already builds twice** — `CountdownPanel` and `RecordingBarPanel` are this, line for line |
 | the metrics | notch width is `frame.width − auxiliaryTopLeftArea.width − auxiliaryTopRightArea.width`; height is `safeAreaInsets.top` | the notch is measurable, not a guess |
 | the shape | `topCornerRadius` and `bottomCornerRadius` kept separate | what makes an expanded shape read as *the notch, larger* rather than a new rectangle |
+| the corner | a notch assistant's `NotchIslandShape`: the top corners curve OUTWARD into the menu bar | the detail that separates "the notch got bigger" from "a panel is hanging under the notch" — and the one thing here that was taken from another app rather than derived |
 
 Its defaults, which are a reasonable starting point and not gospel: top radius 15, bottom radius
 20, opening `.bouncy(duration: 0.4)`, closing `.smooth(duration: 0.4)`.
@@ -110,8 +111,17 @@ part of this that cannot be animated by us and must simply not be seen.
 starting at exactly the notch's frame and ending at exactly the window's. Overlapping the
 backdrop fade by 50 ms so the two read as one gesture rather than two.
 
-- **Top corners hold the notch's radius the whole way.** The shape stays attached to the thing it
-  came out of. Only the bottom corners open, from the notch's radius to the editor's.
+- **The top corners are SQUARE and flare outward, and this is the one thing the shipping notch
+  apps had that this design did not.** It first said the top corners hold the notch's radius the
+  whole way, so the shape stays attached to what it came from. Photographed at the first frame,
+  that is a rounded-topped pill hanging under the menu bar — attached to nothing. The hardware's
+  sides run straight up into the menu bar and **curl outward** where they meet it, and
+  [a notch assistant]'s `NotchIslandShape` is built around exactly that: "its top corners curve outward
+  into the menu bar (like the hardware notch does)". `NotchGeometry.topFlare(atProgress:)` is
+  that curl, as a fraction of the notch's height rather than their six points, and it closes
+  squared so it is a quarter of the way at halfway and gone at the end — a full-screen rectangle
+  with two wedges at the top is not a shape anything has. Only the bottom corners open, from the
+  notch's radius to the editor's.
 - **Bottom edge leads.** On this machine it travels 918 pt against the sides' 663 each; the
   ratio, not the numbers, is what matters and it comes out similar on every geometry in the
   matrix because a notch is always much wider than it is tall. Letting the bottom reach
@@ -210,4 +220,5 @@ Speed is a judgement and the instrument for it is a person at 1x.
   rare one, and nobody here can attach a 16-inch.
 
 [a notch library]: https://github.com/a notch library
+[a notch assistant]: read locally at ~/Documents/opensource/a notch assistant — `macos/a notch assistant/a notch assistant/NotchHUD.swift`
 [panaitiu]: https://notes.alinpanaitiu.com/Fullscreen-apps-above-the-MacBook-notch

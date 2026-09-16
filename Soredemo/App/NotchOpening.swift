@@ -60,50 +60,60 @@ final class NotchOpening {
     /// is where the editor is.
     static let settleBudget: Double = 1.2
 
-    /// Plays the opening over `window`, which must already have been asked for full screen.
+    /// The window the shape is aiming at, once there is one. **`nil` is a state, not an
+    /// absence**: the cover can go up before SwiftUI has built a window at all.
+    private weak var target: NSWindow?
+
+    /// Raises the cover, before anything a person should not see.
     ///
-    /// Does nothing if one is already running: this runs on a window's FIRST appearance, and a
-    /// second overlay would be a panel at `.screenSaver` level nobody asked for.
-    func play(over window: NSWindow, reduceMotion: Bool) {
+    /// **Before the window exists, which is earlier than it used to be.** The editor is created
+    /// at its autosaved size, ordered front, resized to the screen and only then asked for full
+    /// screen — three visible steps, and the cover used to arrive at the third. It goes up on
+    /// the screen the pointer is on, the same choice the countdown and the recording bar make.
+    func beginCovering(on screen: NSScreen, reduceMotion: Bool) {
         guard runner == nil else { return lastRun = .alreadyRunning }
-        guard let screen = window.screen ?? NSScreen.main else { return lastRun = .noScreen }
         lastRun = .playing
         let transition = NotchTransition.chosen(reduceMotion: reduceMotion)
         let state = NotchOpeningState(transition: transition,
                                       screenFrame: GlobalRect.topLeft(of: screen))
         show(state, on: screen)
-        runner = Task { @MainActor [weak self, weak window] in
+        // **The clock starts NOW, and that was the defect behind "two or three animations".**
+        // The panel used to go up immediately and stay fully transparent until the window had
+        // settled — up to 1.2 seconds — so AppKit's own full-screen zoom and the desktop
+        // sliding to a new Space played in the open, and only then did the ground darken. The
+        // backdrop is the part that must be there from the first frame; the shape is the part
+        // that has to wait for an answer, and `NotchOpeningState.run` holds the clock at the
+        // shape's start until the geometry arrives.
+        let clock = Task { @MainActor in await state.run() }
+        runner = Task { @MainActor [weak self] in
             defer {
+                clock.cancel()
+                self?.target = nil
                 self?.hide()
                 self?.runner = nil
             }
-            // Wait for the window to stop moving, then aim at where it landed.
-            let settled = await Self.settledFrame(of: window)
-            guard let self, let window, let settled else {
-                self?.lastRun = .windowWentAway
+            guard let self else { return }
+            guard let settled = await Self.settledFrame(waitingFor: { self.target }) else {
+                lastRun = .windowWentAway
                 return
             }
-            state.geometry = NotchGeometry.opening(
-                into: settled, on: Self.metrics(of: window.screen ?? screen))
-            await state.run()
+            let aimed = target?.screen ?? screen
+            state.geometry = NotchGeometry.opening(into: settled, on: Self.metrics(of: aimed))
+            await clock.value
             lastRun = .finished
         }
     }
 
-    /// Plays it over nothing, against a geometry handed in — `--show-notch-transition`.
-    ///
-    /// **Separate from `play(over:reduceMotion:)` rather than a flag on it**, because the thing
-    /// that makes this a tuning tool is the thing `play` must never do: it does not wait for a
-    /// window, so there is no settling and no failure to fall back from. Returns when the
-    /// animation is over.
-    func playAlone(geometry: NotchGeometry, screen: NSScreen,
-                   reduceMotion: Bool, slowdown: Double = 1) async {
-        let state = NotchOpeningState(transition: .chosen(reduceMotion: reduceMotion),
-                                      screenFrame: GlobalRect.topLeft(of: screen))
-        state.geometry = geometry
-        show(state, on: screen)
-        defer { hide() }
-        await state.run(slowdown: slowdown)
+    /// Says which window the shape is growing into. May arrive after `beginCovering`.
+    func aim(at window: NSWindow) { target = window }
+
+    /// Both at once, for the path that already has a window.
+    func play(over window: NSWindow, reduceMotion: Bool) {
+        if runner == nil {
+            guard let screen = window.screen ?? NSScreen.main else { return lastRun = .noScreen }
+            beginCovering(on: screen, reduceMotion: reduceMotion)
+        }
+        aim(at: window)
     }
 
     /// Stops it, wherever it is. **One owner, cancelled on window close**, the way
@@ -112,26 +122,54 @@ final class NotchOpening {
     func cancel() {
         runner?.cancel()
         runner = nil
+        target = nil
         hide()
     }
 
-    /// The window's frame once it has stopped changing, or `nil` if the window went away.
+    /// The frame of the window being aimed at, once it has stopped changing.
     ///
-    /// **Waits for the notification, and gives up on a budget.** `didEnterFullScreen` is the
-    /// signal; the budget is there because it may never arrive — the entry is a retry with a
-    /// ceiling and it is allowed to fail.
-    private static func settledFrame(of window: NSWindow?) async -> PointRect? {
-        guard let window else { return nil }
-        if window.styleMask.contains(.fullScreen) {
-            return GlobalRect.topLeft(of: window)
-        }
-        let deadline = Int(settleBudget / 0.05)
-        for _ in 0..<deadline {
-            try? await Task.sleep(for: .milliseconds(50))
+    /// **Waits for the window to EXIST as well as to settle, under one budget.** The cover can
+    /// be raised before SwiftUI has built anything, and a wait that assumed a window would give
+    /// up immediately on the path that needed it most.
+    private static func settledFrame(waitingFor window: @escaping @MainActor () -> NSWindow?)
+        async -> PointRect? {
+        let steps = Int(settleBudget / 0.05)
+        var found: NSWindow?
+        for _ in 0..<steps {
             if Task.isCancelled { return nil }
-            if window.styleMask.contains(.fullScreen) { break }
+            if let candidate = window() {
+                found = candidate
+                if candidate.styleMask.contains(.fullScreen) { break }
+            }
+            try? await Task.sleep(for: .milliseconds(50))
         }
-        return GlobalRect.topLeft(of: window)
+        guard let found else { return nil }
+        return GlobalRect.topLeft(of: found)
+    }
+
+    /// Plays it over nothing, against a geometry handed in — `--show-notch-transition`.
+    ///
+    /// **Separate from `play(over:reduceMotion:)` rather than a flag on it**, because the thing
+    /// that makes this a tuning tool is the thing `play` must never do: it does not wait for a
+    /// window, so there is no settling and no failure to fall back from. Returns when the
+    /// animation is over.
+    func playAlone(geometry: NotchGeometry, screen: NSScreen, reduceMotion: Bool,
+                   slowdown: Double = 1, hold: Double? = nil) async {
+        let state = NotchOpeningState(transition: .chosen(reduceMotion: reduceMotion),
+                                      screenFrame: GlobalRect.topLeft(of: screen))
+        state.geometry = geometry
+        show(state, on: screen)
+        defer { hide() }
+        // **Frozen at one moment, for looking at the shape.** Chasing a 0.55 s animation with
+        // `screencapture` — which takes about a third of a second a frame — failed four times
+        // before this existed: every capture landed before or after it. A held frame is the
+        // instrument for a SHAPE. Speed still needs a person at 1x.
+        if let hold {
+            state.time = hold
+            while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(200)) }
+            return
+        }
+        await state.run(slowdown: slowdown)
     }
 
     /// The five numbers `NotchGeometry` needs, read off a real screen.
@@ -218,6 +256,15 @@ final class NotchOpeningState {
         while elapsed < transition.total {
             if Task.isCancelled { return }
             try? await Task.sleep(for: .milliseconds(wait))
+            // **Held at the shape's start until somebody says where the shape ends.** The
+            // backdrop runs on the same clock and must not wait for that: it is what covers
+            // AppKit's own full-screen transition, and a backdrop that arrives after it has
+            // finished has covered nothing. A held clock rather than two is what keeps the
+            // phases' overlaps meaning what `NotchTransition` says they mean once it moves
+            // again.
+            if transition.drawsShape, geometry == nil, elapsed >= transition.shape.start {
+                continue
+            }
             elapsed += step
             time = elapsed
         }
@@ -291,6 +338,34 @@ private struct NotchOpeningView: View {
                     .strokeBorder(.white.opacity(Glass.edgeOpacity * (1 - eased)), lineWidth: 1)
             }
             .frame(width: rect.width, height: rect.height)
+            // The two corners curling outward into the menu bar. Drawn beside the body rather
+            // than as one path, because a custom `Shape`'s `path(in:)` names `CGRect` and D6
+            // rule 5 forbids that in the app target.
+            .overlay(alignment: .topLeading) { flare(geometry, at: eased, leading: true) }
+            .overlay(alignment: .topTrailing) { flare(geometry, at: eased, leading: false) }
             .position(x: x + rect.width / 2, y: y + rect.height / 2)
+    }
+
+    /// One top corner curling outward, so the shape reads as the notch getting larger rather
+    /// than a panel hanging below it.
+    ///
+    /// **A square with a quarter-disc taken out of it**, offset just outside the body's corner.
+    /// The disc is centred on the square's INNER-bottom corner, which leaves the concave wedge
+    /// against the menu bar — the shape the hardware notch has. `compositingGroup` is what makes
+    /// `destinationOut` cut only this square rather than everything behind it.
+    @ViewBuilder private func flare(_ geometry: NotchGeometry, at progress: Double,
+                                    leading: Bool) -> some View {
+        let size = geometry.topFlare(atProgress: progress)
+        if size > 0.5 {
+            Theme.Surface.base
+                .frame(width: size, height: size)
+                .overlay(alignment: leading ? .topLeading : .topTrailing) {
+                    Circle()
+                        .frame(width: size * 2, height: size * 2)
+                        .blendMode(.destinationOut)
+                }
+                .compositingGroup()
+                .offset(x: leading ? -size : size)
+        }
     }
 }

@@ -294,16 +294,47 @@ private let macs: [Mac] = [
     }
 }
 
-/// **The top corners hold and only the bottom two open — on a notch.** That is what keeps the
-/// shape attached to the thing it came out of.
-@Test @MainActor func onlyTheBottomCornersOpenOnANotch() {
+/// **A notch has square top corners and a flare, not rounded ones.** The first version of this
+/// held the notch's radius on the top two, and photographed at the first frame that is a
+/// rounded-topped pill hanging under the menu bar — attached to nothing. The hardware's sides
+/// run straight up and curl outward where they meet the menu bar.
+@Test @MainActor func aNotchHasSquareTopCornersAndAFlare() {
     let mac = macs[0]
     let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
     #expect(geometry.isNotch)
-    #expect(geometry.topRadius(atProgress: 0) == geometry.startRadius)
-    #expect(geometry.topRadius(atProgress: 1) == geometry.startRadius)
+    #expect(geometry.topRadius(atProgress: 0) == 0)
+    #expect(geometry.topRadius(atProgress: 1) == 0)
+    #expect(geometry.topFlare(atProgress: 0) > 0, "there is no curl at all")
     #expect(geometry.bottomRadius(atProgress: 0) == geometry.startRadius)
     #expect(geometry.bottomRadius(atProgress: 1) == 0)
+}
+
+/// **The flare closes faster than the shape grows, and is gone at the end.** A full-screen
+/// rectangle with two wedges at the top is not a shape anything has.
+@Test @MainActor func theFlareIsGoneBeforeTheShapeLands() {
+    let mac = macs[0]
+    let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+    #expect(geometry.topFlare(atProgress: 1) == 0)
+    // Squared, so it is a quarter of the way at halfway rather than half.
+    let start = geometry.topFlare(atProgress: 0)
+    #expect(abs(geometry.topFlare(atProgress: 0.5) - start * 0.25) < 0.001)
+    var previous = start
+    for step in 1...20 {
+        let next = geometry.topFlare(atProgress: Double(step) / 20)
+        #expect(next <= previous + 0.001, "the flare grew at \(step)")
+        previous = next
+    }
+}
+
+/// **No notch, no flare.** There is no hardware shape to echo on an external display, and two
+/// wedges over the menu bar of a screen that has none would be an invention.
+@Test @MainActor func aScreenWithNoNotchGetsNoFlare() {
+    for mac in macs where mac.aux == nil {
+        let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+        for step in 0...10 {
+            #expect(geometry.topFlare(atProgress: Double(step) / 10) == 0, "\(mac.name)")
+        }
+    }
 }
 
 /// **Where there is no notch there is nothing to stay attached to**, so all four corners are

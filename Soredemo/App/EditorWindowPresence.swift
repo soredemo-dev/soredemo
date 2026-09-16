@@ -26,6 +26,18 @@ enum EditorWindowPresence {
     /// Why `LSUIElement` is still in the Info.plist: `docs/design/full-screen-and-window-behaviour.md`.
     static func openEditor(_ open: (String) -> Void) {
         willOpen()
+        // **The cover goes up first, before the window exists.** The editor is created at its
+        // autosaved size, ordered front, resized to the screen and only then asked for full
+        // screen; covering at the last of those left the first two on display. On the screen
+        // the pointer is on, the same choice the countdown and the recording bar make — the
+        // window is not there yet to be asked which screen it is on.
+        if WindowConfigurator.opensFullScreen,
+           let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+                     ?? NSScreen.main {
+            NotchOpening.shared.beginCovering(
+                on: screen,
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        }
         if let existing = NSApp.windows.first(where: {
             $0.identifier?.rawValue.contains(WindowID.editor) == true && $0.isVisible
         }) {
@@ -47,6 +59,11 @@ enum EditorWindowPresence {
     private static func showFullScreen(_ window: NSWindow) {
         guard WindowConfigurator.opensFullScreen,
               !window.styleMask.contains(.fullScreen) else { return }
+        // **The cover is already up — `openEditor` raised it — and this says what it is
+        // growing into.** This route went straight to `toggleFullScreen` and showed AppKit's
+        // own transition undisguised, while the creation route showed the editor coming out of
+        // the notch: two different openings for one action.
+        NotchOpening.shared.aim(at: window)
         // After the window is key, for `WindowConfigurator`'s reason: AppKit is still settling
         // the frame, and a toggle issued into that produces the transition from the old size.
         DispatchQueue.main.async { window.toggleFullScreen(nil) }

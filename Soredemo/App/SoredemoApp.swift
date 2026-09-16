@@ -120,8 +120,10 @@ struct SoredemoApp: App {
         // The same shape `--show-countdown` has and for the same reason: the durations in
         // `NotchTransition` are a starting point and the only instrument that can settle them
         // is somebody watching at 1x. `--notch-lead-in=N` aims a capture at it;
-        // `--notch-slowdown=N` stretches wall-clock time so the SHAPE can be photographed and
-        // cannot settle the speed. Both are `--name=value` because a bare number after a flag
+        // `--notch-slowdown=N` stretches wall-clock time so the SHAPE can be photographed, and
+        // `--notch-hold=N` freezes it at second N of the animation and stays there, which is
+        // what chasing it with `screencapture` could not do. Neither settles the speed. All are
+        // `--name=value` because a bare number after a flag
         // is a document AppKit tries to open — measured, with the dialog over the animation
         // being photographed. Why each of those exists:
         // docs/design/the-editor-comes-out-of-the-notch.md.
@@ -132,6 +134,7 @@ struct SoredemoApp: App {
             }
             let leadIn = option("notch-lead-in") ?? 0
             let slowdown = option("notch-slowdown") ?? 1
+            let hold = option("notch-hold")
             Task { @MainActor in
                 if leadIn > 0 { try? await Task.sleep(for: .seconds(leadIn)) }
                 guard let screen = NSScreen.screens.first(where: {
@@ -148,7 +151,7 @@ struct SoredemoApp: App {
                 await NotchOpening.shared.playAlone(
                     geometry: geometry, screen: screen,
                     reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-                    slowdown: slowdown)
+                    slowdown: slowdown, hold: hold)
                 exit(0)
             }
             return

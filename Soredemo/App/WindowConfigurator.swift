@@ -177,6 +177,8 @@ struct WindowConfigurator: NSViewRepresentable {
     NotchOpening.shared.play(
         over: window,
         reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    // `play` only raises a cover if `openEditor` did not already — it is one owner, and this
+    // is the path that has a window to aim at.
     FullScreenEntry.enter(window)
 }
 
