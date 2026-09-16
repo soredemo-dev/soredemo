@@ -107,6 +107,7 @@ xcrun swiftc \
   Soredemo/App/WindowID.swift \
   Soredemo/App/KeyboardFocus.swift \
   Soredemo/App/UndoRecording.swift \
+  Soredemo/Recording/OwnWindowReporter.swift \
   Soredemo/App/AppLanguage.swift \
   Soredemo/App/UnsavedWorkGuard.swift \
   Soredemo/App/EditorWindowPresence.swift \

@@ -194,6 +194,22 @@ final class AXObserver: @unchecked Sendable {
     private let accessibilityIsGranted: @Sendable () -> Bool
     /// The queue every AX call runs on — never the caller's, never the main one.
     private let queue = DispatchQueue(label: "video.soredemo.ax-observation", qos: .userInitiated)
+
+    /// This app's own windows, published from the main actor and read here. Guarded by
+    /// `ownWindowsLock` rather than `lock`: it is written from a different side of the app and
+    /// sharing a lock with the observation state would make a window move wait behind a click.
+    private nonisolated let ownWindowsLock = NSLock()
+    private nonisolated(unsafe) var _ownWindows: OwnWindowExclusion = .nothing
+    nonisolated var ownWindows: OwnWindowExclusion {
+        ownWindowsLock.withLock { unsafe _ownWindows }
+    }
+
+    /// Tells the observer which windows are this app's. See `OwnWindowExclusion` for why it is
+    /// told rather than asking: asking means reading every window on the machine, titles
+    /// included, which this app must never do.
+    public nonisolated func setOwnWindows(_ exclusion: OwnWindowExclusion) {
+        ownWindowsLock.withLock { unsafe _ownWindows = exclusion }
+    }
     // MARK: - state guarded by `lock`
     //
     // **Every access to the `nonisolated(unsafe)` properties below is marked `unsafe` at
@@ -300,7 +316,7 @@ final class AXObserver: @unchecked Sendable {
     /// the source it used should call `chain(at:source:)` instead, since this
     /// overload hard-codes `LiveAXElementSource`.
     public nonisolated func chain(at click: ButtonEvent) -> AXChainRecord? {
-        chain(at: click, source: LiveAXElementSource())
+        chain(at: click, source: LiveAXElementSource(exclusion: ownWindows))
     }
 
     /// The production entry point: hands `click` to this observer's own serial
@@ -315,7 +331,7 @@ final class AXObserver: @unchecked Sendable {
     /// `onRecord` is called **on the AX queue**, not the caller's.
     public nonisolated func enqueue(_ click: ButtonEvent,
                                     onRecord: @escaping @Sendable (AXChainRecord) -> Void) {
-        enqueue(click, source: LiveAXElementSource(), onRecord: onRecord)
+        enqueue(click, source: LiveAXElementSource(exclusion: ownWindows), onRecord: onRecord)
     }
 
     /// The same, over an injected source, so a caller whose output has to name
@@ -615,12 +631,24 @@ nonisolated protocol AXElementSource: Sendable {
 struct LiveAXElementSource: AXElementSource {
     public typealias Element = AXUIElement
 
-    public init() {}
+    /// This app's own windows, which are never asked about. See `OwnWindowExclusion`.
+    let exclusion: OwnWindowExclusion
+
+    public init(exclusion: OwnWindowExclusion = .nothing) {
+        self.exclusion = exclusion
+    }
 
     /// The system-wide element is created per call rather than stored: it is a
     /// local object, not an IPC, and storing it would make this struct hold a
     /// non-`Sendable` CoreFoundation reference for the observer's lifetime.
     public nonisolated func hitTest(globalTopLeftX: Double, globalTopLeftY: Double) -> AXUIElement? {
+        // **This app's own windows are not asked about, and the reason is a crash rather than
+        // taste.** The call below is served IN THIS PROCESS when the point is over one of our
+        // windows, on this background queue, where AppKit's accessibility server reads window
+        // geometry — `NSWindow geometry should only be modified on the main thread!`. See
+        // `OwnWindowExclusion`. Cheap enough here: this runs once per click, not per sample.
+        guard !exclusion.contains(globalTopLeftX: globalTopLeftX,
+                                  globalTopLeftY: globalTopLeftY) else { return nil }
         var element: AXUIElement?
         // `Float`, because that is the API's parameter type. Its 24-bit
         // significand is exact to 16,777,216, so a screen coordinate loses

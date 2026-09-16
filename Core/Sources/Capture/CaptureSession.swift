@@ -527,6 +527,16 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
     private nonisolated(unsafe) var inputObserver: InputObserver?
     private nonisolated(unsafe) var axObserver: AXObserver?
+
+    /// Tells the accessibility observer which windows belong to this app, so it never asks the
+    /// system what is under the pointer when the answer would be served by this process on the
+    /// observation queue. See `OwnWindowExclusion` — that is a crash, not a nicety. Safe to call
+    /// before a segment opens and after one closes; it is remembered either way.
+    public nonisolated func setOwnWindows(_ exclusion: OwnWindowExclusion) {
+        lock.withLock { unsafe ownWindows = exclusion }
+        lock.withLock { unsafe axObserver }?.setOwnWindows(exclusion)
+    }
+    private nonisolated(unsafe) var ownWindows: OwnWindowExclusion = .nothing
     /// What `setUpObservation()` found when starting the tap and asking for
     /// Accessibility. Read once for the whole session, not per segment.
     private nonisolated(unsafe) var observationBlindness: [ObservationBlindness] = []
@@ -653,6 +663,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // `viewport` for the full account. Passing the same value here is what makes the two
         // agree by construction rather than by both happening to be handed a display.
         let ax = AXObserver(viewport: viewport, epoch: epoch)
+        // Carried across a segment boundary: the windows did not change because a segment did.
+        ax.setOwnWindows(lock.withLock { unsafe ownWindows })
 
         var blindness: [ObservationBlindness] = []
         if !accessibilityGranted { blindness.append(.accessibilityUnavailable) }

@@ -754,6 +754,12 @@ final class RecordingCoordinator {
                                             hidesMenuBar: hidesMenuBar,
                                             hidesDesktopWidgets: hidesDesktopWidgets))
         session = newSession
+        // **This app's own windows, told to the capture before it starts.** The accessibility
+        // observer must never hit-test a point over one of them; see `OwnWindowReporter`. Told
+        // again whenever a window appears, moves or goes away — `observeOwnWindows()` — because
+        // the bar a person drags mid-recording is precisely the window this is about.
+        newSession.setOwnWindows(OwnWindowReporter.current())
+        observeOwnWindows(for: newSession)
         // **The camera starts BEFORE the countdown, not after.** A camera takes a moment to
         // wake and expose; started with the capture, its first second is a dark frame settling.
         // The countdown is exactly the pause that hides it — which is a second reason to have
@@ -1000,6 +1006,7 @@ final class RecordingCoordinator {
         } catch {
             statusText = String(localized: "Could not stop recording: \(String(describing: error))")
         }
+        stopObservingOwnWindows()
         self.session = nil
     }
 
@@ -1033,6 +1040,41 @@ final class RecordingCoordinator {
             String(localized:
                 "\(file) is much shorter than the time you recorded for. Check it before you rely on it.")
         }
+    }
+
+    // MARK: - this app's own windows
+
+    /// Watchers that keep the capture's idea of our windows current. Held so they can be taken
+    /// down with the recording; a notification that outlived it would publish into a session
+    /// that is gone.
+    private var ownWindowWatchers: [any NSObjectProtocol] = []
+
+    /// Re-publishes our window list on every event that could change it.
+    ///
+    /// **`didMove` is the one that matters and the one a frame would miss.** The reported crash
+    /// is somebody dragging the recording bar, so the window whose position must stay current is
+    /// moving continuously while the observer is running. Publishing IDs rather than frames means
+    /// each notification costs a list of integers, not a geometry read.
+    private func observeOwnWindows(for session: CaptureSession) {
+        stopObservingOwnWindows()
+        let centre = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+            NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification,
+        ]
+        ownWindowWatchers = names.map { name in
+            centre.addObserver(forName: name, object: nil, queue: .main) { [weak session] _ in
+                // `MainActor.assumeIsolated` is not used here: `.main` is an `OperationQueue`,
+                // whose main-thread guarantee is not a main-ACTOR one. A `Task` hop is the same
+                // one-turn deferral `CaptionField` settled on, and costs nothing at this rate.
+                Task { @MainActor in session?.setOwnWindows(OwnWindowReporter.current()) }
+            }
+        }
+    }
+
+    private func stopObservingOwnWindows() {
+        for watcher in ownWindowWatchers { NotificationCenter.default.removeObserver(watcher) }
+        ownWindowWatchers = []
     }
 
     // MARK: - scale / displayUUID
