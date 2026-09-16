@@ -431,6 +431,13 @@ struct MenuBarRecorderPanel: View {
             Picker("", selection: selection) { options() }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                // **These two values opt out of the accent, and the panel's one purple thing
+                // stays the record button.** A `.menu` picker draws its selection in the tint,
+                // and the panel is tinted — so "120 fps" and "3s" came out the same purple as
+                // Start Recording, which made three things compete for the eye in a panel whose
+                // whole job is to get out of the way. The accent marks the ACTION; a setting's
+                // current value is text.
+                .tint(.primary)
                 .frame(width: Self.settingRowPickerWidth)
         }
         .padding(.horizontal, Space.regular)
