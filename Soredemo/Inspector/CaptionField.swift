@@ -34,6 +34,9 @@ struct CaptionField: NSViewRepresentable {
     let onStep: (Int) -> Void
     /// The text is finished with — a rebuild of the preview is worth paying for now.
     let onCommit: () -> Void
+    /// Give the keyboard back: no row holds the caret any more, so the editor's own keys work
+    /// again. See the `cancelOperation` case below.
+    let onRelease: () -> Void
     /// Whether this row should hold the caret.
     ///
     /// **Driven explicitly rather than through `@FocusState` alone.** Whether SwiftUI's focus
@@ -165,6 +168,18 @@ struct CaptionField: NSViewRepresentable {
                 parent.text = field.stringValue
                 parent.onCommit()
                 parent.onStep(1)
+                return true
+
+            // **⎋ hands the keyboard back, and that is the other half of the arrow-key fix.**
+            // A bare ← or → defers while a field is editing (`KeyboardFocus`), so a caret left
+            // in a caption line silently stops the playhead moving. The outline on the row says
+            // where the keyboard is; this is how it is given back without reaching for the
+            // mouse. `cancelOperation` is the selector ⎋ sends, and returning true keeps it from
+            // also dismissing whatever is behind.
+            case #selector(NSResponder.cancelOperation(_:)):
+                parent.text = field.stringValue
+                parent.onCommit()
+                parent.onRelease()
                 return true
 
             case #selector(NSResponder.insertTab(_:)):

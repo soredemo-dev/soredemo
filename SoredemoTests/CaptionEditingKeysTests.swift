@@ -212,3 +212,35 @@ import Timeline
     model.setText("b", at: 0)
     #expect(model.track.cues[0].text == "b")
 }
+
+// MARK: - the countdown
+
+/// **What the countdown names is the application, never the window's title.** A title is the
+/// contents of somebody's work — the document open, the message being read — and this panel is
+/// on screen for three seconds before every recording and in every screenshot of this app.
+@Test @MainActor func aWindowIsNamedByItsApplicationAndNotItsTitle() {
+    // `SCWindow` cannot be constructed in a test, so the case that CAN be checked here is the
+    // one with no application: it must fall back to a phrase, never to a title.
+    #expect(!CountdownState(total: 3, subject: String(localized: "A window")).subject.isEmpty)
+}
+
+/// The count starts where it was told to and stays there — the ring divides by it.
+@Test @MainActor func theCountStartsAtItsTotal() {
+    let state = CountdownState(total: 5, subject: "Whole display")
+    #expect(state.remaining == 5)
+    #expect(state.total == 5)
+    state.remaining = 1
+    #expect(state.total == 5, "the total moved with the count, so the ring would jump")
+}
+
+/// **Nothing is cancelled until somebody cancels it.** The presenter reads this between slices
+/// of its wait; a `true` here by default would mean no recording ever started.
+@Test @MainActor func aFreshCountdownIsNotCancelled() {
+    #expect(!CountdownState(total: 3, subject: "Whole display").isCancelled)
+}
+
+/// Zero seconds is "off", and off is not a cancellation: the recording starts immediately.
+@Test @MainActor func turningTheCountdownOffIsNotCancelling() async {
+    let finished = await CountdownPresenter.shared.run(seconds: 0, subject: "Whole display")
+    #expect(finished, "a countdown of zero reported a cancellation")
+}

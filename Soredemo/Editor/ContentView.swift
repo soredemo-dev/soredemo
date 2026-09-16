@@ -797,7 +797,29 @@ final class RecordingCoordinator {
 
         // **Counted before the session starts, not after.** A countdown that ran while the
         // capture was already recording would put itself in the first three seconds of the file.
-        await CountdownPresenter.shared.run(seconds: countdownSeconds)
+        // **Cancellable, and the cancel has to undo what starting already did.** The desktop
+        // icons are hidden before the count so a person can see that it worked; walking away
+        // from the recording without putting them back would leave the machine changed by
+        // something that never happened.
+        guard await CountdownPresenter.shared.run(seconds: countdownSeconds,
+                                                  subject: source.countdownSubject) else {
+            if hidesDesktopIcons { DesktopIcons.restore() }
+            // The camera RECORDER is stopped and its file dropped with the scratch package; the
+            // self-view is left alone, because it follows the camera somebody CHOSE and not a
+            // recording that did not happen.
+            if let recorder = cameraRecorder {
+                _ = await recorder.stop()
+                cameraRecorder = nil
+            }
+            if let directory = newSink.packageURL {
+                try? FileManager.default.removeItem(at: directory)
+            }
+            sink = nil
+            session = nil
+            pendingMode = nil
+            statusText = String(localized: "Recording cancelled.")
+            return
+        }
         do {
             try await newSession.start()
             isRecording = true

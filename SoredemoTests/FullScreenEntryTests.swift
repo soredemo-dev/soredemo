@@ -36,7 +36,11 @@ import Testing
 
     /// The budget is stated rather than implied: eight attempts a quarter-second apart is two
     /// seconds, which is the number a reader needs to judge whether it is enough.
-    @Test @MainActor func theBudgetIsTwoSeconds() {
-        #expect(Double(FullScreenEntry.attempts) * FullScreenEntry.interval == 2.0)
+    /// **Six seconds, and the number is asserted because it was moved on evidence.** Two was
+    /// enough on an idle Mac and ran out at load average 6.2 — three gate failures out of three,
+    /// against two passes out of two at the same commit on a quiet one. See
+    /// `FullScreenEntry.attempts`.
+    @Test @MainActor func theBudgetIsSixSeconds() {
+        #expect(Double(FullScreenEntry.attempts) * FullScreenEntry.interval == 6.0)
     }
 }

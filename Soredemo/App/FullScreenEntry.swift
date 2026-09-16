@@ -18,7 +18,18 @@ enum FullScreenEntry {
     ///
     /// Bounded because a window that will never go full screen must not be poked forever: after
     /// this it stays a window, which is a worse editor and not a broken one.
-    static let attempts = 8
+    ///
+    /// **Six seconds, not two, and a measurement moved it.** Two was enough on an idle machine
+    /// and ran out on a busy one: at load average 6.2 the full-screen gate failed three times out
+    /// of three, and at the same commit on a quiet machine it had passed twice out of twice. The
+    /// window is not refusing — AppKit is not ready yet, and the budget expired before it was.
+    ///
+    /// **Costing nothing on a healthy machine is what makes the longer budget cheap.**
+    /// `shouldAttempt` stops the moment the window reports full screen, so an idle Mac still
+    /// spends one or two attempts; only the case that used to give up early waits longer. The
+    /// alternative is a person opening a project while their machine is busy and getting a small
+    /// window with no explanation, which is the defect this whole type exists to prevent.
+    static let attempts = 24
     static let interval: Double = 0.25
 
     /// Whether another attempt is worth making.

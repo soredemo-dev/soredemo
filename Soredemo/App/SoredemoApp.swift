@@ -79,6 +79,23 @@ struct SoredemoApp: App {
     /// A verification flag, not a test hook: a person can use it too.
     @MainActor private func handleLaunchArguments() {
         let arguments = Array(CommandLine.arguments.dropFirst())
+
+        // **`--show-countdown <seconds>`, beside the other verification flags and for their
+        // reason.** The countdown is otherwise reachable only by starting a real recording, so
+        // looking at it means capturing the screen, hiding the desktop and writing a file — and
+        // nobody does that to check a ring. Exits with 3 when ⎋ cancelled it, so a script can
+        // tell the two endings apart. A person can use it too: it is how you see what the three
+        // seconds will look like before you rely on them.
+        if let index = arguments.firstIndex(of: "--show-countdown"),
+           index + 1 < arguments.count, let seconds = Int(arguments[index + 1]) {
+            Task { @MainActor in
+                let finished = await CountdownPresenter.shared.run(
+                    seconds: seconds, subject: String(localized: "Whole display"))
+                print(finished ? "countdown finished" : "countdown cancelled")
+                exit(finished ? 0 : 3)
+            }
+            return
+        }
         guard let index = arguments.firstIndex(of: "--open-project"),
               index + 1 < arguments.count else { return }
         let packageURL = URL(fileURLWithPath: arguments[index + 1])
@@ -101,8 +118,14 @@ struct SoredemoApp: App {
               reportIndex + 1 < arguments.count else { return }
         let destination = URL(fileURLWithPath: arguments[reportIndex + 1])
         Task { @MainActor in
-            // Long enough for the transition, which is animated and cannot be awaited.
-            try? await Task.sleep(for: .seconds(5))
+            // **Longer than `FullScreenEntry`'s own budget, and that is the constraint.** The
+            // transition is animated and cannot be awaited, so this waits — but a wait SHORTER
+            // than the app's retry budget reads a window that is still trying and reports it as
+            // a refusal. Measured 2026-09-16: with the budget at six seconds and this at five,
+            // one run in three reported `fullScreen=false` against a window whose frame was
+            // still the un-configured default. Four seconds of headroom past the budget.
+            let budget = Double(FullScreenEntry.attempts) * FullScreenEntry.interval
+            try? await Task.sleep(for: .seconds(budget + 4))
             let window = NSApp.windows.first {
                 $0.identifier?.rawValue.contains(WindowID.editor) == true && $0.isVisible
             }

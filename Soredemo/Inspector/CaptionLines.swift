@@ -202,6 +202,7 @@ struct CaptionLines: View {
                     // separates one undo step from the next; without it a whole correcting
                     // session collapses into a single ⌘Z. See `CaptionsModel.change`.
                     onCommit: { model.endTypingRun(); noteCorrection(at: index); onChange() },
+                    onRelease: { focused = nil },
                     isFocused: focused == index)
                     .focused($focused, equals: index)
                     .frame(height: 20)
@@ -215,10 +216,27 @@ struct CaptionLines: View {
             }
         }
         .padding(.vertical, Space.hairline)
-        .listRowBackground(isCurrent
-            ? AnyView(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-                .fill(.quaternary))
-            : AnyView(Color.clear))
+        // **Two different things, drawn differently.** `isCurrent` is where the PLAYHEAD is —
+        // it moves on its own while a recording plays. `hasCaret` is where the KEYBOARD is, and
+        // it only moves when somebody puts it there. They were one fill, so a line under the
+        // playhead looked exactly like the line about to receive what you type.
+        //
+        // **The keyboard one is the reason ← and → stop nudging the playhead.** A bare-key
+        // shortcut defers while a field is editing (see `KeyboardFocus`), which is right and was
+        // reported as "sometimes the arrow keys don't work" — because nothing on screen said the
+        // caret was still down here. An outline in the accent says it, and ⎋ takes it back.
+        .listRowBackground(rowBackground(isCurrent: isCurrent, hasCaret: focused == index))
+    }
+
+    @ViewBuilder private func rowBackground(isCurrent: Bool, hasCaret: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
+        ZStack {
+            if isCurrent { shape.fill(.quaternary) }
+            if hasCaret {
+                shape.fill(Theme.accent.opacity(0.12))
+                shape.strokeBorder(Theme.accent, lineWidth: 1.5)
+            }
+        }
     }
 
     /// The offer to apply one correction to the rest of the recording.
