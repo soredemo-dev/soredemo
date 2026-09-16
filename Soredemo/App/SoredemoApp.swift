@@ -86,6 +86,25 @@ struct SoredemoApp: App {
         // nobody does that to check a ring. Exits with 3 when ⎋ cancelled it, so a script can
         // tell the two endings apart. A person can use it too: it is how you see what the three
         // seconds will look like before you rely on them.
+        // **`--list-windows`, a verification flag for the path a reported crash lands on.**
+        // `Fatal error: Not enough bits to represent the passed value` was logged twice,
+        // immediately after `SCShareableContent` returned, with no crash report to read because a
+        // Swift trap under the debugger stops there rather than writing one. This drives
+        // `WindowTargets.onScreen()` — what "Window · point at it" calls — from a binary the
+        // screen-recording grant already covers, so the trap can be caught with a backtrace
+        // instead of guessed at.
+        if arguments.contains("--list-windows") {
+            Task { @MainActor in
+                let targets = await WindowTargets.onScreen()
+                for target in targets {
+                    print("\(target.id)\t\(target.applicationName)\t\(target.frame)")
+                }
+                print("windows: \(targets.count)")
+                exit(0)
+            }
+            return
+        }
+
         if let index = arguments.firstIndex(of: "--show-countdown"),
            index + 1 < arguments.count, let seconds = Int(arguments[index + 1]) {
             Task { @MainActor in
