@@ -1,9 +1,16 @@
 # The editor comes out of the notch
 
-*A design, with the geometry built and tested and the animation not yet written. The measured
-numbers in it are ONE machine's; the part that had to work on every Mac is a value type with a
-thirteen-geometry test matrix behind it, and the part that still needs somebody to look at it is
-named as such.*
+*Built 2026-09-16. The measured numbers in it are ONE machine's; the part that had to work on
+every Mac is a value type with a thirteen-geometry test matrix behind it, and the part that
+still needs somebody to look at it is named as such.*
+
+**What runs now.** `NotchOpening` is the panel and the presenter, `NotchTransition` the phase
+timings, `NotchGeometry.rect(atProgress:)` the shape at any moment. It is wired into
+`WindowConfigurator.enterFullScreenOrGrow`, before the toggle. `--show-notch-transition` plays
+it on demand — `--notch-lead-in=N` to aim a capture and `--notch-slowdown=N` to photograph the
+shape — and `--report-window-state` now carries `notchOpening=`, so the full-screen gate is
+evidence that the opening ran as well as evidence that the window got there. A transition that
+silently never played would otherwise look exactly like one that played perfectly.
 
 ## What already exists, and what does not
 
@@ -109,9 +116,13 @@ backdrop fade by 50 ms so the two read as one gesture rather than two.
   ratio, not the numbers, is what matters and it comes out similar on every geometry in the
   matrix because a notch is always much wider than it is tall. Letting the bottom reach
   its destination slightly ahead reads as the shape being *pulled down* rather than inflated.
-- Spring, not a curve. `.bouncy` over this distance is likely too much bounce at the end — a
-  window that overshoots 949 pt looks like a bug, not a flourish. Start at
-  `.spring(duration: 0.45, bounce: 0.15)` and look at it.
+- **A curve, not a spring — changed on building it.** The design said to start at
+  `.spring(duration: 0.45, bounce: 0.15)` and look at it. What is written is a cubic ease-out,
+  because the shape is not animated by SwiftUI at all: the clock is linear and
+  `NotchGeometry.rect(atProgress:)` interpolates every edge itself, which is what stops width
+  and height being stretched by one animation at 8.2x and 29.7x. A spring's overshoot in that
+  arrangement would put the shape's edge past the screen for a frame or two, which is not a
+  flourish on a rectangle that is already the size of the display.
 
 **0.35 → 0.55 s · the editor arrives.** The real window is already full screen and already
 underneath — never at `alphaValue = 0`, because this project has recorded that a window at zero
@@ -158,10 +169,36 @@ what that setting exists to prevent, and halving it is not honouring it.
 | the transition runs on every activation | the editor re-inflates whenever you click it | it runs on the window's first appearance only |
 | it outlasts the recording | a panel at `.screenSaver` level above everything | one owner, cancelled on window close, as `CountdownPresenter` is |
 
+## What building it changed
+
+**The shape is the editor's own ground, not black, and it carries a hairline edge that fades.**
+The first version filled it with `Color.black`, and two things were wrong with that. It hands
+over to a real window at the end, and a shape that is not the colour of the thing it becomes
+hands over with a step in it — so it is `Theme.Surface.base`. And at notch size, against a
+desktop the backdrop has barely started to darken, a near-black shape on a dark strip is
+invisible: the first tenth of the gesture was nothing happening. The same light edge `Glass`
+uses, at `Glass.edgeOpacity`, fading out as the shape takes over the screen.
+
+**`UnevenRoundedRectangle`, not a hand-written `Shape`.** A custom one has to name `CGRect` in
+`path(in:)` and D6 rule 5 forbids that in the app target. The built-in does the one thing the
+design needs — different radii top and bottom — so the rule cost nothing here.
+
+**A bare number after a launch flag is a document.** `--show-notch-transition 2 20` put
+`無法打開文件「20」。檔案不存在。` on screen, over the animation being photographed: AppKit
+hands unrecognised positional arguments to the document machinery. The options are
+`--name=value` for that reason and no other.
+
+**Photographing it needed a slowdown, and the slowdown cannot settle the durations.**
+`screencapture` takes about a third of a second a frame and the whole gesture is 0.55 s; six
+shots fired at it from a fixed sleep caught nothing, twice. `--notch-slowdown=N` stretches
+wall-clock time without changing the animation's own timeline, which photographs the SHAPE.
+Speed is a judgement and the instrument for it is a person at 1x.
+
 ## What this does not answer
 
-- **The exact durations and the spring's bounce.** Written above as a starting point with the
-  reasoning; they need to be watched at full size before any of them is asserted.
+- **The exact durations and the easing.** Written above as a starting point with the reasoning,
+  and still not watched at full size by anybody. `--show-notch-transition` with no options plays
+  it at 1x, which is the only way this gets settled.
 - **Whether the backdrop should be black or a heavy blur of the desktop.** Black is honest about
   what is happening — the screen is changing Space — and a blur is prettier. It has not been
   looked at either way.

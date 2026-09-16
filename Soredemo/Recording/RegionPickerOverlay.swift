@@ -142,11 +142,24 @@ enum RememberedRegion {
 /// screen.
 enum GlobalRect {
     static func topLeft(of screen: NSScreen) -> PointRect {
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        return PointRect(x: screen.frame.minX,
-                         y: primaryHeight - screen.frame.maxY,
-                         width: screen.frame.width,
-                         height: screen.frame.height)
+        topLeft(x: Double(screen.frame.minX), maxY: Double(screen.frame.maxY),
+                width: Double(screen.frame.width), height: Double(screen.frame.height))
+    }
+
+    /// A WINDOW's frame in the same space. **The same conversion, reached through the same
+    /// function**, for the reason this type's own comment gives: the last time it was written
+    /// twice one of the copies was wrong.
+    static func topLeft(of window: NSWindow) -> PointRect {
+        topLeft(x: Double(window.frame.minX), maxY: Double(window.frame.maxY),
+                width: Double(window.frame.width), height: Double(window.frame.height))
+    }
+
+    /// The conversion itself, in bare numbers so both callers above share one line of
+    /// arithmetic rather than two that look alike.
+    private static func topLeft(x: Double, maxY: Double,
+                                width: Double, height: Double) -> PointRect {
+        let primaryHeight = Double(NSScreen.screens.first?.frame.height ?? 0)
+        return PointRect(x: x, y: primaryHeight - maxY, width: width, height: height)
     }
 }
 

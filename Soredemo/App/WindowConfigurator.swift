@@ -167,6 +167,16 @@ struct WindowConfigurator: NSViewRepresentable {
     let chosen = window.frame
     restoreFrameOnExit(chosen, of: window)
     window.setFrame(visible, display: false, animate: false)
+    // **The overlay goes up BEFORE the toggle, and that ordering is the whole trick.** What it
+    // is covering is AppKit's own full-screen transition — the desktop sliding to a new Space —
+    // which is not ours to animate and is entirely visible. A panel that appeared after the
+    // toggle would be covering the end of something a person had already watched.
+    //
+    // It aims at the frame the window actually reaches, read from the window, because
+    // `FullScreenEntry` is allowed to fail: see `NotchOpening`.
+    NotchOpening.shared.play(
+        over: window,
+        reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     FullScreenEntry.enter(window)
 }
 

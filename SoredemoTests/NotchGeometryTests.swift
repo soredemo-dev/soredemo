@@ -201,6 +201,124 @@ private let macs: [Mac] = [
             "the fallback was a different share of different screens: \(shares)")
 }
 
+// MARK: - the shape at a moment, over the same matrix
+
+/// **It starts on the notch.** A first frame that was anything else would be the shape
+/// appearing rather than the notch becoming something.
+@Test @MainActor func theFirstFrameIsTheNotchItself() {
+    for mac in macs {
+        let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+        let first = geometry.rect(atProgress: 0)
+        #expect(abs(first.x - geometry.start.x) < 0.001, "\(mac.name): \(first)")
+        #expect(abs(first.y - geometry.start.y) < 0.001, "\(mac.name): \(first)")
+        #expect(abs(first.width - geometry.start.width) < 0.001, "\(mac.name): \(first)")
+        #expect(abs(first.height - geometry.start.height) < 0.001, "\(mac.name): \(first)")
+    }
+}
+
+/// **It ends on the window, exactly.** A last frame short of it hands over with a jump, which
+/// is the defect the whole "read the frame from the window" ordering exists to prevent.
+@Test @MainActor func theLastFrameIsTheWindow() {
+    for mac in macs {
+        let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+        let last = geometry.rect(atProgress: 1)
+        #expect(abs(last.x - geometry.end.x) < 0.001, "\(mac.name): \(last)")
+        #expect(abs(last.y - geometry.end.y) < 0.001, "\(mac.name): \(last)")
+        #expect(abs(last.width - geometry.end.width) < 0.001, "\(mac.name): \(last)")
+        #expect(abs(last.height - geometry.end.height) < 0.001, "\(mac.name): \(last)")
+    }
+}
+
+/// **It only ever gets bigger.** A frame narrower or shorter than the one before would be the
+/// shape breathing, which no amount of easing should produce.
+@Test @MainActor func itNeverShrinksOnAnyMac() {
+    for mac in macs {
+        let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+        var previous = geometry.rect(atProgress: 0)
+        for step in 1...60 {
+            let next = geometry.rect(atProgress: Double(step) / 60)
+            #expect(next.width >= previous.width - 0.001,
+                    "\(mac.name) narrowed at \(step): \(previous) -> \(next)")
+            #expect(next.height >= previous.height - 0.001,
+                    "\(mac.name) shortened at \(step): \(previous) -> \(next)")
+            previous = next
+        }
+    }
+}
+
+/// **The bottom edge leads.** It travels far further than the sides — 918 points against 663
+/// each on the machine this was designed on — and arriving slightly ahead is what makes the
+/// shape read as pulled down rather than inflated from its middle.
+@Test @MainActor func theBottomEdgeIsAheadOfTheRestThroughout() {
+    for mac in macs {
+        let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+        let start = geometry.start, end = geometry.end
+        var sawALead = false
+        for step in 1..<60 {
+            let p = Double(step) / 60
+            let rect = geometry.rect(atProgress: p)
+            let bottomShare = ((rect.y + rect.height) - (start.y + start.height))
+                / ((end.y + end.height) - (start.y + start.height))
+            let sideShare = (start.x - rect.x) / (start.x - end.x)
+            #expect(bottomShare >= sideShare - 0.001,
+                    "\(mac.name) at \(p): bottom \(bottomShare) behind sides \(sideShare)")
+            if bottomShare > sideShare + 0.01 { sawALead = true }
+        }
+        #expect(sawALead, "\(mac.name): the bottom never led at all, so the lead does nothing")
+    }
+}
+
+/// **A screen with room between the notch and the window travels before it grows**, so the
+/// shape reads as coming out from behind the notch rather than detaching from it. Every Mac in
+/// the matrix is flush, so this is the one case the matrix cannot pose.
+@Test @MainActor func aGapIsCoveredBeforeAnythingGrows() {
+    let roomy = ScreenMetrics(frame: PointRect(x: 0, y: 0, width: 1512, height: 982),
+                              safeAreaTop: 32, menubarHeight: 60,
+                              auxiliaryLeftWidth: 663.5, auxiliaryRightWidth: 663.5)
+    let geometry = NotchGeometry.opening(
+        into: PointRect(x: 0, y: 60, width: 1512, height: 922), on: roomy)
+    #expect(geometry.gap == 28)
+    #expect(geometry.travelShare > 0, "a 28-point gap was treated as flush")
+    // Halfway through the travel: still notch-sized, and moved.
+    let midTravel = geometry.rect(atProgress: geometry.travelShare / 2)
+    #expect(abs(midTravel.width - geometry.start.width) < 0.001, "it grew while travelling")
+    #expect(midTravel.y > geometry.start.y, "it did not move while travelling")
+    #expect(midTravel.y < geometry.start.y + geometry.gap)
+}
+
+/// A flush screen — every notched Mac measured — spends none of the animation travelling.
+@Test @MainActor func aFlushScreenTravelsNotAtAll() {
+    for mac in macs where mac.aux != nil {
+        let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+        #expect(geometry.travelShare == 0, "\(mac.name) travels \(geometry.travelShare)")
+    }
+}
+
+/// **The top corners hold and only the bottom two open — on a notch.** That is what keeps the
+/// shape attached to the thing it came out of.
+@Test @MainActor func onlyTheBottomCornersOpenOnANotch() {
+    let mac = macs[0]
+    let geometry = NotchGeometry.opening(into: mac.fullScreen, on: mac.metrics)
+    #expect(geometry.isNotch)
+    #expect(geometry.topRadius(atProgress: 0) == geometry.startRadius)
+    #expect(geometry.topRadius(atProgress: 1) == geometry.startRadius)
+    #expect(geometry.bottomRadius(atProgress: 0) == geometry.startRadius)
+    #expect(geometry.bottomRadius(atProgress: 1) == 0)
+}
+
+/// **Where there is no notch there is nothing to stay attached to**, so all four corners are
+/// equal at every moment. The same gesture, without a shape to pretend it came out of.
+@Test @MainActor func theFallbackIsRoundedEquallyAtEveryMoment() {
+    let plainMac = plain("external 1920x1080", 1920, 1080)
+    let geometry = NotchGeometry.opening(into: plainMac.fullScreen, on: plainMac.metrics)
+    #expect(!geometry.isNotch)
+    for step in 0...10 {
+        let p = Double(step) / 10
+        #expect(geometry.topRadius(atProgress: p) == geometry.bottomRadius(atProgress: p),
+                "the fallback's corners differed at \(p)")
+    }
+}
+
 /// A screen that is not at the origin — every display but the primary one. The shape must be
 /// centred on ITS screen, not on the global origin.
 @Test @MainActor func aScreenLeftOfThePrimaryOneIsHandled() {

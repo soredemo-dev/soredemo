@@ -1,3 +1,4 @@
+import Foundation
 import Geometry
 
 /// Where the editor's opening animation starts and where it ends, on any Mac.
@@ -39,6 +40,98 @@ struct NotchGeometry: Equatable {
     /// Two points of tolerance rather than exact equality: these are points on a scaled display
     /// and a half-point of rounding is not a seam anybody can see.
     var startsFlush: Bool { gap <= 2 }
+
+    // MARK: - the shape at a moment
+
+    /// **How much of the animation is spent travelling before anything grows.**
+    ///
+    /// Zero on every Mac measured, because `gap` is one point there and the shape can grow
+    /// straight out of the notch. Where it is not — a Mac, a mode or a release that leaves room
+    /// between the notch's bottom edge and a full-screen window's top — the shape covers that
+    /// distance at its notch size FIRST, so it reads as coming out from behind the notch rather
+    /// than detaching from it and then inflating.
+    ///
+    /// Capped, because the share is a share of a fixed duration: a large gap must not spend the
+    /// whole animation sliding.
+    var travelShare: Double {
+        guard !startsFlush, gap > 0 else { return 0 }
+        // Proportional to how far there is to go against the whole vertical journey, so a
+        // two-point gap is a flicker and a fifty-point one is a visible slide.
+        let journey = (end.y + end.height) - start.y
+        guard journey > 0 else { return 0 }
+        return min(0.25, gap / journey * 4)
+    }
+
+    /// **How much the bottom edge leads the rest.** Greater than 1 means it arrives sooner.
+    ///
+    /// The bottom travels far further than the sides — on the machine this was designed on, 918
+    /// points against 663 each — and letting it reach its destination slightly ahead reads as
+    /// the shape being pulled DOWN rather than inflated from its middle. The ratio comes out
+    /// similar on every geometry in the test matrix, because a notch is always much wider than
+    /// it is tall.
+    ///
+    /// **This number has not been watched at full size.** It is the one thing in this file that
+    /// is a taste decision rather than a measurement, and `--show-notch-transition` exists to
+    /// settle it. 1.35 puts the bottom 60% of the way when everything else is halfway.
+    static let bottomLead: Double = 1.35
+
+    /// The shape at a moment in the animation, `progress` running 0 to 1.
+    ///
+    /// Pure, and the whole reason the animation is testable: a `Shape` with an `animatableData`
+    /// calls this and draws what comes back, so what can be asserted is every property the
+    /// gesture needs — it starts on the notch, it ends on the window, it never inverts, and the
+    /// bottom edge is always at least as far along as the top.
+    func rect(atProgress progress: Double) -> PointRect {
+        let p = min(1, max(0, progress))
+        // Where the shape sits once it has finished travelling: the notch, moved down by `gap`.
+        let travelled = PointRect(x: start.x, y: start.y + gap,
+                                  width: start.width, height: start.height)
+        let share = travelShare
+        if share > 0, p < share {
+            return PointRect(x: start.x, y: start.y + gap * (p / share),
+                             width: start.width, height: start.height)
+        }
+        // **`start`, not `travelled`, when there is no travel phase.** On every Mac measured the
+        // gap is one point and `travelShare` is zero, so growing from the travelled position
+        // would put the first frame a point below the notch — the shape would appear already
+        // detached, by an amount small enough that only a test would catch it. `theFirstFrameIsTheNotchItself` did.
+        let from = share > 0 ? travelled : start
+        let g = share >= 1 ? 1 : (p - share) / (1 - share)
+        let gBottom = pow(g, 1 / Self.bottomLead)
+        let left = from.x + (end.x - from.x) * g
+        let right = (from.x + from.width)
+            + ((end.x + end.width) - (from.x + from.width)) * g
+        let top = from.y + (end.y - from.y) * g
+        let bottom = (from.y + from.height)
+            + ((end.y + end.height) - (from.y + from.height)) * gBottom
+        return PointRect(x: left, y: top,
+                         width: max(0, right - left), height: max(0, bottom - top))
+    }
+
+    /// The radius the shape starts with.
+    ///
+    /// **A fraction of the notch's own height, not a number of points.** A notch is a fixed
+    /// number of PIXELS, so its radius in points moves with every scaled mode — the same reason
+    /// nothing else in this file is a length. Half the height is what the shape looks like;
+    /// **nobody here has measured Apple's actual radius**, and a notch library's 15 and 20 are
+    /// another library's numbers at one scale rather than a published answer.
+    var startRadius: Double { start.height * 0.5 }
+
+    /// **The top corners hold the notch's radius the whole way, and that is what keeps the
+    /// shape attached to the thing it came out of.** Only the bottom two open.
+    ///
+    /// Where there is no notch there is nothing to stay attached to, so all four corners are
+    /// equal at every moment — which is what this returning the same value as
+    /// `bottomRadius(atProgress:)` means.
+    func topRadius(atProgress progress: Double) -> Double {
+        isNotch ? startRadius : bottomRadius(atProgress: progress)
+    }
+
+    /// The bottom corners open from the notch's radius to the editor's, which for a window
+    /// filling the screen is none.
+    func bottomRadius(atProgress progress: Double) -> Double {
+        startRadius * (1 - min(1, max(0, progress)))
+    }
 }
 
 /// A screen, reduced to the five numbers this decision needs.
