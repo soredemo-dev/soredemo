@@ -122,7 +122,6 @@
 "Shadow" = "Shadow";
 "Shape" = "Shape";
 "Shortcut" = "Shortcut";
-"Show the recording controls" = "Show the recording controls";
 "Silent" = "Silent";
 "Size" = "Size";
 "Solid" = "Solid";
@@ -511,3 +510,5 @@
 "Region" = "Region";
 "Recording cancelled." = "Recording cancelled.";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)";
+
+"Click to show the controls, drag to move the bar" = "Click to show the controls, drag to move the bar";

@@ -480,8 +480,14 @@ struct CaptionsPanel: View {
                 }
             }
             .listStyle(.sidebar)
+            // **Not while somebody is typing in it, and the reason was already written down.**
+            // `focused`'s own comment says a list that scrolled itself while somebody was
+            // typing would move the field out from under them — and the guard to match it was
+            // never written here. During playback the current cue changes every few seconds, so
+            // correcting a line while the video ran meant the row you were editing slid away
+            // mid-word. Reported as "you cannot edit subtitles while it plays".
             .onChange(of: currentIndex) {
-                guard let currentIndex else { return }
+                guard focused == nil, let currentIndex else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     scroller.scrollTo(currentIndex, anchor: .center)
                 }

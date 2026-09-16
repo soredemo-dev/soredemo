@@ -29,9 +29,16 @@ struct NotchTransition: Equatable {
         }
     }
 
-    /// The ground goes dark. **Full-screen from its first frame**, which is what hides AppKit's
-    /// own full-screen zoom happening behind it — the desktop sliding to a new Space is the one
-    /// part of this that cannot be animated by us and must simply not be seen.
+    /// The ground goes dark. **Full-screen AND opaque from its first frame.**
+    ///
+    /// This faded in over 0.10 s, and the fade was a hole exactly its own size. The editor
+    /// window is created, ordered front at whatever frame was autosaved, resized and only then
+    /// asked for full screen — and the first of those happens inside 100 ms, in front of a
+    /// cover that is still mostly transparent. Reported as the editor "zooming to the bottom
+    /// right and then the notch animation": the bottom right is where the autosaved frame was.
+    ///
+    /// A cover whose whole job is to be opaque cannot fade in. What it was fading over is a
+    /// desktop that is about to be replaced by an editor, and nobody is looking at it.
     let backdrop: Phase
     /// The notch becomes the window. Zero duration when Reduce Motion is on, which is what
     /// "there is no shape" means here.
@@ -46,10 +53,12 @@ struct NotchTransition: Equatable {
 
     /// The animation as designed.
     ///
-    /// The overlap between `backdrop` and `shape` is 50 ms and it is deliberate: two phases that
-    /// met exactly would read as two things happening in order rather than one thing happening.
+    /// **The backdrop has no duration and that is not an omission.** See `backdrop`: it is
+    /// there to hide a window being built, and a fade is transparent for as long as it lasts.
+    /// The shape then starts a beat later, so the two still read as one gesture rather than a
+    /// cut followed by an unrelated animation.
     static let standard = NotchTransition(
-        backdrop: Phase(start: 0, duration: 0.10),
+        backdrop: Phase(start: 0, duration: 0),
         shape: Phase(start: 0.05, duration: 0.45),
         reveal: Phase(start: 0.35, duration: 0.20))
 
@@ -57,7 +66,7 @@ struct NotchTransition: Equatable {
     /// is exactly what that setting exists to prevent, and halving it is not honouring it. What
     /// is left is a cross-fade: the ground darkens and clears, and the editor is there.
     static let reduced = NotchTransition(
-        backdrop: Phase(start: 0, duration: 0.10),
+        backdrop: Phase(start: 0, duration: 0),
         shape: Phase(start: 0, duration: 0),
         reveal: Phase(start: 0, duration: 0.20))
 

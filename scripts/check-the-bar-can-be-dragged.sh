@@ -63,8 +63,14 @@ if NSEvent.mouseLocation == start {
 let screen = NSScreen.main!
 let visible = screen.visibleFrame
 // RecordingBarPanel: the pill is centred on the visible frame, `bottomInset` above its bottom.
-let bottomInset = 76.0, barHeight = 44.0
-let x = visible.midX - 80
+let bottomInset = 76.0, barHeight = 44.0, barWidth = 392.0
+// **Where to grab, and it is not the middle in both states.** The panel is not opaque, so the
+// window server hit-tests against rendered alpha: a click on a transparent part of it reaches
+// the desktop and AppKit never asks the view. Expanded the pill fills the bar; COLLAPSED it is
+// a small capsule at the leading edge and everything else is transparent — grabbing the middle
+// there measured nothing at all, and read as "the pointer never reached the window".
+let collapsed = CommandLine.arguments.contains("collapsed")
+let x = collapsed ? (visible.midX - barWidth / 2 + 28) : (visible.midX - 80)
 let y = screen.frame.maxY - (visible.minY + bottomInset + barHeight / 2)
 func post(_ t: CGEventType, _ px: Double, _ py: Double) {
     CGEvent(mouseEventSource: nil, mouseType: t,
@@ -81,10 +87,21 @@ exit(0)
 SWIFT
 /usr/bin/xcrun swiftc -O "$WORK/drag.swift" -o "$WORK/drag" >/dev/null
 
-REPORT="$WORK/bar.txt"
-"$APP/Contents/MacOS/Soredemo" --show-recording-bar 10 > "$REPORT" 2>&1 &
-APP_PID=$!
-sleep 3
+# **Both states, because the collapsed one is where this defect hid.** Collapsed, the bar is
+# one control and nothing else; a `Button` takes the mouse for the whole press, so the drag
+# surface behind it never saw one. Expanded it worked the whole time, which is why nothing
+# caught it. `$1` is the state's name, for the failure message.
+run_one() {
+  local label="$1"; shift
+  local report="$WORK/bar-$label.txt"
+  "$APP/Contents/MacOS/Soredemo" --show-recording-bar 10 "$@" > "$report" 2>&1 &
+  APP_PID=$!
+  sleep 3
+  REPORT="$report"
+  STATE="$label"
+}
+
+run_one expanded
 
 set +e
 "$WORK/drag" > "$WORK/drag.txt" 2>&1
@@ -109,7 +126,7 @@ set -e
 cat "$REPORT"
 if [ "$STATUS" -ne 0 ]; then
   echo "" >&2
-  echo "BAR DRAG: FAILED. The bar's window is where it started, so the drag did nothing." >&2
+  echo "BAR DRAG ($STATE): FAILED. The bar's window is where it started, so the drag did nothing." >&2
   echo "Read the two counters above first:" >&2
   echo "  hit tests 0 on the bar   the pointer never reached the window. The bar is not" >&2
   echo "                           where this check grabbed — check bottomInset and the" >&2
@@ -122,4 +139,25 @@ if [ "$STATUS" -ne 0 ]; then
   echo "                           arithmetic, or a window that refuses setFrameOrigin." >&2
   exit 1
 fi
-echo "BAR DRAG: the bar moved where it was dragged."
+echo "BAR DRAG ($STATE): the bar moved where it was dragged."
+
+# The same check again, collapsed.
+pkill -x Soredemo 2>/dev/null || true
+for _ in $(seq 1 30); do pgrep -x Soredemo >/dev/null || break; sleep 0.5; done
+sleep 1
+run_one collapsed --bar-collapsed
+set +e
+"$WORK/drag" collapsed > "$WORK/drag-collapsed.txt" 2>&1
+DRAG_STATUS=$?
+wait "$APP_PID"
+STATUS=$?
+set -e
+cat "$REPORT"
+if [ "$STATUS" -ne 0 ]; then
+  echo "" >&2
+  echo "BAR DRAG (collapsed): FAILED. Expanded passed and collapsed did not, which is the" >&2
+  echo "shape this state was added for: collapsed the bar is ONE control, and a control that" >&2
+  echo "takes the mouse leaves nothing for a drag. Read the counters above the same way." >&2
+  exit 1
+fi
+echo "BAR DRAG (collapsed): the bar moved where it was dragged."

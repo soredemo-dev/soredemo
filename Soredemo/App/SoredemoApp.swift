@@ -167,7 +167,12 @@ struct SoredemoApp: App {
         if let index = arguments.firstIndex(of: "--show-recording-bar"),
            index + 1 < arguments.count, let seconds = Double(arguments[index + 1]) {
             Task { @MainActor in
-                RecordingBarPresenter.shared.show(coordinator: recordingCoordinator)
+                RecordingBarPresenter.shared.show(
+                    coordinator: recordingCoordinator,
+                    // `--bar-collapsed`: the state where the bar is one control and nothing
+                    // else, which is where "it cannot be dragged once collapsed" hid — the
+                    // control took the mouse and the drag surface behind it never saw one.
+                    startCollapsed: arguments.contains("--bar-collapsed"))
                 let before = RecordingBarPresenter.shared.barFrame
                 print("bar \(before.map { "\($0)" } ?? "none")")
                 try? await Task.sleep(for: .seconds(seconds))

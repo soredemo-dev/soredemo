@@ -108,7 +108,7 @@ xcrun swiftc \
   Soredemo/App/KeyboardFocus.swift \
   Soredemo/App/UndoRecording.swift \
   Soredemo/App/NotchGeometry.swift \
-  Soredemo/App/BarDrag.swift \
+  Soredemo/App/WindowDrag.swift \
   Soredemo/App/NotchTransition.swift \
   Soredemo/App/NotchOpening.swift \
   Soredemo/App/BareKeys.swift \

@@ -124,7 +124,6 @@
 "Shadow" = "Sombra";
 "Shape" = "Forma";
 "Shortcut" = "Atajo";
-"Show the recording controls" = "Mostrar los controles de grabación";
 "Silent" = "Silencio";
 "Size" = "Tamaño";
 "Solid" = "Color sólido";
@@ -497,3 +496,5 @@
 "Region" = "Región";
 "Recording cancelled." = "Grabación cancelada.";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "Se escribió %@, pero no se pudieron dibujar %lld fotograma(s) y faltan en el archivo. (%@)";
+
+"Click to show the controls, drag to move the bar" = "Haz clic para mostrar los controles; arrastra para mover la barra";

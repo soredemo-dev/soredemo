@@ -122,7 +122,6 @@
 "Shadow" = "그림자";
 "Shape" = "모양";
 "Shortcut" = "단축키";
-"Show the recording controls" = "녹화 컨트롤 표시";
 "Silent" = "무음";
 "Size" = "크기";
 "Solid" = "단색";
@@ -495,3 +494,5 @@
 "Region" = "영역";
 "Recording cancelled." = "녹화를 취소했습니다.";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@을(를) 저장했지만 %lld개의 프레임을 그리지 못해 파일에 빠져 있습니다. (%@)";
+
+"Click to show the controls, drag to move the bar" = "클릭하면 컨트롤이 나타나고, 드래그하면 바를 옮길 수 있습니다";

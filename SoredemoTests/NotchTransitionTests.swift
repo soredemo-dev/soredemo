@@ -14,14 +14,23 @@ import Testing
 
     // MARK: - the phases
 
-    /// **The shape starts before the backdrop has finished.** Two phases that met exactly would
-    /// read as two things happening in order rather than one thing happening.
-    @Test @MainActor func theShapeBeginsWhileTheGroundIsStillDarkening() {
-        let transition = NotchTransition.standard
-        #expect(transition.shape.start < transition.backdrop.end,
-                "the shape waits for the backdrop; the two would read as separate")
-        #expect(transition.shape.start > transition.backdrop.start,
-                "the shape and the backdrop start together; there is nothing to come out of yet")
+    /// **The ground is dark before anything else happens, and it does not fade there.**
+    ///
+    /// It faded over 0.10 s, and the fade was a hole exactly its own size: the editor window is
+    /// created and ordered front inside that, at whatever frame was autosaved, in front of a
+    /// cover that is still mostly transparent. Reported as the editor zooming to the bottom
+    /// right before the notch animation — the bottom right being where the autosaved frame was.
+    @Test @MainActor func theGroundIsAlreadyDarkWhenAnythingElseStarts() {
+        for transition in [NotchTransition.standard, .reduced] {
+            #expect(transition.backdrop.duration == 0, "the cover fades in; that is a hole")
+            #expect(transition.backdrop.progress(at: 0) == 1,
+                    "the cover is not opaque at the first frame")
+        }
+        // The shape still starts a beat later, so the two read as one gesture rather than a cut
+        // followed by an unrelated animation.
+        #expect(NotchTransition.standard.shape.start > NotchTransition.standard.backdrop.end)
+        #expect(NotchTransition.standard.shape.start < 0.1,
+                "the pause between the cover and the shape is long enough to read as two things")
     }
 
     /// **The reveal starts before the shape has finished**, so the editor is already there when

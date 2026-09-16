@@ -122,7 +122,6 @@
 "Shadow" = "Тень";
 "Shape" = "Форма";
 "Shortcut" = "Сочетание клавиш";
-"Show the recording controls" = "Показать элементы управления записью";
 "Silent" = "Тишина";
 "Size" = "Размер";
 "Solid" = "Сплошной цвет";
@@ -495,3 +494,5 @@
 "Region" = "Область";
 "Recording cancelled." = "Запись отменена.";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "Файл %@ записан, но %lld кадр(ов) не удалось отрисовать, и они в нём отсутствуют. (%@)";
+
+"Click to show the controls, drag to move the bar" = "Нажмите, чтобы показать элементы управления; перетащите, чтобы переместить панель";

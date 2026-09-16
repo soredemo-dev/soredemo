@@ -37,7 +37,7 @@ final class RecordingBarPanel: NSPanel {
 
     /// Moves the window while somebody drags the bar. Held here because the view is a struct
     /// rebuilt on every tick and the grab has to outlive that.
-    private let dragger = BarDragger()
+    private let dragger = WindowDragger()
 
     /// How many drag changes reached the bar, and what the window saw of the pointer.
     /// For `--show-recording-bar`.
@@ -47,7 +47,7 @@ final class RecordingBarPanel: NSPanel {
         return (hosting.hitsOnPill, hosting.hitsInHalo)
     }
 
-    init(coordinator: RecordingCoordinator) {
+    init(coordinator: RecordingCoordinator, startCollapsed: Bool = false) {
         super.init(contentRect: CGGeometryBridge.rect(from: PointRect(
                        x: 0, y: 0, width: Self.panelWidth, height: Self.panelHeight)),
                    styleMask: [.borderless, .nonactivatingPanel],
@@ -62,12 +62,13 @@ final class RecordingBarPanel: NSPanel {
         // **Left on, and it is not what moves the bar.** `isMovableByWindowBackground` does not
         // survive an `NSHostingView`: driven with synthesised events, this panel with a plain
         // `NSView` in it moved 88 points and the identical panel with SwiftUI in it did not
-        // move at all — which is why the bar could never be dragged. `BarDragger` does the
+        // move at all — which is why the bar could never be dragged. `WindowDragger` does the
         // moving; this stays because it costs nothing and is what a reader expects to find.
         isMovableByWindowBackground = true
 
         let hosting = BarHostingView(
-            rootView: RecordingBarView(coordinator: coordinator, dragger: dragger))
+            rootView: RecordingBarView(coordinator: coordinator, dragger: dragger,
+                                       startCollapsed: startCollapsed))
         hosting.frame = CGGeometryBridge.rect(from: PointRect(
             x: 0, y: 0, width: Self.panelWidth, height: Self.panelHeight))
         // In AppKit's bottom-left space, the pill sits above the shadow room beneath it.
@@ -159,10 +160,10 @@ private final class BarHostingView<Content: View>: NSHostingView<Content> {
 /// answering `mouseDownCanMoveWindow`, and the same view inside a `ZStack`; neither moved the
 /// window either. What works is doing the move ourselves, and the button beside it still fires.
 @MainActor
-final class BarDragger {
+final class WindowDragger {
     /// Weak: the panel owns this, and this must not own the panel back.
     weak var window: NSWindow?
-    private var drag = BarDrag()
+    private var drag = WindowDrag()
     /// How many changes the gesture has delivered. **`--show-recording-bar` prints it**, because
     /// "the bar did not move" has two causes that look identical from outside: the gesture never
     /// fired, or it fired and the move did not take. One number separates them.
@@ -172,7 +173,7 @@ final class BarDragger {
     ///
     /// **The pointer is read from the system, not from the gesture.** `DragGesture` reports a
     /// translation inside a coordinate space that belongs to the window being moved, so a
-    /// window moved by it stops after one frame. See `BarDrag`.
+    /// window moved by it stops after one frame. See `WindowDrag`.
     func moved() {
         moves += 1
         guard let window else { return }
@@ -196,9 +197,9 @@ final class RecordingBarPresenter {
 
     private init() {}
 
-    func show(coordinator: RecordingCoordinator) {
+    func show(coordinator: RecordingCoordinator, startCollapsed: Bool = false) {
         guard panel == nil else { return }
-        let panel = RecordingBarPanel(coordinator: coordinator)
+        let panel = RecordingBarPanel(coordinator: coordinator, startCollapsed: startCollapsed)
         panel.orderFrontRegardless()
         self.panel = panel
     }
@@ -214,7 +215,7 @@ final class RecordingBarPresenter {
         panel.map { CGGeometryBridge.pointRect(from: $0.frame) }
     }
 
-    /// How many drag changes the bar has seen. See `BarDragger.moves`.
+    /// How many drag changes the bar has seen. See `WindowDragger.moves`.
     var dragMoves: Int { panel?.dragMoves ?? 0 }
     var hitCounts: (pill: Int, halo: Int) { panel?.hitCounts ?? (0, 0) }
 }
@@ -223,12 +224,17 @@ final class RecordingBarPresenter {
 
 struct RecordingBarView: View {
     let coordinator: RecordingCoordinator
-    /// What moves the window. Owned by the panel; see `BarDragger` for why the bar cannot be
+    /// What moves the window. Owned by the panel; see `WindowDragger` for why the bar cannot be
     /// dragged by AppKit alone.
-    let dragger: BarDragger
+    let dragger: WindowDragger
     /// 20 Hz. Fast enough that the level meter moves rather than steps, slow enough that it is
     /// not a frame-rate cost on a machine already encoding video.
     private static let tick: Double = 1.0 / 20
+
+    /// Whether it opens collapsed. **Only `--show-recording-bar` passes true**: the check that
+    /// drives it has to be able to reach the collapsed state, where the bar is one control and
+    /// nothing else — which is exactly where "it cannot be dragged" hid.
+    let startCollapsed: Bool
 
     /// Collapsed to a dot in the corner. **Not hidden entirely**: a recorder with no visible
     /// indicator is one people leave running, and the menu bar item can be pushed off a full
@@ -240,6 +246,7 @@ struct RecordingBarView: View {
         Group {
             if isCollapsed { collapsed } else { expanded }
         }
+        .onAppear { isCollapsed = startCollapsed }
         // **The window's shadow room, and it is padding rather than a bigger pill.** The panel
         // is the bar plus this on every side; without it the shadow is clipped at the window's
         // edge and reads as a hard rectangle. See `Glass.shadowRoomSides`.
@@ -290,22 +297,32 @@ struct RecordingBarView: View {
 
     /// **A dot and nothing else.** Clicking it brings the controls back; the recording never
     /// stopped, and nothing here can stop it by accident.
+    ///
+    /// **Not a `Button`, and that is why the collapsed bar could not be dragged.** A `Button`
+    /// takes the mouse for the whole press, so the drag surface behind it never saw one — and
+    /// collapsed, the button IS the bar: there is nothing else to grab. A tap and a drag on the
+    /// same view lets SwiftUI tell them apart by distance, which is the same thing a person
+    /// does with their hand.
     @ViewBuilder private var collapsed: some View {
         HStack {
-            Button { isCollapsed = false } label: {
-                HStack(spacing: Space.snug) {
-                    PulsingDot(isPaused: coordinator.isPaused)
-                    Image(systemName: "chevron.left.2")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                .padding(.horizontal, Space.regular)
-                .frame(height: 30)
-                .glassSurface(radius: 15)
-                .contentShape(Rectangle())
+            HStack(spacing: Space.snug) {
+                PulsingDot(isPaused: coordinator.isPaused)
+                Image(systemName: "chevron.left.2")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
             }
-            .buttonStyle(.plain)
-            .help("Show the recording controls")
+            .padding(.horizontal, Space.regular)
+            .frame(height: 30)
+            .glassSurface(radius: 15)
+            .contentShape(Rectangle())
+            // Four points rather than the expanded bar's one: collapsed, a click is the
+            // primary action and a press that wandered must still open it.
+            .gesture(
+                DragGesture(minimumDistance: 4)
+                    .onChanged { _ in dragger.moved() }
+                    .onEnded { _ in dragger.ended() })
+            .onTapGesture { isCollapsed = false }
+            .help("Click to show the controls, drag to move the bar")
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

@@ -147,9 +147,11 @@ private final class ShapedCameraView: NSView {
     }
 
     private let preview: AVCaptureVideoPreviewLayer
-    private var dragOrigin: NSPoint?
+    /// Where the pointer went down, for the threshold below. Not what moves the window.
     private var pressOrigin: NSPoint?
     private var isDragging = false
+    /// The arithmetic, shared with the recording bar. See `WindowDrag`.
+    private var drag = WindowDrag()
 
     init(previewLayer: AVCaptureVideoPreviewLayer, style: CameraOverlayStyle) {
         self.preview = previewLayer
@@ -203,48 +205,48 @@ private final class ShapedCameraView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        dragOrigin = NSEvent.mouseLocation
-        pressOrigin = dragOrigin
+        pressOrigin = NSEvent.mouseLocation
+        drag.end()
         isDragging = false
     }
 
-    /// **The window is moved by its frame, not by the drag's translation.** `NSEvent`'s
-    /// `deltaX`/`deltaY` are per-event and lose whatever the run loop coalesced; the difference
-    /// between two absolute mouse locations cannot.
+    /// **An offset taken once, not a delta added up, and that was the drift.**
     ///
-    /// **A threshold before anything moves.** Without one, a press that wandered a point — which
-    /// most presses do — nudged the camera, and since the position is persisted, the nudge was
-    /// permanent. A 6px threshold is the usual figure; this is the same
-    /// number because the reason is the same and the hand is the same.
+    /// This moved the window by `now - last` and set `last = now`. Adding deltas equals
+    /// following the pointer only while every delta can be honoured, and the clamp below means
+    /// they cannot: push the camera into an edge and the refused part is dropped while `last`
+    /// advances anyway, so pointer and picture come apart by that much and STAY apart.
+    /// `WindowDrag` re-aligns instead, because nothing is accumulated to be wrong about.
     ///
-    /// **Clamped to the screen on every frame, not only when the panel is placed.** Dragging
-    /// past an edge otherwise walks the camera off the display, where it cannot be grabbed back
-    /// — and the position it writes is what the export composites with. Clamping inside
-    /// its `requestAnimationFrame` for this; here every drag event does it.
+    /// **A threshold before anything moves.** A press that wandered a point — which most
+    /// presses do — nudged the camera, and the position is persisted, so the nudge was
+    /// permanent. Six points is the usual figure and the hand is the usual hand.
+    ///
+    /// **Clamped on every frame, not only when the panel is placed.** Dragging past an edge
+    /// otherwise walks the camera off the display, where it cannot be grabbed back — and the
+    /// position it writes is what the export composites with.
     override func mouseDragged(with event: NSEvent) {
-        guard let start = dragOrigin, let press = pressOrigin, let window else { return }
+        guard let press = pressOrigin, let window else { return }
         let now = NSEvent.mouseLocation
         if !isDragging {
             guard hypot(now.x - press.x, now.y - press.y) >= Self.dragThreshold else { return }
             isDragging = true
         }
-        var frame = window.frame
-        frame.origin.x += now.x - start.x
-        frame.origin.y += now.y - start.y
+        let wanted = drag.origin(pointerX: Double(now.x), pointerY: Double(now.y),
+                                 windowX: Double(window.frame.minX),
+                                 windowY: Double(window.frame.minY))
+        var origin = NSPoint(x: wanted.x, y: wanted.y)
         if let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
-            frame.origin.x = min(max(frame.origin.x, visible.minX),
-                                 visible.maxX - frame.width)
-            frame.origin.y = min(max(frame.origin.y, visible.minY),
-                                 visible.maxY - frame.height)
+            origin.x = min(max(origin.x, visible.minX), visible.maxX - window.frame.width)
+            origin.y = min(max(origin.y, visible.minY), visible.maxY - window.frame.height)
         }
-        window.setFrameOrigin(frame.origin)
-        dragOrigin = now
+        window.setFrameOrigin(origin)
     }
 
     static let dragThreshold: Double = 6
 
     override func mouseUp(with event: NSEvent) {
-        dragOrigin = nil
+        drag.end()
         pressOrigin = nil
         // Only a real drag reports. A click that never crossed the threshold moved nothing, and
         // writing the position back would round-trip it through the screen-fraction conversion

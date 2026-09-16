@@ -124,7 +124,6 @@
 "Shadow" = "阴影";
 "Shape" = "形状";
 "Shortcut" = "快捷键";
-"Show the recording controls" = "显示录制控制条";
 "Silent" = "静音";
 "Size" = "尺寸";
 "Solid" = "纯色";
@@ -497,3 +496,5 @@
 "Region" = "一块区域";
 "Recording cancelled." = "已取消录制。";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "已写入 %@，但有 %lld 个画面无法绘制，文件里没有它们。（%@）";
+
+"Click to show the controls, drag to move the bar" = "点一下显示控制项，拖拽可移动这条栏";

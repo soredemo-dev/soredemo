@@ -1,4 +1,8 @@
-/// Where a window's origin must go while somebody drags it by its own background.
+/// Where a window's origin must go while somebody drags it.
+///
+/// **Two callers, and the second is why this is not called `BarDrag` any more.** The recording
+/// bar is dragged by its background; the camera self-view is dragged by its picture. They had
+/// two implementations of the same arithmetic and only one of them was right.
 ///
 /// **The arithmetic is here, away from AppKit, because the defect it prevents is arithmetic.**
 /// Two ways of moving a window under a drag look identical in a diff and only one of them
@@ -14,7 +18,7 @@
 /// window it was grabbed. That offset is taken once and held for the whole gesture: recomputing
 /// it per frame would make it equal to the pointer's current position every time and the window
 /// would never move at all.
-struct BarDrag: Equatable {
+struct WindowDrag: Equatable {
     /// Where inside the window the pointer went down, in screen units. `nil` between gestures
     /// rather than a zeroed point, which is a legal grab — a person can grab a window's exact
     /// bottom-left corner, and treating that as "no grab yet" would re-grab on every frame.
@@ -22,7 +26,7 @@ struct BarDrag: Equatable {
 
     init() {}
 
-    static func == (lhs: BarDrag, rhs: BarDrag) -> Bool {
+    static func == (lhs: WindowDrag, rhs: WindowDrag) -> Bool {
         switch (lhs.grab, rhs.grab) {
         case (nil, nil): return true
         case let (l?, r?): return l == r

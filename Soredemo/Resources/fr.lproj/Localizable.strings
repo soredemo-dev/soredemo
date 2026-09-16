@@ -122,7 +122,6 @@
 "Shadow" = "Ombre";
 "Shape" = "Forme";
 "Shortcut" = "Raccourci";
-"Show the recording controls" = "Afficher les commandes d'enregistrement";
 "Silent" = "Silencieux";
 "Size" = "Taille";
 "Solid" = "Couleur unie";
@@ -495,3 +494,5 @@
 "Region" = "Zone";
 "Recording cancelled." = "Enregistrement annulé.";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ a été écrit, mais %lld image(s) n’ont pas pu être dessinées et en sont absentes. (%@)";
+
+"Click to show the controls, drag to move the bar" = "Cliquez pour afficher les commandes, faites glisser pour déplacer la barre";

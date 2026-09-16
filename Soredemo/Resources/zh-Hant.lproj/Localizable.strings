@@ -122,7 +122,6 @@
 "Shadow" = "陰影";
 "Shape" = "形狀";
 "Shortcut" = "快捷鍵";
-"Show the recording controls" = "顯示錄製控制項";
 "Silent" = "無聲";
 "Size" = "大小";
 "Solid" = "實色";
@@ -511,3 +510,5 @@
 "Region" = "一塊區域";
 "Recording cancelled." = "已取消錄影。";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "已寫入 %@，但有 %lld 個影格無法繪製，檔案裡沒有它們。（%@）";
+
+"Click to show the controls, drag to move the bar" = "點一下顯示控制項,拖曳可移動這條列";

@@ -122,7 +122,6 @@
 "Shadow" = "Schatten";
 "Shape" = "Form";
 "Shortcut" = "Kurzbefehl";
-"Show the recording controls" = "Aufnahmesteuerung einblenden";
 "Silent" = "Stumm";
 "Size" = "Größe";
 "Solid" = "Einfarbig";
@@ -495,3 +494,5 @@
 "Region" = "Bereich";
 "Recording cancelled." = "Aufnahme abgebrochen.";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ wurde geschrieben, aber %lld Bild(er) konnten nicht gezeichnet werden und fehlen darin. (%@)";
+
+"Click to show the controls, drag to move the bar" = "Klicken zeigt die Steuerung, Ziehen verschiebt die Leiste";

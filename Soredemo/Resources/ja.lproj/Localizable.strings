@@ -124,7 +124,6 @@
 "Shadow" = "影";
 "Shape" = "形";
 "Shortcut" = "ショートカット";
-"Show the recording controls" = "収録コントロールを表示";
 "Silent" = "無音";
 "Size" = "サイズ";
 "Solid" = "単色";
@@ -497,3 +496,5 @@
 "Region" = "範囲";
 "Recording cancelled." = "収録をキャンセルしました。";
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ を書き出しましたが、%lld フレームを描画できず、ファイルに含まれていません。(%@)";
+
+"Click to show the controls, drag to move the bar" = "クリックでコントロールを表示、ドラッグでバーを移動";
