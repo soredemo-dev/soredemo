@@ -108,6 +108,7 @@ xcrun swiftc \
   Soredemo/App/KeyboardFocus.swift \
   Soredemo/App/UndoRecording.swift \
   Soredemo/App/NotchGeometry.swift \
+  Soredemo/App/BarDrag.swift \
   Soredemo/Recording/OwnWindowReporter.swift \
   Soredemo/App/AppLanguage.swift \
   Soredemo/App/UnsavedWorkGuard.swift \

@@ -100,6 +100,20 @@ enum Glass {
     /// that one.
     static let shadowBlur: Double = 18
     static let shadowOpacity: Double = 0.35
+    /// How far below the surface the shadow sits. Named because the room it needs is not
+    /// symmetrical: the offset takes the extent off the top and adds it to the bottom.
+    static let shadowOffsetY: Double = 6
+
+    /// **Transparent room a window must leave around a `glassSurface` for its own shadow.**
+    ///
+    /// A blurred shadow is drawn OUTSIDE the shape, and a window clips at its frame. The
+    /// recording bar was a 400 x 52 panel with four points of padding around an eighteen-point
+    /// blur, so the shadow was sliced off flat on all four sides: what showed was a hard-edged
+    /// rectangle the size of the window, which is the one thing a soft shadow exists not to be.
+    /// The window is now the bar plus this, and the bar is where it always was.
+    static let shadowRoomSides: Double = shadowBlur
+    static let shadowRoomTop: Double = shadowBlur - shadowOffsetY
+    static let shadowRoomBottom: Double = shadowBlur + shadowOffsetY
     /// A control's own background when hovered.
     static let hoverOpacity: Double = 0.10
 }
@@ -118,7 +132,7 @@ extension View {
                         .strokeBorder(.white.opacity(Glass.edgeOpacity), lineWidth: 0.5)
                 }
                 .shadow(color: .black.opacity(Glass.shadowOpacity),
-                        radius: Glass.shadowBlur, y: 6)
+                        radius: Glass.shadowBlur, y: Glass.shadowOffsetY)
         }
         .environment(\.colorScheme, .dark)
     }
