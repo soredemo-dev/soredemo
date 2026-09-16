@@ -1380,26 +1380,47 @@ private func desktopIconsFile() throws -> [URL] {
 
 /// The in and out keys are unmodified `I` and `O`, which is what every editor that has these
 /// spells them and what a person coming from one will press without looking.
+///
+/// **The mechanism changed on 2026-09-17 and the claim did not.** These were
+/// `.keyboardShortcut("i", modifiers: [])` on zero-opacity buttons in `TimelineEditor`, and
+/// this scanned for that literal beside the `model.markIn()` call. Measured against a caption
+/// field holding the caret, an unmodified `.keyboardShortcut` is TAKEN from the field: a
+/// caption could not be given the letter `i` at all. They moved to `BareKeys`, which is asked
+/// at the moment the key arrives and declines while somebody is typing. So the needle now
+/// looks where the keys live — and this check going red on that move was it working.
 @Test func theInAndOutPointsAreOnTheKeysEveryEditorUses() throws {
-    let editor = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/TimelineEditor.swift" }
-    try #require(editor.count == 1)
-    // **A RAW text scan, not `codeLinesNaming`.** The needle is string-literal CONTENT — the
-    // key letter itself — and the code view blanks that by design. A first version of this check
-    // used the code view and could not see either key, which is the same trap that produced two
-    // vacuous checks earlier in this project.
-    let lines = try String(contentsOf: editor[0], encoding: .utf8)
+    let bareKeys = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/App/BareKeys.swift" }
+    try #require(bareKeys.count == 1, """
+        Soredemo/App/BareKeys.swift is not there. The unmodified keys moved into it because a \
+        `.keyboardShortcut` on one is taken from a text field that has the caret; if it has \
+        moved again, this check has to follow it rather than be deleted.
+        """)
+    let lines = try String(contentsOf: bareKeys[0], encoding: .utf8)
         .components(separatedBy: .newlines)
 
-    for (key, action) in [("i", "markIn"), ("o", "markOut")] {
-        let actionLine = try #require(lines.firstIndex { $0.contains("model.\(action)()") },
-                                      "nothing calls model.\(action)()")
-        // The shortcut is attached to the same button, so it is within a line or two.
-        let nearby = lines[actionLine..<Swift.min(actionLine + 3, lines.count)]
-        #expect(nearby.contains { $0.contains("keyboardShortcut(\"\(key)\", modifiers: [])") }, """
+    // The `kVK_ANSI_*` positions of I and O. **Positions, not letters**, because reading what a
+    // key spells is banned in this app — `noAppSourceReadsKeystrokeText`, which caught the
+    // first version of `BareKeys` doing exactly that. The cost is written down beside the
+    // table: on a layout that is not ANSI these are not the keys labelled I and O.
+    for (key, code, action) in [("i", 34, "markIn"), ("o", 31, "markOut")] {
+        #expect(lines.contains { $0.contains("case i = \(code)") || $0.contains("case o = \(code)") },
+                """
+                the \(key.uppercased()) position is no longer \(code). That is where I and O are \
+                on an ANSI keyboard, and every other editor's unmodified \(key.uppercased()) is \
+                the same place.
+                """)
+        #expect(lines.contains { $0.contains("case .\(key):") && $0.contains(".\(action)") }, """
             \(action) is not on unmodified \(key.uppercased()). That is the key a person coming \
             from any other editor will press, and a modifier on it means they press it and \
             nothing happens.
+            """)
+        // And it must still be refused while somebody is typing, which is the defect that moved
+        // it here. `BareKeysTests.nothingIsTakenWhileSomebodyIsTyping` asserts the behaviour;
+        // this asserts that the guard is still in the file at all.
+        #expect(lines.contains { $0.contains("guard !isTyping") }, """
+            BareKeys no longer refuses while a text field has the caret. Every unmodified key \
+            the editor binds is one somebody is also trying to type.
             """)
     }
 }

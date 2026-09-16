@@ -44,7 +44,6 @@
 "Cursor size" = "Tamaño del cursor";
 "Defaults" = "Valores por omisión";
 "Delete" = "Eliminar";
-"Delete clip" = "Eliminar clip";
 "Desktop" = "Escritorio";
 "Display geometries" = "Geometrías de pantalla";
 "Don't zoom" = "No hacer zoom";
@@ -285,8 +284,6 @@
 "Move out of the cursor's way" = "Apartarse del cursor";
 "For" = "Para";
 "Range" = "Intervalo";
-"Mark in" = "Marcar entrada";
-"Mark out" = "Marcar salida";
 "Clear range" = "Borrar el intervalo";
 "Show in Finder" = "Mostrar en el Finder";
 "Copy" = "Copiar";

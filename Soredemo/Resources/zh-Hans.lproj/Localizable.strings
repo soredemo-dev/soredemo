@@ -44,7 +44,6 @@
 "Cursor size" = "光标大小";
 "Defaults" = "恢复默认";
 "Delete" = "删除";
-"Delete clip" = "删除片段";
 "Desktop" = "桌面";
 "Display geometries" = "显示器几何";
 "Don't zoom" = "不要放大";
@@ -285,8 +284,6 @@
 "Move out of the cursor's way" = "让开光标";
 "For" = "用途";
 "Range" = "范围";
-"Mark in" = "标记入点";
-"Mark out" = "标记出点";
 "Clear range" = "清除范围";
 "Show in Finder" = "在访达中显示";
 "Copy" = "拷贝";

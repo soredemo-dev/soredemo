@@ -42,7 +42,6 @@
 "Cursor size" = "Taille du curseur";
 "Defaults" = "Valeurs par défaut";
 "Delete" = "Supprimer";
-"Delete clip" = "Supprimer le plan";
 "Desktop" = "Bureau";
 "Display geometries" = "Géométries d'écran";
 "Don't zoom" = "Ne pas zoomer";
@@ -283,8 +282,6 @@
 "Move out of the cursor's way" = "S'écarter du curseur";
 "For" = "Pour";
 "Range" = "Plage";
-"Mark in" = "Marquer l'entrée";
-"Mark out" = "Marquer la sortie";
 "Clear range" = "Effacer la plage";
 "Show in Finder" = "Afficher dans le Finder";
 "Copy" = "Copier";

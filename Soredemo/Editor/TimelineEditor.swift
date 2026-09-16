@@ -789,7 +789,6 @@ struct TimelineEditor: View {
                 }
                 readout(duration: duration)
                 shortcutLayer
-                playheadKeys(duration: duration)
             }
             // **One line down the whole stack, not a mark inside the picture track.** The strip
             // drew its own and no other lane did, so a zoom block, a caption and the waveform
@@ -802,6 +801,9 @@ struct TimelineEditor: View {
             // Under the playhead, which must stay readable over it.
             .overlay(alignment: .topLeading) { exportRangeShade(duration: duration) }
             .overlay(alignment: .topLeading) { playheadLine(duration: duration) }
+            // The editor's unmodified keys. Asked at the moment the key arrives, so a caption
+            // field that has the caret keeps every one of them — see `BareKeys`.
+            .bareKeys { perform($0, duration: duration) }
         } else {
             Text("Loading the recording…").foregroundStyle(.secondary).font(Type.detail)
         }
@@ -1421,28 +1423,32 @@ struct TimelineEditor: View {
     /// directly compounds it and the strip zooms exponentially under the fingers.
     @State private var lastMagnification: Double = 1
 
-    /// Keys with no visible control of their own.
+    /// Runs one of the editor's unmodified keys.
     ///
-    /// **Zero-opacity buttons rather than a key handler**, because a `Button`'s shortcut is
-    /// the only thing that respects the responder chain: a raw key monitor fires while a
-    /// person is typing in a text field somewhere else in the window, which is how an arrow
-    /// key ends up nudging a playhead the person is not looking at.
-    @ViewBuilder private func playheadKeys(duration: Nanoseconds) -> some View {
-        Group {
-            Button("", action: unlessTyping { nudge(by: -Self.frameStep, duration: duration) })
-                .keyboardShortcut(.leftArrow, modifiers: [])
-            Button("", action: unlessTyping { nudge(by: Self.frameStep, duration: duration) })
-                .keyboardShortcut(.rightArrow, modifiers: [])
-            // Shift is the coarse step, matching how a person expects a modifier to scale a
-            // nudge everywhere else on the system.
-            Button("") { nudge(by: -Self.secondStep, duration: duration) }
-                .keyboardShortcut(.leftArrow, modifiers: .shift)
-            Button("") { nudge(by: Self.secondStep, duration: duration) }
-                .keyboardShortcut(.rightArrow, modifiers: .shift)
+    /// **These were zero-opacity `Button`s with `.keyboardShortcut`, and that was measured
+    /// wrong.** The comment on them said a `Button`'s shortcut is the only thing that respects
+    /// the responder chain. Driven with synthesised events against a caption field that had the
+    /// caret, all six were taken and none reached the field: a caption could not take the
+    /// letter `s`, its caret could not be moved, and backspace deleted nothing. `unlessTyping`
+    /// only stopped the action, so the key did nothing at all rather than the wrong thing —
+    /// which is what "the arrow keys sometimes stop working" was. See `BareKeys`.
+    private func perform(_ action: BareKeys.Action, duration: Nanoseconds) {
+        switch action {
+        case .nudgeLeft: nudge(by: -Self.frameStep, duration: duration)
+        case .nudgeRight: nudge(by: Self.frameStep, duration: duration)
+        case .coarseLeft: nudge(by: -Self.secondStep, duration: duration)
+        case .coarseRight: nudge(by: Self.secondStep, duration: duration)
+        case .split:
+            guard model.canSplitAtPlayhead else { return }
+            model.splitAtPlayhead()
+            onChange()
+        case .deleteClip:
+            guard model.selectedClip != nil else { return }
+            model.deleteSelectedClip()
+            onChange()
+        case .markIn: model.markIn()
+        case .markOut: model.markOut()
         }
-        .opacity(0)
-        .frame(width: 0, height: 0)
-        .accessibilityHidden(true)
     }
 
     /// One frame at 60 fps — the rate the export is resampled to, so a nudge moves the
@@ -1500,23 +1506,12 @@ struct TimelineEditor: View {
             // rebuilding after the other four were moved. Found with `Self._printChanges()`,
             // not by reading: four rounds of "surely that is the last one" had already been
             // wrong. See `AtPlayhead`.
-            AtPlayhead(model: model) { _ in
-                Button("Split at playhead", action: unlessTyping { model.splitAtPlayhead(); onChange() })
-                    .disabled(!model.canSplitAtPlayhead)
-                    // `S` unmodified, the spelling every editor uses for a cut
-                    // at the playhead. No modifier: it is the most-used key in an editing session.
-                    .keyboardShortcut("s", modifiers: [])
-            }
-            Button("Delete clip", action: unlessTyping { model.deleteSelectedClip(); onChange() })
-                .disabled(model.selectedClip == nil)
-                .keyboardShortcut(.delete, modifiers: [])
-            // `I` and `O` unmodified — the spelling every editor that has in and out points
-            // uses. No modifier for the same reason `S` has none: these are session keys, not
-            // commands.
-            Button("Mark in", action: unlessTyping { model.markIn() })
-                .keyboardShortcut("i", modifiers: [])
-            Button("Mark out", action: unlessTyping { model.markOut() })
-                .keyboardShortcut("o", modifiers: [])
+            // **`S`, `Delete`, `I` and `O` are not here any more, and could not be.** They are
+            // unmodified — the spelling every editor uses for split, delete, mark in and mark
+            // out — and a `.keyboardShortcut` on an unmodified key is taken from a caption
+            // field that has the caret. They live in `BareKeys` now, which is asked at the
+            // moment the key arrives and declines while somebody is typing. What stays here is
+            // everything carrying ⌘ or ⌥, which SwiftUI does exempt.
             Button("Clear range") { model.clearExportRange() }
                 .disabled(model.inPoint == nil && model.outPoint == nil)
                 .keyboardShortcut("i", modifiers: [.option])

@@ -42,7 +42,6 @@
 "Cursor size" = "Cursor size";
 "Defaults" = "Defaults";
 "Delete" = "Delete";
-"Delete clip" = "Delete clip";
 "Desktop" = "Desktop";
 "Display geometries" = "Display geometries";
 "Don't zoom" = "Don't zoom";
@@ -299,8 +298,6 @@
 "Move out of the cursor's way" = "Move out of the cursor's way";
 "For" = "For";
 "Range" = "Range";
-"Mark in" = "Mark in";
-"Mark out" = "Mark out";
 "Clear range" = "Clear range";
 "Show in Finder" = "Show in Finder";
 "Copy" = "Copy";

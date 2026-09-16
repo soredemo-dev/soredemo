@@ -42,7 +42,6 @@
 "Cursor size" = "커서 크기";
 "Defaults" = "기본값으로";
 "Delete" = "삭제";
-"Delete clip" = "클립 삭제";
 "Desktop" = "데스크탑";
 "Display geometries" = "디스플레이 좌표계";
 "Don't zoom" = "확대하지 않기";
@@ -283,8 +282,6 @@
 "Move out of the cursor's way" = "커서를 피하기";
 "For" = "용도";
 "Range" = "범위";
-"Mark in" = "시작점 표시";
-"Mark out" = "끝점 표시";
 "Clear range" = "범위 지우기";
 "Show in Finder" = "Finder에서 보기";
 "Copy" = "복사";

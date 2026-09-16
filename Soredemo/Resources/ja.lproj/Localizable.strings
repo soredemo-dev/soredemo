@@ -44,7 +44,6 @@
 "Cursor size" = "カーソルの大きさ";
 "Defaults" = "デフォルトに戻す";
 "Delete" = "削除";
-"Delete clip" = "クリップを削除";
 "Desktop" = "デスクトップ";
 "Display geometries" = "ディスプレイの座標系";
 "Don't zoom" = "ズームしない";
@@ -285,8 +284,6 @@
 "Move out of the cursor's way" = "カーソルを避ける";
 "For" = "用途";
 "Range" = "範囲";
-"Mark in" = "イン点をマーク";
-"Mark out" = "アウト点をマーク";
 "Clear range" = "範囲を消す";
 "Show in Finder" = "Finder に表示";
 "Copy" = "コピー";

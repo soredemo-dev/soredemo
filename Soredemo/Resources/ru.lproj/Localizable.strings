@@ -42,7 +42,6 @@
 "Cursor size" = "Размер курсора";
 "Defaults" = "По умолчанию";
 "Delete" = "Удалить";
-"Delete clip" = "Удалить клип";
 "Desktop" = "Рабочий стол";
 "Display geometries" = "Геометрия экранов";
 "Don't zoom" = "Не приближать";
@@ -283,8 +282,6 @@
 "Move out of the cursor's way" = "Уходить с пути курсора";
 "For" = "Для";
 "Range" = "Диапазон";
-"Mark in" = "Отметить начало";
-"Mark out" = "Отметить конец";
 "Clear range" = "Сбросить диапазон";
 "Show in Finder" = "Показать в Finder";
 "Copy" = "Скопировать";

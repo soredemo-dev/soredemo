@@ -111,6 +111,8 @@ xcrun swiftc \
   Soredemo/App/BarDrag.swift \
   Soredemo/App/NotchTransition.swift \
   Soredemo/App/NotchOpening.swift \
+  Soredemo/App/BareKeys.swift \
+  Soredemo/App/BareKeyMonitor.swift \
   Soredemo/Recording/OwnWindowReporter.swift \
   Soredemo/App/AppLanguage.swift \
   Soredemo/App/UnsavedWorkGuard.swift \

@@ -42,7 +42,6 @@
 "Cursor size" = "游標大小";
 "Defaults" = "預設值";
 "Delete" = "刪除";
-"Delete clip" = "刪除片段";
 "Desktop" = "桌面";
 "Display geometries" = "顯示器幾何";
 "Don't zoom" = "不要縮放";
@@ -299,8 +298,6 @@
 "Move out of the cursor's way" = "讓開游標";
 "For" = "用途";
 "Range" = "範圍";
-"Mark in" = "標記入點";
-"Mark out" = "標記出點";
 "Clear range" = "清除範圍";
 "Show in Finder" = "在 Finder 中顯示";
 "Copy" = "拷貝";
