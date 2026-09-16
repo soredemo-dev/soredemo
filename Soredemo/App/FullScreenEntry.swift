@@ -43,16 +43,83 @@ enum FullScreenEntry {
     }
 
     /// Asks for full screen until AppKit takes it, or until `attemptsLeft` runs out.
-    static func enter(_ window: NSWindow, attemptsLeft: Int = attempts) {
-        guard shouldAttempt(attemptsLeft: attemptsLeft,
-                            isFullScreen: window.styleMask.contains(.fullScreen),
-                            isVisible: window.isVisible) else { return }
+    static func enter(_ window: NSWindow, attemptsLeft: Int = attempts, asks: Int = 0) {
+        let isFullScreen = window.styleMask.contains(.fullScreen)
+        let isVisible = window.isVisible
+        guard shouldAttempt(attemptsLeft: attemptsLeft, isFullScreen: isFullScreen,
+                            isVisible: isVisible) else {
+            lastAttempt = Attempt(asks: asks,
+                                  stopped: reasonToStop(isFullScreen: isFullScreen,
+                                                        isVisible: isVisible))
+            return
+        }
+        lastAttempt = Attempt(asks: asks + 1, stopped: .asking)
         window.toggleFullScreen(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + interval) { [weak window] in
             MainActor.assumeIsolated {
-                guard let window else { return }
-                enter(window, attemptsLeft: attemptsLeft - 1)
+                guard let window else {
+                    // The window was deallocated between two asks. Recorded rather than
+                    // returned silently: it is the one ending `reasonToStop` cannot name,
+                    // because there is no window left to ask about.
+                    lastAttempt = Attempt(asks: asks + 1, stopped: .windowWentAway)
+                    return
+                }
+                enter(window, attemptsLeft: attemptsLeft - 1, asks: asks + 1)
             }
         }
+    }
+
+    /// What the last run of `enter(_:)` did, so a failure can say WHICH ending it hit.
+    ///
+    /// **The gate that needed this could not read its own red.** `check-editor-opens-full-screen.sh`
+    /// prints `fullScreen=false` and then lists four causes in the order they have historically
+    /// occurred — the toggle asked too early, `.moveToActiveSpace`, an even number of toggles,
+    /// `alphaValue = 0` — and says nothing about which one this was. It went red three separate
+    /// times across two commits and each time the only way to classify it was to re-run the
+    /// gate: five launches on 2026-09-16 alone to establish that a red immediately after the
+    /// app-test gate and a green on a quiet machine were the same binary. **An intermittent
+    /// failure that is re-run instead of read becomes a rumour**, which is this project's own
+    /// rule, and the repair is the one the probe already had: make the check able to show its
+    /// evidence. `exhausted` and `arrived` are different defects with different owners.
+    ///
+    /// Never `nil`: before anything has asked, the answer is `notAsked` with zero asks, which
+    /// is a fact about this process and not an absence of one.
+    private(set) static var lastAttempt = Attempt(asks: 0, stopped: .notAsked)
+
+    /// How the asking ended, and how many times it asked.
+    struct Attempt: Equatable {
+        /// How many times `toggleFullScreen` was actually sent. **Not the same as the budget
+        /// spent**: a healthy machine takes it on the first or second ask and stops, so a
+        /// number near `attempts` is itself the finding.
+        let asks: Int
+        let stopped: Stop
+
+        /// A `String` raw value because this is written into a report a shell script reads.
+        enum Stop: String, Equatable {
+            /// Nothing has asked in this process. The state before the editor opens.
+            case notAsked
+            /// Asked, and waiting out `interval` before looking again.
+            case asking
+            /// AppKit reported the window full screen. The only success.
+            case arrived
+            /// The budget ran out with the window still not full screen. AppKit was never
+            /// ready, or is refusing for a reason it does not report.
+            case exhausted
+            /// The window stopped being visible — closed, or never ordered in. A different
+            /// defect from `exhausted` and the one a busy machine produces.
+            case windowNotVisible
+            /// The window was deallocated between two asks.
+            case windowWentAway
+        }
+    }
+
+    /// Why `shouldAttempt` said no, given what the window said.
+    ///
+    /// Pure, and separate from `enter` so the ordering can be asserted: a window that arrived
+    /// full screen AND then went invisible is `arrived`, because it did what it was asked.
+    static func reasonToStop(isFullScreen: Bool, isVisible: Bool) -> Attempt.Stop {
+        if isFullScreen { return .arrived }
+        if !isVisible { return .windowNotVisible }
+        return .exhausted
     }
 }

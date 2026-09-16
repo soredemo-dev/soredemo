@@ -497,3 +497,4 @@
 "A window" = "Окно";
 "Region" = "Область";
 "Recording cancelled." = "Запись отменена.";
+"%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "Файл %@ записан, но %lld кадр(ов) не удалось отрисовать, и они в нём отсутствуют. (%@)";

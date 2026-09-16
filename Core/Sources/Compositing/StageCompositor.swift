@@ -302,13 +302,40 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     public static var diagnostics: Diagnostics { diagnosticsLock.withLock { unsafe _diagnostics } }
     /// Zeroes the counters, so a stale count cannot be read as belonging to a new recording.
     public static func resetDiagnostics() { diagnosticsLock.withLock { unsafe _diagnostics = Diagnostics() } }
-    private static func recordDroppedFrame() { diagnosticsLock.withLock { unsafe _diagnostics.framesDropped += 1 } }
+    private static func recordDroppedFrame(_ reason: Diagnostics.Refusal) {
+        diagnosticsLock.withLock {
+            unsafe _diagnostics.framesDropped += 1
+            unsafe _diagnostics.refusals[reason, default: 0] += 1
+        }
+    }
 
-    /// `framesDropped` counts `startRequest`'s two failure paths, its leading `guard` and the
+    /// `framesDropped` counts `startRequest`'s failure paths, its leading guards and the
     /// `catch` around `render`. Compositor failures only: `AVPlayer` display-time drops and
     /// seek-cancelled requests never reach this file.
     public struct Diagnostics: Sendable {
         public internal(set) var framesDropped = 0
+
+        /// **How many of each, because the total could not be acted on.** A count of dropped
+        /// frames says something is wrong; it does not say whether the decode failed, this app
+        /// forgot to publish a renderer, or the machine ran out of buffers — and those have
+        /// different owners. Read after playback or an export.
+        public internal(set) var refusals: [Refusal: Int] = [:]
+
+        /// Why frames were refused. Six, and every one of them was reported as the same thing
+        /// until 2026-09-16.
+        public enum Refusal: String, Sendable, Hashable, CaseIterable {
+            case noScreenTrack, noSourceBuffer, noRenderContext
+            case noDestinationBuffer, noRenderer, renderThrew
+        }
+
+        /// The refusals that happened, worst first, as one line. **What a status line or a log
+        /// can actually carry** — the dictionary is the record, this is the sentence.
+        /// Empty string when nothing was refused, which is a fact and not an absence.
+        public var refusalSummary: String {
+            refusals.sorted { ($0.value, $0.key.rawValue) > ($1.value, $1.key.rawValue) }
+                .map { "\($0.key.rawValue) x\($0.value)" }
+                .joined(separator: ", ")
+        }
     }
 
     public let sourcePixelBufferAttributes: [String: any Sendable]? =
@@ -354,17 +381,26 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // is the same as `.first`; with two it is the difference between drawing the recording
         // and drawing a face at full frame.
         let cameraTrackID = Self.cameraTrackID
+        // **Five separate refusals, each saying which it is.** They were one `guard` and one
+        // error, so a console line saying the compositor refused a frame could not say why —
+        // see `CompositorError`. Written as a nested function rather than five guards so the
+        // counter and the `finish` stay in one place and cannot drift apart.
+        func refuse(_ reason: CompositorError) {
+            Self.recordDroppedFrame(reason.refusal)
+            request.finish(with: reason)
+        }
         guard let trackID = request.sourceTrackIDs
                 .map(\.int32Value)
-                .first(where: { $0 != cameraTrackID }),
-              let source = request.sourceReadOnlyPixelBuffer(byTrackID: trackID),
-              let context = unsafe renderContext,
-              let destination = context.newPixelBuffer(),
-              let renderer = Self.renderer else {
-            Self.recordDroppedFrame()
-            request.finish(with: CompositorError.notConfigured)
-            return
-        }
+                .first(where: { $0 != cameraTrackID })
+        else { return refuse(.noScreenTrack) }
+        guard let source = request.sourceReadOnlyPixelBuffer(byTrackID: trackID)
+        else { return refuse(.noSourceBuffer) }
+        guard let context = unsafe renderContext
+        else { return refuse(.noRenderContext) }
+        guard let destination = context.newPixelBuffer()
+        else { return refuse(.noDestinationBuffer) }
+        guard let renderer = Self.renderer
+        else { return refuse(.noRenderer) }
         // **The card is fitted to the CROPPED aspect, not the recording's.** `StagePlanner` fits
         // a rectangle inside the output, and handing it the uncropped size would letterbox a
         // cropped recording as though it were still 16:9 — the bars would be exactly the part
@@ -440,13 +476,60 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             }
             request.finish(withComposedPixelBuffer: CVReadOnlyPixelBuffer(unsafeBuffer: destination))
         } catch {
-            Self.recordDroppedFrame()
+            Self.recordDroppedFrame(.renderThrew)
             request.finish(with: error)
         }
     }
 
-    /// `Equatable` so callers can compare against `.notConfigured` rather than pattern-matching.
-    public enum CompositorError: Error, Equatable { case notConfigured }
+    /// Why a frame was refused.
+    ///
+    /// **These were one case called `notConfigured` and that cost a diagnosis.** A person
+    /// reported a crash after burning in captions and replaying, and the console said
+    /// `<<<< CustomVideoCompositor >>>> signalled err=-12784` — which is AVFoundation
+    /// reporting that this compositor called `finish(with:)`. Five different things reach
+    /// that line and they are five different defects: a composition with no screen track is a
+    /// build error in the instruction, an unreadable source buffer is a decode failure, a
+    /// missing render context is an ordering bug in AVFoundation's own callbacks, a refused
+    /// destination buffer is memory pressure, and a nil renderer is this app failing to
+    /// publish one. One name for all five meant the only honest thing to say about that log
+    /// was "the compositor refused a frame", which is where the investigation stopped.
+    ///
+    /// `Equatable` so callers can compare rather than pattern-match.
+    public enum CompositorError: Error, Equatable {
+        /// No track in the request that is not the camera. The composition names tracks this
+        /// compositor never gets, or names only the camera.
+        case noScreenTrack
+        /// The screen track is there and its pixels are not. A decode that did not land.
+        case noSourceBuffer
+        /// `renderContextChanged` has not arrived, or arrived after the first request.
+        case noRenderContext
+        /// The render context refused a destination buffer — its pool is exhausted.
+        case noDestinationBuffer
+        /// Nothing published a renderer. This app's own fault and the one worth an alarm.
+        case noRenderer
+
+        /// **Kept so the previous spelling still compiles and still means something.** Every
+        /// one of the five was this; code and tests that compared against it were not wrong,
+        /// they were coarse.
+        public static let notConfigured = CompositorError.noRenderer
+
+        /// Every refusal a guard in `startRequest` can raise. Named so a test can assert that
+        /// the `catch` around `render` keeps a counter none of these uses.
+        public static let allRefusals: [CompositorError] =
+            [.noScreenTrack, .noSourceBuffer, .noRenderContext, .noDestinationBuffer, .noRenderer]
+
+        /// The counter this refusal belongs to. Total rather than partial, so a case added
+        /// here cannot quietly stop being counted.
+        var refusal: Diagnostics.Refusal {
+            switch self {
+            case .noScreenTrack: return .noScreenTrack
+            case .noSourceBuffer: return .noSourceBuffer
+            case .noRenderContext: return .noRenderContext
+            case .noDestinationBuffer: return .noDestinationBuffer
+            case .noRenderer: return .noRenderer
+            }
+        }
+    }
 
     // MARK: - the pointer track
 

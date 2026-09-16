@@ -24,8 +24,21 @@ FLOOR=${COVERAGE_FLOOR:-70}
 # reports about unrelated code.
 SCRATCH=${COVERAGE_SCRATCH:-Core/.build-coverage}
 
-(cd Core && swift test --no-parallel --enable-code-coverage \
-   --scratch-path "../$SCRATCH" > /dev/null 2>&1)
+# **The run's output is kept and named on failure.** It was `> /dev/null 2>&1` under `set -e`,
+# so a failing test made this gate exit 1 having printed NOTHING — observed 2026-09-16, where
+# the empty red was a consequence of gate 1's red and this gate could not say so. A gate that
+# cannot show its evidence sends somebody back to re-run it; the probe and the full-screen
+# check both had to learn this separately.
+COVERAGE_LOG=$(mktemp -t soredemo-coverage)
+if ! (cd Core && swift test --no-parallel --enable-code-coverage \
+        --scratch-path "../$SCRATCH" > "$COVERAGE_LOG" 2>&1); then
+  echo "COVERAGE: the test run FAILED, so there is no coverage to report." >&2
+  echo "This is usually gate 1 failing too — fix that first, then come back. The run's own" >&2
+  echo "output is at $COVERAGE_LOG; its last failures:" >&2
+  grep -E "✘|error:" "$COVERAGE_LOG" | head -20 >&2
+  exit 1
+fi
+rm -f "$COVERAGE_LOG"
 
 # **Found, not assumed.** The layout under a scratch path is the toolchain's business and it
 # changed with macOS 27 — `arm64-apple-macosx/debug` became `out/Products/Debug`, and a

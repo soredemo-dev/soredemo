@@ -43,4 +43,55 @@ import Testing
     @Test @MainActor func theBudgetIsSixSeconds() {
         #expect(Double(FullScreenEntry.attempts) * FullScreenEntry.interval == 6.0)
     }
+
+    // MARK: - which ending it was
+
+    // **A red this gate could not read cost five launches on 2026-09-16.** The failure listed
+    // four causes and named none, so the only way to classify one was to run it again until it
+    // went green — which is how an intermittent failure becomes a rumour. These pin the answers
+    // the report now carries.
+
+    /// The success. Asserted first because it is the one that must never be confused with
+    /// `exhausted`: they are different defects with different owners.
+    @Test @MainActor func arrivingIsItsOwnEnding() {
+        #expect(FullScreenEntry.reasonToStop(isFullScreen: true, isVisible: true) == .arrived)
+    }
+
+    /// **`arrived` outranks `windowNotVisible`, and the order is the assertion.** A window that
+    /// reached full screen and then went away did what it was asked; reporting that as the
+    /// window having vanished would send somebody looking for a second instance that is not
+    /// there.
+    @Test @MainActor func aWindowThatArrivedAndThenWentAwayStillArrived() {
+        #expect(FullScreenEntry.reasonToStop(isFullScreen: true, isVisible: false) == .arrived)
+    }
+
+    /// The busy-machine ending: still visible, still not full screen, nothing left to spend.
+    @Test @MainActor func aBudgetSpentOnAVisibleWindowIsExhausted() {
+        #expect(FullScreenEntry.reasonToStop(isFullScreen: false, isVisible: true) == .exhausted)
+    }
+
+    /// The one that used to be read as `exhausted` and is a different defect: the window was
+    /// taken out from under the retry — a second instance, or `alphaValue = 0`, which AppKit
+    /// treats as not on screen.
+    @Test @MainActor func aWindowTakenAwayIsNotABudgetProblem() {
+        #expect(FullScreenEntry.reasonToStop(isFullScreen: false, isVisible: false)
+                == .windowNotVisible)
+    }
+
+    /// **Before anything asks, the answer is a value and not an absence.** A report that omitted
+    /// the field, or carried an empty one, would read as "the app did not write it" — which is a
+    /// fifth thing to rule out rather than an answer.
+    @Test @MainActor func nothingHavingAskedIsItselfAnAnswer() {
+        let untouched = FullScreenEntry.Attempt(asks: 0, stopped: .notAsked)
+        #expect(untouched.stopped.rawValue == "notAsked")
+        #expect(untouched.asks == 0)
+    }
+
+    /// **Every ending has a distinct spelling**, because the gate's message keys off the raw
+    /// value and two endings sharing one would silently collapse into the wrong advice.
+    @Test @MainActor func everyEndingIsSpelledDifferently() {
+        let endings: [FullScreenEntry.Attempt.Stop] =
+            [.notAsked, .asking, .arrived, .exhausted, .windowNotVisible, .windowWentAway]
+        #expect(Set(endings.map(\.rawValue)).count == endings.count)
+    }
 }

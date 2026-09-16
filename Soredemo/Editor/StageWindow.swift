@@ -1926,6 +1926,21 @@ struct StageWindow: View {
                     frameRate: frameRate, quality: quality, codec: codec,
                     onProgress: { progress in Task { @MainActor in report(progress) } })
             }
+            // **An export that finished is not the same as an export that drew every frame.**
+            // `StageCompositor` answers a request it cannot serve by refusing it, and
+            // AVFoundation carries on: the file is written, the export reports success, and the
+            // frames it could not draw are missing from it. Reported here because a damaged
+            // file that says nothing is worse than one that says what is wrong with it —
+            // somebody who burnt captions in, exported, and found the result broken on playback
+            // had `<<<< CustomVideoCompositor >>>> signalled err=-12784` in their console and
+            // nothing in the app.
+            //
+            // The count is per composition: `resetDiagnostics()` runs when one is built.
+            let refused = StageCompositor.diagnostics
+            guard refused.framesDropped == 0 else {
+                return String(localized:
+                    "\(destination.lastPathComponent) was written, but \(refused.framesDropped) frame(s) could not be drawn and are missing from it. (\(refused.refusalSummary))")
+            }
             return nil
         } catch is CancellationError {
             // Nothing to report: a person who cancelled knows they cancelled, and the exporter's

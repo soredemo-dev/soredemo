@@ -498,3 +498,4 @@
 "A window" = "Uma janela";
 "Region" = "Região";
 "Recording cancelled." = "Gravação cancelada.";
+"%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ foi gravado, mas %lld quadro(s) não puderam ser desenhados e estão faltando nele. (%@)";

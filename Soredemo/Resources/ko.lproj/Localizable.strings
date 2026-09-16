@@ -497,3 +497,4 @@
 "A window" = "창";
 "Region" = "영역";
 "Recording cancelled." = "녹화를 취소했습니다.";
+"%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@을(를) 저장했지만 %lld개의 프레임을 그리지 못해 파일에 빠져 있습니다. (%@)";

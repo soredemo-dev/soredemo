@@ -297,9 +297,16 @@ func projectPbxprojText() throws -> String {
 
 // MARK: - the drop counter's account, pinned mechanically
 
-/// `StageCompositor.Diagnostics.framesDropped`'s doc comment names exactly two causes, and
-/// nothing enforced that mechanically. Pins two `recordDroppedFrame()` call sites, each
+/// `StageCompositor.Diagnostics.framesDropped`'s doc comment names exactly two branches, and
+/// nothing enforced that mechanically. Pins two `recordDroppedFrame(` call sites, each
 /// immediately before an ERROR `finish(with:)` — the success path spells `withComposedPixelBuffer:`.
+///
+/// **The needle changed on 2026-09-16 and the claim did not.** The counter took no argument until
+/// the five refusals behind `CompositorError.notConfigured` were split apart, so this scan looked
+/// for the literal `Self.recordDroppedFrame()` with empty parentheses and found zero — a red that
+/// was this test doing its job. Two branches still: the guards, which now reach one shared
+/// `refuse` function, and the `catch` around `render`. Five REASONS through two BRANCHES, which
+/// is why the count here is still two and `everyRefusalHasItsOwnCounter` covers the other axis.
 @Test func theDroppedFrameCounterHasExactlyTwoCallSitesEachImmediatelyBeforeAnErrorFinish() throws {
     // `headlessSourceFiles()`, not `appSourceFiles()` — `StageCompositor.swift` lives under
     // `Sources/Headless/` now, so a `Soredemo/`-tree scan would find zero matches instead of one.
@@ -310,15 +317,16 @@ func projectPbxprojText() throws -> String {
         this scan's file-scoped filter needs a unique target.
         """)
 
-    let callSites = try codeLinesNaming("Self.recordDroppedFrame()", in: files)
+    let callSites = try codeLinesNaming("Self.recordDroppedFrame(", in: files)
     #expect(callSites.count == 2, """
         expected exactly two call sites of StageCompositor.recordDroppedFrame(), found \
         \(callSites.count):
         \(callSites.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
-        StageCompositor.Diagnostics's own doc comment names exactly two causes and no others. A \
-        different count means a cause was added or removed in the code without the doc comment (and \
+        StageCompositor.Diagnostics's own doc comment names exactly two branches and no others. A \
+        different count means a branch was added or removed in the code without the doc comment (and \
         the D6a row, and § 16 of the probe) being told — the exact drift Task 5.5's own counter \
-        needed three fix rounds to close.
+        needed three fix rounds to close. The five REASONS are a different axis and are pinned by \
+        StageCompositorTests.everyRefusalHasItsOwnCounter.
         """)
 
     let errorFinishes = try codeLinesNaming("request.finish(with:", in: files)

@@ -499,3 +499,4 @@
 "A window" = "ウインドウ";
 "Region" = "範囲";
 "Recording cancelled." = "収録をキャンセルしました。";
+"%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ を書き出しましたが、%lld フレームを描画できず、ファイルに含まれていません。(%@)";

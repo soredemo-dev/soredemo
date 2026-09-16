@@ -499,3 +499,4 @@
 "A window" = "一个窗口";
 "Region" = "一块区域";
 "Recording cancelled." = "已取消录制。";
+"%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "已写入 %@，但有 %lld 个画面无法绘制，文件里没有它们。（%@）";

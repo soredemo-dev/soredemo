@@ -115,6 +115,31 @@ struct SoredemoApp: App {
             }
             return
         }
+        // **`--show-recording-bar <seconds>`: the bar on its own, with no recording.**
+        //
+        // The same shape `--show-countdown` has, and for the same reason. The bar could not be
+        // dragged for as long as it has existed and nothing caught it, because the only way to
+        // see it was to start a recording and the only way to test it was by hand. It prints
+        // the window's frame when it appears and again when the time is up, so a drag — by a
+        // hand or by synthesised events — is a number rather than an impression.
+        if let index = arguments.firstIndex(of: "--show-recording-bar"),
+           index + 1 < arguments.count, let seconds = Double(arguments[index + 1]) {
+            Task { @MainActor in
+                RecordingBarPresenter.shared.show(coordinator: recordingCoordinator)
+                let before = RecordingBarPresenter.shared.barFrame
+                print("bar \(before.map { "\($0)" } ?? "none")")
+                try? await Task.sleep(for: .seconds(seconds))
+                let after = RecordingBarPresenter.shared.barFrame
+                print("bar \(after.map { "\($0)" } ?? "none")")
+                let hits = RecordingBarPresenter.shared.hitCounts
+                print("hit tests: \(hits.pill) on the bar, \(hits.halo) in the shadow halo")
+                print("drag changes seen: \(RecordingBarPresenter.shared.dragMoves)")
+                print(before == after ? "the bar did not move" : "the bar moved")
+                exit(before == after ? 3 : 0)
+            }
+            return
+        }
+
         guard let index = arguments.firstIndex(of: "--open-project"),
               index + 1 < arguments.count else { return }
         let packageURL = URL(fileURLWithPath: arguments[index + 1])
@@ -154,6 +179,9 @@ struct SoredemoApp: App {
                 frame=\(window.map { "\($0.frame)" } ?? "none")
                 screen=\(screen.map { "\($0.frame)" } ?? "none")
                 safeAreaTop=\(screen?.safeAreaInsets.top ?? -1)
+                fullScreenAsks=\(FullScreenEntry.lastAttempt.asks)
+                fullScreenStopped=\(FullScreenEntry.lastAttempt.stopped.rawValue)
+
                 """
             try? report.write(to: destination, atomically: true, encoding: .utf8)
             NSApp.terminate(nil)

@@ -100,10 +100,30 @@ fi
 cat "$REPORT"
 if ! grep -q "fullScreen=true" "$REPORT"; then
   echo "" >&2
+  # **The four causes used to be listed and not distinguished, and that cost five launches.**
+  # A red here was classified by re-running the gate until it went green, which is how an
+  # intermittent failure becomes a rumour. `fullScreenStopped=` is now the app's own answer.
   echo "EDITOR FULL SCREEN: FAILED. AppKit says the window is not full screen; the report" >&2
-  echo "above is what it said. This has meant, in order of how often: the toggle asked too" >&2
-  echo "early and was ignored without an error, .moveToActiveSpace contradicting full screen," >&2
-  echo "an even number of toggles from a duplicated observer, and alphaValue = 0." >&2
+  echo "above is what it said. Read fullScreenStopped= first — it says which ending:" >&2
+  echo "  exhausted         the budget ran out with the window still not full screen. If" >&2
+  echo "                    fullScreenAsks is at the budget AND the machine was busy, this" >&2
+  echo "                    is the load case and the run is not evidence about the code." >&2
+  echo "  windowNotVisible  the window went away under the retry: a second instance, or" >&2
+  echo "                    alphaValue = 0, which AppKit treats as not on screen." >&2
+  echo "  arrived           it DID reach full screen and something took it back out — an" >&2
+  echo "                    even number of toggles, or .moveToActiveSpace contradicting it." >&2
+  echo "  asking            still trying when this was read. The wait here is shorter than" >&2
+  echo "                    FullScreenEntry's budget, which is a defect in this script." >&2
+  echo "  notAsked          nothing ever asked; the editor window was never opened." >&2
+  echo "" >&2
+  # **The frame distinguishes two of these on its own, measured 2026-09-16.** Driving the
+  # app with the budget set to zero — a positive control for these very fields — leaves the
+  # window GROWN: (0, 84, 1512, 865). So an `exhausted` red still shows a configured window.
+  # A report carrying the un-configured 900x492 default means the editor window was never
+  # set up at all, which is a different defect and the shape both reds of 2026-09-16 had.
+  echo "The frame is a second reading: an exhausted budget still leaves a GROWN window" >&2
+  echo "(measured 1512x865). A frame of 900x492 is the un-configured default, so that is" >&2
+  echo "not a budget that ran out — it is an editor window that was never configured." >&2
   exit 1
 fi
 echo "EDITOR FULL SCREEN: the window AppKit reports is full screen."

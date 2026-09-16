@@ -171,6 +171,10 @@ other's work and look like a hang.
 | 2 | `scripts/check-strict-memory-safety.sh` | zero unmarked `unsafe`, clean compile | ~2 min |
 | 3 | `scripts/run-cross-boundary-probe.sh` | 473 checks, zero skipped without a named reason | ~2.5 min |
 | 4 | `xcodebuild -scheme Soredemo` | builds | ~2 min |
+| 5 | `scripts/run-app-tests.sh` | every app-tier test passes | ~2 min |
+| 6 | `scripts/check-editor-opens-full-screen.sh` | AppKit says the editor window is full screen | ~1 min |
+| 7 | `scripts/coverage.sh` | line coverage at or above the floor | ~4 min |
+| 8 | `scripts/check-the-bar-can-be-dragged.sh` | the recording bar moves when dragged | ~1 min |
 
 **The partition check in gate 1 is the load-bearing part.** Two filtered runs could
 double-count a suite or drop one and both numbers would still look plausible; only the
@@ -178,6 +182,19 @@ sum says the split is a split.
 
 **In zsh, `./script | tail` reports `tail`'s exit code.** `$pipestatus[1]` is the one to
 read.
+
+**Gate 1 hangs rather than fails, sometimes.** `count-tests.sh --split` has no
+`--no-parallel` flag and must not grow one; when it hangs — CoreMedia's own workers idle at
+0% CPU — run the four filtered runs by hand with `--no-parallel` and check the sum yourself.
+Observed again 2026-09-16 at forty minutes on `CompositingTests`. See the next section.
+
+**Gate 6 says which ending it hit.** `fullScreenStopped=` in its report is `arrived`,
+`exhausted`, `windowNotVisible`, `asking` or `notAsked`, and `fullScreenAsks=` is how many
+times it asked. Before those existed the failure listed four causes and named none, so a red
+was classified by re-running until it went green — five launches on 2026-09-16. The frame is a
+second reading: an exhausted budget still leaves a GROWN window, measured at 1512x865, so a
+report carrying the un-configured 900x492 default is an editor window that was never set up at
+all, which is a different defect.
 
 ### Known flake, and the rule about it
 
@@ -529,6 +546,43 @@ named than faked**, and `PermissionsWindow` is small, pure, and covered at L1.
 Anything beyond these four is more expensive than the defect it catches.
 
 ---
+
+### 6.4 The recording bar can be dragged — `scripts/check-the-bar-can-be-dragged.sh`
+
+**Built 2026-09-16, because the bar had never been draggable and nothing here could have said
+so.** It was reported as "can't drag the bar when recording" and it had two causes stacked on
+each other, neither visible to any other check:
+
+| | what was wrong | how it was established |
+|---|---|---|
+| 1 | `isMovableByWindowBackground` does not survive an `NSHostingView` | the same panel, driven with synthesised events, moved 88 points with a plain `NSView` in it and zero with SwiftUI in it |
+| 2 | AppKit discards the mouse-down at an **inactive** application's window unless the view accepts first mouse — and this bar is never the active app | one press and drag moved it zero points and delivered zero gesture changes; a click followed by the identical drag moved it 140 and delivered fifteen |
+
+Two repairs for (1) were measured and rejected before the one that works: an `NSView` behind
+the SwiftUI content answering `mouseDownCanMoveWindow`, and the same view inside a `ZStack`.
+Neither moved the window. What works is doing the move in a `DragGesture` on a layer behind the
+controls — the buttons still fire, which is asserted in the same run.
+
+**Three readings of this were invalid before one was not**, and they are worth keeping because
+each looked like an answer:
+
+1. A probe that pumped `RunLoop.main.run(until:)` instead of `NSApplication.sendEvent` reported
+   "did not move" for the SwiftUI panel **and for a plain `NSView` positive control**. No event
+   ever reached either window. A negative reading with no positive control beside it is not a
+   reading.
+2. The first drag against the real app grabbed a point computed from a frame in the wrong
+   coordinate space and missed the bar entirely.
+3. The second one parsed the app's printed frame — which never arrived, because `print` to a
+   file is block-buffered and the app had not exited yet.
+
+The oracle is the app's own window frame from AppKit, printed by `--show-recording-bar` along
+with two counters that split the failure: how many hit tests landed on the bar, and how many
+gesture changes were delivered. `0 / 0` is a pointer that never arrived; `2 / 0` is the
+first-mouse rule; `n / 0` with n large is the arithmetic. The check prints all three readings
+on a red and names which is which.
+
+**It skips, loudly, where it cannot inject events** — established by moving the cursor and
+reading it back, not by asking `AXIsProcessTrusted`, which answers a different question.
 
 ## 7. Documents are tested too, and here is why
 
