@@ -315,7 +315,6 @@
 "about %lld minutes left" = "noch etwa %lld Minuten";
 "about an hour left" = "noch etwa eine Stunde";
 "about %lld hours left" = "noch etwa %lld Stunden";
-"Cut this sentence out of the video" = "Diesen Satz aus dem Video schneiden";
 "Delete the selected clip (⌫)" = "Ausgewählten Clip löschen (⌫)";
 "Enter Full Screen (⌃⌘F)" = "Vollbild (⌃⌘F)";
 "Find the silent stretches" = "Stille Abschnitte finden";
@@ -497,3 +496,17 @@
 
 "Click to show the controls, drag to move the bar" = "Klicken zeigt die Steuerung, Ziehen verschiebt die Leiste";
 "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "Das Fenster hat während der Aufnahme seine Größe geändert, daher wurde ein Teil auf den Bildausschnitt skaliert (%@–%@). Die Aufnahme ist brauchbar; ein Fenster in gleicher Größe bleibt scharf.";
+"A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines." = "Ein Satz ist die Einheit, nach der du das Video schneidest; eine Untertitelzeile ist, was Zuschauer lesen — aus einem Satz werden eine oder mehrere Zeilen.";
+"No transcript yet." = "Noch kein Transkript.";
+"Transcribe the recording above, then delete a sentence here to cut it out of the video." = "Transkribiere die Aufnahme oben und lösche hier einen Satz, um ihn aus dem Video zu schneiden.";
+"Amount" = "Stärke";
+"Strength" = "Stärke";
+"Remove background noise" = "Hintergrundgeräusche entfernen";
+"Nothing is marked." = "Nichts markiert.";
+"esc to cancel" = "esc zum Abbrechen";
+"Blurs the picture only. A colour or a gradient has nothing to blur." = "Weichzeichnen betrifft nur Bilder. Bei einer Farbe oder einem Verlauf gibt es nichts weichzuzeichnen.";
+"To blur the background instead, turn on Portrait in the camera effects." = "Um stattdessen den Hintergrund weichzuzeichnen, aktiviere Porträt in den Kameraeffekten.";
+"Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that." = "Das Löschen eines Satzes schneidet genau seine eigene Spanne. Die Pause danach bleibt — dafür gibt es die Stille-Spur.";
+"YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube und Spotify normalisieren auf −14; −16 lässt etwas Luft darunter.";
+"Click to record · ⎋ to cancel" = "Klicken zum Aufnehmen · ⎋ zum Abbrechen";
+"Delete this sentence from the video" = "Diesen Satz aus dem Video löschen";

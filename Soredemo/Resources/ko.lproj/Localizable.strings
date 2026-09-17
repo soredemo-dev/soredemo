@@ -315,7 +315,6 @@
 "about %lld minutes left" = "약 %lld분 남음";
 "about an hour left" = "약 1시간 남음";
 "about %lld hours left" = "약 %lld시간 남음";
-"Cut this sentence out of the video" = "이 문장을 영상에서 잘라내기";
 "Delete the selected clip (⌫)" = "선택한 클립 삭제 (⌫)";
 "Enter Full Screen (⌃⌘F)" = "전체 화면 시작 (⌃⌘F)";
 "Find the silent stretches" = "무음 구간 찾기";
@@ -497,3 +496,17 @@
 
 "Click to show the controls, drag to move the bar" = "클릭하면 컨트롤이 나타나고, 드래그하면 바를 옮길 수 있습니다";
 "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "녹화 중에 창 크기가 바뀌어 일부가 프레임에 맞게 조정되었습니다(%@–%@). 녹화는 사용할 수 있지만, 크기를 그대로 두면 더 선명합니다.";
+"A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines." = "문장은 영상을 자르는 단위이고, 자막 줄은 보는 사람이 읽는 단위입니다. 한 문장은 한 줄 이상의 자막이 됩니다.";
+"No transcript yet." = "아직 스크립트가 없습니다.";
+"Transcribe the recording above, then delete a sentence here to cut it out of the video." = "위에서 녹화를 받아쓴 다음, 여기서 문장을 삭제하면 그 구간이 영상에서 잘려 나갑니다.";
+"Amount" = "정도";
+"Strength" = "세기";
+"Remove background noise" = "배경 소음 제거";
+"Nothing is marked." = "표시된 것이 없습니다.";
+"esc to cancel" = "esc로 취소";
+"Blurs the picture only. A colour or a gradient has nothing to blur." = "사진만 흐리게 합니다. 단색이나 그러데이션은 흐리게 할 대상이 없습니다.";
+"To blur the background instead, turn on Portrait in the camera effects." = "배경을 흐리게 하려면 카메라 효과에서 인물 사진 모드를 켜세요.";
+"Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that." = "문장을 삭제하면 그 문장의 구간만 잘립니다. 뒤따르는 침묵은 그대로 남으며, 그건 무음 레인에서 처리하세요.";
+"YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube와 Spotify는 −14로 정규화합니다. −16이면 그 아래로 약간의 여유가 남습니다.";
+"Click to record · ⎋ to cancel" = "클릭하면 녹화 시작 · ⎋ 취소";
+"Delete this sentence from the video" = "이 문장을 영상에서 삭제";

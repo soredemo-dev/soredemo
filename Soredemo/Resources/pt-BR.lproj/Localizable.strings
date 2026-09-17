@@ -316,7 +316,6 @@
 "about %lld minutes left" = "restam cerca de %lld minutos";
 "about an hour left" = "resta cerca de uma hora";
 "about %lld hours left" = "restam cerca de %lld horas";
-"Cut this sentence out of the video" = "Cortar esta frase do vídeo";
 "Delete the selected clip (⌫)" = "Excluir o clipe selecionado (⌫)";
 "Enter Full Screen (⌃⌘F)" = "Entrar em tela cheia (⌃⌘F)";
 "Find the silent stretches" = "Encontrar os trechos em silêncio";
@@ -498,3 +497,17 @@
 
 "Click to show the controls, drag to move the bar" = "Clique para mostrar os controles; arraste para mover a barra";
 "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "A janela mudou de tamanho durante a gravação, então parte dela foi redimensionada para caber no quadro (%@–%@). A gravação é utilizável; uma janela de tamanho constante fica mais nítida.";
+"A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines." = "Uma frase é a unidade pela qual você corta o vídeo; uma linha de legenda é o que o espectador lê — uma frase vira uma ou mais linhas.";
+"No transcript yet." = "Ainda não há transcrição.";
+"Transcribe the recording above, then delete a sentence here to cut it out of the video." = "Transcreva a gravação acima e depois exclua uma frase aqui para cortá-la do vídeo.";
+"Amount" = "Quantidade";
+"Strength" = "Intensidade";
+"Remove background noise" = "Remover ruído de fundo";
+"Nothing is marked." = "Nada marcado.";
+"esc to cancel" = "esc para cancelar";
+"Blurs the picture only. A colour or a gradient has nothing to blur." = "Desfoca apenas a imagem. Uma cor ou um gradiente não tem o que desfocar.";
+"To blur the background instead, turn on Portrait in the camera effects." = "Para desfocar o fundo, ative Retrato nos efeitos da câmera.";
+"Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that." = "Excluir uma frase corta exatamente o próprio trecho dela. A pausa seguinte permanece — use a faixa de Silêncio para isso.";
+"YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube e Spotify normalizam para −14; −16 deixa uma folga abaixo disso.";
+"Click to record · ⎋ to cancel" = "Clique para gravar · ⎋ para cancelar";
+"Delete this sentence from the video" = "Excluir esta frase do vídeo";

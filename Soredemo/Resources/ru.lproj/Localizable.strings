@@ -315,7 +315,6 @@
 "about %lld minutes left" = "осталось около %lld мин";
 "about an hour left" = "осталось около часа";
 "about %lld hours left" = "осталось около %lld ч";
-"Cut this sentence out of the video" = "Вырезать эту фразу из видео";
 "Delete the selected clip (⌫)" = "Удалить выбранный клип (⌫)";
 "Enter Full Screen (⌃⌘F)" = "Во весь экран (⌃⌘F)";
 "Find the silent stretches" = "Найти тихие фрагменты";
@@ -497,3 +496,17 @@
 
 "Click to show the controls, drag to move the bar" = "Нажмите, чтобы показать элементы управления; перетащите, чтобы переместить панель";
 "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "Во время записи размер окна изменился, поэтому часть изображения была отмасштабирована под кадр (%@–%@). Запись пригодна; окно неизменного размера остаётся чётким.";
+"A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines." = "Предложение — это то, чем вы режете видео; строка субтитров — это то, что читает зритель: одно предложение становится одной или несколькими строками.";
+"No transcript yet." = "Расшифровки пока нет.";
+"Transcribe the recording above, then delete a sentence here to cut it out of the video." = "Расшифруйте запись выше, затем удалите здесь предложение, чтобы вырезать его из видео.";
+"Amount" = "Величина";
+"Strength" = "Сила";
+"Remove background noise" = "Убрать фоновый шум";
+"Nothing is marked." = "Ничего не отмечено.";
+"esc to cancel" = "esc — отмена";
+"Blurs the picture only. A colour or a gradient has nothing to blur." = "Размывается только изображение. У цвета или градиента размывать нечего.";
+"To blur the background instead, turn on Portrait in the camera effects." = "Чтобы размыть фон, включите «Портрет» в эффектах камеры.";
+"Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that." = "Удаление предложения вырезает ровно его собственный отрезок. Пауза после него остаётся — для неё есть дорожка тишины.";
+"YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube и Spotify нормализуют до −14; −16 оставляет небольшой запас.";
+"Click to record · ⎋ to cancel" = "Нажмите, чтобы записать · ⎋ — отмена";
+"Delete this sentence from the video" = "Удалить это предложение из видео";

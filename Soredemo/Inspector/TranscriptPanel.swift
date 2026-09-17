@@ -19,7 +19,7 @@ import Timeline
 /// goes through the same history as every other edit, so there is one way back and it is
 /// already in the menu. Which is also why a row whose footage is gone still shows its text —
 /// it is a record of what was said, not a list of what remains.
-struct TranscriptPanel: View {
+struct TranscriptPanel {
     let transcript: Transcript?
     /// What survives, so a row can say whether the thing it names is still in the video.
     let edit: EditTimeline
@@ -29,31 +29,39 @@ struct TranscriptPanel: View {
     /// Moves the playhead, in the recording's own time — the same space the transcript is in.
     let onSeek: (Nanoseconds) -> Void
 
-    /// Which sentence is showing its individual words, if any.
+    /// What the list remembers between redraws.
     ///
-    /// **One at a time, deliberately.** Cleaning up a sentence is something somebody does to one
-    /// sentence; letting every row open at once would turn a readable list of what was said into
-    /// a wall of chips, and the panel's first job is still reading.
-    @State private var openedForWords: Int?
-    /// The words chosen inside the opened sentence, by index into `transcript.words`. Cleared
-    /// whenever a different sentence is opened — a selection belonging to a row nobody can see is
-    /// a cut waiting to surprise somebody.
-    @State private var chosenWords: Set<Int> = []
+    /// **Held by the host, because this struct is thrown away on every redraw** — the same
+    /// arrangement and the same reason as `CaptionLines`' `CaptionListState`. It stopped being
+    /// a `View` with `@State` of its own when it moved inside the captions tab: a `List` nested
+    /// in a `List` is the defect `CaptionsPanel` already records about scroll views.
+    let listState: TranscriptListState
 
-    var body: some View {
-        List {
-            if let transcript, !transcript.segments.isEmpty {
-                Section("Summary") { summary(transcript) }
-                Section("Sentences") {
-                    ForEach(Array(transcript.segments.enumerated()), id: \.offset) { index, segment in
-                        row(transcript, index: index, segment: segment)
-                    }
+    /// The sections, for a host that owns the `List`.
+    ///
+    /// **Not a `List` of its own any more, because this now lives inside the captions tab.**
+    /// The two were separate inspector tabs and a person looking for what they had said had to
+    /// know which — the complaint being that they look like the same list. They are not the
+    /// same list: a sentence is what you CUT by and a caption line is what a viewer READS, and
+    /// `CaptionBuilder` breaks one sentence into one or more lines. Premiere keeps the same two
+    /// as two tabs inside one Text panel for the same reason; Descript keeps the transcript as
+    /// the document and captions as a separate panel. Neither merges the rows, because a delete
+    /// that means "cut my footage" on some rows and "remove a subtitle" on others is a trap.
+    ///
+    /// So: one tab, one place to look, two lists that stay two lists. A `List` nested in a
+    /// `List` is what this had to stop being — the same defect `CaptionsPanel` records about a
+    /// scroll view inside another one.
+    @ViewBuilder var sections: some View {
+        if let transcript, !transcript.segments.isEmpty {
+            Section("Summary") { summary(transcript) }
+            Section("Sentences") {
+                ForEach(Array(transcript.segments.enumerated()), id: \.offset) { index, segment in
+                    row(transcript, index: index, segment: segment)
                 }
-            } else {
-                Section("Transcript") { empty }
             }
+        } else {
+            Section("Transcript") { empty }
         }
-        .listStyle(.sidebar)
     }
 
     // MARK: - rows
@@ -104,10 +112,17 @@ struct TranscriptPanel: View {
                 guard let range = transcript.removalRange(ofSegmentAt: index) else { return }
                 onDelete(range, "Delete \u{201C}\(shortened(segment.text))\u{201D}")
             } label: {
-                Image(systemName: "scissors")
+                // **A bin, not scissors, and that is a convention rather than a preference.**
+                // In every subtitle editor read for this — SmartSub's row is the one checked
+                // line by line — scissors on a line of text means SPLIT IT, and the caption
+                // rows one tab over have a split of their own. A destructive action wearing the
+                // icon of a non-destructive one in the same window is the kind of mistake
+                // somebody makes once, with their own footage. Descript's transcript spells
+                // this the same way: in a transcript, deleting the words deletes the video.
+                Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
-            .help("Cut this sentence out of the video")
+            .help("Delete this sentence from the video")
             // Nothing left to cut. Disabled rather than hidden, so the row keeps its shape and
             // the button does not move under the pointer as sentences are deleted above it.
             .disabled(state == .gone)
@@ -131,17 +146,17 @@ struct TranscriptPanel: View {
         // honest response is to offer nothing rather than an empty row.
         if !indices.isEmpty, state != .gone {
             Button {
-                if openedForWords == index {
-                    openedForWords = nil
+                if listState.openedForWords == index {
+                    listState.openedForWords = nil
                 } else {
-                    openedForWords = index
+                    listState.openedForWords = index
                 }
-                chosenWords = []
+                listState.chosenWords = []
             } label: {
                 // Spelled out rather than chosen inside the call, for the same reason the cut
                 // button below is: a title assembled by an expression is a title the label scan
                 // cannot see, and what it cannot see drifts out of the string tables.
-                if openedForWords == index {
+                if listState.openedForWords == index {
                     Label("Hide words", systemImage: "chevron.down").font(Type.detail)
                 } else {
                     Label("Choose words", systemImage: "chevron.right").font(Type.detail)
@@ -150,7 +165,7 @@ struct TranscriptPanel: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
 
-            if openedForWords == index {
+            if listState.openedForWords == index {
                 words(transcript, indices: indices)
             }
         }
@@ -175,7 +190,7 @@ struct TranscriptPanel: View {
                     Spacer(minLength: 0)
                 }
             }
-            if !chosenWords.isEmpty {
+            if !listState.chosenWords.isEmpty {
                 Button {
                     cutChosen(transcript)
                 } label: {
@@ -183,7 +198,7 @@ struct TranscriptPanel: View {
                     // `LocalizedStringKey` becomes `"Cut %lld words"`, which is a key no reader
                     // of this file would think to look for in the tables and which the label
                     // scan skips outright. Spelled out, both are keys somebody can find.
-                    if chosenWords.count == 1 {
+                    if listState.chosenWords.count == 1 {
                         Label("Cut 1 word", systemImage: "scissors").font(Type.detail)
                     } else {
                         Label("Cut these words", systemImage: "scissors").font(Type.detail)
@@ -201,7 +216,7 @@ struct TranscriptPanel: View {
     @ViewBuilder private func chip(_ transcript: Transcript, at word: Int) -> some View {
         let gone = transcript.removalRange(ofWordAt: word)
             .map { edit.survival(ofSource: $0) == .gone } ?? true
-        let isChosen = chosenWords.contains(word)
+        let isChosen = listState.chosenWords.contains(word)
         Text(transcript.words[word].text.trimmingCharacters(in: .whitespaces))
             .font(Type.detail)
             .strikethrough(gone)
@@ -218,7 +233,7 @@ struct TranscriptPanel: View {
                 // A word already cut out of the video cannot be cut again, and a chip that
                 // toggled anyway would build a selection that removes nothing.
                 guard !gone else { return }
-                if isChosen { chosenWords.remove(word) } else { chosenWords.insert(word) }
+                if isChosen { listState.chosenWords.remove(word) } else { listState.chosenWords.insert(word) }
             }
     }
 
@@ -232,7 +247,7 @@ struct TranscriptPanel: View {
     /// The undo title names the words rather than counting them, because "Cut 2 words" in the
     /// menu a week later says nothing about what came out.
     private func cutChosen(_ transcript: Transcript) {
-        let chosen = chosenWords.sorted()
+        let chosen = listState.chosenWords.sorted()
         let spoken = chosen.map { transcript.words[$0].text.trimmingCharacters(in: .whitespaces) }
             .joined(separator: " ")
         let ranges = transcript.removalRanges(ofWordsAt: chosen)
@@ -240,8 +255,8 @@ struct TranscriptPanel: View {
         for range in ranges {
             onDelete(range, "Cut \u{201C}\(shortened(spoken))\u{201D}")
         }
-        chosenWords = []
-        openedForWords = nil
+        listState.chosenWords = []
+        listState.openedForWords = nil
     }
 
     /// Words grouped into lines short enough to sit side by side. See `words(_:indices:)` for why
@@ -292,11 +307,22 @@ struct TranscriptPanel: View {
         }
     }
 
+    /// **"in Overlays" was a direction to a tab that no longer exists.** This panel moved
+    /// inside the captions tab and that tab stopped being called Overlays, so the empty state
+    /// was pointing somebody at a rail icon they could not find. The button it means is now a
+    /// few rows up, in the same panel — which is the whole point of the merge, and the wording
+    /// says that instead of naming a place.
+    ///
+    /// Both sentences were plain `Text` literals **absent from every string table**, in all ten
+    /// languages, since they were written: SwiftUI falls back to the key, so an English
+    /// sentence appeared in a Chinese window and nothing failed. Found by looking at the
+    /// screen, not by a gate — see docs/TESTING.md § 8 item 4.
     @ViewBuilder private var empty: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             Text("No transcript yet.").font(Type.label)
-            Text("Transcribe the recording in Overlays, then delete a sentence here to cut it out of the video.")
+            Text("Transcribe the recording above, then delete a sentence here to cut it out of the video.")
                 .font(Type.detail).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -325,4 +351,25 @@ struct TranscriptPanel: View {
         let padded = seconds < 10 ? "0\(seconds)" : "\(seconds)"
         return "\(minutes):\(padded).\(fraction)"
     }
+}
+
+
+/// What the sentence list remembers between redraws.
+///
+/// **A class, because `TranscriptPanel` is a value SwiftUI throws away on every redraw** — the
+/// same arrangement `CaptionListState` has and for the same reason. It became necessary when
+/// the panel stopped owning a `List` of its own and moved inside the captions tab.
+@MainActor
+@Observable
+final class TranscriptListState {
+    /// Which sentence is showing its individual words, if any.
+    ///
+    /// **One at a time, deliberately.** Cleaning up a sentence is something somebody does to one
+    /// sentence; letting every row open at once would turn a readable list of what was said into
+    /// a wall of chips, and the panel's first job is still reading.
+    var openedForWords: Int?
+    /// The words chosen inside the opened sentence, by index into `transcript.words`. Cleared
+    /// whenever a different sentence is opened — a selection belonging to a row nobody can see is
+    /// a cut waiting to surprise somebody.
+    var chosenWords: Set<Int> = []
 }

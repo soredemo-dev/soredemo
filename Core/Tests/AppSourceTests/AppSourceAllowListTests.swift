@@ -2393,3 +2393,108 @@ func containsAsAWord(_ haystack: String, _ needle: String) -> Bool {
         \(stale.joined(separator: "\n"))
         """)
 }
+
+// MARK: - a sentence nobody could translate because nobody knew it was there
+
+/// Words that are the same in every language, and why each one is.
+///
+/// **A list, not a rule, because every entry is a judgement.** A size in pixels is a number and
+/// a unit; a product's name is a name. Anything that is a sentence belongs in the tables even
+/// when its translation would be identical, because "identical" is a translator's decision and
+/// not a programmer's.
+/// `"\u{2014}"` in Swift source is `"—"` in the table.
+///
+/// **Without this the scan reports its own successes as failures.** The sentence added to the
+/// captions panel on 2026-09-18 IS in all ten tables, and the first run of this check listed it
+/// as missing — the source spells the dash as an escape and the table spells it as the
+/// character. A check that cannot match a string somebody just added correctly would be turned
+/// off within a week.
+private func decodedUnicodeEscapes(_ literal: String) -> String {
+    var out = ""
+    var rest = literal[...]
+    while let start = rest.range(of: "\\u{") {
+        out += rest[rest.startIndex..<start.lowerBound]
+        let after = rest[start.upperBound...]
+        guard let close = after.firstIndex(of: "}"),
+              let value = UInt32(after[after.startIndex..<close], radix: 16),
+              let scalar = Unicode.Scalar(value) else { return literal }
+        out.append(Character(scalar))
+        rest = after[after.index(after: close)...]
+    }
+    return out + rest
+}
+
+private let untranslatableLiterals: Set<String> = [
+    "1280 px", "960 px", "640 px", "480 px",
+    "Soredemo",
+    // Two symbols drawn as text: the escape key's glyph and a middle dot between two readings.
+    // Neither is a word in any language.
+    "\u{238B}", "\u{00B7}",
+]
+
+/// **Every `Text("…")` and `Label("…")` in the app is in the string tables.**
+///
+/// SwiftUI treats a string literal as a `LocalizedStringKey` and falls back to the KEY when no
+/// entry exists — so a sentence absent from every table renders in English, in every language,
+/// and nothing fails. Found on 2026-09-18 by looking at a Chinese window and reading English in
+/// it: `Remove background noise`, `Blurs the picture only…`, `esc to cancel` and five more had
+/// never been in any table since they were written. `everyStatusSentenceIsInEveryStringTable`
+/// covers the status line; this covers everything else a person reads.
+///
+/// **Interpolated literals are not checked here.** `Text("Wrote \(name).")` becomes a key with
+/// a format specifier in it, and matching that from source needs the reduction the status-line
+/// check already does; this one takes the plain literals, which is where the whole of the 2026-09-18
+/// finding lived.
+@Test func everyPlainUILiteralIsInTheStringTable() throws {
+    let english = try String(
+        contentsOf: repositoryRoot.appending(path: "Soredemo/Resources/en.lproj/Localizable.strings"),
+        encoding: .utf8)
+    var keys: Set<String> = []
+    for line in english.components(separatedBy: .newlines) {
+        guard line.hasPrefix("\"") , let end = line.range(of: "\" = ") else { continue }
+        keys.insert(String(line[line.index(after: line.startIndex)..<end.lowerBound]))
+    }
+    try #require(keys.count > 200, """
+        only \(keys.count) keys parsed out of en.lproj/Localizable.strings — the parser has \
+        stopped matching the file's shape, and a scan that finds no keys passes over everything.
+        """)
+
+    var missing: [String] = []
+    var scanned = 0
+    for file in try appSourceFiles() {
+        let source = try String(contentsOf: file, encoding: .utf8)
+        for line in source.components(separatedBy: .newlines) {
+            // Doc comments and line comments carry example strings; they are not UI.
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.hasPrefix("//") else { continue }
+            let code = line.components(separatedBy: "//").first ?? line
+            for opening in ["Text(\"", "Label(\""] {
+                var search = code[...]
+                while let start = search.range(of: opening) {
+                    let rest = search[start.upperBound...]
+                    guard let close = rest.firstIndex(of: "\"") else { break }
+                    let literal = decodedUnicodeEscapes(String(rest[rest.startIndex..<close]))
+                    search = rest[close...]
+                    scanned += 1
+                    guard literal.count >= 3,
+                          !literal.contains("\\("),
+                          !untranslatableLiterals.contains(literal),
+                          !keys.contains(literal) else { continue }
+                    missing.append("\(pathRelativeToRepositoryRoot(file)): \"\(literal)\"")
+                }
+            }
+        }
+    }
+    try #require(scanned > 50, """
+        only \(scanned) literals were examined across the app target, which is too few for a \
+        window with this many labels in it — the needle has stopped matching.
+        """)
+
+    #expect(missing.isEmpty, """
+        \(missing.count) string(s) a person reads are in no string table, so they render in \
+        English in all ten languages and nothing fails:
+        \(missing.sorted().joined(separator: "\n"))
+        Add them to Soredemo/Resources/*.lproj/Localizable.strings, or to \
+        `untranslatableLiterals` above with a reason if they are genuinely the same everywhere.
+        """)
+}

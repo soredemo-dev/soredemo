@@ -317,7 +317,6 @@
 "about %lld minutes left" = "残り約 %lld 分";
 "about an hour left" = "残り約 1 時間";
 "about %lld hours left" = "残り約 %lld 時間";
-"Cut this sentence out of the video" = "この文を動画から削除";
 "Delete the selected clip (⌫)" = "選択したクリップを削除(⌫)";
 "Enter Full Screen (⌃⌘F)" = "フルスクリーンにする(⌃⌘F)";
 "Find the silent stretches" = "無音の区間を探す";
@@ -499,3 +498,17 @@
 
 "Click to show the controls, drag to move the bar" = "クリックでコントロールを表示、ドラッグでバーを移動";
 "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "録画中にウインドウのサイズが変わったため、一部がフレームに合わせて拡大縮小されました（%@〜%@）。録画は使えますが、サイズを変えないほうが鮮明です。";
+"A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines." = "文は動画をカットする単位、字幕行は視聴者が読む単位です。ひとつの文は一行以上の字幕になります。";
+"No transcript yet." = "まだ書き起こしがありません。";
+"Transcribe the recording above, then delete a sentence here to cut it out of the video." = "上のボタンで録画を書き起こしてから、ここで文を削除すると、その区間が動画から取り除かれます。";
+"Amount" = "量";
+"Strength" = "強さ";
+"Remove background noise" = "背景ノイズを除去";
+"Nothing is marked." = "マークはまだありません。";
+"esc to cancel" = "esc でキャンセル";
+"Blurs the picture only. A colour or a gradient has nothing to blur." = "画像のみをぼかします。単色やグラデーションにはぼかす対象がありません。";
+"To blur the background instead, turn on Portrait in the camera effects." = "背景をぼかしたい場合は、カメラのエフェクトでポートレートをオンにしてください。";
+"Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that." = "文を削除すると、その文の区間だけが切り取られます。あとの間はそのまま残ります — それは無音レーンで処理してください。";
+"YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube と Spotify は −14 に正規化します。−16 ならその下に少し余裕が残ります。";
+"Click to record · ⎋ to cancel" = "クリックで録画開始 · ⎋ でキャンセル";
+"Delete this sentence from the video" = "この文を動画から削除";

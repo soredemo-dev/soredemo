@@ -331,7 +331,6 @@
 "about %lld minutes left" = "about %lld minutes left";
 "about an hour left" = "about an hour left";
 "about %lld hours left" = "about %lld hours left";
-"Cut this sentence out of the video" = "Cut this sentence out of the video";
 "Delete the selected clip (⌫)" = "Delete the selected clip (⌫)";
 "Enter Full Screen (⌃⌘F)" = "Enter Full Screen (⌃⌘F)";
 "Find the silent stretches" = "Find the silent stretches";
@@ -513,3 +512,17 @@
 
 "Click to show the controls, drag to move the bar" = "Click to show the controls, drag to move the bar";
 "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp.";
+"A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines." = "A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines.";
+"No transcript yet." = "No transcript yet.";
+"Transcribe the recording above, then delete a sentence here to cut it out of the video." = "Transcribe the recording above, then delete a sentence here to cut it out of the video.";
+"Amount" = "Amount";
+"Strength" = "Strength";
+"Remove background noise" = "Remove background noise";
+"Nothing is marked." = "Nothing is marked.";
+"esc to cancel" = "esc to cancel";
+"Blurs the picture only. A colour or a gradient has nothing to blur." = "Blurs the picture only. A colour or a gradient has nothing to blur.";
+"To blur the background instead, turn on Portrait in the camera effects." = "To blur the background instead, turn on Portrait in the camera effects.";
+"Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that." = "Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that.";
+"YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube and Spotify normalise to −14; −16 leaves a little headroom under it.";
+"Click to record · ⎋ to cancel" = "Click to record · ⎋ to cancel";
+"Delete this sentence from the video" = "Delete this sentence from the video";

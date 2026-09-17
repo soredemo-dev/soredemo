@@ -438,6 +438,36 @@ struct CaptionsPanel: View {
     /// Silence lane and the music ducking read**, so "where did they stop talking" has one
     /// answer in this app rather than three.
     let pauses: [SilenceFinder.Span]
+    /// What was said, as sentences. **A different unit from the cues below** — `CaptionBuilder`
+    /// breaks one sentence into one or more lines — which is why this panel shows two lists and
+    /// not one merged one. See `TranscriptPanel.sections`.
+    let transcript: Transcript?
+    /// Cuts a span of the recording out. The name becomes the undo title.
+    let onDeleteRange: (Range<Int64>, String) -> Void
+    /// Opens the full-width caption editor. **Inside this panel's Captions half**, because that
+    /// is what it is the full-width version of — above the panel it sat over the transcript too.
+    let onOpenEditor: () -> Void
+
+    /// Which of the two lists is showing.
+    ///
+    /// **They were two inspector tabs and are now one**, because a person looking for what they
+    /// had said had to know which of two rail icons held it, and the two look like the same
+    /// list. They are not: a SENTENCE is the unit you cut the video by, a LINE is the unit a
+    /// viewer reads. Premiere puts the same two inside one Text panel; Descript keeps the
+    /// transcript as the document and captions as a panel. Neither merges the rows, because a
+    /// delete meaning "remove my footage" on some rows and "remove a subtitle" on others is a
+    /// trap somebody springs once, on their own recording.
+    @State private var showing: Words = .lines
+
+    enum Words: String, CaseIterable, Hashable {
+        case sentences, lines
+        var title: String {
+            switch self {
+            case .sentences: String(localized: "Transcript")
+            case .lines: String(localized: "Captions")
+            }
+        }
+    }
 
     @State private var maximumWords: Int?
     /// Why a chosen font did not take, or `nil`. Said rather than left to look like the picker
@@ -453,6 +483,8 @@ struct CaptionsPanel: View {
     /// What the cue list remembers. See `CaptionListState` — it is a class because the list
     /// itself is a value SwiftUI throws away between redraws.
     @State private var listState = CaptionListState()
+    /// What the sentence list remembers. See `TranscriptListState`.
+    @State private var transcriptState = TranscriptListState()
 
     var body: some View {
         // **`ScrollViewReader` around the LIST, and one row per cue inside it.** Both were wrong
@@ -462,8 +494,26 @@ struct CaptionsPanel: View {
         // `scrollTo` addresses.
         ScrollViewReader { scroller in
             List {
-                Section("Transcript") { transcriptControls }
-                if !model.track.isEmpty {
+                Section { picker }
+                Section { explanation }
+                Section("Transcribe") { transcriptControls }
+                if showing == .sentences {
+                    // `edit ?? EditTimeline(clips: [])`: the panel already holds an optional
+                    // edit — `nil` before the asset loads — and a sentence asked whether its
+                    // footage survives an EMPTY timeline is told it does not, which is the
+                    // honest answer while nothing is loaded rather than a crash or a guess.
+                    TranscriptPanel(transcript: transcript, edit: edit ?? EditTimeline(clips: []),
+                                    onDelete: onDeleteRange, onSeek: onSeek,
+                                    listState: transcriptState)
+                        .sections
+                }
+                if showing == .lines, !model.track.isEmpty {
+                    Section {
+                        Button(action: onOpenEditor) {
+                            Label("Open the caption editor", systemImage: "rectangle.split.2x1")
+                        }
+                        .help("Captions at full width, with the waveform")
+                    }
                     Section("Preset") { presetControls }
                     Section("Look") { lookControls }
                     Section("Lines") {
@@ -493,6 +543,32 @@ struct CaptionsPanel: View {
                 }
             }
         }
+    }
+
+    /// Which list is showing. **A segmented control rather than two rail icons**: the two are
+    /// one subject seen two ways, and switching between them should cost a glance rather than a
+    /// trip across the window.
+    @ViewBuilder private var picker: some View {
+        Picker("", selection: $showing) {
+            ForEach(Words.allCases, id: \.self) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    /// One sentence, because the relationship is the thing nobody can guess: a person who
+    /// deletes in the wrong list loses footage they meant to keep.
+    ///
+    /// **Its own `Section`, and wrapped.** Sharing a section with the picker put it on a row
+    /// sized for a control and it came out as one truncated line — which for this sentence
+    /// means the half that survives is "a sentence is what you cut the video by" and the half
+    /// that explains the other list is gone.
+    @ViewBuilder private var explanation: some View {
+        Text("A sentence is what you cut the video by. A caption line is what a viewer reads \u{2014} one sentence becomes one or more lines.")
+            .font(Type.detail)
+            .foregroundStyle(.secondary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// The shared cue list, configured for this panel. **The state it reads is held HERE**, by

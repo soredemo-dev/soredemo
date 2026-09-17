@@ -178,14 +178,19 @@ struct StageWindow: View {
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
-        case project, selection, captions, transcript, text, hide, mark
+        // **`transcript` is gone and its content moved into `captions`.** They were two rail
+        // icons over one subject — what was said — and the two lists look alike enough that a
+        // person had to know which icon held which. One tab, one segmented control inside it;
+        // see `CaptionsPanel.Words` for why the two lists stay two.
+        case project, selection, captions, text, hide, mark
 
         var title: String {
             switch self {
             case .project: "Project"
             case .selection: "Zooms"
-            case .captions: "Overlays"
-            case .transcript: "Transcript"
+            // "Captions" rather than "Overlays": the tab is the recording's words now, and
+            // "Overlays" was already a poor name for a tab whose contents were captions.
+            case .captions: "Captions"
             case .text: "Text"
             case .hide: "Hide"
             case .mark: "Mark"
@@ -199,7 +204,6 @@ struct StageWindow: View {
             case .project: "slider.horizontal.3"
             case .selection: "plus.magnifyingglass"
             case .captions: "captions.bubble"
-            case .transcript: "text.quote"
             case .text: "textformat"
             case .hide: "eye.slash"
             case .mark: "arrow.up.right"
@@ -211,11 +215,6 @@ struct StageWindow: View {
             case .project: Theme.accent
             case .selection: Theme.Lane.zoom
             case .captions: Theme.Lane.caption
-            // **No lane colour, because the transcript is not a lane.** It is a second way of
-            // addressing the clips — a sentence names a span of the recording the way a
-            // selection does — so it takes the app's own accent rather than borrowing the
-            // caption lane's and implying it edits captions.
-            case .transcript: Theme.accent
             case .text: Theme.Lane.text
             case .hide: Theme.Lane.hide
             case .mark: Theme.Lane.mark
@@ -768,33 +767,27 @@ struct StageWindow: View {
                     }
                 }
                 .listStyle(.sidebar)
-            case .transcript:
-                TranscriptPanel(
-                    transcript: captions.transcript,
-                    edit: timeline.edit,
-                    onDelete: { range, name in timeline.removeSourceRange(range, named: name) },
-                    onSeek: { timeline.movePlayhead(to: $0) })
             case .captions:
                 let size = Self.size(for: variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
-                // **The way in is in the Captions tab, beside the work it is for.** A menu item
-                // alone would be a mode nobody found; a toolbar button would be a control for
-                // captions sitting in the window's chrome whatever tab was open.
-                Button {
-                    isCaptionEditorShown = true
-                } label: {
-                    Label("Open the caption editor", systemImage: "rectangle.split.2x1")
-                }
-                .disabled(captions.track.isEmpty)
-                .help("Captions at full width, with the waveform")
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes
                 // when the highlighted cue changes rather than ten times a second.
+                //
+                // **The caption editor's way in moved INSIDE the panel**, into the Captions
+                // half of it. Above the panel it sat over both halves, and it is the full-width
+                // version of one of them — a button for captions floating over the transcript
+                // is a control whose subject you have to work out.
                 CaptionsPanel(model: captions, mediaURL: mediaURL, edit: timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 },
                               playheadNow: { timeline.playhead },
                               onSeek: { timeline.movePlayhead(to: $0) },
-                              pauses: timeline.silences)
+                              pauses: timeline.silences,
+                              transcript: captions.transcript,
+                              onDeleteRange: { range, name in
+                                  timeline.removeSourceRange(range, named: name)
+                              },
+                              onOpenEditor: { isCaptionEditorShown = true })
             case .text:
                 AtPlayhead(model: timeline) { playhead in
                     TextPanel(model: texts, playhead: playhead,

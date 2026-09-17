@@ -645,7 +645,17 @@ In the order a defect found there would cost the most.
    `CaptionsModel` and `TimelineEditorModel`. The infrastructure was the whole obstacle: the
    models were always testable, and there was nowhere to put a test. What remains is coverage,
    which is now an ordinary matter of writing them.
-4. **Rendered locale check.** Ten languages, one of them the author's, nine unverified
+4. **Rendered locale check.** **Narrowed again 2026-09-18, by looking at a Chinese window and
+   reading English in it.** `Remove background noise`, `Blurs the picture only…`, `esc to
+   cancel`, `Click to record · ⎋ to cancel` and six more were plain `Text("…")` literals that
+   had never been in ANY string table: SwiftUI treats a literal as a `LocalizedStringKey` and
+   falls back to the key, so they rendered in English in all ten languages and nothing failed.
+   `everyPlainUILiteralIsInTheStringTable` closes that class — it decodes `\u{…}` escapes before
+   comparing, because the first run reported a sentence that HAD been added correctly (source
+   spells the dash as an escape, the table spells it as the character), and a check that flags
+   somebody's correct work is a check they turn off. What remains at this item is still the
+   original claim: nothing has been looked at rendered, and German and Russian run ~30% longer
+   than English. Ten languages, one of them the author's, nine unverified
    at the pixel. **Narrowed 2026-09-07:** the status line was not merely unverified, it was
    untranslatable — `statusText` is a `String`, which binds SwiftUI's *verbatim* overload, so
    twenty-seven sentences drew in English in all ten languages, including all seven that tell

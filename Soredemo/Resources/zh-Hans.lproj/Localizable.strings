@@ -317,7 +317,6 @@
 "about %lld minutes left" = "大约还剩 %lld 分钟";
 "about an hour left" = "大约还剩一小时";
 "about %lld hours left" = "大约还剩 %lld 小时";
-"Cut this sentence out of the video" = "把这句话从视频里剪掉";
 "Delete the selected clip (⌫)" = "删除选中的片段(⌫)";
 "Enter Full Screen (⌃⌘F)" = "进入全屏(⌃⌘F)";
 "Find the silent stretches" = "找出静默的段落";
@@ -499,3 +498,17 @@
 
 "Click to show the controls, drag to move the bar" = "点一下显示控制项，拖拽可移动这条栏";
 "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "录制途中窗口改变了大小，所以有一部分被缩放以塞进画面（%@–%@）。录像可以用；让窗口保持同一个大小会更清晰。";
+"A sentence is what you cut the video by. A caption line is what a viewer reads — one sentence becomes one or more lines." = "句子是你用来剪片的单位；字幕行是观众读的单位 —— 一句话会变成一行或多行。";
+"No transcript yet." = "还没有逐字稿。";
+"Transcribe the recording above, then delete a sentence here to cut it out of the video." = "先用上面的按钮转录这段录像，然后在这里删掉一句话，就会把那段从视频剪掉。";
+"Amount" = "强度";
+"Strength" = "强度";
+"Remove background noise" = "移除背景杂音";
+"Nothing is marked." = "还没有标注。";
+"esc to cancel" = "按 esc 取消";
+"Blurs the picture only. A colour or a gradient has nothing to blur." = "只会模糊图片。纯色或渐变没有东西可以模糊。";
+"To blur the background instead, turn on Portrait in the camera effects." = "如果想模糊的是背景，请到相机效果里开启「人像」。";
+"Deleting a sentence cuts exactly its own span. The pause after it stays — use the Silence lane for that." = "删掉一句话只会剪掉那句自己的范围。后面的停顿会留着 —— 那个要用「静音」轨道处理。";
+"YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube 和 Spotify 会正规化到 −14；−16 会在它下面留一点余裕。";
+"Click to record · ⎋ to cancel" = "点一下开始录制 · ⎋ 取消";
+"Delete this sentence from the video" = "把这句从视频里删掉";
