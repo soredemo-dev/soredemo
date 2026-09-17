@@ -584,6 +584,31 @@ on a red and names which is which.
 **It skips, loudly, where it cannot inject events** — established by moving the cursor and
 reading it back, not by asking `AXIsProcessTrusted`, which answers a different question.
 
+### 6.5 What SwiftUI complains about, counted — `scripts/count-swiftui-complaints.sh`
+
+**Not a gate. A number, so the next attempt starts from evidence rather than from scratch.**
+Three messages in this app's console are ours and none of them is located:
+
+```
+NSHostingView is being laid out reentrantly while rendering its SwiftUI content
+[com.apple.attributegraph:error] Cycle detected through attribute: <id>
+onChange(of: Int) action tried to update multiple times per frame
+```
+
+What was established 2026-09-18, and what was not:
+
+| | |
+|---|---|
+| when the cycle happens | **once or twice per editor open**, and both occurrences sit immediately beside `AVAssetInspectorLoader loadValuesAsynchronously … tracks` and the decoder being built and torn down — the composition rebuild, not the window opening |
+| which view | **unknown.** `AG_TRACE_CYCLES=1` and `SWIFTUI_DEBUG_CYCLES=1` were both tried and neither prints the attribute chain on macOS 27, so the id is not resolvable outside a debugger |
+| the other two | **not reached by `--open-project`.** They were reported from a session that also opened the caption editor and played the video, so a zero from this script is "this path did not produce one", not "the app does not" |
+
+**It reads the unified log, and the line count is printed first on purpose.** `NSLog` writes to
+stderr only when there is a tty; redirected to a file it goes to the unified log alone. The first
+attempt at this captured stderr, reported zero of everything, and was measuring nothing — the
+same shape as the `log` builtin that made an earlier "zero cycles" meaningless. A run that
+collects fewer than a hundred lines now fails rather than reporting three zeros.
+
 ## 7. Documents are tested too, and here is why
 
 Three separate documents in this repository have been found stating something false
