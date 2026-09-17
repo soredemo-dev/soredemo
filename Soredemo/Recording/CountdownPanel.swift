@@ -58,8 +58,12 @@ final class CountdownPresenter {
         let panel = CountdownKeyPanel(contentRect: CGGeometryBridge.rect(from: size),
                                       styleMask: [.borderless, .nonactivatingPanel],
                                       backing: .buffered, defer: false)
-        panel.level = .screenSaver
+        // **`isFloatingPanel` FIRST: setting it overwrites `level`.** The same two lines in
+        // the wrong order put the notch cover at `.floating` (3) when it had asked for
+        // `.screenSaver` (1000), measured. The countdown had it too, so a floating window over
+        // whatever was being recorded could sit on top of the count.
         panel.isFloatingPanel = true
+        panel.level = .screenSaver
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false

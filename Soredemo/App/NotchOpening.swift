@@ -23,6 +23,18 @@ final class NotchOpening {
 
     private var panel: NSPanel?
     private var runner: Task<Void, Never>?
+    /// Watches for the window reaching full screen, to put the cover back in front of it.
+    /// Removed with the cover; a watcher outliving the panel would order a window that is gone.
+    private var spaceWatcher: (any NSObjectProtocol)?
+
+    /// **Whether AppKit has FINISHED putting the window into full screen.**
+    ///
+    /// `styleMask.contains(.fullScreen)` is not that: it becomes true when the transition
+    /// BEGINS. Waiting on it, the cover measured 0.45 s of life against a transition that was
+    /// still running — recorded frame by frame, the Dock and a windowed editor with its title
+    /// bar were on display for 0.4 s after the cover had gone, which is most of what "there are
+    /// a lot of zooms" was. `didEnterFullScreenNotification` is the end of it.
+    private var hasEnteredFullScreen = false
 
     /// What the last run did, so a check does not have to catch it with a screenshot.
     ///
@@ -54,11 +66,21 @@ final class NotchOpening {
     private init() {}
 
     /// **How long the overlay will wait for the window to settle before animating to whatever
-    /// frame it has.** `FullScreenEntry` spends up to six seconds on a busy machine, and a
-    /// backdrop that sat black for six seconds would be worse than the transition it replaces.
-    /// Past this the shape grows to the window's current frame, which is the honest answer: it
-    /// is where the editor is.
-    static let settleBudget: Double = 1.2
+    /// frame it has.**
+    ///
+    /// **Three seconds, and it was 1.2 while the signal was wrong.** The wait used to end on
+    /// `styleMask.contains(.fullScreen)`, which is true from the moment the transition STARTS,
+    /// so 1.2 was generous for a thing that answered immediately. Waiting for
+    /// `didEnterFullScreen` means waiting for AppKit's own animation, the Space to be built and
+    /// the window to land — and `FullScreenEntry` may spend several of its 24 attempts getting
+    /// there on a busy machine.
+    ///
+    /// **The cost of the number, both ways.** Too short and the cover leaves mid-transition,
+    /// which is the defect this replaces: measured at 0.4 s of windowed editor and a visible
+    /// Dock. Too long and a window that never reaches full screen leaves the screen dark for
+    /// that long before the shape runs. Three seconds is the shorter of those two harms at the
+    /// entry times seen here — `fullScreenAsks` is 1 or 2, well under half a second.
+    static let settleBudget: Double = 3.0
 
     /// The window the shape is aiming at, once there is one. **`nil` is a state, not an
     /// absence**: the cover can go up before SwiftUI has built a window at all.
@@ -73,6 +95,7 @@ final class NotchOpening {
     func beginCovering(on screen: NSScreen, reduceMotion: Bool) {
         guard runner == nil else { return lastRun = .alreadyRunning }
         lastRun = .playing
+        hasEnteredFullScreen = false
         let transition = NotchTransition.chosen(reduceMotion: reduceMotion)
         let state = NotchOpeningState(transition: transition,
                                       screenFrame: GlobalRect.topLeft(of: screen))
@@ -93,7 +116,7 @@ final class NotchOpening {
                 self?.runner = nil
             }
             guard let self else { return }
-            guard let settled = await Self.settledFrame(waitingFor: { self.target }) else {
+            guard let settled = await settledFrame() else {
                 lastRun = .windowWentAway
                 return
             }
@@ -105,7 +128,62 @@ final class NotchOpening {
     }
 
     /// Says which window the shape is growing into. May arrive after `beginCovering`.
-    func aim(at window: NSWindow) { target = window }
+    func aim(at window: NSWindow) {
+        target = window
+        // **Re-ordered into the full-screen Space, because joining it is not being above it.**
+        // A native full-screen window moves to a Space of its own, and a panel that was ordered
+        // front in the OLD one is behind the new Space's contents even at `.screenSaver`:
+        // recorded, the editor was plainly visible over a cover that was still up. The
+        // collection behaviour lets the panel appear there; this is what puts it in front once
+        // there is a there to be in front of.
+        hasEnteredFullScreen = window.styleMask.contains(.fullScreen)
+            && window.frame.size == (window.screen ?? NSScreen.main)?.frame.size
+        spaceWatcher = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEnterFullScreenNotification, object: window,
+            queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.hasEnteredFullScreen = true
+                    self?.panel?.orderFrontRegardless()
+                }
+            }
+        // **What the cover and the window are, at the moment the window exists.** A recording
+        // of a real opening showed the editor drawn ABOVE a `.screenSaver` panel, which levels
+        // alone cannot explain, and the Dock never covered at all. Guessing between "the panel
+        // is below", "the panel is gone" and "the Dock is above everything" is what this
+        // replaces. `--report-window-state` prints it.
+        if let panel {
+            order = Order(panelLevel: panel.level.rawValue,
+                          panelVisible: panel.isVisible,
+                          windowLevel: window.level.rawValue,
+                          panelIsAbove: panel.orderedIndex < window.orderedIndex,
+                          panelFrame: GlobalRect.topLeft(of: panel),
+                          screenFrame: GlobalRect.topLeft(of: window.screen ?? NSScreen.main!))
+        }
+    }
+
+    /// What the cover and the window were when they first coexisted. `nil` until then, which is
+    /// a fact about this process rather than an absence of one.
+    private(set) var order: Order?
+
+    struct Order: Equatable {
+        let panelLevel: Int
+        let panelVisible: Bool
+        let windowLevel: Int
+        /// `orderedIndex` counts from the front, so a smaller one is nearer the viewer.
+        let panelIsAbove: Bool
+        /// **The panel's frame against the screen's**, because a cover that does not reach the
+        /// menu bar or the Dock is not a cover. AppKit constrains an ordinary window to the
+        /// visible frame; whether it does that to this one is the question.
+        let panelFrame: PointRect
+        let screenFrame: PointRect
+
+        var summary: String {
+            "panel level \(panelLevel) visible \(panelVisible) above \(panelIsAbove) "
+                + "window level \(windowLevel) "
+                + "panel \(Int(panelFrame.width))x\(Int(panelFrame.height))@\(Int(panelFrame.x)),\(Int(panelFrame.y)) "
+                + "screen \(Int(screenFrame.width))x\(Int(screenFrame.height))@\(Int(screenFrame.x)),\(Int(screenFrame.y))"
+        }
+    }
 
     /// Both at once, for the path that already has a window.
     func play(over window: NSWindow, reduceMotion: Bool) {
@@ -131,17 +209,36 @@ final class NotchOpening {
     /// **Waits for the window to EXIST as well as to settle, under one budget.** The cover can
     /// be raised before SwiftUI has built anything, and a wait that assumed a window would give
     /// up immediately on the path that needed it most.
-    private static func settledFrame(waitingFor window: @escaping @MainActor () -> NSWindow?)
-        async -> PointRect? {
-        let steps = Int(settleBudget / 0.05)
+    /// How the wait for the window ended, and after how many 50 ms polls.
+    ///
+    /// **Because "the cover left early" has three causes and they need telling apart.** Measured
+    /// frame by frame off a screen recording, the cover lives 0.5 s against a transition that is
+    /// still running; whether that is the notification arriving early, the budget expiring, or
+    /// no window at all is not something a recording can say.
+    private(set) var settle: (steps: Int, ending: String) = (0, "not waited")
+
+    private func settledFrame() async -> PointRect? {
+        let steps = Int(Self.settleBudget / 0.05)
         var found: NSWindow?
+        var polls = 0
         for _ in 0..<steps {
+            polls += 1
             if Task.isCancelled { return nil }
-            if let candidate = window() {
+            if let candidate = target {
                 found = candidate
-                if candidate.styleMask.contains(.fullScreen) { break }
+                // **The notification, not the style mask.** `styleMask.contains(.fullScreen)`
+                // is true from the moment the transition starts, so waiting on it let the cover
+                // leave while AppKit was still moving the window to its own Space — measured at
+                // 0.4 s of windowed editor and visible Dock after the cover had gone.
+                if hasEnteredFullScreen {
+                    settle = (polls, "didEnterFullScreen")
+                    break
+                }
             }
             try? await Task.sleep(for: .milliseconds(50))
+        }
+        if settle.ending == "not waited" {
+            settle = (polls, found == nil ? "no window" : "budget expired")
         }
         guard let found else { return nil }
         return GlobalRect.topLeft(of: found)
@@ -190,8 +287,13 @@ final class NotchOpening {
         let panel = NSPanel(contentRect: screen.frame,
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
-        panel.level = .screenSaver
+        // **`isFloatingPanel` FIRST, because setting it OVERWRITES `level`.** Written the
+        // other way round, the cover asked for `.screenSaver` (1000) and ran at `.floating`
+        // (3): measured on a real opening, `coverOrder=panel level 3`. At 3 the Dock draws
+        // above it — a recording of the editor opening shows the Dock at full brightness over
+        // a screen that is otherwise covered — and so does anything else floating.
         panel.isFloatingPanel = true
+        panel.level = .screenSaver
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
@@ -209,6 +311,8 @@ final class NotchOpening {
     }
 
     private func hide() {
+        if let spaceWatcher { NotificationCenter.default.removeObserver(spaceWatcher) }
+        spaceWatcher = nil
         panel?.orderOut(nil)
         panel = nil
     }

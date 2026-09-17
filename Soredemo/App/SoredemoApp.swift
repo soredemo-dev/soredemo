@@ -229,6 +229,8 @@ struct SoredemoApp: App {
                 fullScreenAsks=\(FullScreenEntry.lastAttempt.asks)
                 fullScreenStopped=\(FullScreenEntry.lastAttempt.stopped.rawValue)
                 notchOpening=\(NotchOpening.shared.lastRun.rawValue)
+                coverOrder=\(NotchOpening.shared.order?.summary ?? "never coexisted")
+                coverSettle=\(NotchOpening.shared.settle.ending) after \(NotchOpening.shared.settle.steps) polls
 
                 """
             try? report.write(to: destination, atomically: true, encoding: .utf8)
