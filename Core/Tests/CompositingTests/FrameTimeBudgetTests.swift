@@ -6,6 +6,25 @@ import Testing
 import Timeline
 @testable import Compositing
 
+/// **Whether this run is instrumented for code coverage, and why these tests sit out of it.**
+///
+/// `scripts/coverage.sh` builds with `--enable-code-coverage`, which puts a counter on every
+/// branch of the renderer. Measured 2026-09-18: the same 1080p frame that takes a median of
+/// 2.5 ms in gate 1 crossed its 8 ms budget under that build, so the coverage gate went red on
+/// a number that says nothing about the product — while gate 1, running the same test
+/// uninstrumented, stayed green. A timing measured through instrumentation is a measurement of
+/// the instrumentation.
+///
+/// **Disabled with a reason rather than the budget being widened.** A budget loose enough for
+/// an instrumented run cannot catch a real regression in the run that matters. `.enabled(if:)`
+/// rather than a `#require`, which records a FAILURE — the first repair of this did that and
+/// turned one red into two.
+///
+/// Set by `coverage.sh` and by nothing else, so an ordinary `swift test` still asserts.
+private var isInstrumentedForCoverage: Bool {
+    ProcessInfo.processInfo.environment["SOREDEMO_COVERAGE"] == "1"
+}
+
 // MARK: - how long one frame is allowed to take
 
 /// **A frame budget exists to catch a regression, not to certify a machine.**
@@ -105,7 +124,8 @@ import Timeline
                       min: timings[0])
     }
 
-    @Test func aFrameAt1080pStaysWellInsideItsBudget() throws {
+    @Test(.enabled(if: !isInstrumentedForCoverage))
+    func aFrameAt1080pStaysWellInsideItsBudget() throws {
         guard let timing = try Self.time(width: 1920, height: 1080) else { return }
         #expect(timing.median < 8, """
             1080p median \(Self.ms(timing.median)) ms, budget 8 — measured at \
@@ -114,7 +134,8 @@ import Timeline
             """)
     }
 
-    @Test func aFrameAt4KStaysWellInsideItsBudget() throws {
+    @Test(.enabled(if: !isInstrumentedForCoverage))
+    func aFrameAt4KStaysWellInsideItsBudget() throws {
         guard let timing = try Self.time(width: 3840, height: 2160) else { return }
         #expect(timing.median < 22, """
             4K median \(Self.ms(timing.median)) ms, budget 22 — measured at 7.2 \
@@ -137,7 +158,8 @@ import Timeline
     /// interference in it, so min ÷ min is the closest thing to the two costs compared on an
     /// idle machine. The medians keep the two budgets above, where a typical frame is the
     /// question being asked.
-    @Test func fourTimesThePixelsCostsLessThanFourTimesTheTime() throws {
+    @Test(.enabled(if: !isInstrumentedForCoverage))
+    func fourTimesThePixelsCostsLessThanFourTimesTheTime() throws {
         guard let small = try Self.time(width: 1920, height: 1080),
               let large = try Self.time(width: 3840, height: 2160) else { return }
         let ratio = large.min / small.min

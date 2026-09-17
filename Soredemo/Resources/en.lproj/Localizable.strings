@@ -512,3 +512,4 @@
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)";
 
 "Click to show the controls, drag to move the bar" = "Click to show the controls, drag to move the bar";
+"The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp.";

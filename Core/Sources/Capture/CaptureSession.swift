@@ -357,6 +357,34 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         }
         public internal(set) var segmentConfigurations: [SegmentConfiguration] = []
 
+        /// **How much the captured content was scaled into a frame whose size is fixed**, and
+        /// `nil` when nothing was scaled at all.
+        ///
+        /// A window source's frame size is decided when the segment opens and cannot change
+        /// while it is open — D2-13a, and none of the five open-source recorders read for this
+        /// project does anything else either. So a window resized MID-RECORDING is not
+        /// re-encoded at the new size: ScreenCaptureKit scales it into the frame it already
+        /// has, which is `ContentScale` moving away from 1. Smaller leaves the content padded
+        /// inside a frame that is now too big for it; larger is a downscale and a softer
+        /// picture.
+        ///
+        /// **Measured all along and never said**, which is the half this closes. The counters
+        /// below have existed since the session was written and nothing outside the tests read
+        /// them, so a person whose recording came out soft had no way to learn why — the same
+        /// shape as an export that reported success over a file with frames missing.
+        public var resamplingRange: (low: Double, high: Double)? {
+            let scales = segmentConfigurations.compactMap { configuration -> (Double, Double)? in
+                guard configuration.framesResampled > 0,
+                      let low = configuration.contentScaleMin,
+                      let high = configuration.contentScaleMax else { return nil }
+                return (low, high)
+            }
+            guard let first = scales.first else { return nil }
+            return scales.dropFirst().reduce((low: first.0, high: first.1)) {
+                (min($0.low, $1.0), max($0.high, $1.1))
+            }
+        }
+
         /// What happened to the Dock on the most recent segment.
         ///
         /// Recorded because the switch can fail quietly in a way the person cannot see from the

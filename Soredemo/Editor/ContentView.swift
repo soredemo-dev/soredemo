@@ -587,6 +587,12 @@ final class RecordingCoordinator {
 
     func stop() { Task { await stopRecording() } }
 
+    /// A content scale as a percentage, for the resize message. **Rounded to whole percent**:
+    /// the difference between 98% and 98.4% is not something anybody can act on.
+    private static func percent(_ scale: Double) -> String {
+        "\(Int((scale * 100).rounded()))%"
+    }
+
     /// Whether the last few seconds could be saved right now. See `CaptureSession.ClipBuffer`.
     var clipReadiness: CaptureSession.ClipReadiness {
         session?.clipReadiness ?? .thisSystemHasNoClipBuffer
@@ -1021,6 +1027,15 @@ final class RecordingCoordinator {
                 let health = await RecordingCheck.health(of: url, session: elapsedSoFar)
                 if case .damaged(let damage) = health {
                     statusText = Self.wording(for: damage, file: url.lastPathComponent)
+                } else if let range = session.diagnostics.resamplingRange {
+                    // **A window resized mid-recording, said rather than left to be noticed.**
+                    // The frame size is fixed when a segment opens, so a resize is carried by
+                    // scaling the content into the frame it already has: smaller leaves it
+                    // padded, larger is a downscale and a softer picture. The session has
+                    // counted this since it was written and nothing ever read the counters,
+                    // so the only way to find out was to look at the result and wonder.
+                    statusText = String(localized:
+                        "The window changed size while recording, so part of it was scaled to fit the frame (\(Self.percent(range.low))–\(Self.percent(range.high))). The recording is usable; a window kept at one size stays sharp.")
                 }
             } else {
                 statusText = String(localized: "The recording finished but produced no media.")

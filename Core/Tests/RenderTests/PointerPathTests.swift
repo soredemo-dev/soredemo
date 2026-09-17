@@ -317,3 +317,65 @@ private func lerped(_ track: PointerTrack, at seconds: Double) -> NormalizedPoin
     #expect(abs(presentedPoint.x - exact.x) < 0.002,
             "with movement off the cursor was at \(presentedPoint.x), the observations say \(exact.x)")
 }
+
+// MARK: - what a slower cursor is worth at speed
+
+/// **"Slow" was not slow while the hand was moving, which is when smoothing is visible.**
+///
+/// `PointerPath` shortens the spring as the cursor speeds up — `response × (1 − (1 −
+/// adaptiveMinScale) × speed)` — and `adaptiveMinScale` was one number, 0.4, shared by every
+/// setting. So `slow`'s 0.52 s became 0.208 s the moment somebody moved their hand, which is
+/// barely longer than `standard` standing still. Choosing a slower cursor and getting the
+/// standard one back at speed is a control that does nothing where it matters.
+@Suite struct CursorMovementResponseTests {
+    /// The response the spring actually uses at a given normalised speed.
+    private func response(_ movement: PointerPath.Tuning.Movement, atSpeed speed: Double)
+    -> Double {
+        let tuning = PointerPath.Tuning.default.moving(movement)
+        let normalised = min(speed / tuning.adaptiveMaxSpeed, 1)
+        return tuning.responseSeconds * (1 - (1 - tuning.adaptiveMinScale) * normalised)
+    }
+
+    /// **The order holds at every speed, not only at rest.** Before, `slow` at full speed was
+    /// shorter than `standard` at rest — the settings crossed over, so the picker's order and
+    /// the cursor's behaviour disagreed.
+    @Test func aSlowerSettingIsSlowerAtEverySpeed() {
+        let ladder: [PointerPath.Tuning.Movement] = [.rapid, .quick, .standard, .slow]
+        for speed in [0.0, 1.0, 2.0, 4.0, 40.0] {
+            let responses = ladder.map { response($0, atSpeed: speed) }
+            for (earlier, later) in zip(responses, responses.dropFirst()) {
+                #expect(earlier < later,
+                        "at speed \(speed) the ladder is not ordered: \(responses)")
+            }
+        }
+    }
+
+    /// **Most of a slow setting survives a fast move**, which is the repair stated as a number.
+    /// At 0.4 it kept 40%; the old behaviour left `slow` at 0.208 s, under `standard`'s 0.34 s
+    /// at rest.
+    @Test func aSlowCursorStaysSlowUnderTheHand() {
+        let atSpeed = response(.slow, atSpeed: 40)
+        let standardAtRest = response(.standard, atSpeed: 0)
+        #expect(atSpeed > standardAtRest,
+                "slow at full speed is \(atSpeed), still under standard at rest")
+        #expect(atSpeed > 0.5 * response(.slow, atSpeed: 0),
+                "more than half the setting is thrown away at speed")
+    }
+
+    /// `none` is no spring at all, so nothing may shorten it further — a floor below 1 there
+    /// would be a scale applied to a millisecond.
+    @Test func noSmoothingIsNotShortened() {
+        #expect(response(.none, atSpeed: 0) == response(.none, atSpeed: 40))
+    }
+
+    /// `moving(_:)` sets BOTH, which is what it did not do: it changed the response and left the
+    /// floor at the default, so every setting was shortened by the same amount.
+    @Test func movingSetsTheFloorAsWellAsTheResponse() {
+        for movement in PointerPath.Tuning.Movement.allCases {
+            let tuning = PointerPath.Tuning.default.moving(movement)
+            #expect(tuning.responseSeconds == movement.responseSeconds)
+            #expect(tuning.adaptiveMinScale == movement.adaptiveMinScale,
+                    "\(movement) kept the default floor")
+        }
+    }
+}

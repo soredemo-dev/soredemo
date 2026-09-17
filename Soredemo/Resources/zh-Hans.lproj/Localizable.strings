@@ -498,3 +498,4 @@
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "已写入 %@，但有 %lld 个画面无法绘制，文件里没有它们。（%@）";
 
 "Click to show the controls, drag to move the bar" = "点一下显示控制项，拖拽可移动这条栏";
+"The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "录制途中窗口改变了大小，所以有一部分被缩放以塞进画面（%@–%@）。录像可以用；让窗口保持同一个大小会更清晰。";

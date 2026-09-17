@@ -105,15 +105,42 @@ public struct PointerPath: Sendable {
                 }
             }
 
+            /// **How much of the response survives at full speed**, as `Tuning.adaptiveMinScale`.
+            ///
+            /// **One number for every setting was why "Slow" did not feel slow.** The adaptive
+            /// rule shortens the spring as the cursor moves faster, and it shortened every
+            /// setting to the same 0.4 — so `slow`'s 0.52 s became 0.208 s the moment the hand
+            /// moved, which is exactly when smoothing is the thing you can see. Choosing a
+            /// slower cursor and getting the standard one back at speed is a control that does
+            /// nothing where it matters.
+            ///
+            /// Rising with the setting rather than fixed: a person who asked for rapid wants
+            /// the cursor under their hand, and a person who asked for slow wants the arc.
+            public var adaptiveMinScale: Double {
+                switch self {
+                case .none: 1
+                case .rapid: 0.30
+                case .quick: 0.35
+                case .standard: 0.40
+                case .slow: 0.75
+                }
+            }
+
             /// The angular frequency it works out to, for comparing with a reference that
             /// publishes stiffness and mass instead.
             public var angularFrequency: Double { 2 * Double.pi / responseSeconds }
         }
 
-        /// This tuning at `movement`'s response, everything else unchanged.
+        /// This tuning at `movement`'s response AND its adaptive floor, everything else
+        /// unchanged.
+        ///
+        /// **Both, because setting only the response left the floor at the default** and the
+        /// floor is what decides how much of the response survives a fast move. See
+        /// `Movement.adaptiveMinScale`.
         public func moving(_ movement: Movement) -> Tuning {
             var updated = self
             updated.responseSeconds = movement.responseSeconds
+            updated.adaptiveMinScale = movement.adaptiveMinScale
             return updated
         }
 

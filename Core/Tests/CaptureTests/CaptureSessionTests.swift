@@ -204,3 +204,60 @@ private func revision() -> GeometryRevision {
     #expect(recorder.received[0].name == "master-00.mov")
     #expect(recorder.received[0].bytes == 3)
 }
+
+
+// MARK: - a window that changed size while it was being recorded
+
+/// **Counted since the session was written, and never said until 2026-09-18.** A window
+/// source's frame size is fixed when its segment opens, so a resize mid-recording is carried
+/// by scaling the content into the frame it already has. The counters below have existed all
+/// along; nothing outside these tests read them, so somebody whose recording came out soft had
+/// no way to find out why.
+@Suite struct ResamplingRangeTests {
+    private func configuration(resampled: Int, low: Double?, high: Double?)
+    -> CaptureSession.Diagnostics.SegmentConfiguration {
+        var configuration = CaptureSession.Diagnostics.SegmentConfiguration(
+            bufferWidth: 1920, bufferHeight: 1080,
+            destination: PixelRect(x: 0, y: 0, width: 1920, height: 1080), scale: 1)
+        configuration.framesResampled = resampled
+        configuration.contentScaleMin = low
+        configuration.contentScaleMax = high
+        return configuration
+    }
+
+    /// **Nothing scaled is `nil`, not a range of 1 to 1.** A recording that never resized must
+    /// say nothing at all — a message on every take is a message people stop reading, which is
+    /// the rule the recording-health wording already follows.
+    @Test func aRecordingThatNeverResizedSaysNothing() {
+        var diagnostics = CaptureSession.Diagnostics()
+        diagnostics.segmentConfigurations = [configuration(resampled: 0, low: 1, high: 1)]
+        #expect(diagnostics.resamplingRange == nil)
+    }
+
+    /// The range spans every segment, because a person who resized in the second one resized.
+    @Test func theRangeSpansEverySegmentThatResampled() {
+        var diagnostics = CaptureSession.Diagnostics()
+        diagnostics.segmentConfigurations = [
+            configuration(resampled: 0, low: 1, high: 1),
+            configuration(resampled: 40, low: 0.62, high: 0.98),
+            configuration(resampled: 7, low: 0.55, high: 1.10),
+        ]
+        let range = diagnostics.resamplingRange
+        #expect(range?.low == 0.55)
+        #expect(range?.high == 1.10)
+    }
+
+    /// **A segment with a count but no scales is not a range.** The two are written at
+    /// different moments and a half-filled configuration must not become a message with a
+    /// missing number in it.
+    @Test func aCountWithNoScalesIsNotARange() {
+        var diagnostics = CaptureSession.Diagnostics()
+        diagnostics.segmentConfigurations = [configuration(resampled: 12, low: nil, high: nil)]
+        #expect(diagnostics.resamplingRange == nil)
+    }
+
+    /// Nothing recorded at all is nothing to say.
+    @Test func noSegmentsIsNoRange() {
+        #expect(CaptureSession.Diagnostics().resamplingRange == nil)
+    }
+}

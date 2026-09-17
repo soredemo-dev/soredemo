@@ -496,3 +496,4 @@
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ a été écrit, mais %lld image(s) n’ont pas pu être dessinées et en sont absentes. (%@)";
 
 "Click to show the controls, drag to move the bar" = "Cliquez pour afficher les commandes, faites glisser pour déplacer la barre";
+"The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "La fenêtre a changé de taille pendant l’enregistrement ; une partie a donc été mise à l’échelle pour tenir dans l’image (%@–%@). L’enregistrement est utilisable ; une fenêtre de taille constante reste nette.";

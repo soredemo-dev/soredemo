@@ -496,3 +496,4 @@
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "Файл %@ записан, но %lld кадр(ов) не удалось отрисовать, и они в нём отсутствуют. (%@)";
 
 "Click to show the controls, drag to move the bar" = "Нажмите, чтобы показать элементы управления; перетащите, чтобы переместить панель";
+"The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "Во время записи размер окна изменился, поэтому часть изображения была отмасштабирована под кадр (%@–%@). Запись пригодна; окно неизменного размера остаётся чётким.";

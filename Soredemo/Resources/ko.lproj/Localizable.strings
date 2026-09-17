@@ -496,3 +496,4 @@
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@을(를) 저장했지만 %lld개의 프레임을 그리지 못해 파일에 빠져 있습니다. (%@)";
 
 "Click to show the controls, drag to move the bar" = "클릭하면 컨트롤이 나타나고, 드래그하면 바를 옮길 수 있습니다";
+"The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "녹화 중에 창 크기가 바뀌어 일부가 프레임에 맞게 조정되었습니다(%@–%@). 녹화는 사용할 수 있지만, 크기를 그대로 두면 더 선명합니다.";

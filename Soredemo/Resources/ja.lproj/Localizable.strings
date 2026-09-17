@@ -498,3 +498,4 @@
 "%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)" = "%@ を書き出しましたが、%lld フレームを描画できず、ファイルに含まれていません。(%@)";
 
 "Click to show the controls, drag to move the bar" = "クリックでコントロールを表示、ドラッグでバーを移動";
+"The window changed size while recording, so part of it was scaled to fit the frame (%@–%@). The recording is usable; a window kept at one size stays sharp." = "録画中にウインドウのサイズが変わったため、一部がフレームに合わせて拡大縮小されました（%@〜%@）。録画は使えますが、サイズを変えないほうが鮮明です。";

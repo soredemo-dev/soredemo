@@ -30,7 +30,14 @@ SCRATCH=${COVERAGE_SCRATCH:-Core/.build-coverage}
 # cannot show its evidence sends somebody back to re-run it; the probe and the full-screen
 # check both had to learn this separately.
 COVERAGE_LOG=$(mktemp -t soredemo-coverage)
-if ! (cd Core && swift test --no-parallel --enable-code-coverage \
+# **`SOREDEMO_COVERAGE=1` tells the timing tests not to assert.** Instrumentation puts a
+# counter on every branch, so a frame-time budget measured here is a number about the
+# instrumented build and not about the product: measured 2026-09-18, a 1080p frame that takes
+# 2.5 ms in gate 1 crossed its 8 ms budget under this one, and this gate went red while gate 1
+# ran the same test and stayed green. They skip with a named reason rather than the budget
+# being widened — a budget loose enough for an instrumented run cannot catch a real regression
+# in the run that matters.
+if ! (cd Core && SOREDEMO_COVERAGE=1 swift test --no-parallel --enable-code-coverage \
         --scratch-path "../$SCRATCH" > "$COVERAGE_LOG" 2>&1); then
   echo "COVERAGE: the test run FAILED, so there is no coverage to report." >&2
   echo "This is usually gate 1 failing too — fix that first, then come back. The run's own" >&2
