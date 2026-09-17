@@ -260,6 +260,34 @@ public struct CameraOverlayStyle: Hashable, Codable, Sendable {
     /// of each axis would be a wider gap at the sides of a 16:9 frame than at the top.
     public static let edgeMarginFraction = 0.025
 
+    /// **Where the camera's centre can actually go**, as fractions, given the same inputs
+    /// `rect(inOutputWidth:...)` is given.
+    ///
+    /// **Here, beside the clamp, because two copies of one limit disagree.** `rect` keeps the
+    /// camera `edgeMarginFraction` from every edge; the editor's drag handle clamped its own
+    /// fraction to 0...1 and had no idea where that margin was. So the handle kept accepting
+    /// movement the camera could not make, and a drag that had already hit the limit looked
+    /// like a control that had stopped responding — reported as "it will not drag any further
+    /// before it reaches the edge".
+    ///
+    /// **A single point when the camera cannot fit between the margins**, which is the same
+    /// case `rect` answers by centring: there is one place it can be, so that is the range.
+    public func placementRange(inOutputWidth outputWidth: Int, outputHeight: Int,
+                               sourceAspect: Double, contentZoom: Double = 1)
+    -> (x: ClosedRange<Double>, y: ClosedRange<Double>) {
+        let box = rect(inOutputWidth: outputWidth, outputHeight: outputHeight,
+                       sourceAspect: sourceAspect, contentZoom: contentZoom)
+        let width = Double(max(outputWidth, 1)), height = Double(max(outputHeight, 1))
+        let margin = width * Self.edgeMarginFraction
+        func span(_ extent: Double, _ size: Double) -> ClosedRange<Double> {
+            let low = (margin + size / 2) / extent
+            let high = (extent - margin - size / 2) / extent
+            guard low <= high else { return 0.5...0.5 }
+            return low...high
+        }
+        return (span(width, box.width), span(height, box.height))
+    }
+
     /// The camera's rectangle in output pixels, given the source's aspect.
     ///
     /// **A circle is square before it is masked** — fitting a 4:3 camera into a circle by its own

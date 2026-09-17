@@ -100,3 +100,88 @@ struct CameraOverlayStyleTests {
         }
     }
 }
+
+// MARK: - where the camera can be put
+
+/// **The clamp and the handle have to agree, and they did not.** `rect` keeps the camera
+/// `edgeMarginFraction` from every edge; the editor's drag handle clamped its own fraction to
+/// 0...1 and had no idea where that margin was, so it accepted travel the camera could not make
+/// and the last part of a drag toward an edge did nothing — reported as the camera refusing to
+/// move before it had reached the edge. `placementRange` is the one answer both now use.
+@Suite struct CameraPlacementRangeTests {
+    private let style = CameraOverlayStyle.default
+    private let aspect = 16.0 / 9
+
+    /// A centre at either end of the range puts the camera exactly on the margin — asserted
+    /// against the function that does the clamping rather than against a number, so the two
+    /// cannot drift apart.
+    @Test func theEndsOfTheRangeAreExactlyTheMargin() {
+        let width = 1920, height = 1080
+        let reach = style.placementRange(inOutputWidth: width, outputHeight: height,
+                                         sourceAspect: aspect)
+        let margin = Double(width) * CameraOverlayStyle.edgeMarginFraction
+        let atLeft = style.changing(x: reach.x.lowerBound, y: 0.5)
+            .rect(inOutputWidth: width, outputHeight: height, sourceAspect: aspect)
+        #expect(abs(atLeft.x - margin) < 0.001,
+                "a centre at \(reach.x.lowerBound) put the camera at \(atLeft.x), not \(margin)")
+        let atRight = style.changing(x: reach.x.upperBound, y: 0.5)
+            .rect(inOutputWidth: width, outputHeight: height, sourceAspect: aspect)
+        #expect(abs((Double(width) - atRight.x - atRight.width) - margin) < 0.001,
+                "a centre at the top of the range did not land on the right margin")
+    }
+
+    /// **Nothing outside the range moves the camera**, which is what makes the handle's clamp
+    /// honest: travel it refuses is travel the camera could not have made.
+    @Test func pushingPastTheRangeChangesNothing() {
+        let width = 1920, height = 1080
+        let reach = style.placementRange(inOutputWidth: width, outputHeight: height,
+                                         sourceAspect: aspect)
+        let atEdge = style.changing(x: reach.x.lowerBound, y: 0.5)
+            .rect(inOutputWidth: width, outputHeight: height, sourceAspect: aspect)
+        let pastEdge = style.changing(x: 0, y: 0.5)
+            .rect(inOutputWidth: width, outputHeight: height, sourceAspect: aspect)
+        #expect(abs(atEdge.x - pastEdge.x) < 0.001)
+    }
+
+    /// The range is inside the frame on every side, and never inverted — on a portrait output
+    /// and a square one as well as the usual landscape.
+    @Test func theRangeIsInsideTheFrameAndOrdered() {
+        for (width, height) in [(1920, 1080), (3492, 1964), (1080, 1920), (640, 640)] {
+            let reach = style.placementRange(inOutputWidth: width, outputHeight: height,
+                                             sourceAspect: aspect)
+            #expect(reach.x.lowerBound <= reach.x.upperBound, "\(width)x\(height)")
+            #expect(reach.y.lowerBound <= reach.y.upperBound, "\(width)x\(height)")
+            #expect(reach.x.lowerBound >= 0 && reach.x.upperBound <= 1, "\(width)x\(height)")
+            #expect(reach.y.lowerBound >= 0 && reach.y.upperBound <= 1, "\(width)x\(height)")
+        }
+    }
+
+    /// **A camera that cannot fit between the margins has ONE place it can be**, and the range
+    /// says so rather than inverting — `rect` answers that case by centring, and a range that
+    /// disagreed would let the handle wander while the picture stood still.
+    ///
+    /// **On the Y axis, because the X one cannot happen.** `init` clamps `widthFraction` to
+    /// 0.6, and 0.6 plus two 0.025 margins is 0.65 of the width — there is always room across.
+    /// A very short output is a different matter: the camera's height comes from the source's
+    /// aspect and nothing clamps it against the frame. Written after asserting the X case and
+    /// watching it fail, which is how the clamp in `init` came into it.
+    @Test func aCameraThatCannotFitHasASinglePlace() {
+        // The widest a camera is allowed to be, on a very short frame: 0.6 of 400 is 240
+        // across, and nothing clamps the height that comes from it against a 100-point frame.
+        let reach = style.changing(widthFraction: 0.6)
+            .placementRange(inOutputWidth: 400, outputHeight: 100, sourceAspect: aspect)
+        #expect(reach.y == 0.5...0.5)
+        // And across, where there is always room, it is a real range.
+        #expect(reach.x.lowerBound < reach.x.upperBound)
+    }
+
+    /// The X axis cannot degenerate, and this says why in a form that would notice if the clamp
+    /// in `init` were widened — an assertion whose reachability is stated rather than implied.
+    @Test func thereIsAlwaysRoomAcrossTheFrame() {
+        let widest = style.changing(widthFraction: 10)
+        #expect(widest.widthFraction <= 0.6, "the width clamp moved; the X range can now degenerate")
+        let reach = widest.placementRange(inOutputWidth: 400, outputHeight: 400,
+                                          sourceAspect: aspect)
+        #expect(reach.x.lowerBound < reach.x.upperBound)
+    }
+}

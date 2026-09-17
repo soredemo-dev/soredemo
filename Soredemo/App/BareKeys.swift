@@ -37,9 +37,12 @@ struct BareKeys {
 
     /// What the editor does with a key. `RawRepresentable` so a test can assert that no two
     /// share a spelling.
-    enum Action: String, Equatable, CaseIterable {
+    enum Action: String, Equatable, CaseIterable, Hashable {
         case nudgeLeft, nudgeRight, coarseLeft, coarseRight
         case split, deleteClip, markIn, markOut
+        /// Play or pause. **Not the timeline's** — the player lives with the transport bar, which
+        /// is why a handler says which actions it answers.
+        case togglePlay
     }
 
     /// The keys, as Carbon's layout-independent `kVK_*` POSITIONS.
@@ -68,6 +71,12 @@ struct BareKeys {
         case s = 1
         case i = 34
         case o = 31
+        /// **Space, and it is the key this whole mechanism was most needed for.** It was a
+        /// `.keyboardShortcut(.space)` on the play button with the typing guard inside the
+        /// button's ACTION — so a caption field with the caret made the button dead to the
+        /// MOUSE as well, and pressing play after editing a line did nothing. Guarding an
+        /// action cannot distinguish a key from a click; declining a key can.
+        case space = 49
     }
 
     /// What to do with a key, or `nil` for "this is not ours".
@@ -89,6 +98,7 @@ struct BareKeys {
         case .s: return modifiers.shift ? nil : .split
         case .i: return modifiers.shift ? nil : .markIn
         case .o: return modifiers.shift ? nil : .markOut
+        case .space: return modifiers.shift ? nil : .togglePlay
         }
     }
 }

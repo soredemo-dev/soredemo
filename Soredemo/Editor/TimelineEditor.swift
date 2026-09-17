@@ -803,7 +803,10 @@ struct TimelineEditor: View {
             .overlay(alignment: .topLeading) { playheadLine(duration: duration) }
             // The editor's unmodified keys. Asked at the moment the key arrives, so a caption
             // field that has the caret keeps every one of them — see `BareKeys`.
-            .bareKeys { perform($0, duration: duration) }
+            .bareKeys([.nudgeLeft, .nudgeRight, .coarseLeft, .coarseRight,
+                       .split, .deleteClip, .markIn, .markOut]) {
+                perform($0, duration: duration)
+            }
         } else {
             Text("Loading the recording…").foregroundStyle(.secondary).font(Type.detail)
         }
@@ -1448,6 +1451,9 @@ struct TimelineEditor: View {
             onChange()
         case .markIn: model.markIn()
         case .markOut: model.markOut()
+        // Not this view's: the player is the transport bar's. Listed so a case added to
+        // `BareKeys.Action` cannot be forgotten here — the handler above declines it anyway.
+        case .togglePlay: break
         }
     }
 

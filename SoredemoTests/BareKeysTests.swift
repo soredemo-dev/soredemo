@@ -43,6 +43,18 @@ import Testing
         #expect(editing(BareKeys.Code.rightArrow.rawValue, .init(shift: true)) == .coarseRight)
     }
 
+    /// **Space, which is the key this mechanism was most needed for.** It was a
+    /// `.keyboardShortcut(.space)` on the play button with the typing guard inside the button's
+    /// ACTION — so a caption field with the caret made the button dead to the MOUSE as well,
+    /// and pressing play after editing a line did nothing. Guarding an action cannot tell a key
+    /// from a click; declining a key can.
+    @Test @MainActor func spaceTogglesPlaybackAndIsRefusedWhileTyping() {
+        #expect(editing(BareKeys.Code.space.rawValue) == .togglePlay)
+        #expect(typing(BareKeys.Code.space.rawValue) == nil,
+                "space was taken from a caption being typed into")
+        #expect(editing(BareKeys.Code.space.rawValue, .init(shift: true)) == nil)
+    }
+
     @Test @MainActor func theSessionLettersAreTaken() {
         #expect(editing(BareKeys.Code.s.rawValue) == .split)
         #expect(editing(BareKeys.Code.i.rawValue) == .markIn)
@@ -84,10 +96,10 @@ import Testing
         }
     }
 
-    /// A key the editor does not bind is not the editor's, typing or not. `0` is A, `49` is
-    /// space, `126` and `125` are the up and down arrows — all positions this leaves alone.
+    /// A key the editor does not bind is not the editor's, typing or not. `0` is A, `126` and
+    /// `125` the up and down arrows, `36` Return, `53` Escape — all positions this leaves alone.
     @Test @MainActor func anUnboundKeyIsLeftAlone() {
-        for code in [0, 49, 126, 125, 36, 53] {
+        for code in [0, 126, 125, 36, 53] {
             #expect(editing(code) == nil, "key code \(code) was claimed")
             #expect(typing(code) == nil)
         }

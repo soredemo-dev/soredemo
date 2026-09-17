@@ -21,6 +21,11 @@ import SwiftUI
 final class BareKeyView: NSView {
     /// What to run. Set by the representable; `nil` until then, which answers no key.
     var perform: ((BareKeys.Action) -> Void)?
+    /// **Which actions this one answers.** There is more than one holder: the timeline owns the
+    /// nudges and the cuts, and the transport bar owns play — because the player is there and
+    /// not in the timeline. A handler that claimed a key it could not act on would swallow it
+    /// from the handler that could.
+    var answers: Set<BareKeys.Action> = []
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = BareKeys.Modifiers(
@@ -42,6 +47,7 @@ final class BareKeyView: NSView {
             modifiers: modifiers,
             isTyping: KeyboardFocus.aTextFieldIsEditing)
         else { return false }
+        guard answers.contains(action) else { return false }
         perform?(action)
         return true
     }
@@ -49,15 +55,18 @@ final class BareKeyView: NSView {
 
 /// Puts a `BareKeyView` in the editor's view hierarchy for as long as the timeline is on screen.
 struct BareKeyHandling: NSViewRepresentable {
+    let answers: Set<BareKeys.Action>
     let perform: (BareKeys.Action) -> Void
 
     func makeNSView(context: Context) -> BareKeyView {
         let view = BareKeyView()
+        view.answers = answers
         view.perform = perform
         return view
     }
 
     func updateNSView(_ view: BareKeyView, context: Context) {
+        view.answers = answers
         // Re-assigned on every update, because the closure captures the timeline's current
         // duration and model: one captured at `makeNSView` would answer keys against the
         // recording that was open when the editor first appeared.
@@ -70,9 +79,10 @@ extension View {
     ///
     /// Zero-sized and hidden from accessibility: it is a place in the responder chain, not a
     /// control. Placed in the background so it takes no space and no hit test.
-    func bareKeys(_ perform: @escaping (BareKeys.Action) -> Void) -> some View {
+    func bareKeys(_ answers: Set<BareKeys.Action>,
+                  perform: @escaping (BareKeys.Action) -> Void) -> some View {
         background {
-            BareKeyHandling(perform: perform)
+            BareKeyHandling(answers: answers, perform: perform)
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
         }

@@ -15,6 +15,10 @@ import Timeline
 /// which is a formula, not a secret. Reading `videoBounds` off the player view would need the
 /// representable to publish it and would be the same number arrived at less directly.
 struct PreviewOverlay: View {
+    /// Where the camera was when its drag began, as the style's own fractions. **`nil` between
+    /// drags, which is what makes the next one take its own origin** — see the drag itself for
+    /// what reading the origin back out of the moving thing cost.
+    @State private var cameraDragOrigin: CameraPlacement?
     let outputWidth: Int
     let outputHeight: Int
     let texts: TextOverlaysModel
@@ -206,7 +210,21 @@ private struct HandlePuck: View {
     }
 }
 
+/// A camera position as the style keeps it: fractions of the output, y measured UP.
+struct CameraPlacement: Equatable {
+    var x: Double
+    var y: Double
+}
+
 extension PreviewOverlay {
+    /// The style's authored position. **Not where the camera is drawn**: `rect` clamps that to
+    /// the edge margin, and a drag that started from the clamped value would lose whatever the
+    /// clamp had taken off.
+    func placement(of style: CameraOverlayStyle) -> CameraPlacement {
+        let fractions = style.position?.fractions ?? (x: style.x, y: style.y)
+        return CameraPlacement(x: fractions.x, y: fractions.y)
+    }
+
     /// The camera's own rectangle on the preview, draggable, with a corner to resize by.
     ///
     /// **Placed through `CameraOverlayStyle.rect`, not by repeating its arithmetic.** That
@@ -236,17 +254,29 @@ extension PreviewOverlay {
                     DragGesture()
                         .onChanged { value in
                             let width = max(video.width, 1), height = max(video.height, 1)
-                            // `translation` is cumulative, so it is applied to the position the
-                            // drag STARTED from rather than accumulated — the mistake that made
-                            // an earlier drag in this app accelerate away from the pointer.
-                            let startX = video.x + box.x * scale + box.width * scale / 2
-                            let startY = video.y
-                                + (Double(outputHeight) - box.y - box.height / 2) * scale
-                            let x = (startX + Double(value.translation.width) - video.x) / width
-                            let y = 1 - (startY + Double(value.translation.height) - video.y)
-                                / height
+                            // **The position the drag started from, remembered — not read back
+                            // out of the thing the drag is moving.** `translation` is cumulative,
+                            // and this used to add it to a `startX` derived from `box`, which is
+                            // derived from the style this very closure rewrites on every change.
+                            // The base advanced with the camera, so the camera moved at roughly
+                            // twice the pointer and slammed into the edge margin, where it stuck:
+                            // reported as "it will not drag any further before it reaches the
+                            // edge". The comment above it already named this mistake, having been
+                            // written about a different drag. Third time in this app.
+                            let origin = cameraDragOrigin ?? placement(of: style.wrappedValue)
+                            cameraDragOrigin = origin
+                            let x = origin.x + Double(value.translation.width) / width
+                            let y = origin.y - Double(value.translation.height) / height
+                            // **Clamped to where the camera can actually GO**, which the style
+                            // itself answers — the same function `rect` clamps with. Clamping to
+                            // 0...1 here let the handle accept travel the camera could not make,
+                            // so the last part of every drag toward an edge did nothing.
+                            let reach = style.wrappedValue.placementRange(
+                                inOutputWidth: outputWidth, outputHeight: outputHeight,
+                                sourceAspect: 16.0 / 9)
                             style.wrappedValue = style.wrappedValue.changing(
-                                x: min(max(x, 0), 1), y: min(max(y, 0), 1))
+                                x: min(max(x, reach.x.lowerBound), reach.x.upperBound),
+                                y: min(max(y, reach.y.lowerBound), reach.y.upperBound))
                             // **While dragging, not when the drag ends.** The style reaches
                             // `StageCompositor` on every change already; what a PAUSED player
                             // needs is a reason to redraw the frame it is showing, and that is
@@ -255,7 +285,10 @@ extension PreviewOverlay {
                             // underneath stayed where it was until you let go.
                             onChange()
                         }
-                        .onEnded { _ in onChange() }
+                        .onEnded { _ in
+                            cameraDragOrigin = nil
+                            onChange()
+                        }
                 )
 
             // The corner that resizes. Bottom-trailing because that is where every resize grip

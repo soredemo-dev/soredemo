@@ -46,36 +46,41 @@ struct TransportBar: View {
     /// flickers, and this is text rather than a bar — nothing here needs frame accuracy.
     private static let tick: Double = 0.1
 
+    /// Play, pause, or start again from the beginning.
+    ///
+    /// **No typing guard in here, and taking it out was the fix.** This was the button's action
+    /// and it began `guard !KeyboardFocus.aTextFieldIsEditing else { return }` — right about the
+    /// SPACE KEY and wrong about the button, because the action is shared with the mouse. A
+    /// caption field holding the caret made the button dead to a CLICK as well, so pressing play
+    /// after correcting a line did nothing: "after editing I cannot play it again". Space is
+    /// declined at the key now (`BareKeys`), and a click is always a click.
+    private func togglePlayback() {
+        if isPlaying {
+            player.pause()
+        } else if atEnd {
+            // **Play at the end restarts, and it used to do nothing at all.** An `AVPlayer`
+            // sitting at its item's duration ignores a rate change — there is nowhere left to
+            // advance to — so the button was dead for every person who watched their recording
+            // through and pressed play again. Seek first, then start, so the rate is not
+            // applied to a player that is still seeking.
+            //
+            // The `async` seek rather than the completion-handler one: the handler is
+            // `@Sendable`, so reading `rate` — this view's own state — inside it is a
+            // main-actor value crossing into a nonisolated closure.
+            Task { @MainActor in
+                await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+                player.rate = Float(rate)
+            }
+        } else {
+            // `rate =` rather than `play()`: `play()` always resumes at 1×, so a chosen speed
+            // would be silently discarded on every pause.
+            player.rate = Float(rate)
+        }
+    }
+
     var body: some View {
         HStack(spacing: Space.regular) {
-            Button {
-                // **Space is the one bare key a person types most.** Unguarded, typing a space
-                // into a caption paused the preview instead of putting a space in the sentence.
-                // See `KeyboardFocus`.
-                guard !KeyboardFocus.aTextFieldIsEditing else { return }
-                if isPlaying {
-                    player.pause()
-                } else if atEnd {
-                    // **Play at the end restarts, and it used to do nothing at all.** An
-                    // `AVPlayer` sitting at its item's duration ignores a rate change — there
-                    // is nowhere left to advance to — so the button was dead for every person
-                    // who watched their recording through and pressed play again. Seek first,
-                    // then start, so the rate is not applied to a player that is still seeking.
-                    //
-                    // The `async` seek rather than the completion-handler one: the handler is
-                    // `@Sendable`, so reading `rate` (this view's own state) inside it is a
-                    // main-actor value crossing into a nonisolated closure. `StageWindow` seeks
-                    // the same way for the same reason.
-                    Task { @MainActor in
-                        await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
-                        player.rate = Float(rate)
-                    }
-                } else {
-                    // `rate =` rather than `play()`: `play()` always resumes at 1×, so a chosen
-                    // speed would be silently discarded on every pause.
-                    player.rate = Float(rate)
-                }
-            } label: {
+            Button { togglePlayback() } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Theme.Ink.primary)
@@ -87,7 +92,10 @@ struct TransportBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.space, modifiers: [])
+            // **The space key is not a `.keyboardShortcut` any more.** Measured: an unmodified
+            // shortcut is taken from a text field that has the caret, so binding it here meant
+            // a space typed into a caption never reached the caption. It is answered by
+            // `BareKeys`, which declines while somebody is typing and lets the key through.
             .tooltip(isPlaying ? "Pause (Space)" : "Play (Space)")
 
             Button { player.seek(to: .zero) } label: {
@@ -144,6 +152,11 @@ struct TransportBar: View {
         .padding(.horizontal, Space.regular)
         .frame(height: 34)
         .background(Theme.Surface.raised)
+        // **Space, answered here because the player is here.** The timeline holds the other
+        // unmodified keys and declines this one; each handler says what it answers so neither
+        // swallows a key the other has to act on. Declined while a caption field has the caret,
+        // which is what lets a space reach the caption.
+        .bareKeys([.togglePlay]) { _ in togglePlayback() }
         .onReceive(Timer.publish(every: Self.tick, on: .main, in: .common).autoconnect()) { _ in
             // Polled rather than observed: `addPeriodicTimeObserver` needs a token held for the
             // player's lifetime, and this view is rebuilt whenever the edit changes the asset —
