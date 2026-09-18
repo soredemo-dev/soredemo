@@ -115,47 +115,6 @@ struct SoredemoApp: App {
             }
             return
         }
-        // **`--show-notch-transition`: the opening animation on demand, over nothing.**
-        //
-        // The same shape `--show-countdown` has and for the same reason: the durations in
-        // `NotchTransition` are a starting point and the only instrument that can settle them
-        // is somebody watching at 1x. `--notch-lead-in=N` aims a capture at it;
-        // `--notch-slowdown=N` stretches wall-clock time so the SHAPE can be photographed, and
-        // `--notch-hold=N` freezes it at second N of the animation and stays there, which is
-        // what chasing it with `screencapture` could not do. Neither settles the speed. All are
-        // `--name=value` because a bare number after a flag
-        // is a document AppKit tries to open — measured, with the dialog over the animation
-        // being photographed. Why each of those exists:
-        // docs/design/the-editor-comes-out-of-the-notch.md.
-        if arguments.contains("--show-notch-transition") {
-            func option(_ name: String) -> Double? {
-                arguments.first { $0.hasPrefix("--\(name)=") }
-                    .flatMap { Double($0.dropFirst(name.count + 3)) }
-            }
-            let leadIn = option("notch-lead-in") ?? 0
-            let slowdown = option("notch-slowdown") ?? 1
-            let hold = option("notch-hold")
-            Task { @MainActor in
-                if leadIn > 0 { try? await Task.sleep(for: .seconds(leadIn)) }
-                guard let screen = NSScreen.screens.first(where: {
-                    $0.frame.contains(NSEvent.mouseLocation)
-                }) ?? NSScreen.main else { exit(4) }
-                let metrics = NotchOpening.metrics(of: screen)
-                let window = PointRect(x: metrics.frame.x,
-                                       y: metrics.frame.y + metrics.menubarHeight,
-                                       width: metrics.frame.width,
-                                       height: metrics.frame.height - metrics.menubarHeight)
-                let geometry = NotchGeometry.opening(into: window, on: metrics)
-                print("notch=\(metrics.hasNotch) start=\(geometry.start) end=\(geometry.end)")
-                print("gap=\(geometry.gap) flush=\(geometry.startsFlush) travel=\(geometry.travelShare)")
-                await NotchOpening.shared.playAlone(
-                    geometry: geometry, screen: screen,
-                    reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-                    slowdown: slowdown, hold: hold)
-                exit(0)
-            }
-            return
-        }
 
         // **`--show-recording-bar <seconds>`: the bar on its own, with no recording.**
         //
@@ -228,9 +187,6 @@ struct SoredemoApp: App {
                 safeAreaTop=\(screen?.safeAreaInsets.top ?? -1)
                 fullScreenAsks=\(FullScreenEntry.lastAttempt.asks)
                 fullScreenStopped=\(FullScreenEntry.lastAttempt.stopped.rawValue)
-                notchOpening=\(NotchOpening.shared.lastRun.rawValue)
-                coverOrder=\(NotchOpening.shared.order?.summary ?? "never coexisted")
-                coverSettle=\(NotchOpening.shared.settle.ending) after \(NotchOpening.shared.settle.steps) polls
 
                 """
             try? report.write(to: destination, atomically: true, encoding: .utf8)

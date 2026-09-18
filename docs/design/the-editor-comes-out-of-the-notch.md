@@ -1,16 +1,44 @@
 # The editor comes out of the notch
 
-*Built 2026-09-16. The measured numbers in it are ONE machine's; the part that had to work on
-every Mac is a value type with a thirteen-geometry test matrix behind it, and the part that
-still needs somebody to look at it is named as such.*
-
-**What runs now.** `NotchOpening` is the panel and the presenter, `NotchTransition` the phase
-timings, `NotchGeometry.rect(atProgress:)` the shape at any moment. It is wired into
-`WindowConfigurator.enterFullScreenOrGrow`, before the toggle. `--show-notch-transition` plays
-it on demand — `--notch-lead-in=N` to aim a capture and `--notch-slowdown=N` to photograph the
-shape — and `--report-window-state` now carries `notchOpening=`, so the full-screen gate is
-evidence that the opening ran as well as evidence that the window got there. A transition that
-silently never played would otherwise look exactly like one that played perfectly.
+> **Withdrawn 2026-09-18. The code is deleted; this document is kept because the measurement
+> that killed it is the useful part, and because the shape of the mistake is one this project
+> keeps making.**
+>
+> **What was wrong was not the animation. It was a claim written as a fact.** The design rested
+> on this sentence:
+>
+> > A full-screen panel … is what hides AppKit's own full-screen zoom — the desktop sliding to
+> > a new Space is the one part of this that cannot be animated by us and **must simply not be
+> > seen**.
+>
+> It was never measured. A screen recording of a real opening — 20 fps, the Dock's brightness as
+> the indicator of whether the cover was working — says it was seen:
+>
+> | | covered | exposed |
+> |---|---|---|
+> | as built | 0.45 s | **0.4 s**, Dock at full brightness, a windowed editor with its title bar |
+> | after two real fixes to the cover | three runs | two flickers of 0.1 s |
+>
+> The two fixes were real and are worth keeping in mind. `panel.isFloatingPanel = true`
+> **overwrites** `panel.level`, and those two lines were in that order — so a cover meant for
+> `.screenSaver` ran at `.floating` and the Dock drew over it for the whole of this design's
+> life, invisible to eight gates and four rounds of screenshots. And
+> `styleMask.contains(.fullScreen)` is true from the moment a transition BEGINS, so the cover
+> left while macOS was still working. Neither fix removed the flickers, because the Space is
+> composited by the window server and an app cannot draw over it.
+>
+> **So there were two transitions telling two stories** — "the editor comes out of the notch"
+> and "a window moved into a new Space" — and that is not a timing problem. Filling the screen
+> without a Space was built and measured (one continuous cover, no hole) and then rejected for
+> what it cost: no Mission Control tile, no ⌃→, and the green button losing its meaning. The
+> editor keeps native full screen and AppKit's transition is the only one.
+>
+> **What is worth taking from this if anyone comes back to it:** the geometry was right and it
+> was tested on thirteen Mac shapes; `NotchGeometry`, `ScreenMetrics` and their matrix are in
+> the history at `git log -- Soredemo/App/NotchGeometry.swift`. The one idea taken from another
+> app — a notch assistant's outward-curling top corners — is the detail that separates "the notch got
+> bigger" from "a panel is hanging under the notch", and it is worth remembering wherever a
+> notch surface is drawn again.
 
 ## What already exists, and what does not
 

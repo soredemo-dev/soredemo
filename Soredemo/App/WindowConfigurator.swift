@@ -167,18 +167,19 @@ struct WindowConfigurator: NSViewRepresentable {
     let chosen = window.frame
     restoreFrameOnExit(chosen, of: window)
     window.setFrame(visible, display: false, animate: false)
-    // **The overlay goes up BEFORE the toggle, and that ordering is the whole trick.** What it
-    // is covering is AppKit's own full-screen transition — the desktop sliding to a new Space —
-    // which is not ours to animate and is entirely visible. A panel that appeared after the
-    // toggle would be covering the end of something a person had already watched.
+    // **macOS's own full-screen transition is the only one, and that was decided on evidence.**
+    // This app used to raise a cover here and grow a shape out of the notch behind it. A screen
+    // recording of a real opening, stepped at 20 fps with the Dock's brightness as the
+    // indicator, showed the cover holding 0.45 s and then a 0.4 s hole: the Dock at full
+    // brightness and a windowed editor, title bar and all, in the middle of AppKit's
+    // transition. The Space a native full-screen window moves into is composited by the window
+    // server, and nothing an app draws covers it — fixing the cover's level and the signal it
+    // waited on reduced the hole to two flickers of 0.1 s and could not remove them.
     //
-    // It aims at the frame the window actually reaches, read from the window, because
-    // `FullScreenEntry` is allowed to fail: see `NotchOpening`.
-    NotchOpening.shared.play(
-        over: window,
-        reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-    // `play` only raises a cover if `openEditor` did not already — it is one owner, and this
-    // is the path that has a window to aim at.
+    // Two transitions were playing and they told two stories. This one is AppKit's, it is the
+    // one every other Mac app has, and it is now the only one.
+    // docs/design/the-editor-comes-out-of-the-notch.md keeps what was built and what it
+    // measured, including the claim the recording disproved.
     FullScreenEntry.enter(window)
 }
 
