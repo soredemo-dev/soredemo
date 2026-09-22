@@ -167,6 +167,13 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// carry the extrinsic mapping and must not enter the digest.
         public internal(set) var lastContentRect: PointRect?
         public internal(set) var lastScreenRect: PointRect?
+        /// Why the rolling clip buffer was dropped mid-recording, or `nil` because it never was.
+        ///
+        /// **Measured 2026-09-22: attaching `SCClipBufferingOutput` cost 40% of the delivered
+        /// frame rate** at 3492x1964 — 112 fps without it, 67 with, twice, interleaved. That is
+        /// a second encode of every frame running beside the master's. At a small buffer it is
+        /// free and worth having; at a large one it is the difference between 60 fps and 38.
+        public internal(set) var clipBufferDropped: String?
         /// `ContentCropSample`s written across the session — one per segment plus one per
         /// window resize, NOT one per frame. A session whose window never changed size reads
         /// as the segment count here; anything much larger means the change detection is
@@ -590,6 +597,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// whose first record came only at the first resize could not say where the content was
     /// before it. Reset in `beginSegment`, because each segment's log has to stand alone.
     private nonisolated(unsafe) var lastWrittenContentCrop: CropRect?
+    /// The frame count and instant at the start of the window the clip buffer is judged over,
+    /// and whether that judgement has been made for this segment. Set once the stream has had
+    /// time to ramp; a rate measured across a stream's first frames is measuring the ramp.
+    private nonisolated(unsafe) var clipJudgeWindowStart: (instant: Nanoseconds, frames: Int)?
+    private nonisolated(unsafe) var clipBufferJudged = false
     /// `InputObserver`/`AXObserver` diagnostics as of the current segment's
     /// open. Both are session-cumulative, so a segment's `GapWatch` rows are
     /// this snapshot subtracted from the diagnostics read at close.
@@ -1083,6 +1095,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             // one that inherited this would begin with no statement of where the content was
             // at all.
             unsafe self.lastWrittenContentCrop = nil
+            unsafe self.clipJudgeWindowStart = nil
+            unsafe self.clipBufferJudged = false
             unsafe self.segmentOpenHostTime = Minting.hostNow()
             self.heldSystemAudio.removeAll()
             self.heldMicrophone.removeAll()
@@ -1640,6 +1654,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // stated, let alone hold. A conservation law only means something if
         // the total is fixed before the branches start.
         lock.withLock { unsafe _diagnostics.completeFrameCount += 1 }
+        judgeClipBufferCost(at: callbackInstant)
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         // An invalid `CMTime` is the same loss as an unconvertible one — the
@@ -2111,6 +2126,91 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             lock.withLock { unsafe _diagnostics.unreadableScreenRectCount += 1 }
         }
     }
+
+    /// **The rolling clip buffer costs frames, so it is dropped when it is costing too many.**
+    ///
+    /// Measured 2026-09-22: attaching `SCClipBufferingOutput` cost 40% of the delivered rate at
+    /// 3492 x 1964 — 112 fps without it, 67 with, twice, interleaved. It is a second encode of
+    /// every frame beside the master's.
+    ///
+    /// **A ratio, never a pixel budget**, because a pixel budget would be this Mac's number. The
+    /// question asked is the machine-independent one — is this recording getting the rate it
+    /// asked for — and it is judged once, over a window that skips the stream's ramp. The
+    /// measurement, the dates that bracket it and what the numbers do not settle are in
+    /// `docs/design/2026-09-22-the-clip-buffer-costs-frames.md`.
+    private nonisolated func judgeClipBufferCost(at now: Nanoseconds) {
+        guard #available(macOS 27.0, *) else { return }
+        let opened: Nanoseconds? = lock.withLock {
+            guard !(unsafe clipBufferJudged), unsafe clipBuffer != nil else { return nil }
+            return unsafe segmentOpenHostTime
+        }
+        guard let opened, now.rawValue >= opened.rawValue else { return }
+        let sinceOpen = now.rawValue - opened.rawValue
+        guard sinceOpen >= Self.clipBufferRampNanos else { return }
+
+        let verdict: (stream: SCStream, buffer: ClipBuffer, delivered: Double, wanted: Double)? =
+        lock.withLock {
+            guard let window = unsafe clipJudgeWindowStart else {
+                unsafe clipJudgeWindowStart = (now, unsafe _diagnostics.completeFrameCount)
+                return nil
+            }
+            let span = now.rawValue - window.instant.rawValue
+            guard span >= Self.clipBufferJudgementNanos else { return nil }
+            unsafe clipBufferJudged = true
+            let frames = unsafe _diagnostics.completeFrameCount - window.frames
+            guard let verdict = Self.clipBufferVerdict(framesInWindow: frames, windowNanos: span,
+                                                       requestedFrameRate: frameRate.rawValue)
+            else { return nil }
+            let (delivered, wanted) = verdict
+            guard let scStream = unsafe stream,
+                  let buffer = unsafe clipBuffer as? ClipBuffer else { return nil }
+            unsafe clipBuffer = nil
+            let said = String(
+                format: "delivered %.1f fps against %.0f asked for; the rolling clip buffer was "
+                      + "dropped so the recording could keep its frame rate", delivered, wanted)
+            unsafe _diagnostics.clipBufferDropped = said
+            // **The interface is told the same sentence.** Without this the Save Clip control
+            // would report "no clip buffer", which is true and useless: it reads as a feature
+            // that is missing rather than one this recording gave up on purpose.
+            unsafe clipBufferRefusal = said
+            return (scStream, buffer, delivered, wanted)
+        }
+        guard let verdict else { return }
+        // **Off the sample queue.** `removeClipBufferingOutput` on the callback thread would
+        // block the one queue ScreenCaptureKit delivers frames on, which is the thing this is
+        // trying to protect. A dropped frame here would be caused by the fix for dropped frames.
+        Task.detached { verdict.buffer.detach(from: verdict.stream) }
+    }
+
+    /// Whether the delivered rate has fallen far enough below the requested one that the clip
+    /// buffer is what goes — `nil` when it has not, and the two rates when it has.
+    ///
+    /// **Pure, and separated out so it can be tested without a stream.** Everything around it
+    /// needs a live `SCStream`, a real window and macOS 27; this is the whole decision and it is
+    /// arithmetic. `CaptureSessionClipBufferTests` pins it.
+    ///
+    /// Refuses to judge a window with no frames or no duration: a stream that delivered nothing
+    /// has not shown that the clip buffer is expensive, it has shown that something else is
+    /// wrong, and dropping a feature over that would be blaming the wrong thing.
+    static func clipBufferVerdict(framesInWindow frames: Int, windowNanos: Int64,
+                                  requestedFrameRate: Int)
+        -> (delivered: Double, wanted: Double)? {
+        guard frames > 0, windowNanos > 0, requestedFrameRate > 0 else { return nil }
+        let delivered = Double(frames) / (Double(windowNanos) / 1_000_000_000)
+        let wanted = Double(requestedFrameRate)
+        guard delivered < wanted * clipBufferFrameRateFloor else { return nil }
+        return (delivered, wanted)
+    }
+
+    /// How long a stream is given to reach its stride before its rate means anything, and how
+    /// long the rate is then measured over. Both are durations rather than frame counts, so a
+    /// 30 fps recording and a 120 fps one are judged over the same stretch of wall clock.
+    private nonisolated static let clipBufferRampNanos: Int64 = 1_000_000_000
+    private nonisolated static let clipBufferJudgementNanos: Int64 = 1_500_000_000
+    /// How far below the requested rate the delivered rate may sit before the clip buffer is
+    /// the thing that goes. A ratio, so it holds on every machine and at every buffer size;
+    /// 0.85 because below that the shortfall is visible in playback rather than jitter.
+    private nonisolated static let clipBufferFrameRateFloor = 0.85
 
     /// Writes a `ContentCropSample` when the part of the buffer the source draws into has
     /// moved, and on the first complete frame of every segment.
