@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Geometry
 @testable import Render
 
 /// The background a person can choose a picture for.

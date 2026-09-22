@@ -747,7 +747,9 @@ struct TimelineEditor: View {
                         }
                     }
                 }
-                lane("Zooms", "plus.magnifyingglass", height: 18) { zoomLane(duration: duration) }
+                // Same glyph as the Zooms tab and the review sheet, and deliberately NOT
+                // the toolbar's magnifier, which zooms the timeline rather than the camera.
+                lane("Zooms", "dot.viewfinder", height: 18) { zoomLane(duration: duration) }
                 // Only while there is something to show. A permanently empty lane is a lane a
                 // person learns to ignore, and this one is empty until they ask.
                 if !model.silences.isEmpty {

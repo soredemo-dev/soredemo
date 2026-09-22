@@ -202,7 +202,12 @@ struct StageWindow: View {
         var icon: String {
             switch self {
             case .project: "slider.horizontal.3"
-            case .selection: "plus.magnifyingglass"
+            // **A viewfinder, not a magnifier, since 2026-09-18.** The magnifier means
+            // "zoom the TIMELINE in" one toolbar away (`EditorToolbar`'s ⌘=), and two
+            // different meanings on one glyph is how a person learns that an icon is
+            // decoration. A zoom here moves the camera onto a point somebody clicked, which
+            // is what a viewfinder with a dot in it says and a magnifier does not.
+            case .selection: "dot.viewfinder"
             case .captions: "captions.bubble"
             case .text: "textformat"
             case .hide: "eye.slash"

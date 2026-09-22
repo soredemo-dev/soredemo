@@ -469,6 +469,10 @@ enum CrossBoundaryProbe {
         print("29. a window recorded on a SECOND display — the case a one-screen Mac cannot pose")
         try await aWindowOnASecondDisplayIsMeasuredAgainstThatDisplay()
 
+        print("30. a window RESIZED mid-recording — does the log say where the picture went?")
+        print("30.1-30.6 a real CaptureSession over this process's own window, shrunk under it")
+        try await aWindowResizedMidRecordingRecordsWhereThePictureWent()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -7692,3 +7696,164 @@ private func probeMemoryFootprintBytes() -> Int64? {
 }
 
 private func probeMegabytes(_ bytes: Int64) -> Double { Double(bytes) / 1_048_576 }
+
+
+// MARK: - § 30. a window resized while the recording runs
+
+/// **The capture half of the window-resize repair, end to end.** Everything below the
+/// attachment is unit-tested — `CropRect.ofContent`, `CropRect.differs`, `ContentCropTrack`,
+/// `StageCompositor.contentCrop(at:)` — and none of it can tell whether `CaptureSession` writes
+/// a single record. That needs a real `SCStream`, a real window, and a resize while both are
+/// running, which is what this does.
+///
+/// The recording is of this process's own window, resized from the size the stream's buffer was
+/// configured for down to half of it. ScreenCaptureKit does not resize the buffer — Apple's own
+/// guidance is that changing a stream's output dimension while it runs is "not recommended" —
+/// so the content is fitted into the buffer it started with and the remainder is background.
+/// That band is the bug; the records checked here are what lets the compositor remove it.
+///
+/// **It skips loudly**, like every section that needs a grant or hardware.
+@MainActor
+private func aWindowResizedMidRecordingRecordsWhereThePictureWent() async throws {
+    guard CGPreflightScreenCaptureAccess() else {
+        skipped.append("30. no Screen Recording grant for this binary, so there is no stream to "
+                       + "resize a window under")
+        print("        SKIPPED — no Screen Recording grant.")
+        return
+    }
+
+    let window = NSWindow(contentRect: NSRect(x: 180, y: 180, width: 800, height: 500),
+                          styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.title = "cross-boundary-digest-probe (resize)"
+    window.backgroundColor = .white
+    window.makeKeyAndOrderFront(nil)
+    defer { window.orderOut(nil) }
+    try await Task.sleep(for: .milliseconds(500))
+
+    let content = try await SCShareableContent.currentProcess
+    guard let scWindow = content.windows.first(where: { $0.title == window.title }),
+          let display = content.displays.first else {
+        skipped.append("30. the probe's own window did not appear in SCShareableContent")
+        print("        SKIPPED — nothing to record.")
+        return
+    }
+
+    let sink: TemporaryFileMediaSink
+    do { sink = try TemporaryFileMediaSink() } catch {
+        skipped.append("30. could not open a media sink: \(error)")
+        print("        SKIPPED — could not open a media sink: \(error)")
+        return
+    }
+    defer { if let directory = sink.packageURL { try? FileManager.default.removeItem(at: directory) } }
+
+    // The buffer is sized for the window as it starts, so the FIRST record is the whole buffer
+    // and every later one is a departure from it. A buffer that did not match at the start
+    // would make 30.2 unstatable.
+    let session = CaptureSession(
+        source: probeWindowSource(scWindow, on: display, bufferSize: (1600, 1064)),
+        scale: 2, displayUUID: UUID(), mediaSink: sink, epoch: Minting.bootEpoch(),
+        microphone: .off, capturesSystemAudio: false, frameRate: .sixty)
+
+    do { try await session.start() } catch {
+        skipped.append("30. the capture session refused to start: \(error)")
+        print("        SKIPPED — the capture session refused to start: \(error)")
+        return
+    }
+
+    // Redrawn throughout, so the stream delivers complete frames rather than idling: an idle
+    // callback carries no attachments and would leave the log empty for a reason that has
+    // nothing to do with the code under test.
+    func stir(_ rounds: Int) async throws {
+        for round in 0..<rounds {
+            window.backgroundColor = round % 2 == 0 ? .white : .systemBlue
+            window.displayIfNeeded()
+            try await Task.sleep(for: .milliseconds(120))
+        }
+    }
+    try await stir(12)
+    window.setFrame(NSRect(x: 180, y: 180, width: 400, height: 300), display: true)
+    try await stir(12)
+    _ = try? await session.stop()
+
+    let diagnostics = session.diagnostics
+    guard let packageURL = sink.packageURL else {
+        skipped.append("30. the session wrote no package, so there is no log to read")
+        print("        SKIPPED — no package was written.")
+        return
+    }
+    let logURL = packageURL.appending(path: "observations", directoryHint: .isDirectory)
+        .appending(path: "segment-00.jsonl")
+    guard FileManager.default.fileExists(atPath: logURL.path) else {
+        skipped.append("30. no observation log was written for segment 0")
+        print("        SKIPPED — no observation log at \(logURL.lastPathComponent).")
+        return
+    }
+
+    var crops: [ContentCropSample] = []
+    for line in try JSONLReader.linesOfFile(at: logURL).lines
+    where (try? ObservationLog.kind(of: line)) == "contentCrop" {
+        crops.append(try ObservationLog.decode(line) as ContentCropSample)
+    }
+    print("        \(diagnostics.completeFrameCount) complete frames, "
+          + "\(crops.count) contentCrop records "
+          + "(session counted \(diagnostics.contentCropRecordCount))")
+    for crop in crops {
+        print("          +\(crop.instant.hostTime.rawValue) ns  \(crop.content) "
+              + "scale \(crop.contentScale)")
+    }
+
+    // **The precondition, checked before the thing that depends on it.** A resize this section
+    // never observed cannot say anything about whether it was recorded, and reporting that as
+    // "the writer is broken" would point an afternoon at the wrong file.
+    guard diagnostics.completeFrameCount >= 10 else {
+        skipped.append("30. only \(diagnostics.completeFrameCount) complete frames arrived; "
+                       + "too few for a resize to have been delivered at all")
+        print("        SKIPPED — too few complete frames.")
+        return
+    }
+
+    check(crops.count >= 2,
+          "30.1 a resize under a running stream writes a second content crop",
+          actual: "\(crops.count) record(s)", expected: "at least 2")
+
+    guard let first = crops.first, let last = crops.last, crops.count >= 2 else { return }
+
+    check(first.content == .whole,
+          "30.2 the first record is the whole buffer — the window started at the size the "
+          + "stream was configured for",
+          actual: "\(first.content)", expected: "\(CropRect.whole)")
+
+    // The discriminating half. A writer that emitted the same rectangle twice would satisfy
+    // 30.1 and say nothing; the band is only findable if the rectangle actually narrowed.
+    check(last.content.width < first.content.width - 0.01
+          || last.content.height < first.content.height - 0.01,
+          "30.3 the later record is strictly smaller — the band ScreenCaptureKit left is "
+          + "recorded, not inferred",
+          actual: "\(last.content)", expected: "narrower than \(first.content)")
+
+    // **The check that caught the defect this section was written to look for.** The first
+    // draft of the writer cleared its change detection where the LOG opened rather than where
+    // the SEGMENT was armed — after the first frame had already recorded — and the next frame
+    // wrote the same rectangle again. Every check above passed on that recording. Only this
+    // one fails on it, and it fails on any future rearming of the same shape.
+    let repeated = (1..<crops.count).filter { crops[$0].content == crops[$0 - 1].content }
+    check(repeated.isEmpty,
+          "30.4 no record repeats the rectangle before it — a record means the picture MOVED",
+          actual: "\(repeated.count) repeat(s) at index \(repeated)", expected: "0")
+
+    // **The cost control, measured rather than asserted.** The attachment arrives on every
+    // complete frame; a record per frame is the one way this mechanism becomes expensive, and
+    // it would pass every check above.
+    check(crops.count * 4 < diagnostics.completeFrameCount,
+          "30.5 records are written on CHANGE, not per frame",
+          actual: "\(crops.count) records for \(diagnostics.completeFrameCount) frames",
+          expected: "far fewer records than frames")
+
+    // And the reader agrees with the writer about which frame the change belongs to. Built
+    // here from the log's own bytes, so this is the whole path: attachment → record → track.
+    let track = ContentCropTrack(samples: crops)
+    check(track.crop(at: first.instant) == first.content
+          && track.crop(at: last.instant) == last.content,
+          "30.6 the track answers each record's own instant with that record's crop",
+          actual: "\(track.crop(at: first.instant)) then \(track.crop(at: last.instant))")
+}

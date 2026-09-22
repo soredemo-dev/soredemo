@@ -1,6 +1,7 @@
 import CoreImage
 import CoreVideo
 import Foundation
+import Geometry
 // `CursorArt` and `HeadlessGeometryBridge` are same-module names and need no import.
 import Metal
 import Project

@@ -362,6 +362,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// again only if that ceiling changes, which within one compositor instance it does not.
     private nonisolated(unsafe) var camera: CameraMotion?
     private nonisolated(unsafe) var cameraCeiling: Double = .infinity
+    /// Where the source drew inside the capture buffer, per frame. `.unknown` until the log is
+    /// read and for every recording whose log never said — which is every recording made before
+    /// `ContentCropSample` existed, and is why an existing project renders unchanged.
+    private nonisolated(unsafe) var contentCrops: ContentCropTrack = .unknown
     /// The pressed shortcuts, from the same log.
     private nonisolated(unsafe) var keystrokes: KeystrokeTrack?
     /// The movement the pointer path was baked under. A change re-bakes it, the way a change
@@ -405,9 +409,25 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // a rectangle inside the output, and handing it the uncropped size would letterbox a
         // cropped recording as though it were still 16:9 — the bars would be exactly the part
         // that was cropped away.
-        let crop = Self.crop
+        let authored = Self.crop
+        // **Two crops, composed, and the order is the whole behaviour.** `authored` is what a
+        // person drew; `content` is where ScreenCaptureKit actually put the picture inside a
+        // buffer it is not allowed to resize (see `ContentCropTrack`). A person draws on the
+        // picture they can SEE, so their fractions are fractions of the window, not of the
+        // buffer — `authored.within(content)`, never the reverse.
+        let content = contentCrop(at: request.compositionTime)
+        let crop = authored.within(content)
         let cropped = crop.size(ofSourceWidth: source.size.width,
                                 sourceHeight: source.size.height)
+        // **The ceiling is computed from the AUTHORED crop alone, and that is a cost decision.**
+        // `loadedTracks(zoomCeiling:)` re-bakes the whole camera whenever the ceiling it is
+        // handed differs from the one it baked under, and the comment there rested on the crop
+        // being fixed for a composition — which the content crop is not. Feeding it a number
+        // that moves would re-derive every zoom block on every frame of a window drag. What is
+        // given up is a ceiling that is slightly too generous for the seconds a window was
+        // smaller than its buffer; what is kept is a camera that is baked once.
+        let authoredWidth = authored.size(ofSourceWidth: source.size.width,
+                                          sourceHeight: source.size.height).width
         let basePlan = StagePlanner.plan(
             outputWidth: Int(context.size.width), outputHeight: Int(context.size.height),
             sourceWidth: cropped.width, sourceHeight: cropped.height,
@@ -416,9 +436,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // (`StagePlanner.placement` maps by `RenderPlan.contentX/Y`), so a pointer drawn
         // against the un-zoomed plan would sit where the user never pointed.
         // The source's pixels across the card are what bound the zoom — see
-        // `FramingDepth.zoomCeiling`; the cropped width, because that is what the card shows.
+        // `FramingDepth.zoomCeiling`. The AUTHORED width rather than the composed one, for the
+        // reason given where `authoredWidth` is computed: a ceiling that moved with the window
+        // would re-bake the camera on every frame of a resize.
         let aimed = cameraPlan(basePlan, at: request.compositionTime,
-                               sourcePixelWidth: cropped.width)
+                               sourcePixelWidth: authoredWidth)
         let plan = RenderPlan(outputWidth: aimed.outputWidth, outputHeight: aimed.outputHeight,
                               card: aimed.card, cornerRadius: aimed.cornerRadius,
                               style: aimed.style,
@@ -435,7 +457,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               // cheapest place to honour it is before a plan carries it.
                               camera: cameraOverlay(
                                   at: request.compositionTime, basePlan: basePlan,
-                                  sourcePixelWidth: cropped.width,
+                                  sourcePixelWidth: authoredWidth,
                                   // The camera picture's own aspect, for the dodge's zone. Read
                                   // off the buffer's size rather than assumed: a rounded camera
                                   // is `width / aspect` tall and the zone must be the rectangle
@@ -768,6 +790,26 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         return track.badge(at: anchor.instant(atOffset: offset))
     }
 
+    /// The part of the buffer the SOURCE drew into at an output time — `.whole` when the log
+    /// never said, which is every recording made before `ContentCropSample` existed.
+    ///
+    /// Converted to source time and then to the recorder's clock exactly as the pointer is: the
+    /// content rect is an observation of the capture, so a cut that reorders the recording has
+    /// to move it with everything else. A crop read in output time would, after the first cut,
+    /// crop each frame to where the window was at some other moment.
+    ///
+    /// `public` for `pointerPlacement`'s reason: `startRequest(_:)` takes a type only
+    /// AVFoundation constructs, so this is the seam a test can reach.
+    public func contentCrop(at compositionTime: CMTime) -> CropRect {
+        guard compositionTime.isValid,
+              let outputOffset = Nanoseconds(rationalSeconds: compositionTime.value,
+                                             timescale: compositionTime.timescale),
+              let offset = Self.sourceOffset(forOutput: outputOffset) else { return .whole }
+        let (_, _, anchor, _) = loadedTracks()
+        guard let anchor else { return .whole }
+        return lock.withLock { unsafe contentCrops }.crop(at: anchor.instant(atOffset: offset))
+    }
+
     /// `basePlan` with the camera applied for `compositionTime`, or unchanged when the log
     /// carried no accepted click — a recording whose every chain was refused zooms not at
     /// all, which is the correct picture of "nothing passed the gates" rather than a
@@ -1002,6 +1044,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                     unsafe cameraCeiling = built.camera.zoomCeiling
                     unsafe keystrokes = built.keystrokes
                     unsafe logAnchor = built.anchor
+                    unsafe contentCrops = built.contentCrops
                 }
             }
             let wanted = (Self.cursorStyle).movement
@@ -1024,7 +1067,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     private static func buildTracks(from url: URL, overrides: [CursorOverride],
                                     framingOverrides: [FramingOverride] = []) throws
         -> (pointer: PointerTrack, click: ClickTrack, anchor: EpochAnchor?, camera: CameraMotion,
-            keystrokes: KeystrokeTrack, movement: PointerPath.Tuning.Movement) {
+            keystrokes: KeystrokeTrack, movement: PointerPath.Tuning.Movement,
+            contentCrops: ContentCropTrack) {
         let lines = try JSONLReader.linesOfFile(at: url).lines
         var samples: [PointerSample] = []
         var blindIntervals: [BlindInterval] = []
@@ -1032,6 +1076,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         var presses: [KeystrokeTrack.Press] = []
         var anchor: EpochAnchor?
         var planEntries: [FramingPlan.Entry] = []
+        var contentCrops: [ContentCropSample] = []
         for line in lines {
             switch try ObservationLog.kind(of: line) {
             case "logHeader":
@@ -1045,6 +1090,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 // `switch` fell through to `default` on every one of them.
                 let key = try ObservationLog.decode(line) as KeySample
                 presses.append(KeystrokeTrack.Press(instant: key.instant, shortcut: key.shortcut))
+            case "contentCrop":
+                // **Read in the same pass as everything else, and not lazily.** A second pass
+                // over the log to find these would decode every line twice for a record that
+                // occurs a handful of times in a recording.
+                contentCrops.append(try ObservationLog.decode(line) as ContentCropSample)
             case "secureInput":
                 let interval = (try ObservationLog.decode(line) as SecureInputInterval).interval
                 blindIntervals.append(BlindInterval(start: interval.start, duration: interval.duration,
@@ -1099,6 +1149,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             return nil
         })
         return (pointer: pointer, click: click, anchor: anchor, camera: camera,
-                keystrokes: KeystrokeTrack(presses: presses), movement: movement)
+                keystrokes: KeystrokeTrack(presses: presses), movement: movement,
+                contentCrops: ContentCropTrack(samples: contentCrops))
     }
 }

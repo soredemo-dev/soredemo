@@ -167,6 +167,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// carry the extrinsic mapping and must not enter the digest.
         public internal(set) var lastContentRect: PointRect?
         public internal(set) var lastScreenRect: PointRect?
+        /// `ContentCropSample`s written across the session — one per segment plus one per
+        /// window resize, NOT one per frame. A session whose window never changed size reads
+        /// as the segment count here; anything much larger means the change detection is
+        /// firing on noise, which is the one way this record could become expensive.
+        public internal(set) var contentCropRecordCount = 0
         /// Boundaries this session actually closed with `.displayReconfigured`,
         /// not every callback the OS delivered.
         public internal(set) var displayReconfigurationsHandled = 0
@@ -579,6 +584,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     // anything can cut. See `StillInterval`.
     private nonisolated(unsafe) var idleRunStart: HostInstant?
     private nonisolated(unsafe) var idleRunFrames = 0
+    /// The last content crop WRITTEN, which is not the last one observed: the attachment
+    /// arrives on every complete frame and a record is emitted only when it has moved. `nil`
+    /// at a segment's start, which is what makes the first frame always write one — a log
+    /// whose first record came only at the first resize could not say where the content was
+    /// before it. Reset in `beginSegment`, because each segment's log has to stand alone.
+    private nonisolated(unsafe) var lastWrittenContentCrop: CropRect?
     /// `InputObserver`/`AXObserver` diagnostics as of the current segment's
     /// open. Both are session-cumulative, so a segment's `GapWatch` rows are
     /// this snapshot subtracted from the diagnostics read at close.
@@ -1061,6 +1072,17 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             unsafe self.frameCounterForBlackCheck = 0
             unsafe self.blackFrameConsecutive = 0
             unsafe self.pendingObservationLog = pending
+            // **Cleared where the SEGMENT is armed, not where its log opens**, and the
+            // difference was measured. The log opens at the first complete frame — after that
+            // frame has already recorded its crop into `bufferedObservations` — so clearing it
+            // at the open disarmed the change detection and the very next frame wrote the same
+            // rectangle again. Probe § 30 read three records off a recording with one resize
+            // in it, two of them identical, which is exactly what that looks like from outside.
+            //
+            // It must still be cleared per segment: each segment's log is read on its own, and
+            // one that inherited this would begin with no statement of where the content was
+            // at all.
+            unsafe self.lastWrittenContentCrop = nil
             unsafe self.segmentOpenHostTime = Minting.hostNow()
             self.heldSystemAudio.removeAll()
             self.heldMicrophone.removeAll()
@@ -1640,6 +1662,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
 
         let observedContentScale = recordContentScale(from: attachments)
         recordExtrinsicRects(from: attachments)
+        // **Before the append path, and deliberately before the black-frame check.** The crop
+        // is a fact about a frame that has already been declared complete; recording it only
+        // for frames that survive the writer's own guards would leave the log silent about
+        // exactly the stretches where the writer was in trouble.
+        recordContentCrop(from: attachments, scale: observedContentScale, at: frameInstant,
+                          buffer: CMSampleBufferGetImageBuffer(sampleBuffer))
 
         let (shouldCheckBlack, masterRef, sessionAlreadyStarted) = lock.withLock {
             () -> (Bool, (any MasterWriting)?, Bool) in
@@ -1992,6 +2020,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             // for the input kinds the same zero would have been a claim the
             // session was in no position to make.
             writer.declareRecordKind("still")
+            // Unconditional for `still`'s reason, and with the same meaning for a zero: a
+            // segment whose window was never resized writes exactly one of these, so
+            // `contentCrop: 0` is not "nothing happened" but "no frame carried a readable
+            // content rect", which is a fault worth being able to see.
+            writer.declareRecordKind("contentCrop")
         }
         let held = lock.withLock { () -> [(ObservationWriter) throws -> Void] in
             unsafe observationWriter = writer
@@ -2039,15 +2072,11 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `nil` when the attachment was unreadable.
     @discardableResult
     private nonisolated func recordContentScale(from attachments: [SCStreamFrameInfo: Any]) -> Double? {
-        let scaleValue: Double?
-        if let d = attachments[.contentScale] as? Double {
-            scaleValue = d
-        } else if let n = attachments[.contentScale] as? NSNumber {
-            scaleValue = n.doubleValue
-        } else {
-            scaleValue = nil
-        }
-        guard let scale = scaleValue else { return nil }
+        // The two encodings are handled in the bridge, which is also where the second reader
+        // of a scalar attachment (`recordContentCrop`'s `scaleFactor`) gets them from; two
+        // copies of this cast is how one of them comes to handle only one form.
+        guard let scale = CGGeometryBridge.double(fromFrameAttachment: attachments[.contentScale])
+        else { return nil }
         lock.withLock {
             unsafe _diagnostics.contentScaleCheckedCount += 1
             if scale != 1 { unsafe _diagnostics.resampledFrameCount += 1 }
@@ -2081,6 +2110,56 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         } else {
             lock.withLock { unsafe _diagnostics.unreadableScreenRectCount += 1 }
         }
+    }
+
+    /// Writes a `ContentCropSample` when the part of the buffer the source draws into has
+    /// moved, and on the first complete frame of every segment.
+    ///
+    /// **This is the whole of the window-resize repair on the capture side.** The buffer is
+    /// fixed for the segment on purpose — see `windowMoved(to:displayBounds:)`, and Apple's own
+    /// "not recommended" for changing a stream's output dimension while it runs — so a resized
+    /// window is fitted into it and the remainder is background. Nothing downstream can find
+    /// that boundary again by looking at pixels: a black band and a black window are the same
+    /// pixels. The attachment is the only witness and it exists only here.
+    ///
+    /// Silent, by design, when the attachments cannot describe a rectangle. An unreadable
+    /// content rect is already counted by `recordExtrinsicRects` one call above; counting it
+    /// twice would make the two numbers disagree about the same frame.
+    private nonisolated func recordContentCrop(from attachments: [SCStreamFrameInfo: Any],
+                                               scale: Double?, at instant: HostInstant,
+                                               buffer: CVPixelBuffer?) {
+        guard let buffer,
+              let point = CGGeometryBridge.pointRect(fromFrameAttachment: attachments[.contentRect]),
+              let scale, scale.isFinite, scale > 0,
+              // **`scaleFactor`, and it was measured against the picture rather than reasoned
+              // about from the names.** `CropRect.ofContent(inPoints:scaleFactor:...)` names
+              // the design doc that carries the three-geometry table; the two rival
+              // conversions are wrong by 161 and 1018 pixels on the same frames.
+              let factor = CGGeometryBridge.double(fromFrameAttachment: attachments[.scaleFactor]),
+              factor.isFinite, factor > 0 else { return }
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        guard let crop = CropRect.ofContent(inPoints: point, scaleFactor: factor,
+                                            bufferWidth: width, bufferHeight: height)
+        else { return }
+        // **Check and set are ONE critical section, and the value is set before the append.**
+        // Two sections would let two callbacks both read `nil` and both write. Setting after a
+        // failed append would rearm this frame on the next one, so a stream that cannot write
+        // would emit a record per frame for the rest of the segment — the one failure mode the
+        // change detection exists to prevent. A lost record is counted by `appendObservation`.
+        let shouldWrite = lock.withLock { () -> Bool in
+            if let previous = unsafe lastWrittenContentCrop,
+               !crop.differs(from: previous, byHalfAPixelIn: width, bufferHeight: height) {
+                return false
+            }
+            unsafe lastWrittenContentCrop = crop
+            return true
+        }
+        guard shouldWrite else { return }
+        let (writer, finalizing) = writerAndClosingFlag()
+        appendObservation(ContentCropSample(instant: instant, content: crop, contentScale: scale),
+                          to: writer, whileFinalizing: finalizing)
+        lock.withLock { unsafe _diagnostics.contentCropRecordCount += 1 }
     }
 
     // MARK: - Step 3: black-frame detection

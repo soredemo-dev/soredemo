@@ -218,9 +218,12 @@ struct FramingReviewInspector: View {
         } else if case .pointerFallback = entry.origin {
             Label("Zoom to pointer", systemImage: "cursorarrow.rays").font(Type.detail)
         } else if entry.target != nil {
-            Label("Zoom", systemImage: "plus.magnifyingglass").font(Type.detail)
+            Label("Zoom", systemImage: "dot.viewfinder").font(Type.detail)
         } else {
-            Label("No zoom", systemImage: "minus.magnifyingglass")
+            // The dot is the target; without one the viewfinder is framing nothing, which
+            // is exactly what "no zoom" means. `viewfinder.slash` does not exist — checked,
+            // rather than assumed from the naming pattern the other slashed symbols follow.
+            Label("No zoom", systemImage: "viewfinder")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
     }
@@ -342,7 +345,7 @@ struct FramingReviewSections: View {
                 model.authorZoom(atOffset: playhead)
                 onChange()
             } label: {
-                Label("Zoom at the playhead", systemImage: "plus.magnifyingglass")
+                Label("Zoom at the playhead", systemImage: "dot.viewfinder")
             }
             .disabled(!model.canAuthorZoom)
             Text(model.canAuthorZoom

@@ -58,14 +58,16 @@ private func anchor(_ epoch: BootEpoch = epochA) -> EpochAnchor {
     let secure = SecureInputInterval(interval: span(4, 10), endedBy: .secureInputDisabled)
     let tap = TapDisabledInterval(interval: span(5, 10), disabledBy: nil,
                                   lowerBoundFrom: .lastEnabledPoll, detectedBy: .enabledPoll)
+    let crop = ContentCropSample(instant: at(6), content: .whole, contentScale: 1)
 
+    #expect(crop.epochs == [epochA])
     #expect(pointer.epochs == [epochA])
     #expect(button.epochs == [epochA])
     #expect(key.epochs == [epochA])
     #expect(secure.epochs == [epochA])
     #expect(tap.epochs == [epochA])
     // A type answering with nothing would make `checkEpoch` vacuous for itself.
-    for record: any ObservationRecord in [pointer, button, key, secure, tap] {
+    for record: any ObservationRecord in [pointer, button, key, secure, tap, crop] {
         #expect(!record.epochs.isEmpty, "\(record.kind) answered `epochs` with nothing")
     }
 }

@@ -285,6 +285,72 @@ public struct StillInterval: Hashable, Codable, Sendable {
     }
 }
 
+/// Where the source drew inside the capture buffer, from the instant it started drawing there.
+///
+/// **The record that makes a window resized mid-recording survivable.** The stream's buffer is
+/// fixed for the whole segment and deliberately so — Apple's own guidance is that changing a
+/// stream's output dimension "frequently ... can lead to additional memory allocation and
+/// therefore not recommended" — so when the window is resized, ScreenCaptureKit fits the new
+/// content into the old buffer and leaves the remainder as background. That remainder is the
+/// black band down the right or along the bottom of a recording nobody asked for, and the only
+/// thing that can remove it afterwards is knowing where the content was. It is knowable ONLY at
+/// capture time: the attachment does not survive into the master, and no amount of looking at
+/// the pixels afterwards can tell a black band from a black window.
+///
+/// **Written on change, never per frame.** The attachment arrives on every complete frame and
+/// is identical on almost all of them; see `CropRect.differs(from:byHalfAPixelIn:bufferHeight:)`
+/// for the tolerance and why exact comparison would not do.
+///
+/// `contentScale` is the fit factor the stream applied, and it is here to state a cost rather
+/// than to be used in the crop: above 1 the window shrank and its pixels were magnified into
+/// the buffer, below 1 the window grew past the buffer and was downsampled to fit. Cropping
+/// restores the FRAMING either way. It cannot restore resolution that was never written, and
+/// this field is the only place a reader can find out that some was lost.
+public struct ContentCropSample: Hashable, Codable, Sendable {
+    public let kind: String
+    public let instant: HostInstant
+    /// The fraction of the buffer the source drew into — `.whole` when it filled it.
+    public let content: CropRect
+    /// Strictly positive; never defaulted to 1, because "the stream did not say" and "the
+    /// stream said it applied no scaling" are different facts.
+    public let contentScale: Double
+
+    /// Traps on a scale that is not a measurement; untrusted input goes through `init(from:)`,
+    /// which refuses instead. Same split as `StillInterval`.
+    public init(instant: HostInstant, content: CropRect, contentScale: Double) {
+        precondition(contentScale.isFinite && contentScale > 0,
+                     "a content scale of \(contentScale) is not a measurement")
+        self.kind = "contentCrop"
+        self.instant = instant
+        self.content = content
+        self.contentScale = contentScale
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, instant, content, contentScale }
+
+    /// Rule 8. The synthesised decode would accept a zero or infinite scale and a `kind` naming
+    /// some other record, and both would then travel as if a producer had vouched for them.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+        guard kind == "contentCrop" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind, in: container,
+                debugDescription: "a ContentCropSample must carry kind \"contentCrop\", found \"\(kind)\"")
+        }
+        let scale = try container.decode(Double.self, forKey: .contentScale)
+        guard scale.isFinite, scale > 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .contentScale, in: container,
+                debugDescription: "a content scale of \(scale) is not a measurement")
+        }
+        self.kind = kind
+        self.instant = try container.decode(HostInstant.self, forKey: .instant)
+        self.content = try container.decode(CropRect.self, forKey: .content)
+        self.contentScale = scale
+    }
+}
+
 extension PointerSample: ObservationRecord {
     public var epochs: [BootEpoch] { [instant.epoch] }
 }
@@ -307,4 +373,8 @@ extension TapDisabledInterval: ObservationRecord {
 
 extension StillInterval: ObservationRecord {
     public var epochs: [BootEpoch] { [interval.epoch] }
+}
+
+extension ContentCropSample: ObservationRecord {
+    public var epochs: [BootEpoch] { [instant.epoch] }
 }

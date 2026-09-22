@@ -74,6 +74,21 @@ public enum CGGeometryBridge {
         return nil
     }
 
+    /// Decodes a scalar frame attachment — `SCStreamFrameInfoContentScale`,
+    /// `.scaleFactor` — as a `Double`. `nil` when the attachment is absent or is
+    /// neither form, so a caller can count that rather than substitute a number.
+    ///
+    /// Both forms are handled because `recordContentScale` handled both before this function
+    /// existed, and narrowing it here would be a change nobody measured. Which form arrives is
+    /// not pinned by anything in this repository; a cast to only one of them would read
+    /// nothing whenever the other turned up, and that is indistinguishable from a stream that
+    /// never reported the value.
+    public nonisolated static func double(fromFrameAttachment attachment: Any?) -> Double? {
+        if let value = attachment as? Double { return value }
+        if let number = attachment as? NSNumber { return number.doubleValue }
+        return nil
+    }
+
     // MARK: - accessibility → package
 
     /// The current frame of ONE window, by ID — the live value `SCWindow.frame` is not.

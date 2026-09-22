@@ -1,4 +1,5 @@
 import Capture
+import Geometry
 import Render
 import SwiftUI
 import Variants

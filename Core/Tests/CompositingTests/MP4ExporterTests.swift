@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import AVFoundation
 import CoreMedia
+import Geometry
 import Project
 import Render
 import Timeline
