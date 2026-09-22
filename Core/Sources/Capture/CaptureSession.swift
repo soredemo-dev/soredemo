@@ -119,6 +119,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     private let capturesSystemAudio: Bool
     /// The ceiling on how often ScreenCaptureKit delivers a frame. See `CaptureFrameRate`.
     private let frameRate: CaptureFrameRate
+    /// Whether this recording may carry the rolling clip buffer at all — decided by the caller
+    /// from `ClipBufferFit`, which is what this machine has already measured it can afford.
+    private let attachesClipBuffer: Bool
 
     /// Every Nth complete video frame is luminance-sampled for the black-frame
     /// detector. Uncalibrated placeholder. `nonisolated` on all three constants
@@ -174,6 +177,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         /// a second encode of every frame running beside the master's. At a small buffer it is
         /// free and worth having; at a large one it is the difference between 60 fps and 38.
         public internal(set) var clipBufferDropped: String?
+        /// The buffer was attached, judged, and kept — the one outcome that proves this machine
+        /// CAN afford it at this load. Distinct from never having been judged at all (a
+        /// recording shorter than the window), which proves nothing either way.
+        public internal(set) var clipBufferKept = false
         /// `ContentCropSample`s written across the session — one per segment plus one per
         /// window resize, NOT one per frame. A session whose window never changed size reads
         /// as the segment count here; anything much larger means the change detection is
@@ -602,6 +609,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// time to ramp; a rate measured across a stream's first frames is measuring the ramp.
     private nonisolated(unsafe) var clipJudgeWindowStart: (instant: Nanoseconds, frames: Int)?
     private nonisolated(unsafe) var clipBufferJudged = false
+    /// A clip buffer is wanted for this segment and has not been attached yet.
+    private nonisolated(unsafe) var clipBufferPending = false
+    /// When it attached — the instant its cost is judged from, not the segment's open.
+    private nonisolated(unsafe) var clipBufferAttachedAt: Nanoseconds?
     /// `InputObserver`/`AXObserver` diagnostics as of the current segment's
     /// open. Both are session-cumulative, so a segment's `GapWatch` rows are
     /// this snapshot subtracted from the diagnostics read at close.
@@ -639,7 +650,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
                 microphone: MicrophoneSource = .systemDefault,
                 capturesSystemAudio: Bool = true,
                 frameRate: CaptureFrameRate = .sixty,
-                exclusions: CaptureExclusions = .none) {
+                exclusions: CaptureExclusions = .none,
+                attachesClipBuffer: Bool = true) {
+        self.attachesClipBuffer = attachesClipBuffer
         self.microphone = microphone
         self.capturesSystemAudio = capturesSystemAudio
         self.frameRate = frameRate
@@ -1038,12 +1051,21 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         // a stream that records, and losing a recording to gain a convenience is not a trade
         // this makes. `clipBufferRefusal` is what the interface reads to know it has nothing to
         // offer.
+        //
+        // **Armed here, attached a second later — never at stream start.** Measured 2026-09-22
+        // through this session, reading the master back: attached at start, the first 2.5 s ran
+        // at about 35 fps, and the same run jumped to about 48 the instant the buffer was dropped.
+        // Its second encode only costs beside the master's, so attaching it with everything else
+        // put the whole cost on the opening of every recording. `judgeClipBufferCost` attaches it.
         if #available(macOS 27.0, *) {
-            let buffer = ClipBuffer()
-            if let refusal = buffer.attach(to: scStream) {
-                lock.withLock { unsafe clipBufferRefusal = String(describing: refusal) }
+            if attachesClipBuffer {
+                lock.withLock { unsafe clipBufferPending = true }
             } else {
-                lock.withLock { unsafe clipBuffer = buffer }
+                // Said, not silent: the Save Clip control reads this, and "no clip buffer" would
+                // read as a missing feature rather than one this machine measured it cannot keep.
+                lock.withLock { unsafe clipBufferRefusal =
+                    "this Mac measured that it cannot keep a clip buffer at this recording's size "
+                    + "without halving the frame rate, so this recording does not carry one" }
             }
         }
 
@@ -1097,6 +1119,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             unsafe self.lastWrittenContentCrop = nil
             unsafe self.clipJudgeWindowStart = nil
             unsafe self.clipBufferJudged = false
+            unsafe self.clipBufferAttachedAt = nil
             unsafe self.segmentOpenHostTime = Minting.hostNow()
             self.heldSystemAudio.removeAll()
             self.heldMicrophone.removeAll()
@@ -2140,13 +2163,49 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// `docs/design/2026-09-22-the-clip-buffer-costs-frames.md`.
     private nonisolated func judgeClipBufferCost(at now: Nanoseconds) {
         guard #available(macOS 27.0, *) else { return }
-        let opened: Nanoseconds? = lock.withLock {
-            guard !(unsafe clipBufferJudged), unsafe clipBuffer != nil else { return nil }
-            return unsafe segmentOpenHostTime
+
+        // **Phase one: attach, once, after the opening.** Decided under the lock and performed
+        // off it, on a detached task, for the reason the detach below is: work on the sample
+        // queue is work that delays the next frame.
+        let attachTo: SCStream? = lock.withLock {
+            guard unsafe clipBufferPending, let opened = unsafe segmentOpenHostTime,
+                  now.rawValue >= opened.rawValue,
+                  Self.clipBufferIsDue(sinceOpenNanos: now.rawValue - opened.rawValue),
+                  let scStream = unsafe stream else { return nil }
+            unsafe clipBufferPending = false
+            return scStream
         }
-        guard let opened, now.rawValue >= opened.rawValue else { return }
-        let sinceOpen = now.rawValue - opened.rawValue
-        guard sinceOpen >= Self.clipBufferRampNanos else { return }
+        if let attachTo {
+            Task.detached { [weak self] in
+                guard let self else { return }
+                let buffer = ClipBuffer()
+                let refusal = buffer.attach(to: attachTo)
+                // The segment may have ended while this ran. A buffer attached to a stream that
+                // is no longer this session's would hold fifteen seconds of frames for nothing.
+                let stale = self.lock.withLock { () -> Bool in
+                    guard unsafe self.stream === attachTo else { return true }
+                    if let refusal {
+                        unsafe self.clipBufferRefusal = String(describing: refusal)
+                        unsafe self.clipBufferJudged = true
+                    } else {
+                        unsafe self.clipBuffer = buffer
+                        unsafe self.clipBufferAttachedAt = now
+                    }
+                    return false
+                }
+                if stale, refusal == nil { buffer.detach(from: attachTo) }
+            }
+            return
+        }
+
+        // **Phase two: judge it, from when it attached.** Its own encode ramps too, so the
+        // window opens a moment after the attach rather than at it.
+        let attachedAt: Nanoseconds? = lock.withLock {
+            guard !(unsafe clipBufferJudged), unsafe clipBuffer != nil else { return nil }
+            return unsafe clipBufferAttachedAt
+        }
+        guard let attachedAt, now.rawValue >= attachedAt.rawValue else { return }
+        guard now.rawValue - attachedAt.rawValue >= Self.clipBufferRampNanos else { return }
 
         let verdict: (stream: SCStream, buffer: ClipBuffer, delivered: Double, wanted: Double)? =
         lock.withLock {
@@ -2160,7 +2219,10 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             let frames = unsafe _diagnostics.completeFrameCount - window.frames
             guard let verdict = Self.clipBufferVerdict(framesInWindow: frames, windowNanos: span,
                                                        requestedFrameRate: frameRate.rawValue)
-            else { return nil }
+            else {
+                unsafe _diagnostics.clipBufferKept = true
+                return nil
+            }
             let (delivered, wanted) = verdict
             guard let scStream = unsafe stream,
                   let buffer = unsafe clipBuffer as? ClipBuffer else { return nil }
@@ -2205,8 +2267,23 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
     /// How long a stream is given to reach its stride before its rate means anything, and how
     /// long the rate is then measured over. Both are durations rather than frame counts, so a
     /// 30 fps recording and a 120 fps one are judged over the same stretch of wall clock.
-    private nonisolated static let clipBufferRampNanos: Int64 = 1_000_000_000
-    private nonisolated static let clipBufferJudgementNanos: Int64 = 1_500_000_000
+    // **A quarter-second ramp and a half-second window, because the cost is not subtle.**
+    // Measured within one run: 29 frames per half-second without the buffer, 14-17 with it. A
+    // half-second window separates those with room to spare, and every extra half-second spent
+    // measuring is a half-second of the recording running at half its frame rate.
+    private nonisolated static let clipBufferRampNanos: Int64 = 250_000_000
+    private nonisolated static let clipBufferJudgementNanos: Int64 = 500_000_000
+
+    /// How long into a segment the clip buffer waits before attaching. What it costs is the
+    /// first second of a recording being unsaveable as a clip — and nobody saves "the last
+    /// fifteen seconds" of a recording one second old.
+    static let clipBufferAttachDelayNanos: Int64 = 1_000_000_000
+
+    /// Whether the clip buffer is due, `sinceOpenNanos` into a segment. Pure, so the one fact
+    /// that fixed a janky opening — that it never attaches at zero — is pinned without a stream.
+    static func clipBufferIsDue(sinceOpenNanos: Int64) -> Bool {
+        sinceOpenNanos >= clipBufferAttachDelayNanos
+    }
     /// How far below the requested rate the delivered rate may sit before the clip buffer is
     /// the thing that goes. A ratio, so it holds on every machine and at every buffer size;
     /// 0.85 because below that the shortfall is visible in playback rather than jitter.

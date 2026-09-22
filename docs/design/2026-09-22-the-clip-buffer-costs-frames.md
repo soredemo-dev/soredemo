@@ -75,6 +75,56 @@ frame rate it asked for?** That is already being counted, on every frame, for ot
 decision, pure, and `ClipBufferCostTests` pins it — including that the same ratio is judged the
 same at 30, 60 and 120 fps, which is what "machine-independent" means here.
 
+## Revised the same day: attaching and then judging put the stutter at the opening
+
+**The design above was measured, found to be the cause of a janky opening, and replaced.** A
+person reported that recordings were still janky at the start. The recorded FILE's timestamps
+were perfectly regular — so the fault was in the content, and the only instrument that could see
+it was the real `CaptureSession` recording a bar moved by a main-thread timer, with the master file
+read back and counted per half-second **within one run**, so machine load could not confound it:
+
+| | frames per 0.5 s |
+|---|---|
+| before the buffer attached | 29 (58 fps) |
+| while attached | 14–17 (28–34 fps) |
+| the instant the watchdog dropped it | 29 (58 fps) |
+
+A bare stream with the buffer held 86 fps; with the master writer beside it, 28–34. **The buffer's
+second encode only costs when it runs beside the master's**, which is why the first probe — a
+bare stream — reported it harmless and was wrong about the thing that mattered.
+
+Attached at stream start and judged 2.5 s later, that halving landed on **the first 2.5 seconds of
+every recording** — the part of a video people watch most closely. Moving the attach to one second
+in only moved the stutter to the middle, which is worse.
+
+**`SCClipBufferingOutput` cannot be made cheaper.** Its header offers `initWithDelegate:` and an
+export and nothing else — no size, no quality, no codec. So the only stutter-free answer is to know
+BEFORE attaching whether it fits.
+
+**`ClipBufferFit` is that knowledge, and it is learned, not a threshold.** It stores one number this
+machine produced: the smallest load, in pixels per second, at which the watchdog had to drop the
+buffer. Below it the buffer is tried; at or above it, it is not. A recording that KEEPS the buffer at
+or above the threshold disproves it and clears it, so one loaded afternoon cannot switch the feature
+off for good. Only a judged outcome is learned from — a recording shorter than the window proves
+nothing and changes nothing.
+
+Measured through the real session afterwards:
+
+| run | learned | attached | frames per 0.5 s, 0–5 s |
+|---|---|---|---|
+| 1 (fresh) | nothing | yes | 28 28 **24 15 21** 29 29 28 29 29 |
+| 2 | 411 Mpx/s does not fit | no | 29 29 29 29 29 29 29 29 29 29 |
+
+The opening is clean in both. Every recording after the first at a size is flat.
+
+**What it still costs, stated rather than hidden:** the first recording at a new, too-large size on
+a fresh install has one dip, around one to two and a half seconds in, while the buffer is tried and
+dropped. Removing that too would need a prior, and a prior is a number that belongs to one Mac.
+
+The judgement window also shrank, from 1 s + 1.5 s to 0.25 s + 0.5 s after attaching, because the
+cost is not subtle: 29 against 14–17 frames separates in half a second, and every extra half-second
+spent measuring is half a second of the recording at half its rate.
+
 ## What the person sees
 
 The Save Clip control reports the sentence, not an absence: *"delivered 38.1 fps against 60 asked
@@ -84,9 +134,8 @@ purpose.
 
 ## What this does not answer
 
-- **The 1 s and 1.5 s.** Chosen so the verdict lands early enough to matter and late enough to
-  mean something; neither has been watched against a stopwatch. A recording pays the buffer's
-  cost for those 2.5 s.
+- **The 0.25 s and 0.5 s.** Chosen from one machine's measured separation (29 against 14–17
+  frames per half-second); a machine where the two are closer would want a longer window.
 - **Whether a setting should exist** for somebody who knows they never want the feature. The
   adaptive rule makes one unnecessary for correctness, not for those 2.5 s.
 - **Whether 85% is the right floor.** It is a judgement about what is visible, and nobody has sat

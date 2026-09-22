@@ -61,3 +61,23 @@ private let second: Int64 = 1_000_000_000
     #expect(CaptureSession.clipBufferVerdict(framesInWindow: 40, windowNanos: second,
                                              requestedFrameRate: 0) == nil)
 }
+
+// MARK: - when it attaches, which is what "開頭卡" turned out to be
+
+/// **The opening of a recording never carries the clip buffer.** Measured 2026-09-22 through the
+/// real `CaptureSession`, reading the master file back: with the buffer attached at stream start
+/// the first 2.5 s delivered about 35 fps, and the same run delivered about 48 fps the moment the
+/// watchdog dropped it. The clip buffer's second encode only costs when it runs beside the master's
+/// — a bare stream with it held 86 fps — so the cost landed exactly on the first seconds of every
+/// recording, which is the part of a video people watch most closely.
+@Test func theOpeningSecondOfARecordingCarriesNoClipBuffer() {
+    #expect(!CaptureSession.clipBufferIsDue(sinceOpenNanos: 0))
+    #expect(!CaptureSession.clipBufferIsDue(sinceOpenNanos: 500_000_000))
+    #expect(!CaptureSession.clipBufferIsDue(sinceOpenNanos: CaptureSession.clipBufferAttachDelayNanos - 1))
+    #expect(CaptureSession.clipBufferIsDue(sinceOpenNanos: CaptureSession.clipBufferAttachDelayNanos))
+}
+
+/// A delay of zero is the design this replaced, so it is pinned away from zero by name.
+@Test func theClipBufferWaitsAtLeastASecond() {
+    #expect(CaptureSession.clipBufferAttachDelayNanos >= 1_000_000_000)
+}

@@ -10,6 +10,7 @@ import CoreGraphics
 import Foundation
 // `Capture` since Phase 3A-4 — the session, the source, permissions and `Minting`.
 import Capture
+import Geometry
 import Observation
 import Project
 import Render
@@ -264,6 +265,16 @@ final class RecordingCoordinator {
         didSet { UserDefaults.standard.set(countdownSeconds, forKey: Self.countdownKey) }
     }
     static let countdownKey = "countdownSeconds"
+
+    /// What this Mac has measured about the rolling clip buffer: the smallest load, in pixels per
+    /// second, at which it had to be dropped. Absent on a fresh install, which is
+    /// `ClipBufferFit.unmeasured`. A measurement, never a preference — nothing shows it and
+    /// nobody sets it; see `ClipBufferFit` for why it is learned rather than a constant.
+    static let clipBufferFitKey = "clipBufferSmallestLoadThatDidNotFit"
+
+    /// The load the current recording started at, kept so that what the watchdog decides about
+    /// it can be written back against the same number at stop.
+    private var clipBufferLoad: Int?
     /// The choices offered. Zero is "off" and is a legitimate answer — a person recording a
     /// window they have already arranged is not waiting three seconds for it.
     static let countdownChoices = [0, 3, 5, 10]
@@ -744,6 +755,17 @@ final class RecordingCoordinator {
         }
         sink = newSink
 
+        // **Decided before the session exists, from what this Mac has already measured.** The
+        // clip buffer's second encode halves the frame rate when it does not fit, and attaching
+        // it only to find that out puts a stutter in the recording. The same geometry call the
+        // session makes, so the two cannot disagree about the size.
+        let geometry = source.geometry(scale: scale, displayUUID: displayUUID)
+        let load = ClipBufferFit.load(width: geometry.pixelWidth, height: geometry.pixelHeight,
+                                      frameRate: frameRate.rawValue)
+        clipBufferLoad = load
+        let learnedFit = ClipBufferFit(smallestLoadThatDidNotFit:
+            UserDefaults.standard.object(forKey: Self.clipBufferFitKey) as? Int)
+
         let newSession = CaptureSession(source: source, scale: scale, displayUUID: displayUUID,
                                         mediaSink: newSink, epoch: Minting.bootEpoch(),
                                         pointerShapeReader: SystemCursorShape.reader(),
@@ -758,7 +780,8 @@ final class RecordingCoordinator {
                                         exclusions: CaptureExclusions(
                                             hidesDock: hidesDock,
                                             hidesMenuBar: hidesMenuBar,
-                                            hidesDesktopWidgets: hidesDesktopWidgets))
+                                            hidesDesktopWidgets: hidesDesktopWidgets),
+                                        attachesClipBuffer: learnedFit.attaches(atLoad: load))
         session = newSession
         // **This app's own windows, told to the capture before it starts.** The accessibility
         // observer must never hit-test a point over one of them; see `OwnWindowReporter`. Told
@@ -947,6 +970,27 @@ final class RecordingCoordinator {
         return true
     }
 
+    /// Writes back what this recording proved about the clip buffer — and nothing, when it
+    /// proved nothing.
+    ///
+    /// **Only a JUDGED outcome is learned from.** A recording that stopped before the watchdog's
+    /// window closed, or one that never carried the buffer, says nothing about whether this Mac
+    /// can afford it, and treating it as a keep would clear a threshold that was measured.
+    private func learnClipBufferFit(from diagnostics: CaptureSession.Diagnostics) {
+        guard let load = clipBufferLoad else { return }
+        clipBufferLoad = nil
+        let wasDropped = diagnostics.clipBufferDropped != nil
+        guard wasDropped || diagnostics.clipBufferKept else { return }
+        let before = ClipBufferFit(smallestLoadThatDidNotFit:
+            UserDefaults.standard.object(forKey: Self.clipBufferFitKey) as? Int)
+        let after = before.learning(load: load, wasDropped: wasDropped)
+        if let limit = after.smallestLoadThatDidNotFit {
+            UserDefaults.standard.set(limit, forKey: Self.clipBufferFitKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.clipBufferFitKey)
+        }
+    }
+
     private func stopRecording() async {
         // A phone recording has no `CaptureSession` and no camera; it finishes on its own path
         // and this one would read a `session` that never existed.
@@ -992,6 +1036,7 @@ final class RecordingCoordinator {
         statusText = String(localized: "Finishing\u{2026}")
         do {
             let outcome = try await session.stop()
+            learnClipBufferFit(from: session.diagnostics)
             let discardedCount: Int
             let firstMediaFilename: String?
             switch outcome {
