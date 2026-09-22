@@ -271,6 +271,39 @@ struct StageWindow: View {
         return resolution.size(forAspect: aspect, recordingShortSide: recordingShortSide)
     }
 
+    /// The size the PREVIEW composites at — the export's, capped.
+    ///
+    /// **A preview was compositing at the recording's own size**: 6.86 Mpixels a frame at 60 fps
+    /// for a 3492 x 1964 recording, to fill a pane about 900 points wide. A custom compositor
+    /// that misses AVFoundation's per-frame deadline has the frame DROPPED and signalled as
+    /// `-12784`, which is the stutter and the console line together.
+    ///
+    /// **A cap, never an increase**, and the export does not come through here at all. Why the
+    /// preview is still an `AVVideoCompositing` when four of five sibling projects render their
+    /// own, and what the cap costs, are in
+    /// `docs/design/2026-09-22-the-preview-composited-at-export-resolution.md`.
+    static func previewSize(for variant: AspectVariant, resolution: ExportResolution,
+                            recordingShortSide: Int) -> (width: Int, height: Int) {
+        let full = size(for: variant, resolution: resolution, recordingShortSide: recordingShortSide)
+        let short = min(full.width, full.height)
+        guard short > previewShortSideCap, short > 0 else { return full }
+        let scale = Double(previewShortSideCap) / Double(short)
+        return (evenDown(Double(full.width) * scale), evenDown(Double(full.height) * scale))
+    }
+
+    /// 1080 on the short side. A standard rung rather than an invented number, and above what
+    /// any editor pane on a current Mac displays — the pane is a fraction of a window that is a
+    /// fraction of the screen. Somebody on a 6K display with the inspector closed can out-resolve
+    /// it, and would see a slightly soft preview of a sharp export.
+    static let previewShortSideCap = 1080
+
+    /// Even, because an odd buffer dimension is where a stray column of green comes from — the
+    /// same rule `ExportFormat.even` keeps for the export.
+    private static func evenDown(_ value: Double) -> Int {
+        let rounded = Int(value.rounded())
+        return max(2, rounded - (rounded % 2))
+    }
+
     var body: some View {
         // **No sidebar.** It held one row — the recording's filename — which is a whole column
         // spent on a label. The filename is the window's TITLE now, with `navigationDocument`
@@ -674,7 +707,8 @@ struct StageWindow: View {
                                       recordingShortSide: Int = 1080,
                                       variant: AspectVariant = .landscape) async throws
         -> AVVideoComposition {
-        StageCompositor.renderer = try CoreImageFrameRenderer()
+        let renderer = try CoreImageFrameRenderer()
+        StageCompositor.renderer = renderer
         // Where an image background is read from. Set before the composition reaches
         // AVFoundation, on the same terms as every other static here.
         CoreImageFrameRenderer.imageBaseURL = mediaURL.map(ProjectStore.packageURL(forMediaAt:))
@@ -698,8 +732,18 @@ struct StageWindow: View {
         StageCompositor.observationLogURL = candidateLogURL.flatMap {
             FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
         }
-        let size = size(for: variant, resolution: resolution,
-                        recordingShortSide: recordingShortSide)
+        // **The PREVIEW's size, which is not the export's, and that is the whole of this.**
+        let size = Self.previewSize(for: variant, resolution: resolution,
+                                    recordingShortSide: recordingShortSide)
+        // **One throwaway frame before AVFoundation asks for a real one.** `CIContext` compiles
+        // its Metal kernels on first use, and without this the editor paid for that on the frame
+        // somebody pressed play for — which is a frame that misses its deadline and is dropped.
+        // Detached, so opening a project is not held up by it; at the preview's own size, since
+        // warming a different size leaves the real one's allocations unmade.
+        let warmStyle = StageCompositor.style
+        Task.detached(priority: .utility) {
+            renderer.warmUp(outputWidth: size.width, outputHeight: size.height, style: warmStyle)
+        }
         return try await CompositionBuilder.composition(
             for: asset, outputWidth: size.width, outputHeight: size.height,
             frameDuration: CMTime(value: 1, timescale: 60))

@@ -46,6 +46,61 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         ])
     }
 
+    /// Renders one throwaway frame so the first real one does not pay for the pipeline.
+    ///
+    /// **`CIContext` compiles its Metal kernels on first use, and the editor was paying that on
+    /// the frame somebody pressed play for.** Nothing here is cached until a render has happened:
+    /// the context builds its command queue, compiles a kernel per filter the graph touches, and
+    /// warms the GPU's caches. That is why an editor feels worst in its first second and fine
+    /// afterwards, and why the compositor's own `-12784` refusals cluster at the start — a frame
+    /// that arrives while shaders are still compiling misses AVFoundation's deadline.
+    ///
+    /// Renders at the size the real frames will be, because a 64x64 warm-up compiles the kernels
+    /// but leaves the GPU's allocations for the real size unmade.
+    ///
+    /// Silent on failure by design: a warm-up that could not run is a first frame that is slow,
+    /// which is what was happening anyway. It must never be the reason a recording will not open.
+    @discardableResult
+    public func warmUp(outputWidth: Int, outputHeight: Int, style: StageStyle) -> WarmUpOutcome {
+        guard outputWidth > 1, outputHeight > 1 else { return .sizeUnusable }
+        guard let source = Self.scratchBuffer(width: outputWidth, height: outputHeight),
+              let destination = Self.scratchBuffer(width: outputWidth, height: outputHeight)
+        else { return .noBuffers }
+        let plan = StagePlanner.plan(outputWidth: outputWidth, outputHeight: outputHeight,
+                                     sourceWidth: outputWidth, sourceHeight: outputHeight,
+                                     style: style)
+        do { try render(plan, source: source, camera: nil, into: destination) }
+        catch { return .renderFailed(String(describing: error)) }
+        return .warmed
+    }
+
+    /// What a warm-up did. **A named value for every refusal**, never a silent `return`: a
+    /// caller that wanted to know why the first frame is still slow has one place to look, and
+    /// a test can tell "it warmed" from "it decided not to".
+    public enum WarmUpOutcome: Equatable, Sendable {
+        case warmed
+        /// Below two pixels on an edge, which is not a frame.
+        case sizeUnusable
+        /// `CVPixelBufferCreate` refused. A machine this short of memory has a larger problem
+        /// than a slow first frame, so this is reported rather than retried.
+        case noBuffers
+        /// The render itself threw. Carries what it said.
+        case renderFailed(String)
+    }
+
+    /// A buffer to warm against. `nil` rather than a trap: this is a convenience, and a machine
+    /// that cannot spare two buffers has a bigger problem than a slow first frame.
+    private static func scratchBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+        var buffer: CVPixelBuffer?
+        let attributes: [String: Any] = [
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+        ]
+        guard unsafe CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA,
+                                         attributes as CFDictionary, &buffer) == kCVReturnSuccess
+        else { return nil }
+        return buffer
+    }
+
     public func render(_ plan: RenderPlan, source: CVPixelBuffer, camera: CVPixelBuffer?,
                        into destination: CVPixelBuffer) throws {
         let background = backgroundImage(plan)

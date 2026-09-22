@@ -42,26 +42,56 @@ if [ -z "$APP" ]; then
 fi
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"; pkill -x Soredemo 2>/dev/null || true' EXIT
+# **The log is KEPT, for the probe runner's reason.** This script deleted it on exit, so a run
+# that printed six zeros left nothing to ask whether the app had done anything at all — and on
+# 2026-09-22 a run did exactly that, reporting zeros for a play that never started. A count
+# with no log behind it is a rumour.
+KEEP="${SOREDEMO_COMPLAINT_LOG:-$WORK/unified.log}"
+trap 'pkill -x Soredemo 2>/dev/null || true; [ "$KEEP" = "$KEEP" ] && rm -rf "$WORK"' EXIT
 
 pkill -x Soredemo 2>/dev/null || true
 for _ in $(seq 1 30); do pgrep -x Soredemo >/dev/null || break; sleep 0.5; done
 sleep 1
 
-/usr/bin/log stream --style compact --predicate 'process == "Soredemo"' > "$WORK/unified.log" 2>&1 &
+/usr/bin/log stream --style compact --predicate 'process == "Soredemo"' > "$KEEP" 2>&1 &
 STREAM=$!
 disown "$STREAM" 2>/dev/null || true
 sleep 2
 
 "$APP/Contents/MacOS/Soredemo" --open-project "$PROJECT" > /dev/null 2>&1 &
 disown $! 2>/dev/null || true
-sleep "${SECONDS_TO_WATCH:-18}"
+
+# **The editor is PLAYED, not merely opened, and that distinction was measured.** Opening one
+# project produced 0 reentrant layout passes, 0 compositor refusals and 0 onChange re-entries —
+# and a console paste from a person editing carried all three. `--open-project` reaches the
+# window and stops; every message this script exists to count comes from the composition
+# actually running. So Space is posted to the app, which is the transport's own shortcut and
+# therefore the same path a person takes, rather than a back door into the player.
+#
+# Nothing here asserts the keypress landed. If it did not, the counts below are an opened
+# editor's again — which is why the play window is reported separately rather than folded into
+# one number nobody can take apart.
+sleep 6
+PLAY_SECONDS="${PLAY_SECONDS:-12}"
+/usr/bin/swift - <<'SWIFT' >/dev/null 2>&1 || echo "NOTE: could not post the play key; counts below are an opened editor, not a playing one" >&2
+import CoreGraphics
+// 49 is the SPACE key's POSITION. Key codes are positions, not letters, which is why this is a
+// number and not a character: on a Dvorak or AZERTY layout the character would move and the
+// space bar would not.
+if let down = CGEvent(keyboardEventSource: nil, virtualKey: 49, keyDown: true),
+   let up = CGEvent(keyboardEventSource: nil, virtualKey: 49, keyDown: false) {
+    down.post(tap: .cghidEventTap)
+    usleep(60_000)
+    up.post(tap: .cghidEventTap)
+}
+SWIFT
+sleep "$PLAY_SECONDS"
 pkill -x Soredemo 2>/dev/null || true
 sleep 2
 kill "$STREAM" 2>/dev/null || true
 sleep 1
 
-LINES=$(wc -l < "$WORK/unified.log" | tr -d ' ')
+LINES=$(wc -l < "$KEEP" | tr -d ' ')
 echo "unified log lines: $LINES"
 if [ "$LINES" -lt 100 ]; then
   echo "" >&2
@@ -71,11 +101,25 @@ if [ "$LINES" -lt 100 ]; then
   exit 1
 fi
 
-printf 'reentrant layout passes: %s\n' "$(grep -c 'laid out reentrantly' "$WORK/unified.log" || true)"
-printf 'attribute graph cycles:  %s\n' "$(grep -c 'Cycle detected through attribute' "$WORK/unified.log" || true)"
-printf 'onChange re-entries:     %s\n' "$(grep -c 'tried to update multiple times per frame' "$WORK/unified.log" || true)"
+printf 'reentrant layout passes: %s\n' "$(grep -c 'laid out reentrantly' "$KEEP" || true)"
+printf 'attribute graph cycles:  %s\n' "$(grep -c 'Cycle detected through attribute' "$KEEP" || true)"
+printf 'onChange re-entries:     %s\n' "$(grep -c 'tried to update multiple times per frame' "$KEEP" || true)"
+# **The compositor's own refusals, counted here because nothing else counts them while a
+# person is watching.** `StageCompositor.Diagnostics.refusals` has held a per-kind tally since
+# the five causes were split apart, and exactly one place reads it: the sheet shown after an
+# export. During PLAYBACK the same refusal reaches the console as one opaque line and nothing
+# adds it up — which is how "the editor feels janky" and "the compositor dropped 400 frames"
+# stay two unconnected observations. A count is not the cause, but it decides whether there is
+# one to look for.
+printf 'compositor refusals:     %s\n' "$(grep -c 'CustomVideoCompositor.*signalled err' "$KEEP" || true)"
+printf 'file player errors:      %s\n' "$(grep -c 'FigFilePlayer.*signalled err' "$KEEP" || true)"
+printf 'uncommitted CATransactions: %s\n' "$(grep -c 'uncommitted CATransaction' "$KEEP" || true)"
 echo ""
 echo "Measured 2026-09-18 on this machine, opening one project: 1-2 cycles, 0 of the other two."
-echo "The reentrant layout and the onChange re-entry were reported from a session that also"
-echo "opened the caption editor and played the video; --open-project alone does not reach them,"
-echo "so a zero here is 'this path did not produce one' and not 'the app does not'."
+echo "The three counts below that were added 2026-09-22 have no measured baseline yet: they were"
+echo "added because a console paste carried one of each and nothing could say whether that was"
+echo "one or four hundred."
+echo "The run covers an open (6 s) and then a play (${PLAY_SECONDS}s), because opening alone"
+echo "produced zeros for every count while a person editing saw all of them. A zero is still"
+echo "'this path did not produce one' and not 'the app does not' — the caption editor, scrubbing"
+echo "and the inspector panels are not reached by this script at all."
