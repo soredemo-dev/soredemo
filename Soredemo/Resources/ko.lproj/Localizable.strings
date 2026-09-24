@@ -510,3 +510,8 @@
 "YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube와 Spotify는 −14로 정규화합니다. −16이면 그 아래로 약간의 여유가 남습니다.";
 "Click to record · ⎋ to cancel" = "클릭하면 녹화 시작 · ⎋ 취소";
 "Delete this sentence from the video" = "이 문장을 영상에서 삭제";
+
+/* The card's tilt — see docs/design/2026-09-25-tilting-the-card.md */
+"Lean" = "앞뒤 기울기";
+"Turn" = "좌우 회전";
+"Flat" = "기울이지 않음";

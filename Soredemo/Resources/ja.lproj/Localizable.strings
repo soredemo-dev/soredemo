@@ -512,3 +512,8 @@
 "YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube と Spotify は −14 に正規化します。−16 ならその下に少し余裕が残ります。";
 "Click to record · ⎋ to cancel" = "クリックで録画開始 · ⎋ でキャンセル";
 "Delete this sentence from the video" = "この文を動画から削除";
+
+/* The card's tilt — see docs/design/2026-09-25-tilting-the-card.md */
+"Lean" = "前後の傾き";
+"Turn" = "左右の回転";
+"Flat" = "傾けない";

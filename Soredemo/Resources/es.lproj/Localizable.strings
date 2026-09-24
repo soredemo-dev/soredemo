@@ -512,3 +512,8 @@
 "YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube y Spotify normalizan a −14; −16 deja algo de margen por debajo.";
 "Click to record · ⎋ to cancel" = "Haz clic para grabar · ⎋ para cancelar";
 "Delete this sentence from the video" = "Eliminar esta frase del vídeo";
+
+/* The card's tilt — see docs/design/2026-09-25-tilting-the-card.md */
+"Lean" = "Inclinación";
+"Turn" = "Giro";
+"Flat" = "Sin inclinación";

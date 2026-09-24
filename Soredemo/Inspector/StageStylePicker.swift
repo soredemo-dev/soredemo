@@ -140,6 +140,18 @@ final class StageStyleModel {
     func setShadowOpacity(_ value: Double) { apply(shadowOpacity: value) }
     func setBorderOpacity(_ value: Double) { apply(borderOpacity: value) }
 
+    /// How far the card is turned. Two angles, one at a time, because a person adjusts one axis
+    /// and looks — `StageTilt` clamps both, so a slider dragged to its own end cannot trap.
+    func setTiltPitch(_ value: Double) {
+        apply(tilt: StageTilt(pitch: value, yaw: style.tilt.yaw, distance: style.tilt.distance))
+    }
+    func setTiltYaw(_ value: Double) {
+        apply(tilt: StageTilt(pitch: style.tilt.pitch, yaw: value, distance: style.tilt.distance))
+    }
+    /// Back to square on. Offered as its own control because returning two sliders to exactly
+    /// zero by hand is a thing nobody manages.
+    func setTiltFlat() { apply(tilt: .flat) }
+
     /// One writer for the whole struct: `StageStyle` has a validating initialiser
     /// (`insetFraction` must be in [0, 0.5) or it traps), so every change goes through it
     /// exactly once rather than through four near-copies that each have to remember.
@@ -148,7 +160,8 @@ final class StageStyleModel {
                        borderOpacity: Double? = nil,
                        deviceModel: DeviceFrame.Model?? = nil,
                        deviceFinish: DeviceFrame.Finish? = nil,
-                       backgroundBlur: Double? = nil) {
+                       backgroundBlur: Double? = nil,
+                       tilt: StageTilt? = nil) {
         style = StageStyle(
             // Clamped, not asserted: this comes from a slider, and a UI that can trap the
             // app by being dragged to its own maximum is a UI with a bug in it.
@@ -167,7 +180,8 @@ final class StageStyleModel {
             // off". One optional could not say the second thing.
             deviceModel: deviceModel ?? style.deviceModel,
             deviceFinish: deviceFinish ?? style.deviceFinish,
-            backgroundBlur: backgroundBlur ?? style.backgroundBlur)
+            backgroundBlur: backgroundBlur ?? style.backgroundBlur,
+            tilt: tilt ?? style.tilt)
         publish()
     }
 
@@ -284,6 +298,26 @@ struct StageStylePicker: View {
             // the shadow is the control that works there.
             slider("Edge", value: model.style.borderOpacity, range: 0...1) {
                 model.setBorderOpacity($0); onChange()
+            }
+
+            // **Two axes and a way back, and nothing else.** A tilt that ANIMATES is a different
+            // feature — it needs a track, keyframes and a retiming story — and offering a third
+            // slider for the viewing distance would be a lens control on a panel that has no
+            // other lens controls. See `docs/design/2026-09-25-tilting-the-card.md`.
+            slider("Lean", value: model.style.tilt.pitch,
+                   range: -StageTilt.steepestAngle...StageTilt.steepestAngle) {
+                model.setTiltPitch($0); onChange()
+            }
+            slider("Turn", value: model.style.tilt.yaw,
+                   range: -StageTilt.steepestAngle...StageTilt.steepestAngle) {
+                model.setTiltYaw($0); onChange()
+            }
+            // Only when there is something to undo: returning two sliders to exactly zero by
+            // hand is a thing nobody manages, and a button that does nothing is noise.
+            if !model.style.tilt.isFlat {
+                Button("Flat") { model.setTiltFlat(); onChange() }
+                    .buttonStyle(.link)
+                    .font(Type.detail)
             }
         }
     }

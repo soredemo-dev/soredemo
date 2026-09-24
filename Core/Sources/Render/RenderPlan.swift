@@ -233,6 +233,9 @@ public struct StageStyle: Hashable, Codable, Sendable {
     /// value at its centre. So the slider is only offered where it changes something, and the
     /// renderer skips the pass rather than paying for one that cannot be seen.
     public let backgroundBlur: Double
+    /// How far the card is turned away from the viewer. `.flat` is no turn, and is compared
+    /// against rather than `nil` — see `StageTilt`.
+    public let tilt: StageTilt
 
     public static let `default` = StageStyle(
         insetFraction: 0.06, cornerRadius: 18, shadowRadius: 32, shadowOpacity: 0.35,
@@ -243,7 +246,9 @@ public struct StageStyle: Hashable, Codable, Sendable {
                 borderOpacity: Double = 0,
                 deviceModel: DeviceFrame.Model? = nil,
                 deviceFinish: DeviceFrame.Finish = .graphite,
-                backgroundBlur: Double = 0) {
+                backgroundBlur: Double = 0,
+                tilt: StageTilt = .flat) {
+        self.tilt = tilt
         precondition(insetFraction >= 0 && insetFraction < 0.5,
                      "insetFraction must be in [0, 0.5), got \(insetFraction)")
         self.insetFraction = insetFraction
@@ -270,6 +275,7 @@ extension StageStyle {
         case borderOpacity
         case deviceModel, deviceFinish
         case backgroundBlur
+        case tilt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -306,6 +312,9 @@ extension StageStyle {
                                                           forKey: .deviceModel)
         self.deviceFinish = (try? container.decodeIfPresent(DeviceFrame.Finish.self,
                                                             forKey: .deviceFinish)) ?? .graphite
+        // Absent is flat, for the border's and the blur's reason: every project written before
+        // the card could turn has no such key, and flat is what those were exported with.
+        self.tilt = try container.decodeIfPresent(StageTilt.self, forKey: .tilt) ?? .flat
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -330,6 +339,9 @@ extension StageStyle {
             try container.encode(deviceModel, forKey: .deviceModel)
             try container.encode(deviceFinish, forKey: .deviceFinish)
         }
+        // Only when the card is actually turned — the rule the two fields above keep, and the
+        // one the comment above them says has been forgotten three times.
+        if !tilt.isFlat { try container.encode(tilt, forKey: .tilt) }
     }
 }
 

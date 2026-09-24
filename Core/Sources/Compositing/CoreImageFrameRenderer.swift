@@ -281,6 +281,28 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// `card.width / image.extent.width` and translates by the plan's own origin; an image
     /// cropped in place would still carry its offset in `extent.minX` and would land that far
     /// off the card.
+    /// `image` turned, if the style says the card is turned.
+    ///
+    /// **Cropped to `rect` first, because `CIPerspectiveTransform` maps the image's EXTENT
+    /// corners** to the four points it is given — without the crop it would squash the whole
+    /// canvas into the card's quad.
+    ///
+    /// Affine cannot do this: it maps a rectangle to a parallelogram, so the far edge stays as
+    /// long as the near one and the result reads as a shear. See
+    /// `docs/design/2026-09-25-tilting-the-card.md`.
+    static func tilted(_ image: CIImage, of rect: StageRect, by tilt: StageTilt) -> CIImage {
+        guard !tilt.isFlat, rect.width > 0, rect.height > 0 else { return image }
+        let quad = tilt.quad(for: rect)
+        let box = HeadlessGeometryBridge.rect(x: rect.x, y: rect.y,
+                                              width: rect.width, height: rect.height)
+        return image.cropped(to: box).applyingFilter("CIPerspectiveTransform", parameters: [
+            "inputTopLeft": CIVector(x: quad.topLeft.x, y: quad.topLeft.y),
+            "inputTopRight": CIVector(x: quad.topRight.x, y: quad.topRight.y),
+            "inputBottomRight": CIVector(x: quad.bottomRight.x, y: quad.bottomRight.y),
+            "inputBottomLeft": CIVector(x: quad.bottomLeft.x, y: quad.bottomLeft.y),
+        ])
+    }
+
     static func cropped(_ image: CIImage, to crop: CropRect) -> CIImage {
         guard !crop.isWhole else { return image }
         let extent = image.extent
@@ -404,9 +426,16 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                 "inputColor": CIColor(red: 0, green: 0, blue: 0, alpha: alpha),
             ])?.outputImage
         }
-        guard let ambient = silhouette(alpha: opacity * Self.ambientShare) else { return nil }
+        // **Turned before it is blurred, and turned at all because a square shadow under a
+        // turned card is the tell that the 3D is a sticker.** Before rather than after so the
+        // blur follows the shape that is actually being cast; `CIPerspectiveTransform` on an
+        // already-blurred silhouette would map the blur's own extent and shrink it.
+        func turned(_ image: CIImage?) -> CIImage? {
+            image.map { Self.tilted($0, of: silhouetteRect, by: plan.style.tilt) }
+        }
+        guard let ambient = turned(silhouette(alpha: opacity * Self.ambientShare)) else { return nil }
         let ambientBlurred = ambient.applyingGaussianBlur(sigma: radius / 2)
-        guard let key = silhouette(alpha: opacity * Self.keyShare) else { return ambientBlurred }
+        guard let key = turned(silhouette(alpha: opacity * Self.keyShare)) else { return ambientBlurred }
         // Down is −y: the plan is bottom-left origin.
         let keyBlurred = key
             .transformed(by: CGAffineTransform(translationX: 0, y: -radius * Self.keyDropFraction))
@@ -434,7 +463,10 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let blur = plan.motionBlur {
             placed = Self.smeared(placed, by: blur)
         }
-        return rounded(placed, plan: plan)
+        // Masked first, then turned: the rounded corners and the edge turn WITH the picture,
+        // which is what a turned object does. Turning first would leave an axis-aligned mask
+        // cutting across a turned image.
+        return Self.tilted(rounded(placed, plan: plan), of: plan.card, by: plan.style.tilt)
     }
 
     /// **The screen's pixels are sRGB, whatever the master's tag says, and this is where that is

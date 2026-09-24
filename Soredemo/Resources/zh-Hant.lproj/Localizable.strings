@@ -526,3 +526,8 @@
 "YouTube and Spotify normalise to −14; −16 leaves a little headroom under it." = "YouTube 和 Spotify 會正規化到 −14;−16 會在它下面留一點餘裕。";
 "Click to record · ⎋ to cancel" = "點一下開始錄製 · ⎋ 取消";
 "Delete this sentence from the video" = "把這句從影片裡刪掉";
+
+/* The card's tilt — see docs/design/2026-09-25-tilting-the-card.md */
+"Lean" = "前後傾";
+"Turn" = "左右轉";
+"Flat" = "不傾斜";
