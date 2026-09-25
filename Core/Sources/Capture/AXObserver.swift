@@ -84,6 +84,10 @@ final class AXObserver: @unchecked Sendable {
         /// not granted. Read only on that path, so the grant costs one TCC query
         /// per empty hit-test rather than one per click.
         public internal(set) var hitTestsReturnedNothingWithoutAccessibility = 0
+        /// Clicks on this app's own windows, which are not asked about at all. Its own bucket
+        /// rather than folded into `hitTestsReturnedNothing`: the two lead the camera to
+        /// opposite decisions, so a count that merged them could not say which one happened.
+        public internal(set) var clicksOverOwnWindow = 0
 
         public internal(set) var clickInsideTheHitFrame = 0
         public internal(set) var clickOutsideTheHitFrame = 0
@@ -135,11 +139,11 @@ final class AXObserver: @unchecked Sendable {
             clicksObserved == chainsRecorded + clicksWithNoGlobalPoint + clicksDroppedByBacklog
         }
 
-        /// Every record carries exactly one of the four truncation reasons.
+        /// Every record carries exactly one of the five truncation reasons.
         /// `ancestorWalksStoppedAtTheDepthCap` is deliberately not a term here.
         public var everyRecordHasATruncationReason: Bool {
             chainsRecorded == truncatedReachedRoot + truncatedDepthCapReached
-                + truncatedBudgetExceeded + hitTestsReturnedNothing
+                + truncatedBudgetExceeded + hitTestsReturnedNothing + clicksOverOwnWindow
         }
 
         /// Every record falls into exactly one containment case.
@@ -398,8 +402,18 @@ final class AXObserver: @unchecked Sendable {
         // The hit-test, and NOTHING else, inside the recorded interval: the API
         // carries no timestamp, so this interval's width is the whole
         // uncertainty about when the answer was true (D2-2a).
+        //
+        // **Our own windows are decided HERE, before any source is asked.** It used to be only
+        // `LiveAXElementSource.hitTest` that knew, answering `nil` — which reads exactly like
+        // "nothing there", and "nothing there" is what the camera's pointer fallback zooms to.
+        // A click on the recording bar's Stop was therefore a zoom on the last 0.4 s of every
+        // recording stopped from it (`ZoomBlock.preRoll`). Deciding it here names the reason in
+        // the record; the live source keeps its own check, because asking about our own window
+        // in-process is the crash `OwnWindowExclusion` was written for.
+        let overOwnWindow = ownWindows.contains(globalTopLeftX: point.x, globalTopLeftY: point.y)
         let hitTestBefore = Minting.hostNow()
-        let hitElement = source.hitTest(globalTopLeftX: point.x, globalTopLeftY: point.y)
+        let hitElement = overOwnWindow
+            ? nil : source.hitTest(globalTopLeftX: point.x, globalTopLeftY: point.y)
         let hitTestAfter = Minting.hostNow()
         tally.axCalls += 1
         let hitTestInterval = range(from: hitTestBefore, to: hitTestAfter, epoch: epoch, into: &tally)
@@ -425,6 +439,7 @@ final class AXObserver: @unchecked Sendable {
             case .depthCapReached:        tally.truncatedDepthCapReached = 1
             case .budgetExceeded:         tally.truncatedBudgetExceeded = 1
             case .hitTestReturnedNothing: tally.hitTestsReturnedNothing = 1
+            case .overOwnWindow:          tally.clicksOverOwnWindow = 1
             }
             // Computed from the record about to be returned, so what is counted
             // here and what a reader recomputes from disk cannot disagree.
@@ -437,6 +452,10 @@ final class AXObserver: @unchecked Sendable {
             }
             merge(tally)
             return record
+        }
+
+        if overOwnWindow {
+            return finish(hit: nil, ancestors: [], children: nil, truncation: .overOwnWindow)
         }
 
         guard let hitElement else {
@@ -578,6 +597,7 @@ final class AXObserver: @unchecked Sendable {
             unsafe _diagnostics.hitTestsReturnedNothing += tally.hitTestsReturnedNothing
             unsafe _diagnostics.hitTestsReturnedNothingWithoutAccessibility
                 += tally.hitTestsReturnedNothingWithoutAccessibility
+            unsafe _diagnostics.clicksOverOwnWindow += tally.clicksOverOwnWindow
             unsafe _diagnostics.clickInsideTheHitFrame += tally.clickInsideTheHitFrame
             unsafe _diagnostics.clickOutsideTheHitFrame += tally.clickOutsideTheHitFrame
             unsafe _diagnostics.clickFrameNotComparable += tally.clickFrameNotComparable

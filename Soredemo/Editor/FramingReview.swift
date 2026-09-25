@@ -311,6 +311,7 @@ struct FramingReviewInspector: View {
     static func label(for rejection: FramingRejection) -> String {
         switch rejection {
         case .hitTestReturnedNothing:   return "Nothing was under the click"
+        case .overOwnWindow:            return "The click was on the recorder's own controls"
         case .noFrameRecorded:          return "The control reported no position"
         case .staleObservation:         return "The window may have moved during the check"
         case .notComparable:            return "The control and the click were in different coordinate systems"

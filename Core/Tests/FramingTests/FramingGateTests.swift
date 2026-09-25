@@ -156,3 +156,39 @@ private func chain(hit: AXElementRecord? = element(),
     #expect(all.contains("tooLarge"))
     #expect(all.contains("bestCandidateOnTheTruncationBoundary"))
 }
+
+// MARK: - a click on the recorder's own window
+
+/// **The whole path, through the real gate and the real plan's pointer fallback.** A click on
+/// the recording bar — Stop, most often — is recorded as `.overOwnWindow` with no hit. Before
+/// this, the gate turned every missing hit into `.hitTestReturnedNothing`, and the plan's
+/// fallback zooms to the pointer for exactly that, so every recording stopped from the bar
+/// ended with the camera moving toward where the bar had been.
+@Test func aClickOnTheRecordersOwnWindowIsNeverZoomedToNotEvenByTheFallback() {
+    let record = chain(hit: nil, ancestors: [], truncation: .overOwnWindow)
+    let decision = FramingGate.decide(for: record)
+    #expect(decision.rejection == .overOwnWindow,
+            "the refusal must name the recorder's own window, got \(String(describing: decision))")
+
+    let plan = FramingPlan(entries: [FramingPlan.Entry(instant: record.instant,
+                                                       decision: decision,
+                                                       clickPosition: record.clickPosition,
+                                                       clickRevision: record.clickRevision)])
+    let resolved = plan.resolvedWithPointerFallback(overrides: [], revision: revision)
+    #expect(resolved.count == 1)
+    #expect(resolved.allSatisfy { $0.target == nil },
+            "the pointer fallback zoomed to a click on the recorder's own window")
+}
+
+/// The positive control: a click where the hit-test genuinely found nothing still gets the
+/// pointer fallback. Without it, a plan that stopped falling back for EVERY refusal would pass
+/// the test above — and would bring back the eleven identical frames the fallback exists for.
+@Test func aClickOverNothingStillFallsBackToThePointer() {
+    let record = chain(hit: nil, ancestors: [], truncation: .hitTestReturnedNothing)
+    let plan = FramingPlan(entries: [FramingPlan.Entry(instant: record.instant,
+                                                       decision: FramingGate.decide(for: record),
+                                                       clickPosition: record.clickPosition,
+                                                       clickRevision: record.clickRevision)])
+    let resolved = plan.resolvedWithPointerFallback(overrides: [], revision: revision)
+    #expect(resolved.first?.target != nil, "a click over nothing lost its pointer fallback")
+}

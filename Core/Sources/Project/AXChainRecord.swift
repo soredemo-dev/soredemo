@@ -71,6 +71,13 @@ extension AXElementRecord {
 /// also set when the budget ran out while reading the hit element's children.
 public enum ChainTruncation: String, Codable, Sendable {
     case reachedRoot, depthCapReached, budgetExceeded, hitTestReturnedNothing
+    /// The click landed on one of THIS app's own windows — the recording bar, most often,
+    /// because stopping a recording from it is a click. Not asked about at all: see
+    /// `OwnWindowExclusion` for the crash asking caused. **Distinct from
+    /// `hitTestReturnedNothing`, and that distinction is the whole of it**, because the camera
+    /// falls back to the pointer for "nothing there" and must not for "the recorder's own
+    /// controls" — that fallback put a zoom on the last 0.4 s of every bar-stopped recording.
+    case overOwnWindow
 }
 
 /// Whether the click falls inside the element the hit-test returned. Computed

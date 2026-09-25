@@ -565,3 +565,43 @@ private func windowViewport() -> CaptureViewport {
     ax.updateViewport(moved)
     #expect(ax.currentViewport.globalOriginX == 900)
 }
+
+// MARK: - a click on this app's own window
+
+/// **A click on the recorder's own controls is not a click in the demo.** Stopping a recording
+/// from the bar is a click, and the camera's pointer fallback zooms to any click whose
+/// accessibility chain came back empty — so every recording stopped from the bar ended with the
+/// camera travelling toward where the bar had been. `ZoomBlock.preRoll` starts that 400 ms
+/// BEFORE the click, which put it in the last 0.4 s of the video. The same defect Shotbase
+/// fixed in 1.5.0 ("stopping a recording no longer adds an unintended auto-zoom").
+///
+/// Before this, the observer never looked at `ownWindows` itself — only
+/// `LiveAXElementSource.hitTest` did, returning `nil`, which is indistinguishable from "nothing
+/// there". So over any other source the click read as a hit on whatever was beneath it.
+@Test func aClickOnThisAppsOwnWindowIsRecordedAsSuchAndNotAsAHit() throws {
+    let ax = observer()
+    // One of the app's windows covering the whole viewport, so the click is certainly over it.
+    ax.setOwnWindows(OwnWindowExclusion(identifiers: [7]) { _ in
+        PointRect(x: 0, y: 0, width: 1000, height: 500)
+    })
+    let record = try #require(ax.chain(at: click(x: 0.25, y: 0.7),
+                                       source: threeLevelTree(hit: 2)))
+    #expect(record.hit == nil,
+            "a click on this app's own window was recorded as a hit on \(record.hit?.role ?? "?")")
+    #expect(record.truncation == .overOwnWindow,
+            "the record must SAY it was our own window — `hitTestReturnedNothing` is what the fallback zooms to")
+}
+
+/// The positive control, and it runs over the same tree: a click OUTSIDE the app's windows is
+/// still walked exactly as before. Without it, an observer that refused every click would pass
+/// the test above.
+@Test func aClickOutsideThisAppsWindowsIsStillWalked() throws {
+    let ax = observer()
+    ax.setOwnWindows(OwnWindowExclusion(identifiers: [7]) { _ in
+        PointRect(x: 900, y: 400, width: 50, height: 50)
+    })
+    let record = try #require(ax.chain(at: click(x: 0.25, y: 0.7),
+                                       source: threeLevelTree(hit: 2)))
+    #expect(record.hit?.role == "AXButton")
+    #expect(record.truncation == .reachedRoot)
+}

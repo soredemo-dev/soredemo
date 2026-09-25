@@ -12,6 +12,10 @@ import Timeline
 public enum FramingRejection: String, Codable, Hashable, Sendable, CaseIterable {
     /// AX had no element at the click at all.
     case hitTestReturnedNothing
+    /// The click was on one of the recorder's own windows — the recording bar's Stop, most
+    /// often. Not part of the demo, and the one refusal the pointer fallback must never cover:
+    /// falling back here put a zoom on the last 0.4 s of every recording stopped from the bar.
+    case overOwnWindow
     /// An element answered, without geometry. Distinct from a BAD frame: nothing was
     /// measured, so nothing can be judged degenerate or offscreen.
     case noFrameRecorded
@@ -91,6 +95,9 @@ public enum FramingGate {
     /// different cause for the same recording between builds
     /// (`theEarliestApplicableGateIsTheReportedReason`).
     public static func decide(for record: AXChainRecord) -> FramingDecision {
+        // Before the missing-hit guard, because a click on our own window has no hit too — and
+        // reporting it as `.hitTestReturnedNothing` is what let the fallback zoom to it.
+        if record.truncation == .overOwnWindow { return .rejected(.overOwnWindow) }
         guard let hit = record.hit else { return .rejected(.hitTestReturnedNothing) }
         guard let frame = hit.frame else { return .rejected(.noFrameRecorded) }
 

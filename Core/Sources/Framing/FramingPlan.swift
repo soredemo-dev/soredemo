@@ -235,6 +235,10 @@ extension FramingPlan {
             // backwards.
             guard entry.target == nil, !entry.wasOverridden,
                   let reason = entry.rejection ?? gateRejection(at: entry.instant),
+                  // **The one refusal the pointer never covers.** A click on the recorder's own
+                  // window is not a click in the demo; falling back here is what zoomed the last
+                  // 0.4 s of every recording stopped from the bar toward where the bar had been.
+                  reason != .overOwnWindow,
                   let click = byInstant[entry.instant] ?? nil
             else { return entry }
             return ResolvedFraming(instant: entry.instant,
