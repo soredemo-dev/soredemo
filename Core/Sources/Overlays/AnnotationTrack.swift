@@ -48,13 +48,18 @@ public struct AnnotationItem: Sendable, Equatable, Codable, Identifiable {
     /// looks the same in a 30 fps preview and a 60 fps export, and a second enum would be a
     /// second place to add a case to.
     public var animation: TextAnimation
+    /// What a `.callout` says. Empty for every other shape, and kept on them rather than cleared:
+    /// switching a callout to an arrow and back must not discard what somebody typed.
+    public var text: String
 
     public init(id: Int, shape: AnnotationShape,
                 startX: Double, startY: Double, endX: Double, endY: Double,
                 style: AnnotationStyle = .default,
                 start: Nanoseconds, end: Nanoseconds,
-                animation: TextAnimation = .fade) {
+                animation: TextAnimation = .fade,
+                text: String = "") {
         self.id = id
+        self.text = text
         self.shape = shape
         // Clamped into the frame rather than trapped: these arrive from a drag AND from a
         // decoder, and a point stored outside 0…1 would put an arrow off the edge of every
@@ -97,11 +102,14 @@ public struct AnnotationItem: Sendable, Equatable, Codable, Identifiable {
                   // Absence-tolerant: an annotation written before this field existed opens
                   // rather than failing, and `.fade` is what those were drawn with.
                   animation: try container.decodeIfPresent(TextAnimation.self, forKey: .animation)
-                      ?? .fade)
+                      ?? .fade,
+                  // Absent is empty, for `animation`'s reason: every annotation saved before
+                  // callouts existed has no such key, and none of them had anything to say.
+                  text: try container.decodeIfPresent(String.self, forKey: .text) ?? "")
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, shape, startX, startY, endX, endY, style, start, end, animation
+        case id, shape, startX, startY, endX, endY, style, start, end, animation, text
     }
 
     public var duration: Nanoseconds { Nanoseconds(max(0, end.rawValue - start.rawValue)) }

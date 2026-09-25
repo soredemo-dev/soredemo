@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import Render
 
@@ -22,6 +23,17 @@ struct AnnotationArtwork {
     /// The area inside a closed shape, filled at `AnnotationStyle.fillOpacity`. `nil` for an
     /// arrow or a line, which enclose nothing, and for a closed shape whose fill is zero.
     let interior: CGPath?
+    /// A callout's words, already typeset, with the baseline's origin in the same local space as
+    /// the paths. `nil` for every other shape.
+    let text: (line: CTLine, x: Double, y: Double)?
+
+    init(stroked: CGPath, head: CGPath?, interior: CGPath?,
+         text: (line: CTLine, x: Double, y: Double)? = nil) {
+        self.stroked = stroked
+        self.head = head
+        self.interior = interior
+        self.text = text
+    }
 }
 
 /// Arrows, lines, boxes and ellipses, as paths in a local space.
@@ -80,16 +92,89 @@ enum AnnotationArt {
     ///
     /// **Scalars, not a rect** — rule 5 keeps `CGRect` inside the bridge, and a return type
     /// names it as surely as a literal does.
-    static func canvas(for overlay: AnnotationOverlay, strokeWidth: Double, shadowBlur: Double)
+    /// A callout's bubble, its typeset line, and where the line's baseline starts — in the
+    /// overlay's own output space. `nil` when there is nothing to say.
+    ///
+    /// **The bubble is sized to the text rather than the other way round.** A fixed box is one
+    /// the text overflows in German and rattles around in in Japanese; `TextArt` already owns the
+    /// font and `HeadlessGeometryBridge.typographicBounds` already owns the measurement, so this
+    /// borrows both rather than deriving a second answer.
+    static func callout(for overlay: AnnotationOverlay, textPointSize: Double)
+    -> (bubble: (x: Double, y: Double, width: Double, height: Double),
+        line: CTLine, baselineX: Double, baselineY: Double)? {
+        let words = overlay.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, textPointSize > 0 else { return nil }
+        let font = TextArt.font(pointSize: textPointSize, bold: true)
+        // The colour comes from the context the renderer draws into, because the renderer is
+        // the one that knows what the bubble is filled with and therefore what reads on it.
+        let attributed = NSAttributedString(string: words, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true])
+        let line = CTLineCreateWithAttributedString(attributed)
+        let bounds = HeadlessGeometryBridge.typographicBounds(of: line)
+        // Padding in ems, so the bubble breathes the same at every size.
+        let pad = textPointSize * 0.45
+        let width = bounds.width + pad * 2
+        let height = bounds.ascent + bounds.descent + pad * 2
+        let points = scaledPoints(of: overlay)
+        let box = (x: points.from.x - width / 2, y: points.from.y - height / 2,
+                   width: width, height: height)
+        return (box, line,
+                baselineX: box.x + pad,
+                baselineY: box.y + pad + bounds.descent)
+    }
+
+    /// The triangle from the bubble's edge to what the callout points at.
+    ///
+    /// `nil` when the target is INSIDE the bubble — a tail folded back under its own bubble is
+    /// a smear, and a callout sitting on the thing it labels does not need one.
+    static func tail(from bubble: (x: Double, y: Double, width: Double, height: Double),
+                     to target: (x: Double, y: Double), baseWidth: Double) -> CGPath? {
+        let centreX = bubble.x + bubble.width / 2
+        let centreY = bubble.y + bubble.height / 2
+        let dx = target.x - centreX
+        let dy = target.y - centreY
+        let length = (dx * dx + dy * dy).squareRoot()
+        guard length > 0, bubble.width > 0, bubble.height > 0 else { return nil }
+        // Where the ray from the centre leaves the box.
+        let toSide = dx == 0 ? Double.infinity : (bubble.width / 2) / abs(dx)
+        let toTopOrBottom = dy == 0 ? Double.infinity : (bubble.height / 2) / abs(dy)
+        let edge = Swift.min(toSide, toTopOrBottom)
+        guard edge.isFinite, edge < 1 else { return nil }
+        let exitX = centreX + dx * edge
+        let exitY = centreY + dy * edge
+        let half = Swift.max(baseWidth, 1) / 2
+        let perpX = -dy / length * half
+        let perpY = dx / length * half
+        let path = CGMutablePath()
+        path.move(to: HeadlessGeometryBridge.point(x: exitX + perpX, y: exitY + perpY))
+        path.addLine(to: HeadlessGeometryBridge.point(x: target.x, y: target.y))
+        path.addLine(to: HeadlessGeometryBridge.point(x: exitX - perpX, y: exitY - perpY))
+        path.closeSubpath()
+        return path
+    }
+
+    static func canvas(for overlay: AnnotationOverlay, strokeWidth: Double, shadowBlur: Double,
+                       textPointSize: Double = 0)
     -> (x: Double, y: Double, width: Double, height: Double)? {
         guard !overlay.isEmpty else { return nil }
         let points = scaledPoints(of: overlay)
         let pad = padding(for: overlay, strokeWidth: strokeWidth, shadowBlur: shadowBlur)
-        let minX = Swift.min(points.from.x, points.to.x) - pad
-        let minY = Swift.min(points.from.y, points.to.y) - pad
-        let maxX = Swift.max(points.from.x, points.to.x) + pad
-        let maxY = Swift.max(points.from.y, points.to.y) + pad
-        return (x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        var minX = Swift.min(points.from.x, points.to.x)
+        var minY = Swift.min(points.from.y, points.to.y)
+        var maxX = Swift.max(points.from.x, points.to.x)
+        var maxY = Swift.max(points.from.y, points.to.y)
+        // **The bubble reaches past both points**, so a canvas sized to them alone would clip it
+        // — the bubble is centred on `start` and is wider than a point by definition.
+        if overlay.shape == .callout,
+           let callout = callout(for: overlay, textPointSize: textPointSize) {
+            minX = Swift.min(minX, callout.bubble.x)
+            minY = Swift.min(minY, callout.bubble.y)
+            maxX = Swift.max(maxX, callout.bubble.x + callout.bubble.width)
+            maxY = Swift.max(maxY, callout.bubble.y + callout.bubble.height)
+        }
+        return (x: minX - pad, y: minY - pad,
+                width: (maxX + pad) - (minX - pad), height: (maxY + pad) - (minY - pad))
     }
 
     /// **The head's length, and the two constants in it are the shape of the arrow.**
@@ -108,7 +193,8 @@ enum AnnotationArt {
     /// Returns `nil` for an annotation with nothing to draw, so the caller skips the bitmap
     /// entirely rather than allocating one and drawing an empty path into it.
     static func artwork(for overlay: AnnotationOverlay, strokeWidth: Double,
-                        originX: Double, originY: Double) -> AnnotationArtwork? {
+                        originX: Double, originY: Double,
+                        textPointSize: Double = 0) -> AnnotationArtwork? {
         guard !overlay.isEmpty else { return nil }
 
         // **The scale is applied to the geometry, not to the finished image.** A transform on
@@ -120,6 +206,35 @@ enum AnnotationArt {
         let to = (x: points.to.x - originX, y: points.to.y - originY)
 
         switch overlay.shape {
+        case .callout:
+            guard let callout = callout(for: overlay, textPointSize: textPointSize)
+            else { return nil }
+            let box = (x: callout.bubble.x - originX, y: callout.bubble.y - originY,
+                       width: callout.bubble.width, height: callout.bubble.height)
+            let rect = HeadlessGeometryBridge.rect(x: box.x, y: box.y,
+                                                   width: box.width, height: box.height)
+            // A radius in ems, so the bubble's corners keep their proportion at every size.
+            let radius = Swift.min(textPointSize * 0.5, Swift.min(box.width, box.height) / 2)
+            // `unsafe`: `transform` is an `UnsafePointer<CGAffineTransform>?` the memory-safety
+            // gate counts whatever is passed; `nil` is the documented "no transform" and nothing
+            // is dereferenced — the same note the rectangle branch below carries.
+            let bubble = unsafe CGPath(roundedRect: rect, cornerWidth: radius,
+                                       cornerHeight: radius, transform: nil)
+            let whole = CGMutablePath()
+            whole.addPath(bubble)
+            // The tail is part of the bubble's outline, not a second shape: one path means one
+            // fill and one stroke, so the join between them is not drawn over itself.
+            if let tail = tail(from: box, to: to, baseWidth: Swift.max(textPointSize * 0.7, 2)) {
+                whole.addPath(tail)
+            }
+            return AnnotationArtwork(
+                stroked: whole, head: nil,
+                // **Always filled, whatever `fillOpacity` says.** An outline-only callout is a
+                // box with text falling out of it over whatever is behind; the shape's own
+                // legibility is not a slider.
+                interior: whole,
+                text: (callout.line,
+                       callout.baselineX - originX, callout.baselineY - originY))
         case .line:
             return AnnotationArtwork(stroked: segment(from: from, to: to), head: nil,
                                      interior: nil)

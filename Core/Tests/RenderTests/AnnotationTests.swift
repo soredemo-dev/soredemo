@@ -37,27 +37,25 @@ import Testing
         #expect(absurd.blue == 1)
     }
 
-    /// The synthesised decoder assigns stored properties directly, so a hand-edited project file
-    /// reaches the renderer unclamped unless something puts it back in range. `clamped` is that
-    /// something, and this is the test that says so.
-    @Test func aDecodedStyleOutsideItsRangeIsBroughtBackByClamped() throws {
+    /// **Rewritten 2026-09-25, because the premise it guarded is gone.** It used to assert that
+    /// the synthesised decoder bypassed the initialiser and that `clamped` put values back in
+    /// range afterwards — and its own failure message said that if the decoder ever stopped
+    /// bypassing, the premise had changed. It did: `AnnotationStyle.init(from:)` is hand-written
+    /// now and routes through the validating initialiser. So the claim is the stronger one: a
+    /// hand-edited project file is in range the moment it is decoded, with nothing to remember
+    /// to call.
+    @Test func aDecodedStyleOutsideItsRangeIsAlreadyInRange() throws {
         let json = """
         {"strokeWidthFraction": 50, "red": 9, "green": -9, "blue": 0.5, "alpha": 88,
          "fillOpacity": 3, "shadowOpacity": -2, "shadowBlurFraction": 40}
         """
-        let decoded = try JSONDecoder().decode(AnnotationStyle.self,
-                                               from: Data(json.utf8))
-        // Decoding really did bypass the initialiser — otherwise this test proves nothing about
-        // `clamped`, because the value would already be in range.
-        #expect(decoded.strokeWidthFraction == 50, """
-            the synthesised decoder no longer bypasses the initialiser, so this test's premise \
-            has changed: the value would already be in range and `clamped` would be doing \
-            nothing observable below.
-            """)
-        let safe = decoded.clamped
-        #expect(safe.strokeWidthFraction <= 0.08)
-        #expect(safe.red == 1 && safe.green == 0 && safe.alpha == 1)
-        #expect(safe.fillOpacity == 1 && safe.shadowOpacity == 0)
+        let decoded = try JSONDecoder().decode(AnnotationStyle.self, from: Data(json.utf8))
+        #expect(decoded.strokeWidthFraction <= 0.08)
+        #expect(decoded.red <= 1 && decoded.green >= 0 && decoded.alpha <= 1)
+        #expect(decoded.fillOpacity <= 1 && decoded.shadowOpacity >= 0)
+        #expect(decoded.shadowBlurFraction <= 0.05)
+        // And a style saved before callouts existed has no text size, which is the default.
+        #expect(decoded.textSizeFraction == AnnotationStyle.default.textSizeFraction)
     }
 
     /// The shorter edge, not the height. A stroke picked in landscape must weigh the same in the
@@ -123,9 +121,11 @@ import Testing
 
     /// Raw values are the on-disk vocabulary for every saved project, so renaming a case is a
     /// wire-breaking change — the same claim `FramingRejection`'s header makes about its own.
+    /// Adding one is not: a project saved before `callout` existed never contains it, so the four
+    /// old names still decode, which is what this list keeps honest.
     @Test func theShapeNamesOnDiskAreTheOnesEverySavedProjectUses() {
         #expect(AnnotationShape.allCases.map(\.rawValue).sorted()
-                == ["arrow", "ellipse", "line", "rectangle"])
+                == ["arrow", "callout", "ellipse", "line", "rectangle"])
     }
 
     @Test func everyShapeHasItsOwnDisplayName() {

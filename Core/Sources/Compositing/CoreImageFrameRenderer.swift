@@ -1,4 +1,5 @@
 import CoreImage
+import CoreText
 import CoreVideo
 import Foundation
 import Geometry
@@ -658,10 +659,13 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private func annotationImage(_ overlay: AnnotationOverlay,
                                  outputWidth: Int, outputHeight: Int) -> CIImage? {
         guard !overlay.isEmpty else { return nil }
+        // **The text is part of the key.** This key is rebuilt by hand rather than being the
+        // overlay itself, and a field left out of it makes two different annotations share one
+        // bitmap: two callouts in one frame would both say whatever was drawn first.
         let key = AnnotationOverlay(shape: overlay.shape, startX: overlay.startX,
                                     startY: overlay.startY, endX: overlay.endX,
                                     endY: overlay.endY, style: overlay.style,
-                                    opacity: 1, scale: overlay.scale)
+                                    opacity: 1, scale: overlay.scale, text: overlay.text)
         let drawn = annotationCacheLock.withLock { () -> CIImage? in
             if let hit = unsafe annotationCache[key] { return hit }
             guard let made = drawAnnotation(key, outputWidth: outputWidth,
@@ -685,6 +689,18 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return fade.outputImage ?? drawn
     }
 
+    /// The grey a callout's words are drawn in — near-black on a light bubble, white on a dark
+    /// one — by the bubble's relative luminance (Rec. 709 weights).
+    ///
+    /// **Derived rather than chosen**, which is one control fewer and one assumption more: that
+    /// the five inks a person can pick are each clearly light or clearly dark. Amber is the one
+    /// near the line, and it lands on the dark-text side, which is what a highlighter-yellow
+    /// bubble wants.
+    static func calloutTextColour(red: Double, green: Double, blue: Double) -> Double {
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luminance > 0.55 ? 0.08 : 1
+    }
+
     /// The actual drawing. Split from the cache above so the cache has one job and this has one.
     private func drawAnnotation(_ overlay: AnnotationOverlay,
                                 outputWidth: Int, outputHeight: Int) -> CIImage? {
@@ -692,8 +708,11 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                                                outputHeight: outputHeight)
         let blur = overlay.style.shadowBlur(forOutputWidth: outputWidth,
                                             outputHeight: outputHeight)
+        let textSize = overlay.style.textPointSize(forOutputWidth: outputWidth,
+                                                   outputHeight: outputHeight)
         guard let canvas = AnnotationArt.canvas(for: overlay, strokeWidth: stroke,
-                                                shadowBlur: blur) else { return nil }
+                                                shadowBlur: blur, textPointSize: textSize)
+        else { return nil }
         let width = Int(canvas.width.rounded(.up))
         let height = Int(canvas.height.rounded(.up))
         // **A ceiling, and it is not paranoia.** The canvas is derived from two points that a
@@ -703,7 +722,8 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // exactly when a bound earns its place.
         guard width > 0, height > 0, width <= 8192, height <= 8192 else { return nil }
         guard let artwork = AnnotationArt.artwork(for: overlay, strokeWidth: stroke,
-                                                  originX: canvas.x, originY: canvas.y)
+                                                  originX: canvas.x, originY: canvas.y,
+                                                  textPointSize: textSize)
         else { return nil }
 
         // `data: nil`: CGContext owns its backing store and no raw pointer is read here.
@@ -735,9 +755,12 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         }
 
         if let interior = artwork.interior {
+            // A callout's bubble is solid whatever `fillOpacity` says — see
+            // `AnnotationArt.artwork`. Every other closed shape is filled as the person chose.
+            let fill = overlay.shape == .callout ? 1 : overlay.style.fillOpacity
             bitmap.setFillColor(CGColor(red: overlay.style.red, green: overlay.style.green,
                                         blue: overlay.style.blue,
-                                        alpha: overlay.style.alpha * overlay.style.fillOpacity))
+                                        alpha: overlay.style.alpha * fill))
             bitmap.addPath(interior)
             bitmap.fillPath()
         }
@@ -748,6 +771,17 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
             bitmap.setFillColor(colour)
             bitmap.addPath(head)
             bitmap.fillPath()
+        }
+        if let text = artwork.text {
+            // **The halo is switched off for the words.** It exists to separate a thin stroke
+            // from a busy background; text inside a solid bubble already has its background,
+            // and a blurred shadow behind each glyph there reads as a smudge.
+            bitmap.setShadow(offset: HeadlessGeometryBridge.noOffset(), blur: 0, color: nil)
+            let ink = Self.calloutTextColour(red: overlay.style.red, green: overlay.style.green,
+                                             blue: overlay.style.blue)
+            bitmap.setFillColor(CGColor(red: ink, green: ink, blue: ink, alpha: 1))
+            bitmap.textPosition = HeadlessGeometryBridge.point(x: text.x, y: text.y)
+            CTLineDraw(text.line, bitmap)
         }
 
         guard let image = bitmap.makeImage() else { return nil }

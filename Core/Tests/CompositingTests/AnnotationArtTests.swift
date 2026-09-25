@@ -47,8 +47,10 @@ import Testing
         // Well inside the card, which is inset from the frame — an annotation drawn over the
         // stage background instead of the picture would still differ from the empty render, so
         // the coordinates are chosen to make the claim about the card.
+        // Words on every shape, not only the callout: a callout with nothing in it is empty by
+        // definition, and the others store text and ignore it — so one fixture serves all five.
         AnnotationOverlay(shape: shape, startX: 200, startY: 120, endX: 440, endY: 240,
-                          style: red)
+                          style: red, text: "Here")
     }
 
     /// Counts pixels that are recognisably the annotation's own colour rather than merely
@@ -56,6 +58,51 @@ import Testing
     /// the wrong colour, or on any other change to the frame.
     private func reddish(_ frame: [(r: UInt8, g: UInt8, b: UInt8)]) -> Int {
         frame.count { $0.r > 150 && $0.g < 110 && $0.b < 110 }
+    }
+
+    // MARK: - the callout's words
+
+    /// White pixels inside the bubble. The bubble is red, the source is blue, the stage is dark,
+    /// so a white pixel there can only be a glyph — the words were drawn, and drawn in the
+    /// contrasting colour rather than in the bubble's own.
+    private func whiteNear(_ frame: [(r: UInt8, g: UInt8, b: UInt8)], x: Int, y: Int,
+                           radius: Int) -> Int {
+        var count = 0
+        for row in Swift.max(0, y - radius)..<Swift.min(height, y + radius) {
+            for column in Swift.max(0, x - radius)..<Swift.min(width, x + radius) {
+                // Frames are read top-down; the plan's y is bottom-up.
+                let p = frame[(height - 1 - row) * width + column]
+                if p.r > 220 && p.g > 220 && p.b > 220 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    @Test func aCalloutDrawsItsWordsInsideItsBubble() throws {
+        let callout = AnnotationOverlay(shape: .callout, startX: 200, startY: 120,
+                                        endX: 440, endY: 240, style: red, text: "Click here")
+        guard let said = try rendered([callout]) else { return }
+        guard let silent = try rendered([AnnotationOverlay(
+            shape: .callout, startX: 200, startY: 120, endX: 440, endY: 240,
+            style: red, text: "")]) else { return }
+        // The bubble is centred on `start`, so the words are around (200, 120).
+        let withWords = whiteNear(said, x: 200, y: 120, radius: 40)
+        #expect(withWords > 0, "no white glyph pixels near the bubble's centre")
+        // The positive control: an empty callout draws nothing at all, so nothing white there.
+        #expect(whiteNear(silent, x: 200, y: 120, radius: 40) == 0)
+    }
+
+    /// **Two callouts with different words must draw different words.** The bitmap cache is
+    /// keyed on an overlay rebuilt by hand, and a key without `text` would hand the second
+    /// callout the first one's picture.
+    @Test func twoCalloutsWithDifferentWordsDrawDifferentPictures() throws {
+        func frame(_ words: String) throws -> [(r: UInt8, g: UInt8, b: UInt8)]? {
+            try rendered([AnnotationOverlay(shape: .callout, startX: 200, startY: 120,
+                                            endX: 440, endY: 240, style: red, text: words)])
+        }
+        guard let a = try frame("Save"), let b = try frame("Delete everything now") else { return }
+        #expect(zip(a, b).contains { $0 != $1 },
+                "two callouts with different words produced the same frame")
     }
 
     @Test func everyShapeDrawsItsOwnColourIntoTheFrame() throws {

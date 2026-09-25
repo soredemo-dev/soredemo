@@ -201,3 +201,30 @@ import Timeline
         #expect(state.opacity == 1 && state.scale == 1)
     }
 }
+
+// MARK: - a callout's words, on disk
+
+/// Every annotation saved before callouts existed has no `text` key, and must still open.
+@Test func anAnnotationSavedBeforeCalloutsExistedStillOpens() throws {
+    let old = Data(#"""
+        {"id":1,"shape":"arrow","startX":0.2,"startY":0.3,"endX":0.6,"endY":0.7,
+         "style":{"strokeWidthFraction":0.006,"red":1,"green":0,"blue":0,"alpha":1,
+                  "fillOpacity":0,"shadowOpacity":0,"shadowBlurFraction":0},
+         "start":{"rawValue":0},"end":{"rawValue":1000000000}}
+        """#.utf8)
+    let decoded = try JSONDecoder().decode(AnnotationItem.self, from: old)
+    #expect(decoded.text == "")
+    #expect(decoded.shape == .arrow)
+}
+
+/// What somebody typed survives a save and an open — the round trip the encoder and decoder
+/// are hand-written to keep.
+@Test func aCalloutsWordsSurviveASave() throws {
+    let callout = AnnotationItem(id: 3, shape: .callout, startX: 0.2, startY: 0.3,
+                                 endX: 0.6, endY: 0.7, start: Nanoseconds(0),
+                                 end: Nanoseconds(1_000_000_000), text: "按這裡 → Save")
+    let reopened = try JSONDecoder().decode(AnnotationItem.self,
+                                            from: try JSONEncoder().encode(callout))
+    #expect(reopened.text == "按這裡 → Save")
+    #expect(reopened.shape == .callout)
+}

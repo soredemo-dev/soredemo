@@ -156,9 +156,22 @@ struct AnnotationPanel: View {
             // **Shown only for the shapes that have an interior.** A fill control on an arrow
             // is a control a person moves and sees nothing happen, which teaches them the panel
             // is broken rather than that the option does not apply.
-            if item.shape.canBeFilled {
+            //
+            // **Not for a callout**, whose bubble is solid whatever `fillOpacity` says — the same
+            // control-that-does-nothing this comment is about, arriving through the one fillable
+            // shape that ignores its fill.
+            if item.shape.canBeFilled && item.shape != .callout {
                 slider("Fill", value: styleBinding(item) { $0.changing(fillOpacity: $1) },
                        read: item.style.fillOpacity, range: 0...1)
+            }
+            // The words and their size, only where they are drawn. `text` is kept on every shape
+            // so switching away and back does not lose it, but offering to edit it on an arrow
+            // would be offering to edit something nobody can see.
+            if item.shape == .callout {
+                TextField("Text", text: binding(item, \.text))
+                slider("Size", value: styleBinding(item) { $0.changing(textSizeFraction: $1) },
+                       read: item.style.textSizeFraction,
+                       range: AnnotationStyle.smallestTextFraction...AnnotationStyle.largestTextFraction)
             }
             slider("Halo", value: styleBinding(item) { $0.changing(shadowOpacity: $1) },
                    read: item.style.shadowOpacity, range: 0...1)
@@ -284,6 +297,9 @@ struct AnnotationPanel: View {
         case .line: "line.diagonal"
         case .rectangle: "rectangle"
         case .ellipse: "oval"
+        // A bubble WITH words in it, since the words are the whole difference between a callout
+        // and a rectangle — checked to exist, like every symbol this panel names.
+        case .callout: "text.bubble"
         }
     }
 

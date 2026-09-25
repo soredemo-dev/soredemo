@@ -23,6 +23,10 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
     /// The ellipse inscribed in that box. A face, a button, a paragraph — none of them are
     /// rectangles, and `RedactionRegion.isOval` exists for the same reason.
     case ellipse
+    /// A text bubble with a tail. `start` is where the bubble sits, `end` is what it points at —
+    /// the two points every annotation already has, so a callout needs no new geometry and the
+    /// panel's existing position sliders say the right thing about it.
+    case callout
 
     public var displayName: String {
         switch self {
@@ -30,6 +34,7 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
         case .line: "Line"
         case .rectangle: "Rectangle"
         case .ellipse: "Ellipse"
+        case .callout: "Callout"
         }
     }
 
@@ -38,7 +43,9 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
     public var canBeFilled: Bool {
         switch self {
         case .arrow, .line: false
-        case .rectangle, .ellipse: true
+        // The bubble is a filled shape; an outline-only callout is a box with text falling out
+        // of it over whatever is behind.
+        case .rectangle, .ellipse, .callout: true
         }
     }
 }
@@ -74,6 +81,16 @@ public struct AnnotationStyle: Hashable, Codable, Sendable {
     /// the recording was made assuming it was visible.
     public let shadowOpacity: Double
     public let shadowBlurFraction: Double
+    /// A callout's text height, as a fraction of the output's shorter edge — the rule every
+    /// other measurement here follows, and for its reason: the same recording is exported at
+    /// 1920, at 640 for a GIF, and at a portrait variant's size, and a point size is right in
+    /// exactly one of them. Ignored by every shape but `.callout`, and stored on them anyway.
+    public let textSizeFraction: Double
+
+    /// Small enough to sit beside a control without covering it, large enough to survive a GIF
+    /// downscaled to 640. Neither end has been read at arm's length by anybody.
+    public static let smallestTextFraction: Double = 0.012
+    public static let largestTextFraction: Double = 0.12
 
     /// **Red at a weight that reads at 1080p without covering what it points at.** Measured
     /// measured rather than picked: a default annotation stroke is
@@ -81,11 +98,12 @@ public struct AnnotationStyle: Hashable, Codable, Sendable {
     /// GIF export downscaled to 640.
     public static let `default` = AnnotationStyle(
         strokeWidthFraction: 0.006, red: 0.93, green: 0.16, blue: 0.16, alpha: 1,
-        fillOpacity: 0, shadowOpacity: 0.45, shadowBlurFraction: 0.004)
+        fillOpacity: 0, shadowOpacity: 0.45, shadowBlurFraction: 0.004, textSizeFraction: 0.032)
 
     public init(strokeWidthFraction: Double, red: Double, green: Double, blue: Double,
                 alpha: Double, fillOpacity: Double,
-                shadowOpacity: Double, shadowBlurFraction: Double) {
+                shadowOpacity: Double, shadowBlurFraction: Double,
+                textSizeFraction: Double = 0.032) {
         // Clamped rather than trapped, for `TextOverlayStyle`'s reason: every one of these
         // arrives from a slider AND from a decoder, and rule 8 forbids trapping on untrusted
         // input. The stroke's floor is not zero — a zero-width stroke is an annotation that
@@ -98,14 +116,46 @@ public struct AnnotationStyle: Hashable, Codable, Sendable {
         self.fillOpacity = min(max(fillOpacity, 0), 1)
         self.shadowOpacity = min(max(shadowOpacity, 0), 1)
         self.shadowBlurFraction = min(max(shadowBlurFraction, 0), 0.05)
+        self.textSizeFraction = min(max(textSizeFraction, Self.smallestTextFraction),
+                                    Self.largestTextFraction)
     }
 
-    /// Clamped on the way OUT as well as in, because the synthesised `Decodable` never calls the
-    /// initialiser above — rule 8's case, and the same shape `RedactionStyle.clamped` takes.
+    private enum CodingKeys: String, CodingKey {
+        case strokeWidthFraction, red, green, blue, alpha, fillOpacity
+        case shadowOpacity, shadowBlurFraction, textSizeFraction
+    }
+
+    /// **Written by hand because a new field broke every saved project.** The synthesised
+    /// decoder made `textSizeFraction` a required key, so every annotation saved before
+    /// callouts existed failed to open — caught by
+    /// `anAnnotationSavedBeforeAnimationsExistedStillOpens` before it shipped. Absent is the
+    /// default size, the border's and the blur's rule: a cosmetic addition must not be a
+    /// file-format break.
+    ///
+    /// Routed through the validating initialiser, which also closes rule 8 for this type — the
+    /// synthesised decode had never called it, which is what `clamped` below was compensating for.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(strokeWidthFraction: try c.decode(Double.self, forKey: .strokeWidthFraction),
+                  red: try c.decode(Double.self, forKey: .red),
+                  green: try c.decode(Double.self, forKey: .green),
+                  blue: try c.decode(Double.self, forKey: .blue),
+                  alpha: try c.decode(Double.self, forKey: .alpha),
+                  fillOpacity: try c.decode(Double.self, forKey: .fillOpacity),
+                  shadowOpacity: try c.decode(Double.self, forKey: .shadowOpacity),
+                  shadowBlurFraction: try c.decode(Double.self, forKey: .shadowBlurFraction),
+                  textSizeFraction: try c.decodeIfPresent(Double.self, forKey: .textSizeFraction)
+                    ?? AnnotationStyle.default.textSizeFraction)
+    }
+
+    /// Clamped on the way OUT as well as in. Redundant for decoded values since the decoder
+    /// above calls the initialiser, and kept because callers that build a style by other means
+    /// still lean on it — the same shape `RedactionStyle.clamped` takes.
     public var clamped: AnnotationStyle {
         AnnotationStyle(strokeWidthFraction: strokeWidthFraction, red: red, green: green,
                         blue: blue, alpha: alpha, fillOpacity: fillOpacity,
-                        shadowOpacity: shadowOpacity, shadowBlurFraction: shadowBlurFraction)
+                        shadowOpacity: shadowOpacity, shadowBlurFraction: shadowBlurFraction,
+                        textSizeFraction: textSizeFraction)
     }
 
     /// The stroke in output pixels. Never below one: a stroke rounded to zero is a line nobody
@@ -118,19 +168,26 @@ public struct AnnotationStyle: Hashable, Codable, Sendable {
         Double(min(width, height)) * shadowBlurFraction
     }
 
+    /// A callout's text height in output pixels. The shorter edge, for `strokeWidth`'s reason.
+    public func textPointSize(forOutputWidth width: Int, outputHeight height: Int) -> Double {
+        max(6, Double(min(width, height)) * textSizeFraction)
+    }
+
     /// The same style with one field changed. Written once for `TextOverlayStyle`'s reason: an
     /// eight-argument initialiser repeated per slider is eight chances to pass `green` where
     /// `blue` belongs.
     public func changing(strokeWidthFraction: Double? = nil,
                          red: Double? = nil, green: Double? = nil, blue: Double? = nil,
                          alpha: Double? = nil, fillOpacity: Double? = nil,
-                         shadowOpacity: Double? = nil) -> AnnotationStyle {
+                         shadowOpacity: Double? = nil,
+                         textSizeFraction: Double? = nil) -> AnnotationStyle {
         AnnotationStyle(
             strokeWidthFraction: strokeWidthFraction ?? self.strokeWidthFraction,
             red: red ?? self.red, green: green ?? self.green, blue: blue ?? self.blue,
             alpha: alpha ?? self.alpha, fillOpacity: fillOpacity ?? self.fillOpacity,
             shadowOpacity: shadowOpacity ?? self.shadowOpacity,
-            shadowBlurFraction: shadowBlurFraction)
+            shadowBlurFraction: shadowBlurFraction,
+            textSizeFraction: textSizeFraction ?? self.textSizeFraction)
     }
 }
 
@@ -163,10 +220,15 @@ public struct AnnotationOverlay: Hashable, Sendable {
     /// arriving.
     public let opacity: Double
     public let scale: Double
+    /// What a `.callout` says. Empty on every other shape, and stored on them rather than
+    /// refused: switching a callout to an arrow and back must not discard what somebody typed —
+    /// `fillOpacity` is kept on an arrow for the same reason.
+    public let text: String
 
     public init(shape: AnnotationShape, startX: Double, startY: Double,
                 endX: Double, endY: Double, style: AnnotationStyle,
-                opacity: Double = 1, scale: Double = 1) {
+                opacity: Double = 1, scale: Double = 1, text: String = "") {
+        self.text = text
         self.shape = shape
         self.startX = startX
         self.startY = startY
@@ -184,7 +246,14 @@ public struct AnnotationOverlay: Hashable, Sendable {
 
     /// Nothing to draw. A zero-length annotation is what a click that did not become a drag
     /// produces — `RedactionRegion.isEmpty` names the same case for the same reason.
-    public var isEmpty: Bool { length <= 0 || opacity <= 0 }
+    public var isEmpty: Bool {
+        if length <= 0 || opacity <= 0 { return true }
+        // **A callout with nothing written in it has nothing to say.** Whitespace is not text:
+        // a bubble drawn around three spaces is an empty bubble with extra steps.
+        if shape == .callout,
+           text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        return false
+    }
 
     /// The box the two points bound, as `(x, y, width, height)` in output pixels with a
     /// bottom-left origin.
