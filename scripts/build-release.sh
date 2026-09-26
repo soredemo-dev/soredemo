@@ -33,10 +33,26 @@ EXPORTED="$DIST/export"
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
-say "1/6  The four gates"
+# **A release is built from a commit, not from a working tree.** The binary's identity block
+# names the commit it was stamped with; from a dirty tree that name describes code that exists
+# nowhere else. Checked first, before an hour of gates.
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  if [ "${SOREDEMO_ALLOW_DIRTY:-0}" != "1" ]; then
+    echo "The tree has uncommitted changes. Commit them, or set SOREDEMO_ALLOW_DIRTY=1 for a" >&2
+    echo "build whose identity block will say -dirty." >&2
+    git status --short >&2
+    exit 1
+  fi
+fi
+
+say "1/6  The four gates, and the app's own tests"
 # Each is the whole gate, not a subset: a release built from a tree where one was skipped is
 # a release nobody can say anything about.
-swift test --package-path Core
+#
+# `--no-parallel` because the full suite run in parallel has hung inside Apple's test helper
+# with nothing wrong in the code, and a release is the worst place to learn which kind of red
+# this is. Serial is slower and it finishes.
+swift test --package-path Core --no-parallel
 scripts/check-strict-memory-safety.sh
 scripts/run-cross-boundary-probe.sh
 # No `-quiet` on this one: it emitted "the following command failed with exit code 0 but
@@ -45,10 +61,16 @@ scripts/run-cross-boundary-probe.sh
 # and its output is long.
 xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -configuration Release build \
   CODE_SIGNING_ALLOWED=NO | tail -5
+# The app target's tests are not in any of the four: `swift test` never builds the app, so a
+# release could ship with its own suite red. This one refuses to pass having run nothing.
+scripts/run-app-tests.sh
 
 say "2/6  Archive"
 rm -rf "$DIST"
 mkdir -p "$DIST"
+# Stamped for the archive only; see build-provenance.sh for why the placeholder goes back.
+scripts/build-provenance.sh stamp
+trap 'scripts/build-provenance.sh placeholder' EXIT
 xcodebuild -project Soredemo.xcodeproj -scheme Soredemo -configuration Release \
   -archivePath "$ARCHIVE" archive -quiet
 

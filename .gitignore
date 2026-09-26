@@ -18,6 +18,10 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 
+# Coverage runs write this into the working directory. It was committed by accident and rode
+# along in unrelated commits as a binary diff.
+*.profraw
+
 # SwiftPM
 .build/
 .swiftpm/
