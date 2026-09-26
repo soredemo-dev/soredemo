@@ -777,6 +777,12 @@ final class InputObserver: @unchecked Sendable {
             return value
         }
         existing?.cancel()
+        // `cancel()` "does not interrupt an event handler block that is already in progress"
+        // (`dispatch/source.h`). Draining the queue is what makes "stopped" true on return: a
+        // poll already under way would otherwise write this observer's state after the session
+        // has read it. Never called on the poll queue itself — that would wait on itself.
+        dispatchPrecondition(condition: .notOnQueue(pollQueue))
+        pollQueue.sync {}
     }
 
     /// One poll. **The only place `CGEvent.tapIsEnabled` is read.** Reads the

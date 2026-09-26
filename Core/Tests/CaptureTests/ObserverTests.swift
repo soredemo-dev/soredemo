@@ -605,3 +605,44 @@ private func windowViewport() -> CaptureViewport {
     #expect(record.hit?.role == "AXButton")
     #expect(record.truncation == .reachedRoot)
 }
+
+/// **When `stopPolling()` returns, no poll is still running.**
+///
+/// `DispatchSource.cancel()` "does not interrupt an event handler block that is already in
+/// progress" (`dispatch/source.h`), and `stopPolling()` used to be only that. A poll that had
+/// begun kept going after it returned, and wrote the observer's state after the session had
+/// read its diagnostics — the probe saw it as one extra poll, 5 against 4, once in three runs.
+/// Here the poll is held in its shape read, outside the lock, so the window is not a race: the
+/// test stops polling while a poll is provably mid-flight and asks whether that poll finished.
+@Test func stoppingPollingWaitsForAPollAlreadyUnderWay() {
+    final class HeldRead: @unchecked Sendable {
+        let entered = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var calls = 0
+        private var finished = false
+        func read() -> PointerShape? {
+            let isFirst = lock.withLock { calls += 1; return calls == 1 }
+            guard isFirst else { return .arrow }
+            entered.signal()
+            usleep(300_000)
+            lock.withLock { finished = true }
+            return .arrow
+        }
+        var hasFinished: Bool { lock.withLock { finished } }
+    }
+    let held = HeldRead()
+    let observer = InputObserver(viewport: viewport(), epoch: epoch,
+                                 tapIsEnabledOverride: { true },
+                                 pointerShapeReader: { held.read() })
+    observer.startPolling()
+    guard held.entered.wait(timeout: .now() + 2) == .success else {
+        observer.stopPolling()
+        Issue.record("no poll reached the shape read within 2 s — the timer never fired")
+        return
+    }
+    observer.stopPolling()
+    #expect(held.hasFinished, """
+        stopPolling() returned while a poll was still in its shape read — that poll goes on to \
+        write the observer's state after anybody reading it believes polling has stopped
+        """)
+}

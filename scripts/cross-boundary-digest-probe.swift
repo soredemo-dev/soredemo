@@ -6673,11 +6673,24 @@ enum CrossBoundaryProbe {
         }
         // Nothing touches the window for this stretch: the claim is about a STILL screen, and a
         // probe that redrew it would be measuring its own animation.
-        try await Task.sleep(for: .seconds(2))
+        //
+        // **At least two seconds, and then until ten frames or ten seconds.** Two seconds is the
+        // sample this section was written for; the extension only matters when it came up short.
+        // On 2026-09-26 four runs in a row
+        // got 2 frames in 2 s and skipped; the next day 23 and 99, and the same capture in a
+        // program of its own got 61 to 116 whether the screen was still, covered, or idle for
+        // 25 s. Nothing in this section is Soredemo's code, so the spread is the platform's —
+        // and a fixed window turned it into a coin that decided whether 18 ran at all.
+        let started = ContinuousClock.now
+        while ContinuousClock.now - started < .seconds(2)
+                || (collector.snapshot().surfaces.count < 10 && ContinuousClock.now - started < .seconds(10)) {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        let waited = ContinuousClock.now - started
         try? await stream.stopCapture()
 
         let (surfaces, hashes, noSurface) = collector.snapshot()
-        print("        \(surfaces.count) complete frames, \(Set(surfaces).count) distinct "
+        print("        \(surfaces.count) complete frames in \(waited), \(Set(surfaces).count) distinct "
               + "IOSurface ids, \(Set(hashes).count) distinct pictures")
 
         // **The skip is a branch, not a `return`, and that repair is the point.** Sections 19
@@ -6686,8 +6699,8 @@ enum CrossBoundaryProbe {
         // and the run still printed PROBE PASSED, with a smaller number nobody was comparing
         // against anything. A gate that skips has to say so where the verdict is read.
         if surfaces.count < 10 {
-            let why = "18 — only \(surfaces.count) complete frames arrived in 2 s, too few to "
-                + "say anything about duplicates"
+            let why = "18 — only \(surfaces.count) complete frames arrived in \(waited), too few "
+                + "to say anything about duplicates"
             print("        SKIPPED — \(why).")
             skipped.append(why)
         } else {
