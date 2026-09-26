@@ -104,7 +104,18 @@ say "4/6  Verify the signature before asking Apple about it"
 # `--strict` and the hardened-runtime check locally: notarisation rejects the same faults
 # after a round trip that costs minutes.
 codesign --verify --deep --strict --verbose=2 "$APP"
-codesign -d --entitlements - "$APP" 2>/dev/null || true
+# **The entitlements the app records with, read off the artefact.** Release once lacked the
+# camera entitlement that Debug had, and under the hardened runtime that means no camera — in
+# the one build nobody had run. The project-level check is
+# `releaseBuildsTheAppWithTheSameSettingsAsDebug`; this one looks at what is being shipped.
+ENTITLEMENTS=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -p -)
+echo "$ENTITLEMENTS"
+for needed in com.apple.security.device.camera com.apple.security.device.audio-input; do
+  case "$ENTITLEMENTS" in
+    *"\"$needed\" => true"*) ;;
+    *) echo "the exported app lacks $needed — it cannot record with it" >&2; exit 1 ;;
+  esac
+done
 # The output is captured before being searched, NOT piped into `grep -q`. Under `pipefail`
 # that pipeline fails on a MATCH: `grep -q` exits as soon as it finds one, `codesign` takes
 # a SIGPIPE writing the rest, and its non-zero status becomes the pipeline's. The first
