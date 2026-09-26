@@ -356,22 +356,25 @@ final class CaptionsModel {
             track = CaptionTrack(cues: placed)
             publish()
 
-            var note = "Read \(placed.count) cue(s) from \(url.lastPathComponent)."
+            // **One whole sentence per fact, each its own key.** This used to be one `String`
+            // grown with `+=`, which no table could reach — the import report was English in
+            // every language.
+            var report = [String(localized: "Read \(placed.count) cue(s) from \(url.lastPathComponent).")]
             if !reading.refused.isEmpty {
-                note += " \(reading.refused.count) line(s) could not be read"
-                    + " (first at line \(reading.refused[0].line))."
+                report.append(String(localized:
+                    "\(reading.refused.count) line(s) could not be read (first at line \(reading.refused[0].line))."))
             }
             if reading.overlapsTrimmed > 0 {
-                note += " \(reading.overlapsTrimmed) overlapping cue(s) were trimmed."
+                report.append(String(localized: "\(reading.overlapsTrimmed) overlapping cue(s) were trimmed."))
             }
-            if unplaceable > 0 { note += " \(unplaceable) fell outside the edit." }
+            if unplaceable > 0 { report.append(String(localized: "\(unplaceable) fell outside the edit.")) }
             // Word runs are not in a sidecar, so the highlight has nothing to point at until
             // this recording is transcribed again. Said, rather than left to look like the
             // style being broken.
             if style.highlightsSpokenWord {
-                note += " Word-by-word highlighting is off for these."
+                report.append(String(localized: "Word-by-word highlighting is off for these."))
             }
-            status = note
+            status = report.joined(separator: " ")
         } catch SubtitleFile.ReadError.noCues {
             status = String(localized: "\(url.lastPathComponent) has no subtitles in it.")
         } catch {
@@ -639,7 +642,7 @@ struct CaptionsPanel: View {
 
         Picker("Words per line", selection: $maximumWords) {
             Text("As many as fit").tag(Int?.none)
-            ForEach([1, 2, 3, 4, 5, 6], id: \.self) { Text("\($0)").tag(Int?.some($0)) }
+            ForEach([1, 2, 3, 4, 5, 6], id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
         }
         .onChange(of: maximumWords) {
             model.rebuild(outputWidth: outputWidth, outputHeight: outputHeight,

@@ -200,3 +200,169 @@ func theDisplayScanTellsAMarkedSiteFromAnUnmarkedOne(source: String, isUnmarked:
         Say it where the status is written instead — RecordingCoordinator.Status.problem(_:).
         """)
 }
+
+/// **AppKit takes plain strings, so a literal handed to it is English in every language.**
+///
+/// `NSAlert` has no `LocalizedStringKey` overload: `alert.messageText = "Save this recording…"`
+/// compiles, draws, and never reaches a table. The unsaved-work alert was English everywhere
+/// for that reason, with an English gerund slotted into its question. Each of these positions
+/// must be handed `String(localized:)` or a value already built from one.
+@Test func noLiteralIsHandedToAppKitUntranslated() throws {
+    let needles = ["messageText =", "informativeText =", "addButton(withTitle:",
+                   "NSMenuItem(title:", "setActionName(", ".prompt =", ".message =",
+                   ".nameFieldLabel =", ".toolTip =", ".placeholderString ="]
+    var sites: [String] = []
+    var scanned = 0
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let code = SwiftSourceLexer.codeViewLines(of: text)
+        let raw = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        for (index, line) in code.enumerated() where index < raw.count {
+            for needle in needles {
+                guard let hit = line.range(of: needle) else { continue }
+                scanned += 1
+                // The code view blanks string literals, so the quote is read from the raw line
+                // at the same column.
+                let column = line.distance(from: line.startIndex, to: hit.upperBound)
+                var rest = Array(raw[index]).dropFirst(column).drop { $0 == " " }
+                // `x =` at the end of a line, the literal wrapped onto the next one.
+                if rest.isEmpty, index + 1 < raw.count {
+                    rest = Array(raw[index + 1]).dropFirst(0).drop { $0 == " " }
+                }
+                if rest.first == "\"" {
+                    sites.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1): \(needle)\"…\"")
+                }
+            }
+        }
+    }
+    try #require(scanned > 5, "only \(scanned) AppKit string positions were seen — the needles stopped matching")
+    #expect(sites.isEmpty, """
+        A literal handed straight to AppKit is shown as written, in every language:
+        \(sites.joined(separator: "\n"))
+        Wrap it in String(localized:) and add the key to the ten tables.
+        """)
+}
+
+/// **Two literals joined with `+` are a `String`, and a `String` is never looked up.**
+///
+/// `Label("\(name) is connected. " + "Unlock it…")` reads like one sentence, and its comment
+/// said it was one; the `+` made it a `String`, SwiftUI's verbatim overload drew it, and it was
+/// English in every language. The line limit is what invites the split. One literal over the
+/// limit is the house answer (ContentView says so where it does it). `print(` is skipped: a
+/// debug line on stderr is not read by anybody in another language.
+@Test func noSentenceIsTwoLiteralsJoinedWithAPlus() throws {
+    var sites: [String] = []
+    var scanned = 0
+    for file in try appSourceFiles() {
+        let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
+        var inPrint = false
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") { continue }
+            if trimmed.hasPrefix("print(") { inPrint = true }
+            defer { if trimmed.hasSuffix(")") { inPrint = false } }
+            let next = index + 1 < lines.count ? lines[index + 1].trimmingCharacters(in: .whitespaces) : ""
+            let joinsOnThisLine = trimmed.contains("\" + \"")
+            let joinsAcrossLines = trimmed.hasSuffix("\"") && next.hasPrefix("+ \"")
+                || trimmed.hasSuffix("\" +") && next.hasPrefix("\"")
+            guard joinsOnThisLine || joinsAcrossLines else { continue }
+            scanned += 1
+            if !inPrint { sites.append("\(pathRelativeToRepositoryRoot(file)):\(index + 1)") }
+        }
+    }
+    try #require(scanned > 0, "no literal concatenation was seen at all — not even the print( lines this skips")
+    #expect(sites.isEmpty, """
+        These join string literals with +, which makes a String no table is consulted for:
+        \(sites.joined(separator: "\n"))
+        Write the sentence as one literal, even over the line limit.
+        """)
+}
+
+/// The CLDR plural categories each shipped language distinguishes for integers — what a
+/// `.stringsdict` rule has to supply for the language to choose a form at all.
+private let pluralCategories: [String: Set<String>] = [
+    "en": ["one", "other"], "de": ["one", "other"], "es": ["one", "other"],
+    "fr": ["one", "other"], "pt-BR": ["one", "other"], "ru": ["one", "few", "many", "other"],
+    "ja": ["other"], "ko": ["other"], "zh-Hans": ["other"], "zh-Hant": ["other"],
+]
+
+/// **Every plural is complete in every language, and has a plain fallback.**
+///
+/// "1 captions", "%lld субтитр(ов)" and "sous-titre(s)" were the tables' answer to a count
+/// until 2026-09-27. The counts now go through `Localizable.stringsdict`; this checks its shape
+/// — the same keys in all ten, each also in `Localizable.strings` (what the source scans read,
+/// and the fallback), and each rule carrying every category its language has. Whether the rules
+/// produce the right sentence is `everyPluralReadsAsASentenceInEveryLanguage`, in the app.
+@Test func everyPluralIsCompleteInEveryLanguage() throws {
+    let resources = repositoryRoot.appending(path: "Soredemo/Resources")
+    func plist(_ language: String) throws -> [String: Any] {
+        let url = resources.appending(path: "\(language).lproj/Localizable.stringsdict")
+        let data = try Data(contentsOf: url)
+        return try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                            "\(language)'s stringsdict is not a dictionary")
+    }
+    func stringsKeys(_ language: String) throws -> Set<String> {
+        let url = resources.appending(path: "\(language).lproj/Localizable.strings")
+        let table = try #require(NSDictionary(contentsOf: url) as? [String: String])
+        return Set(table.keys)
+    }
+    let english = Set(try plist("en").keys)
+    try #require(english.count >= 21, "only \(english.count) plural keys in English — the file stopped parsing")
+    try #require(pluralCategories.count == 10)
+    for (language, categories) in pluralCategories {
+        let table = try plist(language)
+        #expect(Set(table.keys) == english, "\(language)'s plural keys differ from English's")
+        let fallback = try stringsKeys(language)
+        for key in english.sorted() {
+            #expect(fallback.contains(key), "\(language): \"\(key)\" has no Localizable.strings fallback")
+            guard let entry = table[key] as? [String: Any],
+                  let format = entry["NSStringLocalizedFormatKey"] as? String else {
+                Issue.record("\(language): \"\(key)\" has no NSStringLocalizedFormatKey")
+                continue
+            }
+            let variables = format.matches(of: /#@(\w+)@/).map { String($0.output.1) }
+            #expect(!variables.isEmpty, "\(language): \"\(key)\" names no plural variable in \(format)")
+            for variable in variables {
+                let rule = entry[variable] as? [String: Any] ?? [:]
+                let supplied = Set(rule.keys).intersection(["zero", "one", "two", "few", "many", "other"])
+                #expect(categories.isSubset(of: supplied),
+                        "\(language): \"\(key)\" variable \(variable) lacks \(categories.subtracting(supplied).sorted())")
+            }
+        }
+    }
+}
+
+/// The format specifiers in a string, positions dropped and sorted: `%2$lld of %1$@` and
+/// `%@ of %lld` are the same arguments. `%%` is a literal percent sign, not an argument.
+private func specifiers(_ text: String) -> [String] {
+    text.replacingOccurrences(of: "%%", with: "")
+        .matches(of: /%(?:\d+\$)?(lld|ld|d|@|lf|f|s)/).map { String($0.output.1) }.sorted()
+}
+
+/// **Every translation takes the arguments its key gives it.**
+///
+/// A translation with one `%@` where the key has two draws a stray argument or garbage, and one
+/// with `%@` where the key passes an integer can crash `String(format:)`. Nothing else in this
+/// suite reads the VALUES of the tables — every other check is about whether a key exists.
+/// The reordering case (`%2$lld … %1$lld`) is legal and allowed; a different set is not.
+@Test func everyTranslationTakesTheArgumentsItsKeyGives() throws {
+    let resources = repositoryRoot.appending(path: "Soredemo/Resources")
+    var mismatches: [String] = []
+    var compared = 0
+    for language in pluralCategories.keys.sorted() {
+        let url = resources.appending(path: "\(language).lproj/Localizable.strings")
+        let table = try #require(NSDictionary(contentsOf: url) as? [String: String],
+                                 "\(language)'s Localizable.strings did not parse")
+        for (key, value) in table {
+            compared += 1
+            if specifiers(key) != specifiers(value) {
+                mismatches.append("\(language): \"\(key)\" → \"\(value)\"")
+            }
+        }
+    }
+    try #require(compared > 5000, "only \(compared) entries compared across ten tables")
+    #expect(mismatches.isEmpty, """
+        \(mismatches.count) translation(s) take different arguments from their key:
+        \(mismatches.sorted().joined(separator: "\n"))
+        """)
+}

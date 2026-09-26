@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$@ wurde geschrieben, aber %2$#@n@ (%3$@)</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Bild konnte nicht gezeichnet werden und fehlt darin.</string>
+			<key>other</key>
+			<string>%lld Bilder konnten nicht gezeichnet werden und fehlen darin.</string>
+		</dict>
+	</dict>
+	<key>%lld caption(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Untertitel</string>
+			<key>other</key>
+			<string>%lld Untertitel</string>
+		</dict>
+	</dict>
+	<key>%lld caption(s) from %lld word(s).</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@c@ aus %2$#@w@.</string>
+		<key>c</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Untertitel</string>
+			<key>other</key>
+			<string>%lld Untertitel</string>
+		</dict>
+		<key>w</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Wort</string>
+			<key>other</key>
+			<string>%lld Wörtern</string>
+		</dict>
+	</dict>
+	<key>%lld line(s) could not be read (first at line %lld).</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@ (erste in Zeile %2$lld).</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Zeile konnte nicht gelesen werden</string>
+			<key>other</key>
+			<string>%lld Zeilen konnten nicht gelesen werden</string>
+		</dict>
+	</dict>
+	<key>%lld overlapping cue(s) were trimmed.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld überlappender Untertitel wurde gekürzt.</string>
+			<key>other</key>
+			<string>%lld überlappende Untertitel wurden gekürzt.</string>
+		</dict>
+	</dict>
+	<key>%lld seconds</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Sekunde</string>
+			<key>other</key>
+			<string>%lld Sekunden</string>
+		</dict>
+	</dict>
+	<key>%lld segment(s) did not make it into the recording.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Segment hat es nicht in die Aufnahme geschafft.</string>
+			<key>other</key>
+			<string>%lld Segmente haben es nicht in die Aufnahme geschafft.</string>
+		</dict>
+	</dict>
+	<key>%lld sentence(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Satz</string>
+			<key>other</key>
+			<string>%lld Sätze</string>
+		</dict>
+	</dict>
+	<key>None of %lld cue(s) fall inside this edit.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Der %lld Untertitel liegt nicht in diesem Schnitt.</string>
+			<key>other</key>
+			<string>Keiner der %lld Untertitel liegt in diesem Schnitt.</string>
+		</dict>
+	</dict>
+	<key>Read %lld cue(s) from %@.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@ aus %2$@ gelesen.</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Untertitel</string>
+			<key>other</key>
+			<string>%lld Untertitel</string>
+		</dict>
+	</dict>
+	<key>Remove %lld Silent Span(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld stillen Abschnitt entfernen</string>
+			<key>other</key>
+			<string>%lld stille Abschnitte entfernen</string>
+		</dict>
+	</dict>
+	<key>Remove %lld Still Span(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld unbewegten Abschnitt entfernen</string>
+			<key>other</key>
+			<string>%lld unbewegte Abschnitte entfernen</string>
+		</dict>
+	</dict>
+	<key>Remove %lld silent stretch(es), %@ in all</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@, insgesamt %2$@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld stillen Abschnitt entfernen</string>
+			<key>other</key>
+			<string>%lld stille Abschnitte entfernen</string>
+		</dict>
+	</dict>
+	<key>Remove %lld still stretch(es), %@ in all</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@, insgesamt %2$@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld unbewegten Abschnitt entfernen</string>
+			<key>other</key>
+			<string>%lld unbewegte Abschnitte entfernen</string>
+		</dict>
+	</dict>
+	<key>Save the last %lld seconds — the recording keeps going</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Die letzte %lld Sekunde sichern – die Aufnahme läuft weiter</string>
+			<key>other</key>
+			<string>Die letzten %lld Sekunden sichern – die Aufnahme läuft weiter</string>
+		</dict>
+	</dict>
+	<key>Saved the last %lld seconds to %@.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@ in %2$@ gesichert.</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Die letzte %lld Sekunde</string>
+			<key>other</key>
+			<string>Die letzten %lld Sekunden</string>
+		</dict>
+	</dict>
+	<key>The same change fits %lld other line(s).</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Dieselbe Änderung passt auf %lld weitere Zeile.</string>
+			<key>other</key>
+			<string>Dieselbe Änderung passt auf %lld weitere Zeilen.</string>
+		</dict>
+	</dict>
+	<key>Wrote %lld cue(s) to %@.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@ nach %2$@ geschrieben.</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Untertitel</string>
+			<key>other</key>
+			<string>%lld Untertitel</string>
+		</dict>
+	</dict>
+	<key>about %lld hours left</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>noch etwa %lld Stunde</string>
+			<key>other</key>
+			<string>noch etwa %lld Stunden</string>
+		</dict>
+	</dict>
+	<key>about %lld minutes left</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>noch etwa %lld Minute</string>
+			<key>other</key>
+			<string>noch etwa %lld Minuten</string>
+		</dict>
+	</dict>
+	<key>about %lld seconds left</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>noch etwa %lld Sekunde</string>
+			<key>other</key>
+			<string>noch etwa %lld Sekunden</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

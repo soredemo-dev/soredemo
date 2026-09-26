@@ -518,8 +518,7 @@ final class TimelineEditorModel {
         guard changed != clip else { return }
         // Named for what a person will look for in the undo menu: they faded something, and
         // which end is the part they will be unsure about.
-        let what = fadeIn != nil ? "In" : "Out"
-        apply("Fade \(what)",
+        apply(fadeIn != nil ? "Fade In" : "Fade Out",
               EditTimeline(clips: edit.clips.map { $0.id == id ? changed : $0 },
                            nextID: edit.nextID))
     }
@@ -564,7 +563,7 @@ final class TimelineEditorModel {
     /// one already in the menu.
     func removeSourceRange(_ range: Range<Int64>, named name: String) {
         guard range.upperBound > range.lowerBound else { return }
-        apply(name, edit.removing(sourceRange: range))
+        record(name, edit.removing(sourceRange: range))
     }
 
     func keepOnlySelection() {
@@ -641,8 +640,8 @@ final class TimelineEditorModel {
     var canRedo: Bool { history.canRedo }
     /// What a menu item should say. `nil` when there is nothing to undo, so the caller can
     /// disable rather than offer a verb with no object.
-    var undoTitle: String? { history.undoName.map { "Undo \($0)" } }
-    var redoTitle: String? { history.redoName.map { "Redo \($0)" } }
+    var undoTitle: String? { history.undoName.map { String(localized: "Undo \($0)") } }
+    var redoTitle: String? { history.redoName.map { String(localized: "Redo \($0)") } }
 
     func undo() {
         guard history.undo() != nil else { return }
@@ -658,7 +657,16 @@ final class TimelineEditorModel {
 
     /// One place every edit passes through, so the history cannot be bypassed by a new
     /// operation that forgets to record.
-    private func apply(_ name: String, _ updated: EditTimeline) {
+    ///
+    /// **A `LocalizedStringResource`, so each call site's literal is a key** and its count an
+    /// argument. The name ends up in the toolbar's "Undo …" tooltip as finished text, and while
+    /// this took a `String` it was English there in every language.
+    private func apply(_ name: LocalizedStringResource, _ updated: EditTimeline) {
+        record(String(localized: name), updated)
+    }
+
+    /// For a name that arrives already localised — a caller outside this file built it.
+    private func record(_ name: String, _ updated: EditTimeline) {
         history.record(name, updated)
         clearSelectionsThatNoLongerExist()
         publish()

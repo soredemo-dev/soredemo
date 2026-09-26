@@ -1687,9 +1687,14 @@ func unescapedSwiftLiteral(_ text: String) -> String {
 func keyTakingHelperOpeners() throws -> [String] {
     var openers: Set<String> = []
     let identifier = #"[A-Za-z_][A-Za-z0-9_]*"#
+    // A `LocalizedStringResource` parameter makes its literal a key exactly as a
+    // `LocalizedStringKey` does — `apply("Split at Playhead", …)` is one.
+    let keyType = #"LocalizedString(?:Key|Resource)\b"#
     let unlabelled = try Regex(#"func ("# + identifier + #")(?:<[^>]*>)?\(\s*_ "# + identifier
-                               + #": LocalizedStringKey\b"#)
-    let labelled = try Regex(#"(?:^|[(,\s])("# + identifier + #"): LocalizedStringKey\b"#)
+                               + #": "# + keyType)
+    // The EXTERNAL label is what a call site writes: `mayDiscard(asking question: …)` is called
+    // as `mayDiscard(asking: "…")`, so the second name, when there is one, is skipped.
+    let labelled = try Regex(#"(?:^|[(,\s])("# + identifier + #")(?:\s+"# + identifier + #")?: "# + keyType)
     for file in try appSourceFiles() {
         let text = try String(contentsOf: file, encoding: .utf8)
         for match in text.matches(of: unlabelled) {
@@ -2038,10 +2043,19 @@ func longestLiteralRun(of key: String) -> String? {
 
     // **Every sentence in the source, with its interpolations reduced to the same marker.**
     var sentences: [(where: String, reduced: String)] = []
+    // **And every INTERPOLATED literal a view takes as a key.** `Text("\(a) of \(b)")` is the
+    // key "%@ of %@", and the literal scans skip anything with `\(` in it — so the timeline's
+    // "0:57.06 of 0:57.06" was English in a German window with nothing failing. Plain literals
+    // at these openers are the other scans' business; only interpolated ones are taken here.
+    let viewOpeners = ["Text(", "Label(", "Button(", "LabeledContent(", "Toggle(", "Section(",
+                       ".help(", ".accessibilityLabel(", ".tooltip("]
+        + (try keyTakingHelperOpeners()).map { String($0.dropLast()) }
     for file in try appSourceFiles() {
         let text = try String(contentsOf: file, encoding: .utf8)
+        for opener in ["String(localized:"] + viewOpeners {
+        let interpolatedOnly = opener != "String(localized:"
         var cursor = text.startIndex
-        while let call = text.range(of: "String(localized:", range: cursor..<text.endIndex) {
+        while let call = text.range(of: opener, range: cursor..<text.endIndex) {
             cursor = call.upperBound
             // The literal may be on the next line — this project wraps at 100 columns.
             var open = call.upperBound
@@ -2076,10 +2090,12 @@ func longestLiteralRun(of key: String) -> String? {
                 index = text.index(after: index)
             }
             guard closed else { continue }
+            if interpolatedOnly && !body.contains(marker) { cursor = index; continue }
             let line = text[..<open].reduce(into: 1) { $0 += $1 == "\n" ? 1 : 0 }
             sentences.append((where: "\(pathRelativeToRepositoryRoot(file)):\(line)",
                               reduced: unescapedSwiftLiteral(body)))
             cursor = index
+        }
         }
     }
 

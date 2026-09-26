@@ -126,7 +126,7 @@ struct CaptionWaveform: View {
     /// looking at — where "4.2×" answers one they did not ask.
     @ViewBuilder private var zoomControls: some View {
         HStack(spacing: Space.snug) {
-            Text("\(Int((visibleFraction * 100).rounded()))%")
+            Text(verbatim: "\(Int((visibleFraction * 100).rounded()))%")
                 .font(Type.readout).foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .leading)
             Slider(value: $visibleFraction, in: 0.02...1) { Text("Zoom") }

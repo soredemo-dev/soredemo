@@ -85,3 +85,51 @@ private func missing(_ names: [String], from tables: [String: [String: String]])
     let gaps = missing(["Soredemo control — not a key"], from: tables)
     #expect(gaps.count == tables.count && !tables.isEmpty, "\(gaps)")
 }
+
+/// **A counted sentence reads as a sentence, in every language, at every count.**
+///
+/// Formats every plural key the way the app does — the language's own bundle, the language's
+/// own locale — at 1, 2, 5 and 21: the counts that separate English's one/other and Russian's
+/// one/few/many. A rule that is missing, misspelled or pointed at the wrong argument shows here
+/// as "(s)" left in, a count that is not in the sentence, or two counts that read the same.
+@Test func everyPluralReadsAsASentenceInEveryLanguage() throws {
+    let english = try #require(Bundle.main.path(forResource: "Localizable", ofType: "stringsdict",
+                                                inDirectory: nil, forLocalization: "en"))
+    let keys = try #require(NSDictionary(contentsOfFile: english)?.allKeys as? [String]).sorted()
+    try #require(keys.count >= 21, "only \(keys.count) plural keys were found in the built app")
+    // English only: every English noun here changes between 1 and 2, so a sentence that reads
+    // the same at both is a rule that was never chosen. German's "Untertitel" does not change,
+    // and nor do several Russian genitives, so the same test there would fail on correct text —
+    // that every category is SUPPLIED is `everyPluralIsCompleteInEveryLanguage`'s job.
+    let distinguishes: [String: [(Int, Int)]] = ["en": [(1, 2)]]
+    var languages = 0
+    for language in Bundle.main.localizations where language != "Base" {
+        let path = try #require(Bundle.main.path(forResource: language, ofType: "lproj"))
+        let bundle = try #require(Bundle(path: path))
+        let locale = Locale(identifier: language)
+        languages += 1
+        for key in keys {
+            let format = bundle.localizedString(forKey: key, value: nil, table: nil)
+            func sentence(_ count: Int) -> String {
+                // Arguments in the key's own order: a count for each %lld, a word for each %@.
+                var arguments: [any CVarArg] = []
+                for specifier in key.matches(of: /%(lld|@)/) {
+                    arguments.append(specifier.output.1 == "lld" ? count as any CVarArg : "X" as NSString)
+                }
+                return String(format: format, locale: locale, arguments: arguments)
+            }
+            for count in [1, 2, 5, 21] {
+                let text = sentence(count)
+                #expect(!text.contains("(s)") && !text.contains("(es)") && !text.contains("%"),
+                        "\(language) \"\(key)\" at \(count): \(text)")
+                #expect(text.contains(String(count)), "\(language) \"\(key)\" at \(count) lost its count: \(text)")
+            }
+            for (a, b) in distinguishes[language] ?? [] {
+                let first = sentence(a).replacingOccurrences(of: String(a), with: "#")
+                let second = sentence(b).replacingOccurrences(of: String(b), with: "#")
+                #expect(first != second, "\(language) \"\(key)\" reads the same at \(a) and \(b): \(first)")
+            }
+        }
+    }
+    #expect(languages == 10, "checked \(languages) languages")
+}

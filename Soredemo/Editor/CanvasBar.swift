@@ -33,7 +33,7 @@ struct CanvasBar: View {
             .fixedSize()
             .tooltip("The shape of the export")
 
-            Text("\(outputWidth)\u{00D7}\(outputHeight)")
+            Text(verbatim: "\(outputWidth)\u{00D7}\(outputHeight)")
                 .font(Type.readout)
                 .foregroundStyle(Theme.Ink.tertiary)
 

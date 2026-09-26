@@ -188,7 +188,7 @@ private struct CountdownView: View {
                     .padding(6)
                     .animation(.easeInOut(duration: 0.25), value: isFinalSecond)
 
-                Text("\(state.remaining)")
+                Text(verbatim: "\(state.remaining)")
                     .font(.system(size: 84, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
                     // Keyed on the value so each number gets its own transition rather than the

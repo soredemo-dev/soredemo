@@ -230,11 +230,9 @@ private struct PermissionRow: View {
         case .microphone:
             "To record your narration as its own track, which you can mute afterwards."
         case .inputMonitoring:
-            "To know when you click, so the camera can move there. Key CODES only \u{2014} this "
-            + "app cannot read what you type."
+            "To know when you click, so the camera can move there. Key CODES only \u{2014} this app cannot read what you type."
         case .accessibility:
-            "To ask what you clicked ON, so a zoom frames the button rather than the pointer. "
-            + "It reads the element's position and role, never its contents."
+            "To ask what you clicked ON, so a zoom frames the button rather than the pointer. It reads the element's position and role, never its contents."
         }
     }
 }

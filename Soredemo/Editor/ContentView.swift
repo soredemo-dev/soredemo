@@ -538,7 +538,7 @@ final class RecordingCoordinator {
     /// Cancel second, because a person who dragged the wrong file presses Return next.
     private func mayReplaceWhatIsOpen() -> Bool {
         guard mediaURL != nil else { return true }
-        return UnsavedWorkGuard.shared.mayDiscard(actionName: "opening another recording")
+        return UnsavedWorkGuard.shared.mayDiscard(asking: "Save this recording before opening another?")
     }
 
     /// **Staged into a scratch package rather than opened where it lies.**

@@ -188,8 +188,7 @@ struct MenuBarRecorderPanel: View {
             // deprecated, and it was also the wrong shape: a translator handed a fragment
             // beginning " is connected." cannot move the device's name to where their language
             // puts it.
-            Label("\(coordinator.mobileScreensWaiting.joined(separator: ", ")) is connected. "
-                  + "Unlock it \u{2014} and tap Trust if it asks \u{2014} to record its screen.",
+            Label("\(coordinator.mobileScreensWaiting.joined(separator: ", ")) is connected. Unlock it \u{2014} and tap Trust if it asks \u{2014} to record its screen.",
                   systemImage: "lock.iphone")
             .font(Type.detail)
             .foregroundStyle(Signal.paused)
@@ -582,8 +581,7 @@ struct MenuBarRecorderPanel: View {
     /// combination. Silence there would leave a person pressing a key that does nothing.
     @ViewBuilder private var hotkeyWarning: some View {
         if GlobalHotkeyStatus.shared.failed {
-            Label("\(Self.toggleShortcut) is taken by another app, so it will not stop a "
-                  + "recording from outside Soredemo.",
+            Label("\(Self.toggleShortcut) is taken by another app, so it will not stop a recording from outside Soredemo.",
                   systemImage: "exclamationmark.triangle")
                 .font(.system(size: 10))
                 .foregroundStyle(Signal.paused)

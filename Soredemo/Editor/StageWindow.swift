@@ -1072,8 +1072,8 @@ struct StageWindow: View {
             // marked a section an hour ago and came back to export has no other way to find out
             // that the file will be ten seconds long.
             let seconds = Double(range.upperBound - range.lowerBound) / 1_000_000_000
-            LabeledContent("Range", value: TransportBar.timecode(seconds) + " of "
-                           + TransportBar.timecode(Double(timeline.edit.outputDuration.rawValue) / 1e9))
+            let whole = TransportBar.timecode(Double(timeline.edit.outputDuration.rawValue) / 1e9)
+            LabeledContent("Range") { Text("\(TransportBar.timecode(seconds)) of \(whole)") }
                 .font(Type.detail).foregroundStyle(Theme.accent)
         }
         LabeledContent("About", value: Self.fileSize(quality.estimatedBytes(
@@ -1304,7 +1304,7 @@ struct StageWindow: View {
                     }
                     .toggleStyle(.checkbox)
                     Spacer()
-                    Text("\(Int((audioMix.gain(for: source) * 100).rounded()))%")
+                    Text(verbatim: "\(Int((audioMix.gain(for: source) * 100).rounded()))%")
                         .monospacedDigit()
                         .foregroundStyle(audioMix.isMuted(source) ? .tertiary : .secondary)
                 }
@@ -1338,7 +1338,7 @@ struct StageWindow: View {
             HStack {
                 Text("Target").font(.caption)
                 Spacer()
-                Text("\(Int(target.rounded())) LUFS")
+                Text(verbatim: "\(Int(target.rounded())) LUFS")
                     .monospacedDigit().foregroundStyle(.secondary).font(.caption)
             }
             Slider(value: Binding(get: { target },
@@ -1426,7 +1426,7 @@ struct StageWindow: View {
             HStack {
                 Text(title).font(.caption)
                 Spacer()
-                Text("\(Int((value * 100).rounded()))%")
+                Text(verbatim: "\(Int((value * 100).rounded()))%")
                     .monospacedDigit().foregroundStyle(.secondary).font(.caption)
             }
             Slider(value: Binding(get: { min(value, max(upTo, 0.0001)) }, set: { commit($0) }),

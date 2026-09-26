@@ -49,16 +49,20 @@ final class UnsavedWorkGuard {
     /// **Three buttons, and Cancel is the default.** A person who hit ⌘Q by accident presses
     /// Return next; if that discarded the work, the accident would be complete. `NSAlert` gives
     /// the first button Return, so Save is first and destructive Discard is last.
-    func mayDiscard(actionName: String) -> Bool {
+    ///
+    /// **The whole question, not a verb slotted into one.** "Save this recording before
+    /// \(actionName)?" put an English gerund into a sentence no other language could translate,
+    /// and the alert was English everywhere besides — `NSAlert` takes plain strings.
+    func mayDiscard(asking question: LocalizedStringResource) -> Bool {
         guard hasUnsavedChanges else { return true }
         let alert = NSAlert()
-        alert.messageText = "Save this recording before \(actionName)?"
-        alert.informativeText =
-            "A recording cannot be made again. If you don't save, the edits are lost."
+        alert.messageText = String(localized: question)
+        alert.informativeText = String(localized:
+            "A recording cannot be made again. If you don't save, the edits are lost.")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: String(localized: "Save"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: String(localized: "Don't Save"))
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             // A save that failed — no destination chosen, or the write threw — must not be
@@ -132,7 +136,7 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
         // is synchronous and modal either way, and `.terminateLater` adds a state machine whose
         // only failure mode is an app that never finishes quitting.
         MainActor.assumeIsolated {
-            UnsavedWorkGuard.shared.mayDiscard(actionName: "quitting") ? .terminateNow
+            UnsavedWorkGuard.shared.mayDiscard(asking: "Save this recording before quitting?") ? .terminateNow
                                                                       : .terminateCancel
         }
     }

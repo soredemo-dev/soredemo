@@ -320,7 +320,7 @@ private struct RegionConfirmBar: View {
 
     var body: some View {
         HStack(spacing: Space.snug) {
-            Text("\(Int(width.rounded()))\u{00D7}\(Int(height.rounded()))")
+            Text(verbatim: "\(Int(width.rounded()))\u{00D7}\(Int(height.rounded()))")
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
                 .foregroundStyle(.white)
             if isResolving {

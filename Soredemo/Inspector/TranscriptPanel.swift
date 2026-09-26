@@ -71,7 +71,8 @@ struct TranscriptPanel {
         let removed = states.count { $0 == .gone }
         let partial = states.count { $0 == .partly }
         VStack(alignment: .leading, spacing: Space.tight) {
-            Text("\(transcript.segments.count) sentence\(transcript.segments.count == 1 ? "" : "s")")
+            // The plural is the table's (Localizable.stringsdict), not an English "s" appended here.
+            Text("\(transcript.segments.count) sentence(s)")
                 .font(Type.label)
             // Only the counts that are not zero: "0 removed" is a line a person has to read to
             // learn nothing.
@@ -110,7 +111,7 @@ struct TranscriptPanel {
             Spacer(minLength: Space.tight)
             Button {
                 guard let range = transcript.removalRange(ofSegmentAt: index) else { return }
-                onDelete(range, "Delete \u{201C}\(shortened(segment.text))\u{201D}")
+                onDelete(range, String(localized: "Delete \u{201C}\(shortened(segment.text))\u{201D}"))
             } label: {
                 // **A bin, not scissors, and that is a convention rather than a preference.**
                 // In every subtitle editor read for this — SmartSub's row is the one checked
@@ -253,7 +254,7 @@ struct TranscriptPanel {
         let ranges = transcript.removalRanges(ofWordsAt: chosen)
         guard !ranges.isEmpty else { return }
         for range in ranges {
-            onDelete(range, "Cut \u{201C}\(shortened(spoken))\u{201D}")
+            onDelete(range, String(localized: "Cut \u{201C}\(shortened(spoken))\u{201D}"))
         }
         listState.chosenWords = []
         listState.openedForWords = nil

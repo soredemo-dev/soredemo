@@ -1,0 +1,441 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>%@ was written, but %lld frame(s) could not be drawn and are missing from it. (%@)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Файл %1$@ записан, но %2$#@n@ (%3$@)</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld кадр не удалось отрисовать, и его в нём нет.</string>
+			<key>few</key>
+			<string>%lld кадра не удалось отрисовать, и их в нём нет.</string>
+			<key>many</key>
+			<string>%lld кадров не удалось отрисовать, и их в нём нет.</string>
+			<key>other</key>
+			<string>%lld кадра не удалось отрисовать, и их в нём нет.</string>
+		</dict>
+	</dict>
+	<key>%lld caption(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld субтитр</string>
+			<key>few</key>
+			<string>%lld субтитра</string>
+			<key>many</key>
+			<string>%lld субтитров</string>
+			<key>other</key>
+			<string>%lld субтитра</string>
+		</dict>
+	</dict>
+	<key>%lld caption(s) from %lld word(s).</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@c@ из %2$#@w@.</string>
+		<key>c</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld субтитр</string>
+			<key>few</key>
+			<string>%lld субтитра</string>
+			<key>many</key>
+			<string>%lld субтитров</string>
+			<key>other</key>
+			<string>%lld субтитра</string>
+		</dict>
+		<key>w</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld слова</string>
+			<key>few</key>
+			<string>%lld слов</string>
+			<key>many</key>
+			<string>%lld слов</string>
+			<key>other</key>
+			<string>%lld слов</string>
+		</dict>
+	</dict>
+	<key>%lld line(s) could not be read (first at line %lld).</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@ (первая — строка %2$lld).</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Не удалось прочитать %lld строку</string>
+			<key>few</key>
+			<string>Не удалось прочитать %lld строки</string>
+			<key>many</key>
+			<string>Не удалось прочитать %lld строк</string>
+			<key>other</key>
+			<string>Не удалось прочитать %lld строки</string>
+		</dict>
+	</dict>
+	<key>%lld overlapping cue(s) were trimmed.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld перекрывающийся субтитр укорочен.</string>
+			<key>few</key>
+			<string>%lld перекрывающихся субтитра укорочены.</string>
+			<key>many</key>
+			<string>%lld перекрывающихся субтитров укорочены.</string>
+			<key>other</key>
+			<string>%lld перекрывающихся субтитра укорочены.</string>
+		</dict>
+	</dict>
+	<key>%lld seconds</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld секунда</string>
+			<key>few</key>
+			<string>%lld секунды</string>
+			<key>many</key>
+			<string>%lld секунд</string>
+			<key>other</key>
+			<string>%lld секунды</string>
+		</dict>
+	</dict>
+	<key>%lld segment(s) did not make it into the recording.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld сегмент не попал в запись.</string>
+			<key>few</key>
+			<string>%lld сегмента не попали в запись.</string>
+			<key>many</key>
+			<string>%lld сегментов не попали в запись.</string>
+			<key>other</key>
+			<string>%lld сегмента не попали в запись.</string>
+		</dict>
+	</dict>
+	<key>%lld sentence(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld предложение</string>
+			<key>few</key>
+			<string>%lld предложения</string>
+			<key>many</key>
+			<string>%lld предложений</string>
+			<key>other</key>
+			<string>%lld предложения</string>
+		</dict>
+	</dict>
+	<key>None of %lld cue(s) fall inside this edit.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Ни один из %lld субтитра не попадает в этот монтаж.</string>
+			<key>few</key>
+			<string>Ни один из %lld субтитров не попадает в этот монтаж.</string>
+			<key>many</key>
+			<string>Ни один из %lld субтитров не попадает в этот монтаж.</string>
+			<key>other</key>
+			<string>Ни один из %lld субтитров не попадает в этот монтаж.</string>
+		</dict>
+	</dict>
+	<key>Read %lld cue(s) from %@.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Из %2$@ прочитано: %1$#@n@.</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld субтитр</string>
+			<key>few</key>
+			<string>%lld субтитра</string>
+			<key>many</key>
+			<string>%lld субтитров</string>
+			<key>other</key>
+			<string>%lld субтитра</string>
+		</dict>
+	</dict>
+	<key>Remove %lld Silent Span(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Удалить %lld тихий фрагмент</string>
+			<key>few</key>
+			<string>Удалить %lld тихих фрагмента</string>
+			<key>many</key>
+			<string>Удалить %lld тихих фрагментов</string>
+			<key>other</key>
+			<string>Удалить %lld тихих фрагмента</string>
+		</dict>
+	</dict>
+	<key>Remove %lld Still Span(s)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Удалить %lld неподвижный фрагмент</string>
+			<key>few</key>
+			<string>Удалить %lld неподвижных фрагмента</string>
+			<key>many</key>
+			<string>Удалить %lld неподвижных фрагментов</string>
+			<key>other</key>
+			<string>Удалить %lld неподвижных фрагмента</string>
+		</dict>
+	</dict>
+	<key>Remove %lld silent stretch(es), %@ in all</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@, всего %2$@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Удалить %lld тихий фрагмент</string>
+			<key>few</key>
+			<string>Удалить %lld тихих фрагмента</string>
+			<key>many</key>
+			<string>Удалить %lld тихих фрагментов</string>
+			<key>other</key>
+			<string>Удалить %lld тихих фрагмента</string>
+		</dict>
+	</dict>
+	<key>Remove %lld still stretch(es), %@ in all</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@, всего %2$@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Удалить %lld неподвижный фрагмент</string>
+			<key>few</key>
+			<string>Удалить %lld неподвижных фрагмента</string>
+			<key>many</key>
+			<string>Удалить %lld неподвижных фрагментов</string>
+			<key>other</key>
+			<string>Удалить %lld неподвижных фрагмента</string>
+		</dict>
+	</dict>
+	<key>Save the last %lld seconds — the recording keeps going</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Сохранить последнюю %lld секунду — запись продолжится</string>
+			<key>few</key>
+			<string>Сохранить последние %lld секунды — запись продолжится</string>
+			<key>many</key>
+			<string>Сохранить последние %lld секунд — запись продолжится</string>
+			<key>other</key>
+			<string>Сохранить последние %lld секунды — запись продолжится</string>
+		</dict>
+	</dict>
+	<key>Saved the last %lld seconds to %@.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@ в %2$@.</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Последняя %lld секунда сохранена</string>
+			<key>few</key>
+			<string>Последние %lld секунды сохранены</string>
+			<key>many</key>
+			<string>Последние %lld секунд сохранены</string>
+			<key>other</key>
+			<string>Последние %lld секунды сохранены</string>
+		</dict>
+	</dict>
+	<key>The same change fits %lld other line(s).</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>То же исправление подходит ещё для %lld строки.</string>
+			<key>few</key>
+			<string>То же исправление подходит ещё для %lld строк.</string>
+			<key>many</key>
+			<string>То же исправление подходит ещё для %lld строк.</string>
+			<key>other</key>
+			<string>То же исправление подходит ещё для %lld строк.</string>
+		</dict>
+	</dict>
+	<key>Wrote %lld cue(s) to %@.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@n@ в %2$@.</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld субтитр записан</string>
+			<key>few</key>
+			<string>%lld субтитра записано</string>
+			<key>many</key>
+			<string>%lld субтитров записано</string>
+			<key>other</key>
+			<string>%lld субтитра записано</string>
+		</dict>
+	</dict>
+	<key>about %lld hours left</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>осталось около %lld часа</string>
+			<key>few</key>
+			<string>осталось около %lld часов</string>
+			<key>many</key>
+			<string>осталось около %lld часов</string>
+			<key>other</key>
+			<string>осталось около %lld часов</string>
+		</dict>
+	</dict>
+	<key>about %lld minutes left</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>осталось около %lld минуты</string>
+			<key>few</key>
+			<string>осталось около %lld минут</string>
+			<key>many</key>
+			<string>осталось около %lld минут</string>
+			<key>other</key>
+			<string>осталось около %lld минут</string>
+		</dict>
+	</dict>
+	<key>about %lld seconds left</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>осталось около %lld секунды</string>
+			<key>few</key>
+			<string>осталось около %lld секунд</string>
+			<key>many</key>
+			<string>осталось около %lld секунд</string>
+			<key>other</key>
+			<string>осталось около %lld секунд</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

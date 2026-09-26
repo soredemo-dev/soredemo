@@ -228,7 +228,7 @@ struct ExportQueueButton: View {
                     // The waiting count, because a queue whose length is invisible is a queue
                     // somebody adds a fourth job to without meaning to.
                     let waiting = queue.jobs.filter { $0.status == .waiting }.count
-                    if waiting > 0 { Text("\(waiting)").font(.caption) }
+                    if waiting > 0 { Text(verbatim: "\(waiting)").font(.caption) }
                 }
                 }
                 .help("Exports")
@@ -295,14 +295,16 @@ private struct ExportJobRow: View {
                     // string would flatten it back into English — the six keys exist precisely
                     // so the reading is looked up rather than built.
                     HStack(spacing: Space.tight) {
-                        Text("\(job.filename) \u{2014} \(Self.label(job))")
+                        Text(verbatim: "\(job.filename) \u{2014} \(Self.label(job))")
                         Text("\u{00B7}").foregroundStyle(.secondary)
                         ExportJob.timeText(reading).foregroundStyle(.secondary)
                     }
                 }
             } else {
-                Button("\(job.filename) \u{2014} \(Self.label(job))") {
+                Button {
                     ExportQueue.shared.cancel(job.id)
+                } label: {
+                    Text(verbatim: "\(job.filename) \u{2014} \(Self.label(job))")
                 }
             }
         case .finished:
@@ -317,7 +319,7 @@ private struct ExportJobRow: View {
                 Button("Copy") { Self.copy(job.destination) }
             }
         case .failed, .cancelled:
-            Text("\(job.filename) \u{2014} \(Self.label(job))")
+            Text(verbatim: "\(job.filename) \u{2014} \(Self.label(job))")
         }
     }
 
@@ -341,7 +343,7 @@ private struct ExportJobRow: View {
         case .waiting: NSLocalizedString("Waiting \u{2014} cancel", comment: "")
         case .running:
             switch job.progress {
-            case .writing(let fraction, _): "\(Int(fraction * 100))% \u{2014} cancel"
+            case .writing(let fraction, _): String(localized: "\(Int(fraction * 100))% \u{2014} cancel")
             case .finishing: NSLocalizedString("Finishing\u{2026}", comment: "")
             case .preparing, nil: NSLocalizedString("Preparing\u{2026}", comment: "")
             }
