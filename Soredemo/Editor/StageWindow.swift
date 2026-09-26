@@ -367,7 +367,7 @@ struct StageWindow: View {
                     } else if let failure {
                         ContentUnavailableView("Could not build the preview",
                                                systemImage: "exclamationmark.triangle",
-                                               description: Text(failure))
+                                               description: Text(verbatim: failure))
                     } else {
                         // **Named, not a bare spinner.** The wait here is a decode: the first
                         // frame of a 4K recording, and then the motion pass behind it. A
@@ -455,7 +455,7 @@ struct StageWindow: View {
         // lives in the system's menu bar, where a dark panel in a light system looks broken.
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
-        .navigationTitle(mediaURL.deletingPathExtension().lastPathComponent)
+        .navigationTitle(Text(verbatim: mediaURL.deletingPathExtension().lastPathComponent))
         .navigationDocument(savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }
         // The setting can be changed while an editor is open; without this it would take a
@@ -607,7 +607,7 @@ struct StageWindow: View {
                     Button("Save As…") { saveProject(askingForDestination: true) }
                         .keyboardShortcut("s", modifiers: [.command, .shift])
                 } label: {
-                    Text(savedPackage == nil ? "Save\u{2026}" : "Save")
+                    savedPackage == nil ? Text("Save\u{2026}") : Text("Save")
                 } primaryAction: {
                     saveProject()
                 }
@@ -635,8 +635,8 @@ struct StageWindow: View {
                 .disabled(captions.track.isEmpty)
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .help(captions.track.isEmpty
-                      ? "Make captions first \u{2014} the Captions section in the inspector"
-                      : "Captions at full width, with the waveform")
+                      ? Text("Make captions first \u{2014} the Captions section in the inspector")
+                      : Text("Captions at full width, with the waveform"))
             }
             ToolbarItem { ExportQueueButton() }
             // **Full screen, because the green button does not offer it here.**
@@ -672,14 +672,14 @@ struct StageWindow: View {
         ) {
             Button("OK") { projectStatus = nil }
         } message: {
-            Text(projectStatus ?? "")
+            Text(verbatim: projectStatus ?? "")
         }
         .alert("Export", isPresented: Binding(
             get: { exportStatus != nil }, set: { if !$0 { exportStatus = nil } })
         ) {
             Button("OK") { exportStatus = nil }
         } message: {
-            Text(exportStatus ?? "")
+            Text(verbatim: exportStatus ?? "")
         }
     }
 
@@ -779,7 +779,7 @@ struct StageWindow: View {
     @ViewBuilder private var inspector: some View {
         VStack(spacing: 0) {
             // The section's name, since the rail shows only icons.
-            Text(inspectorTab.title)
+            Text(LocalizedStringKey(inspectorTab.title))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.Ink.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -882,7 +882,7 @@ struct StageWindow: View {
                    if $0 == .removed { Task.detached(priority: .utility) { PersonMask.warmUp() } }
                    reviewRevision += 1 })) {
             ForEach(CameraOverlayStyle.Background.allCases, id: \.self) {
-                Text($0.displayName).tag($0)
+                Text(LocalizedStringKey($0.displayName)).tag($0)
             }
         }
         // **The system's own blur is one control away and is not reimplemented here.** Portrait
@@ -909,7 +909,7 @@ struct StageWindow: View {
                 get: { cameraStyle.shape },
                 set: { cameraStyle = cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
                 ForEach(CameraOverlayStyle.Shape.allCases, id: \.self) {
-                    Text($0.displayName).tag($0)
+                    Text(LocalizedStringKey($0.displayName)).tag($0)
                 }
             }
         }
@@ -1029,7 +1029,7 @@ struct StageWindow: View {
             ForEach(stageStyle.isTransparent
                     ? TransparentExport.codecsThatCarryIt
                     : ExportCodec.allCases, id: \.self) { choice in
-                Text(choice.displayName).tag(choice)
+                Text(LocalizedStringKey(choice.displayName)).tag(choice)
             }
         }
         // **Snapped rather than left dangling.** Somebody who had chosen H.264 and then made the
@@ -1286,9 +1286,8 @@ struct StageWindow: View {
             // **What it can and cannot do, on screen.** It takes out a fan, a hum, a laptop under
             // load — sound that is there the whole time. It does not take out a door, a keyboard
             // or a dog, and somebody who expects it to will conclude the feature is broken.
-            Text(noiseReductionNote
-                 ?? "Removes steady sound — a fan, a hum, air conditioning — from the microphone "
-                    + "only. It cannot remove a one-off noise like a door or a keyboard.")
+            (noiseReductionNote.map { Text(verbatim: $0) }
+                 ?? Text("Removes steady sound — a fan, a hum, air conditioning — from the microphone only. It cannot remove a one-off noise like a door or a keyboard."))
                 .font(Type.detail)
                 .foregroundStyle(noiseReductionNote == nil ? .secondary : Signal.paused)
         }
@@ -1301,7 +1300,7 @@ struct StageWindow: View {
                         get: { !audioMix.isMuted(source) },
                         set: { audioMix = audioMix.setting(source, muted: !$0) })
                     ) {
-                        Text(source.displayName)
+                        Text(LocalizedStringKey(source.displayName))
                     }
                     .toggleStyle(.checkbox)
                     Spacer()
@@ -1367,16 +1366,18 @@ struct StageWindow: View {
             Text("Music").font(.caption)
             Spacer()
             if let name = music.filename {
-                Text(name).font(Type.detail).foregroundStyle(.secondary)
+                Text(verbatim: name).font(Type.detail).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
-            Button(music.filename == nil ? "Choose\u{2026}" : "Replace\u{2026}") {
+            Button {
                 if let source = Self.chooseAudio() { adoptMusic(source) }
+            } label: {
+                music.filename == nil ? Text("Choose\u{2026}") : Text("Replace\u{2026}")
             }
             .buttonStyle(.link).font(.caption)
         }
         if let failure = musicFailure {
-            Text(failure).font(Type.detail).foregroundStyle(Signal.paused)
+            Text(verbatim: failure).font(Type.detail).foregroundStyle(Signal.paused)
                 .fixedSize(horizontal: false, vertical: true)
         }
         if music.filename != nil {
@@ -1419,7 +1420,7 @@ struct StageWindow: View {
     /// A level slider with its value written beside it. `upTo` is clamped away from zero
     /// because a `Slider` whose range is empty traps, and "level while speaking" has an upper
     /// bound that is itself a slider somebody can drag to nothing.
-    @ViewBuilder private func musicSlider(_ title: String, value: Double, upTo: Double,
+    @ViewBuilder private func musicSlider(_ title: LocalizedStringKey, value: Double, upTo: Double,
                                           commit: @escaping (Double) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
@@ -1441,7 +1442,7 @@ struct StageWindow: View {
         let directory = packageURL.appending(path: MusicBed.directory, directoryHint: .isDirectory)
         let name = source.lastPathComponent
         guard MusicBed.isSafeFilename(name) else {
-            musicFailure = "\(name) is not a name this can use."
+            musicFailure = String(localized: "\(name) is not a name this can use.")
             return
         }
         do {
@@ -1453,7 +1454,7 @@ struct StageWindow: View {
             }
             try FileManager.default.copyItem(at: source, to: destination)
         } catch {
-            musicFailure = "Could not copy \(name) into the project: \(error)"
+            musicFailure = String(localized: "Could not copy \(name) into the project: \(String(describing: error))")
             return
         }
         musicFailure = nil
@@ -1555,12 +1556,12 @@ struct StageWindow: View {
                 // the app disagreeing with the person; the note says what happened and the
                 // switch still says what they asked for.
                 cleanedMicrophone = nil
-                noiseReductionNote = "Noise removal did nothing: \(refusal)."
+                noiseReductionNote = String(localized: "Noise removal did nothing: \(String(describing: refusal)).")
                 return [:]
             }
         } catch {
             cleanedMicrophone = nil
-            noiseReductionNote = "Noise removal could not run: \(error)."
+            noiseReductionNote = String(localized: "Noise removal could not run: \(String(describing: error)).")
             return [:]
         }
     }
@@ -1748,16 +1749,18 @@ struct StageWindow: View {
                onEditingChanged: { if !$0 { reviewRevision += 1 } }) {
             Text("Amount")
         }
-        Text(zoomIntensityLabel)
+        Text(verbatim: zoomIntensityLabel)
             .font(Type.detail).foregroundStyle(.secondary)
     }
 
     /// Says what the dial does at the ends, because "0.0" and "2.0" do not.
     private var zoomIntensityLabel: String {
         let percent = Int((zoomIntensity * 100).rounded())
-        if percent == 0 { return "No zoom anywhere. Every click is framed, none is magnified." }
-        if percent == 100 { return "As derived. Adjustments you have made to single zooms still apply on top." }
-        return "\(percent)% of the derived zoom. Adjustments to single zooms still apply on top."
+        if percent == 0 { return String(localized: "No zoom anywhere. Every click is framed, none is magnified.") }
+        if percent == 100 {
+            return String(localized: "As derived. Adjustments you have made to single zooms still apply on top.")
+        }
+        return String(localized: "\(percent)% of the derived zoom. Adjustments to single zooms still apply on top.")
     }
 
     private func refreshDerivedZooms() {

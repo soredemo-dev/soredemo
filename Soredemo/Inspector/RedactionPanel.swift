@@ -95,7 +95,7 @@ struct RedactionPanel: View {
         ForEach(model.track.items) { item in
             HStack {
                 Image(systemName: item.region.isOval ? "oval" : "rectangle")
-                Text(describe(item))
+                Text(verbatim: describe(item))
                     .font(Type.label)
                 Spacer()
                 if item.region.isEmpty {
@@ -217,8 +217,9 @@ struct RedactionPanel: View {
 
     private func describe(_ item: RedactionItem) -> String {
         let percent = { (value: Double) in "\(Int((value * 100).rounded()))%" }
-        return "\(percent(item.region.width))\u{00D7}\(percent(item.region.height))"
-            + (item.coversEverything ? "" : " from \(timecode(item.start))")
+        let size = "\(percent(item.region.width))\u{00D7}\(percent(item.region.height))"
+        return item.coversEverything ? size
+            : String(localized: "\(size) from \(timecode(item.start))")
     }
 
     private func timecode(_ time: Nanoseconds) -> String {

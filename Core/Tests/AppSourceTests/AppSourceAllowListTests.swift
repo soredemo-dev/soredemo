@@ -1679,6 +1679,35 @@ func unescapedSwiftLiteral(_ text: String) -> String {
     return result + rest
 }
 
+/// **The app's own helpers that take a key, found from their declarations.** `slider("Shadow", …)`
+/// and `BarButton(label: "Pause")` hand a literal to a `LocalizedStringKey` parameter, which is a
+/// key exactly as `Button("…")` is — and no opener above names them. Derived rather than listed:
+/// `func name(_ x: LocalizedStringKey` gives `name("`, and a labelled parameter or property
+/// typed `LocalizedStringKey` gives `label: "`, so the next helper is covered the day it is written.
+func keyTakingHelperOpeners() throws -> [String] {
+    var openers: Set<String> = []
+    let identifier = #"[A-Za-z_][A-Za-z0-9_]*"#
+    let unlabelled = try Regex(#"func ("# + identifier + #")(?:<[^>]*>)?\(\s*_ "# + identifier
+                               + #": LocalizedStringKey\b"#)
+    let labelled = try Regex(#"(?:^|[(,\s])("# + identifier + #"): LocalizedStringKey\b"#)
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for match in text.matches(of: unlabelled) {
+            if let name = match.output[1].substring { openers.insert("\(name)(\"") }
+        }
+        for match in text.matches(of: labelled) {
+            // `(name: "` or ` name: "`, never `.name: "` — `case .text: "textformat"` is an
+            // enum case returning an SF Symbol's name, not an argument.
+            if let name = match.output[1].substring {
+                openers.insert("(\(name): \"")
+                openers.insert(" \(name): \"")
+            }
+        }
+    }
+    try #require(openers.count >= 4, "only \(openers.count) key-taking helpers were found: \(openers)")
+    return openers.sorted()
+}
+
 @Test func everyControlLabelIsInEveryStringTable() throws {
     let resources = repositoryRoot.appending(path: "Soredemo/Resources")
     func keys(of language: String) throws -> Set<String> {
@@ -1757,7 +1786,7 @@ func unescapedSwiftLiteral(_ text: String) -> String {
                    // A modifier renamed is a position this scan stops looking at, and every
                    // string that moved with it would have gone quietly back to being English
                    // in nine languages — which is the exact failure `.help` was added here for.
-                   ".tooltip(\""]
+                   ".tooltip(\""] + (try keyTakingHelperOpeners())
     var missing: [String] = []
     var scanned = 0
     for file in try appSourceFiles() {

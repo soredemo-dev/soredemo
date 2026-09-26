@@ -172,7 +172,7 @@ struct CaptionLines: View {
                 Button {
                     onSeek(cue.start)
                 } label: {
-                    Text(timecode(cue.start))
+                    Text(verbatim: timecode(cue.start))
                         .font(Type.readout)
                         .foregroundStyle(isCurrent ? AnyShapeStyle(.primary)
                                                    : AnyShapeStyle(.secondary))

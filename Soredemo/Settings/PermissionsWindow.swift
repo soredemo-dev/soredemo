@@ -322,7 +322,7 @@ private struct AccessibilityDragHelper: View {
             HStack(spacing: Space.snug) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
                     .resizable().frame(width: 26, height: 26)
-                Text(Bundle.main.bundleURL.deletingPathExtension().lastPathComponent)
+                Text(verbatim: Bundle.main.bundleURL.deletingPathExtension().lastPathComponent)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Theme.Ink.primary)
                 Spacer()

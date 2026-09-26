@@ -216,13 +216,15 @@ struct EditorToolbar: View {
     @ViewBuilder private var speed: some View {
         Menu {
             ForEach(TimelineEditorModel.speedChoices, id: \.self) { value in
-                Button(Self.speedLabel(value)) {
+                Button {
                     model.setSelectedSpeed(value)
                     onChange()
+                } label: {
+                    Text(verbatim: Self.speedLabel(value))
                 }
             }
         } label: {
-            Text(model.selectedSpeed.map(Self.speedLabel) ?? "1\u{00D7}")
+            Text(verbatim: model.selectedSpeed.map(Self.speedLabel) ?? "1\u{00D7}")
                 .font(.system(size: 11, weight: .medium).monospacedDigit())
                 .foregroundStyle((model.selectedSpeed ?? 1) == 1
                                  ? Theme.Ink.secondary : Theme.accent)
@@ -326,7 +328,7 @@ struct EditorToolbar: View {
                       isEnabled: true) {
             model.showWholeRecording()
         }
-        Text(Self.span(model.window.visible))
+        Text(verbatim: Self.span(model.window.visible))
             .font(Type.readout)
             .foregroundStyle(Theme.Ink.secondary)
             .frame(width: 54, alignment: .trailing)

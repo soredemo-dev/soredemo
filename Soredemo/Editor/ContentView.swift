@@ -165,7 +165,7 @@ final class RecordingCoordinator {
         do {
             try recorder.startPreview(camera: camera, quality: cameraQuality)
         } catch {
-            statusText = String(localized: "The camera could not be shown: \(String(describing: error))")
+            status = .problem(String(localized: "The camera could not be shown: \(String(describing: error))"))
             return
         }
         previewRecorder = recorder
@@ -384,7 +384,24 @@ final class RecordingCoordinator {
     /// Only ever a REPORT — an error, or what just happened. It used to carry the instructions
     /// for using the app, which is what a screen with nothing on it needs and a screen with
     /// buttons on it does not.
-    private(set) var statusText = ""
+    private(set) var status = Status.quiet
+    var statusText: String { status.text }
+
+    /// A sentence, and whether it says something went wrong — decided where it is written.
+    ///
+    /// **The panel used to decide by reading it:** a note was shown when the sentence contained
+    /// "could not". Every sentence is `String(localized:)`, so in any other language nothing
+    /// matched and no failure was ever shown there — and even in English six of the seven
+    /// damaged-file sentences ("will not open", "has no picture in it") did not. Found by
+    /// reading, 2026-09-26, while making the panel's labels translatable.
+    struct Status: Equatable {
+        let text: String
+        let isProblem: Bool
+
+        static let quiet = Status(text: "", isProblem: false)
+        static func report(_ text: String) -> Status { Status(text: text, isProblem: false) }
+        static func problem(_ text: String) -> Status { Status(text: text, isProblem: true) }
+    }
 
     /// Retained for the life of the pending selection: `SCContentSharingPicker.add(_:)` is not
     /// documented to retain its observer.
@@ -480,9 +497,9 @@ final class RecordingCoordinator {
             cameraURL = FileManager.default.fileExists(atPath: camera.path) ? camera : nil
             pendingEdit = opened.edit
             mediaURL = opened.mediaURL
-            statusText = String(localized: "Opened \(packageURL.lastPathComponent).")
+            status = .report(String(localized: "Opened \(packageURL.lastPathComponent)."))
         } catch {
-            statusText = String(localized: "Could not open that project: \(String(describing: error))")
+            status = .problem(String(localized: "Could not open that project: \(String(describing: error))"))
         }
     }
 
@@ -549,10 +566,10 @@ final class RecordingCoordinator {
             // **One literal, over the 100-column line, on purpose.** A key is the literal the
             // compiler builds; two strings joined with `+` build two keys and look neither of
             // them up. Wrapping this sentence is what put it in English in all ten languages.
-            statusText = String(localized:
-                "Opened \(url.lastPathComponent). Zooms will be found from what changes on screen \u{2014} there is no pointer track in an imported video.")
+            status = .report(String(localized:
+                "Opened \(url.lastPathComponent). Zooms will be found from what changes on screen \u{2014} there is no pointer track in an imported video."))
         } catch {
-            statusText = String(localized: "Could not open that video: \(String(describing: error))")
+            status = .problem(String(localized: "Could not open that video: \(String(describing: error))"))
         }
     }
 
@@ -623,14 +640,14 @@ final class RecordingCoordinator {
             let destination = sink.packageURL?
                 .appending(path: "clip-\(stamp).mov", directoryHint: .notDirectory)
             guard let destination else {
-                statusText = String(localized: "There is nowhere to put the clip yet.")
+                status = .problem(String(localized: "There is nowhere to put the clip yet."))
                 return
             }
             switch await session.saveClip(lastSeconds: seconds, to: destination) {
             case .wrote(let url):
-                statusText = String(localized: "Saved the last \(Int(seconds)) seconds to \(url.lastPathComponent).")
+                status = .report(String(localized: "Saved the last \(Int(seconds)) seconds to \(url.lastPathComponent)."))
             case .refused(let reason):
-                statusText = String(localized: "The clip could not be saved: \(reason)")
+                status = .problem(String(localized: "The clip could not be saved: \(reason)"))
             }
         }
     }
@@ -645,15 +662,15 @@ final class RecordingCoordinator {
                 if isPaused {
                     try await session.resume()
                     isPaused = false
-                    statusText = ""
+                    status = .quiet
                 } else {
                     try await session.pause()
                     isPaused = true
                 }
             } catch {
-                statusText = isPaused
+                status = .problem(isPaused
                     ? String(localized: "Could not resume: \(String(describing: error))")
-                    : String(localized: "Could not pause: \(String(describing: error))")
+                    : String(localized: "Could not pause: \(String(describing: error))"))
             }
         }
     }
@@ -720,7 +737,7 @@ final class RecordingCoordinator {
         PermissionRequests.screenRecording()
 
         mediaURL = nil
-        statusText = String(localized: "Choose what to record from the picker\u{2026}")
+        status = .report(String(localized: "Choose what to record from the picker\u{2026}"))
         let picker = CaptureSourcePicker(onSelect: { [self] source in
             Task { @MainActor in await sourceSelected(source) }
         })
@@ -732,7 +749,7 @@ final class RecordingCoordinator {
         picker = nil
         guard let source else {
             pendingMode = nil
-            statusText = ""
+            status = .quiet
             return
         }
         let scale = Self.scale(forDisplay: Self.sizingDisplayID(for: source))
@@ -744,7 +761,7 @@ final class RecordingCoordinator {
         do {
             newSink = try TemporaryFileMediaSink()
         } catch {
-            statusText = String(localized: "Could not create a scratch location for the recording: \(String(describing: error))")
+            status = .problem(String(localized: "Could not create a scratch location for the recording: \(String(describing: error))"))
             return
         }
         // The outgoing sink is deleted here only when it never became what `mediaURL` points at —
@@ -814,7 +831,7 @@ final class RecordingCoordinator {
             } catch {
                 // Not fatal: the screen still records. Said, because a person who turned the
                 // camera on and got no camera is owed the reason.
-                statusText = String(localized: "The camera could not start: \(String(describing: error)). Recording the screen only.")
+                status = .problem(String(localized: "The camera could not start: \(String(describing: error)). Recording the screen only."))
             }
         }
 
@@ -846,7 +863,7 @@ final class RecordingCoordinator {
             sink = nil
             session = nil
             pendingMode = nil
-            statusText = String(localized: "Recording cancelled.")
+            status = .report(String(localized: "Recording cancelled."))
             return
         }
         do {
@@ -861,9 +878,9 @@ final class RecordingCoordinator {
             // recording started from the menu bar had no controls at all. The bar belongs to the
             // recording, and the recording is here.
             RecordingBarPresenter.shared.show(coordinator: self)
-            statusText = String(localized: "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done.")
+            status = .report(String(localized: "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."))
         } catch {
-            statusText = String(localized: "Could not start recording: \(String(describing: error))")
+            status = .problem(String(localized: "Could not start recording: \(String(describing: error))"))
             session = nil
             // **The camera was started before the countdown, so it is running by now.** Left
             // alone it would hold the device open with its indicator lit for a recording that
@@ -911,11 +928,11 @@ final class RecordingCoordinator {
         do {
             newSink = try TemporaryFileMediaSink()
         } catch {
-            statusText = String(localized: "Could not create a scratch location for the recording: \(String(describing: error))")
+            status = .problem(String(localized: "Could not create a scratch location for the recording: \(String(describing: error))"))
             return
         }
         guard let package = newSink.packageURL else {
-            statusText = String(localized: "Could not create a scratch location for the recording.")
+            status = .problem(String(localized: "Could not create a scratch location for the recording."))
             return
         }
         // The same name and place a Mac recording's master takes, so the editor, the project
@@ -928,7 +945,7 @@ final class RecordingCoordinator {
         do {
             try recorder.start(camera: source.asCaptureDevice, to: destination)
         } catch {
-            statusText = String(localized: "Could not record \(source.name): \(String(describing: error))")
+            status = .problem(String(localized: "Could not record \(source.name): \(String(describing: error))"))
             return
         }
         sink = newSink
@@ -938,7 +955,7 @@ final class RecordingCoordinator {
         elapsed = 0
         pendingMode = nil
         RecordingBarPresenter.shared.show(coordinator: self)
-        statusText = String(localized: "Recording \(source.name)\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done.")
+        status = .report(String(localized: "Recording \(source.name)\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."))
     }
 
     /// Finishes a phone recording and opens it. Returns `false` when there was not one.
@@ -952,12 +969,12 @@ final class RecordingCoordinator {
         isPaused = false
         pendingMode = nil
         RecordingBarPresenter.shared.hide()
-        statusText = String(localized: "Finishing\u{2026}")
+        status = .report(String(localized: "Finishing\u{2026}"))
         DesktopIcons.restore()
 
         let written = await recorder.stop()
         guard let written else {
-            statusText = String(localized: "The recording could not be written.")
+            status = .problem(String(localized: "The recording could not be written."))
             return true
         }
         mediaSourceSink = sink
@@ -966,7 +983,7 @@ final class RecordingCoordinator {
         // stale offset from a previous take would place a camera that is not there.
         cameraURL = nil
         cameraStartOffsetNanos = 0
-        statusText = String(localized: "Recorded \(written.lastPathComponent).")
+        status = .report(String(localized: "Recorded \(written.lastPathComponent)."))
         return true
     }
 
@@ -1019,7 +1036,7 @@ final class RecordingCoordinator {
             // explanation — the shape this project keeps finding, where the only symptom of a
             // failure is the absence of a thing nobody was told about.
             if cameraURL == nil {
-                statusText = String(localized: "The camera could not be recorded. The screen recording is fine.")
+                status = .problem(String(localized: "The camera could not be recorded. The screen recording is fine."))
             }
         }
         // **Restored unconditionally, not `if hidesDesktopIcons`.** The preference can be turned
@@ -1033,7 +1050,7 @@ final class RecordingCoordinator {
         microphoneLevel = nil
         pendingMode = nil
         RecordingBarPresenter.shared.hide()
-        statusText = String(localized: "Finishing\u{2026}")
+        status = .report(String(localized: "Finishing\u{2026}"))
         do {
             let outcome = try await session.stop()
             learnClipBufferFit(from: session.diagnostics)
@@ -1052,9 +1069,8 @@ final class RecordingCoordinator {
                 // later, by SwiftUI reconciling this new `mediaURL`. `.onDisappear` observes it.
                 mediaURL = url
                 mediaSourceSink = sink
-                statusText = discardedCount == 0 ? "" :
-                    String(localized:
-                        "\(discardedCount) segment(s) did not make it into the recording.")
+                status = discardedCount == 0 ? .quiet : .problem(String(localized:
+                    "\(discardedCount) segment(s) did not make it into the recording."))
 
                 // **The file is checked before anybody is told the recording worked.**
                 //
@@ -1071,7 +1087,7 @@ final class RecordingCoordinator {
                 let elapsedSoFar = Nanoseconds(Int64((elapsed * 1_000_000_000).rounded()))
                 let health = await RecordingCheck.health(of: url, session: elapsedSoFar)
                 if case .damaged(let damage) = health {
-                    statusText = Self.wording(for: damage, file: url.lastPathComponent)
+                    status = .problem(Self.wording(for: damage, file: url.lastPathComponent))
                 } else if let range = session.diagnostics.resamplingRange {
                     // **A window resized mid-recording, said rather than left to be noticed.**
                     // The frame size is fixed when a segment opens, so a resize is carried by
@@ -1079,14 +1095,14 @@ final class RecordingCoordinator {
                     // padded, larger is a downscale and a softer picture. The session has
                     // counted this since it was written and nothing ever read the counters,
                     // so the only way to find out was to look at the result and wonder.
-                    statusText = String(localized:
-                        "The window changed size while recording, so part of it was scaled to fit the frame (\(Self.percent(range.low))–\(Self.percent(range.high))). The recording is usable; a window kept at one size stays sharp.")
+                    status = .problem(String(localized:
+                        "The window changed size while recording, so part of it was scaled to fit the frame (\(Self.percent(range.low))–\(Self.percent(range.high))). The recording is usable; a window kept at one size stays sharp."))
                 }
             } else {
-                statusText = String(localized: "The recording finished but produced no media.")
+                status = .problem(String(localized: "The recording finished but produced no media."))
             }
         } catch {
-            statusText = String(localized: "Could not stop recording: \(String(describing: error))")
+            status = .problem(String(localized: "Could not stop recording: \(String(describing: error))"))
         }
         stopObservingOwnWindows()
         self.session = nil

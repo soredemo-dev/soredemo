@@ -343,7 +343,7 @@ struct RecordingBarView: View {
     @ViewBuilder private var state: some View {
         HStack(spacing: Space.snug) {
             PulsingDot(isPaused: coordinator.isPaused)
-            Text(Self.elapsedText(coordinator.elapsed))
+            Text(verbatim: Self.elapsedText(coordinator.elapsed))
                 .font(.system(size: 15, weight: .medium).monospacedDigit())
                 .foregroundStyle(.white)
             if coordinator.isPaused {
@@ -369,7 +369,7 @@ struct RecordingBarView: View {
         }
         .frame(width: 34)
         .help(coordinator.microphoneLevel == nil
-              ? "No microphone in this recording" : "Microphone level")
+              ? Text("No microphone in this recording") : Text("Microphone level"))
     }
 
     /// Save the last fifteen seconds, while the recording keeps going.
@@ -450,7 +450,7 @@ private struct PulsingDot: View {
             .animation(isPaused ? nil
                        : .easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: dim)
             .onAppear { dim = true }
-            .accessibilityLabel(isPaused ? "Paused" : "Recording")
+            .accessibilityLabel(isPaused ? Text("Paused") : Text("Recording"))
     }
 }
 
@@ -477,7 +477,7 @@ private struct LevelMeter: View {
 /// buttons over a person's screen is a strip of clutter.
 private struct BarButton: View {
     let icon: String
-    let label: String
+    let label: LocalizedStringKey
     let action: () -> Void
     @State private var isHovering = false
 

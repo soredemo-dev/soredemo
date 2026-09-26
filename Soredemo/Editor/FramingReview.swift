@@ -187,7 +187,7 @@ struct FramingReviewInspector: View {
         // The refusal breakdown IS the diagnosis. A recording that zooms nowhere has every
         // one of its reasons in this table.
         ForEach(model.plan.rejectionCounts.sorted { $0.value > $1.value }, id: \.key) { reason, count in
-            LabeledContent(Self.label(for: reason), value: "\(count)")
+            LabeledContent { Text(verbatim: "\(count)") } label: { Text(verbatim: Self.label(for: reason)) }
                 .foregroundStyle(.secondary)
         }
     }
@@ -195,14 +195,14 @@ struct FramingReviewInspector: View {
     @ViewBuilder func row(for entry: ResolvedFraming) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             HStack {
-                Text(model.timeLabel(for: entry.instant) ?? "—")
+                Text(verbatim: model.timeLabel(for: entry.instant) ?? "—")
                     .monospacedDigit()
                 Spacer()
                 stateBadge(for: entry)
             }
             // The origin, in words: a reviewer looking at someone else's project must be
             // able to tell an override from an agreement without opening a file.
-            Text(Self.originDescription(for: entry))
+            Text(verbatim: Self.originDescription(for: entry))
                 .font(Type.detail)
                 .foregroundStyle(.secondary)
             controls(for: entry)
@@ -212,8 +212,11 @@ struct FramingReviewInspector: View {
 
     @ViewBuilder private func stateBadge(for entry: ResolvedFraming) -> some View {
         if entry.wasOverridden {
-            Label(entry.target == nil ? "You: no zoom" : "You: zoom",
-                  systemImage: "person.fill.checkmark")
+            Label {
+                entry.target == nil ? Text("You: no zoom") : Text("You: zoom")
+            } icon: {
+                Image(systemName: "person.fill.checkmark")
+            }
                 .font(Type.detail)
         } else if case .pointerFallback = entry.origin {
             Label("Zoom to pointer", systemImage: "cursorarrow.rays").font(Type.detail)
@@ -247,9 +250,11 @@ struct FramingReviewInspector: View {
                 // deletes the zoom outright, because there is nothing underneath it. Same
                 // call, and it must not claim to be the same act — "use the automatic
                 // decision" on a zoom nobody automated is a sentence that cannot be true.
-                Button(Self.isManual(entry) ? "Remove this zoom" : "Use the automatic decision") {
+                Button {
                     model.withdrawOverride(at: entry.instant)
                     onChange()
+                } label: {
+                    Self.isManual(entry) ? Text("Remove this zoom") : Text("Use the automatic decision")
                 }
             }
         }
@@ -289,20 +294,22 @@ struct FramingReviewInspector: View {
         switch entry.origin {
         case .derived:
             if let role = entry.target?.role {
-                return "Framed automatically from the \(role) under the click."
+                return String(localized: "Framed automatically from the \(role) under the click.")
             }
-            if entry.target != nil { return "Framed automatically." }
-            return "Refused automatically."
+            if entry.target != nil { return String(localized: "Framed automatically.") }
+            return String(localized: "Refused automatically.")
         case .pointerFallback(let reason):
             // Both halves, deliberately: the camera DID zoom, and the reason accessibility
             // could not name a target is still the useful thing to read.
-            return "Zoomed to the pointer, because: \(label(for: reason))"
+            return String(localized: "Zoomed to the pointer, because: \(label(for: reason))")
         case .authored(let overridden):
-            guard let overridden else { return "Your decision. The recorder saw no click here." }
-            if let reason = overridden.rejection {
-                return "Your decision, over: \(label(for: reason))"
+            guard let overridden else {
+                return String(localized: "Your decision. The recorder saw no click here.")
             }
-            return "Your decision, over the automatic zoom."
+            if let reason = overridden.rejection {
+                return String(localized: "Your decision, over: \(label(for: reason))")
+            }
+            return String(localized: "Your decision, over the automatic zoom.")
         }
     }
 
@@ -310,17 +317,17 @@ struct FramingReviewInspector: View {
     /// travel with the derivation; these are for the person reading the row.
     static func label(for rejection: FramingRejection) -> String {
         switch rejection {
-        case .hitTestReturnedNothing:   return "Nothing was under the click"
-        case .overOwnWindow:            return "The click was on the recorder's own controls"
-        case .noFrameRecorded:          return "The control reported no position"
-        case .staleObservation:         return "The window may have moved during the check"
-        case .notComparable:            return "The control and the click were in different coordinate systems"
-        case .doesNotContainTheClick:   return "The control found was not where the click was"
-        case .degenerateRectangle:      return "The control had no size"
-        case .partlyOffscreen:          return "The control was partly outside the recording"
-        case .tooLarge:                 return "The control filled too much of the screen to be worth zooming to"
+        case .hitTestReturnedNothing:   return String(localized: "Nothing was under the click")
+        case .overOwnWindow:            return String(localized: "The click was on the recorder's own controls")
+        case .noFrameRecorded:          return String(localized: "The control reported no position")
+        case .staleObservation:         return String(localized: "The window may have moved during the check")
+        case .notComparable:            return String(localized: "The control and the click were in different coordinate systems")
+        case .doesNotContainTheClick:   return String(localized: "The control found was not where the click was")
+        case .degenerateRectangle:      return String(localized: "The control had no size")
+        case .partlyOffscreen:          return String(localized: "The control was partly outside the recording")
+        case .tooLarge:                 return String(localized: "The control filled too much of the screen to be worth zooming to")
         case .bestCandidateOnTheTruncationBoundary:
-            return "The search was cut short before it found the right control"
+            return String(localized: "The search was cut short before it found the right control")
         }
     }
 }
@@ -349,14 +356,15 @@ struct FramingReviewSections: View {
                 Label("Zoom at the playhead", systemImage: "dot.viewfinder")
             }
             .disabled(!model.canAuthorZoom)
-            Text(model.canAuthorZoom
-                 ? "Centred on the pointer, then adjustable on the timeline like any other zoom."
-                 : "This recording has no observation header, so a time in it cannot be named.")
+            (model.canAuthorZoom
+                 ? Text("Centred on the pointer, then adjustable on the timeline like any other zoom.")
+                 : Text("This recording has no observation header, so a time in it cannot be named."))
                 .font(Type.detail).foregroundStyle(.secondary)
         }
         if let failure = model.failure {
             Section("Could not read the decisions") {
-                Label(failure, systemImage: "exclamationmark.triangle").font(Type.label)
+                Label { Text(verbatim: failure) } icon: { Image(systemName: "exclamationmark.triangle") }
+                    .font(Type.label)
             }
         }
         Section("Clicks") {

@@ -73,7 +73,7 @@ final class StageStyleModel {
         // other, which is the behaviour a person expects of "choose an image" and costs nothing.
         let name = source.lastPathComponent
         guard StageBackground.isSafeImageFilename(name) else {
-            return "\(name) is not a name this can use."
+            return String(localized: "\(name) is not a name this can use.")
         }
         do {
             try FileManager.default.createDirectory(at: directory,
@@ -84,7 +84,7 @@ final class StageStyleModel {
             }
             try FileManager.default.copyItem(at: source, to: destination)
         } catch {
-            return "Could not copy \(name) into the project: \(error)"
+            return String(localized: "Could not copy \(name) into the project: \(String(describing: error))")
         }
         presetName = nil
         apply(background: .image(filename: name))
@@ -223,23 +223,25 @@ struct StageStylePicker: View {
                 set: { model.selectBackground(named: $0); onChange() })
             ) {
                 ForEach(StageBackground.presets, id: \.name) { preset in
-                    Text(preset.name).tag(preset.name)
+                    Text(LocalizedStringKey(preset.name)).tag(preset.name)
                 }
                 // The empty tag is what a hand-picked image selects, so the picker shows no
                 // preset rather than showing the last one as if it were still in force.
                 if model.presetName == nil {
-                    Text(model.imageBackgroundName ?? "Custom").tag("")
+                    (model.imageBackgroundName.map { Text(verbatim: $0) } ?? Text("Custom")).tag("")
                 }
             }
 
             if let packageURL {
                 WallpaperPicker(model: model, packageURL: packageURL, onChange: onChange)
                 HStack(spacing: Space.snug) {
-                    Button(model.imageBackgroundName == nil ? "Choose image\u{2026}"
-                           : "Change image\u{2026}") {
+                    Button {
                         guard let picked = Self.chooseImage() else { return }
                         imageFailure = model.useImageBackground(picked, inPackageAt: packageURL)
                         onChange()
+                    } label: {
+                        model.imageBackgroundName == nil ? Text("Choose image\u{2026}")
+                            : Text("Change image\u{2026}")
                     }
                     if model.imageBackgroundName != nil {
                         Button("Remove") {
@@ -251,7 +253,7 @@ struct StageStylePicker: View {
                 }
                 .font(Type.detail)
                 if let imageFailure {
-                    Text(imageFailure).font(Type.detail).foregroundStyle(Signal.paused)
+                    Text(verbatim: imageFailure).font(Type.detail).foregroundStyle(Signal.paused)
                 }
             }
 
@@ -263,7 +265,7 @@ struct StageStylePicker: View {
                 set: { model.setDeviceModel($0); onChange() })) {
                 Text("None").tag(DeviceFrame.Model?.none)
                 ForEach(DeviceFrame.Model.allCases, id: \.self) { device in
-                    Text(device.displayName).tag(DeviceFrame.Model?.some(device))
+                    Text(LocalizedStringKey(device.displayName)).tag(DeviceFrame.Model?.some(device))
                 }
             }
             .font(Type.detail)
@@ -272,7 +274,7 @@ struct StageStylePicker: View {
                     get: { model.style.deviceFinish },
                     set: { model.setDeviceFinish($0); onChange() })) {
                     ForEach(DeviceFrame.Finish.allCases, id: \.self) { finish in
-                        Text(finish.displayName).tag(finish)
+                        Text(LocalizedStringKey(finish.displayName)).tag(finish)
                     }
                 }
                 .font(Type.detail)
@@ -347,7 +349,7 @@ struct StageStylePicker: View {
             set: { model.setCursor(model.cursor.changing(clickEffect: $0)); onChange() })
         ) {
             ForEach(CursorStyle.ClickEffect.allCases, id: \.self) { effect in
-                Text(effect.displayName).tag(effect)
+                Text(LocalizedStringKey(effect.displayName)).tag(effect)
             }
         }
         if model.cursor.clickEffect != .none {
@@ -398,14 +400,14 @@ struct StageStylePicker: View {
     }
 
     /// A labelled slider whose preview moves with the thumb — see `LiveSlider`.
-    @ViewBuilder private func slider(_ title: String, value: Double,
+    @ViewBuilder private func slider(_ title: LocalizedStringKey, value: Double,
                                      range: ClosedRange<Double>,
                                      commit: @escaping (Double) -> Void) -> some View {
         VStack(alignment: .leading, spacing: Space.hairline) {
             HStack {
                 Text(title)
                 Spacer()
-                Text(String(format: "%.2f", value))
+                Text(verbatim: String(format: "%.2f", value))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }

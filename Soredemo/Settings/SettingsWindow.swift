@@ -54,13 +54,13 @@ struct SettingsWindow: View {
     /// scrolling.
     var body: some View {
         TabView(selection: $section) {
-            pane { recording }.tabItem { Label(Section.recording.title,
+            pane { recording }.tabItem { Label(LocalizedStringKey(Section.recording.title),
                                                systemImage: Section.recording.icon) }
                 .tag(Section.recording)
-            pane { export }.tabItem { Label(Section.export.title,
+            pane { export }.tabItem { Label(LocalizedStringKey(Section.export.title),
                                             systemImage: Section.export.icon) }
                 .tag(Section.export)
-            pane { privacy }.tabItem { Label(Section.privacy.title,
+            pane { privacy }.tabItem { Label(LocalizedStringKey(Section.privacy.title),
                                              systemImage: Section.privacy.icon) }
                 .tag(Section.privacy)
         }
@@ -83,7 +83,7 @@ struct SettingsWindow: View {
                 get: { AppLanguage.stored ?? .system },
                 set: { AppLanguage.choose($0); languageChanged = true })) {
                 ForEach(AppLanguage.available, id: \.self) { language in
-                    Text(language.displayName).tag(language)
+                    Text(verbatim: language.displayName).tag(language)
                 }
             }
             if languageChanged {
@@ -98,7 +98,7 @@ struct SettingsWindow: View {
                 get: { coordinator.countdownSeconds },
                 set: { coordinator.countdownSeconds = $0 })) {
                 ForEach(RecordingCoordinator.countdownChoices, id: \.self) { value in
-                    Text(value == 0 ? "Off" : "\(value) seconds").tag(value)
+                    (value == 0 ? Text("Off") : Text("\(value) seconds")).tag(value)
                 }
             }
             Text("The pause before capture starts. It is also what hides a camera's first second, which is a dark frame settling.")
@@ -159,7 +159,7 @@ struct SettingsWindow: View {
                 Text("No microphone").tag(MicrophoneSource.off)
                 Text("System default").tag(MicrophoneSource.systemDefault)
                 ForEach(coordinator.availableMicrophones, id: \.self) { source in
-                    Text(source.displayName).tag(source)
+                    Text(LocalizedStringKey(source.displayName)).tag(source)
                 }
             }
             // **Through `chooseCamera`, not straight onto the property.** This picker used to
@@ -176,7 +176,7 @@ struct SettingsWindow: View {
                 set: { coordinator.chooseCamera($0) })) {
                 Text("No camera").tag(CameraSource.off)
                 ForEach(coordinator.availableCameras, id: \.self) { source in
-                    Text(source.displayName).tag(source)
+                    Text(LocalizedStringKey(source.displayName)).tag(source)
                 }
             }
             // **System audio has no toggle, and the reason is recorded rather than hidden.**
@@ -227,21 +227,16 @@ struct SettingsWindow: View {
         SwiftUI.Section("What is recorded") {
             PrivacyPoint(icon: "keyboard",
                          title: "Never what you type",
-                         detail: "The APIs that turn a key event into text are banned from this "
-                         + "app's source by a test — not filtered at runtime, unnameable. Key "
-                         + "codes and modifier flags are what a shortcut is matched on.")
+                         detail: "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on.")
             PrivacyPoint(icon: "cursorarrow.rays",
                          title: "Where you clicked, and what shape it was",
-                         detail: "The element's position and role, so a zoom can frame the "
-                         + "button rather than the pointer. Never its contents.")
+                         detail: "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents.")
             PrivacyPoint(icon: "macwindow",
                          title: "No window titles",
-                         detail: "The window picker shows an application's name and size. A "
-                         + "title carries whatever is open in it.")
+                         detail: "The window picker shows an application's name and size. A title carries whatever is open in it.")
             PrivacyPoint(icon: "wifi.slash",
                          title: "Nothing leaves this Mac",
-                         detail: "Transcription runs on device. There is no account, no upload "
-                         + "and no telemetry.")
+                         detail: "Transcription runs on device. There is no account, no upload and no telemetry.")
         }
         SwiftUI.Section {
             LabeledContent("Recordings are written to",
@@ -273,8 +268,8 @@ struct SettingsWindow: View {
 
 private struct PrivacyPoint: View {
     let icon: String
-    let title: String
-    let detail: String
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.regular) {

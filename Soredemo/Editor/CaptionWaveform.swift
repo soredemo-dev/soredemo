@@ -107,7 +107,7 @@ struct CaptionWaveform: View {
             // **A cue's own text is content, not a key** — `verbatim` for the same reason
             // `TargetCard` has a `verbatimTitle`: a sentence somebody said must not be looked
             // up in a table, where it would fall through to itself and cost a lookup per hover.
-            .help(cue.text)
+            .help(Text(verbatim: cue.text))
     }
 
     @ViewBuilder private func playhead(width: Double, height: Double,

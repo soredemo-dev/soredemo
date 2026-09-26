@@ -108,13 +108,13 @@ struct TransportBar: View {
             .buttonStyle(.plain)
             .tooltip("Back to the start")
 
-            Text(Self.timecode(position))
+            Text(verbatim: Self.timecode(position))
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
                 .foregroundStyle(Theme.Ink.primary)
             Text("/")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.Ink.tertiary)
-            Text(Self.timecode(total))
+            Text(verbatim: Self.timecode(total))
                 .font(.system(size: 12).monospacedDigit())
                 .foregroundStyle(Theme.Ink.secondary)
 
@@ -124,16 +124,18 @@ struct TransportBar: View {
 
             Menu {
                 ForEach(Self.rates, id: \.self) { value in
-                    Button(Self.rateLabel(value)) {
+                    Button {
                         rate = value
                         // Set on the player rather than remembered and applied at play: a rate
                         // changed mid-playback has to take effect mid-playback, which is when
                         // a person is comparing it against the speed before.
                         if player.timeControlStatus == .playing { player.rate = Float(value) }
+                    } label: {
+                        Text(verbatim: Self.rateLabel(value))
                     }
                 }
             } label: {
-                Text(Self.rateLabel(rate))
+                Text(verbatim: Self.rateLabel(rate))
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(rate == 1 ? Theme.Ink.secondary : Theme.accent)
                     .frame(width: 38)
@@ -145,7 +147,7 @@ struct TransportBar: View {
 
             // What the export will be, stated where a person is looking at the picture rather
             // than only in the inspector three tabs away.
-            Text(model.hasEdits ? "Edited" : "Unedited")
+            (model.hasEdits ? Text("Edited") : Text("Unedited"))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.Ink.tertiary)
         }

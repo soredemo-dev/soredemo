@@ -200,7 +200,7 @@ private struct CountdownView: View {
             .frame(width: Self.ring, height: Self.ring)
 
             VStack(spacing: Space.tight) {
-                Text(state.subject)
+                Text(verbatim: state.subject)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)

@@ -76,8 +76,8 @@ struct TranscriptPanel {
             // Only the counts that are not zero: "0 removed" is a line a person has to read to
             // learn nothing.
             if removed > 0 || partial > 0 {
-                Text([removed > 0 ? "\(removed) removed" : nil,
-                      partial > 0 ? "\(partial) partly cut" : nil]
+                Text(verbatim: [removed > 0 ? String(localized: "\(removed) removed") : nil,
+                                partial > 0 ? String(localized: "\(partial) partly cut") : nil]
                     .compactMap { $0 }.joined(separator: " · "))
                     .font(Type.detail).foregroundStyle(.secondary)
             }
@@ -93,12 +93,12 @@ struct TranscriptPanel {
         HStack(alignment: .top, spacing: Space.snug) {
             VStack(alignment: .leading, spacing: Space.hairline) {
                 HStack(spacing: Space.snug) {
-                    Text(timecode(segment.start))
+                    Text(verbatim: timecode(segment.start))
                         .font(Type.detail.monospacedDigit())
                         .foregroundStyle(.secondary)
                     badge(state)
                 }
-                Text(segment.text)
+                Text(verbatim: segment.text)
                     .font(Type.label)
                     // Struck through rather than hidden: the row is a record of what was said,
                     // and a sentence that vanished from the list would leave a person unable to
@@ -217,7 +217,7 @@ struct TranscriptPanel {
         let gone = transcript.removalRange(ofWordAt: word)
             .map { edit.survival(ofSource: $0) == .gone } ?? true
         let isChosen = listState.chosenWords.contains(word)
-        Text(transcript.words[word].text.trimmingCharacters(in: .whitespaces))
+        Text(verbatim: transcript.words[word].text.trimmingCharacters(in: .whitespaces))
             .font(Type.detail)
             .strikethrough(gone)
             .foregroundStyle(gone ? AnyShapeStyle(.tertiary)

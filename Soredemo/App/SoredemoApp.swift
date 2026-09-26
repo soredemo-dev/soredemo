@@ -321,8 +321,10 @@ struct SoredemoApp: App {
                 Divider()
                 // Human step: record a few seconds and stop; ContentView then
                 // shows StageWindow once recordingCoordinator.mediaURL is set.
-                Button(recordingCoordinator.isRecording ? "Stop Recording" : "Record…") {
+                Button {
                     recordingCoordinator.toggleRecording()
+                } label: {
+                    recordingCoordinator.isRecording ? Text("Stop Recording") : Text("Record…")
                 }
                 .keyboardShortcut("r")
             }

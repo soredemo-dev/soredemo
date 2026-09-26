@@ -125,7 +125,7 @@ struct MenuBarRecorderPanel: View {
                 .font(.system(size: 14, weight: .semibold))
             Spacer()
             if coordinator.isRecording {
-                Text(RecordingBarView.elapsedText(coordinator.elapsed))
+                Text(verbatim: RecordingBarView.elapsedText(coordinator.elapsed))
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -219,7 +219,7 @@ struct MenuBarRecorderPanel: View {
             Divider()
             Button("System default") { coordinator.microphone = .systemDefault }
             ForEach(coordinator.availableMicrophones, id: \.self) { source in
-                Button(source.displayName) { coordinator.microphone = source }
+                Button(LocalizedStringKey(source.displayName)) { coordinator.microphone = source }
             }
             Divider()
             // **Voice Isolation is the noise removal, done by the system, on the input.** It is
@@ -303,7 +303,7 @@ struct MenuBarRecorderPanel: View {
                 Button("No camera") { coordinator.camera = .off }
                 Divider()
                 ForEach(coordinator.availableCameras, id: \.self) { source in
-                    Button(source.displayName) { coordinator.chooseCamera(source) }
+                    Button(LocalizedStringKey(source.displayName)) { coordinator.chooseCamera(source) }
                 }
                 Divider()
                 // **The quality is the camera's, read from the device.** It was capped at 1080p
@@ -358,7 +358,7 @@ struct MenuBarRecorderPanel: View {
             if case .device = coordinator.camera,
                let size = CameraRecorder.recordingSize(of: coordinator.camera,
                                                        quality: coordinator.cameraQuality) {
-                Text(size)
+                Text(verbatim: size)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
@@ -370,7 +370,7 @@ struct MenuBarRecorderPanel: View {
                 Button { CameraEffects.showVideoEffects() } label: {
                     HStack(spacing: Space.tight) {
                         Image(systemName: "sparkles").font(.system(size: 9))
-                        Text(coordinator.activeCameraEffects
+                        Text(verbatim: coordinator.activeCameraEffects
                             .map { NSLocalizedString($0.rawValue, comment: "") }
                             .joined(separator: " \u{00B7} "))
                     }
@@ -452,7 +452,9 @@ struct MenuBarRecorderPanel: View {
                                       set: { coordinator.frameRate = $0 })) {
             ForEach(CaptureFrameRate.available(forDisplayRates: Self.displayRefreshRates),
                     id: \.self) {
-                Text($0.displayName).tag($0)
+                // A format key, not the name: the rate is the display's own (144, 240…), so no
+                // table of fixed names can hold it, and French and Russian do not say "fps".
+                Text("\($0.rawValue) fps").tag($0)
             }
         }
     }
@@ -493,7 +495,7 @@ struct MenuBarRecorderPanel: View {
                    selection: Binding(get: { coordinator.countdownSeconds },
                                       set: { coordinator.countdownSeconds = $0 })) {
             ForEach(RecordingCoordinator.countdownChoices, id: \.self) { value in
-                Text(value == 0 ? "Off" : "\(value)s").tag(value)
+                (value == 0 ? Text("Off") : Text("\(value)s")).tag(value)
             }
         }
     }
@@ -506,7 +508,7 @@ struct MenuBarRecorderPanel: View {
                 Image(systemName: "record.circle.fill").font(.system(size: 13))
                 Text("Start Recording").font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Text(Self.toggleShortcut)
+                Text(verbatim: Self.toggleShortcut)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.ink.opacity(0.6))
             }
@@ -535,7 +537,9 @@ struct MenuBarRecorderPanel: View {
             HStack(spacing: Space.snug) {
                 PanelLevel(level: coordinator.microphoneLevel)
                 Spacer()
-                Button(coordinator.isPaused ? "Resume" : "Pause") { coordinator.togglePause() }
+                Button { coordinator.togglePause() } label: {
+                    coordinator.isPaused ? Text("Resume") : Text("Pause")
+                }
                     .controlSize(.small)
                 Button("Stop \(Self.toggleShortcut)") { coordinator.stop() }
                     .controlSize(.small)
@@ -558,12 +562,13 @@ struct MenuBarRecorderPanel: View {
     /// video call is — produced a recording with no camera in it and not one word about why.
     /// The recorder is started from this panel and this panel is where a person comes back to.
     ///
-    /// Only failures: the running commentary was removed from `statusText` long ago, and what is
-    /// left is a report.
+    /// Only problems, as the sentence's writer classed them — see `RecordingCoordinator.Status`
+    /// for why the panel no longer decides by reading the words.
     @ViewBuilder private var failureNote: some View {
-        if !coordinator.statusText.isEmpty, coordinator.statusText.contains("could not")
-            || coordinator.statusText.contains("Could not") {
-            Label(coordinator.statusText, systemImage: "exclamationmark.triangle")
+        if coordinator.status.isProblem, !coordinator.status.text.isEmpty {
+            Label { Text(verbatim: coordinator.status.text) } icon: {
+                Image(systemName: "exclamationmark.triangle")
+            }
                 .font(.system(size: 10))
                 .foregroundStyle(Signal.paused)
                 .fixedSize(horizontal: false, vertical: true)
@@ -712,7 +717,7 @@ private struct PanelLinkLabel: View {
             Text(title)
             // **Only when there is one.** An empty `Text` still takes the stack's spacing, which
             // left Permissions sitting a few points off the alignment its neighbours kept.
-            if !shortcut.isEmpty { Text(shortcut).foregroundStyle(.tertiary) }
+            if !shortcut.isEmpty { Text(verbatim: shortcut).foregroundStyle(.tertiary) }
         }
         .foregroundStyle(isHovering ? .primary : .secondary)
         .contentShape(Rectangle())
@@ -785,7 +790,7 @@ private struct FooterIcon: View {
             .background(isHovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
                         in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
-            .help(tooltip)
+            .help(Text(verbatim: tooltip))
             .accessibilityLabel(Text(title))
     }
 }

@@ -83,10 +83,12 @@ struct AnnotationPanel: View {
                     get: { model.nextShape },
                     set: { model.nextShape = $0 })) {
                     ForEach(AnnotationShape.allCases, id: \.self) { shape in
-                        Text(shape.displayName).tag(shape)
+                        Text(LocalizedStringKey(shape.displayName)).tag(shape)
                     }
                 }
-                Button("Add a \(model.nextShape.displayName.lowercased())") {
+                // The picker above names the shape. "Add a \(name)" put an English noun into a
+                // sentence no other language's grammar survives.
+                Button("Add at the playhead") {
                     model.add(at: playhead)
                     onChange()
                 }
@@ -111,8 +113,8 @@ struct AnnotationPanel: View {
                 Image(systemName: icon(for: item.shape))
                     .foregroundStyle(colour(of: item))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(item.shape.displayName)
-                    Text(span(of: item)).font(Type.detail).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(item.shape.displayName))
+                    Text(verbatim: span(of: item)).font(Type.detail).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if model.selection == item.id {
@@ -135,7 +137,7 @@ struct AnnotationPanel: View {
         Section("Shape") {
             Picker("Shape", selection: binding(item, \.shape)) {
                 ForEach(AnnotationShape.allCases, id: \.self) { shape in
-                    Text(shape.displayName).tag(shape)
+                    Text(LocalizedStringKey(shape.displayName)).tag(shape)
                 }
             }
             Picker("Colour", selection: Binding(
@@ -148,7 +150,7 @@ struct AnnotationPanel: View {
                     onChange()
                 })) {
                 ForEach(AnnotationInk.allCases, id: \.self) { ink in
-                    Text(ink.displayName).tag(ink)
+                    Text(LocalizedStringKey(ink.displayName)).tag(ink)
                 }
             }
             slider("Weight", value: styleBinding(item) { $0.changing(strokeWidthFraction: $1) },
@@ -185,7 +187,7 @@ struct AnnotationPanel: View {
         Section("When") {
             Picker("Arrives", selection: binding(item, \.animation)) {
                 ForEach(TextAnimation.allCases, id: \.self) { animation in
-                    Text(animation.displayName).tag(animation)
+                    Text(LocalizedStringKey(animation.displayName)).tag(animation)
                 }
             }
             Button("Start here") {
@@ -208,7 +210,7 @@ struct AnnotationPanel: View {
                 }
             }
             .disabled(playhead.rawValue <= item.start.rawValue)
-            Text(span(of: item)).font(Type.detail).foregroundStyle(.secondary)
+            Text(verbatim: span(of: item)).font(Type.detail).foregroundStyle(.secondary)
         }
         Section {
             Button("Delete", role: .destructive) {
@@ -218,7 +220,7 @@ struct AnnotationPanel: View {
         }
     }
 
-    private func slider(_ label: String, value: Binding<Double>,
+    private func slider(_ label: LocalizedStringKey, value: Binding<Double>,
                         range: ClosedRange<Double>) -> some View {
         HStack {
             Text(label).frame(width: 92, alignment: .leading)
@@ -235,7 +237,7 @@ struct AnnotationPanel: View {
     /// **`@Sendable`, which `Binding(get:set:)` began requiring in the macOS 27 SDK.** The
     /// closure is called from SwiftUI on the main actor either way; the annotation is the
     /// compiler being told what was already true rather than a change in behaviour.
-    private func slider(_ label: String, value: @escaping @Sendable (Double) -> Void,
+    private func slider(_ label: LocalizedStringKey, value: @escaping @Sendable (Double) -> Void,
                         read: Double, range: ClosedRange<Double>) -> some View {
         slider(label, value: Binding(get: { read }, set: value), range: range)
     }

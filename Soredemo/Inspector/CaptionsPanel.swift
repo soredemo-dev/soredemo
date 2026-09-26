@@ -526,7 +526,7 @@ struct CaptionsPanel: View {
                     }
                 }
                 if let status = model.status {
-                    Section { Text(status).font(Type.detail).foregroundStyle(.secondary) }
+                    Section { Text(verbatim: status).font(Type.detail).foregroundStyle(.secondary) }
                 }
             }
             .listStyle(.sidebar)
@@ -550,7 +550,7 @@ struct CaptionsPanel: View {
     /// trip across the window.
     @ViewBuilder private var picker: some View {
         Picker("", selection: $showing) {
-            ForEach(Words.allCases, id: \.self) { Text($0.title).tag($0) }
+            ForEach(Words.allCases, id: \.self) { Text(verbatim: $0.title).tag($0) }
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -589,13 +589,15 @@ struct CaptionsPanel: View {
         if model.isTranscribing {
             transcriptionSteps
         } else {
-            Button(model.track.isEmpty ? "Transcribe" : "Transcribe again") {
+            Button {
                 Task {
                     await model.transcribe(mediaURL: mediaURL, outputWidth: outputWidth,
                                            outputHeight: outputHeight,
                                            maximumWords: maximumWords, pauses: pauses)
                     onChange()
                 }
+            } label: {
+                model.track.isEmpty ? Text("Transcribe") : Text("Transcribe again")
             }
             .disabled(!model.canTranscribe)
 
@@ -614,9 +616,9 @@ struct CaptionsPanel: View {
                 // Installed languages are marked, because choosing one that is not starts a
                 // several-hundred-megabyte download and a person should see which is which
                 // BEFORE they press the button rather than after.
-                Text(Self.name(of: locale)
-                     + (model.installedLocales.contains(locale.identifier(.bcp47))
-                        ? "" : " \u{2014} downloads"))
+                let name = Self.name(of: locale)
+                (model.installedLocales.contains(locale.identifier(.bcp47))
+                    ? Text(verbatim: name) : Text("\(name) \u{2014} downloads"))
                     .tag(locale.identifier(.bcp47))
             }
         }
@@ -896,8 +898,7 @@ struct CaptionsPanel: View {
         HStack(spacing: Space.snug) {
             Text("Font").font(Type.label)
             Spacer(minLength: Space.tight)
-            Text(model.style.fontFilename.map { LocalizedStringKey($0) }
-                    ?? LocalizedStringKey("System"))
+            (model.style.fontFilename.map { Text(verbatim: $0) } ?? Text("System"))
                 .font(Type.detail)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

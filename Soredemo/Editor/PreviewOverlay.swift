@@ -95,7 +95,7 @@ struct PreviewOverlay: View {
     -> some View {
         let x = video.x + item.style.x * video.width
         let y = video.y + (1 - item.style.y) * video.height
-        HandlePuck(label: item.text.components(separatedBy: "\n").first ?? "Text",
+        HandlePuck(label: item.text.components(separatedBy: "\n").first ?? String(localized: "Text"),
                    tint: Theme.Lane.text)
             .position(x: x, y: y)
             .gesture(
@@ -196,7 +196,7 @@ private struct HandlePuck: View {
                 .fill(tint)
                 .frame(width: 12, height: 12)
                 .overlay { Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5) }
-            Text(label)
+            Text(verbatim: label)
                 .font(.system(size: 10, weight: .medium))
                 .lineLimit(1)
                 .foregroundStyle(.white)

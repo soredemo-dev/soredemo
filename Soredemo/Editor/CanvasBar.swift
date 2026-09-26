@@ -25,7 +25,7 @@ struct CanvasBar: View {
         HStack(spacing: Space.regular) {
             Picker("", selection: $variant) {
                 ForEach(AspectVariant.all, id: \.self) { shape in
-                    Text(Self.label(shape)).tag(shape)
+                    Self.label(shape).tag(shape)
                 }
             }
             .labelsHidden()
@@ -58,7 +58,7 @@ struct CanvasBar: View {
             .tooltip("Show where captions may be cut off or covered")
 
             if !crop.isWhole {
-                Text(Self.cropLabel(crop))
+                Text(verbatim: Self.cropLabel(crop))
                     .font(Type.readout)
                     .foregroundStyle(Theme.accent)
                 Button("Reset") {
@@ -77,9 +77,10 @@ struct CanvasBar: View {
     }
 
     /// `Landscape 16:9` — the name a person chose it by, and the ratio they recognise it by.
-    static func label(_ variant: AspectVariant) -> String {
+    static func label(_ variant: AspectVariant) -> Text {
         let size = variant.dimensions(longestEdge: 1920)
-        return "\(variant.name) \u{00B7} \(ratio(width: size.width, height: size.height))"
+        let ratio = ratio(width: size.width, height: size.height)
+        return Text("\(Text(LocalizedStringKey(variant.name))) \u{00B7} \(ratio)")
     }
 
     /// The aspect as a small whole-number ratio. **Reduced by the greatest common divisor**, so

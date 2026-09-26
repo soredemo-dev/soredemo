@@ -104,11 +104,11 @@ struct TextPanel: View {
     @ViewBuilder private var items: some View {
         ForEach(model.track.items) { item in
             HStack {
-                Text(item.text.isEmpty ? "(empty)" : firstLine(of: item.text))
+                (item.text.isEmpty ? Text("(empty)") : Text(verbatim: firstLine(of: item.text)))
                     .font(Type.label)
                     .lineLimit(1)
                 Spacer()
-                Text(timecode(item.start)).font(Type.readout).foregroundStyle(.secondary)
+                Text(verbatim: timecode(item.start)).font(Type.readout).foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
             .onTapGesture { model.selection = item.id }
@@ -131,7 +131,7 @@ struct TextPanel: View {
 
     @ViewBuilder private func placement(_ item: TextItem) -> some View {
         Picker("Align", selection: styleBinding(item, \.anchor, { $0.changing(anchor: $1) })) {
-            ForEach(TextAnchor.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            ForEach(TextAnchor.allCases, id: \.self) { Text(LocalizedStringKey($0.displayName)).tag($0) }
         }
         Slider(value: styleBinding(item, \.x, { $0.changing(x: $1) }), in: 0...1) {
             Text("Across")
@@ -145,7 +145,9 @@ struct TextPanel: View {
 
     @ViewBuilder private func look(_ item: TextItem) -> some View {
         Picker("Animation", selection: binding(item, \.animation)) {
-            ForEach(TextAnimation.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            ForEach(TextAnimation.allCases, id: \.self) {
+                Text(LocalizedStringKey($0.displayName)).tag($0)
+            }
         }
         Slider(value: styleBinding(item, \.heightFraction, { $0.changing(heightFraction: $1) }),
                in: 0.02...0.25) { Text("Size") }

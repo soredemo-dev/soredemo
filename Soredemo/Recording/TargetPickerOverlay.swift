@@ -243,10 +243,10 @@ private struct TargetCard: View {
                     .resizable()
                     .frame(width: 52, height: 52)
             }
-            Text(target.applicationName)
+            Text(verbatim: target.applicationName)
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(.white)
-            Text(target.sizeDescription)
+            Text(verbatim: target.sizeDescription)
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
                 .foregroundStyle(.white.opacity(0.65))
             if isResolving {

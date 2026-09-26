@@ -51,7 +51,8 @@ it is equally clear about what is *missing*.
 **The free recorder is feature-complete; the derivation pipeline is not.**
 
 Recording, editing and export all work end to end, and projects save and reopen. The interface is
-English and Traditional Chinese. `scripts/build-release.sh` signs and notarises a Developer ID
+in ten languages — English, German, Spanish, French, Japanese, Korean, Brazilian Portuguese,
+Russian, and Simplified and Traditional Chinese. `scripts/build-release.sh` signs and notarises a Developer ID
 copy.
 
 **What is not built:** the derivation graph, titles and transitions, and the CLI. Framing decisions

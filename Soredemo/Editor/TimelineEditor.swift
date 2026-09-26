@@ -893,7 +893,7 @@ struct TimelineEditor: View {
     /// the content side and not the header side misaligns every track below it, and nothing
     /// catches that. This cannot misalign because there is one row.
     @ViewBuilder private func lane<Content: View>(
-        _ title: String?, _ icon: String?, height: Double,
+        _ title: LocalizedStringKey?, _ icon: String?, height: Double,
         @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: Space.snug) {
             HStack(spacing: Space.tight) {
@@ -935,7 +935,7 @@ struct TimelineEditor: View {
                     let fraction = (seconds - start) / max(visible, 0.000_001)
                     if fraction >= 0, fraction <= 1, seconds >= 0 {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(Self.tickLabel(seconds, step: step))
+                            Text(verbatim: Self.tickLabel(seconds, step: step))
                                 .font(.system(size: 9).monospacedDigit())
                                 .foregroundStyle(Theme.Ink.tertiary)
                                 .fixedSize()
@@ -1036,7 +1036,7 @@ struct TimelineEditor: View {
     /// **The master writes system audio first and the microphone second.** That order is
     /// `AudioMixBuilder.trackOrder`, which the export mixes by and which has a test on it; an
     /// `AVAssetTrack` carries no name to match on, so the index IS the identity.
-    static func audioTrackName(_ index: Int) -> String {
+    static func audioTrackName(_ index: Int) -> LocalizedStringKey {
         switch index {
         case 0: "System"
         case 1: "Mic"
@@ -1169,7 +1169,7 @@ struct TimelineEditor: View {
                         // squeezed — a clipped label is worse than none.
                         .overlay(alignment: .topLeading) {
                             if w > Self.clipLabelMinimumWidth {
-                                Text(clip.speed == 1 ? Self.stamp(clip.duration)
+                                Text(verbatim: clip.speed == 1 ? Self.stamp(clip.duration)
                                      : "\(Self.stamp(clip.duration)) \u{00B7} "
                                      + EditorToolbar.speedLabel(clip.speed))
                                     .font(.system(size: 9, weight: .medium).monospacedDigit())
@@ -1342,7 +1342,7 @@ struct TimelineEditor: View {
             // block is too narrow to hold it.
             .overlay {
                 if width > 30, !suppressed {
-                    Text(FramingDepth.label(for: zoom))
+                    Text(verbatim: FramingDepth.label(for: zoom))
                         .font(.system(size: 9, weight: .semibold).monospacedDigit())
                         .foregroundStyle(.black.opacity(0.75))
                         .allowsHitTesting(false)
@@ -1378,12 +1378,12 @@ struct TimelineEditor: View {
                         onChange()
                     }
             )
-            .help(suppressed ? "This zoom is off. Click to turn it back on."
+            .help(suppressed ? Text("This zoom is off. Click to turn it back on.")
                   : adjusted
-                      ? "You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off."
-                      : "Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off.")
-            .accessibilityLabel(suppressed ? "Zoom, off"
-                                : adjusted ? "Zoom, adjusted" : "Zoom, derived from a click")
+                      ? Text("You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off.")
+                      : Text("Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off."))
+            .accessibilityLabel(suppressed ? Text("Zoom, off")
+                                : adjusted ? Text("Zoom, adjusted") : Text("Zoom, derived from a click"))
     }
 
     /// One edge of the selected clip, draggable.
@@ -1485,7 +1485,7 @@ struct TimelineEditor: View {
             // Reading `model.playhead` in a `@ViewBuilder` method of this struct is a read by
             // THIS body, so one `Text` dragged every lane, every clip, every caption block and
             // the waveform through a fresh layout ten times a second. See `AtPlayhead`.
-            AtPlayhead(model: model) { Text(Self.stamp($0)) }
+            AtPlayhead(model: model) { Text(verbatim: Self.stamp($0)) }
             Spacer()
             if let selection = model.selection {
                 Text("selected \(Self.stamp(Nanoseconds(Int64(selection.count))))")

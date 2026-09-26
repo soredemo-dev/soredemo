@@ -149,8 +149,8 @@ struct InspectorTabButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .help(tab.title)
-        .accessibilityLabel(tab.title)
+        .help(LocalizedStringKey(tab.title))
+        .accessibilityLabel(LocalizedStringKey(tab.title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

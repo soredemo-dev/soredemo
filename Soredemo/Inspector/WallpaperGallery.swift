@@ -66,7 +66,7 @@ struct WallpaperPicker: View {
     @State private var source = Source.desktop
     @State private var failure: String?
 
-    private enum Source: String, CaseIterable, Hashable {
+    enum Source: String, CaseIterable, Hashable {
         case desktop, system, gradient, colour, none
 
         var title: String {
@@ -91,7 +91,7 @@ struct WallpaperPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
             Picker("", selection: $source) {
-                ForEach(Source.allCases, id: \.self) { Text($0.title).tag($0) }
+                ForEach(Source.allCases, id: \.self) { Text(LocalizedStringKey($0.title)).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -103,9 +103,9 @@ struct WallpaperPicker: View {
             } else if source == .gradient {
                 gradients
             } else if urls.isEmpty {
-                Text(source == .desktop
-                     ? "This Mac's wallpaper could not be read."
-                     : "No pictures were found in the system's wallpaper folder.")
+                (source == .desktop
+                     ? Text("This Mac's wallpaper could not be read.")
+                     : Text("No pictures were found in the system's wallpaper folder."))
                     .font(Type.detail).foregroundStyle(.secondary)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 62), spacing: Space.snug)],
@@ -142,7 +142,7 @@ struct WallpaperPicker: View {
             }
 
             if let failure {
-                Text(failure).font(Type.detail).foregroundStyle(Signal.paused)
+                Text(verbatim: failure).font(Type.detail).foregroundStyle(Signal.paused)
             }
         }
     }
@@ -253,7 +253,7 @@ struct WallpaperPicker: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .help(preset.name)
+                .help(LocalizedStringKey(preset.name))
             }
         }
     }
@@ -317,7 +317,7 @@ private struct WallpaperTile: View {
             }
         }
         .buttonStyle(.plain)
-        .help(url.deletingPathExtension().lastPathComponent)
+        .help(Text(verbatim: url.deletingPathExtension().lastPathComponent))
         .task {
             guard thumbnail == nil else { return }
             let url = url
