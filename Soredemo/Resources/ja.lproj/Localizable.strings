@@ -265,7 +265,6 @@
 "Never what you type" = "入力した文字は決して記録しません";
 "Where you clicked, and what shape it was" = "どこをクリックし、それがどんな形だったか";
 "No window titles" = "ウインドウのタイトルは記録しません";
-"Nothing leaves this Mac" = "この Mac から何も出ていきません";
 "Open Project" = "プロジェクトを開く";
 "Open Video" = "ビデオを開く";
 "Settings" = "設定";
@@ -614,7 +613,6 @@
 "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on." = "キー入力を文字に変換するAPIは、テストによってこのアプリのソースから禁止されています。実行時に除外するのではなく、名前を書くことすらできません。ショートカットはキーコードと修飾キーで判定します。";
 "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents." = "要素の位置と種類。ズームがポインタではなくボタンを捉えるためです。内容は決して記録しません。";
 "The window picker shows an application's name and size. A title carries whatever is open in it." = "ウインドウの選択画面にはアプリ名とサイズだけを表示します。タイトルには開いている内容が含まれるからです。";
-"Transcription runs on device. There is no account, no upload and no telemetry." = "文字起こしはデバイス上で行います。アカウントもアップロードもテレメトリもありません。";
 "This zoom is off. Click to turn it back on." = "このズームはオフです。クリックすると元に戻ります。";
 "%lld fps" = "%lld fps";
 "%lld line(s) could not be read (first at line %lld)." = "%1$lld 行を読み取れませんでした(最初は %2$lld 行目)。";
@@ -657,3 +655,17 @@
 "Controls" = "コントロール";
 "Controls in the notch" = "ノッチにコントロールを表示";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "ノッチにポインタを合わせると収録を始められ、収録中はその状態がそこに表示されます。オフのとき、またはノッチのない Mac では、画面下部のバーになります。";
+"Check for Updates…" = "アップデートを確認…";
+"Open the Release Page" = "リリースページを開く";
+"Later" = "あとで";
+"Soredemo %@ is the latest version" = "Soredemo %@ は最新バージョンです";
+"No release has been published yet" = "まだリリースは公開されていません";
+"Could not check for updates" = "アップデートを確認できませんでした";
+"GitHub could not be reached, or its answer could not be read. Nothing was changed." = "GitHub に接続できないか、応答を読み取れませんでした。何も変更していません。";
+"Soredemo %@ is available" = "Soredemo %@ が利用可能です";
+"You have %@. The release page has the download and what changed. If you installed Soredemo with Homebrew, run brew upgrade --cask soredemo instead." = "現在は %@ です。リリースページにダウンロードと変更点があります。Homebrew でインストールした場合は、代わりに brew upgrade --cask soredemo を実行してください。";
+"Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu." = "GitHub に最新リリースを問い合わせます。リクエストは 1 回だけで、あなたや収録についての情報は含みません。オフのときは、Soredemo メニューで「アップデートを確認」を選んだときだけ問い合わせます。";
+"Nothing is sent unless you ask" = "頼まない限り何も送信しません";
+"Updates" = "アップデート";
+"Check for updates when Soredemo starts" = "Soredemo の起動時にアップデートを確認";
+"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "文字起こしはデバイス上で行います。アカウントもアップロードもテレメトリもありません。Soredemo が行う唯一の通信は、新しいバージョンがあるかを GitHub に尋ねることで、あなたが選んだときだけです。";

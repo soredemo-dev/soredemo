@@ -299,6 +299,10 @@ struct SoredemoApp: App {
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
         .commands {
+            CommandGroup(after: .appInfo) {
+                // Asked, never automatic from here: see `UpdateChecker`.
+                Button("Check for Updates…") { Task { await UpdateChecker.check(userInitiated: true) } }
+            }
             // `ProjectDocument` is an `NSDocument`, not a `FileDocument`, so
             // `DocumentGroup` cannot host it. `NSDocumentController` is stood up
             // on first use from `CFBundleDocumentTypes` in `Soredemo-Info.plist`.

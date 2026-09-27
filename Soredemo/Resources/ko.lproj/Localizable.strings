@@ -263,7 +263,6 @@
 "Never what you type" = "입력한 글자는 절대 기록하지 않습니다";
 "Where you clicked, and what shape it was" = "어디를 클릭했고 그것이 어떤 모양이었는지";
 "No window titles" = "윈도우 제목은 기록하지 않습니다";
-"Nothing leaves this Mac" = "이 Mac 밖으로 아무것도 나가지 않습니다";
 "Open Project" = "프로젝트 열기";
 "Open Video" = "비디오 열기";
 "Settings" = "설정";
@@ -612,7 +611,6 @@
 "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on." = "키 입력을 텍스트로 바꾸는 API는 테스트로 이 앱의 소스에서 금지되어 있습니다. 실행 중에 걸러내는 것이 아니라 이름조차 쓸 수 없습니다. 단축키는 키 코드와 보조 키로 판별합니다.";
 "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents." = "요소의 위치와 역할. 확대가 포인터가 아닌 버튼을 잡을 수 있도록 하기 위함입니다. 내용은 절대 기록하지 않습니다.";
 "The window picker shows an application's name and size. A title carries whatever is open in it." = "창 선택 화면은 앱 이름과 크기만 보여 줍니다. 제목에는 그 안에 열린 내용이 담기기 때문입니다.";
-"Transcription runs on device. There is no account, no upload and no telemetry." = "받아쓰기는 기기에서 실행됩니다. 계정도, 업로드도, 원격 측정도 없습니다.";
 "This zoom is off. Click to turn it back on." = "이 확대는 꺼져 있습니다. 클릭하면 다시 켜집니다.";
 "%lld fps" = "%lld fps";
 "%lld line(s) could not be read (first at line %lld)." = "%1$lld개 줄을 읽을 수 없습니다 (첫 번째는 %2$lld번째 줄).";
@@ -655,3 +653,17 @@
 "Controls" = "컨트롤";
 "Controls in the notch" = "노치에 컨트롤 표시";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "노치를 가리키면 녹화를 시작할 수 있고, 진행 중인 녹화도 거기에 표시됩니다. 끄거나 노치가 없는 Mac에서는 화면 아래쪽 막대가 됩니다.";
+"Check for Updates…" = "업데이트 확인…";
+"Open the Release Page" = "릴리스 페이지 열기";
+"Later" = "나중에";
+"Soredemo %@ is the latest version" = "Soredemo %@이(가) 최신 버전입니다";
+"No release has been published yet" = "아직 공개된 릴리스가 없습니다";
+"Could not check for updates" = "업데이트를 확인할 수 없습니다";
+"GitHub could not be reached, or its answer could not be read. Nothing was changed." = "GitHub에 연결할 수 없거나 응답을 읽을 수 없습니다. 아무것도 바뀌지 않았습니다.";
+"Soredemo %@ is available" = "Soredemo %@을(를) 사용할 수 있습니다";
+"You have %@. The release page has the download and what changed. If you installed Soredemo with Homebrew, run brew upgrade --cask soredemo instead." = "현재 버전은 %@입니다. 릴리스 페이지에서 다운로드와 변경 사항을 볼 수 있습니다. Homebrew로 설치했다면 대신 brew upgrade --cask soredemo를 실행하세요.";
+"Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu." = "GitHub에 최신 릴리스를 물어봅니다. 요청은 한 번뿐이며, 사용자나 녹화에 관한 정보는 담기지 않습니다. 끄면 Soredemo 메뉴에서 ‘업데이트 확인’을 선택할 때만 물어봅니다.";
+"Nothing is sent unless you ask" = "요청하지 않으면 아무것도 보내지 않습니다";
+"Updates" = "업데이트";
+"Check for updates when Soredemo starts" = "Soredemo를 시작할 때 업데이트 확인";
+"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "받아쓰기는 기기에서 실행됩니다. 계정도, 업로드도, 원격 측정도 없습니다. Soredemo가 보낼 수 있는 유일한 요청은 새 버전이 있는지 GitHub에 묻는 것이며, 사용자가 선택할 때만 보냅니다.";

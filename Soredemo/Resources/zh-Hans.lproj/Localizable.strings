@@ -265,7 +265,6 @@
 "Never what you type" = "永远不记录你打的字";
 "Where you clicked, and what shape it was" = "你点了哪里,以及那是什么形状";
 "No window titles" = "不记录窗口标题";
-"Nothing leaves this Mac" = "没有东西离开这台 Mac";
 "Open Project" = "打开项目";
 "Open Video" = "打开视频";
 "Settings" = "设置";
@@ -614,7 +613,6 @@
 "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on." = "把按键事件转换成文字的 API 被测试从本应用的源代码中禁止——不是在运行时过滤，而是连名字都写不出来。快捷键只按键码和修饰键匹配。";
 "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents." = "元素的位置和角色，好让缩放框住按钮而不是指针。绝不记录其内容。";
 "The window picker shows an application's name and size. A title carries whatever is open in it." = "窗口选择器只显示应用的名称和尺寸。标题会带出窗口中打开的内容。";
-"Transcription runs on device. There is no account, no upload and no telemetry." = "转写在设备上运行。没有账户、没有上传，也没有遥测。";
 "This zoom is off. Click to turn it back on." = "此缩放已关闭。点击即可重新打开。";
 "%lld fps" = "%lld fps";
 "%lld line(s) could not be read (first at line %lld)." = "有 %1$lld 行无法读取(第一处在第 %2$lld 行)。";
@@ -657,3 +655,17 @@
 "Controls" = "控制";
 "Controls in the notch" = "在刘海中显示控制";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "把指针移到刘海上即可开始录制，正在进行的录制也会显示在那里。关闭时，或在没有刘海的 Mac 上，控制会是屏幕底部的一条栏。";
+"Check for Updates…" = "检查更新…";
+"Open the Release Page" = "打开发布页面";
+"Later" = "以后";
+"Soredemo %@ is the latest version" = "Soredemo %@ 已是最新版本";
+"No release has been published yet" = "尚未发布任何版本";
+"Could not check for updates" = "无法检查更新";
+"GitHub could not be reached, or its answer could not be read. Nothing was changed." = "无法连接 GitHub,或无法读取它的回应。没有做任何更改。";
+"Soredemo %@ is available" = "Soredemo %@ 已推出";
+"You have %@. The release page has the download and what changed. If you installed Soredemo with Homebrew, run brew upgrade --cask soredemo instead." = "你目前是 %@。发布页面有下载和更新内容。如果你是用 Homebrew 安装的，请改为运行 brew upgrade --cask soredemo。";
+"Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu." = "向 GitHub 询问最新版本——只有一个请求，不含任何关于你或你的录制的信息。关闭时，只在你从 Soredemo 菜单选择“检查更新”时才询问。";
+"Nothing is sent unless you ask" = "除非你要求，否则不发送任何东西";
+"Updates" = "更新";
+"Check for updates when Soredemo starts" = "启动 Soredemo 时检查更新";
+"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "转写在设备上运行。没有账户、没有上传，也没有遥测。Soredemo 唯一可能发出的请求，是向 GitHub 询问有没有新版本，而且只在你选择时。";

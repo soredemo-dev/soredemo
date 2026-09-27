@@ -20,3 +20,28 @@ import Testing
             """)
     }
 }
+
+/// **One app file talks to a network, and it is the update check.**
+///
+/// The privacy pane says nothing is sent unless a person asks, and the update check is the one
+/// request that exists. This keeps the sentence true: a second file naming a networking API is
+/// a second thing leaving the Mac that the pane does not mention.
+@Test func noOtherAppSourceTalksToANetwork() throws {
+    let networking = ["URLSession", "URLRequest", "NWConnection", "NWListener", "NSURLConnection",
+                      "WKWebView", "CFStream", "Socket("]
+    var found: [String] = []
+    var theCheckItself = false
+    for file in try appSourceFiles() {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let named = networking.filter { text.contains($0) }
+        guard !named.isEmpty else { continue }
+        if file.lastPathComponent == "UpdateCheck.swift" { theCheckItself = true; continue }
+        found.append("\(pathRelativeToRepositoryRoot(file)): \(named.joined(separator: ", "))")
+    }
+    try #require(theCheckItself, "UpdateCheck.swift names no networking API — the scan's positive control is gone")
+    #expect(found.isEmpty, """
+        These app files name a networking API, and the privacy pane promises the update check is \
+        the only request:
+        \(found.joined(separator: "\n"))
+        """)
+}

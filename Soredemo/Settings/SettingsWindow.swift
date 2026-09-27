@@ -246,8 +246,15 @@ struct SettingsWindow: View {
                          title: "No window titles",
                          detail: "The window picker shows an application's name and size. A title carries whatever is open in it.")
             PrivacyPoint(icon: "wifi.slash",
-                         title: "Nothing leaves this Mac",
-                         detail: "Transcription runs on device. There is no account, no upload and no telemetry.")
+                         title: "Nothing is sent unless you ask",
+                         detail: "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to.")
+        }
+        SwiftUI.Section("Updates") {
+            Toggle("Check for updates when Soredemo starts", isOn: Binding(
+                get: { UpdateChecker.checksAtLaunch },
+                set: { UserDefaults.standard.set($0, forKey: UpdateChecker.checksAtLaunchKey) }))
+            Text("Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section {
             LabeledContent("Recordings are written to",

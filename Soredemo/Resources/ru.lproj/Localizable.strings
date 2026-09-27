@@ -263,7 +263,6 @@
 "Never what you type" = "Никогда — то, что вы набираете";
 "Where you clicked, and what shape it was" = "Куда вы нажали и какой формы это было";
 "No window titles" = "Никаких заголовков окон";
-"Nothing leaves this Mac" = "Ничего не покидает этот Mac";
 "Open Project" = "Открыть проект";
 "Open Video" = "Открыть видео";
 "Settings" = "Настройки";
@@ -612,7 +611,6 @@
 "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on." = "API, превращающие нажатие клавиши в текст, запрещены в исходном коде приложения тестом — не фильтруются во время работы, их нельзя даже назвать. Сочетания клавиш распознаются по кодам клавиш и модификаторам.";
 "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents." = "Положение и роль элемента, чтобы приближение охватывало кнопку, а не указатель. Никогда — его содержимое.";
 "The window picker shows an application's name and size. A title carries whatever is open in it." = "Выбор окна показывает имя и размер приложения. В заголовке — то, что в нём открыто.";
-"Transcription runs on device. There is no account, no upload and no telemetry." = "Расшифровка выполняется на устройстве. Нет аккаунта, загрузки и телеметрии.";
 "This zoom is off. Click to turn it back on." = "Это приближение выключено. Щёлкните, чтобы включить его снова.";
 "%lld fps" = "%lld к/с";
 "%lld line(s) could not be read (first at line %lld)." = "Не удалось прочитать %1$lld строки (первая — строка %2$lld).";
@@ -655,3 +653,17 @@
 "Controls" = "Управление";
 "Controls in the notch" = "Управление в вырезе";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "Наведите указатель на вырез, чтобы начать запись и видеть там текущую. Если выключено или у Mac нет выреза, управление — панель внизу экрана.";
+"Check for Updates…" = "Проверить обновления…";
+"Open the Release Page" = "Открыть страницу выпуска";
+"Later" = "Позже";
+"Soredemo %@ is the latest version" = "Soredemo %@ — последняя версия";
+"No release has been published yet" = "Выпусков пока нет";
+"Could not check for updates" = "Не удалось проверить обновления";
+"GitHub could not be reached, or its answer could not be read. Nothing was changed." = "Не удалось связаться с GitHub или прочитать его ответ. Ничего не изменено.";
+"Soredemo %@ is available" = "Доступна Soredemo %@";
+"You have %@. The release page has the download and what changed. If you installed Soredemo with Homebrew, run brew upgrade --cask soredemo instead." = "У вас %@. На странице выпуска — загрузка и список изменений. Если Soredemo установлена через Homebrew, выполните brew upgrade --cask soredemo.";
+"Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu." = "Запрашивает у GitHub последний выпуск — один запрос, без сведений о вас и ваших записях. Если выключено, запрос отправляется только при выборе «Проверить обновления» в меню Soredemo.";
+"Nothing is sent unless you ask" = "Ничего не отправляется без вашего запроса";
+"Updates" = "Обновления";
+"Check for updates when Soredemo starts" = "Проверять обновления при запуске Soredemo";
+"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "Расшифровка выполняется на устройстве. Нет аккаунта, загрузки и телеметрии. Единственный запрос, который может сделать Soredemo, — спросить у GitHub о новой версии, и только когда вы этого захотите.";

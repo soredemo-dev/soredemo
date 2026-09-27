@@ -117,6 +117,7 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
         // version of this feature.
         if !registered { GlobalHotkeyStatus.shared.failed = true }
         Self.installNotchSurface?()
+        if UpdateChecker.checksAtLaunch { Task { await UpdateChecker.check(userInitiated: false) } }
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [] _ in
                 // After the close, not during it: the window being closed is still in

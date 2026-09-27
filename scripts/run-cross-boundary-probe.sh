@@ -113,6 +113,7 @@ xcrun swiftc \
   Soredemo/Recording/OwnWindowReporter.swift \
   Soredemo/App/AppLanguage.swift \
   Soredemo/App/UnsavedWorkGuard.swift \
+  Soredemo/App/UpdateCheck.swift \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \

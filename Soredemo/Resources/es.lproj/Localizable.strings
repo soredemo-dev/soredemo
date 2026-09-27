@@ -265,7 +265,6 @@
 "Never what you type" = "Nunca lo que escribes";
 "Where you clicked, and what shape it was" = "Dónde has pulsado y qué forma tenía";
 "No window titles" = "Ningún título de ventana";
-"Nothing leaves this Mac" = "Nada sale de este Mac";
 "Open Project" = "Abrir proyecto";
 "Open Video" = "Abrir vídeo";
 "Settings" = "Ajustes";
@@ -614,7 +613,6 @@
 "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on." = "Las API que convierten una pulsación en texto están prohibidas en el código de esta app mediante una prueba: no se filtran al ejecutarse, ni siquiera se pueden nombrar. Los atajos se reconocen por códigos de tecla y modificadores.";
 "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents." = "La posición y el tipo del elemento, para que un zoom encuadre el botón y no el puntero. Nunca su contenido.";
 "The window picker shows an application's name and size. A title carries whatever is open in it." = "El selector de ventanas muestra el nombre y el tamaño de la app. Un título lleva lo que haya abierto en ella.";
-"Transcription runs on device. There is no account, no upload and no telemetry." = "La transcripción se hace en el dispositivo. Sin cuenta, sin subidas y sin telemetría.";
 "This zoom is off. Click to turn it back on." = "Este zoom está desactivado. Haz clic para volver a activarlo.";
 "%lld fps" = "%lld fps";
 "%lld line(s) could not be read (first at line %lld)." = "No se pudieron leer %1$lld líneas (la primera en la línea %2$lld).";
@@ -657,3 +655,17 @@
 "Controls" = "Controles";
 "Controls in the notch" = "Controles en el notch";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "Apunta al notch para empezar a grabar y ver ahí la grabación en curso. Desactivado, o en un Mac sin notch, los controles son una barra en la parte inferior de la pantalla.";
+"Check for Updates…" = "Buscar actualizaciones…";
+"Open the Release Page" = "Abrir la página de la versión";
+"Later" = "Más tarde";
+"Soredemo %@ is the latest version" = "Soredemo %@ es la versión más reciente";
+"No release has been published yet" = "Todavía no se ha publicado ninguna versión";
+"Could not check for updates" = "No se pudieron buscar actualizaciones";
+"GitHub could not be reached, or its answer could not be read. Nothing was changed." = "No se pudo contactar con GitHub o no se pudo leer su respuesta. No se cambió nada.";
+"Soredemo %@ is available" = "Soredemo %@ está disponible";
+"You have %@. The release page has the download and what changed. If you installed Soredemo with Homebrew, run brew upgrade --cask soredemo instead." = "Tienes la %@. La página de la versión tiene la descarga y los cambios. Si instalaste Soredemo con Homebrew, ejecuta brew upgrade --cask soredemo en su lugar.";
+"Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu." = "Pregunta a GitHub por la última versión: una sola solicitud, sin nada sobre ti ni tus grabaciones. Desactivado, solo pregunta cuando eliges Buscar actualizaciones en el menú Soredemo.";
+"Nothing is sent unless you ask" = "No se envía nada salvo que tú lo pidas";
+"Updates" = "Actualizaciones";
+"Check for updates when Soredemo starts" = "Buscar actualizaciones al abrir Soredemo";
+"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "La transcripción se hace en el dispositivo. Sin cuenta, sin subidas y sin telemetría. La única solicitud que Soredemo puede hacer es preguntar a GitHub si hay una versión más nueva, y solo cuando tú lo decides.";

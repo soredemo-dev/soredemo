@@ -269,7 +269,6 @@
 "Never what you type" = "Never what you type";
 "Where you clicked, and what shape it was" = "Where you clicked, and what shape it was";
 "No window titles" = "No window titles";
-"Nothing leaves this Mac" = "Nothing leaves this Mac";
 "Open Project" = "Open Project";
 "Open Video" = "Open Video";
 "Settings" = "Settings";
@@ -628,7 +627,6 @@
 "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on." = "The APIs that turn a key event into text are banned from this app's source by a test — not filtered at runtime, unnameable. Key codes and modifier flags are what a shortcut is matched on.";
 "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents." = "The element's position and role, so a zoom can frame the button rather than the pointer. Never its contents.";
 "The window picker shows an application's name and size. A title carries whatever is open in it." = "The window picker shows an application's name and size. A title carries whatever is open in it.";
-"Transcription runs on device. There is no account, no upload and no telemetry." = "Transcription runs on device. There is no account, no upload and no telemetry.";
 "This zoom is off. Click to turn it back on." = "This zoom is off. Click to turn it back on.";
 "%lld fps" = "%lld fps";
 "%lld line(s) could not be read (first at line %lld)." = "%1$lld lines could not be read (first at line %2$lld).";
@@ -671,3 +669,17 @@
 "Controls" = "Controls";
 "Controls in the notch" = "Controls in the notch";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen.";
+"Check for Updates…" = "Check for Updates…";
+"Open the Release Page" = "Open the Release Page";
+"Later" = "Later";
+"Soredemo %@ is the latest version" = "Soredemo %@ is the latest version";
+"No release has been published yet" = "No release has been published yet";
+"Could not check for updates" = "Could not check for updates";
+"GitHub could not be reached, or its answer could not be read. Nothing was changed." = "GitHub could not be reached, or its answer could not be read. Nothing was changed.";
+"Soredemo %@ is available" = "Soredemo %@ is available";
+"You have %@. The release page has the download and what changed. If you installed Soredemo with Homebrew, run brew upgrade --cask soredemo instead." = "You have %@. The release page has the download and what changed. If you installed Soredemo with Homebrew, run brew upgrade --cask soredemo instead.";
+"Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu." = "Asks GitHub for the latest release — one request, with nothing about you or your recordings in it. Off, it asks only when you choose Check for Updates from the Soredemo menu.";
+"Nothing is sent unless you ask" = "Nothing is sent unless you ask";
+"Updates" = "Updates";
+"Check for updates when Soredemo starts" = "Check for updates when Soredemo starts";
+"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to.";
