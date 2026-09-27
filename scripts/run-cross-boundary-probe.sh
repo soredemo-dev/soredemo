@@ -122,6 +122,8 @@ xcrun swiftc \
   Soredemo/DesignSystem/DesignTokens.swift \
   Soredemo/DesignSystem/LiveSlider.swift \
   Soredemo/Editor/ContentView.swift \
+  Soredemo/Recording/RecordingCoordinator.swift \
+  Soredemo/Project/TemporaryFileMediaSink.swift \
   Soredemo/Recording/CameraSelfView.swift \
   Soredemo/Recording/DesktopIcons.swift \
   Soredemo/Project/ImportedRecording.swift \
@@ -144,6 +146,7 @@ xcrun swiftc \
   Soredemo/Inspector/WallpaperGallery.swift \
   Soredemo/Editor/ScrubAudio.swift \
   Soredemo/Editor/TimelineEditor.swift \
+  Soredemo/Editor/TimelineEditorModel.swift \
   Soredemo/Editor/EditorToolbar.swift \
   Soredemo/Editor/AtPlayhead.swift \
   Soredemo/Editor/CaptionCueTracker.swift \

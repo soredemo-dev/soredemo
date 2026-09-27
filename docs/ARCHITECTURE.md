@@ -184,12 +184,13 @@ rule is "the visual vocabulary every other group speaks", which excludes things.
 
 ### What is still wrong, stated rather than hidden
 
-Grouping moved the files; it did not shrink them. `Editor/StageWindow.swift` is 1,528
-lines and `Editor/TimelineEditor.swift` is 1,295 — together a quarter of the app tier.
-Both are candidates for splitting along the same feature lines, and neither has been
-split, because moving 33 files and splitting two are separate changes and doing them
-together would make each impossible to review. The Scout rule applies: whoever next
-works inside those files splits the part they touched.
+Grouping moved the files; it did not shrink them. `Editor/StageWindow.swift` was 1,528
+lines and `Editor/TimelineEditor.swift` 1,295 when this was written — together a quarter of the
+app tier. **Split 2026-09-27/28**, along view-model lines rather than feature lines: each file
+now holds one type. `StageWindow`'s decisions are `EditorViewModel`; `TimelineEditorModel` has
+its own file beside `TimelineEditor`; `ContentView.swift`, 1,295 lines of which the view was
+95, gave `RecordingCoordinator` to `Recording/` and `TemporaryFileMediaSink` to `Project/`. See
+`docs/design/2026-09-27-organising-the-project.md`.
 
 ### A literal path is a second place a location is written down
 

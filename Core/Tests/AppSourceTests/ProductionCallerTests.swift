@@ -220,8 +220,9 @@ func projectPbxprojText() throws -> String {
     // move to feature groups only because a test caught it — a literal path is a second place
     // the file's location is written down, and the two drift silently. Searching by NAME under
     // the app's own tree is what a reader would do, and it cannot go stale from a move.
-    let url = try #require(appSourceFiles().first { $0.lastPathComponent == "ContentView.swift" },
-                           "ContentView.swift is not under the app's sources")
+    // `TemporaryFileMediaSink.swift` since 2026-09-28, when the type left `ContentView.swift`.
+    let url = try #require(appSourceFiles().first { $0.lastPathComponent == "TemporaryFileMediaSink.swift" },
+                           "TemporaryFileMediaSink.swift is not under the app's sources")
     let text = try String(contentsOf: url, encoding: .utf8)
     let sites = text.components(separatedBy: .newlines).filter { $0.contains(#".appending(path: "media""#) }
     #expect(!sites.isEmpty, """

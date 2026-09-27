@@ -1269,7 +1269,7 @@ private func desktopIconsFile() throws -> [URL] {
     let all = try appSourceFiles()
     let calls = try codeLinesNaming("DesktopIcons.restore()", in: all)
     let places = Set(calls.map { $0.location.split(separator: ":").first.map(String.init) ?? "" })
-    #expect(places.contains("Soredemo/Editor/ContentView.swift"), """
+    #expect(places.contains("Soredemo/Recording/RecordingCoordinator.swift"), """
         Nothing restores the desktop when a recording stops. Calls found: \(places.sorted()).
         """)
     #expect(places.contains("Soredemo/App/UnsavedWorkGuard.swift"), """
@@ -1543,7 +1543,7 @@ private func desktopIconsFile() throws -> [URL] {
 /// unsaved edits threw them away in silence.
 @Test func everyWayOfOpeningARecordingAsksBeforeReplacingTheOpenOne() throws {
     let content = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/ContentView.swift" }
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/RecordingCoordinator.swift" }
     try #require(content.count == 1)
     let lines = SwiftSourceLexer.codeViewLines(
         of: try String(contentsOf: content[0], encoding: .utf8))

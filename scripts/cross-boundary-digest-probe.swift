@@ -496,7 +496,7 @@ enum CrossBoundaryProbe {
 
     /// **The app tier's first executing check, and what it took to reach it.**
     ///
-    /// `RecordingCoordinator` lives in `Soredemo/Editor/ContentView.swift`, in the Xcode app target,
+    /// `RecordingCoordinator` lives in `Soredemo/Recording/RecordingCoordinator.swift`, in the Xcode app target,
     /// which has no test target — `ROADMAP.md`'s `project-format` row has said so since Phase 1.
     /// This probe was the app tier's only instrument and it could not reach the coordinator
     /// either: its own header used to record the recording surfaces as unreachable because they
