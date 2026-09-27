@@ -22,7 +22,7 @@ public enum SnapEngine {
     public struct Target: Hashable, Sendable {
         /// The kind decides the threshold, not the priority: a nearer clip edge still beats a
         /// far playhead. `playhead` is merely easier to hit.
-        public enum Kind: Hashable, Sendable { case playhead, clipEdge }
+        public enum Kind: Hashable, Sendable { case playhead, clipEdge, zoomEdge }
 
         public let time: Nanoseconds
         public let kind: Kind
@@ -142,7 +142,7 @@ public enum SnapEngine {
     private static func reach(of kind: Target.Kind, threshold: Nanoseconds) -> Int64 {
         switch kind {
         case .playhead: Int64(Double(threshold.rawValue) * playheadMultiplier)
-        case .clipEdge: threshold.rawValue
+        case .clipEdge, .zoomEdge: threshold.rawValue
         }
     }
 
@@ -153,13 +153,18 @@ public enum SnapEngine {
     /// recording, so the edges they see are source positions. A caller dragging in output
     /// space converts first — the two are equal only until the first cut.
     public static func targets(in timeline: EditTimeline,
-                               playhead: Nanoseconds? = nil) -> [Target] {
+                               playhead: Nanoseconds? = nil,
+                               zoomEdges: [Nanoseconds] = [],
+                               excluding: Set<Nanoseconds> = []) -> [Target] {
         var targets: [Target] = []
         if let playhead { targets.append(Target(time: playhead, kind: .playhead)) }
         for clip in timeline.clips {
             targets.append(Target(time: clip.sourceStart, kind: .clipEdge))
             targets.append(Target(time: clip.sourceEnd, kind: .clipEdge))
         }
-        return targets
+        for edge in zoomEdges { targets.append(Target(time: edge, kind: .zoomEdge)) }
+        // **The edge being dragged is not a target.** A snap holds, so an edge able to find its
+        // own starting position would stick to it and a small trim could not be made.
+        return targets.filter { !excluding.contains($0.time) }
     }
 }

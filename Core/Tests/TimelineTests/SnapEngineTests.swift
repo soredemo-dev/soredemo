@@ -121,4 +121,22 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         let withPlayhead = SnapEngine.targets(in: timeline, playhead: ns(3_000))
         #expect(withPlayhead.first == SnapEngine.Target(time: ns(3_000), kind: .playhead))
     }
+
+    /// A zoom's edges are things a trim or another zoom lines up with — the zoom lane sits under
+    /// the video track and a cut that stops a hair before a zoom ends leaves a flash of it.
+    @Test func zoomEdgesAreTargetsWhenGiven() {
+        let timeline = EditTimeline.whole(duration: ns(10_000))
+        let targets = SnapEngine.targets(in: timeline, zoomEdges: [ns(4_000), ns(6_000)])
+        #expect(targets.contains(SnapEngine.Target(time: ns(4_000), kind: .zoomEdge)))
+        #expect(targets.contains(SnapEngine.Target(time: ns(6_000), kind: .zoomEdge)))
+    }
+
+    /// **The edge being dragged is not a target.** Snapping holds, so an edge that could find its
+    /// own starting position would stick there and a small trim would be impossible to make.
+    @Test func anExcludedTimeIsNotATarget() {
+        let timeline = EditTimeline.whole(duration: ns(10_000)).removing(sourceRange: 2_000..<5_000)
+        let targets = SnapEngine.targets(in: timeline, excluding: [ns(2_000)])
+        #expect(!targets.contains { $0.time == ns(2_000) })
+        #expect(targets.contains { $0.time == ns(5_000) }, "only the excluded one is gone")
+    }
 }

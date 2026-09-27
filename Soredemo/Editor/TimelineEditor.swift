@@ -210,20 +210,64 @@ final class TimelineEditorModel {
 
     // MARK: - zoom lane
 
-    /// Shows a zoom being moved, without committing it.
-    func previewZoomMove(_ origin: HostInstant, byNanoseconds delta: Int64) {
+    /// Shows a zoom being moved, without committing it. Either end lines up with what is near
+    /// it within `snapThreshold` — zero to place it freely.
+    func previewZoomMove(_ origin: HostInstant, byNanoseconds delta: Int64,
+                         snapThreshold: Nanoseconds = Nanoseconds(0)) {
         let base = zoomDragBaseline ?? zoomAdjustments
         zoomDragBaseline = base
         draggingZoom = origin
-        zoomAdjustments = base.replacing(base.adjustment(for: origin).movedBy(delta))
+        let edges = zoomEdges(of: origin, in: base)
+        let snapped = snappedDelta(moving: edges, by: delta, threshold: snapThreshold,
+                                   zoomsFrom: base, excludingZoom: origin)
+        zoomAdjustments = base.replacing(base.adjustment(for: origin).movedBy(snapped))
     }
 
-    /// Shows a zoom's end being dragged.
-    func previewZoomResize(_ origin: HostInstant, byNanoseconds delta: Int64) {
+    /// Shows a zoom's end being dragged, its end lining up as a trim's does.
+    func previewZoomResize(_ origin: HostInstant, byNanoseconds delta: Int64,
+                           snapThreshold: Nanoseconds = Nanoseconds(0)) {
         let base = zoomDragBaseline ?? zoomAdjustments
         zoomDragBaseline = base
         draggingZoom = origin
-        zoomAdjustments = base.replacing(base.adjustment(for: origin).resizedBy(delta))
+        let edges = zoomEdges(of: origin, in: base).suffix(1)
+        let snapped = snappedDelta(moving: Array(edges), by: delta, threshold: snapThreshold,
+                                   zoomsFrom: base, excludingZoom: origin)
+        zoomAdjustments = base.replacing(base.adjustment(for: origin).resizedBy(snapped))
+    }
+
+    /// A zoom's start and end in source time under `adjustments`, or none when it cannot be
+    /// placed on this recording's clock.
+    private func zoomEdges(of origin: HostInstant, in adjustments: [ZoomAdjustment]) -> [Nanoseconds] {
+        guard let block = adjustments.applied(to: derivedZooms).first(where: { $0.origin == origin }),
+              let start = offset(of: block.start), let end = offset(of: block.end) else { return [] }
+        return [start, end]
+    }
+
+    /// **`delta`, corrected so one of `edges` lands on a clip edge, a zoom edge or the playhead**
+    /// within `threshold` — through `SnapEngine`, the one snapping rule the range selection
+    /// already uses, so a trim, a zoom and a selection line up by the same rule and hold the
+    /// same way. The dragged thing's own edges are not targets; see `SnapEngine.targets`.
+    private func snappedDelta(moving edges: [Nanoseconds], by delta: Int64, threshold: Nanoseconds,
+                              in timeline: EditTimeline? = nil, zoomsFrom adjustments: [ZoomAdjustment]? = nil,
+                              excludingZoom: HostInstant? = nil) -> Int64 {
+        guard let first = edges.first, threshold.rawValue > 0 else {
+            snapIndicator = nil
+            return delta
+        }
+        let zoomEdges = (adjustments ?? zoomAdjustments).applied(to: derivedZooms)
+            .filter { $0.origin != excludingZoom }
+            .flatMap { block in [offset(of: block.start), offset(of: block.end)].compactMap { $0 } }
+        let targets = SnapEngine.targets(in: timeline ?? edit, playhead: playhead,
+                                         zoomEdges: zoomEdges, excluding: Set(edges))
+        let probes = edges.map { Nanoseconds($0.rawValue - first.rawValue) }
+        guard let result = SnapEngine.snap(position: Nanoseconds(first.rawValue + delta),
+                                           probeOffsets: probes, targets: targets,
+                                           state: &snapState, threshold: threshold) else {
+            snapIndicator = nil
+            return delta
+        }
+        snapIndicator = result.time
+        return result.time.rawValue - result.probeOffset.rawValue - first.rawValue
     }
 
     /// Commits the drag as ONE step, for the same reason a trim does.
@@ -231,6 +275,7 @@ final class TimelineEditorModel {
         defer {
             zoomDragBaseline = nil
             draggingZoom = nil
+            endDrag()
         }
         publish()
     }
@@ -609,9 +654,14 @@ final class TimelineEditorModel {
     /// **A trim the model refuses leaves the last legal state on screen** rather than
     /// snapping back or passing through: `EditTimeline.trimming` returns `nil` when a gesture
     /// has gone past the clip's own length, and the handle stopping is what that looks like.
-    func previewTrim(of id: ClipID, edge: TrimEdge, byNanoseconds delta: Int64) {
+    func previewTrim(of id: ClipID, edge: TrimEdge, byNanoseconds delta: Int64,
+                     snapThreshold: Nanoseconds = Nanoseconds(0)) {
         let base = trimBaseline ?? history.current
         trimBaseline = base
+        // The edge lines up with what is near it, against the timeline as the drag began.
+        let moving = base.clips.first { $0.id == id }.map { edge == .start ? $0.sourceStart : $0.sourceEnd }
+        let delta = snappedDelta(moving: moving.map { [$0] } ?? [], by: delta,
+                                 threshold: snapThreshold, in: base)
         let updated = switch edge {
         case .start: base.trimming(id: id, startDelta: delta, endDelta: 0)
         case .end:   base.trimming(id: id, startDelta: 0, endDelta: delta)
@@ -624,6 +674,7 @@ final class TimelineEditorModel {
         defer {
             liveEdit = nil
             trimBaseline = nil
+            endDrag()
         }
         guard let live = liveEdit else { return }
         apply(edge == .start ? "Trim Clip Start" : "Trim Clip End", live)
@@ -1234,8 +1285,7 @@ struct TimelineEditor: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let threshold = nanoseconds(forPoints: snapPoints,
-                                                    width: width, duration: duration)
+                        let threshold = snapThreshold(width: width, duration: duration)
                         let start = model.snapped(sourcePosition(at: value.startLocation.x,
                                                                      width: width, duration: duration),
                                                   threshold: threshold)
@@ -1374,10 +1424,11 @@ struct TimelineEditor: View {
                         // convention every timeline uses, and cheaper than a separate handle on
                         // a block that can be three points wide.
                         let signed = value.translation.width < 0 ? -delta.rawValue : delta.rawValue
+                        let snap = snapThreshold(width: laneWidth, duration: duration)
                         if value.startLocation.x > width * 0.75 {
-                            model.previewZoomResize(origin, byNanoseconds: signed)
+                            model.previewZoomResize(origin, byNanoseconds: signed, snapThreshold: snap)
                         } else {
-                            model.previewZoomMove(origin, byNanoseconds: signed)
+                            model.previewZoomMove(origin, byNanoseconds: signed, snapThreshold: snap)
                         }
                     }
                     .onEnded { value in
@@ -1414,7 +1465,8 @@ struct TimelineEditor: View {
                     .onChanged { value in
                         let delta = nanoseconds(forPoints: value.translation.width,
                                                 width: width, duration: duration)
-                        model.previewTrim(of: clip.id, edge: edge, byNanoseconds: delta.rawValue)
+                        model.previewTrim(of: clip.id, edge: edge, byNanoseconds: delta.rawValue,
+                                          snapThreshold: snapThreshold(width: width, duration: duration))
                     }
                     .onEnded { _ in
                         model.commitTrim(edge: edge)
@@ -1575,6 +1627,13 @@ struct TimelineEditor: View {
 
     /// A screen distance as a span of the recording. The snap tolerance is defined in points
     /// so it feels the same on a 10-second recording and a 10-minute one.
+    /// How near counts as lining up: `snapPoints` of screen at the strip's current zoom, or
+    /// nothing while ⌘ is held — the key editors use for "put it exactly where my hand is".
+    private func snapThreshold(width: Double, duration: Nanoseconds) -> Nanoseconds {
+        NSEvent.modifierFlags.contains(.command) ? Nanoseconds(0)
+            : nanoseconds(forPoints: snapPoints, width: width, duration: duration)
+    }
+
     private func nanoseconds(forPoints points: Double, width: Double,
                              duration: Nanoseconds) -> Nanoseconds {
         guard width > 0 else { return Nanoseconds(0) }
