@@ -869,6 +869,7 @@ struct StageWindow: View {
             case .mark:
                 AtPlayhead(model: timeline) { playhead in
                     AnnotationPanel(model: annotations, playhead: playhead,
+                                    packageURL: ProjectStore.packageURL(forMediaAt: mediaURL),
                                     onChange: { reviewRevision += 1 })
                 }
             }

@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import ImageIO
+import Render
 import Testing
 @testable import Compositing
 
@@ -63,5 +64,66 @@ extension StageCompositorTests {
                                                 to: url, outputWidth: 160, outputHeight: 90)
         }
         #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+}
+
+/// **A picture annotation reaches the frame, where its box is, and nowhere else.** A 2:1 green
+/// picture in a 2:1 box fills it exactly, so the whole box reads green and the frame outside it
+/// reads as it did — pixels read back, never a call returning. In the serialized suite because
+/// `CoreImageFrameRenderer.imageBaseURL` is process-global.
+extension StageCompositorTests {
+    private func greenPicture(in base: URL, named name: String) throws {
+        let directory = base.appending(path: AnnotationOverlay.imageDirectory, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let width = 40, height = 20
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        for i in stride(from: 0, to: bytes.count, by: 4) { bytes[i + 1] = 220; bytes[i + 3] = 255 }
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8,
+                                             bytesPerRow: width * 4, space: space,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let image = try #require(context.makeImage())
+        let url = directory.appending(path: name)
+        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+    }
+
+    @Test func aPictureAnnotationIsDrawnInItsBoxAndNowhereElse() throws {
+        let base = FileManager.default.temporaryDirectory.appending(path: "picture-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: base); unsafe CoreImageFrameRenderer.imageBaseURL = nil }
+        try greenPicture(in: base, named: "logo.png")
+        unsafe CoreImageFrameRenderer.imageBaseURL = base
+
+        let (width, height) = (640, 360)
+        func frame(_ annotations: [AnnotationOverlay]) throws -> [(r: UInt8, g: UInt8, b: UInt8)] {
+            let source = try makePixelBuffer(width: width, height: height, fill: sourceFill)
+            let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+            let planned = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                            sourceWidth: width, sourceHeight: height, style: .default)
+            let plan = RenderPlan(outputWidth: width, outputHeight: height, card: planned.card,
+                                  cornerRadius: planned.cornerRadius, style: planned.style,
+                                  pointer: nil, annotations: annotations)
+            try CoreImageFrameRenderer().render(plan, source: source, camera: nil, into: destination)
+            return try pixels(of: destination)
+        }
+        func isGreen(_ p: (r: UInt8, g: UInt8, b: UInt8)) -> Bool { p.g > 170 && p.r < 90 && p.b < 90 }
+        func at(_ f: [(r: UInt8, g: UInt8, b: UInt8)], _ x: Int, _ y: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
+            f[(height - 1 - y) * width + x]   // frames read top-down; the plan's y is bottom-up
+        }
+
+        // A 240 × 120 box, 2:1 like the picture.
+        let picture = AnnotationOverlay(shape: .image, startX: 200, startY: 120, endX: 440, endY: 240,
+                                        style: .default, imageName: "logo.png")
+        let drawn = try frame([picture])
+        let empty = try frame([])
+        #expect(empty.count { isGreen($0) } == 0, "control: nothing green before the picture")
+        #expect(isGreen(at(drawn, 320, 180)), "the box's centre shows the picture: \(at(drawn, 320, 180))")
+        #expect(isGreen(at(drawn, 205, 125)) && isGreen(at(drawn, 435, 235)), "it fills the box to its corners")
+        #expect(!isGreen(at(drawn, 190, 180)) && !isGreen(at(drawn, 320, 250)), "and stops at its edges")
+
+        let missing = AnnotationOverlay(shape: .image, startX: 200, startY: 120, endX: 440, endY: 240,
+                                        style: .default, imageName: "not-there.png")
+        #expect(try frame([missing]).count { isGreen($0) } == 0, "a missing file draws nothing, and does not throw")
     }
 }

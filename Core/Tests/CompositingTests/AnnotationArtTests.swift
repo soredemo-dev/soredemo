@@ -111,7 +111,8 @@ import Testing
             the frame already contains the annotation's colour before any annotation is drawn, \
             so every count below would be measuring something else.
             """)
-        for shape in AnnotationShape.allCases {
+        // Every shape drawn in ink. A picture is drawn in its own colours, and its own test says so.
+        for shape in AnnotationShape.allCases where shape.drawsWithInk {
             guard let drawn = try rendered([overlay(shape)]) else { return }
             #expect(reddish(drawn) > 0, "\(shape.rawValue) drew nothing into the frame")
         }

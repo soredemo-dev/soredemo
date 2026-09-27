@@ -5,6 +5,7 @@ import Overlays
 import Render
 import SwiftUI
 import Timeline
+import UniformTypeIdentifiers
 
 /// The arrows, lines, boxes and ellipses drawn over a recording.
 ///
@@ -39,11 +40,12 @@ final class AnnotationsModel {
     /// offering a row in a list and an empty picture, which reads as the feature being broken.
     /// The numbers put it clear of the frame's edges in the recording's own coordinates, where
     /// `y` runs from the bottom.
-    func add(at playhead: Nanoseconds) {
+    func add(at playhead: Nanoseconds, imageName: String = "") {
         track = track.adding(shape: nextShape,
                              startX: 0.3, startY: 0.35, endX: 0.62, endY: 0.6,
                              start: playhead,
-                             end: Nanoseconds(playhead.rawValue + Self.defaultDuration.rawValue))
+                             end: Nanoseconds(playhead.rawValue + Self.defaultDuration.rawValue),
+                             imageName: imageName)
         selection = track.items.map(\.id).max()
         publish()
     }
@@ -74,7 +76,11 @@ final class AnnotationsModel {
 struct AnnotationPanel: View {
     let model: AnnotationsModel
     let playhead: Nanoseconds
+    /// The project package, where a picture annotation's file is copied.
+    let packageURL: URL
     let onChange: () -> Void
+    /// Why a chosen picture did not take, said where it was chosen.
+    @State private var pictureFailure: String?
 
     var body: some View {
         List {
@@ -89,8 +95,16 @@ struct AnnotationPanel: View {
                 // The picker above names the shape. "Add a \(name)" put an English noun into a
                 // sentence no other language's grammar survives.
                 Button("Add at the playhead") {
-                    model.add(at: playhead)
+                    if model.nextShape == .image {
+                        guard let name = choosePicture() else { return }
+                        model.add(at: playhead, imageName: name)
+                    } else {
+                        model.add(at: playhead)
+                    }
                     onChange()
+                }
+                if let pictureFailure {
+                    Text(verbatim: pictureFailure).font(Type.detail).foregroundStyle(Signal.paused)
                 }
                 Text("An annotation is anchored to the recording, not to the frame — it moves with the picture when the camera zooms in on what it points at.")
                     .font(Type.detail).foregroundStyle(.secondary)
@@ -140,6 +154,18 @@ struct AnnotationPanel: View {
                     Text(LocalizedStringKey(shape.displayName)).tag(shape)
                 }
             }
+            if item.shape == .image {
+                LabeledContent("Picture") { Text(verbatim: item.imageName) }
+                Button("Replace Picture…") {
+                    guard let name = choosePicture() else { return }
+                    var changed = item
+                    changed.imageName = name
+                    model.update(changed)
+                    onChange()
+                }
+            }
+            // Ink, weight and halo draw a shape; a picture is drawn in its own colours.
+            if item.shape.drawsWithInk {
             Picker("Colour", selection: Binding(
                 get: { AnnotationInk.nearest(to: item.style) },
                 set: { ink in
@@ -155,6 +181,7 @@ struct AnnotationPanel: View {
             }
             slider("Weight", value: styleBinding(item) { $0.changing(strokeWidthFraction: $1) },
                    read: item.style.strokeWidthFraction, range: 0.001...0.03)
+            }
             // **Shown only for the shapes that have an interior.** A fill control on an arrow
             // is a control a person moves and sees nothing happen, which teaches them the panel
             // is broken rather than that the option does not apply.
@@ -175,8 +202,10 @@ struct AnnotationPanel: View {
                        read: item.style.textSizeFraction,
                        range: AnnotationStyle.smallestTextFraction...AnnotationStyle.largestTextFraction)
             }
-            slider("Halo", value: styleBinding(item) { $0.changing(shadowOpacity: $1) },
-                   read: item.style.shadowOpacity, range: 0...1)
+            if item.shape.drawsWithInk {
+                slider("Halo", value: styleBinding(item) { $0.changing(shadowOpacity: $1) },
+                       read: item.style.shadowOpacity, range: 0...1)
+            }
         }
         Section("Where") {
             slider("From across", value: binding(item, \.startX), range: 0...1)
@@ -302,6 +331,7 @@ struct AnnotationPanel: View {
         // A bubble WITH words in it, since the words are the whole difference between a callout
         // and a rectangle — checked to exist, like every symbol this panel names.
         case .callout: "text.bubble"
+        case .image: "photo"
         }
     }
 
@@ -379,5 +409,40 @@ enum AnnotationInk: String, CaseIterable, Hashable {
 
     private func distance(to style: AnnotationStyle) -> Double {
         pow(red - style.red, 2) + pow(green - style.green, 2) + pow(blue - style.blue, 2)
+    }
+}
+
+extension AnnotationPanel {
+    /// Asks for a picture and copies it into the project, returning the name it is kept under.
+    ///
+    /// **Copied, not referenced.** A project is a package that travels, and a logo read from
+    /// somebody's Downloads folder would be missing from every copy of it. The name is the file's
+    /// own, checked by `StageBackground.isSafeImageFilename` — the same rule image backgrounds
+    /// use, because the compositor joins it onto a path.
+    fileprivate func choosePicture() -> String? {
+        pictureFailure = nil
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let source = panel.url else { return nil }
+        let name = source.lastPathComponent
+        guard StageBackground.isSafeImageFilename(name) else {
+            pictureFailure = String(localized: "\(name) is not a name this can use.")
+            return nil
+        }
+        let directory = packageURL.appending(path: AnnotationOverlay.imageDirectory,
+                                             directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let destination = directory.appending(path: name)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: source, to: destination)
+        } catch {
+            pictureFailure = String(localized: "Could not copy \(name) into the project: \(String(describing: error))")
+            return nil
+        }
+        return name
     }
 }

@@ -672,3 +672,6 @@
 "Export Frame…" = "导出画面…";
 "Saved the frame to %@." = "已把画面存成 %@。";
 "Could not save the frame: %@" = "无法保存画面:%@";
+"Image" = "图片";
+"Picture" = "图片";
+"Replace Picture…" = "替换图片…";

@@ -671,3 +671,6 @@
 "Export Frame…" = "Exportar quadro…";
 "Saved the frame to %@." = "O quadro foi salvo em %@.";
 "Could not save the frame: %@" = "Não foi possível salvar o quadro: %@";
+"Image" = "Imagem";
+"Picture" = "Imagem";
+"Replace Picture…" = "Substituir imagem…";

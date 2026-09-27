@@ -51,15 +51,19 @@ public struct AnnotationItem: Sendable, Equatable, Codable, Identifiable {
     /// What a `.callout` says. Empty for every other shape, and kept on them rather than cleared:
     /// switching a callout to an arrow and back must not discard what somebody typed.
     public var text: String
+    /// The picture an `.image` shows, by file name in the project's image directory. Empty on
+    /// every other shape and kept for `text`'s reason.
+    public var imageName: String
 
     public init(id: Int, shape: AnnotationShape,
                 startX: Double, startY: Double, endX: Double, endY: Double,
                 style: AnnotationStyle = .default,
                 start: Nanoseconds, end: Nanoseconds,
                 animation: TextAnimation = .fade,
-                text: String = "") {
+                text: String = "", imageName: String = "") {
         self.id = id
         self.text = text
+        self.imageName = imageName
         self.shape = shape
         // Clamped into the frame rather than trapped: these arrive from a drag AND from a
         // decoder, and a point stored outside 0…1 would put an arrow off the edge of every
@@ -105,11 +109,14 @@ public struct AnnotationItem: Sendable, Equatable, Codable, Identifiable {
                       ?? .fade,
                   // Absent is empty, for `animation`'s reason: every annotation saved before
                   // callouts existed has no such key, and none of them had anything to say.
-                  text: try container.decodeIfPresent(String.self, forKey: .text) ?? "")
+                  text: try container.decodeIfPresent(String.self, forKey: .text) ?? "",
+                  // Absent is empty, for `text`'s reason: no annotation saved before pictures
+                  // existed showed one.
+                  imageName: try container.decodeIfPresent(String.self, forKey: .imageName) ?? "")
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, shape, startX, startY, endX, endY, style, start, end, animation, text
+        case id, shape, startX, startY, endX, endY, style, start, end, animation, text, imageName
     }
 
     public var duration: Nanoseconds { Nanoseconds(max(0, end.rawValue - start.rawValue)) }
@@ -195,10 +202,12 @@ public struct AnnotationTrack: Sendable, Equatable, Codable {
                        startX: Double, startY: Double, endX: Double, endY: Double,
                        start: Nanoseconds, end: Nanoseconds,
                        style: AnnotationStyle = .default,
-                       animation: TextAnimation = .fade) -> AnnotationTrack {
+                       animation: TextAnimation = .fade,
+                       imageName: String = "") -> AnnotationTrack {
         let item = AnnotationItem(id: nextID, shape: shape,
                                   startX: startX, startY: startY, endX: endX, endY: endY,
-                                  style: style, start: start, end: end, animation: animation)
+                                  style: style, start: start, end: end, animation: animation,
+                                  imageName: imageName)
         return AnnotationTrack(items: items + [item], nextID: nextID + 1)
     }
 

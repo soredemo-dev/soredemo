@@ -125,11 +125,54 @@ import Testing
     /// old names still decode, which is what this list keeps honest.
     @Test func theShapeNamesOnDiskAreTheOnesEverySavedProjectUses() {
         #expect(AnnotationShape.allCases.map(\.rawValue).sorted()
-                == ["arrow", "callout", "ellipse", "line", "rectangle"])
+                == ["arrow", "callout", "ellipse", "image", "line", "rectangle"])
     }
 
     @Test func everyShapeHasItsOwnDisplayName() {
         let names = AnnotationShape.allCases.map(\.displayName)
         #expect(Set(names).count == names.count)
+    }
+}
+
+// MARK: - a picture in the box
+
+/// A picture is fitted into the box the drag drew — never stretched, centred — and scaled about
+/// the box's centre while it arrives. Boxes are chosen so the fit differs by axis: a wide picture
+/// in a tall box is letterboxed top and bottom, a tall one in a wide box left and right.
+@Suite struct AnnotationImageFrameTests {
+    private func box(scale: Double = 1, name: String = "logo.png") -> AnnotationOverlay {
+        // 200 × 100 box at (100, 50), drawn right-to-left and top-to-bottom on purpose: the frame
+        // must come from the box, not from which point was pressed first.
+        AnnotationOverlay(shape: .image, startX: 300, startY: 150, endX: 100, endY: 50,
+                          style: .default, scale: scale, imageName: name)
+    }
+
+    @Test func aWidePictureFillsTheBoxesWidthAndIsCentredVertically() throws {
+        let frame = try #require(box().imageFrame(imageWidth: 400, imageHeight: 100))
+        #expect(frame.width == 200 && frame.height == 50, "\(frame)")
+        #expect(frame.x == 100 && frame.y == 75, "centred in the box's height: \(frame)")
+    }
+
+    @Test func aTallPictureFillsTheBoxesHeightAndIsCentredHorizontally() throws {
+        let frame = try #require(box().imageFrame(imageWidth: 50, imageHeight: 100))
+        #expect(frame.width == 50 && frame.height == 100, "\(frame)")
+        #expect(frame.x == 175 && frame.y == 50, "centred in the box's width: \(frame)")
+    }
+
+    @Test func arrivingScalesThePictureAboutTheBoxesCentre() throws {
+        let frame = try #require(box(scale: 0.5).imageFrame(imageWidth: 400, imageHeight: 100))
+        #expect(frame.width == 100 && frame.height == 25, "\(frame)")
+        #expect(frame.x + frame.width / 2 == 200 && frame.y + frame.height / 2 == 100,
+                "still centred on the box: \(frame)")
+    }
+
+    @Test func aPictureWithNoSizeHasNoFrame() {
+        #expect(box().imageFrame(imageWidth: 0, imageHeight: 100) == nil)
+        #expect(box().imageFrame(imageWidth: 100, imageHeight: .nan) == nil)
+    }
+
+    @Test func anImageWithNoPictureIsNothingToDraw() {
+        #expect(box(name: "").isEmpty)
+        #expect(!box().isEmpty)
     }
 }

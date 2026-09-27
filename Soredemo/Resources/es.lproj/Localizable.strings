@@ -672,3 +672,6 @@
 "Export Frame…" = "Exportar fotograma…";
 "Saved the frame to %@." = "Se guardó el fotograma en %@.";
 "Could not save the frame: %@" = "No se pudo guardar el fotograma: %@";
+"Image" = "Imagen";
+"Picture" = "Imagen";
+"Replace Picture…" = "Reemplazar imagen…";

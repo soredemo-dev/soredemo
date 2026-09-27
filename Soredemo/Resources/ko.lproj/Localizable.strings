@@ -670,3 +670,6 @@
 "Export Frame…" = "프레임 내보내기…";
 "Saved the frame to %@." = "프레임을 %@에 저장했습니다.";
 "Could not save the frame: %@" = "프레임을 저장할 수 없습니다: %@";
+"Image" = "이미지";
+"Picture" = "이미지";
+"Replace Picture…" = "이미지 바꾸기…";

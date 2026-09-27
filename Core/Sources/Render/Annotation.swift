@@ -2,7 +2,7 @@ import Foundation
 
 /// What an annotation is a picture of.
 ///
-/// **Four, and every one of them is a drag from one point to another.** That is the whole
+/// **Every one of them is a drag from one point to another.** That is the whole
 /// interaction model: press where it starts, release where it ends. A shape needing a third
 /// point — a curve's control handle, a polygon's next vertex — is a second interaction to
 /// explain and a second thing to get wrong on a touchpad; a useful annotation set stops at
@@ -27,6 +27,9 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
     /// the two points every annotation already has, so a callout needs no new geometry and the
     /// panel's existing position sliders say the right thing about it.
     case callout
+    /// A picture — a logo, a screenshot, a sticker — fitted into the box the drag drew. The file
+    /// lives in the project beside image backgrounds; see `AnnotationOverlay.imageName`.
+    case image
 
     public var displayName: String {
         switch self {
@@ -35,6 +38,7 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
         case .rectangle: "Rectangle"
         case .ellipse: "Ellipse"
         case .callout: "Callout"
+        case .image: "Image"
         }
     }
 
@@ -46,8 +50,13 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
         // The bubble is a filled shape; an outline-only callout is a box with text falling out
         // of it over whatever is behind.
         case .rectangle, .ellipse, .callout: true
+        case .image: false
         }
     }
+
+    /// Whether it is drawn in the ink a person picks. A picture is drawn in its own colours, so
+    /// the ink and weight controls have nothing to say about it.
+    public var drawsWithInk: Bool { self != .image }
 }
 
 /// How an annotation is drawn.
@@ -224,11 +233,19 @@ public struct AnnotationOverlay: Hashable, Sendable {
     /// refused: switching a callout to an arrow and back must not discard what somebody typed —
     /// `fillOpacity` is kept on an arrow for the same reason.
     public let text: String
+    /// The picture an `.image` shows: a file name in the project's image directory. Empty on
+    /// every other shape, kept on them for `text`'s reason.
+    public let imageName: String
+    /// Where pictures live inside a project package — beside `StageBackground.imageDirectory`,
+    /// not in it, so removing a background never removes an annotation's picture.
+    public static let imageDirectory = "pictures"
 
     public init(shape: AnnotationShape, startX: Double, startY: Double,
                 endX: Double, endY: Double, style: AnnotationStyle,
-                opacity: Double = 1, scale: Double = 1, text: String = "") {
+                opacity: Double = 1, scale: Double = 1, text: String = "",
+                imageName: String = "") {
         self.text = text
+        self.imageName = imageName
         self.shape = shape
         self.startX = startX
         self.startY = startY
@@ -252,7 +269,22 @@ public struct AnnotationOverlay: Hashable, Sendable {
         // a bubble drawn around three spaces is an empty bubble with extra steps.
         if shape == .callout,
            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        // A picture with no file is a box with nothing in it.
+        if shape == .image, imageName.isEmpty { return true }
         return false
+    }
+
+    /// Where a picture `imageWidth` × `imageHeight` sits in this annotation's box: fitted, not
+    /// stretched, centred, and scaled about the box's centre by `scale` while it arrives.
+    public func imageFrame(imageWidth: Double, imageHeight: Double)
+    -> (x: Double, y: Double, width: Double, height: Double)? {
+        let box = boundingBox
+        guard imageWidth.isFinite, imageHeight.isFinite, imageWidth > 0, imageHeight > 0,
+              box.width > 0, box.height > 0 else { return nil }
+        let fit = min(box.width / imageWidth, box.height / imageHeight) * max(0, scale)
+        let width = imageWidth * fit, height = imageHeight * fit
+        return (x: box.x + (box.width - width) / 2, y: box.y + (box.height - height) / 2,
+                width: width, height: height)
     }
 
     /// The box the two points bound, as `(x, y, width, height)` in output pixels with a

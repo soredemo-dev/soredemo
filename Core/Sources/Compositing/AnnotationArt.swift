@@ -206,6 +206,9 @@ enum AnnotationArt {
         let to = (x: points.to.x - originX, y: points.to.y - originY)
 
         switch overlay.shape {
+        // A picture is not a path: the renderer places the file itself (`annotationImage`).
+        case .image:
+            return nil
         case .callout:
             guard let callout = callout(for: overlay, textPointSize: textPointSize)
             else { return nil }

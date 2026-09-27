@@ -686,3 +686,6 @@
 "Export Frame…" = "Export Frame…";
 "Saved the frame to %@." = "Saved the frame to %@.";
 "Could not save the frame: %@" = "Could not save the frame: %@";
+"Image" = "Image";
+"Picture" = "Picture";
+"Replace Picture…" = "Replace Picture…";

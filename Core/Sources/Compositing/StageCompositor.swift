@@ -1020,7 +1020,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 opacity: state.opacity, scale: state.scale,
                 // Carried through: an overlay built without it is a callout with nothing to say,
                 // which `AnnotationOverlay.isEmpty` treats as nothing to draw.
-                text: item.text)
+                text: item.text, imageName: item.imageName)
         }
     }
 

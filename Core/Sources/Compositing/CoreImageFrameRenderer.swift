@@ -659,6 +659,7 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private func annotationImage(_ overlay: AnnotationOverlay,
                                  outputWidth: Int, outputHeight: Int) -> CIImage? {
         guard !overlay.isEmpty else { return nil }
+        if overlay.shape == .image { return pictureAnnotation(overlay) }
         // **The text is part of the key.** This key is rebuilt by hand rather than being the
         // overlay itself, and a field left out of it makes two different annotations share one
         // bitmap: two callouts in one frame would both say whatever was drawn first.
@@ -687,6 +688,40 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         fade.inputImage = drawn
         fade.aVector = CIVector(x: 0, y: 0, z: 0, w: overlay.opacity)
         return fade.outputImage ?? drawn
+    }
+
+    /// A picture annotation: the project's file, fitted into the box and faded with the rest.
+    ///
+    /// **Loaded once per file and placed per frame.** The file is decoded into the same cache as
+    /// image backgrounds, keyed by its path inside the package; placing it is a transform, which
+    /// costs nothing, so an arriving picture scales every frame without redrawing anything.
+    private func pictureAnnotation(_ overlay: AnnotationOverlay) -> CIImage? {
+        guard StageBackground.isSafeImageFilename(overlay.imageName),
+              let base = unsafe Self.imageBaseURL else { return nil }
+        let key = AnnotationOverlay.imageDirectory + "/" + overlay.imageName
+        let picture: CIImage
+        if let cached = backgroundImageLock.withLock({ unsafe backgroundImages[key] }) {
+            picture = cached
+        } else {
+            let url = base.appending(path: AnnotationOverlay.imageDirectory, directoryHint: .isDirectory)
+                .appending(path: overlay.imageName)
+            guard let loaded = CIImage(contentsOf: url) else { return nil }
+            backgroundImageLock.withLock { unsafe backgroundImages[key] = loaded }
+            picture = loaded
+        }
+        let extent = picture.extent
+        guard let frame = overlay.imageFrame(imageWidth: Double(extent.width),
+                                             imageHeight: Double(extent.height)) else { return nil }
+        let scale = frame.width / Double(extent.width)
+        let placed = picture
+            .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .transformed(by: CGAffineTransform(translationX: frame.x, y: frame.y))
+        guard overlay.opacity < 1 else { return placed }
+        let fade = CIFilter.colorMatrix()
+        fade.inputImage = placed
+        fade.aVector = CIVector(x: 0, y: 0, z: 0, w: overlay.opacity)
+        return fade.outputImage ?? placed
     }
 
     /// The grey a callout's words are drawn in — near-black on a light bubble, white on a dark

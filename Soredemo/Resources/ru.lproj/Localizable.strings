@@ -670,3 +670,6 @@
 "Export Frame…" = "Экспорт кадра…";
 "Saved the frame to %@." = "Кадр сохранён в %@.";
 "Could not save the frame: %@" = "Не удалось сохранить кадр: %@";
+"Image" = "Изображение";
+"Picture" = "Изображение";
+"Replace Picture…" = "Заменить изображение…";

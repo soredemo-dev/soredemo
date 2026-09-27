@@ -228,3 +228,19 @@ import Timeline
     #expect(reopened.text == "按這裡 → Save")
     #expect(reopened.shape == .callout)
 }
+
+/// A picture's file name survives a save, and a project saved before pictures existed opens with
+/// none — the `text` field's two rules, for the field added beside it.
+@Test func anImageAnnotationKeepsItsPictureAcrossASaveAndOldProjectsOpenWithNone() throws {
+    let item = AnnotationItem(id: 3, shape: .image, startX: 0.2, startY: 0.2, endX: 0.4, endY: 0.5,
+                              start: Nanoseconds(0), end: Nanoseconds(1_000_000_000),
+                              imageName: "logo.png")
+    let decoded = try JSONDecoder().decode(AnnotationItem.self, from: try JSONEncoder().encode(item))
+    #expect(decoded.imageName == "logo.png" && decoded.shape == .image)
+
+    var legacy = try #require(try JSONSerialization.jsonObject(with: try JSONEncoder().encode(item)) as? [String: Any])
+    legacy["imageName"] = nil
+    legacy["shape"] = "rectangle"
+    let old = try JSONDecoder().decode(AnnotationItem.self, from: try JSONSerialization.data(withJSONObject: legacy))
+    #expect(old.imageName == "")
+}

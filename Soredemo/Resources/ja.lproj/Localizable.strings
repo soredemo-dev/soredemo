@@ -672,3 +672,6 @@
 "Export Frame…" = "フレームを書き出す…";
 "Saved the frame to %@." = "フレームを %@ に保存しました。";
 "Could not save the frame: %@" = "フレームを保存できませんでした:%@";
+"Image" = "画像";
+"Picture" = "画像";
+"Replace Picture…" = "画像を置き換える…";

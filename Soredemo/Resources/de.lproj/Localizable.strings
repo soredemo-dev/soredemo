@@ -670,3 +670,6 @@
 "Export Frame…" = "Bild exportieren …";
 "Saved the frame to %@." = "Das Bild wurde in %@ gesichert.";
 "Could not save the frame: %@" = "Das Bild konnte nicht gesichert werden: %@";
+"Image" = "Bild";
+"Picture" = "Bild";
+"Replace Picture…" = "Bild ersetzen …";
