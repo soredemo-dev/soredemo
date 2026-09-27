@@ -646,3 +646,81 @@ private func windowViewport() -> CaptureViewport {
         write the observer's state after anybody reading it believes polling has stopped
         """)
 }
+
+// MARK: - AXObserver: the queue, the accounting, and frames
+
+/// A click through `enqueue` reaches the same walk `chain(at:)` does, and the accounting of what
+/// happened to it balances — the path `CaptureSession` actually uses, not only the walk.
+@Test func anEnqueuedClickIsRecordedAndAccountedFor() {
+    final class Records: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [AXChainRecord] = []
+        func add(_ record: AXChainRecord) { lock.withLock { seen.append(record) } }
+        var all: [AXChainRecord] { lock.withLock { seen } }
+    }
+    let ax = observer()
+    let records = Records()
+    ax.enqueue(click(x: 0.25, y: 0.7), source: threeLevelTree(hit: 2)) { records.add($0) }
+    ax.waitForQueuedClicks()
+    #expect(records.all.count == 1)
+    let diagnostics = ax.diagnostics
+    #expect(diagnostics.everyClickIsAccountedFor)
+    #expect(diagnostics.everyRecordHasATruncationReason)
+    #expect(diagnostics.accounting.contains("balances"))
+    #expect(!diagnostics.accounting.contains("DOES NOT BALANCE"))
+}
+
+/// **Bounded, and the drops are counted.** One click holds the AX queue (its hit-test blocks, as
+/// a hung application's does); the next `maximumQueuedClicks` wait; any beyond that are dropped
+/// and counted in `clicksObserved` too, so the conservation law still balances.
+@Test func clicksBeyondTheBacklogAreDroppedAndCounted() {
+    final class Gate: @unchecked Sendable {
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+    }
+    struct BlockingSource: AXElementSource {
+        typealias Element = Int
+        let gate: Gate
+        let inner: FakeAXSource
+        func hitTest(globalTopLeftX: Double, globalTopLeftY: Double) -> Int? {
+            gate.entered.signal()
+            gate.release.wait()
+            return inner.hitTest(globalTopLeftX: globalTopLeftX, globalTopLeftY: globalTopLeftY)
+        }
+        func role(of element: Int) -> String? { inner.role(of: element) }
+        func title(of element: Int) -> String? { inner.title(of: element) }
+        func position(of element: Int) -> (x: Double, y: Double)? { inner.position(of: element) }
+        func size(of element: Int) -> (width: Double, height: Double)? { inner.size(of: element) }
+        func parent(of element: Int) -> Int? { inner.parent(of: element) }
+        func children(of element: Int) -> [Int]? { inner.children(of: element) }
+    }
+    let gate = Gate()
+    let source = BlockingSource(gate: gate, inner: threeLevelTree(hit: 2))
+    let ax = observer()
+    ax.enqueue(click(x: 0.25, y: 0.7), source: source) { _ in }
+    gate.entered.wait()           // the first click is inside its walk; the queue is empty again
+    let extra = 3
+    for _ in 0..<(Capture.AXObserver.maximumQueuedClicks + extra) {
+        ax.enqueue(click(x: 0.25, y: 0.7), source: source) { _ in }
+    }
+    #expect(ax.diagnostics.clicksDroppedByBacklog == extra)
+    #expect(ax.diagnostics.deepestBacklog == Capture.AXObserver.maximumQueuedClicks)
+    // One permit for EVERY click that could have been admitted, not only for the ones that
+    // should: with the bound broken, more are waiting, and a test that released too few would
+    // hang in `waitForQueuedClicks` instead of failing. It did, the first time this was mutated.
+    for _ in 0...(Capture.AXObserver.maximumQueuedClicks + extra) { gate.release.signal() }
+    ax.waitForQueuedClicks()
+    #expect(ax.diagnostics.everyClickIsAccountedFor)
+}
+
+/// A frame in global top-left points, normalised bottom-left against a viewport NOT at the
+/// origin: (600, 250, 200, 60) on a 400 × 300 viewport at (500, 200) is 0.25 across, and its top
+/// edge 50 points down means its bottom sits at 1 − (50 + 60) / 300 up.
+@Test func anElementsFrameIsNormalisedAgainstTheViewport() throws {
+    let frame = try #require(Capture.AXObserver.normalizedFrame(
+        globalTopLeftX: 600, globalTopLeftY: 250, width: 200, height: 60, in: windowViewport()))
+    #expect(abs(frame.origin.x - 0.25) < 1e-9)
+    #expect(abs(frame.origin.y - (1 - 110.0 / 300)) < 1e-9)
+    #expect(abs(frame.size.width - 0.5) < 1e-9)
+    #expect(abs(frame.size.height - 0.2) < 1e-9)
+}

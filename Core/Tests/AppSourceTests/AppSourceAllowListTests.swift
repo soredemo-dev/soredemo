@@ -2534,3 +2534,26 @@ private let untranslatableLiterals: Set<String> = [
         `untranslatableLiterals` above with a reason if they are genuinely the same everywhere.
         """)
 }
+
+/// **Every way the menu offers to start a recording, the notch offers too.**
+///
+/// The notch's row was built from the menu's first three choices, and the fourth — a plugged-in
+/// phone, which exists only while a device does — was missed: recording a phone from the notch
+/// was impossible and nothing said so, found 2026-09-28 by somebody looking for the feature.
+/// Compared by the coordinator verb each surface calls, so a new way of starting that reaches one
+/// surface and not the other fails here rather than being noticed by its absence.
+@Test func theNotchOffersEveryWayOfStartingThatTheMenuDoes() throws {
+    let files = try appSourceFiles()
+    func verbs(in name: String) throws -> Set<String> {
+        let file = try #require(files.first { $0.lastPathComponent == name }, "\(name) is not under the app's sources")
+        let lines = SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
+        let pattern = try Regex(#"coordinator\.(begin[A-Za-z]*Recording[A-Za-z]*)\("#)
+        return Set(lines.flatMap { line in line.matches(of: pattern).map { String($0.output[1].substring ?? "") } })
+    }
+    let menu = try verbs(in: "MenuBarRecorder.swift")
+    let notch = try verbs(in: "NotchSurfacePanel.swift")
+    try #require(menu.count >= 4, "the menu offers \(menu.sorted()) — fewer than the four ways there are, so the pattern has stopped matching")
+    #expect(menu.subtracting(notch).isEmpty, """
+        the menu can start a recording with \(menu.subtracting(notch).sorted()) and the notch cannot
+        """)
+}

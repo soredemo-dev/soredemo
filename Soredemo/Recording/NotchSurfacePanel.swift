@@ -257,6 +257,15 @@ private struct NotchRecorderControls: View {
                 target("display", "Screen") { coordinator.beginRecording(.displaysOnly) }
                 target("macwindow", "Window") { coordinator.beginWindowRecordingByPointing() }
                 target("rectangle.dashed", "Area") { coordinator.beginRegionRecording() }
+                // **A plugged-in phone or tablet, the same fourth choice the menu offers.** This row
+                // was built from the menu's first three and the fourth — which exists only while a
+                // device does — was missed, so recording a phone from the notch was impossible.
+                ForEach(coordinator.availableMobileScreens) { device in
+                    target(device.symbolName, verbatim: device.displayName) {
+                        coordinator.beginMobileRecording(device)
+                    }
+                }
+                ForEach(coordinator.mobileScreensWaiting, id: \.self) { name in waiting(name) }
             }
             HStack(spacing: Space.snug) {
                 Menu {
@@ -283,18 +292,47 @@ private struct NotchRecorderControls: View {
             .font(.system(size: 11))
             .foregroundStyle(.white.opacity(0.8))
         }
+        // When the surface opens, which is the moment a phone was plugged in for — the menu's
+        // own `.task` does the same, and without it the notch showed yesterday's devices.
+        .task {
+            coordinator.refreshMicrophones()
+            coordinator.refreshCameras()
+            coordinator.refreshMobileScreens()
+        }
+    }
+
+    /// A device on the cable that is not offering its screen — almost always locked. Shown, not
+    /// hidden: a person holding a plugged-in phone and seeing no choice for it has no way to
+    /// guess why. The full sentence is the menu's, already in every language.
+    private func waiting(_ name: String) -> some View {
+        VStack(spacing: Space.tight) {
+            Image(systemName: "lock.iphone").font(.system(size: 18))
+            Text(verbatim: name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+        }
+        .foregroundStyle(.white.opacity(0.45))
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.05)))
+        .help(Text("\(name) is connected. Unlock it \u{2014} and tap Trust if it asks \u{2014} to record its screen."))
+    }
+
+    private func target(_ icon: String, verbatim title: String, _ start: @escaping () -> Void) -> some View {
+        targetButton(icon, label: Text(verbatim: title), start)
     }
 
     /// A way to start. Closes the surface first: the picker that follows is a window of its own,
     /// and the surface hanging open over it would be in the way of the choice it asks for.
     private func target(_ icon: String, _ title: LocalizedStringKey, _ start: @escaping () -> Void) -> some View {
+        targetButton(icon, label: Text(title), start)
+    }
+
+    private func targetButton(_ icon: String, label: Text, _ start: @escaping () -> Void) -> some View {
         Button {
             done()
             start()
         } label: {
             VStack(spacing: Space.tight) {
                 Image(systemName: icon).font(.system(size: 18))
-                Text(title).font(.system(size: 11, weight: .medium))
+                label.font(.system(size: 11, weight: .medium)).lineLimit(1)
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, minHeight: 52)
