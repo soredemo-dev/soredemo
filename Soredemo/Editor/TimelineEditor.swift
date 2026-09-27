@@ -1424,7 +1424,7 @@ struct TimelineEditor: View {
         let held = model.draggingZoom == origin
         RoundedRectangle(cornerRadius: Radius.block)
             .fill(suppressed ? AnyShapeStyle(.clear)
-                  : AnyShapeStyle(Theme.Lane.zoom.opacity(held ? 0.95 : 0.7)))
+                  : AnyShapeStyle(held ? Theme.Lane.zoom.opacity(0.95) : Theme.Lane.zoomBlock))
             .overlay {
                 RoundedRectangle(cornerRadius: Radius.block)
                     .strokeBorder(Theme.Lane.zoom, style: StrokeStyle(lineWidth: 1,
@@ -1437,7 +1437,7 @@ struct TimelineEditor: View {
                 if width > 30, !suppressed {
                     Text(verbatim: FramingDepth.label(for: zoom))
                         .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(.black.opacity(0.75))
+                        .foregroundStyle(Theme.Ink.onLane)
                         .allowsHitTesting(false)
                 }
             }

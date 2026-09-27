@@ -101,7 +101,7 @@ struct RedactionPanel: View {
                 if item.region.isEmpty {
                     // A region with no area covers nothing, and saying so beats a row that
                     // looks like protection and is not.
-                    Text("covers nothing").font(Type.detail).foregroundStyle(.orange)
+                    Text("covers nothing").font(Type.detail).foregroundStyle(Theme.Ink.caution)
                 }
             }
             .contentShape(Rectangle())

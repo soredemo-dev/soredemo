@@ -714,3 +714,10 @@
 "Sentence %lld has been cut from the edit." = "Фраза %lld вырезана из монтажа.";
 "Sentence %lld is within ten seconds of a chapter you have." = "Фраза %lld ближе десяти секунд к одной из ваших глав.";
 "Sentence %lld is within ten seconds of the suggestion before it." = "Фраза %lld ближе десяти секунд к предыдущему предложению.";
+
+/* Appearance (2026-09-27). */
+"Appearance" = "Оформление";
+"Theme" = "Тема";
+"Match System" = "Как в системе";
+"Light" = "Светлое";
+"Dark" = "Тёмное";

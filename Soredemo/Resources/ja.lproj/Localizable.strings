@@ -716,3 +716,10 @@
 "Sentence %lld has been cut from the edit." = "%lld 番目の文は編集でカットされています。";
 "Sentence %lld is within ten seconds of a chapter you have." = "%lld 番目の文は既存のチャプタから 10 秒以内です。";
 "Sentence %lld is within ten seconds of the suggestion before it." = "%lld 番目の文は直前の候補から 10 秒以内です。";
+
+/* Appearance (2026-09-27). */
+"Appearance" = "外観";
+"Theme" = "テーマ";
+"Match System" = "システムに合わせる";
+"Light" = "ライト";
+"Dark" = "ダーク";

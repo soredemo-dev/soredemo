@@ -135,7 +135,7 @@ struct ChaptersPanel: View {
                     .font(Type.detail).foregroundStyle(.secondary).lineLimit(2)
             }
             if let fate = placement.fates[chapter.id], let note = note(for: fate) {
-                Text(note).font(Type.detail).foregroundStyle(.orange)
+                Text(note).font(Type.detail).foregroundStyle(Theme.Ink.caution)
             }
         }
     }
@@ -193,7 +193,7 @@ struct ChaptersPanel: View {
                     .font(Type.detail).foregroundStyle(.secondary)
             }
             if let failure = model.failure {
-                Text(verbatim: failure).font(Type.detail).foregroundStyle(.orange)
+                Text(verbatim: failure).font(Type.detail).foregroundStyle(Theme.Ink.caution)
             }
             ForEach(model.suggestions) { suggestion in
                 VStack(alignment: .leading, spacing: Space.tight) {

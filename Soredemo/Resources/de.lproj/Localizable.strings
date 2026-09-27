@@ -714,3 +714,10 @@
 "Sentence %lld has been cut from the edit." = "Satz %lld wurde aus dem Schnitt entfernt.";
 "Sentence %lld is within ten seconds of a chapter you have." = "Satz %lld liegt weniger als zehn Sekunden neben einem deiner Kapitel.";
 "Sentence %lld is within ten seconds of the suggestion before it." = "Satz %lld liegt weniger als zehn Sekunden nach dem vorigen Vorschlag.";
+
+/* Appearance (2026-09-27). */
+"Appearance" = "Erscheinungsbild";
+"Theme" = "Design";
+"Match System" = "Wie System";
+"Light" = "Hell";
+"Dark" = "Dunkel";

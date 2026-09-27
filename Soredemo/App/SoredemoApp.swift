@@ -53,6 +53,8 @@ struct SoredemoApp: App {
         let coordinator = RecordingCoordinator()
         _recordingCoordinator = State(initialValue: coordinator)
         MainActor.assumeIsolated {
+            // Before any window exists, so none of them draws once in the wrong theme.
+            Appearance.applyStored()
             SoredemoAppDelegate.toggleRecording = { coordinator.toggleRecording() }
             SoredemoAppDelegate.installNotchSurface = {
                 NotchSurfacePresenter.shared.install(coordinator: coordinator)

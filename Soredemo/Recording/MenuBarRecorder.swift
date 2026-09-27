@@ -509,12 +509,13 @@ struct MenuBarRecorderPanel: View {
                 Spacer()
                 Text(verbatim: Self.toggleShortcut)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.ink.opacity(0.6))
+                    .foregroundStyle(.white.opacity(0.8))
             }
-            // **Dark on the accent, not white, and that is contrast rather than taste.** The
-            // accent is a light periwinkle: white on it measures about 2.4:1, which fails at any
-            // size, while the near-black ink measures 7.8:1.
-            .foregroundStyle(Theme.ink)
+            // **White on the accent, and that is contrast rather than taste.** Until 2026-09-27 the
+            // accent was a light periwinkle and this was near-black, because white on it measured
+            // 2.4:1; the accent is now dark in both themes so a white label clears 4.5
+            // (`PaletteTests.aLabelReadsOnTheAccentAndTheAccentOnThePanel`).
+            .foregroundStyle(.white)
             .padding(.horizontal, Space.regular)
             .frame(height: 34)
             .frame(maxWidth: .infinity)

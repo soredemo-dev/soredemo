@@ -87,7 +87,6 @@ struct PermissionsWindow: View {
         .padding(Space.section)
         .frame(width: 520, height: 620)
         .background(Theme.Surface.panel)
-        .preferredColorScheme(.dark)
         .onAppear(perform: refresh)
         // **Polled, because a grant happens in another application.** There is no notification
         // for a TCC change; System Settings does not tell anyone. A second is fast enough that

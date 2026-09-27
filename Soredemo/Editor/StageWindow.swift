@@ -419,6 +419,10 @@ struct StageWindow: View {
                                     onCommit: { reviewRevision += 1 })
                     }
                 }
+                // **The picture's area is dark in both themes**, backdrop and everything drawn
+                // over it: its ground is black whatever the window is, so a handle or a label in
+                // the light theme's dark lane colours would vanish into it.
+                .environment(\.colorScheme, .dark)
                 if let player {
                     Divider()
                     TransportBar(player: player, model: timeline)
@@ -454,12 +458,9 @@ struct StageWindow: View {
             .animation(.easeOut(duration: 0.18), value: isTimelineCollapsed)
         }
         .background(Theme.Surface.base)
-        // **Pinned to dark.** Chrome around a picture shifts how its colours read: a light
-        // surround makes a recording look darker and less saturated than it is, so a person
-        // grading a background gradient in a light window is judging it wrong. Every editor in
-        // an editor is dark by default for this reason. The menu bar panel is NOT — it
-        // lives in the system's menu bar, where a dark panel in a light system looks broken.
-        .preferredColorScheme(.dark)
+        // **Not pinned to dark any more** (2026-09-27): the window follows the Appearance
+        // setting, and the reason this pin gave — a light surround misrepresents the picture —
+        // is honoured where it applies, by the preview's black backdrop. See `Theme`.
         .tint(Theme.accent)
         // **A shortcut inside a toolbar menu is not registered until the menu is opened**, so
         // ⌥⌘E did nothing on a fresh window — measured. It lives here, on a live zero-sized

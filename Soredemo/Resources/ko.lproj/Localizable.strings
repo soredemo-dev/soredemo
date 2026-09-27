@@ -714,3 +714,10 @@
 "Sentence %lld has been cut from the edit." = "%lld번째 문장은 편집에서 잘렸습니다.";
 "Sentence %lld is within ten seconds of a chapter you have." = "%lld번째 문장이 기존 챕터와 10초 이내에 있습니다.";
 "Sentence %lld is within ten seconds of the suggestion before it." = "%lld번째 문장이 이전 제안과 10초 이내에 있습니다.";
+
+/* Appearance (2026-09-27). */
+"Appearance" = "화면 모드";
+"Theme" = "테마";
+"Match System" = "시스템과 일치";
+"Light" = "라이트";
+"Dark" = "다크";

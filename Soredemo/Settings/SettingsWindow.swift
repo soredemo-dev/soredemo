@@ -16,6 +16,7 @@ struct SettingsWindow: View {
     @Environment(\.openWindow) private var openWindow
     @State private var section = Section.recording
     @State private var languageChanged = false
+    @AppStorage(Appearance.defaultsKey) private var appearance = Appearance.system
     let coordinator: RecordingCoordinator
 
     enum Section: String, CaseIterable, Hashable {
@@ -65,7 +66,6 @@ struct SettingsWindow: View {
                 .tag(Section.privacy)
         }
         .frame(width: 560, height: 460)
-        .preferredColorScheme(.dark)
         .tint(Theme.accent)
     }
 
@@ -78,6 +78,15 @@ struct SettingsWindow: View {
     }
 
     @ViewBuilder private var recording: some View {
+        SwiftUI.Section("Appearance") {
+            Picker("Theme", selection: $appearance) {
+                ForEach(Appearance.allCases, id: \.self) { choice in
+                    Text(LocalizedStringKey(choice.displayName)).tag(choice)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: appearance) { appearance.apply() }
+        }
         SwiftUI.Section("Language") {
             Picker("Interface", selection: Binding(
                 get: { AppLanguage.stored ?? .system },
@@ -90,7 +99,7 @@ struct SettingsWindow: View {
                 // Said rather than pretended: `AppleLanguages` is read once when the process
                 // starts, so a change cannot reach views that are already built.
                 Label("Takes effect the next time Soredemo starts.", systemImage: "arrow.clockwise")
-                    .font(Type.detail).foregroundStyle(Signal.paused)
+                    .font(Type.detail).foregroundStyle(Theme.Ink.caution)
             }
         }
         SwiftUI.Section("Controls") {

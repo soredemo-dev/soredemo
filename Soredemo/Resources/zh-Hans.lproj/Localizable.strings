@@ -716,3 +716,10 @@
 "Sentence %lld has been cut from the edit." = "第 %lld 句已从剪辑中剪掉。";
 "Sentence %lld is within ten seconds of a chapter you have." = "第 %lld 句距离你已有的章节不到十秒。";
 "Sentence %lld is within ten seconds of the suggestion before it." = "第 %lld 句距离前一个建议不到十秒。";
+
+/* Appearance (2026-09-27). */
+"Appearance" = "外观";
+"Theme" = "主题";
+"Match System" = "跟随系统";
+"Light" = "浅色";
+"Dark" = "深色";

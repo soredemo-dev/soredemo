@@ -115,6 +115,7 @@ xcrun swiftc \
   Soredemo/App/UnsavedWorkGuard.swift \
   Soredemo/App/UpdateCheck.swift \
   Soredemo/App/Clipboard.swift \
+  Soredemo/App/Appearance.swift \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \
@@ -146,6 +147,7 @@ xcrun swiftc \
   Soredemo/Editor/AtPlayhead.swift \
   Soredemo/Editor/CaptionCueTracker.swift \
   Soredemo/DesignSystem/Theme.swift \
+  Soredemo/DesignSystem/Palette.swift \
   Soredemo/App/WindowConfigurator.swift \
   Soredemo/Recording/TargetPickerOverlay.swift \
   Soredemo/Settings/PermissionsWindow.swift \

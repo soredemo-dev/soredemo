@@ -1,109 +1,111 @@
 import SwiftUI
 
-/// The editor's colours, from `assets/tokens/colors.json` rather than from the system.
+import AppKit
+
+/// The app's colours, as SwiftUI sees them — each one the light or dark value from `Palette`,
+/// chosen when it is drawn.
 ///
-/// **The default SwiftUI palette is why this window looked like a settings pane.** `.tint`,
-/// `.quaternary`, `.orange`, `.teal` — every one of those is Apple's, and a video editor built
-/// out of them is a form with a picture in it. The brand already had a palette;
-/// The shape below is the one for using
-/// one, and this is that shape with our values in it.
+/// **The default SwiftUI palette is why this window once looked like a settings pane.** `.tint`,
+/// `.quaternary`, `.orange`, `.teal` — every one of those is Apple's, and a video editor built out
+/// of them is a form with a picture in it.
 ///
-/// **Dark, and not adaptive.** A video editor is dark by default, and the
-/// reason is not fashion: chrome around a picture shifts how its colours read, and a light
-/// surround makes a recording look darker and less saturated than it is. A person grading a
-/// background gradient in a light window is judging it wrong. The menu bar panel stays adaptive
-/// — it lives in the system's menu bar, where a dark panel in a light system is the thing that
-/// looks broken.
+/// **Adaptive since 2026-09-27; it used to say "dark, and not adaptive".** The reason it gave is
+/// still right and is still honoured — a light surround makes a recording look darker and less
+/// saturated than it is — but it is about the picture's surround, so the preview's backdrop stays
+/// black in both themes and the rest of the window follows the appearance. The panes that float
+/// over a person's screen, and the notch, pin themselves dark. See
+/// `docs/design/2026-09-27-light-and-dark.md`.
 enum Theme {
-    // MARK: - the brand's own six
+    /// One colour with a value per theme, resolved against whatever appearance draws it — which
+    /// includes a SwiftUI `.environment(\.colorScheme, .dark)` pin, measured.
+    static func adaptive(_ pick: (Palette.Values) -> Palette.RGB,
+                         opacity: Double = 1, lightOpacity: Double? = nil) -> Color {
+        func ns(_ rgb: Palette.RGB, _ alpha: Double) -> NSColor {
+            NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: alpha)
+        }
+        let dark = ns(pick(Palette.dark), opacity)
+        let light = ns(pick(Palette.light), lightOpacity ?? opacity)
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        })
+    }
 
-    static let ink = Color(red: 0x10 / 255, green: 0x11 / 255, blue: 0x14 / 255)
-    static let background = Color(red: 0x1A / 255, green: 0x1A / 255, blue: 0x1D / 255)
-    static let surface = Color(red: 0x2B / 255, green: 0x2B / 255, blue: 0x31 / 255)
-    static let muted = Color(red: 0x8C / 255, green: 0x8C / 255, blue: 0x94 / 255)
-    static let accent = Color(hue: Lane.videoHue / 360, saturation: Lane.saturation,
-                              brightness: Lane.brightness)
+    /// A fill under a white label, and the colour of a selected control.
+    static let accent = adaptive(\.accent)
 
-    // MARK: - surfaces, darkest to lightest
+    // MARK: - surfaces, back to front
 
     enum Surface {
         /// Behind everything — the window's own ground.
-        static let base = Theme.ink
+        static let base = adaptive(\.base)
         /// A panel sitting on the base: the inspector, the timeline area.
-        static let panel = Theme.background
+        static let panel = adaptive(\.panel)
         /// A control or a card on a panel.
-        static let raised = Theme.surface
-        /// The preview's own backdrop. Black rather than the brand's ink, because anything else
-        /// is a colour cast on the thing being judged.
+        static let raised = adaptive(\.raised)
+        /// The preview's own backdrop. **Black in both themes**: anything else is a colour cast on
+        /// the thing being judged, and a light one makes it look darker than it is.
         static let preview = Color.black
     }
 
     enum Ink {
-        static let primary = Color.white
-        static let secondary = Theme.muted
-        static let tertiary = Theme.muted.opacity(0.6)
+        static let primary = adaptive(\.primaryText)
+        static let secondary = adaptive(\.secondaryText)
+        /// Solid rather than `secondary` at 60 %: that was 2.44:1 on a raised surface.
+        static let tertiary = adaptive(\.tertiaryText)
+        /// A note that is not an error — a chapter moved past a cut, a cover over nothing.
+        /// `.orange` was used, and is 2.2:1 on a light panel.
+        static let caution = adaptive(\.caution)
+        /// Text on a lane-coloured block: dark on the dark theme's light lanes, light on the
+        /// light theme's dark ones.
+        static let onLane = Color(nsColor: NSColor(name: nil) { appearance in
+            let values = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? Palette.dark : Palette.light
+            return NSColor(srgbRed: values.onLane.red, green: values.onLane.green,
+                           blue: values.onLane.blue, alpha: values.onLaneOpacity)
+        })
     }
 
     enum Line {
         /// Between two surfaces of the same weight.
-        static let hairline = Color.white.opacity(0.08)
+        static let hairline = adaptive(\.line, opacity: 0.08)
         /// Between two areas doing different jobs.
-        static let divider = Color.white.opacity(0.14)
+        static let divider = adaptive(\.line, opacity: 0.14)
     }
 
     /// A control's background as it is pointed at and pressed.
     enum Fill {
-        static let rest = Color.white.opacity(0.05)
-        static let hover = Color.white.opacity(0.10)
-        static let pressed = Color.white.opacity(0.16)
-        static let track = Color.white.opacity(0.07)
+        static let rest = adaptive(\.line, opacity: 0.05)
+        static let hover = adaptive(\.line, opacity: 0.10)
+        static let pressed = adaptive(\.line, opacity: 0.16)
+        static let track = adaptive(\.line, opacity: 0.07)
     }
 
-    /// **One tint per track, all the same colour with the hue turned.**
-    ///
-    /// The accent is HSB(230°, 44%, 100%). Every lane below is that colour with its hue rotated
-    /// and nothing else changed, so the five read as one family and stay equally bright — which
-    /// is what `.orange`/`.teal`/`.purple` did not do: three of Apple's system colours side by
-    /// side have three different brightnesses and belong to no palette.
+    /// **One tint per track, one family.** Every lane is the same OKLCH lightness and chroma with
+    /// its hue turned, so the eight stay equally light — which HSB brightness, the first rule
+    /// here, claimed and did not deliver. `Palette.Lane` holds the hues.
     enum Lane {
-        static let saturation: Double = 0.44
-        static let brightness: Double = 1.0
+        static func colour(_ lane: Palette.Lane) -> Color { adaptive { $0.lane(lane) } }
 
-        static let videoHue: Double = 230
-        static let audioHue: Double = 150
-        static let zoomHue: Double = 268
-        static let textHue: Double = 38
-        static let captionHue: Double = 190
-        static let hideHue: Double = 320
-        /// **Between the text lane's amber and the hide lane's magenta, and away from both.**
-        /// An annotation is a mark a person made, like a title, but it is not text — and the two
-        /// tracks are read side by side on the timeline, so they have to be tellable apart at a
-        /// glance rather than by reading the label.
-        static let markHue: Double = 8
-        /// **Yellow-green, the widest gap left on the wheel** — 38 and 150 are its neighbours. A
-        /// chapter flag sits on the ruler above every lane, so it must not read as any of them.
-        static let chapterHue: Double = 94
+        static let video = colour(.video)
+        static let audio = colour(.audio)
+        static let zoom = colour(.zoom)
+        static let text = colour(.text)
+        static let caption = colour(.caption)
+        static let hide = colour(.hide)
+        static let mark = colour(.mark)
+        static let chapter = colour(.chapter)
 
-        static func colour(_ hue: Double) -> Color {
-            Color(hue: hue / 360, saturation: saturation, brightness: brightness)
-        }
-
-        static var video: Color { colour(videoHue) }
-        static var audio: Color { colour(audioHue) }
-        static var zoom: Color { colour(zoomHue) }
-        static var text: Color { colour(textHue) }
-        static var caption: Color { colour(captionHue) }
-        static var hide: Color { colour(hideHue) }
-        static var mark: Color { colour(markHue) }
-        static var chapter: Color { colour(chapterHue) }
+        /// A zoom block's fill: 70 % on dark, 90 % on light. At 70 % the light theme's block put
+        /// its white depth label at 3.56:1; at 90 % it is about 5.2 (measured, both composited
+        /// over the track the block sits on).
+        static let zoomBlock = adaptive({ $0.lane(.zoom) }, opacity: 0.7, lightOpacity: 0.9)
     }
 }
 
 extension View {
-    /// A panel: the brand's background, a hairline edge, and the dark scheme pinned.
+    /// A panel: the panel ground, in whichever theme is showing.
     func editorPanel() -> some View {
         background(Theme.Surface.panel)
-            .environment(\.colorScheme, .dark)
     }
 }
 

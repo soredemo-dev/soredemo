@@ -63,6 +63,7 @@ private func missing(_ names: [String], from tables: [String: [String: String]])
     names += CaptionStyle.presets.map(\.name)
     names += StageWindow.InspectorTab.allCases.map(\.title)
     names += SettingsWindow.Section.allCases.map(\.title)
+    names += Appearance.allCases.map(\.displayName)
     names += WallpaperPicker.Source.allCases.map(\.title)
     return names
 }

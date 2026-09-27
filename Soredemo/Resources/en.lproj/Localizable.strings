@@ -730,3 +730,10 @@
 "Sentence %lld has been cut from the edit." = "Sentence %lld has been cut from the edit.";
 "Sentence %lld is within ten seconds of a chapter you have." = "Sentence %lld is within ten seconds of a chapter you have.";
 "Sentence %lld is within ten seconds of the suggestion before it." = "Sentence %lld is within ten seconds of the suggestion before it.";
+
+/* Appearance (2026-09-27). */
+"Appearance" = "Appearance";
+"Theme" = "Theme";
+"Match System" = "Match System";
+"Light" = "Light";
+"Dark" = "Dark";
