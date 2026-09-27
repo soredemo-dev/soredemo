@@ -21,8 +21,15 @@ four each. Presence of `init(from:)` is necessary and not sufficient.
 
 import re, glob, sys
 # 每個檔案裡的每個 public 型別，都要看；Codable 和 init(from:) 都可能在 extension 上。
+import os
 rows=[]
-for f in sorted(glob.glob("Sources/*/[A-Z]*.swift")):
+# 以腳本自己的位置找 Core/Sources，不靠呼叫者的工作目錄。從 repo 根目錄執行時，舊版的相對路徑
+# 一個檔案都讀不到，然後印出「0 / 0」—— 一個落在合法範圍內的失敗值(2026-09-27)。
+sources=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Core", "Sources")
+files=sorted(glob.glob(os.path.join(sources, "*", "[A-Z]*.swift")))
+if not files:
+    sys.exit(f"找不到任何 Swift 原始檔於 {sources} —— 拒絕回報一個計數")
+for f in files:
     src=open(f).read()
     decls=[(m.start(), m.end(), m.group(1)) for m in
            re.finditer(r"public (?:struct|enum|final class) (\w+)", src)]

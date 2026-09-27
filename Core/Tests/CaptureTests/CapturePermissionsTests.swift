@@ -59,12 +59,11 @@ import Testing
 
 // MARK: - degradation: what absence costs
 
-/// A denied microphone fails the whole `SCStream`, not just the microphone track — so it
-/// maps to `.blocksRecording` and NOT to `.noMicrophoneTrack`, which is the plausible
-/// wrong answer and the one the file's own comment exists to refuse.
+/// A denied microphone fails the whole `SCStream`, not just the microphone track — so it maps
+/// to `.blocksRecording`. The plausible wrong answer, a milder "no microphone track", was a case
+/// of its own until 2026-09-27 and was deleted because nothing could produce it.
 @Test func aDeniedMicrophoneBlocksTheWholeRecording() {
     #expect(CapturePermissions.degradation(for: .microphone) == .blocksRecording)
-    #expect(CapturePermissions.degradation(for: .microphone) != .noMicrophoneTrack)
 }
 
 /// The other three, each a distinct cost. Input monitoring and accessibility degrade the
@@ -148,10 +147,9 @@ import Testing
 }
 
 @Test func theDegradationRawValuesArePinned() {
-    let degradations: [Degradation] = [.blocksRecording, .noMicrophoneTrack, .observationBlind,
-                                       .noElementIdentity]
+    let degradations: [Degradation] = [.blocksRecording, .observationBlind, .noElementIdentity]
     #expect(degradations.map(\.rawValue)
-            == ["blocksRecording", "noMicrophoneTrack", "observationBlind", "noElementIdentity"])
+            == ["blocksRecording", "observationBlind", "noElementIdentity"])
 }
 
 @Test func theCapturePermissionRawValuesArePinned() {

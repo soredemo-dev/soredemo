@@ -46,7 +46,7 @@ func projectPbxprojText() throws -> String {
 // That file is now `Sources/Capture/CapturePermissions.swift`, which `swift test` links.
 // `Tests/CaptureTests/CapturePermissionsTests.swift` CALLS
 // `CapturePermissions.degradation(for: .microphone)` and asserts the returned value is
-// `.blocksRecording` and is not `.noMicrophoneTrack` — the measurement Task 5.5 Step 2
+// `.blocksRecording` (the milder case it could have been was deleted 2026-09-27) — the measurement Task 5.5 Step 2
 // made (with the entitlement missing, tccd refused kTCCServiceMicrophone and the recording
 // did not start AT ALL, rather than starting minus a track). A text scan proves a line was
 // typed; the test proves the function answers.

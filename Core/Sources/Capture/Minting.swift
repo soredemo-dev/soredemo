@@ -28,11 +28,6 @@ public enum Minting {
         UUID()
     }
 
-    /// The current wall-clock instant. Same reasoning as `newIdentifier()`.
-    public nonisolated static func now() -> Date {
-        Date()
-    }
-
     /// SHA-256 of `bytes`, as the package's opaque 32-byte `ContentDigest`.
     /// Generic over `DataProtocol` so `[UInt8]` and `Data` callers share one
     /// implementation. The digest values are pinned by cross-boundary tests.

@@ -894,14 +894,6 @@ func firstPartySourceFiles() throws -> [URL] {
     let files = try firstPartySourceFiles()
 
     let expectations: [(needle: String, declaringFile: String, expected: Int, claim: String)] = [
-        ("Minting.now()", "Sources/Capture/Minting.swift", 0,
-         "a wall-clock reading callers can take"),
-        // The needle is the ARGUMENT label at a call site, comma and all. Bare `fileExtension:`
-        // also matched `SubtitleFile.Format.fileExtension`'s own declaration in another module —
-        // a different API with the same word, which this table has no opinion about. The comma
-        // is what distinguishes `addMedia(data, fileExtension: x)` from `var fileExtension:`.
-        (", fileExtension:", "Soredemo/Project/ProjectDocument.swift", 0,
-         "media can be added under a minted name"),
         // The needle is the PROPERTY ACCESS, not the bare word. `CALayer` has a `shadowRadius`
         // too, and `CameraSelfView` sets it on the self-view panel's layer — a different API in
         // a different framework that this table has no opinion about, counted as a third use of
@@ -916,10 +908,6 @@ func firstPartySourceFiles() throws -> [URL] {
          "callers can ask what blocks recording. 0 → 1 is the permission page (2026-08-23): "
          + "the menu bar item opens it on launch when something a recording needs is missing, "
          + "which is exactly the question this function answers"),
-        ("noMicrophoneTrack", "Sources/Capture/CapturePermissions.swift", 0,
-         "a denied microphone degrades mildly — measured false, so nothing produces it"),
-        ("TimeRange", "Sources/Timeline/TimeRange.swift", 0,
-         "an epoch-less interval type is useful — its stated first caller moved to HostRange"),
     ]
 
     for e in expectations {

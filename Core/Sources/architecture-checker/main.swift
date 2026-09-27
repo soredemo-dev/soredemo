@@ -124,7 +124,6 @@ enum ArchitectureChecker {
         "NormalizedSize",
         "PixelRect",
         "PointRect",
-        "TimeRange",
     ]
 
     /// Keywords introducing a braced declaration rule 8 reads; `protocol` is here for

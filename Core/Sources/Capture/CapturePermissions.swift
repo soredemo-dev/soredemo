@@ -49,12 +49,10 @@ public enum PermissionStatus: String, Codable, Sendable {
 // public member's signature, which is what makes it genuinely part of the exported
 // surface rather than merely reachable.
 public enum Degradation: String, Codable, Sendable {
+    // `noMicrophoneTrack` was here until 2026-09-27 and nothing ever produced it: a denied
+    // microphone fails the whole stream (`aDeniedMicrophoneBlocksTheWholeRecording`). It was
+    // kept as "a wire-breaking change to remove", but no `Degradation` is ever written to a file.
     case blocksRecording
-    /// Never produced: `SCStreamConfiguration` requests microphone, video and
-    /// system audio as one inseparable request, so a denied microphone fails
-    /// the whole stream and maps to `.blocksRecording`. Kept because removing
-    /// a raw-value case is a wire-breaking change.
-    case noMicrophoneTrack
     case observationBlind
     case noElementIdentity
 }

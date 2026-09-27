@@ -68,15 +68,7 @@ final class ProjectDocument: NSDocument {
 
     // MARK: - Media
 
-    /// Writes a media sidecar under a freshly minted name, records it in the
-    /// snapshot, and returns the name. Minted here because `Project` has no
-    /// ambient randomness; `writeSidecar` refuses a name already on disk.
-    @MainActor
-    func addMedia(_ data: Data, fileExtension: String) throws -> String {
-        try addMedia(data, named: "\(Minting.newIdentifier().uuidString.lowercased()).\(fileExtension)")
-    }
-
-    /// The same, under a name the caller already minted — `CaptureSession` mints
+    /// Writes a media sidecar under a name the caller already minted — `CaptureSession` mints
     /// a segment's filename at `beginSegment`, before any bytes exist. Capture
     /// must route through here, not `ProjectPackageIO.writeSidecar`: the
     /// `mediaFilenames` append makes the file referenced, and `updateChangeCount`

@@ -200,20 +200,28 @@ the one path carrying untrusted input.** Swift's synthesised `init(from:)` assig
 directly. It never calls your `init`, so every `precondition` and every `throw` you wrote to define
 the type's invariant is skipped exactly when a value arrives from disk.
 
-Measured across this repository — **eight public types have a validating initialiser and no explicit
+Measured across this repository — **seven public types have a validating initialiser and no explicit
 `init(from:)`**:
 
 ```
 NormalizedPoint  NormalizedSize  NormalizedFrame  PixelRect
-PointRect        Authorship      HostInstant      TimeRange
+PointRect        Authorship      HostInstant
 ```
+
+It was eight until 2026-09-27, when `TimeRange` was deleted rather than closed: nothing called it.
+`scripts/scan-decode-validation.py` prints **8**, and the difference is `Nanoseconds`, which the
+checker exempts as "not a violation — a conversion returning nil" and the script counts. Two
+instruments, one question, answers that disagree by one, and nothing compares them — the audit
+table's row 3, still unmechanised. That script also printed `0 / 0` whenever it was run from the
+repository root instead of `Core/`: a relative glob that matched nothing, reported as a count. It
+now finds its sources from its own location and refuses to print a number when it reads no file.
 
 It was **ten** when this paragraph was written. `DisplayGeometry` and `HostRange` — the two of the ten
 reachable from `ProjectSnapshot` — were closed in Task 4.5, and the number moved without this sentence
 moving with it. Which is the whole reason the count lives in `scripts/scan-decode-validation.py`: run
-it. Since Task 11.5 the eight are also enumerated in
+it. Since Task 11.5 they are also enumerated in
 `ArchitectureChecker.decodeValidationExemptTypes`, where **architecture rule 8 fails the build on a
-ninth**, and a package test fails if one of the eight is closed without its line being deleted. The
+further one**, and a package test fails if one of them is closed without its line being deleted. The
 list is the remaining work, in a form that cannot rot.
 
 **Two of the ten are on a live decode path. The other eight are not, and an earlier version of this
@@ -222,7 +230,7 @@ enum payloads rather than from memory:
 
 | reachable from `ProjectSnapshot` | not reachable today |
 | --- | --- |
-| `DisplayGeometry` (via `GeometryRegistry`), `HostRange` (via `SegmentTable` → `MasterSegment`) | `NormalizedPoint`, `NormalizedSize`, `NormalizedFrame`, `PixelRect`, `PointRect`, `Authorship`, `HostInstant`, `TimeRange` |
+| `DisplayGeometry` (via `GeometryRegistry`), `HostRange` (via `SegmentTable` → `MasterSegment`) | `NormalizedPoint`, `NormalizedSize`, `NormalizedFrame`, `PixelRect`, `PointRect`, `Authorship`, `HostInstant` (`TimeRange` deleted 2026-09-27) |
 
 The claim that was here — that `ProjectSnapshot` carries `Derived` → `NormalizedFrame`, `Evidence`,
 `Authorship` and `TimeRange` — was false, and `ROADMAP.md`'s `derivation-graph` row already said so
