@@ -683,3 +683,6 @@
 "Updates" = "更新項目";
 "Check for updates when Soredemo starts" = "啟動 Soredemo 時檢查更新項目";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "轉寫在裝置上執行。沒有帳號、沒有上傳，也沒有遙測。Soredemo 唯一可能發出的請求，是向 GitHub 詢問有沒有新版本，而且只在你選擇時。";
+"Export Frame…" = "匯出畫面…";
+"Saved the frame to %@." = "已把畫面存成 %@。";
+"Could not save the frame: %@" = "無法儲存畫面:%@";

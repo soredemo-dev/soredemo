@@ -669,3 +669,6 @@
 "Updates" = "Actualizaciones";
 "Check for updates when Soredemo starts" = "Buscar actualizaciones al abrir Soredemo";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "La transcripción se hace en el dispositivo. Sin cuenta, sin subidas y sin telemetría. La única solicitud que Soredemo puede hacer es preguntar a GitHub si hay una versión más nueva, y solo cuando tú lo decides.";
+"Export Frame…" = "Exportar fotograma…";
+"Saved the frame to %@." = "Se guardó el fotograma en %@.";
+"Could not save the frame: %@" = "No se pudo guardar el fotograma: %@";

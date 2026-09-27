@@ -667,3 +667,6 @@
 "Updates" = "Обновления";
 "Check for updates when Soredemo starts" = "Проверять обновления при запуске Soredemo";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "Расшифровка выполняется на устройстве. Нет аккаунта, загрузки и телеметрии. Единственный запрос, который может сделать Soredemo, — спросить у GitHub о новой версии, и только когда вы этого захотите.";
+"Export Frame…" = "Экспорт кадра…";
+"Saved the frame to %@." = "Кадр сохранён в %@.";
+"Could not save the frame: %@" = "Не удалось сохранить кадр: %@";

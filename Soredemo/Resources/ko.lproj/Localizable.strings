@@ -667,3 +667,6 @@
 "Updates" = "업데이트";
 "Check for updates when Soredemo starts" = "Soredemo를 시작할 때 업데이트 확인";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "받아쓰기는 기기에서 실행됩니다. 계정도, 업로드도, 원격 측정도 없습니다. Soredemo가 보낼 수 있는 유일한 요청은 새 버전이 있는지 GitHub에 묻는 것이며, 사용자가 선택할 때만 보냅니다.";
+"Export Frame…" = "프레임 내보내기…";
+"Saved the frame to %@." = "프레임을 %@에 저장했습니다.";
+"Could not save the frame: %@" = "프레임을 저장할 수 없습니다: %@";

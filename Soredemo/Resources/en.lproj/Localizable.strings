@@ -683,3 +683,6 @@
 "Updates" = "Updates";
 "Check for updates when Soredemo starts" = "Check for updates when Soredemo starts";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to.";
+"Export Frame…" = "Export Frame…";
+"Saved the frame to %@." = "Saved the frame to %@.";
+"Could not save the frame: %@" = "Could not save the frame: %@";

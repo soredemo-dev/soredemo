@@ -455,6 +455,17 @@ struct StageWindow: View {
         // lives in the system's menu bar, where a dark panel in a light system looks broken.
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
+        // **A shortcut inside a toolbar menu is not registered until the menu is opened**, so
+        // ⌥⌘E did nothing on a fresh window — measured. It lives here, on a live zero-sized
+        // button, as the timeline's own shortcuts do (`TimelineEditor.shortcutLayer`).
+        .background {
+            Button("Export Frame…") { exportFrame() }
+                .keyboardShortcut("e", modifiers: [.command, .option])
+                .disabled(player == nil)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
         .navigationTitle(Text(verbatim: mediaURL.deletingPathExtension().lastPathComponent))
         .navigationDocument(savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }
@@ -619,8 +630,16 @@ struct StageWindow: View {
             // and wait to ask for twice. The running job's progress moved into the queue beside
             // it — see `ExportQueueButton`.
             ToolbarItem {
-                Button("Export…") { startExport() }
-                    .disabled(player == nil)
+                // A menu with a primary action, like Save: the button still exports the video,
+                // and the frame under the playhead is one click further.
+                Menu {
+                    Button("Export Frame…") { exportFrame() }
+                } label: {
+                    Text("Export…")
+                } primaryAction: {
+                    startExport()
+                }
+                .disabled(player == nil)
             }
             // **A mode this app has needs a way in that does not require finding it.** The
             // button inside the Captions inspector section is where somebody already working on
@@ -1878,6 +1897,30 @@ struct StageWindow: View {
     /// Presents the save panel and queues what it chose. The panel comes first because a job
     /// with no destination is not a job — and because the panel's own format popup is where
     /// macOS puts the format chooser.
+    /// The frame under the playhead as a PNG, at the export's size and through the export's own
+    /// composition. See `docs/design/2026-09-27-one-frame-as-a-picture.md`.
+    private func exportFrame() {
+        guard let asset = playingAsset,
+              let output = timeline.edit.outputTime(atSource: timeline.playhead) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".png"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        let size = Self.size(for: variant, resolution: resolution,
+                             recordingShortSide: recordingShortSide)
+        let time = CMTime(value: output.rawValue, timescale: 1_000_000_000)
+        Task {
+            do {
+                try await StillFrameExporter.export(asset: asset, at: time, to: destination,
+                                                    outputWidth: size.width, outputHeight: size.height)
+                exportStatus = String(localized: "Saved the frame to \(destination.lastPathComponent).")
+            } catch {
+                exportStatus = String(localized: "Could not save the frame: \(String(describing: error))")
+            }
+        }
+    }
+
     private func startExport() {
         let panel = NSSavePanel()
         // **Two types, so the panel's own format popup is the format chooser.** On macOS that
