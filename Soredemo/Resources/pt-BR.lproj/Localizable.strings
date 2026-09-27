@@ -653,3 +653,6 @@
 "Fade Out" = "Fade de saída";
 "Trim Clip Start" = "Aparar início do clipe";
 "Trim Clip End" = "Aparar fim do clipe";
+"Controls" = "Controles";
+"Controls in the notch" = "Controles no notch";
+"Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "Aponte para o notch para iniciar uma gravação e ver ali a que está em andamento. Desligado, ou em um Mac sem notch, os controles são uma barra na parte de baixo da tela.";

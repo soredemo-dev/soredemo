@@ -438,7 +438,7 @@ struct RecordingBarView: View {
 /// **It stops pulsing when paused rather than changing colour**, because the pulse is what makes
 /// a person notice it at all in the corner of their eye, and a paused recording is exactly when
 /// they need to notice.
-private struct PulsingDot: View {
+struct PulsingDot: View {
     let isPaused: Bool
     @State private var dim = false
 
@@ -456,7 +456,7 @@ private struct PulsingDot: View {
 
 /// A thin horizontal level bar. `nil` draws the track alone — the state that means "nothing is
 /// being heard", which is different from "silence" and must not look the same as a full meter.
-private struct LevelMeter: View {
+struct LevelMeter: View {
     let level: Double?
 
     var body: some View {

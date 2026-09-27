@@ -652,3 +652,6 @@
 "Fade Out" = "페이드 아웃";
 "Trim Clip Start" = "클립 시작 부분 다듬기";
 "Trim Clip End" = "클립 끝 부분 다듬기";
+"Controls" = "컨트롤";
+"Controls in the notch" = "노치에 컨트롤 표시";
+"Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "노치를 가리키면 녹화를 시작할 수 있고, 진행 중인 녹화도 거기에 표시됩니다. 끄거나 노치가 없는 Mac에서는 화면 아래쪽 막대가 됩니다.";

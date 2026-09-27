@@ -81,6 +81,9 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
     /// Set by `SoredemoApp` so the global shortcut has something to toggle. A weak-ish seam
     /// rather than a lookup: the delegate is created by SwiftUI and cannot reach the app's state.
     @MainActor static var toggleRecording: (@MainActor () -> Void)?
+    /// Set by `SoredemoApp` for the same reason: the notch surface needs the coordinator, and
+    /// panels are made once the application has finished launching.
+    @MainActor static var installNotchSurface: (@MainActor () -> Void)?
     /// Registers the global shortcut and takes the Dock icon away again once the last editor
     /// closes — see `GlobalHotkey` and `EditorWindowPresence`.
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -113,6 +116,7 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
         // a thing a person can fix, and a stop key that silently does nothing is the worst
         // version of this feature.
         if !registered { GlobalHotkeyStatus.shared.failed = true }
+        Self.installNotchSurface?()
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [] _ in
                 // After the close, not during it: the window being closed is still in

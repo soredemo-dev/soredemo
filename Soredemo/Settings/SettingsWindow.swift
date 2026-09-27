@@ -93,6 +93,17 @@ struct SettingsWindow: View {
                     .font(Type.detail).foregroundStyle(Signal.paused)
             }
         }
+        SwiftUI.Section("Controls") {
+            Toggle("Controls in the notch", isOn: Binding(
+                get: { NotchSurfacePresenter.isEnabled },
+                set: { on in
+                    UserDefaults.standard.set(on, forKey: NotchSurfacePresenter.enabledKey)
+                    if on { NotchSurfacePresenter.shared.install(coordinator: coordinator) }
+                    else { NotchSurfacePresenter.shared.remove() }
+                }))
+            Text("Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen.")
+                .font(Type.detail).foregroundStyle(.secondary)
+        }
         SwiftUI.Section("Before recording") {
             Picker("Countdown", selection: Binding(
                 get: { coordinator.countdownSeconds },

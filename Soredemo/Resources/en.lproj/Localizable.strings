@@ -668,3 +668,6 @@
 "Fade Out" = "Fade Out";
 "Trim Clip Start" = "Trim Clip Start";
 "Trim Clip End" = "Trim Clip End";
+"Controls" = "Controls";
+"Controls in the notch" = "Controls in the notch";
+"Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen.";

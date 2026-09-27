@@ -163,6 +163,30 @@ public enum CGGeometryBridge {
         CGRect(x: points.x, y: points.y, width: points.width, height: points.height)
     }
 
+    /// The notch surface's outline, in top-left points, as the app's SwiftUI shape draws it.
+    ///
+    /// Full width along the top edge, then each top corner curls INWARD to a body inset by
+    /// `flare` — so the shape runs into the menu bar the way the hardware notch does rather than
+    /// hanging below it with rounded shoulders (a notch assistant's idea; see the notch design docs).
+    /// Here and not in the app because the app names no CoreGraphics geometry type (rule 5).
+    public nonisolated static func notchOutline(width: Double, height: Double, flare: Double, bottomRadius: Double) -> CGPath {
+        let f = max(0, min(flare, width / 2, height))
+        let left = f, right = width - f
+        let r = max(0, min(bottomRadius, (right - left) / 2, height - f))
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 0))
+        path.addLine(to: CGPoint(x: width, y: 0))
+        path.addQuadCurve(to: CGPoint(x: right, y: f), control: CGPoint(x: right, y: 0))
+        path.addLine(to: CGPoint(x: right, y: height - r))
+        path.addQuadCurve(to: CGPoint(x: right - r, y: height), control: CGPoint(x: right, y: height))
+        path.addLine(to: CGPoint(x: left + r, y: height))
+        path.addQuadCurve(to: CGPoint(x: left, y: height - r), control: CGPoint(x: left, y: height))
+        path.addLine(to: CGPoint(x: left, y: f))
+        path.addQuadCurve(to: CGPoint(x: 0, y: 0), control: CGPoint(x: left, y: 0))
+        path.closeSubpath()
+        return path
+    }
+
     /// A video track's DISPLAYED size in whole pixels, transform applied.
     ///
     /// **`naturalSize` alone is the encoded size and is not what anybody sees.** A recording made

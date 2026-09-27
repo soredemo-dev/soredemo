@@ -668,3 +668,6 @@
 "Fade Out" = "淡出";
 "Trim Clip Start" = "修剪片段開頭";
 "Trim Clip End" = "修剪片段結尾";
+"Controls" = "控制項";
+"Controls in the notch" = "在瀏海中顯示控制項";
+"Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "把指標移到瀏海上即可開始錄製，正在進行的錄製也會顯示在那裡。關閉時，或在沒有瀏海的 Mac 上，控制項會是螢幕底部的一條列。";

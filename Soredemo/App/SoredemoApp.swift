@@ -54,6 +54,9 @@ struct SoredemoApp: App {
         _recordingCoordinator = State(initialValue: coordinator)
         MainActor.assumeIsolated {
             SoredemoAppDelegate.toggleRecording = { coordinator.toggleRecording() }
+            SoredemoAppDelegate.installNotchSurface = {
+                NotchSurfacePresenter.shared.install(coordinator: coordinator)
+            }
         }
     }
     /// `--dump-permissions` prints the permission dump and exits here, before

@@ -654,3 +654,6 @@
 "Fade Out" = "フェードアウト";
 "Trim Clip Start" = "クリップの先頭をトリム";
 "Trim Clip End" = "クリップの末尾をトリム";
+"Controls" = "コントロール";
+"Controls in the notch" = "ノッチにコントロールを表示";
+"Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "ノッチにポインタを合わせると収録を始められ、収録中はその状態がそこに表示されます。オフのとき、またはノッチのない Mac では、画面下部のバーになります。";

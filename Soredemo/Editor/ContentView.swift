@@ -655,6 +655,21 @@ final class RecordingCoordinator {
     /// **Pause writes nothing rather than writing silence.** `CaptureSession.pause()` closes the
     /// segment; `resume()` opens another. The recording is one file per segment and the segment
     /// table stitches them, so a pause costs a cut rather than a stretch of frozen frame.
+    /// The take's controls: in the notch when the notch surface is up, the floating bar otherwise.
+    /// See `2026-09-27-the-recorder-lives-in-the-notch.md`.
+    private func showRecordingControls() {
+        if NotchSurfacePresenter.shared.hostsTheTake {
+            NotchSurfacePresenter.shared.recordingBegan()
+        } else {
+            RecordingBarPresenter.shared.show(coordinator: self)
+        }
+    }
+
+    private func hideRecordingControls() {
+        RecordingBarPresenter.shared.hide()
+        NotchSurfacePresenter.shared.recordingEnded()
+    }
+
     func togglePause() {
         guard let session, isRecording else { return }
         Task { @MainActor in
@@ -877,7 +892,7 @@ final class RecordingCoordinator {
             // once the window stopped opening at launch, `ContentView` was never built, so a
             // recording started from the menu bar had no controls at all. The bar belongs to the
             // recording, and the recording is here.
-            RecordingBarPresenter.shared.show(coordinator: self)
+            showRecordingControls()
             status = .report(String(localized: "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."))
         } catch {
             status = .problem(String(localized: "Could not start recording: \(String(describing: error))"))
@@ -954,7 +969,7 @@ final class RecordingCoordinator {
         isPaused = false
         elapsed = 0
         pendingMode = nil
-        RecordingBarPresenter.shared.show(coordinator: self)
+        showRecordingControls()
         status = .report(String(localized: "Recording \(source.name)\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."))
     }
 
@@ -968,7 +983,7 @@ final class RecordingCoordinator {
         isRecording = false
         isPaused = false
         pendingMode = nil
-        RecordingBarPresenter.shared.hide()
+        hideRecordingControls()
         status = .report(String(localized: "Finishing\u{2026}"))
         DesktopIcons.restore()
 
@@ -1049,7 +1064,7 @@ final class RecordingCoordinator {
         isPaused = false
         microphoneLevel = nil
         pendingMode = nil
-        RecordingBarPresenter.shared.hide()
+        hideRecordingControls()
         status = .report(String(localized: "Finishing\u{2026}"))
         do {
             let outcome = try await session.stop()
