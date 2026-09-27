@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import Capture
 import Compositing
+import Framing
 import Project
 import Render
 import Variants
@@ -43,6 +44,7 @@ private func missing(_ names: [String], from tables: [String: [String: String]])
     names += AnnotationInk.allCases.map(\.displayName)
     names += TextAnimation.allCases.map(\.displayName)
     names += TextAnchor.allCases.map(\.displayName)
+    names += CameraPace.allCases.map(\.displayName)
     names += DeviceFrame.Model.allCases.map(\.displayName)
     names += DeviceFrame.Finish.allCases.map(\.displayName)
     names += CursorStyle.ClickEffect.allCases.map(\.displayName)

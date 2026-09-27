@@ -463,3 +463,59 @@ private func samples(_ camera: CameraMotion, from: Double, to: Double,
         }
     }
 }
+
+// MARK: - pace
+
+/// Seconds from the block's start until the zoom has covered 98% of its way to the target.
+private func secondsToSettle(_ camera: CameraMotion, target: ZoomBlock) -> Double? {
+    let goal = 1 + 0.98 * (target.zoom - 1)
+    let start = Double(target.start.hostTime.rawValue) / 1_000_000_000
+    for step in 0..<600 {
+        let t = start + Double(step) / 120
+        if camera.state(at: at(seconds: t)).zoom >= goal { return t - start }
+    }
+    return nil
+}
+
+/// **A pace is how long the move takes, and the three are in order.** Measured on the camera's
+/// own output rather than on ω: a pace wired to nothing leaves all three identical, and this is
+/// what says so.
+@Test func aSnappierPaceArrivesSoonerAndAGentlerOneLater() throws {
+    let target = block(from: 1.0, to: 5.0, x: 0.4, y: 0.4)
+    let gentle = try #require(secondsToSettle(CameraMotion(blocks: [target], pace: .gentle), target: target))
+    let standard = try #require(secondsToSettle(CameraMotion(blocks: [target], pace: .standard), target: target))
+    let snappy = try #require(secondsToSettle(CameraMotion(blocks: [target], pace: .snappy), target: target))
+    #expect(snappy + 0.1 < standard, "snappy \(snappy) s is not clearly quicker than standard \(standard) s")
+    #expect(standard + 0.1 < gentle, "gentle \(gentle) s is not clearly slower than standard \(standard) s")
+}
+
+/// The damping stays at 1 whatever the pace, so none of them sails past the target.
+@Test(arguments: CameraPace.allCases)
+func noPaceOvershoots(pace: CameraPace) {
+    let target = block(from: 1.0, to: 5.0, x: 0.4, y: 0.4)
+    let peak = samples(CameraMotion(blocks: [target], pace: pace), from: 0.5, to: 6).map(\.zoom).max() ?? 0
+    #expect(peak <= target.zoom + 1e-6, "\(pace) peaked at \(peak) against \(target.zoom)")
+}
+
+/// Standard is the camera this app has always had, so projects saved before the setting look
+/// exactly as they did.
+///
+/// **Against the number the camera shipped with, not against another path through this code.**
+/// The first version compared the default initialiser with `.standard` — both read the same ω, so
+/// it stayed green with standard moved to 11. The ω before paces existed was a literal 10
+/// (`CameraMotion.angularFrequency` at e37e639); that is the independent answer.
+@Test func theStandardPaceIsTheCameraAsItWas() {
+    let target = block(from: 1.0, to: 5.0, x: 0.4, y: 0.4)
+    #expect(CameraPace.standard.angularFrequency == 10)
+    let before = samples(CameraMotion(blocks: [target]), from: 0.5, to: 6)
+    let standard = samples(CameraMotion(blocks: [target], pace: .standard), from: 0.5, to: 6)
+    #expect(before.map(\.zoom) == standard.map(\.zoom), "and the default is standard")
+}
+
+/// A re-bake under another ceiling keeps the pace, and a re-pace keeps the ceiling — the two
+/// re-bakes the compositor makes must not undo each other.
+@Test func reBakingForTheCeilingKeepsThePaceAndReBakingForThePaceKeepsTheCeiling() {
+    let camera = CameraMotion(blocks: [block(from: 1.0, to: 5.0, x: 0.4, y: 0.4)], pace: .snappy)
+    #expect(camera.limited(toZoomCeiling: 1.8).pace == .snappy)
+    #expect(camera.limited(toZoomCeiling: 1.8).pacing(.gentle).zoomCeiling == 1.8)
+}

@@ -675,3 +675,7 @@
 "Image" = "画像";
 "Picture" = "画像";
 "Replace Picture…" = "画像を置き換える…";
+"Speed" = "速度";
+"Gentle" = "ゆったり";
+"Standard" = "標準";
+"Snappy" = "きびきび";

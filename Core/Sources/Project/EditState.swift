@@ -68,6 +68,10 @@ public struct EditState: Codable, Sendable, Equatable {
     /// neutral** — a project nobody dialled has nothing to say about it, and writing 1 would
     /// make every untouched project claim a decision.
     public var zoomIntensity: Double?
+    /// How fast the camera moves, as `CameraPace`'s raw value — a `String` because that type
+    /// lives in `Framing`, which `Project` cannot see. **Absent means standard**, the pace the
+    /// camera had before there was a choice.
+    public var cameraPace: String?
     /// Noise removal on the microphone track — an encoded `NoiseReduction.Settings`.
     /// Authored. `Data?` because the settings type lives in `Overlays`, which
     /// `Project` cannot see. **Absent means off.**
@@ -100,6 +104,7 @@ public struct EditState: Codable, Sendable, Equatable {
                 hidesKeystrokes: Bool? = nil,
                 musicData: Data? = nil,
                 zoomIntensity: Double? = nil,
+                cameraPace: String? = nil,
                 noiseReductionData: Data? = nil,
                 spokenTerms: [String]? = nil) {
         self.timeline = timeline
@@ -120,6 +125,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.hidesKeystrokes = hidesKeystrokes
         self.musicData = musicData
         self.zoomIntensity = zoomIntensity
+        self.cameraPace = cameraPace
         self.noiseReductionData = noiseReductionData
         self.spokenTerms = spokenTerms
     }
@@ -141,6 +147,8 @@ public struct EditState: Codable, Sendable, Equatable {
             // Neutral is not a change, the same way `burnsInCaptions == false` is not: a
             // person who moved the dial and moved it back has an untouched project.
             || (zoomIntensity.map { $0 != 1 } ?? false)
+            // Standard is not a change, for the same reason neutral is not.
+            || (cameraPace.map { $0 != "standard" } ?? false)
             // Present at all IS a change here, unlike `burnsInCaptions` above: absent means off,
             // and the type has no "off" value of its own — turning the feature off removes the
             // field rather than writing a disabled one.

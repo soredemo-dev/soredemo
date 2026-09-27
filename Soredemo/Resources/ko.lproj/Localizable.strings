@@ -673,3 +673,7 @@
 "Image" = "이미지";
 "Picture" = "이미지";
 "Replace Picture…" = "이미지 바꾸기…";
+"Speed" = "속도";
+"Gentle" = "부드럽게";
+"Standard" = "표준";
+"Snappy" = "빠르게";

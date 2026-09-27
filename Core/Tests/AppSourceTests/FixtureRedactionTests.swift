@@ -31,6 +31,7 @@ let adjudicatedStringFields: [String: String] = [
     "ProjectFormatError.malformed": "keep — ProjectFormatError conforms to Error, Equatable only, never Codable; never serialised, never persisted, cannot reach a committed fixture",
     "ProjectFormatError.sidecarAlreadyExists": "keep — same type, same reason as ProjectFormatError.malformed above",
     "ProjectFormatError.invalidSidecarName": "keep — same type, same reason as ProjectFormatError.malformed above",
+    "EditState.cameraPace": "keep — one of CameraPace's raw values (\"gentle\", \"standard\", \"snappy\"), chosen from a fixed list in a picker and never typed; the app resolves it with CameraPace(rawValue:) and treats anything else as standard, so a person cannot put anything else in it that is used",
     "EditState.outputShapeName": "keep — one of AspectVariant's own names (\"Landscape\", \"Portrait\", \"Square\"), chosen from a fixed list in a picker and never typed. Stored as the NAME rather than as dimensions so a project made before a shape was retuned opens with the current one; a person cannot put anything else in it, and the decoder resolves it against AspectVariant.all rather than trusting the string",
 ]
 

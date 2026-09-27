@@ -149,6 +149,8 @@ struct StageWindow: View {
     /// saying it once** — and because per-block adjustments still land on top of it, so a person
     /// who has tuned three zooms by hand does not lose them by moving this.
     @State private var zoomIntensity = FramingDepth.neutralIntensity
+    /// How fast the camera moves between framings. See `CameraPace`.
+    @State private var cameraPace = CameraPace.standard
 
     /// **The share of the output frame the recording occupies in the chosen shape**, which
     /// is what `StageCompositor.outputCoverage` needs to decide zoom depth for the frame
@@ -575,6 +577,7 @@ struct StageWindow: View {
             // sees would keep the depths the dial just changed.
             refreshDerivedZooms()
         }
+        .task(id: cameraPace) { StageCompositor.cameraPace = cameraPace }
         .task(id: crop) {
             StageCompositor.crop = crop
             // Coverage depends on the cropped aspect, so it moves with the crop or it lies.
@@ -1526,6 +1529,8 @@ struct StageWindow: View {
             musicData: music == .none ? nil : try? EditState.encoding(music),
             // Neutral is not a decision, so an untouched project stays untouched on disk.
             zoomIntensity: zoomIntensity == FramingDepth.neutralIntensity ? nil : zoomIntensity,
+            // Standard is not a decision either.
+            cameraPace: cameraPace == .standard ? nil : cameraPace.rawValue,
             // Absent means off, so a project nobody asked has nothing to say about it.
             noiseReductionData: noiseReduction.flatMap { try? EditState.encoding($0) },
             // An empty list is nothing to say either, and writing `[]` would make every project
@@ -1679,6 +1684,8 @@ struct StageWindow: View {
         // negative would make every depth the ceiling rather than failing visibly.
         zoomIntensity = min(max(edit.zoomIntensity ?? FramingDepth.neutralIntensity, 0),
                             FramingDepth.maximumIntensity)
+        // An unknown name is the pace this build knows best, not a refusal to open.
+        cameraPace = edit.cameraPace.flatMap(CameraPace.init(rawValue:)) ?? .standard
         do {
             if let saved = try EditState.decoding(edit.musicData, as: MusicBed.self) {
                 music = saved
@@ -1771,6 +1778,13 @@ struct StageWindow: View {
         }
         Text(verbatim: zoomIntensityLabel)
             .font(Type.detail).foregroundStyle(.secondary)
+        // The spring's damping stays at 1 whatever this says, so no pace overshoots.
+        Picker("Speed", selection: $cameraPace) {
+            ForEach(CameraPace.allCases, id: \.self) { pace in
+                Text(LocalizedStringKey(pace.displayName)).tag(pace)
+            }
+        }
+        .onChange(of: cameraPace) { reviewRevision += 1 }
     }
 
     /// Says what the dial does at the ends, because "0.0" and "2.0" do not.

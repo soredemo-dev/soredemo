@@ -216,6 +216,13 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         get { seamLock.withLock { unsafe _zoomIntensity } }
         set { seamLock.withLock { unsafe _zoomIntensity = newValue } }
     }
+    /// How fast the camera moves between framings — see `CameraPace`. A seam like
+    /// `zoomIntensity`, and captured in `Settings` with it.
+    private nonisolated(unsafe) static var _cameraPace: CameraPace = .standard
+    public static var cameraPace: CameraPace {
+        get { seamLock.withLock { unsafe _cameraPace } }
+        set { seamLock.withLock { unsafe _cameraPace = newValue } }
+    }
     /// Which of the composition's video tracks is the camera. **Set by whoever built the
     /// composition** — `CameraComposition.combine` returns it — because nothing about a track
     /// says what it is, and picking "the last video track" would break the moment a composition
@@ -256,6 +263,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         var cameraStyle: CameraOverlayStyle?
         var crop: CropRect
         var cameraTrackID: CMPersistentTrackID?
+        // **The amount was missing, and so an export queued at one amount rendered at whatever
+        // was set when it ran.** Found when the pace was added beside it.
+        var zoomIntensity: Double
+        var cameraPace: CameraPace
     }
 
     /// What the compositor would draw right now.
@@ -267,7 +278,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                         texts: texts, redactions: redactions, annotations: annotations,
                         showsKeystrokes: showsKeystrokes,
                         cursorStyle: cursorStyle,
-                        cameraStyle: cameraStyle, crop: crop, cameraTrackID: cameraTrackID)
+                        cameraStyle: cameraStyle, crop: crop, cameraTrackID: cameraTrackID,
+                        zoomIntensity: zoomIntensity, cameraPace: cameraPace)
     }
 
     /// Puts them all back. Every field, so a value captured before one was added cannot leave a
@@ -291,6 +303,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         cameraStyle = settings.cameraStyle
         crop = settings.crop
         cameraTrackID = settings.cameraTrackID
+        zoomIntensity = settings.zoomIntensity
+        cameraPace = settings.cameraPace
     }
 
     /// Counters read after playback or export. `static` because AVFoundation owns every instance.
@@ -1055,6 +1069,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 unsafe pointerTrack = existing.moving(wanted)
                 unsafe pathMovement = wanted
             }
+            // A pace changed since the tracks were built re-bakes the camera here, for the reason
+            // a changed cursor movement re-derives the path just above.
+            let pace = Self.cameraPace
+            if let current = unsafe camera, current.pace != pace {
+                unsafe camera = current.pacing(pace)
+            }
             if zoomCeiling.isFinite, let current = unsafe camera,
                unsafe cameraCeiling != max(zoomCeiling, 1.0) {
                 unsafe camera = current.limited(toZoomCeiling: zoomCeiling)
@@ -1150,7 +1170,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                                   cursor: { instant in
             if case .drawn(let point, _, _) = pointer.presentedPosition(at: instant) { return point }
             return nil
-        })
+        }, pace: cameraPace)
         return (pointer: pointer, click: click, anchor: anchor, camera: camera,
                 keystrokes: KeystrokeTrack(presses: presses), movement: movement,
                 contentCrops: ContentCropTrack(samples: contentCrops))

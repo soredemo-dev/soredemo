@@ -211,3 +211,15 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(round.noiseReductionData == state.noiseReductionData)
     }
 }
+
+/// The camera's pace is a decision only when it is not the standard one — the amount's rule —
+/// and a project saved before the pace existed opens at standard.
+@Test func aNonStandardCameraPaceIsAnEditAndStandardIsNot() throws {
+    #expect(EditState(cameraPace: "snappy").changesAnything)
+    #expect(!EditState(cameraPace: "standard").changesAnything, "the default is not a decision")
+    let old = try JSONDecoder().decode(EditState.self, from: try JSONEncoder().encode(EditState()))
+    #expect(old.cameraPace == nil)
+    let kept = try JSONDecoder().decode(EditState.self,
+                                        from: try JSONEncoder().encode(EditState(cameraPace: "gentle")))
+    #expect(kept.cameraPace == "gentle")
+}

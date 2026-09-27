@@ -673,3 +673,7 @@
 "Image" = "Image";
 "Picture" = "Image";
 "Replace Picture…" = "Remplacer l’image…";
+"Speed" = "Vitesse";
+"Gentle" = "Doux";
+"Standard" = "Standard";
+"Snappy" = "Vif";

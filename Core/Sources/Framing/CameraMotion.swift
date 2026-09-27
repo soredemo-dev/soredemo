@@ -32,6 +32,32 @@ public struct CameraState: Hashable, Sendable {
     }
 }
 
+/// How quickly the camera moves between framings: the spring's natural frequency, with the damping
+/// held at 1 so every pace approaches its target from one side and none overshoots.
+///
+/// **A pace, not an easing curve.** The camera is a spring, and a spring's shape is set by its
+/// damping; what a person means by "smoother" or "snappier" is how long it takes. Standard is the
+/// ω the camera has always had. See `docs/design/2026-09-27-how-fast-the-camera-moves.md`.
+public enum CameraPace: String, Hashable, Codable, Sendable, CaseIterable {
+    case gentle, standard, snappy
+
+    public var angularFrequency: Double {
+        switch self {
+        case .gentle: 6
+        case .standard: 10
+        case .snappy: 16
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .gentle: "Gentle"
+        case .standard: "Standard"
+        case .snappy: "Snappy"
+        }
+    }
+}
+
 /// The camera, integrated from zoom blocks by a critically damped spring.
 ///
 /// **Fixed timestep, and that is the load-bearing decision.** A spring stepped by whatever
@@ -121,8 +147,12 @@ public struct CameraMotion: Sendable {
     /// merged would pass a gap test vacuously.
     public var blocksForTesting: [ZoomBlock] { blocks }
 
+    /// How fast it moves. Carried so a re-bake under another ceiling keeps it.
+    public let pace: CameraPace
+
     public init(blocks: [ZoomBlock], zoomCeiling: Double = .infinity,
-                cursor: CursorSource? = nil) {
+                cursor: CursorSource? = nil, pace: CameraPace = .standard) {
+        self.pace = pace
         let sorted = blocks.sorted { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue }
         self.blocks = sorted
         // A ceiling below 1 is "no zoom", never "zoom out"; NaN is treated as no ceiling.
@@ -132,7 +162,7 @@ public struct CameraMotion: Sendable {
         var paths: [BootEpoch: BakedPath] = [:]
         for (epoch, group) in Dictionary(grouping: sorted, by: { $0.start.epoch }) {
             paths[epoch] = Integrator(blocks: group, zoomCeiling: ceiling, epoch: epoch,
-                                      cursor: cursor).bake()
+                                      cursor: cursor, angularFrequency: pace.angularFrequency).bake()
         }
         self.paths = paths
     }
@@ -140,7 +170,12 @@ public struct CameraMotion: Sendable {
     /// The same blocks under another ceiling — what the compositor asks for once it knows
     /// the output's card, which the log alone does not say. A re-bake, not a clamp.
     public func limited(toZoomCeiling ceiling: Double) -> CameraMotion {
-        CameraMotion(blocks: blocks, zoomCeiling: ceiling, cursor: cursor)
+        CameraMotion(blocks: blocks, zoomCeiling: ceiling, cursor: cursor, pace: pace)
+    }
+
+    /// The same blocks at another pace — a re-bake, for the same reason `limited` is one.
+    public func pacing(_ pace: CameraPace) -> CameraMotion {
+        CameraMotion(blocks: blocks, zoomCeiling: zoomCeiling, cursor: cursor, pace: pace)
     }
 
     /// The camera at `instant`. At rest before the first block and past the last plus
@@ -195,6 +230,9 @@ public struct CameraMotion: Sendable {
         let zoomCeiling: Double
         let epoch: BootEpoch
         let cursor: CursorSource?
+        /// The pace's ω. `CameraMotion.angularFrequency` is the standard pace's, kept as the
+        /// named default the settling arithmetic in the headers above is written against.
+        let angularFrequency: Double
 
         /// **The follow's memory: which block the camera is inside and where its centre has
         /// been pushed to.** Persistent across steps, because the rule is "hold until the
@@ -216,8 +254,8 @@ public struct CameraMotion: Sendable {
             let horizon = stop - begin
 
             let dt = CameraMotion.timestep
-            let k = CameraMotion.angularFrequency * CameraMotion.angularFrequency
-            let c = 2 * CameraMotion.dampingRatio * CameraMotion.angularFrequency
+            let k = angularFrequency * angularFrequency
+            let c = 2 * CameraMotion.dampingRatio * angularFrequency
             // Each stage's per-step gain, exact for a held input.
             let ease = 1 - exp(-dt / (CameraMotion.targetTimeConstant / 2))
 
