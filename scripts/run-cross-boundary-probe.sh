@@ -135,6 +135,7 @@ xcrun swiftc \
   Soredemo/Project/ProjectDocument.swift \
   Soredemo/Editor/PreviewView.swift \
   Soredemo/Editor/StageWindow.swift \
+  Soredemo/Editor/EditorViewModel.swift \
   Soredemo/Export/ExportQueue.swift \
   Soredemo/Export/CodecVerdicts.swift \
   Soredemo/Recording/RegionPickerOverlay.swift \

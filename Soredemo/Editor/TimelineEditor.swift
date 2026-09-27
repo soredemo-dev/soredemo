@@ -357,6 +357,19 @@ final class TimelineEditorModel {
 
     var hasEdits: Bool { edit != original }
 
+    /// **What a project file stores: the edit, unless it is the whole recording.**
+    ///
+    /// Not `hasEdits`, and the difference lost cuts. `hasEdits` means "changed since this was
+    /// OPENED" — right for the Edited label and for Revert, which go back to what was opened —
+    /// and saving used it. A project opened with cuts has an `original` equal to those cuts, so
+    /// `hasEdits` was false, the save wrote no timeline, and opening that file again showed the
+    /// whole recording. Found by `EditorViewModelTests.aSavedProjectOpensExactlyAsItWasSaved`,
+    /// 2026-09-27, the first time a save-then-open round trip was tested at all.
+    var editToSave: EditTimeline? {
+        guard let duration else { return hasEdits ? edit : nil }
+        return edit == EditTimeline.whole(duration: duration) ? nil : edit
+    }
+
     /// **Snapped to clip edges and the playhead.** A cut a person aims at an existing edge
     /// should land ON it: a cut that misses by a nanosecond leaves a sliver of a clip that is
     /// invisible on the strip and real in the export.

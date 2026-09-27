@@ -28,19 +28,17 @@ struct StageWindow: View {
     /// project opened from disk, which is a gap this does not close — see the doc comment on
     /// `CameraComposition.combine`.
     var cameraStartOffsetNanos: Int64 = 0
+    /// Everything a person decides about this recording — see `EditorViewModel`.
+    @State private var editor = EditorViewModel()
     @State private var player: AVPlayer?
     /// The asset the current item was built from. Held because `AVAudioMix` addresses that
     /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
     @State private var playingAsset: AVAsset?
     /// The video track's thumbnails. Owned here so a cache is not discarded on every edit.
     @State private var filmstrip = Filmstrip()
-    /// Where the camera sits on the stage. Authored, and saved with the rest of the look.
-    @State private var cameraStyle = CameraOverlayStyle.default
     /// One-shot, because `initialCameraStyle` seeds `cameraStyle` and a saved project's own
     /// value must win over it — the load runs after this and would otherwise be overwritten.
     @State private var hasSeededCameraStyle = false
-    /// The part of the recording used at all, and whether its handles are showing.
-    @State private var crop = CropRect.whole
     @State private var isCropping = false
     /// Whether the safe-frame guides are drawn. **Off by default and not saved**: it is a thing
     /// to look at while deciding where something sits, not a property of the recording, and a
@@ -50,27 +48,6 @@ struct StageWindow: View {
     // MARK: - export-basic
     @State private var exportStatus: String?
     // MARK: - review-ui
-    /// Every framing decision the gate made, and the reviewer's own. Owned here rather than
-    /// by the inspector so it survives the inspector being closed.
-    @State private var review = FramingReviewModel()
-    /// The stage's look. Owned here beside `review` so a change survives the inspector being
-    /// closed, and so both the preview and the export read the same chosen style.
-    @State private var stageStyle = StageStyleModel()
-    /// The output shape. Drives the preview as well as the export: a person choosing Portrait
-    /// and then seeing a landscape preview has been shown the wrong thing.
-    @State private var variant = AspectVariant.landscape
-    /// Whether the shape on screen is one a person picked or restored, rather than the
-    /// starting value. Nothing reads it yet — it is what a future default would have to
-    /// consult, and it is set at both the places that could make a choice, so adding that
-    /// default is a one-line change rather than an audit of who assigns `variant`.
-    @State private var chosenShapeDeliberately = false
-    /// How loud each recorded source is in the export. Two sources, because the master keeps
-    /// system audio and the microphone apart — see `AudioMix`.
-    @State private var audioMix = AudioMix.unchanged
-    /// Noise removal on the microphone track. **`nil` is off**, and off is the default: this
-    /// rewrites what a person hears, and a recorder that quietly processed everybody's voice
-    /// would be making a decision that is not its to make.
-    @State private var noiseReduction: NoiseReduction.Settings?
     /// What the last attempt to clean the microphone did, or why it could not. Shown, never
     /// swallowed — a person who turned this on and heard no difference is owed the reason.
     @State private var noiseReductionNote: String?
@@ -81,9 +58,6 @@ struct StageWindow: View {
     /// first time levelling is asked for, because it decodes the whole audio track and most
     /// recordings are never levelled. Cleared when a different recording is loaded.
     @State private var measuredLoudness: [Int: Loudness.Reading] = [:]
-    /// The music bed under the recording — see `MusicBed`. Its file lives in the package, so
-    /// this is a filename and the URL is derived where it is needed.
-    @State private var music = MusicBed.none
     /// The composition's music track, and the envelope it follows. Both are rebuilt with the
     /// composition rather than per frame: the track is a track and the envelope is a volume
     /// automation, and `AVAudioMix` takes them together.
@@ -92,18 +66,7 @@ struct StageWindow: View {
     /// person who chose music and got silence is owed the reason.
     @State private var musicFailure: String?
     // MARK: - project
-    /// Where this recording has been saved, if it has. `nil` is a scratch recording, which is
-    /// what "Save" turns into a project and what makes closing worth asking about.
-    @State private var savedPackage: URL?
-    /// The edit as it was when last saved, so "has anything changed" compares against what is
-    /// on disk rather than against nothing.
-    @State private var savedEdit = EditState.untouched
-    @State private var projectStatus: String?
     // MARK: - basic-edit
-    /// What survives editing. **Replaced a pair of trim sliders**, which could express one
-    /// kept span and nothing else: no cut in the middle, no seeing where a cut was made, no
-    /// undo. Owned here so it survives the inspector being closed.
-    @State private var timeline = TimelineEditorModel()
     /// Bumped when an edit is committed, to rebuild the composition against the cut asset.
     @State private var editRevision = 0
     @State private var isReviewShown = true
@@ -139,45 +102,11 @@ struct StageWindow: View {
     /// Read from the asset when it loads; 1080 until then, which is what the export used to be
     /// pinned to anyway.
     @State private var recordingShortSide = 1080
-    /// The recording's own pixel size. **Both dimensions, because a SHAPE needs both** — the
-    /// short side alone sizes an output but cannot say what shape the recording is, and
-    /// `AspectVariant.matching(width:height:)` is what removes the pillarbox a laptop
-    /// recording gets in every one of the three presets.
-    @State private var recordingSize = (width: 1920, height: 1080)
-    /// How much of the derived zoom to use, over the whole recording. **One dial, because
-    /// correcting forty blocks one at a time to say "less, everywhere" is a different act from
-    /// saying it once** — and because per-block adjustments still land on top of it, so a person
-    /// who has tuned three zooms by hand does not lose them by moving this.
-    @State private var zoomIntensity = FramingDepth.neutralIntensity
-    /// How fast the camera moves between framings. See `CameraPace`.
-    @State private var cameraPace = CameraPace.standard
 
-    /// **The share of the output frame the recording occupies in the chosen shape**, which
-    /// is what `StageCompositor.outputCoverage` needs to decide zoom depth for the frame
-    /// being exported rather than for the recording's own shape.
-    ///
-    /// **Computed from the CROPPED size, not the recorded one.** Cropping changes the
-    /// source's aspect, so a crop re-frames every zoom exactly as a variant change does; a
-    /// coverage read off the recorded size would go stale the moment somebody cropped.
-    private var outputCoverage: Double {
-        let cropped = crop.size(ofSourceWidth: recordingSize.width,
-                                sourceHeight: recordingSize.height)
-        guard cropped.width > 0, cropped.height > 0 else { return 1 }
-        return variant.coverage(ofSourceAspect: Double(cropped.width) / Double(cropped.height))
-    }
     /// How many frames a second the export writes, and what the recording itself has. Matching
     /// by default, because a capture's rate is a decision somebody already made.
     @State private var frameRate = ExportFrameRate.matchRecording
     @State private var recordingFrameRate = 60
-    /// The captions. Owned here beside `stageStyle` so a change survives the inspector being
-    /// closed, and so the preview and the export read the same track.
-    @State private var captions = CaptionsModel()
-    /// Titles and notes drawn over the picture. Owned here beside `captions` for the same reason.
-    @State private var texts = TextOverlaysModel()
-    /// Parts of the recording a person has hidden.
-    @State private var redactions = RedactionsModel()
-    @State private var annotations = AnnotationsModel()
-    @State private var chapters = ChaptersModel()
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
@@ -320,13 +249,13 @@ struct StageWindow: View {
         stage
             // **The one view that watches the playhead at the playhead's own rate.** Installed
             // here because this is where both models are; it draws nothing. See its header.
-            .background(CaptionCueTracker(timeline: timeline, captions: captions))
+            .background(CaptionCueTracker(timeline: editor.timeline, captions: editor.captions))
             // **The window's undo stack, handed to the caption model.** ⌘Z and ⇧⌘Z come from
             // the system's Edit menu once something registers with this manager; the timeline
             // keeps its own `EditHistory`, which is a different stack for a different surface —
             // undoing a caption correction should not undo a cut.
-            .onAppear { captions.undoRecorder = undoManager }
-            .onChange(of: undoManager) { captions.undoRecorder = undoManager }
+            .onAppear { editor.captions.undoRecorder = undoManager }
+            .onChange(of: undoManager) { editor.captions.undoRecorder = undoManager }
             // **The caption editor REPLACES the stage rather than floating over it.** A sheet
             // would have kept the timeline and the inspector behind it, which is exactly the
             // arrangement this mode exists to get out of the way — and there is one `AVPlayer`,
@@ -339,17 +268,17 @@ struct StageWindow: View {
                     // No `AtPlayhead` here: `CaptionEditor` takes the timeline and confines
                     // the read to the waveform, which is the only part of it that moves.
                     CaptionEditor(
-                        model: captions, timeline: timeline,
-                        duration: timeline.duration, waveform: timeline.waveform,
-                        pauses: timeline.silences,
-                        onSeek: { timeline.movePlayhead(to: $0) },
+                        model: editor.captions, timeline: editor.timeline,
+                        duration: editor.timeline.duration, waveform: editor.timeline.waveform,
+                        pauses: editor.timeline.silences,
+                        onSeek: { editor.timeline.movePlayhead(to: $0) },
                         onChange: { reviewRevision += 1 },
                         onClose: { isCaptionEditorShown = false },
                         picture: {
                             AnyView(VStack(spacing: 0) {
                                 PreviewView(player: player)
                                 Divider().overlay(Theme.Line.hairline)
-                                TransportBar(player: player, model: timeline)
+                                TransportBar(player: player, model: editor.timeline)
                             })
                         })
                 }
@@ -359,11 +288,11 @@ struct StageWindow: View {
     @ViewBuilder private var stage: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
-                CanvasBar(variant: $variant, crop: $crop, isCropping: $isCropping,
+                CanvasBar(variant: $editor.variant, crop: $editor.crop, isCropping: $isCropping,
                           showsSafeFrame: $showsSafeFrame,
-                          outputWidth: Self.size(for: variant, resolution: resolution,
+                          outputWidth: Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide).width,
-                          outputHeight: Self.size(for: variant, resolution: resolution,
+                          outputHeight: Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide).height,
                           onChange: { reviewRevision += 1 })
                 Divider().overlay(Theme.Line.hairline)
@@ -395,26 +324,26 @@ struct StageWindow: View {
                 .background(Theme.Surface.preview)
                 // Handles for whatever the inspector is editing — see `PreviewOverlay`.
                 .overlay {
-                    let size = Self.size(for: variant, resolution: resolution,
+                    let size = Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
                     PreviewOverlay(outputWidth: size.width, outputHeight: size.height,
-                                   texts: texts, redactions: redactions, tab: inspectorTab,
+                                   texts: editor.texts, redactions: editor.redactions, tab: inspectorTab,
                                    onChange: { reviewRevision += 1 },
-                                   cameraStyle: $cameraStyle,
-                                   hasCamera: cameraURL != nil && !cameraStyle.isHidden)
+                                   cameraStyle: $editor.cameraStyle,
+                                   hasCamera: cameraURL != nil && !editor.cameraStyle.isHidden)
                 }
                 .overlay {
                     if showsSafeFrame {
-                        let size = Self.size(for: variant, resolution: resolution,
+                        let size = Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
                         SafeFrameOverlay(outputWidth: size.width, outputHeight: size.height)
                     }
                 }
                 .overlay {
                     if isCropping {
-                        let size = Self.size(for: variant, resolution: resolution,
+                        let size = Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
-                        CropOverlay(crop: $crop, outputWidth: size.width,
+                        CropOverlay(crop: $editor.crop, outputWidth: size.width,
                                     outputHeight: size.height,
                                     onCommit: { reviewRevision += 1 })
                     }
@@ -425,7 +354,7 @@ struct StageWindow: View {
                 .environment(\.colorScheme, .dark)
                 if let player {
                     Divider()
-                    TransportBar(player: player, model: timeline)
+                    TransportBar(player: player, model: editor.timeline)
                 }
             }
             .frame(minHeight: 240)
@@ -440,17 +369,17 @@ struct StageWindow: View {
             }
 
             VStack(spacing: 0) {
-                EditorToolbar(model: timeline, onChange: { editRevision += 1 },
+                EditorToolbar(model: editor.timeline, onChange: { editRevision += 1 },
                               mediaURL: mediaURL,
                               isCollapsed: isTimelineCollapsed) {
                     isTimelineCollapsed.toggle()
                 }
                 if !isTimelineCollapsed {
                     Divider()
-                    TimelineEditor(model: timeline, onChange: { editRevision += 1 },
+                    TimelineEditor(model: editor.timeline, onChange: { editRevision += 1 },
                                    filmstrip: filmstrip,
-                                   texts: texts.track, captions: captions.track,
-                                   redactions: redactions.track, chapters: chapters.track)
+                                   texts: editor.texts.track, captions: editor.captions.track,
+                                   redactions: editor.redactions.track, chapters: editor.chapters.track)
                         .padding(Space.regular)
                         .frame(height: timelineHeight - EditorToolbar.height)
                 }
@@ -474,25 +403,25 @@ struct StageWindow: View {
                 .accessibilityHidden(true)
         }
         .navigationTitle(Text(verbatim: mediaURL.deletingPathExtension().lastPathComponent))
-        .navigationDocument(savedPackage ?? mediaURL)
+        .navigationDocument(editor.savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }
         // The setting can be changed while an editor is open; without this it would take a
         // reopen to have any effect, which reads as the switch not working.
-        .task(id: scrubAudioIsOn) { timeline.scrubAudio.isEnabled = scrubAudioIsOn }
+        .task(id: scrubAudioIsOn) { editor.timeline.scrubAudio.isEnabled = scrubAudioIsOn }
         // **The mix changes what you hear WITHOUT reloading anything.** A mute applied by
         // rebuilding the player item would reload the asset, lose the position and go silent
         // for as long as that took — so a person testing whether to keep their narration would
         // be judging it across a gap. `AVPlayerItem.audioMix` is honoured mid-playback, which
         // is the whole reason this is a separate path from the export's.
-        .task(id: audioMix) {
+        .task(id: editor.audioMix) {
             guard let item = player?.currentItem, let asset = playingAsset else { return }
             // Measured from the recording's own file, once, and only when somebody asks for
             // levelling — a full audio decode for a feature most projects never turn on would
             // be a second of work on every open. See `Loudness.measure(contentsOf:)`.
-            if audioMix.targetLoudness != nil, measuredLoudness.isEmpty {
+            if editor.audioMix.targetLoudness != nil, measuredLoudness.isEmpty {
                 measuredLoudness = await Loudness.measure(contentsOf: mediaURL)
             }
-            await AudioMixBuilder.apply(audioMix, to: item, of: asset, measured: measuredLoudness,
+            await AudioMixBuilder.apply(editor.audioMix, to: item, of: asset, measured: measuredLoudness,
                                         musicTrackID: musicTrackID, musicRamps: musicRamps)
         }
         // **Registered on every change, not once.** The closure captures this view's current
@@ -500,7 +429,7 @@ struct StageWindow: View {
         .onChange(of: hasUnsavedChanges, initial: true) {
             UnsavedWorkGuard.shared.update(hasUnsavedChanges: hasUnsavedChanges) {
                 saveProject()
-                return savedPackage != nil && currentEditState() == savedEdit
+                return editor.savedPackage != nil && editor.currentEditState(hasCamera: cameraURL != nil) == editor.savedEdit
             }
         }
         // The preview follows the chosen shape: showing landscape while Portrait is selected
@@ -509,20 +438,20 @@ struct StageWindow: View {
         .task {
             guard !hasSeededCameraStyle else { return }
             hasSeededCameraStyle = true
-            cameraStyle = initialCameraStyle
+            editor.cameraStyle = initialCameraStyle
         }
-        .task(id: variant) { await load() }
+        .task(id: editor.variant) { await load() }
         // **A full rebuild, not a mix change.** Noise removal replaces a whole audio TRACK in
         // the composition, which `audioMix`'s cheaper path above cannot do — that one only moves
         // volume ramps on tracks that are already there.
-        .task(id: noiseReduction) { if noiseReduction != nil || cleanedMicrophone != nil { await load() } }
+        .task(id: editor.noiseReduction) { if editor.noiseReduction != nil || cleanedMicrophone != nil { await load() } }
         // **The file, not the whole bed.** Changing the piece means a different track in the
         // composition and a rebuild; changing its level or its ducking is a volume automation,
         // which the sibling below re-applies without touching the asset.
-        .task(id: music.filename) { if music.filename != nil || musicTrackID != nil { await load() } }
-        .task(id: music) {
+        .task(id: editor.music.filename) { if editor.music.filename != nil || musicTrackID != nil { await load() } }
+        .task(id: editor.music) {
             guard let item = player?.currentItem, let asset = playingAsset else { return }
-            await AudioMixBuilder.apply(audioMix, to: item, of: asset, measured: measuredLoudness,
+            await AudioMixBuilder.apply(editor.audioMix, to: item, of: asset, measured: measuredLoudness,
                                         musicTrackID: musicTrackID, musicRamps: musicRamps)
         }
         // Rebuilding on a COMMITTED edit, not on every drag event: `load()` builds an
@@ -536,9 +465,9 @@ struct StageWindow: View {
         // Keyed on the REQUEST, not the position: playback writes the position several times a
         // second, and seeking the player to where it already is would stall it. See
         // `TimelineEditorModel.seekRequest`.
-        .task(id: timeline.seekRequest) {
+        .task(id: editor.timeline.seekRequest) {
             guard let player,
-                  let output = timeline.edit.outputTime(atSource: timeline.playhead)
+                  let output = editor.timeline.edit.outputTime(atSource: editor.timeline.playhead)
             else { return }
             await player.seek(to: CMTime(value: output.rawValue, timescale: 1_000_000_000),
                               toleranceBefore: .zero, toleranceAfter: .zero)
@@ -576,21 +505,21 @@ struct StageWindow: View {
         // crop were the two whose changes waited for the next composition rebuild. A control
         // that takes effect on some later unrelated action is a control people learn not to
         // trust.
-        .task(id: zoomIntensity) {
-            StageCompositor.zoomIntensity = zoomIntensity
+        .task(id: editor.zoomIntensity) {
+            StageCompositor.zoomIntensity = editor.zoomIntensity
             // The lane and the camera read one derivation; without this the blocks a person
             // sees would keep the depths the dial just changed.
             refreshDerivedZooms()
         }
-        .task(id: cameraPace) { StageCompositor.cameraPace = cameraPace }
-        .task(id: crop) {
-            StageCompositor.crop = crop
+        .task(id: editor.cameraPace) { StageCompositor.cameraPace = editor.cameraPace }
+        .task(id: editor.crop) {
+            StageCompositor.crop = editor.crop
             // Coverage depends on the cropped aspect, so it moves with the crop or it lies.
-            StageCompositor.outputCoverage = outputCoverage
+            StageCompositor.outputCoverage = editor.outputCoverage
         }
-        .task(id: cameraStyle) {
+        .task(id: editor.cameraStyle) {
             guard StageCompositor.cameraTrackID != nil else { return }
-            StageCompositor.cameraStyle = cameraStyle
+            StageCompositor.cameraStyle = editor.cameraStyle
         }
         .inspector(isPresented: $isReviewShown) {
             // **A vertical rail, not a row of tabs across the top.** The reason shows as soon
@@ -626,7 +555,7 @@ struct StageWindow: View {
                     Button("Save As…") { saveProject(askingForDestination: true) }
                         .keyboardShortcut("s", modifiers: [.command, .shift])
                 } label: {
-                    savedPackage == nil ? Text("Save\u{2026}") : Text("Save")
+                    editor.savedPackage == nil ? Text("Save\u{2026}") : Text("Save")
                 } primaryAction: {
                     saveProject()
                 }
@@ -659,9 +588,9 @@ struct StageWindow: View {
                 } label: {
                     Label("Captions", systemImage: "captions.bubble")
                 }
-                .disabled(captions.track.isEmpty)
+                .disabled(editor.captions.track.isEmpty)
                 .keyboardShortcut("c", modifiers: [.command, .shift])
-                .help(captions.track.isEmpty
+                .help(editor.captions.track.isEmpty
                       ? Text("Make captions first \u{2014} the Captions section in the inspector")
                       : Text("Captions at full width, with the waveform"))
             }
@@ -695,11 +624,11 @@ struct StageWindow: View {
             }
         }
         .alert("Project", isPresented: Binding(
-            get: { projectStatus != nil }, set: { if !$0 { projectStatus = nil } })
+            get: { editor.projectStatus != nil }, set: { if !$0 { editor.projectStatus = nil } })
         ) {
-            Button("OK") { projectStatus = nil }
+            Button("OK") { editor.projectStatus = nil }
         } message: {
-            Text(verbatim: projectStatus ?? "")
+            Text(verbatim: editor.projectStatus ?? "")
         }
         .alert("Export", isPresented: Binding(
             get: { exportStatus != nil }, set: { if !$0 { exportStatus = nil } })
@@ -820,14 +749,14 @@ struct StageWindow: View {
                 List {
                     Section("Output") { outputControls }
                     Section("Look") {
-                        StageStylePicker(model: stageStyle, onChange: { reviewRevision += 1 },
+                        StageStylePicker(model: editor.stageStyle, onChange: { reviewRevision += 1 },
                                          packageURL: ProjectStore.packageURL(forMediaAt: mediaURL))
                     }
                     if cameraURL != nil {
                         Section("Camera") { cameraControls }
                     }
                     Section("Cursor") {
-                        StageStylePicker(model: stageStyle,
+                        StageStylePicker(model: editor.stageStyle,
                                          onChange: { reviewRevision += 1 }).cursorControls
                     }
                     Section("Audio") { audioControls }
@@ -837,14 +766,14 @@ struct StageWindow: View {
             case .selection:
                 List {
                     Section("Zoom amount") { zoomIntensityControl }
-                    AtPlayhead(model: timeline) { playhead in
-                        FramingReviewSections(model: review, onChange: { reviewRevision += 1 },
+                    AtPlayhead(model: editor.timeline) { playhead in
+                        FramingReviewSections(model: editor.review, onChange: { reviewRevision += 1 },
                                               playhead: playhead)
                     }
                 }
                 .listStyle(.sidebar)
             case .captions:
-                let size = Self.size(for: variant, resolution: resolution,
+                let size = Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes
                 // when the highlighted cue changes rather than ten times a second.
@@ -853,37 +782,37 @@ struct StageWindow: View {
                 // half of it. Above the panel it sat over both halves, and it is the full-width
                 // version of one of them — a button for captions floating over the transcript
                 // is a control whose subject you have to work out.
-                CaptionsPanel(model: captions, mediaURL: mediaURL, edit: timeline.edit,
+                CaptionsPanel(model: editor.captions, mediaURL: mediaURL, edit: editor.timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 },
-                              playheadNow: { timeline.playhead },
-                              onSeek: { timeline.movePlayhead(to: $0) },
-                              pauses: timeline.silences,
-                              transcript: captions.transcript,
+                              playheadNow: { editor.timeline.playhead },
+                              onSeek: { editor.timeline.movePlayhead(to: $0) },
+                              pauses: editor.timeline.silences,
+                              transcript: editor.captions.transcript,
                               onDeleteRange: { range, name in
-                                  timeline.removeSourceRange(range, named: name)
+                                  editor.timeline.removeSourceRange(range, named: name)
                               },
                               onOpenEditor: { isCaptionEditorShown = true })
             case .chapters:
-                AtPlayhead(model: timeline) { playhead in
-                    ChaptersPanel(model: chapters, edit: timeline.edit,
-                                  transcript: captions.transcript, playhead: playhead,
-                                  onSeek: { timeline.movePlayhead(to: $0) },
+                AtPlayhead(model: editor.timeline) { playhead in
+                    ChaptersPanel(model: editor.chapters, edit: editor.timeline.edit,
+                                  transcript: editor.captions.transcript, playhead: playhead,
+                                  onSeek: { editor.timeline.movePlayhead(to: $0) },
                                   onChange: { editRevision += 1 })
                 }
             case .text:
-                AtPlayhead(model: timeline) { playhead in
-                    TextPanel(model: texts, playhead: playhead,
+                AtPlayhead(model: editor.timeline) { playhead in
+                    TextPanel(model: editor.texts, playhead: playhead,
                               onChange: { reviewRevision += 1 })
                 }
             case .hide:
-                AtPlayhead(model: timeline) { playhead in
-                    RedactionPanel(model: redactions, playhead: playhead,
+                AtPlayhead(model: editor.timeline) { playhead in
+                    RedactionPanel(model: editor.redactions, playhead: playhead,
                                    onChange: { reviewRevision += 1 })
                 }
             case .mark:
-                AtPlayhead(model: timeline) { playhead in
-                    AnnotationPanel(model: annotations, playhead: playhead,
+                AtPlayhead(model: editor.timeline) { playhead in
+                    AnnotationPanel(model: editor.annotations, playhead: playhead,
                                     packageURL: ProjectStore.packageURL(forMediaAt: mediaURL),
                                     onChange: { reviewRevision += 1 })
                 }
@@ -902,8 +831,8 @@ struct StageWindow: View {
     /// the chrome. Two controls for one decision is one more than the decision has.
     @ViewBuilder private var cameraControls: some View {
         Toggle("Show camera", isOn: Binding(
-            get: { !cameraStyle.isHidden },
-            set: { cameraStyle = cameraStyle.changing(isHidden: !$0); reviewRevision += 1 }))
+            get: { !editor.cameraStyle.isHidden },
+            set: { editor.cameraStyle = editor.cameraStyle.changing(isHidden: !$0); reviewRevision += 1 }))
         // **The room behind the person, cut away or kept** — see `PersonMask`.
         //
         // Turning it on warms Vision's models on a detached task. The first segmentation of each
@@ -912,8 +841,8 @@ struct StageWindow: View {
         // paid on a frame somebody is waiting for. Detached because it is not the picker's job
         // to wait for it, and nothing about the answer is needed to draw the next frame.
         Picker("Background", selection: Binding(
-            get: { cameraStyle.background },
-            set: { cameraStyle = cameraStyle.changing(background: $0)
+            get: { editor.cameraStyle.background },
+            set: { editor.cameraStyle = editor.cameraStyle.changing(background: $0)
                    if $0 == .removed { Task.detached(priority: .utility) { PersonMask.warmUp() } }
                    reviewRevision += 1 })) {
             ForEach(CameraOverlayStyle.Background.allCases, id: \.self) {
@@ -924,7 +853,7 @@ struct StageWindow: View {
         // mode runs inside the camera pipeline for free; a hand-written blur would be slower and
         // worse. Said in the interface because somebody looking for "blur my background" will
         // look here first, and sending them two clicks away beats offering them a worse copy.
-        if cameraStyle.background == .keep {
+        if editor.cameraStyle.background == .keep {
             Text("To blur the background instead, turn on Portrait in the camera effects.")
                 .font(Type.detail).foregroundStyle(.secondary)
         } else {
@@ -939,10 +868,10 @@ struct StageWindow: View {
         // the background is gone. They keep their values — switching back restores the card
         // exactly — they simply do nothing, and a control that does nothing is one people
         // conclude is broken. The same argument the corner slider already makes for a circle.
-        if cameraStyle.background == .keep {
+        if editor.cameraStyle.background == .keep {
             Picker("Shape", selection: Binding(
-                get: { cameraStyle.shape },
-                set: { cameraStyle = cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
+                get: { editor.cameraStyle.shape },
+                set: { editor.cameraStyle = editor.cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
                 ForEach(CameraOverlayStyle.Shape.allCases, id: \.self) {
                     Text(LocalizedStringKey($0.displayName)).tag($0)
                 }
@@ -950,58 +879,58 @@ struct StageWindow: View {
         }
         // **Only for the shape that has corners.** A slider that does nothing on a circle and
         // nothing on a square is a slider people conclude is broken.
-        if cameraStyle.shape == .rounded, cameraStyle.background == .keep {
+        if editor.cameraStyle.shape == .rounded, editor.cameraStyle.background == .keep {
             Slider(value: Binding(
-                get: { cameraStyle.cornerFraction },
-                set: { cameraStyle = cameraStyle.changing(cornerFraction: $0)
+                get: { editor.cameraStyle.cornerFraction },
+                set: { editor.cameraStyle = editor.cameraStyle.changing(cornerFraction: $0)
                        reviewRevision += 1 }),
                    in: 0...0.5) { Text("Corner") }
         }
-        Slider(value: Binding(get: { cameraStyle.widthFraction },
-                              set: { cameraStyle = cameraStyle.changing(widthFraction: $0)
+        Slider(value: Binding(get: { editor.cameraStyle.widthFraction },
+                              set: { editor.cameraStyle = editor.cameraStyle.changing(widthFraction: $0)
                                      reviewRevision += 1 }),
                in: 0.05...0.5) { Text("Size") }
         // **How much the camera shrinks while the stage is zoomed in.** A zoom makes the picture
         // bigger, and a camera that holds its width is covering a larger share of a smaller area
         // — which is exactly when it is most in the way. 1 holds the size, which is what this
         // did before the control existed.
-        Slider(value: Binding(get: { cameraStyle.scaleDuringZoom },
-                              set: { cameraStyle = cameraStyle.changing(scaleDuringZoom: $0)
+        Slider(value: Binding(get: { editor.cameraStyle.scaleDuringZoom },
+                              set: { editor.cameraStyle = editor.cameraStyle.changing(scaleDuringZoom: $0)
                                      reviewRevision += 1 }),
                in: 0.3...1) { Text("Shrink on zoom") }
-        Slider(value: Binding(get: { cameraStyle.x },
-                              set: { cameraStyle = cameraStyle.changing(x: $0)
+        Slider(value: Binding(get: { editor.cameraStyle.x },
+                              set: { editor.cameraStyle = editor.cameraStyle.changing(x: $0)
                                      reviewRevision += 1 }),
                in: 0...1) { Text("Across") }
-        Slider(value: Binding(get: { cameraStyle.y },
-                              set: { cameraStyle = cameraStyle.changing(y: $0)
+        Slider(value: Binding(get: { editor.cameraStyle.y },
+                              set: { editor.cameraStyle = editor.cameraStyle.changing(y: $0)
                                      reviewRevision += 1 }),
                in: 0...1) { Text("Up from the bottom") }
         // **Out of the cursor's way.** The classic flaw is a face over the thing being shown.
         // The camera goes to a corner while the cursor is on it and comes back once the cursor
         // has been clear for a while; see `CameraDodge`.
         Toggle("Move out of the cursor's way", isOn: Binding(
-            get: { cameraStyle.avoidsCursor },
-            set: { cameraStyle = cameraStyle.changing(avoidsCursor: $0); reviewRevision += 1 }))
+            get: { editor.cameraStyle.avoidsCursor },
+            set: { editor.cameraStyle = editor.cameraStyle.changing(avoidsCursor: $0); reviewRevision += 1 }))
             .font(Type.detail)
         Toggle("Mirror", isOn: Binding(
-            get: { cameraStyle.isMirrored },
-            set: { cameraStyle = cameraStyle.changing(isMirrored: $0); reviewRevision += 1 }))
+            get: { editor.cameraStyle.isMirrored },
+            set: { editor.cameraStyle = editor.cameraStyle.changing(isMirrored: $0); reviewRevision += 1 }))
     }
 
     @ViewBuilder private var outputControls: some View {
         // The recording's own shape first when it is not already one of the three — see
         // `AspectVariant.available(recordingWidth:recordingHeight:)`.
         Picker("Shape", selection: Binding(
-            get: { variant },
-            set: { variant = $0; chosenShapeDeliberately = true })) {
-            ForEach(AspectVariant.available(recordingWidth: recordingSize.width,
-                                            recordingHeight: recordingSize.height),
+            get: { editor.variant },
+            set: { editor.variant = $0; editor.chosenShapeDeliberately = true })) {
+            ForEach(AspectVariant.available(recordingWidth: editor.recordingSize.width,
+                                            recordingHeight: editor.recordingSize.height),
                     id: \.self) { shape in
                 Text(LocalizedStringKey(shape.name)).tag(shape)
             }
         }
-        let size = Self.size(for: variant, resolution: resolution,
+        let size = Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
         LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
             .font(Type.detail).foregroundStyle(.secondary)
@@ -1061,7 +990,7 @@ struct StageWindow: View {
         // by name, but a list somebody cannot choose wrongly from is better than a refusal they
         // have to read. See `TransparentExport`.
         Picker("Format", selection: Binding(get: { codec }, set: { codec = $0 })) {
-            ForEach(stageStyle.isTransparent
+            ForEach(editor.stageStyle.isTransparent
                     ? TransparentExport.codecsThatCarryIt
                     : ExportCodec.allCases, id: \.self) { choice in
                 Text(LocalizedStringKey(choice.displayName)).tag(choice)
@@ -1072,12 +1001,12 @@ struct StageWindow: View {
         // show an empty picker and the export would refuse. Moving it to the smallest format that
         // works is visible — the picker changes in front of them — which is the difference
         // between this and a silent correction at export time.
-        .task(id: stageStyle.isTransparent) {
-            if stageStyle.isTransparent, !codec.carriesTransparency {
+        .task(id: editor.stageStyle.isTransparent) {
+            if editor.stageStyle.isTransparent, !codec.carriesTransparency {
                 codec = TransparentExport.codecsThatCarryIt[0]
             }
         }
-        if stageStyle.isTransparent {
+        if editor.stageStyle.isTransparent {
             Text("The background is transparent, so only formats that keep an alpha channel are offered. HEVC with Alpha is around a hundred times smaller than ProRes 4444 for the same picture.")
                 .font(Type.detail).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1102,19 +1031,19 @@ struct StageWindow: View {
         }
         // **The estimate is why the picker is usable.** A quality control with no consequence
         // attached is three words to guess between.
-        if let range = timeline.exportRange {
+        if let range = editor.timeline.exportRange {
             // **Named in the sheet, because the button says "Export" either way.** Somebody who
             // marked a section an hour ago and came back to export has no other way to find out
             // that the file will be ten seconds long.
             let seconds = Double(range.upperBound - range.lowerBound) / 1_000_000_000
-            let whole = TransportBar.timecode(Double(timeline.edit.outputDuration.rawValue) / 1e9)
+            let whole = TransportBar.timecode(Double(editor.timeline.edit.outputDuration.rawValue) / 1e9)
             LabeledContent("Range") { Text("\(TransportBar.timecode(seconds)) of \(whole)") }
                 .font(Type.detail).foregroundStyle(Theme.accent)
         }
         LabeledContent("About", value: Self.fileSize(quality.estimatedBytes(
             outputWidth: size.width, outputHeight: size.height,
             frameRate: frameRate.frames(recording: recordingFrameRate),
-            seconds: Double(timeline.editForExport.outputDuration.rawValue) / 1_000_000_000,
+            seconds: Double(editor.timeline.editForExport.outputDuration.rawValue) / 1_000_000_000,
             codec: codec)))
             .font(Type.detail).foregroundStyle(.secondary)
 
@@ -1127,7 +1056,7 @@ struct StageWindow: View {
         //
         // It also runs instantly rather than through `ExportQueue`: there is nothing to render.
         Button("Export Final Cut XML\u{2026}") { exportFinalCutXML() }
-            .disabled(timeline.editForExport.isEmpty)
+            .disabled(editor.timeline.editForExport.isEmpty)
         // **What it carries and what it does not, before the click rather than after it.**
         // "Export to Final Cut" reads like a promise to carry everything, and the honest answer
         // is that it carries the cut and none of the look — which is exactly what somebody
@@ -1152,7 +1081,7 @@ struct StageWindow: View {
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
         let name = mediaURL.deletingPathExtension().lastPathComponent
-        let edit = timeline.editForExport
+        let edit = editor.timeline.editForExport
         let rate = recordingFrameRate
         let media = mediaURL
         // **The camera and its offset, captured with the rest of the job.** The offset is
@@ -1254,7 +1183,7 @@ struct StageWindow: View {
         }
         Toggle("Loop forever", isOn: $gifSettings.loops)
 
-        let size = Self.size(for: variant, resolution: resolution,
+        let size = Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
         let gif = gifSettings.size(fitting: size.width, height: size.height)
         // The size is worth stating because it is not the export size beside it, and the
@@ -1269,7 +1198,7 @@ struct StageWindow: View {
         // `editForExport`, not `edit`: with a section marked, the file being estimated is
         // the section. A figure for the whole video beside a button that writes ten seconds of
         // it is worse than no figure.
-        let seconds = Double(timeline.editForExport.outputDuration.rawValue) / 1_000_000_000
+        let seconds = Double(editor.timeline.editForExport.outputDuration.rawValue) / 1_000_000_000
         let gifBytes = Int(Double(gif.width * gif.height) * 0.5 * 0.07
                            * Double(gifSettings.frameRate) * seconds)
         if gifBytes > 20_000_000 {
@@ -1292,28 +1221,28 @@ struct StageWindow: View {
     @ViewBuilder private var audioControls: some View {
         VStack(alignment: .leading, spacing: 2) {
             Toggle(isOn: Binding(
-                get: { noiseReduction != nil },
-                set: { noiseReduction = $0 ? .default : nil })
+                get: { editor.noiseReduction != nil },
+                set: { editor.noiseReduction = $0 ? .default : nil })
             ) {
                 Text("Remove background noise")
             }
             .toggleStyle(.checkbox)
             .font(.caption)
 
-            if noiseReduction != nil {
+            if editor.noiseReduction != nil {
                 HStack {
                     Text("Strength").font(.caption).foregroundStyle(.secondary)
                     LiveSlider(
-                        value: noiseReduction?.strength
+                        value: editor.noiseReduction?.strength
                             ?? NoiseReduction.Settings.default.strength,
                         // **Not the type's full 0…4 range.** Zero removes nothing, and above
                         // three the voice starts going with the room — a range whose ends are
                         // both useless is a slider that spends most of its travel doing harm.
                         range: 0.5...3.0,
                         commit: { strength in
-                            noiseReduction = .init(
+                            editor.noiseReduction = .init(
                                 strength: strength,
-                                floor: noiseReduction?.floor
+                                floor: editor.noiseReduction?.floor
                                     ?? NoiseReduction.Settings.default.floor)
                         })
                 }
@@ -1332,25 +1261,25 @@ struct StageWindow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Toggle(isOn: Binding(
-                        get: { !audioMix.isMuted(source) },
-                        set: { audioMix = audioMix.setting(source, muted: !$0) })
+                        get: { !editor.audioMix.isMuted(source) },
+                        set: { editor.audioMix = editor.audioMix.setting(source, muted: !$0) })
                     ) {
                         Text(LocalizedStringKey(source.displayName))
                     }
                     .toggleStyle(.checkbox)
                     Spacer()
-                    Text(verbatim: "\(Int((audioMix.gain(for: source) * 100).rounded()))%")
+                    Text(verbatim: "\(Int((editor.audioMix.gain(for: source) * 100).rounded()))%")
                         .monospacedDigit()
-                        .foregroundStyle(audioMix.isMuted(source) ? .tertiary : .secondary)
+                        .foregroundStyle(editor.audioMix.isMuted(source) ? .tertiary : .secondary)
                 }
                 .font(.caption)
                 Slider(value: Binding(
-                    get: { audioMix.gain(for: source) },
-                    set: { audioMix = audioMix.setting(source, gain: $0) }),
+                    get: { editor.audioMix.gain(for: source) },
+                    set: { editor.audioMix = editor.audioMix.setting(source, gain: $0) }),
                        in: 0...AudioMix.maximumGain)
                     // A muted source's slider is disabled rather than hidden: the level is
                     // still there, and hiding it would suggest it had been lost.
-                    .disabled(audioMix.isMuted(source))
+                    .disabled(editor.audioMix.isMuted(source))
             }
         }
         // **Levelling, which every comparable recorder ships and this had none of.** A demo's
@@ -1361,15 +1290,15 @@ struct StageWindow: View {
         // the gain that follows are `Loudness`'s.
         Divider()
         Toggle(isOn: Binding(
-            get: { audioMix.targetLoudness != nil },
-            set: { audioMix = audioMix.settingTargetLoudness(
+            get: { editor.audioMix.targetLoudness != nil },
+            set: { editor.audioMix = editor.audioMix.settingTargetLoudness(
                 $0 ? Loudness.defaultTargetLUFS : nil) })
         ) {
             Text("Match a loudness target")
         }
         .toggleStyle(.checkbox)
         .font(.caption)
-        if let target = audioMix.targetLoudness {
+        if let target = editor.audioMix.targetLoudness {
             HStack {
                 Text("Target").font(.caption)
                 Spacer()
@@ -1377,14 +1306,14 @@ struct StageWindow: View {
                     .monospacedDigit().foregroundStyle(.secondary).font(.caption)
             }
             Slider(value: Binding(get: { target },
-                                  set: { audioMix = audioMix.settingTargetLoudness($0.rounded()) }),
+                                  set: { editor.audioMix = editor.audioMix.settingTargetLoudness($0.rounded()) }),
                    in: AudioMix.quietestTarget...AudioMix.loudestTarget)
             Text("YouTube and Spotify normalise to \u{2212}14; \u{2212}16 leaves a little headroom under it.")
                 .font(Type.detail).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        if audioMix.changesAnything {
-            Button("Reset audio") { audioMix = .unchanged; measuredLoudness = [:] }
+        if editor.audioMix.changesAnything {
+            Button("Reset audio") { editor.audioMix = .unchanged; measuredLoudness = [:] }
                 .buttonStyle(.link).font(.caption)
         }
         Divider()
@@ -1400,14 +1329,14 @@ struct StageWindow: View {
         HStack {
             Text("Music").font(.caption)
             Spacer()
-            if let name = music.filename {
+            if let name = editor.music.filename {
                 Text(verbatim: name).font(Type.detail).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
             Button {
                 if let source = Self.chooseAudio() { adoptMusic(source) }
             } label: {
-                music.filename == nil ? Text("Choose\u{2026}") : Text("Replace\u{2026}")
+                editor.music.filename == nil ? Text("Choose\u{2026}") : Text("Replace\u{2026}")
             }
             .buttonStyle(.link).font(.caption)
         }
@@ -1415,37 +1344,37 @@ struct StageWindow: View {
             Text(verbatim: failure).font(Type.detail).foregroundStyle(Signal.paused)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        if music.filename != nil {
+        if editor.music.filename != nil {
             Toggle("Play the music", isOn: Binding(
-                get: { music.isEnabled },
-                set: { music = music.changing(isEnabled: $0) }))
+                get: { editor.music.isEnabled },
+                set: { editor.music = editor.music.changing(isEnabled: $0) }))
                 .toggleStyle(.checkbox).font(.caption)
-            musicSlider("Music level", value: music.ducking.bedGain, upTo: 1) { value in
-                let settings = music.ducking
-                music = music.changing(ducking: MusicDucking.Settings(
+            musicSlider("Music level", value: editor.music.ducking.bedGain, upTo: 1) { value in
+                let settings = editor.music.ducking
+                editor.music = editor.music.changing(ducking: MusicDucking.Settings(
                     bedGain: value, duckedGain: min(settings.duckedGain, value),
                     attack: settings.attack, release: settings.release, hold: settings.hold))
             }
             Toggle("Lower it while I speak", isOn: Binding(
-                get: { music.ducks },
-                set: { music = music.changing(ducks: $0) }))
+                get: { editor.music.ducks },
+                set: { editor.music = editor.music.changing(ducks: $0) }))
                 .toggleStyle(.checkbox).font(.caption)
-            if music.ducks {
-                musicSlider("Level while speaking", value: music.ducking.duckedGain,
-                            upTo: music.ducking.bedGain) { value in
-                    let settings = music.ducking
-                    music = music.changing(ducking: MusicDucking.Settings(
+            if editor.music.ducks {
+                musicSlider("Level while speaking", value: editor.music.ducking.duckedGain,
+                            upTo: editor.music.ducking.bedGain) { value in
+                    let settings = editor.music.ducking
+                    editor.music = editor.music.changing(ducking: MusicDucking.Settings(
                         bedGain: settings.bedGain, duckedGain: value,
                         attack: settings.attack, release: settings.release, hold: settings.hold))
                 }
-                if timeline.silences.isEmpty {
+                if editor.timeline.silences.isEmpty {
                     Text("Nothing on the microphone track reads as speech yet, so the bed stays at its own level.")
                         .font(Type.detail).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Button("Remove the music") {
-                music = MusicBed.none
+                editor.music = MusicBed.none
                 musicFailure = nil
             }
             .buttonStyle(.link).font(.caption)
@@ -1493,7 +1422,7 @@ struct StageWindow: View {
             return
         }
         musicFailure = nil
-        music = music.changing(filename: .some(name), isEnabled: true)
+        editor.music = editor.music.changing(filename: .some(name), isEnabled: true)
     }
 
     /// The open panel, audio only.
@@ -1508,48 +1437,6 @@ struct StageWindow: View {
 
     // MARK: - saving and opening
 
-    /// Everything a person decided, gathered from the models that hold it.
-    ///
-    /// **Assembled here rather than held here**, because each model owns its own part and a
-    /// second copy would be a second answer. This is the one place that knows the whole shape,
-    /// which is what a file format needs and what nothing else does.
-    private func currentEditState() -> EditState {
-        EditState(
-            timeline: timeline.hasEdits ? timeline.edit : nil,
-            audioMix: audioMix,
-            zoomAdjustmentData: timeline.zoomAdjustments.isEmpty
-                ? nil : try? EditState.encoding(timeline.zoomAdjustments),
-            framingOverrideData: review.overrides.isEmpty
-                ? nil : try? EditState.encoding(review.overrides),
-            styleData: try? EditState.encoding(stageStyle.style),
-            outputShapeName: variant.name,
-            captionTrackData: captions.track.isEmpty
-                ? nil : try? EditState.encoding(captions.track),
-            captionStyleData: captions.track.isEmpty
-                ? nil : try? EditState.encoding(captions.style),
-            burnsInCaptions: captions.burnsIn ? true : nil,
-            textTrackData: texts.track.isEmpty ? nil : try? EditState.encoding(texts.track),
-            redactionTrackData: redactions.track.isEmpty
-                ? nil : try? EditState.encoding(redactions.track),
-            annotationTrackData: annotations.track.isEmpty
-                ? nil : try? EditState.encoding(annotations.track),
-            cursorStyleData: try? EditState.encoding(stageStyle.cursor),
-            cameraStyleData: cameraURL == nil
-                ? nil : try? EditState.encoding(cameraStyle),
-            cropData: crop.isWhole ? nil : try? EditState.encoding(crop),
-            hidesKeystrokes: stageStyle.showsKeystrokes ? nil : true,
-            musicData: music == .none ? nil : try? EditState.encoding(music),
-            // Neutral is not a decision, so an untouched project stays untouched on disk.
-            zoomIntensity: zoomIntensity == FramingDepth.neutralIntensity ? nil : zoomIntensity,
-            // Standard is not a decision either.
-            cameraPace: cameraPace == .standard ? nil : cameraPace.rawValue,
-            // Absent means off, so a project nobody asked has nothing to say about it.
-            noiseReductionData: noiseReduction.flatMap { try? EditState.encoding($0) },
-            // An empty list is nothing to say either, and writing `[]` would make every project
-            // that never had a name in it claim a decision.
-            spokenTerms: captions.spokenTerms.isEmpty ? nil : captions.spokenTerms,
-            chapterTrackData: chapters.track.isEmpty ? nil : try? EditState.encoding(chapters.track))
-    }
 
     /// The cleaned microphone track, made if it is asked for and does not exist yet.
     ///
@@ -1567,7 +1454,7 @@ struct StageWindow: View {
     /// turned this on and heard no difference is owed the reason, and "there is no measurable
     /// silence in this recording" is a thing they can act on.
     private func microphoneSubstitution(for recording: AVAsset) async -> [Int: AVAsset] {
-        guard let settings = noiseReduction,
+        guard let settings = editor.noiseReduction,
               let index = NoiseReducedAudio.microphoneTrackIndex
         else { return [:] }
 
@@ -1606,7 +1493,7 @@ struct StageWindow: View {
 
     /// The bed's file inside the project package, or `nil` when there is none to play.
     private var musicFileURL: URL? {
-        guard music.isAudible, let filename = music.filename else { return nil }
+        guard editor.music.isAudible, let filename = editor.music.filename else { return nil }
         return ProjectStore.packageURL(forMediaAt: mediaURL)
             .appending(path: MusicBed.directory, directoryHint: .isDirectory)
             .appending(path: filename)
@@ -1622,159 +1509,40 @@ struct StageWindow: View {
     /// under a demo with no narration wants; no file leaves it empty, and `AudioMixBuilder`
     /// reads an empty envelope as silence rather than as unity.
     private var musicRamps: [MusicDucking.Ramp] {
-        guard music.isAudible, let duration = timeline.duration else { return [] }
-        guard music.ducks else {
-            return MusicDucking.ramps(speech: [], over: duration, settings: music.ducking)
+        guard editor.music.isAudible, let duration = editor.timeline.duration else { return [] }
+        guard editor.music.ducks else {
+            return MusicDucking.ramps(speech: [], over: duration, settings: editor.music.ducking)
         }
         return MusicDucking.ramps(
-            speech: MusicDucking.speech(betweenSilences: timeline.silences, over: duration),
-            over: duration, settings: music.ducking)
+            speech: MusicDucking.speech(betweenSilences: editor.timeline.silences, over: duration),
+            over: duration, settings: editor.music.ducking)
     }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
     /// unsaved, because nothing has been written yet — not because it has been edited.
     private var hasUnsavedChanges: Bool {
-        savedPackage == nil || currentEditState() != savedEdit
+        editor.savedPackage == nil || editor.currentEditState(hasCamera: cameraURL != nil) != editor.savedEdit
     }
 
     /// `askingForDestination` is Save As: it asks even when this project already has a home,
     /// and moves the project to the new one — which is what "save as" means everywhere else.
     private func saveProject(askingForDestination: Bool = false) {
-        let edit = currentEditState()
-        let existing = askingForDestination ? nil : savedPackage
+        let edit = editor.currentEditState(hasCamera: cameraURL != nil)
+        let existing = askingForDestination ? nil : editor.savedPackage
         let destination = existing ?? ProjectStore.chooseSaveDestination(
-            defaultName: savedPackage?.deletingPathExtension().lastPathComponent
+            defaultName: editor.savedPackage?.deletingPathExtension().lastPathComponent
                 ?? mediaURL.deletingPathExtension().lastPathComponent)
         guard let destination else { return }
         do {
             try ProjectStore.save(recordingAt: mediaURL, edit: edit, to: destination)
-            savedPackage = destination
-            savedEdit = edit
-            projectStatus = String(localized: "Saved to \(destination.lastPathComponent).")
+            editor.savedPackage = destination
+            editor.savedEdit = edit
+            editor.projectStatus = String(localized: "Saved to \(destination.lastPathComponent).")
         } catch {
-            projectStatus = String(localized: "Could not save: \(String(describing: error))")
+            editor.projectStatus = String(localized: "Could not save: \(String(describing: error))")
         }
     }
 
-    /// Applies a saved edit to the models.
-    ///
-    /// **Every part is optional and an absent one is left alone**, so a project written before
-    /// a field existed opens with that part at its default rather than cleared. A decode that
-    /// FAILS is reported: a person whose zoom corrections were silently dropped would redo them
-    /// and save over the file that still had them.
-    private func restore(_ edit: EditState) {
-        var failures: [String] = []
-        if let saved = edit.timeline { timeline.restoreSavedEdit(saved) }
-        audioMix = edit.audioMix
-        do {
-            noiseReduction = try EditState.decoding(edit.noiseReductionData,
-                                                    as: NoiseReduction.Settings.self)
-        } catch { failures.append("noise removal") }
-        do {
-            if let adjustments = try EditState.decoding(edit.zoomAdjustmentData,
-                                                        as: [ZoomAdjustment].self) {
-                timeline.restoreZoomAdjustments(adjustments)
-            }
-        } catch { failures.append("zoom adjustments") }
-        do {
-            if let overrides = try EditState.decoding(edit.framingOverrideData,
-                                                      as: [FramingOverride].self) {
-                review.restoreOverrides(overrides)
-            }
-        } catch { failures.append("framing decisions") }
-        do {
-            if let style = try EditState.decoding(edit.styleData, as: StageStyle.self) {
-                stageStyle.restore(style)
-            }
-        } catch { failures.append("the look") }
-        do {
-            if let cursor = try EditState.decoding(edit.cursorStyleData, as: CursorStyle.self) {
-                stageStyle.restoreCursor(cursor)
-            }
-        } catch { failures.append("the cursor") }
-        stageStyle.setShowsKeystrokes(edit.hidesKeystrokes != true)
-        // Clamped on the way in: it arrives from a file, which is rule 8's case, and a saved
-        // negative would make every depth the ceiling rather than failing visibly.
-        zoomIntensity = min(max(edit.zoomIntensity ?? FramingDepth.neutralIntensity, 0),
-                            FramingDepth.maximumIntensity)
-        // An unknown name is the pace this build knows best, not a refusal to open.
-        cameraPace = edit.cameraPace.flatMap(CameraPace.init(rawValue:)) ?? .standard
-        do {
-            if let saved = try EditState.decoding(edit.musicData, as: MusicBed.self) {
-                music = saved
-            }
-        } catch { failures.append("the music") }
-        do {
-            if let camera = try EditState.decoding(edit.cameraStyleData,
-                                                   as: CameraOverlayStyle.self) {
-                cameraStyle = camera
-            }
-        } catch { failures.append("the camera") }
-        do {
-            if let saved = try EditState.decoding(edit.cropData, as: CropRect.self) {
-                crop = saved
-            }
-        } catch { failures.append("the crop") }
-        if let name = edit.outputShapeName {
-            // **The matching shape is rebuilt rather than looked up.** It is deliberately not
-            // in `all` — being in a list is exactly what would stop it depending on the
-            // recording's size, which is the thing that makes it match.
-            if name == AspectVariant.matchRecordingName,
-               let own = AspectVariant.matching(width: recordingSize.width,
-                                                height: recordingSize.height) {
-                variant = own
-                chosenShapeDeliberately = true
-            } else if let shape = AspectVariant.all.first(where: { $0.name == name }) {
-                variant = shape
-                chosenShapeDeliberately = true
-            }
-        }
-        do {
-            // The style is restored even when the track failed to decode, so a person who
-            // transcribes again does not also have to redo how it looks.
-            let style = try EditState.decoding(edit.captionStyleData, as: CaptionStyle.self)
-            if let track = try EditState.decoding(edit.captionTrackData, as: CaptionTrack.self) {
-                captions.restore(track: track, style: style ?? captions.style,
-                                 burnsIn: edit.burnsInCaptions ?? false)
-            } else if let style {
-                captions.setStyle(style)
-            }
-            // Restored whether or not a track came back: the names are a person's own list and
-            // outlive the transcript that prompted them — transcribing again should not also
-            // mean typing them again.
-            captions.restoreTerms(edit.spokenTerms ?? [])
-        } catch { failures.append("the captions") }
-        do {
-            if let track = try EditState.decoding(edit.textTrackData, as: TextTrack.self) {
-                texts.restore(track)
-            }
-        } catch { failures.append("the text") }
-        do {
-            if let track = try EditState.decoding(edit.redactionTrackData,
-                                                  as: RedactionTrack.self) {
-                redactions.restore(track)
-            }
-            // **A redaction that failed to decode is reported louder than the rest**, because
-            // opening a project and not being told the covers are gone is how a key gets
-            // published. The shared failure list is the mechanism; this is the case it was
-            // most worth having.
-        } catch { failures.append("the hidden regions") }
-        do {
-            if let track = try EditState.decoding(edit.annotationTrackData,
-                                                  as: AnnotationTrack.self) {
-                annotations.restore(track)
-            }
-        } catch { failures.append("the marks") }
-        do {
-            if let track = try EditState.decoding(edit.chapterTrackData, as: ChapterTrack.self) {
-                chapters.restore(track)
-            }
-        } catch { failures.append("the chapters") }
-        savedEdit = edit
-        if !failures.isEmpty {
-            projectStatus = String(localized: "Opened, but could not read \(failures.joined(separator: ", ")).")
-        }
-    }
 
     /// **The lane's blocks, from the same call the camera makes.** Extracted the moment there
     /// were two callers: `load()` and the intensity dial. A second derivation with its own
@@ -1790,24 +1558,24 @@ struct StageWindow: View {
         //
         // The comment here used to say "the same rule the camera sliders already use". That
         // stopped being true on 2026-08-26, when they stopped using it.
-        Slider(value: $zoomIntensity, in: 0...FramingDepth.maximumIntensity, step: 0.1,
+        Slider(value: $editor.zoomIntensity, in: 0...FramingDepth.maximumIntensity, step: 0.1,
                onEditingChanged: { if !$0 { reviewRevision += 1 } }) {
             Text("Amount")
         }
         Text(verbatim: zoomIntensityLabel)
             .font(Type.detail).foregroundStyle(.secondary)
         // The spring's damping stays at 1 whatever this says, so no pace overshoots.
-        Picker("Speed", selection: $cameraPace) {
+        Picker("Speed", selection: $editor.cameraPace) {
             ForEach(CameraPace.allCases, id: \.self) { pace in
                 Text(LocalizedStringKey(pace.displayName)).tag(pace)
             }
         }
-        .onChange(of: cameraPace) { reviewRevision += 1 }
+        .onChange(of: editor.cameraPace) { reviewRevision += 1 }
     }
 
     /// Says what the dial does at the ends, because "0.0" and "2.0" do not.
     private var zoomIntensityLabel: String {
-        let percent = Int((zoomIntensity * 100).rounded())
+        let percent = Int((editor.zoomIntensity * 100).rounded())
         if percent == 0 { return String(localized: "No zoom anywhere. Every click is framed, none is magnified.") }
         if percent == 100 {
             return String(localized: "As derived. Adjustments you have made to single zooms still apply on top.")
@@ -1816,10 +1584,10 @@ struct StageWindow: View {
     }
 
     private func refreshDerivedZooms() {
-        timeline.setDerivedZooms(ZoomBlock.blocks(
-            for: review.plan.framedClicks(with: review.overrides,
-                                          pointerFallbackRevision: review.fallbackRevision),
-            coverage: outputCoverage, intensity: zoomIntensity))
+        editor.timeline.setDerivedZooms(ZoomBlock.blocks(
+            for: editor.review.plan.framedClicks(with: editor.review.overrides,
+                                          pointerFallbackRevision: editor.review.fallbackRevision),
+            coverage: editor.outputCoverage, intensity: editor.zoomIntensity))
     }
 
 
@@ -1827,13 +1595,13 @@ struct StageWindow: View {
         do {
             // Before the composition: `configuredComposition` reads
             // `StageCompositor.framingOverrides`, which `FramingReviewModel.load` publishes.
-            review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
+            editor.review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
                 .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
             // The crop before the composition: `StagePlanner` fits the card to the CROPPED
             // aspect, so a composition built while the static still said "whole" would size the
             // card for a recording that is no longer what is being drawn. It is also what
             // `outputCoverage` below is computed from, which is the other reason it goes first.
-            StageCompositor.crop = crop
+            StageCompositor.crop = editor.crop
             let recording = AVURLAsset(url: mediaURL)
             // What `Match Recording` matches. Read once from the file, because it is a property
             // of the capture and no edit changes it.
@@ -1846,7 +1614,7 @@ struct StageWindow: View {
             if let track = try await recording.loadTracks(withMediaType: .video).first {
                 let natural = try await track.load(.naturalSize)
                 recordingShortSide = Int(min(natural.width, natural.height).rounded())
-                recordingSize = (width: Int(natural.width.rounded()),
+                editor.recordingSize = (width: Int(natural.width.rounded()),
                                  height: Int(natural.height.rounded()))
                 // **The shape is NOT set from here, and the reason is a hazard rather than a
                 // preference.** `.task(id: variant)` runs this function, so assigning `variant`
@@ -1865,23 +1633,23 @@ struct StageWindow: View {
             // plan and now at the same coverage — a second derivation would be a second
             // answer, and a second coverage would be a second answer that agreed in landscape
             // and diverged in portrait, which is worse.
-            StageCompositor.outputCoverage = outputCoverage
+            StageCompositor.outputCoverage = editor.outputCoverage
             // The anchor first: the lane converts every block's absolute instant through it,
             // and blocks set before it would be drawn off the edge for one frame.
-            timeline.setZoomAnchor(review.anchor)
+            editor.timeline.setZoomAnchor(editor.review.anchor)
             refreshDerivedZooms()
-            if timeline.duration == nil {
-                timeline.load(duration: try await recording.load(.duration).seconds)
+            if editor.timeline.duration == nil {
+                editor.timeline.load(duration: try await recording.load(.duration).seconds)
                 // **After `load`, which resets the models.** Restoring first would be wiped by
                 // the reset, silently, and a person would see their saved edit vanish on open.
                 if let pendingEdit {
-                    restore(pendingEdit)
-                    savedPackage = ProjectStore.packageURL(forMediaAt: mediaURL)
+                    editor.restore(pendingEdit)
+                    editor.savedPackage = ProjectStore.packageURL(forMediaAt: mediaURL)
                 }
                 // After `load`, which resets the model: reading the envelope is slow enough
                 // that a person sees the strip before it arrives, and it must not be wiped by
                 // the reset it raced.
-                await timeline.loadWaveform(from: recording)
+                await editor.timeline.loadWaveform(from: recording)
             }
             // **The preview plays the EDITED asset, not the recording with an end time set.**
             // `EditedAsset` is what the export cuts with too, so the two cannot show different
@@ -1891,7 +1659,7 @@ struct StageWindow: View {
             // `runExport`'s header — so wiring it here wires both, and there is no second place
             // for the two to drift apart.
             let cut = try await EditedAsset.make(
-                from: recording, by: timeline.edit,
+                from: recording, by: editor.timeline.edit,
                 substitutingAudio: await microphoneSubstitution(for: recording))
             // The camera laid alongside the cut recording, so one composition sees both. Returns
             // the cut asset untouched when there is no camera, so the common path costs nothing.
@@ -1901,16 +1669,16 @@ struct StageWindow: View {
                 musicURL: musicFileURL)
             StageCompositor.cameraTrackID = combined.cameraTrackID
             musicTrackID = combined.musicTrackID
-            StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : cameraStyle
+            StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : editor.cameraStyle
             let asset = combined.asset
             let composition = try await Self.configuredComposition(
                 for: asset, logForMediaURL: mediaURL, resolution: resolution,
-                recordingShortSide: recordingShortSide, variant: variant)
+                recordingShortSide: recordingShortSide, variant: editor.variant)
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
             // The mix is applied at load too, not only on change: reopening a saved project
             // with the microphone muted must sound muted before anyone touches a control.
-            await AudioMixBuilder.apply(audioMix, to: item, of: asset)
+            await AudioMixBuilder.apply(editor.audioMix, to: item, of: asset)
             playingAsset = asset
             // **The filmstrip reads the UNCUT recording**, not the edited composition: the strip
             // is laid out in source time, and a composition's own timeline has already had the
@@ -1919,8 +1687,8 @@ struct StageWindow: View {
             filmstrip.load(url: mediaURL)
             // Cheap: nothing is read until the first scrub, and a recording with no audio leaves
             // it silent rather than failing.
-            timeline.scrubAudio.isEnabled = scrubAudioIsOn
-            timeline.scrubAudio.open(mediaURL)
+            editor.timeline.scrubAudio.isEnabled = scrubAudioIsOn
+            editor.timeline.scrubAudio.open(mediaURL)
             player = AVPlayer(playerItem: item)
         } catch {
             failure = "\(error)"
@@ -1934,13 +1702,13 @@ struct StageWindow: View {
     /// composition. See `docs/design/2026-09-27-one-frame-as-a-picture.md`.
     private func exportFrame() {
         guard let asset = playingAsset,
-              let output = timeline.edit.outputTime(atSource: timeline.playhead) else { return }
+              let output = editor.timeline.edit.outputTime(atSource: editor.timeline.playhead) else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".png"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
-        let size = Self.size(for: variant, resolution: resolution,
+        let size = Self.size(for: editor.variant, resolution: resolution,
                              recordingShortSide: recordingShortSide)
         let time = CMTime(value: output.rawValue, timescale: 1_000_000_000)
         Task {
@@ -1981,8 +1749,8 @@ struct StageWindow: View {
         // still what the preview plays: a marked section is a choice about one export, not an
         // edit to the project, and hiding the rest of the recording the moment somebody marks a
         // section would make it impossible to check the section against what surrounds it.
-        let edit = timeline.editForExport
-        let mix = audioMix
+        let edit = editor.timeline.editForExport
+        let mix = editor.audioMix
         // Captured with the rest of the job, for `runExport`'s reason: a queued export runs
         // later than the view that asked for it, and reading this then would read whatever had
         // been measured since.
@@ -1994,9 +1762,9 @@ struct StageWindow: View {
         let frames = frameRate.frames(recording: recordingFrameRate)
         let gif = gifSettings
         // Through the EXPORT's edit, so a marked section carries only the chapters inside it.
-        let placedChapters = chapters.track.outputChapters(
+        let placedChapters = editor.chapters.track.outputChapters(
             through: edit, outputDuration: edit.outputDuration).placed
-        let size = Self.size(for: variant, resolution: resolution,
+        let size = Self.size(for: editor.variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
         let isGIF = destination.pathExtension.lowercased() == "gif"
         let queued = ExportQueue.shared.enqueue(destination: destination) { report in

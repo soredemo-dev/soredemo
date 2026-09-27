@@ -1359,7 +1359,9 @@ private func desktopIconsFile() throws -> [URL] {
         """)
 
     // And the preview still builds from the unrestricted edit.
-    let previewComposes = try codeLinesNaming("by: timeline.edit,", in: stage)
+    // `editor.` since the timeline moved into `EditorViewModel` (2026-09-27); the pin names the
+    // spelling in the file, because a substring that no longer occurs reads as the rule broken.
+    let previewComposes = try codeLinesNaming("by: editor.timeline.edit,", in: stage)
     #expect(!previewComposes.isEmpty, """
         The preview no longer composes from `timeline.edit`. If it now uses the restricted \
         timeline, marking a section hides the rest of the recording — see this check's header \

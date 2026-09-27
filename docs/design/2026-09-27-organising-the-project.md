@@ -37,8 +37,22 @@ decisions; neither touches the other's job.**
 The one place that broke it is `StageWindow` — 2088 lines, 46 `@State` properties, and the
 project's save, open, and export assembly written as private functions of a `View`. Those cannot
 be tested without a window. `EditorViewModel` takes them: state, `currentEditState()`,
-`restore(_:)`, the export job's assembly. The view keeps layout and bindings. That is its own
-change with its own tests; this document is its plan.
+`restore(_:)`, the export job's assembly. The view keeps layout and bindings.
+
+**Done the same day, and the first test found a bug that lost work.** The save-then-open round trip
+had never been tested, because it could only run inside a window. As soon as it could run,
+`aSavedProjectOpensExactlyAsItWasSaved` failed on one field of twenty-two: **opening a project
+with cuts and saving it again saved no cuts.** `TimelineEditorModel.hasEdits` means "changed since
+this was opened" — right for the Edited label and for Revert — and saving read it as "differs from
+the whole recording". A project opened with cuts had not changed since it was opened, so the save
+wrote no timeline; the same confusion made every opened project report unsaved changes at once.
+Saving now reads `editToSave`, which asks the question it needs. The fixture sets every field,
+and `everyFieldOfTheFixtureIsSet` fails when `EditState` gains one the fixture does not.
+
+The rewiring was mechanical: 22 properties and the three functions moved, and a lexer-driven
+rewrite changed each use in `StageWindow` to `editor.…` outside comments and plain strings. A use
+it got wrong could only become a compile error — a shadowed name becomes `let editor.x` — and the
+one it did get wrong, two enum case names, was one.
 
 ## What was deleted, and how it was established that nothing needed it
 
