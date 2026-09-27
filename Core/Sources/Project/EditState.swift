@@ -85,6 +85,9 @@ public struct EditState: Codable, Sendable, Equatable {
     /// `docs/design/teaching-the-recogniser-a-word.md`. `Transcript.correcting(terms:)` is what
     /// reads this, and it corrects spelling rather than hearing.
     public var spokenTerms: [String]?
+    /// The chapters, as an encoded `ChapterTrack` — `Data` for `annotationTrackData`'s reason.
+    /// Authored: a suggestion is stored only once a person has added it. Absent means none.
+    public var chapterTrackData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -106,7 +109,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 zoomIntensity: Double? = nil,
                 cameraPace: String? = nil,
                 noiseReductionData: Data? = nil,
-                spokenTerms: [String]? = nil) {
+                spokenTerms: [String]? = nil,
+                chapterTrackData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -128,6 +132,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.cameraPace = cameraPace
         self.noiseReductionData = noiseReductionData
         self.spokenTerms = spokenTerms
+        self.chapterTrackData = chapterTrackData
     }
 
     /// A recording nobody has edited.
@@ -156,6 +161,7 @@ public struct EditState: Codable, Sendable, Equatable {
             // An EMPTY list is not a change, for `burnsInCaptions == false`'s reason: somebody
             // who added a term and removed it again has an untouched project.
             || (spokenTerms.map { !$0.isEmpty } ?? false)
+            || chapterTrackData != nil
     }
 
     // MARK: - the tiers that own these values

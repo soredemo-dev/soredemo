@@ -651,8 +651,9 @@ func lineNumber(of location: String) -> Int {
 /// **`NSPasteboard` appears exactly once, and it writes.**
 ///
 /// The content rule above bans the APIs that READ user content, and the clipboard is one of
-/// them. Copying a finished export is the opposite act: it puts a file this app just wrote onto
-/// the pasteboard so that pasting into Mail or Slack attaches the video. Banning the type
+/// them. Copying is the opposite act: a finished export (so pasting into Mail or Slack attaches
+/// the video) and, since 2026-09-27, a chapter list for a video description — both through
+/// `Clipboard`, whose one private accessor is the line counted here. Banning the type
 /// outright would forbid that too, and narrowing the ban to reading METHODS would leave the
 /// type reachable everywhere — so the type is allowed at exactly one line, named here, while
 /// every reading member stays banned everywhere including there.
@@ -661,7 +662,7 @@ func lineNumber(of location: String) -> Int {
 /// one fails the moment a second use appears, which is when somebody should have to come here
 /// and say what it is for. Same shape as the accessibility-grant reader above, and the same
 /// reason `ProbeCoverageTests` names its single exemption in one place.
-private let theOnlyPasteboardUse = "Soredemo/Export/ExportQueue.swift"
+private let theOnlyPasteboardUse = "Soredemo/App/Clipboard.swift"
 
 @Test func theClipboardIsWrittenInExactlyOnePlaceAndNeverRead() throws {
     let uses = try violationsEverywhere(banned: ["NSPasteboard"], in: try firstPartySourceFiles())

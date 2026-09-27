@@ -50,7 +50,7 @@ with voice ducking · MP4 and **GIF** export · ProRes · 4K60 and beyond.
 | 14 | Screenshot mode | a Rust recorder | medium | Absent. |
 | 15 | iPhone / iPad capture, device frames | Screen Studio | **large** | Absent, and a different capture stack. |
 | 16 | Shareable links, cloud workspace | both | **out of scope** | Needs a server. Not a client gap. |
-| 17 | AI titles, summaries, chapters | a Rust recorder | medium | Transcription ships; the generative layer on top does not. |
+| 17 | AI titles, summaries, chapters | a Rust recorder | medium | Transcription ships; the generative layer on top does not. **Chapters shipped 2026-09-27, on-device** — `2026-09-27-chapters.md`. Titles and summaries still do not. |
 
 ## What to do first, and why
 

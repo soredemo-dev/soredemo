@@ -761,6 +761,7 @@ struct TimelineEditor: View {
     var texts = TextTrack()
     var captions = CaptionTrack()
     var redactions = RedactionTrack()
+    var chapters = ChapterTrack()
 
     /// How close a drag must come to an edge to snap, in POINTS. Converted to nanoseconds
     /// against the strip's own width, so the tolerance is the same distance on screen at any
@@ -780,6 +781,11 @@ struct TimelineEditor: View {
         if let duration = model.duration, duration.rawValue > 0 {
             VStack(alignment: .leading, spacing: 2) {
                 lane(nil, nil, height: 16) { ruler(duration: duration) }
+                // Directly under the ruler, because a chapter is a point in time like a tick is,
+                // and only while there are any — `Silence`'s reason.
+                if !chapters.isEmpty {
+                    lane("Chapters", "list.bullet.rectangle", height: 14) { chapterMarks }
+                }
                 lane("Video", "film", height: 44) {
                     ZStack(alignment: .topLeading) {
                         strip(duration: duration)
@@ -1180,6 +1186,35 @@ struct TimelineEditor: View {
                         .contentShape(Rectangle().inset(by: -max(0, (8 - max(w, 2)) / 2)))
                         .offset(x: x)
                         .onTapGesture { onTap?(index) }
+                }
+            }
+        }
+    }
+
+    /// A flag per chapter with its name beside it; tapping one puts the playhead there. Names
+    /// are clipped rather than wrapped — the full name is in the Chapters tab.
+    @ViewBuilder private var chapterMarks: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
+                ForEach(chapters.chapters) { chapter in
+                    let fraction = model.window.fraction(of: chapter.start)
+                    if fraction >= 0, fraction <= 1 {
+                        HStack(spacing: 2) {
+                            Rectangle().fill(Theme.Lane.chapter).frame(width: 2)
+                            Text(verbatim: chapter.title)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(Theme.Lane.chapter)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: max(24, (1 - fraction) * width), alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentShape(Rectangle())
+                        .offset(x: fraction * width)
+                        .onTapGesture { model.movePlayhead(to: chapter.start) }
+                        .help(Text(verbatim: chapter.title))
+                    }
                 }
             }
         }

@@ -324,19 +324,8 @@ private struct ExportJobRow: View {
     }
 
 
-    /// **Puts the FILE on the pasteboard, not its path.** Pasting into Mail, Slack or Messages
-    /// then attaches the video, which is what "copy" means for a thing somebody just exported.
-    /// A string of the path would paste as text everywhere and attach nowhere.
-    ///
-    /// `clearContents()` first, because `NSPasteboard` accumulates otherwise and a paste would
-    /// carry whatever was copied before this alongside it.
-    static func copy(_ url: URL) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        // `as NSURL`: `URL` is not an `NSPasteboardWriting`, and the bridged type is what
-        // carries the file-URL flavour a receiving app looks for.
-        pasteboard.writeObjects([url as NSURL])
-    }
+    /// Copies a finished export — see `Clipboard.put(file:)` for what lands on the clipboard.
+    static func copy(_ url: URL) { Clipboard.put(file: url) }
 
     static func label(_ job: ExportJob) -> String {
         switch job.status {

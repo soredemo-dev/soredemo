@@ -105,7 +105,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Keyboard-shortcut badges | ✓ | · | · | · | ✓ *(zooms on keystroke)* | **✓** `KeystrokeBadge` |
 | Background music | · | · | ✓ | · | ✓ | **✓** `MusicBed` |
 | Music ducks under speech | · | · | · | · | · | **✓** `MusicDucking` *(nobody else)* |
-| Markers / chapters | · | ✓ *(AI chapters)* | · | · | ✓ | **✓** Mark track |
+| Markers / chapters | · | ✓ *(AI chapters)* | · | · | ✓ | **✓** `ChapterTrack` *(this row said "Mark track" until 2026-09-27; no such track existed)* |
 | Scene transitions | · | · | · | ✓ | ✓ | **·** |
 | B-roll library | · | · | · | · | ✓ | **·** |
 
@@ -134,7 +134,7 @@ Legend: **✓** shipped · **·** absent · **↺** deliberately declined · **?
 | Transcript generation | ✓ *(on-device)* | ✓ *(cloud)* | ✓ | ✓ | ✓ *(WhisperKit on-device; ElevenLabs cloud on Intel)* | **✓** `Transcript` |
 | Burned-in captions | ✓ | ✓ | ✓ | ✓ | ✓ word-level | **✓** `CaptionStyle` |
 | Subtitle file export | ? | ✓ | · | · | ✓ | **✓** `SubtitleFile` |
-| AI titles / summaries / chapters | · | ✓ | · | · | ✓ | **·** ↺ *(would require upload)* |
+| AI titles / summaries / chapters | · | ✓ | · | · | ✓ | **◐** chapters suggested on-device (`SystemLanguageModel`); titles and summaries not |
 | Agentic editing (Claude Code / Codex / Gemini) | · | · | · | · | ✓ | **·** |
 
 ### Export and sharing
@@ -591,7 +591,7 @@ be argued with.
 
 | Rank | Gap | Why it ranks here | Cost |
 |---|---|---|---|
-| 1 | **In/out range export** | ScreenKite markets a whole article on Screen Studio *not* having it. `EditTimeline` already owns every coordinate transform (`sourceTime(atOutput:)`, `outputTime(atSource:)`, `survival(ofSource:)`), and the Mark track already exists to hang "export this marker" on. | Low |
+| 1 | **In/out range export** | ScreenKite markets a whole article on Screen Studio *not* having it. `EditTimeline` already owns every coordinate transform (`sourceTime(atOutput:)`, `outputTime(atSource:)`, `survival(ofSource:)`), and a chapter (`ChapterTrack`, 2026-09-27) is the thing to hang "export this part" on — the "Mark track" this sentence first named did not exist. | Low |
 | 2 | **Hide desktop icons** | One `defaults write com.apple.finder CreateDesktop` + `killall Finder`, but it mutates the user's machine and must be restored — the cost is entirely in doing that safely. | Low |
 | 3 | **Saveable style presets** | `ProjectSnapshot` already encodes the whole style. Screen Studio sells this. | Low |
 | 4 | **Noise suppression** | Every competitor but a Rust recorder and ScreenKite has it. Genuinely a capture-architecture decision: `AVAudioUnitEQ`/`AUVoiceProcessing` at capture time changes what is recorded; an offline pass keeps the master clean. | Medium |

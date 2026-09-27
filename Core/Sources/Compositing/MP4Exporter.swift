@@ -73,6 +73,7 @@ public enum MP4Exporter {
                                           frameRate: Int = 60,
                                           quality: ExportQuality = .best,
                                           codec: ExportCodec = .h264,
+                                          chapters: [PlacedChapter] = [],
                                           onProgress: (@Sendable (ExportProgress) -> Void)? = nil
     ) async throws -> ExportReport {
         precondition(frameRate > 0, "frameRate must be positive, got \(frameRate)")
@@ -82,6 +83,9 @@ public enum MP4Exporter {
 
         onProgress?(.preparing)
         if let edit, edit.isEmpty { throw ExportError.emptyTrim }
+        // Before anything is written: a chapter list the writer cannot honour would otherwise
+        // come out with a chapter silently missing.
+        if let why = ChapterSamples.refusal(chapters) { throw ExportError.chaptersUnwritable(why) }
         // **The compositor must be looking at the SAME edit.** It reads the observation log in
         // source time and is handed output times, so it converts through
         // `StageCompositor.editTimeline`; an export whose asset was cut one way while that
@@ -156,6 +160,25 @@ public enum MP4Exporter {
             writer.add(audioInput)
         }
 
+        // **Disabled, and tagged `und`.** Enabled, a player draws the titles as a subtitle; the
+        // language is unknown because a person typed them. D6b-29 has what `und` costs.
+        var chapterTrack: (input: AVAssetWriterInput, format: CMFormatDescription)?
+        if !chapters.isEmpty {
+            let format = try ChapterSamples.format()
+            let input = AVAssetWriterInput(mediaType: .text, outputSettings: nil, sourceFormatHint: format)
+            input.expectsMediaDataInRealTime = false
+            input.languageCode = "und"
+            input.marksOutputTrackAsEnabled = false
+            let chapterList = AVAssetTrack.AssociationType.chapterList.rawValue
+            guard writer.canAdd(input),
+                  videoInput.canAddTrackAssociation(withTrackOf: input, type: chapterList) else {
+                throw ExportError.chaptersUnwritable("the writer refused a chapter track for \(codec.displayName)")
+            }
+            writer.add(input)
+            videoInput.addTrackAssociation(withTrackOf: input, type: chapterList)
+            chapterTrack = (input, format)
+        }
+
         guard writer.startWriting() else {
             throw ExportError.writerFailed(writer.error.map { String(describing: $0) }
                 ?? "startWriting() returned false")
@@ -166,14 +189,15 @@ public enum MP4Exporter {
         let sessionStart = CMTime.zero
         writer.startSession(atSourceTime: sessionStart)
 
-        let counts: (framesRead: Int, framesWritten: Int, audioWritten: Int)
+        let counts: (framesRead: Int, framesWritten: Int, audioWritten: Int, chaptersWritten: Int)
         do {
             counts = try await writeInterleaved(
             asset: asset, videoTracks: videoTracks, audioTracks: audioTracks,
             composition: composition, frameDuration: frameDuration, sessionStart: sessionStart,
             writer: writer, videoInput: videoInput, audioInput: audioInput,
                 audioMix: audioMix, measuredLoudness: measuredLoudness,
-                musicTrackID: musicTrackID, musicRamps: musicRamps, onProgress: onProgress)
+                musicTrackID: musicTrackID, musicRamps: musicRamps,
+                chapters: chapters, chapterTrack: chapterTrack, onProgress: onProgress)
         } catch {
             discardPartialOutput(at: outputURL)
             throw error
@@ -192,7 +216,8 @@ public enum MP4Exporter {
 
         return ExportReport(outputURL: outputURL, framesRead: video.read,
                             framesWritten: video.written, frameRate: frameRate,
-                            audioSamplesWritten: audioSamples)
+                            audioSamplesWritten: audioSamples,
+                            chaptersWritten: counts.chaptersWritten)
     }
 
     /// **One loop feeding both inputs, and the alternative is a deadlock.**
@@ -217,8 +242,9 @@ public enum MP4Exporter {
         writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?,
         audioMix: AudioMix, measuredLoudness: [Int: Loudness.Reading],
         musicTrackID: CMPersistentTrackID?, musicRamps: [MusicDucking.Ramp],
+        chapters: [PlacedChapter], chapterTrack: (input: AVAssetWriterInput, format: CMFormatDescription)?,
         onProgress: (@Sendable (ExportProgress) -> Void)?
-    ) async throws -> (framesRead: Int, framesWritten: Int, audioWritten: Int) {
+    ) async throws -> (framesRead: Int, framesWritten: Int, audioWritten: Int, chaptersWritten: Int) {
         // The output's own length, for the fraction. Read once: it cannot change while the
         // export runs, and asking per frame would be an asset load per frame.
         let totalNanos = (try? await asset.load(.duration).seconds).map { $0 * 1_000_000_000 } ?? 0
@@ -311,6 +337,26 @@ public enum MP4Exporter {
         }
         finishExhaustedInputs()
 
+        // **Chapters are fed whenever their input will take one, never waited for.** The first
+        // version appended each chapter only once the frames reached its start, and stalled a
+        // ten-second export at frame 163: the writer would not let the video run more than its
+        // interleaving window past the chapter track's last sample, and that sample was the one
+        // at 0 s. Tied to the video, each waited on the other. The writer's own readiness is
+        // what keeps the tracks interleaved; this only has to never hold the video back.
+        var chaptersWritten = 0
+        func feedChapters() throws {
+            guard let chapterTrack else { return }
+            while chaptersWritten < chapters.count, chapterTrack.input.isReadyForMoreMediaData {
+                guard chapterTrack.input.append(try ChapterSamples.sample(chapters[chaptersWritten],
+                                                                          format: chapterTrack.format)) else {
+                    throw ExportError.chaptersUnwritable("chapter \(chapters[chaptersWritten].id) was refused: "
+                        + (writer.error.map { String(describing: $0) } ?? "no error recorded"))
+                }
+                chaptersWritten += 1
+                if chaptersWritten == chapters.count { chapterTrack.input.markAsFinished() }
+            }
+        }
+
         while pendingVideo != nil || pendingAudio != nil {
             // **Cancellation is checked here, at the top of the loop.** Swift's cooperative
             // cancellation is the whole mechanism: a caller cancels its Task and the next
@@ -329,6 +375,7 @@ public enum MP4Exporter {
             default: videoFirst = false
             }
 
+            try feedChapters()
             if videoFirst, let frame = pendingVideo, videoInput.isReadyForMoreMediaData {
                 guard videoInput.append(frame) else {
                     throw ExportError.appendRefused(
@@ -403,7 +450,27 @@ public enum MP4Exporter {
             throw ExportError.outputShorterThanSource(lastWritten: resampler.slot.seconds,
                                                       lastSource: last.seconds)
         }
-        return (resampler.framesRead, resampler.framesWritten, audioWritten)
+        // The frames and sound are done; whatever chapters remain go now, bounded by the same
+        // deadline as every other wait here. A chapter still unwritten is a chapter lost, and
+        // is said rather than shipped.
+        let drain = MonotonicStopwatch()
+        while chapterTrack != nil, chaptersWritten < chapters.count {
+            try feedChapters()
+            if chaptersWritten < chapters.count {
+                if writer.status == .failed || drain.elapsedSeconds >= Self.readinessDeadlineSeconds {
+                    throw ExportError.chaptersUnwritable("\(chapters.count - chaptersWritten) of "
+                        + "\(chapters.count) chapter(s) were never accepted after the last frame")
+                }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        }
+        // Past the end of the output: the writer would extend the file to carry it.
+        if let last = chapters.last,
+           CMTime(value: last.start.rawValue, timescale: 1_000_000_000) >= resampler.slot {
+            throw ExportError.chaptersUnwritable("chapter \(last.id) starts at or after the last "
+                + "frame, \(resampler.slot.seconds)s")
+        }
+        return (resampler.framesRead, resampler.framesWritten, audioWritten, chaptersWritten)
     }
 
     /// An `AVAudioMix` setting each source's level.
@@ -595,6 +662,8 @@ public enum MP4Exporter {
         case outputShorterThanSource(lastWritten: Double, lastSource: Double)
         /// The readiness poll exhausted `readinessDeadlineSeconds`.
         case writerNotReadyInTime(frame: Int, elapsedSeconds: Double)
+        /// Chapters that could not be written as given — out of order, empty, or refused.
+        case chaptersUnwritable(String)
 
         public var description: String {
             switch self {
@@ -615,6 +684,7 @@ public enum MP4Exporter {
             case .readerFailed(let why): "AVAssetReader failed: \(why)"
             case .writerFailed(let why): "AVAssetWriter failed: \(why)"
             case .appendRefused(let why): "append refused: \(why)"
+            case .chaptersUnwritable(let why): "chapters cannot be written: \(why)"
             case .outputShorterThanSource(let lastWritten, let lastSource):
                 "the export stopped at \(lastWritten)s while the source runs to \(lastSource)s"
             case .writerNotReadyInTime(let frame, let elapsedSeconds):
@@ -644,4 +714,6 @@ public nonisolated struct ExportReport: Sendable {
     public let frameRate: Int
     /// Audio buffers written; 0 when the master carried no audio track.
     public let audioSamplesWritten: Int
+    /// Chapter titles written — every one asked for, or the export threw.
+    public let chaptersWritten: Int
 }

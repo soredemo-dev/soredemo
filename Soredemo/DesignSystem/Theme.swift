@@ -80,6 +80,9 @@ enum Theme {
         /// tracks are read side by side on the timeline, so they have to be tellable apart at a
         /// glance rather than by reading the label.
         static let markHue: Double = 8
+        /// **Yellow-green, the widest gap left on the wheel** — 38 and 150 are its neighbours. A
+        /// chapter flag sits on the ruler above every lane, so it must not read as any of them.
+        static let chapterHue: Double = 94
 
         static func colour(_ hue: Double) -> Color {
             Color(hue: hue / 360, saturation: saturation, brightness: brightness)
@@ -92,6 +95,7 @@ enum Theme {
         static var caption: Color { colour(captionHue) }
         static var hide: Color { colour(hideHue) }
         static var mark: Color { colour(markHue) }
+        static var chapter: Color { colour(chapterHue) }
     }
 }
 

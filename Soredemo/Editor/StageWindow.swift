@@ -177,6 +177,7 @@ struct StageWindow: View {
     /// Parts of the recording a person has hidden.
     @State private var redactions = RedactionsModel()
     @State private var annotations = AnnotationsModel()
+    @State private var chapters = ChaptersModel()
 
     /// What the inspector is showing. See `inspector` for why there are two.
     enum InspectorTab: String, CaseIterable, Hashable {
@@ -184,7 +185,7 @@ struct StageWindow: View {
         // icons over one subject — what was said — and the two lists look alike enough that a
         // person had to know which icon held which. One tab, one segmented control inside it;
         // see `CaptionsPanel.Words` for why the two lists stay two.
-        case project, selection, captions, text, hide, mark
+        case project, selection, captions, chapters, text, hide, mark
 
         var title: String {
             switch self {
@@ -193,6 +194,7 @@ struct StageWindow: View {
             // "Captions" rather than "Overlays": the tab is the recording's words now, and
             // "Overlays" was already a poor name for a tab whose contents were captions.
             case .captions: "Captions"
+            case .chapters: "Chapters"
             case .text: "Text"
             case .hide: "Hide"
             case .mark: "Mark"
@@ -211,6 +213,7 @@ struct StageWindow: View {
             // is what a viewfinder with a dot in it says and a magnifier does not.
             case .selection: "dot.viewfinder"
             case .captions: "captions.bubble"
+            case .chapters: "list.bullet.rectangle"
             case .text: "textformat"
             case .hide: "eye.slash"
             case .mark: "arrow.up.right"
@@ -222,6 +225,7 @@ struct StageWindow: View {
             case .project: Theme.accent
             case .selection: Theme.Lane.zoom
             case .captions: Theme.Lane.caption
+            case .chapters: Theme.Lane.chapter
             case .text: Theme.Lane.text
             case .hide: Theme.Lane.hide
             case .mark: Theme.Lane.mark
@@ -442,7 +446,7 @@ struct StageWindow: View {
                     TimelineEditor(model: timeline, onChange: { editRevision += 1 },
                                    filmstrip: filmstrip,
                                    texts: texts.track, captions: captions.track,
-                                   redactions: redactions.track)
+                                   redactions: redactions.track, chapters: chapters.track)
                         .padding(Space.regular)
                         .frame(height: timelineHeight - EditorToolbar.height)
                 }
@@ -859,6 +863,13 @@ struct StageWindow: View {
                                   timeline.removeSourceRange(range, named: name)
                               },
                               onOpenEditor: { isCaptionEditorShown = true })
+            case .chapters:
+                AtPlayhead(model: timeline) { playhead in
+                    ChaptersPanel(model: chapters, edit: timeline.edit,
+                                  transcript: captions.transcript, playhead: playhead,
+                                  onSeek: { timeline.movePlayhead(to: $0) },
+                                  onChange: { editRevision += 1 })
+                }
             case .text:
                 AtPlayhead(model: timeline) { playhead in
                     TextPanel(model: texts, playhead: playhead,
@@ -1535,7 +1546,8 @@ struct StageWindow: View {
             noiseReductionData: noiseReduction.flatMap { try? EditState.encoding($0) },
             // An empty list is nothing to say either, and writing `[]` would make every project
             // that never had a name in it claim a decision.
-            spokenTerms: captions.spokenTerms.isEmpty ? nil : captions.spokenTerms)
+            spokenTerms: captions.spokenTerms.isEmpty ? nil : captions.spokenTerms,
+            chapterTrackData: chapters.track.isEmpty ? nil : try? EditState.encoding(chapters.track))
     }
 
     /// The cleaned microphone track, made if it is asked for and does not exist yet.
@@ -1752,6 +1764,11 @@ struct StageWindow: View {
                 annotations.restore(track)
             }
         } catch { failures.append("the marks") }
+        do {
+            if let track = try EditState.decoding(edit.chapterTrackData, as: ChapterTrack.self) {
+                chapters.restore(track)
+            }
+        } catch { failures.append("the chapters") }
         savedEdit = edit
         if !failures.isEmpty {
             projectStatus = String(localized: "Opened, but could not read \(failures.joined(separator: ", ")).")
@@ -1975,6 +1992,9 @@ struct StageWindow: View {
         let chosenCodec = codec
         let frames = frameRate.frames(recording: recordingFrameRate)
         let gif = gifSettings
+        // Through the EXPORT's edit, so a marked section carries only the chapters inside it.
+        let placedChapters = chapters.track.outputChapters(
+            through: edit, outputDuration: edit.outputDuration).placed
         let size = Self.size(for: variant, resolution: resolution,
                                 recordingShortSide: recordingShortSide)
         let isGIF = destination.pathExtension.lowercased() == "gif"
@@ -1986,7 +2006,8 @@ struct StageWindow: View {
                                         measuredLoudness: loudness,
                                         musicTrackID: bedTrack, musicRamps: bedRamps,
                                         quality: chosen, codec: chosenCodec,
-                                        frameRate: frames, gifSettings: gif, report: report)
+                                        frameRate: frames, gifSettings: gif,
+                                        chapters: placedChapters, report: report)
         }
         if queued == nil {
             // Named, because the only way somebody works out which of their jobs they collided
@@ -2011,6 +2032,7 @@ struct StageWindow: View {
                           musicTrackID: CMPersistentTrackID?, musicRamps: [MusicDucking.Ramp],
                           quality: ExportQuality, codec: ExportCodec,
                           frameRate: Int, gifSettings: GIFSettings,
+                          chapters: [PlacedChapter] = [],
                           report: @escaping @MainActor (ExportProgress) -> Void) async -> String? {
         do {
             if isGIF {
@@ -2027,6 +2049,7 @@ struct StageWindow: View {
                     measuredLoudness: measuredLoudness,
                     musicTrackID: musicTrackID, musicRamps: musicRamps,
                     frameRate: frameRate, quality: quality, codec: codec,
+                    chapters: chapters,
                     onProgress: { progress in Task { @MainActor in report(progress) } })
             }
             // **An export that finished is not the same as an export that drew every frame.**

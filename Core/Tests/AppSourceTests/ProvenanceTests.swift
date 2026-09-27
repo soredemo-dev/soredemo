@@ -45,3 +45,19 @@ import Testing
         \(found.joined(separator: "\n"))
         """)
 }
+
+/// **The language model that suggests chapters is the one on this Mac.** FoundationModels also
+/// offers `PrivateCloudComputeLanguageModel`, which sends the prompt — a person's transcript —
+/// off the machine. Nothing leaves unless a person sends it, so no first-party source may name
+/// it. The positive control is the on-device model's own use, which must still be found.
+@Test func onlyTheOnDeviceLanguageModelIsUsed() throws {
+    let files = try firstPartySourceFiles()
+    let onDevice = try codeLinesNaming("SystemLanguageModel", in: files)
+    try #require(!onDevice.isEmpty, "nothing names SystemLanguageModel — this scan's positive control is gone")
+    let offDevice = try violationsEverywhere(banned: ["PrivateCloudComputeLanguageModel"], in: files)
+    #expect(offDevice.isEmpty, """
+        These sources name the language model that runs off this Mac:
+        \(offDevice.joined(separator: "\n"))
+        See docs/design/2026-09-27-chapters.md.
+        """)
+}

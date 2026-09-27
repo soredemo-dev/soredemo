@@ -114,6 +114,7 @@ xcrun swiftc \
   Soredemo/App/AppLanguage.swift \
   Soredemo/App/UnsavedWorkGuard.swift \
   Soredemo/App/UpdateCheck.swift \
+  Soredemo/App/Clipboard.swift \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \
@@ -167,6 +168,8 @@ xcrun swiftc \
   Soredemo/Editor/CaptionWaveform.swift \
   Soredemo/Inspector/TranscriptPanel.swift \
   Soredemo/Inspector/TextPanel.swift \
+  Soredemo/Inspector/ChaptersPanel.swift \
+  Soredemo/Inspector/ChapterSuggester.swift \
   Soredemo/Inspector/RedactionPanel.swift \
   Soredemo/Inspector/AnnotationPanel.swift \
   scripts/cross-boundary-digest-probe.swift
