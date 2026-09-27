@@ -30,6 +30,11 @@ import Foundation
             #expect(palette.tertiaryText.contrast(with: surface) >= 3, "\(mode) tertiary")
         }
         #expect(palette.caution.contrast(with: palette.panel) >= 4.5, "\(mode) caution")
+        // The accent as TEXT is a separate colour: the fill accent is 3.48:1 on a dark panel,
+        // enough for a button's edge and not for words.
+        for surface in palette.surfaces {
+            #expect(palette.accentText.contrast(with: surface) >= 4.5, "\(mode) accent text")
+        }
     }
 
     @Test(arguments: Palette.Mode.allCases)

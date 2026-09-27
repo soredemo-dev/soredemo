@@ -13,12 +13,12 @@ import Variants
 
 @Test func aRecordingLargerThanThePreviewPaneIsComposedSmaller() {
     // The measured case: the user's own recording.
-    let full = StageWindow.size(for: .landscape, resolution: .matchRecording,
+    let full = EditorViewModel.size(for: .landscape, resolution: .matchRecording,
                                 recordingShortSide: 1964)
-    let preview = StageWindow.previewSize(for: .landscape, resolution: .matchRecording,
+    let preview = EditorViewModel.previewSize(for: .landscape, resolution: .matchRecording,
                                           recordingShortSide: 1964)
     #expect(min(full.width, full.height) == 1964)
-    #expect(min(preview.width, preview.height) == StageWindow.previewShortSideCap)
+    #expect(min(preview.width, preview.height) == EditorViewModel.previewShortSideCap)
     // The pixels actually saved, which is the whole point of the change.
     let before = Double(full.width * full.height)
     let after = Double(preview.width * preview.height)
@@ -32,9 +32,9 @@ import Variants
 /// upscaling it would cost pixels to show detail the recording does not have.
 @Test func aRecordingSmallerThanTheCapIsNotEnlarged() {
     for shortSide in [480, 720, 1080] {
-        let full = StageWindow.size(for: .landscape, resolution: .matchRecording,
+        let full = EditorViewModel.size(for: .landscape, resolution: .matchRecording,
                                     recordingShortSide: shortSide)
-        let preview = StageWindow.previewSize(for: .landscape, resolution: .matchRecording,
+        let preview = EditorViewModel.previewSize(for: .landscape, resolution: .matchRecording,
                                               recordingShortSide: shortSide)
         #expect(preview.width == full.width && preview.height == full.height,
                 "a \(shortSide)p recording should preview at its own size")
@@ -45,9 +45,9 @@ import Variants
 /// differently-shaped video from the one being exported.
 @Test func theShapeSurvivesTheCap() {
     for variant in [AspectVariant.landscape, .portrait, .square] {
-        let full = StageWindow.size(for: variant, resolution: .matchRecording,
+        let full = EditorViewModel.size(for: variant, resolution: .matchRecording,
                                     recordingShortSide: 2160)
-        let preview = StageWindow.previewSize(for: variant, resolution: .matchRecording,
+        let preview = EditorViewModel.previewSize(for: variant, resolution: .matchRecording,
                                               recordingShortSide: 2160)
         let fullAspect = Double(full.width) / Double(full.height)
         let previewAspect = Double(preview.width) / Double(preview.height)
@@ -61,7 +61,7 @@ import Variants
 @Test func everyPreviewDimensionIsEven() {
     for shortSide in [1964, 2160, 1440, 1234, 999] {
         for variant in [AspectVariant.landscape, .portrait, .square] {
-            let preview = StageWindow.previewSize(for: variant, resolution: .matchRecording,
+            let preview = EditorViewModel.previewSize(for: variant, resolution: .matchRecording,
                                                   recordingShortSide: shortSide)
             #expect(preview.width % 2 == 0 && preview.height % 2 == 0,
                     "\(shortSide) \(variant) gave \(preview)")
@@ -73,7 +73,7 @@ import Variants
 /// An explicit export resolution is capped for the preview too — somebody exporting 4K should
 /// not pay 4K on every preview frame either.
 @Test func anExplicitlyLargeExportResolutionIsAlsoCappedForThePreview() {
-    let preview = StageWindow.previewSize(for: .landscape, resolution: .p2160,
+    let preview = EditorViewModel.previewSize(for: .landscape, resolution: .p2160,
                                           recordingShortSide: 1080)
-    #expect(min(preview.width, preview.height) == StageWindow.previewShortSideCap)
+    #expect(min(preview.width, preview.height) == EditorViewModel.previewShortSideCap)
 }

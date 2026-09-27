@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Compositing
 import Framing
 import Geometry
 import Overlays
@@ -101,5 +102,70 @@ private func differingFields(_ a: EditState, _ b: EditState) -> [String] {
     @Test func noCameraMeansNoCameraPlacementSaved() {
         let (model, _) = opened(everything)
         #expect(model.currentEditState(hasCamera: false).cameraStyleData == nil)
+    }
+
+    // MARK: - export choices
+
+    /// Choosing a destination sets all four; changing one afterwards reads back as Custom rather
+    /// than still claiming the destination.
+    @Test func aPresetSetsAllFourAndAnyChangeMakesItCustom() {
+        let model = EditorViewModel()
+        model.preset = .message
+        #expect(model.resolution == .p720 && model.codec == .h264)
+        #expect(model.frameRate == .fps30 && model.quality == .small)
+        #expect(model.preset == .message)
+        model.quality = .best
+        #expect(model.preset == nil)
+        model.preset = nil
+        #expect(model.quality == .best, "choosing Custom is not a thing to do, and must change nothing")
+    }
+
+    @Test func aTransparentStageMovesTheCodecToOneThatKeepsTheAlpha() {
+        let model = EditorViewModel()
+        model.codec = .h264
+        model.keepCodecAbleToCarryTransparency()
+        #expect(model.codec == .h264, "an opaque stage leaves the choice alone")
+        model.stageStyle.restore(StageStyle(insetFraction: 0.06, cornerRadius: 18, shadowRadius: 32,
+                                             shadowOpacity: 0.35, background: .transparent))
+        model.keepCodecAbleToCarryTransparency()
+        #expect(model.codec.carriesTransparency)
+        #expect(model.codec == TransparentExport.codecsThatCarryIt[0])
+    }
+
+    /// The shape and the recording both reach the output size — a portrait of a recording whose
+    /// short side is 1964, not the 1080 default the export used to be pinned to.
+    @Test func theOutputSizeFollowsTheShapeAndTheRecording() {
+        let model = EditorViewModel()
+        model.recordingShortSide = 1964
+        model.variant = .portrait
+        model.resolution = .matchRecording
+        let size = model.outputSize
+        #expect(size.width < size.height)
+        #expect(min(size.width, size.height) == 1964)
+        model.resolution = .p720
+        #expect(min(model.outputSize.width, model.outputSize.height) == 720)
+    }
+
+    /// A marked section carries only its own chapters, placed from its start.
+    @Test func anExportOfASectionCarriesOnlyItsChapters() {
+        let model = EditorViewModel()
+        model.timeline.load(duration: 30)
+        model.chapters.restore(ChapterTrack()
+            .adding(title: "Before", start: ns(2))
+            .adding(title: "Inside", start: ns(14))
+            .adding(title: "After", start: ns(25)))
+        let section = EditTimeline.whole(duration: ns(30)).trimmed(toSource: ns(10).rawValue..<ns(20).rawValue)
+        let placed = model.exportChapters(through: section)
+        #expect(placed.map(\.name) == ["Before", "Inside"])
+        #expect(placed.map(\.start) == [ns(0), ns(4)])
+    }
+
+    @Test func theEstimateIsForWhatWillBeWritten() {
+        let model = EditorViewModel()
+        model.timeline.load(duration: 60)
+        let whole = model.estimatedExportBytes
+        #expect(whole > 0)
+        model.quality = .small
+        #expect(model.estimatedExportBytes < whole)
     }
 }

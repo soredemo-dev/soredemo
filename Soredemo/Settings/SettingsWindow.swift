@@ -302,7 +302,7 @@ private struct PrivacyPoint: View {
         HStack(alignment: .top, spacing: Space.regular) {
             Image(systemName: icon)
                 .font(.system(size: 14))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.Ink.accent)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 12, weight: .medium))

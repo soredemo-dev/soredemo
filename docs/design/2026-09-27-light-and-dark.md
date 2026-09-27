@@ -65,6 +65,11 @@ colour-vision check the palette tooling would run was not available here and was
 airy blue in dark mode. Text on a lane-coloured block is near-black on the dark theme's light
 lanes and near-white on the light theme's dark ones — measured ≥ 5.78 everywhere.
 
+**And a third accent, for words.** The fill accent is 3.48:1 on the dark panel — enough for a
+button's edge, not for text — and six labels were using it as text. `Theme.Ink.accent` is the video
+lane's light blue on dark (9.89:1) and the fill accent on light (5.60:1); found while moving the
+export controls, 2026-09-28.
+
 **One caution colour**, for notes that are not errors (a chapter moved past a cut, a redaction
 that covers nothing). `.orange` was used and is 2.2:1 on a light panel.
 

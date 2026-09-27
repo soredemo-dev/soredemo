@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Compositing
 import Framing
 import Geometry
 import Overlays
@@ -64,6 +65,121 @@ final class EditorViewModel {
     /// The recording's own pixel size — both dimensions, because `Match Recording` rebuilds a
     /// SHAPE from it and a short side alone cannot say what shape it is.
     var recordingSize = (width: 1920, height: 1080)
+
+    /// The recording's short side in pixels, so `Match Recording` has something to match. 1080
+    /// until the recording loads, which is what the export used to be pinned to anyway.
+    var recordingShortSide = 1080
+    var recordingFrameRate = 60
+
+    // MARK: - how it is exported
+
+    /// Held here, not by the save panel, so switching the panel's format popup does not reset
+    /// them.
+    var gifSettings = GIFSettings.balanced
+    var quality = ExportQuality.best
+    /// **The recording's own size, not 1080p.** A 3024×1964 capture exported at a 1080p default
+    /// came out 1662×1080 — six pixels in ten discarded, and the one control that could undo it
+    /// defaulted to the wrong rung.
+    var resolution = ExportResolution.matchRecording
+    var codec = ExportCodec.h264
+    /// Matching by default, because a capture's rate is a decision somebody already made.
+    var frameRate = ExportFrameRate.matchRecording
+
+    /// The exported picture's size, for the shape and resolution chosen.
+    var outputSize: (width: Int, height: Int) {
+        Self.size(for: variant, resolution: resolution, recordingShortSide: recordingShortSide)
+    }
+
+    /// **A destination, standing for the four settings.** Reading it answers "which preset are
+    /// these four", `nil` for Custom; choosing one sets all four and then gets out of the way, so
+    /// changing any of them afterwards reads back as Custom rather than claiming "Web" for an
+    /// export that no longer is. See `ExportPreset`.
+    var preset: ExportPreset? {
+        get { ExportPreset.matching(resolution: resolution, codec: codec, frameRate: frameRate,
+                                    quality: quality) }
+        set {
+            guard let chosen = newValue else { return }
+            resolution = chosen.resolution
+            codec = chosen.codec
+            frameRate = chosen.frameRate
+            quality = chosen.quality
+        }
+    }
+
+    /// **Snapped rather than left dangling.** A person who chose H.264 and then made the
+    /// background transparent has a selection no longer offered; SwiftUI would show an empty
+    /// picker and the export would refuse. Moving it to the smallest format that carries alpha is
+    /// visible — the picker changes in front of them. See `TransparentExport`.
+    func keepCodecAbleToCarryTransparency() {
+        if stageStyle.isTransparent, !codec.carriesTransparency {
+            codec = TransparentExport.codecsThatCarryIt[0]
+        }
+    }
+
+    /// Roughly how large the export will be — of the marked section when there is one, since
+    /// that is what the button will write.
+    var estimatedExportBytes: Int {
+        quality.estimatedBytes(
+            outputWidth: outputSize.width, outputHeight: outputSize.height,
+            frameRate: frameRate.frames(recording: recordingFrameRate),
+            seconds: Double(timeline.editForExport.outputDuration.rawValue) / 1_000_000_000,
+            codec: codec)
+    }
+
+    /// The chapters an export of `edit` carries — through the EXPORT's edit, so a marked section
+    /// carries only the chapters inside it.
+    func exportChapters(through edit: EditTimeline) -> [PlacedChapter] {
+        chapters.track.outputChapters(through: edit, outputDuration: edit.outputDuration).placed
+    }
+
+    /// **Re-rendered at the variant's own dimensions, never cropped from the landscape one.**
+    /// `StagePlanner` fits and never fills, so a portrait export of a landscape recording
+    /// letterboxes rather than cutting the sides off — the part of the screen the demo was
+    /// happening in is often exactly what a crop would remove.
+    /// **The export size, which used to be the constant 1920.** Measured on a real recording:
+    /// the capture was 3024×1964 and every export came out 1920×1080, so six pixels in ten were
+    /// thrown away and there was no control that could ask for them back. `ExportResolution`
+    /// picks by short side, which is the only ladder that describes a portrait output as well
+    /// as a landscape one.
+    static func size(for variant: AspectVariant, resolution: ExportResolution,
+                     recordingShortSide: Int) -> (width: Int, height: Int) {
+        let shape = variant.dimensions(longestEdge: 1920)
+        let aspect = Double(shape.width) / Double(max(shape.height, 1))
+        return resolution.size(forAspect: aspect, recordingShortSide: recordingShortSide)
+    }
+
+    /// The size the PREVIEW composites at — the export's, capped.
+    ///
+    /// **A preview was compositing at the recording's own size**: 6.86 Mpixels a frame at 60 fps
+    /// for a 3492 x 1964 recording, to fill a pane about 900 points wide. A custom compositor
+    /// that misses AVFoundation's per-frame deadline has the frame DROPPED and signalled as
+    /// `-12784`, which is the stutter and the console line together.
+    ///
+    /// **A cap, never an increase**, and the export does not come through here at all. Why the
+    /// preview is still an `AVVideoCompositing` when four of five sibling projects render their
+    /// own, and what the cap costs, are in
+    /// `docs/design/2026-09-22-the-preview-composited-at-export-resolution.md`.
+    static func previewSize(for variant: AspectVariant, resolution: ExportResolution,
+                            recordingShortSide: Int) -> (width: Int, height: Int) {
+        let full = size(for: variant, resolution: resolution, recordingShortSide: recordingShortSide)
+        let short = min(full.width, full.height)
+        guard short > previewShortSideCap, short > 0 else { return full }
+        let scale = Double(previewShortSideCap) / Double(short)
+        return (evenDown(Double(full.width) * scale), evenDown(Double(full.height) * scale))
+    }
+
+    /// 1080 on the short side. A standard rung rather than an invented number, and above what
+    /// any editor pane on a current Mac displays — the pane is a fraction of a window that is a
+    /// fraction of the screen. Somebody on a 6K display with the inspector closed can out-resolve
+    /// it, and would see a slightly soft preview of a sharp export.
+    static let previewShortSideCap = 1080
+
+    /// Even, because an odd buffer dimension is where a stray column of green comes from — the
+    /// same rule `ExportFormat.even` keeps for the export.
+    private static func evenDown(_ value: Double) -> Int {
+        let rounded = Int(value.rounded())
+        return max(2, rounded - (rounded % 2))
+    }
 
     // MARK: - the project on disk
 

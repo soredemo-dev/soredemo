@@ -49,6 +49,12 @@ wrote no timeline; the same confusion made every opened project report unsaved c
 Saving now reads `editToSave`, which asks the question it needs. The fixture sets every field,
 and `everyFieldOfTheFixtureIsSet` fails when `EditState` gains one the fixture does not.
 
+**Second step, 2026-09-28: how it is exported.** The seven export choices, the output and
+preview sizes, the preset that stands for four settings, the codec snapped when the stage turns
+transparent, the size estimate, and the chapters an export carries all moved in, each with a test
+that a mutation reddened. What stays in the view is what exists only while a window does: the
+player, the preview's composition, the loudness measured from the loaded asset.
+
 The rewiring was mechanical: 22 properties and the three functions moved, and a lexer-driven
 rewrite changed each use in `StageWindow` to `editor.…` outside comments and plain strings. A use
 it got wrong could only become a compile error — a shadowed name becomes `let editor.x` — and the

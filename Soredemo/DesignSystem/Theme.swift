@@ -54,6 +54,8 @@ enum Theme {
         static let tertiary = adaptive(\.tertiaryText)
         /// A note that is not an error — a chapter moved past a cut, a cover over nothing.
         /// `.orange` was used, and is 2.2:1 on a light panel.
+        /// The accent as words — a link-like label, a selected value. `Theme.accent` is for fills.
+        static let accent = adaptive(\.accentText)
         static let caution = adaptive(\.caution)
         /// Text on a lane-coloured block: dark on the dark theme's light lanes, light on the
         /// light theme's dark ones.

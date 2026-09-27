@@ -107,6 +107,9 @@ nonisolated enum Palette {
         /// White on dark, black on light; hairlines and fills are this at low opacity.
         let line: RGB
         let accent: RGB
+        /// The accent as the colour of words and small glyphs. Separate from `accent`, which is a
+        /// fill under a white label and on the dark ground reads at 3.48:1 — an edge, not text.
+        let accentText: RGB
         let caution: RGB
         /// Text drawn ON a lane-coloured block, at `onLaneOpacity`.
         let onLane: RGB
@@ -128,6 +131,7 @@ nonisolated enum Palette {
         primaryText: RGB(hex: 0xFFFFFF), secondaryText: RGB(hex: 0x9A9AA3),
         tertiaryText: RGB(hex: 0x7C7C85), line: RGB(hex: 0xFFFFFF),
         accent: .oklch(lightness: 0.55, chroma: 0.15, hue: 268),
+        accentText: .oklch(lightness: 0.82, chroma: 0.085, hue: 268),
         caution: .oklch(lightness: 0.80, chroma: 0.13, hue: 60),
         onLane: RGB(hex: 0x000000), onLaneOpacity: 0.75,
         laneLightness: 0.82, laneChroma: 0.085)
@@ -137,6 +141,7 @@ nonisolated enum Palette {
         primaryText: RGB(hex: 0x15161A), secondaryText: RGB(hex: 0x5E606B),
         tertiaryText: RGB(hex: 0x767883), line: RGB(hex: 0x000000),
         accent: .oklch(lightness: 0.50, chroma: 0.13, hue: 268),
+        accentText: .oklch(lightness: 0.50, chroma: 0.13, hue: 268),
         caution: .oklch(lightness: 0.52, chroma: 0.11, hue: 60),
         onLane: RGB(hex: 0xFFFFFF), onLaneOpacity: 0.9,
         laneLightness: 0.46, laneChroma: 0.09)

@@ -156,7 +156,7 @@ private struct PermissionRow: View {
         case .granted:
             Label("Allowed", systemImage: "checkmark.circle.fill")
                 .font(Type.detail)
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.Ink.accent)
                 .labelStyle(.titleAndIcon)
         case .restricted:
             // **Not offered a button.** Restricted means an administrator or a profile decided,
@@ -273,7 +273,7 @@ private struct CameraRow: View {
         switch status {
         case .granted:
             Label("Allowed", systemImage: "checkmark.circle.fill")
-                .font(Type.detail).foregroundStyle(Theme.accent)
+                .font(Type.detail).foregroundStyle(Theme.Ink.accent)
         case .restricted:
             Text("Blocked by this Mac's settings")
                 .font(Type.detail).foregroundStyle(Signal.paused)
@@ -307,7 +307,7 @@ private struct AccessibilityDragHelper: View {
             HStack(spacing: Space.snug) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(Theme.Ink.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("If Soredemo is not in the Accessibility list, drag it there")
                         .font(.system(size: 12, weight: .medium))

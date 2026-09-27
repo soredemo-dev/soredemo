@@ -60,7 +60,7 @@ struct CanvasBar: View {
             if !crop.isWhole {
                 Text(verbatim: Self.cropLabel(crop))
                     .font(Type.readout)
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(Theme.Ink.accent)
                 Button("Reset") {
                     crop = .whole
                     onChange()
