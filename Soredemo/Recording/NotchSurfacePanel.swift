@@ -287,18 +287,22 @@ private struct NotchRecorderControls: View {
                     Label(LocalizedStringKey(coordinator.camera.displayName),
                           systemImage: coordinator.camera == .off ? "video.slash" : "video")
                 }
+                // **A hint, beside the choice it is about, and IN this row.** The open surface's
+                // depth is fixed (`NotchSurfaceLayout.openDepth`); as a third row it was cut in
+                // half at the surface's bottom edge — reported 2026-09-29 with a screenshot. This
+                // row has the width to spare. Only when true; see `AudioRoute` for why it
+                // suggests headphones and not muting.
+                if coordinator.speakersReachTheMicrophone {
+                    Spacer(minLength: Space.snug)
+                    Label("The speakers will be heard in the recording", systemImage: "speaker.wave.2.fill")
+                        .lineLimit(1)
+                        .foregroundStyle(Signal.paused)
+                        .help("The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take.")
+                }
             }
             .menuStyle(.borderlessButton)
             .font(.system(size: 11))
             .foregroundStyle(.white.opacity(0.8))
-            // **A hint, beside the choice it is about**, and only when it is true — see
-            // `AudioRoute` for why it suggests headphones and not muting.
-            if coordinator.speakersReachTheMicrophone {
-                Label("The speakers will be heard in the recording", systemImage: "speaker.wave.2.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Signal.paused)
-                    .help("The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take.")
-            }
         }
         .onChange(of: coordinator.microphone) { coordinator.refreshAudioRoute() }
         // When the surface opens, which is the moment a phone was plugged in for — the menu's
@@ -400,16 +404,13 @@ private struct NotchTakeControls: View {
                 }
             }
             if coordinator.takeCanHoldMarks {
+                // Icon only, like the clip button beside it: the expanded take is a fixed 400 × 44,
+                // and a second worded button pushed Stop off its edge.
                 Button { coordinator.markChapter() } label: {
-                    Label("Mark a chapter here", systemImage: "bookmark")
+                    Label("Mark a chapter here", systemImage: "bookmark").labelStyle(.iconOnly)
                 }
                 .disabled(!coordinator.canMarkChapter)
                 .help("Mark a chapter here (\(GlobalHotkey.markChapterSymbol)) — it becomes a chapter when the recording opens")
-            }
-            if coordinator.microphoneHearsNothing {
-                Label("The microphone hears nothing", systemImage: "mic.slash.fill")
-                    .foregroundStyle(Signal.paused)
-                    .lineLimit(1)
             }
             if case .ready(let ceiling) = coordinator.clipReadiness {
                 Button { coordinator.saveClip(lastSeconds: ceiling) } label: {
