@@ -16,24 +16,35 @@ inventory; that one is the technique.
 
 ## 0. The number, and what it does not say
 
-*Measured 2026-09-15 by `scripts/coverage.sh`, which is also the gate: it fails below 70%.*
+*Measured 2026-09-28 by `scripts/coverage.sh`, which is also the gate: it fails below 70%.*
 
 ```
-  Capture          5078 lines   34.4%
-  Compositing      4851 lines   80.3%
+  Capture          5636 lines   42.4%
+  Compositing      5447 lines   81.3%
   Graph             245 lines   89.4%
-  Geometry          492 lines   89.8%
-  Render           1900 lines   95.5%
-  Project           960 lines   95.9%
+  Geometry          550 lines   90.7%
+  CheckerLexer      226 lines   93.8%
   Variants           71 lines   95.8%
-  Timeline          688 lines   96.2%
-  CheckerLexer      226 lines   97.3%
-  Overlays         2050 lines   97.7%
-  Framing           694 lines   99.1%
-  TOTAL           17255 lines   73.5%
+  Render           2043 lines   95.8%
+  Project          1000 lines   96.0%
+  Timeline          675 lines   96.3%
+  Overlays         2265 lines   97.1%
+  Framing           723 lines   98.2%
+  TOTAL           18881 lines   75.69%
 ```
 
-**`Capture`'s 34% is the one figure to read carefully, and it is not what it looks like.** It
+**Every figure this gate printed between 2026-09-15 and 2026-09-28 was read through the wrong
+binary.** The toolchain stopped building the combined `SoredemoCorePackageTests.xctest` and
+builds one bundle per test target; the combined one from 2026-09-15 stayed in the build
+directory and the script, which took the first it found, kept reading today's counters through
+its thirteen-day-old map. Files added since were absent, files deleted since were present, and
+the export path every export test runs read as 18% covered. The numbers stayed between 70 and
+73, so nothing looked wrong; it was found because the report said `MP4Exporter.export` never
+ran while a function only `export` calls ran twice. The script now reads every test target the
+manifest names, and fails when a source on disk is missing from the report or a file in the
+report is not on disk — the check that would have caught it on the first day.
+
+**`Capture`'s figure — under half — is the one to read carefully, and it is not what it looks like.** It
 is the module whose behaviour needs a real display, a real `SCStream` and a real writer, so
 most of its checking lives in the probe and runs as a separate binary — 473 checks that this
 report cannot see. Merging the two profiles was attempted: instrument the library, keep the
