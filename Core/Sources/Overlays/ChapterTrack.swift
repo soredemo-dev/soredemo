@@ -117,14 +117,6 @@ public struct ChapterTrack: Sendable, Equatable, Codable {
         }, nextID: nextID)
     }
 
-    public func moving(_ id: Int, to start: Nanoseconds) -> ChapterTrack {
-        ChapterTrack(chapters: chapters.map { chapter in
-            guard chapter.id == id else { return chapter }
-            return Chapter(id: id, title: chapter.title, start: Nanoseconds(max(0, start.rawValue)),
-                           origin: chapter.origin)
-        }, nextID: nextID)
-    }
-
     /// **The chapters as the edited output plays them** — see `ChapterFate` for what can happen
     /// to each. `outputDuration` is where the last one ends; `nil` for `timeline` means unedited.
     public func outputChapters(through timeline: EditTimeline?,

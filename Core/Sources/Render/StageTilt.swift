@@ -100,33 +100,36 @@ public struct StageTilt: Hashable, Codable, Sendable {
     /// than composed from matrices because it is nine lines either way and this way the design
     /// doc's four lines of algebra are the four lines of code.
     public func quad(for card: StageRect) -> StageQuad {
-        let halfWidth = card.width / 2
-        let halfHeight = card.height / 2
-        let centreX = card.x + halfWidth
-        let centreY = card.y + halfHeight
-        guard !isFlat else {
-            return StageQuad(
-                topLeft: StagePoint(x: card.x, y: card.y + card.height),
-                topRight: StagePoint(x: card.x + card.width, y: card.y + card.height),
-                bottomRight: StagePoint(x: card.x + card.width, y: card.y),
-                bottomLeft: StagePoint(x: card.x, y: card.y))
-        }
+        StageQuad(topLeft: project(StagePoint(x: card.x, y: card.y + card.height), on: card),
+                  topRight: project(StagePoint(x: card.x + card.width, y: card.y + card.height), on: card),
+                  bottomRight: project(StagePoint(x: card.x + card.width, y: card.y), on: card),
+                  bottomLeft: project(StagePoint(x: card.x, y: card.y), on: card))
+    }
+
+    /// **Where a point on the flat card lands once the card is turned** — the same projection the
+    /// four corners take, so anything drawn ON the card follows it: the pointer and its ripple.
+    ///
+    /// The pointer was placed where the FLAT card would have put it, and on a leaned or turned
+    /// card it sat off its target by as much as the card was turned — nine pixels in a 400-pixel
+    /// frame at 20° and −25° (reported 2026-09-28). A plane under a pinhole maps by a projective
+    /// transform, which is what the renderer's four-corner perspective filter applies to the
+    /// picture, so projecting a point here puts it where that point's pixel ends up.
+    /// `onATurnedCardThePointerLandsOnWhatItPointsAt`.
+    public func project(_ point: StagePoint, on card: StageRect) -> StagePoint {
+        guard !isFlat else { return point }
+        let centreX = card.x + card.width / 2
+        let centreY = card.y + card.height / 2
+        let x = point.x - centreX
+        let y = point.y - centreY
         let yawRadians = yaw * .pi / 180
         let pitchRadians = pitch * .pi / 180
         let camera = distance * max(card.width, card.height)
-
-        func project(_ x: Double, _ y: Double) -> StagePoint {
-            let x1 = x * cos(yawRadians)
-            let z1 = -x * sin(yawRadians)
-            let y2 = y * cos(pitchRadians) - z1 * sin(pitchRadians)
-            let z2 = y * sin(pitchRadians) + z1 * cos(pitchRadians)
-            // Positive by construction — see the type's own note on the clamps.
-            let scale = camera / (camera - z2)
-            return StagePoint(x: centreX + x1 * scale, y: centreY + y2 * scale)
-        }
-        return StageQuad(topLeft: project(-halfWidth, halfHeight),
-                         topRight: project(halfWidth, halfHeight),
-                         bottomRight: project(halfWidth, -halfHeight),
-                         bottomLeft: project(-halfWidth, -halfHeight))
+        let x1 = x * cos(yawRadians)
+        let z1 = -x * sin(yawRadians)
+        let y2 = y * cos(pitchRadians) - z1 * sin(pitchRadians)
+        let z2 = y * sin(pitchRadians) + z1 * cos(pitchRadians)
+        // Positive by construction — see the type's own note on the clamps.
+        let scale = camera / (camera - z2)
+        return StagePoint(x: centreX + x1 * scale, y: centreY + y2 * scale)
     }
 }

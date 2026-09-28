@@ -94,3 +94,34 @@ private func retinaDisplay() -> DisplayGeometry {
                                widthInPoints: 0, heightInPoints: 500)
     #expect(flat.normalise(globalTopLeftX: 0, globalTopLeftY: 0) == nil)
 }
+
+/// **The whole-display viewport for a point, chosen from the arrangement** — the probe's way of
+/// getting the viewport `CaptureSession` builds for a display recording, and nothing in the unit
+/// tests asked it anything. Two displays: a Retina one at the origin and a 1× one to its right
+/// and raised, so the scale, the translation and the vertical offset all have to be right.
+@Test func theViewportForAPointIsTheDisplayItIsOnInPoints() throws {
+    let retina = DisplayGeometry(displayUUID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
+                                 pixelWidth: 3024, pixelHeight: 1964, scale: 2)
+    let external = DisplayGeometry(displayUUID: UUID(uuidString: "66666666-7777-8888-9999-000000000000")!,
+                                   pixelWidth: 2560, pixelHeight: 1440, scale: 1)
+    let arrangement = DisplayArrangement(placements: [
+        .init(geometry: retina, globalOriginX: 0, globalOriginY: 0),
+        .init(geometry: external, globalOriginX: 1512, globalOriginY: -200),
+    ])
+    let onExternal = try #require(arrangement.viewport(forDisplayContaining: 2000, globalTopLeftY: 0))
+    #expect(onExternal.geometry == external)
+    #expect(onExternal.globalOriginX == 1512 && onExternal.globalOriginY == -200)
+    #expect(onExternal.widthInPoints == 2560 && onExternal.heightInPoints == 1440)
+    let onRetina = try #require(arrangement.viewport(forDisplayContaining: 100, globalTopLeftY: 900))
+    #expect(onRetina.widthInPoints == 1512 && onRetina.heightInPoints == 982, "pixels over scale")
+    // Below both — the built-in ends at 982, the raised external at −200 + 1440 = 1240 — is on
+    // nothing. (1200 was used first and is ON the external display: the bound was hand-reckoned.)
+    #expect(arrangement.viewport(forDisplayContaining: 1512, globalTopLeftY: 1300) == nil)
+    // Above the built-in display and left of the external one: inside the external's height and
+    // not its width, so on nothing — the case a missing left-edge check would hand to the
+    // external display. (Added after that mutation survived the first version of this test.)
+    #expect(arrangement.viewport(forDisplayContaining: 100, globalTopLeftY: -150) == nil)
+    // The right edge is not inside: 1512 belongs to the display that starts there.
+    #expect(arrangement.viewport(forDisplayContaining: 1512, globalTopLeftY: 500)?.geometry == external)
+    #expect(arrangement.viewport(forDisplayContaining: 1511.9, globalTopLeftY: 900)?.geometry == retina)
+}

@@ -83,11 +83,15 @@ public enum StagePlanner {
         // The SAME mapping the renderer applies to the content: a pointer drawn at its
         // un-zoomed place while the recording beneath it moved would sit somewhere the
         // user never pointed — `1a98402`'s class arriving through the camera.
-        NormalizedPointerPlacement(x: plan.contentX(ofNormalised: point.x),
-                                   y: plan.contentY(ofNormalised: point.y),
-                                   ripplePhase: ripplePhase, shape: shape, hotspot: hotspot,
-                                   opacity: opacity, tiltDegrees: tiltDegrees,
-                                   smearRadius: smearRadius, smearAngle: smearAngle,
-                                   pressScale: pressScale)
+        // …and then the SAME turn the card takes, for the same reason: on a leaned or turned card
+        // the flat position is somewhere the picture no longer is. See `StageTilt.project`.
+        let placed = plan.style.tilt.project(
+            StagePoint(x: plan.contentX(ofNormalised: point.x), y: plan.contentY(ofNormalised: point.y)),
+            on: plan.card)
+        return NormalizedPointerPlacement(x: placed.x, y: placed.y,
+                                          ripplePhase: ripplePhase, shape: shape, hotspot: hotspot,
+                                          opacity: opacity, tiltDegrees: tiltDegrees,
+                                          smearRadius: smearRadius, smearAngle: smearAngle,
+                                          pressScale: pressScale)
     }
 }

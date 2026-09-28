@@ -821,3 +821,74 @@ private func onePixel() -> CGImage {
                    provider: provider, decode: nil, shouldInterpolate: false,
                    intent: .defaultIntent)!
 }
+
+/// **On a leaned or turned card, the pointer lands on the pixel it points at** (reported
+/// 2026-09-28: "when I lean or turn the screen the cursor position is wrong").
+///
+/// The card's picture is projected by `StageTilt`; the pointer was placed where the FLAT card
+/// would have put it, so it drifted off its target by as much as the card was turned. Checked
+/// the way a person sees it: a small bright square is painted into the source at a known
+/// normalised point — off-centre, so neither the lean nor the turn is at its identity there —
+/// the card is rendered leaned and turned, the square is found in the output, and the pointer's
+/// placement for that same point must sit on it.
+@Test func onATurnedCardThePointerLandsOnWhatItPointsAt() throws {
+    let width = 400, height = 300
+    let renderer: any FrameRendering
+    do { renderer = try CoreImageFrameRenderer() } catch FrameRenderingError.noRenderDevice {
+        Issue.record("no Metal render device on this machine — a real answer, not a skip")
+        return
+    }
+    let target = NormalizedPoint(x: 0.3, y: 0.7)
+    let source = try makePixelBuffer(width: width, height: height, fill: (10, 10, 10))
+    // Rows are top-down in memory and normalised y is bottom-up: row = (1 − y) · height.
+    try paintSquare(source, centreColumn: Int(target.x * Double(width)),
+                    centreRow: Int((1 - target.y) * Double(height)), side: 8, colour: (250, 250, 250))
+
+    let tilted = StageStyle(insetFraction: 0.06, cornerRadius: 0, shadowRadius: 0, shadowOpacity: 0,
+                            background: .solid(red: 0, green: 0, blue: 0),
+                            tilt: StageTilt(pitch: 20, yaw: -25, distance: 2.5))
+    let base = StagePlanner.plan(outputWidth: width, outputHeight: height,
+                                 sourceWidth: width, sourceHeight: height, style: tilted)
+    let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+    try renderer.render(base, source: source, camera: nil, into: destination)
+
+    // The square's centre in the output, in the plan's bottom-left pixels.
+    let all = try pixels(of: destination)
+    var sumX = 0.0, sumY = 0.0, count = 0.0
+    for (index, pixel) in all.enumerated() where pixel.r > 150 && pixel.g > 150 && pixel.b > 150 {
+        sumX += Double(index % width) + 0.5
+        sumY += Double(height - index / width) - 0.5
+        count += 1
+    }
+    try #require(count > 4, "the painted square was not found in the output (\(Int(count)) bright pixels)")
+    let found = (x: sumX / count, y: sumY / count)
+
+    let placement = StagePlanner.placement(for: target, in: base)
+    let miss = hypot(placement.x - found.x, placement.y - found.y)
+    #expect(miss < 2, """
+        the pointer is at (\(placement.x), \(placement.y)) and what it points at is at \
+        (\(found.x), \(found.y)) — \(miss) pixels apart on a card leaned 20° and turned −25°
+        """)
+}
+
+/// A small square, `side` pixels, centred at a buffer column and row (rows top-down).
+private func paintSquare(_ buffer: CVPixelBuffer, centreColumn: Int, centreRow: Int, side: Int,
+                         colour: (r: UInt8, g: UInt8, b: UInt8)) throws {
+    CVPixelBufferLockBaseAddress(buffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+    // Safe here: the writes sit between the lock pair, and rows and columns are clamped to the
+    // buffer's own dimensions, so every offset stays inside height × bytes-per-row.
+    let base = try unsafe #require(unsafe CVPixelBufferGetBaseAddress(buffer))
+        .assumingMemoryBound(to: UInt8.self)
+    let stride = CVPixelBufferGetBytesPerRow(buffer)
+    let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+    for row in max(0, centreRow - side / 2)..<min(height, centreRow + side / 2) {
+        for column in max(0, centreColumn - side / 2)..<min(width, centreColumn + side / 2) {
+            let offset = row * stride + column * 4
+            unsafe base[offset + 0] = colour.b
+            unsafe base[offset + 1] = colour.g
+            unsafe base[offset + 2] = colour.r
+            unsafe base[offset + 3] = 255
+        }
+    }
+}

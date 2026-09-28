@@ -119,6 +119,17 @@ private func clip(_ id: Int, from start: Double, seconds: Double, speed: Double 
         #expect(placement.fates[late.id] == .droppedNothingAfter)
     }
 
+    /// Removing takes that chapter and no other, and its id is not handed out again — a later
+    /// chapter with a recycled id would answer to an old chapter's edits.
+    @Test func removingTakesOnlyThatChapterAndRetiresItsId() throws {
+        let track = ChapterTrack().adding(title: "A", start: ns(0)).adding(title: "B", start: ns(9))
+        let first = try #require(track.chapters.first)
+        let removed = track.removing(first.id)
+        #expect(removed.chapters.map(\.title) == ["B"])
+        #expect(removed.adding(title: "C", start: ns(20)).chapters.last?.id != first.id)
+        #expect(ChapterTrack().isEmpty && !track.isEmpty)
+    }
+
     @Test func aDecodedTrackIsSortedAndItsIdsCannotCollide() throws {
         let json = #"{"chapters":[{"id":4,"title":"B","start":{"rawValue":9000000000},"origin":{"authored":{}}},{"id":1,"title":"A","start":{"rawValue":0},"origin":{"authored":{}}}],"nextID":2}"#
         let track = try JSONDecoder().decode(ChapterTrack.self, from: Data(json.utf8))
