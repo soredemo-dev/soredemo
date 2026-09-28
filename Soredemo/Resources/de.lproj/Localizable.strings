@@ -729,3 +729,16 @@
 
 /* A new recording's name (2026-09-28). */
 "Recording %@" = "Aufnahme %@";
+
+/* Chapter marks and the notch's sound warnings (2026-09-28). */
+"Chapter %lld" = "Kapitel %lld";
+"Marked while recording" = "Während der Aufnahme markiert";
+"No chapter was marked: the recording is between segments." = "Kein Kapitel markiert: Die Aufnahme ist zwischen zwei Abschnitten.";
+"The chapter mark could not be written: %@" = "Die Kapitelmarke konnte nicht geschrieben werden: %@";
+"The speakers will be heard in the recording" = "Die Lautsprecher werden mit aufgenommen";
+"The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "Das eingebaute Mikrofon hört die eingebauten Lautsprecher, also wird alles, was dieser Mac abspielt, doppelt aufgenommen. Mit Kopfhörern bleibt es aus der Aufnahme.";
+"Mark a chapter here" = "Hier ein Kapitel markieren";
+"Mark a chapter here (%@) — it becomes a chapter when the recording opens" = "Hier ein Kapitel markieren (%@) – es wird zum Kapitel, wenn die Aufnahme geöffnet wird";
+"The microphone hears nothing" = "Das Mikrofon hört nichts";
+"Chapter %lld marked" = "Kapitel %lld markiert";
+"%lld chapter mark(s) fell outside the recorded video and were left out." = "%lld Kapitelmarke(n) lagen außerhalb des aufgenommenen Videos und wurden ausgelassen.";

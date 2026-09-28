@@ -30,6 +30,17 @@ final class RecordingCoordinator {
     /// 0…1, the microphone's level right now, smoothed. `nil` when no microphone is being
     /// recorded, which is what lets the bar draw a struck-through mic rather than a dead meter.
     private(set) var microphoneLevel: Double?
+    /// True once the microphone has heard NOTHING for `MicrophoneSilenceWatch.patience` — no
+    /// buffers, or buffers of digital silence. Not a person being quiet; see the watch.
+    private(set) var microphoneHearsNothing = false
+    private var silenceWatch = MicrophoneSilenceWatch()
+    /// Whether the built-in speakers will be heard by the built-in microphone. Re-read when the
+    /// notch opens and when the microphone changes; see `AudioRoute`.
+    private(set) var speakersReachTheMicrophone = false
+    /// Chapter marks written in the take running now, shown so a person sees the press land.
+    private(set) var marksThisTake = 0
+    /// Seconds the "mark landed" acknowledgement has left, counted down by `tick`.
+    private(set) var markAcknowledgement: Double = 0
     /// What the source picker is currently offering, so the menu bar panel can show which of
     /// its two buttons opened it.
     private(set) var pendingMode: CaptureSourcePicker.Modes?
@@ -599,6 +610,34 @@ final class RecordingCoordinator {
         NotchSurfacePresenter.shared.recordingEnded()
     }
 
+    /// A chapter can be marked in a screen take that is running and not paused. A phone take has
+    /// no observation log to hold one.
+    var canMarkChapter: Bool { isRecording && !isPaused && session != nil }
+    /// Whether this take is one marks can be written into at all — a screen take, paused or not.
+    var takeCanHoldMarks: Bool { isRecording && session != nil }
+
+    /// Marks a chapter at this moment of the take. See `ChapterMark` and
+    /// `docs/design/2026-09-28-notch-marks-and-audio-warnings.md`.
+    func markChapter() {
+        guard canMarkChapter, let session else { return }
+        switch session.markChapter() {
+        case .written:
+            marksThisTake += 1
+            markAcknowledgement = Self.markAcknowledgementSeconds
+        case .noSegmentOpen:
+            status = .report(String(localized: "No chapter was marked: the recording is between segments."))
+        case .notWritten(let reason):
+            status = .problem(String(localized: "The chapter mark could not be written: \(reason)"))
+        }
+    }
+
+    static let markAcknowledgementSeconds = 1.5
+
+    /// Re-reads whether the speakers will reach the microphone. Cheap — three Core Audio reads.
+    func refreshAudioRoute() {
+        speakersReachTheMicrophone = AudioRoute.speakersReachTheMicrophone(for: microphone)
+    }
+
     func togglePause() {
         guard let session, isRecording else { return }
         Task { @MainActor in
@@ -606,6 +645,9 @@ final class RecordingCoordinator {
                 if isPaused {
                     try await session.resume()
                     isPaused = false
+                    // The clock did not tick while paused, and a pause is not silence.
+                    silenceWatch.reset()
+                    microphoneHearsNothing = false
                     status = .quiet
                 } else {
                     try await session.pause()
@@ -629,6 +671,7 @@ final class RecordingCoordinator {
     func tick(_ interval: Double) {
         guard isRecording, !isPaused else { return }
         elapsed += interval
+        markAcknowledgement = max(0, markAcknowledgement - interval)
         // Smoothed toward the instantaneous value: `latestRMS` is the RMS of one buffer, and a
         // meter drawn straight from it flickers at the buffer rate. Rising fast and falling slow
         // is what every level meter does, because a peak a person missed is worse than a decay
@@ -636,8 +679,20 @@ final class RecordingCoordinator {
         // `.off` reads as no meter rather than as a silent one: a full-height empty track is
         // what "not hearing you" looks like, and that is not what a person who turned the
         // microphone off should be shown.
-        guard microphone != .off else { microphoneLevel = nil; return }
-        let reading = session?.diagnostics.microphoneAccounting.latestRMS
+        guard microphone != .off else {
+            microphoneLevel = nil
+            microphoneHearsNothing = false
+            return
+        }
+        // **Before the level's guard, not after it.** A microphone that never delivered has no
+        // reading at all, and that is the loudest case of hearing nothing.
+        let accounting = session?.diagnostics.microphoneAccounting
+        if let accounting {
+            microphoneHearsNothing = silenceWatch.observe(delivered: accounting.delivered,
+                                                          latestRMS: accounting.latestRMS,
+                                                          over: interval)
+        }
+        let reading = accounting?.latestRMS
         guard let reading else { microphoneLevel = nil; return }
         let scaled = min(1, sqrt(reading) * 1.6)
         let previous = microphoneLevel ?? 0
@@ -819,7 +874,18 @@ final class RecordingCoordinator {
             isRecording = true
             isPaused = false
             elapsed = 0
+            marksThisTake = 0
+            markAcknowledgement = 0
+            silenceWatch.reset()
+            microphoneHearsNothing = false
             pendingMode = nil
+            // Held only while the take runs — see `GlobalHotkey.markChapterKeyCode`. A refusal is
+            // not reported: the notch's button does the same thing, and the stop key's own
+            // refusal is the one a person must hear about.
+            _ = GlobalHotkey.shared.register(keyCode: GlobalHotkey.markChapterKeyCode,
+                                             modifiers: GlobalHotkey.markChapterModifiers) {
+                [weak self] in self?.markChapter()
+            }
             // **Shown from here, not from a view.** It used to be presented by `ContentView`'s
             // `.onChange`, which worked only while an editor window happened to be open — and
             // once the window stopped opening at launch, `ContentView` was never built, so a
@@ -993,9 +1059,12 @@ final class RecordingCoordinator {
         DesktopIcons.restore()
 
         guard let session else { return }
+        GlobalHotkey.shared.unregister(keyCode: GlobalHotkey.markChapterKeyCode,
+                                       modifiers: GlobalHotkey.markChapterModifiers)
         isRecording = false
         isPaused = false
         microphoneLevel = nil
+        microphoneHearsNothing = false
         pendingMode = nil
         hideRecordingControls()
         status = .report(String(localized: "Finishing\u{2026}"))

@@ -731,3 +731,16 @@
 
 /* A new recording's name (2026-09-28). */
 "Recording %@" = "录制 %@";
+
+/* Chapter marks and the notch's sound warnings (2026-09-28). */
+"Chapter %lld" = "章节 %lld";
+"Marked while recording" = "录制时标记";
+"No chapter was marked: the recording is between segments." = "没有标记章节:录制正处于两段之间。";
+"The chapter mark could not be written: %@" = "章节标记无法写入:%@";
+"The speakers will be heard in the recording" = "扬声器的声音会被录进去";
+"The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "内置麦克风能听到内置扬声器,所以这台 Mac 播放的声音会被录两次。戴耳机就不会录进去。";
+"Mark a chapter here" = "在这里标记章节";
+"Mark a chapter here (%@) — it becomes a chapter when the recording opens" = "在这里标记章节(%@)—— 打开录制时会变成章节";
+"The microphone hears nothing" = "麦克风收不到任何声音";
+"Chapter %lld marked" = "已标记章节 %lld";
+"%lld chapter mark(s) fell outside the recorded video and were left out." = "有 %lld 个章节标记落在录到的视频之外,已略过。";

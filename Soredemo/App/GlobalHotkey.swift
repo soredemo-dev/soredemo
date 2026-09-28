@@ -34,6 +34,7 @@ final class GlobalHotkey {
     /// leak a hot key ref per re-registration.
     private var registered: [UInt32: EventHotKeyRef] = [:]
     private var actions: [UInt32: () -> Void] = [:]
+    private var combinations: [UInt32: (keyCode: UInt32, modifiers: UInt32)] = [:]
     private var handler: EventHandlerRef?
     private var nextID: UInt32 = 1
 
@@ -47,6 +48,14 @@ final class GlobalHotkey {
     /// separately AND ships a toggle; the toggle is the one people use.
     static let toggleRecordingKeyCode = UInt32(kVK_ANSI_R)
     static let toggleRecordingModifiers = UInt32(cmdKey | shiftKey)
+
+    /// ⌥⌘M — mark a chapter in the take. **Registered only while a take runs**
+    /// (`RecordingCoordinator`), because a hot key swallows its combination in every application
+    /// and holding one when nothing is recording would steal it for nothing. Not in
+    /// `InputObserver.approvedShortcuts`, so pressing it never draws a keystroke badge.
+    static let markChapterKeyCode = UInt32(kVK_ANSI_M)
+    static let markChapterModifiers = UInt32(cmdKey | optionKey)
+    static let markChapterSymbol = "\u{2325}\u{2318}M"
 
     /// Registers `action` for a key code and Carbon modifier mask. Returns false when the system
     /// refuses — usually because another application already holds the combination, which is a
@@ -69,13 +78,26 @@ final class GlobalHotkey {
         guard status == noErr, let reference else { return false }
         registered[id] = reference
         actions[id] = action
+        combinations[id] = (keyCode, modifiers)
         return true
+    }
+
+    /// Releases one combination, so the application in front gets it back. Nothing when it is not
+    /// registered — a take that failed to register its mark key still stops cleanly.
+    func unregister(keyCode: UInt32, modifiers: UInt32) {
+        for (id, combination) in combinations where combination == (keyCode, modifiers) {
+            if let reference = registered[id] { unsafe UnregisterEventHotKey(reference) }
+            registered[id] = nil
+            actions[id] = nil
+            combinations[id] = nil
+        }
     }
 
     func unregisterAll() {
         for reference in registered.values { unsafe UnregisterEventHotKey(reference) }
         registered.removeAll()
         actions.removeAll()
+        combinations.removeAll()
     }
 
     /// The four-character signature Carbon uses to tell one app's hot keys from another's.

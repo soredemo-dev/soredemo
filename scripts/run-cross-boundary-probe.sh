@@ -125,6 +125,8 @@ xcrun swiftc \
   Soredemo/Editor/ContentView.swift \
   Soredemo/Recording/RecordingCoordinator.swift \
   Soredemo/Recording/RecordingClock.swift \
+  Soredemo/Recording/MicrophoneSilenceWatch.swift \
+  Soredemo/Recording/AudioRoute.swift \
   Soredemo/Project/TemporaryFileMediaSink.swift \
   Soredemo/Project/RecordingName.swift \
   Soredemo/Recording/CameraSelfView.swift \

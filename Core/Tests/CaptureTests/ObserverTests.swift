@@ -724,3 +724,14 @@ private func windowViewport() -> CaptureViewport {
     #expect(abs(frame.size.width - 0.5) < 1e-9)
     #expect(abs(frame.size.height - 0.2) < 1e-9)
 }
+
+/// **The chapter mark key never becomes a keystroke badge.** The app holds ⌥⌘M during a take
+/// (`GlobalHotkey.markChapterKeyCode`, pinned by `theChapterMarkKeyIsOptionCommandM`); the observer
+/// records only what it approves, and the day that pair is approved every mark draws itself into
+/// the video.
+@Test func theChapterMarkKeyIsNotAKeystrokeTheVideoShows() {
+    #expect(InputObserver.approvedShortcut(forKeyCode: Int64(kVK_ANSI_M),
+                                           flags: [.maskCommand, .maskAlternate]) == nil)
+    // Positive control: the same lookup finds an approved one, so the `nil` above is an answer.
+    #expect(InputObserver.approvedShortcut(forKeyCode: Int64(kVK_ANSI_C), flags: [.maskCommand]) == "cmd+c")
+}

@@ -729,3 +729,16 @@
 
 /* A new recording's name (2026-09-28). */
 "Recording %@" = "Запись %@";
+
+/* Chapter marks and the notch's sound warnings (2026-09-28). */
+"Chapter %lld" = "Глава %lld";
+"Marked while recording" = "Отмечено во время записи";
+"No chapter was marked: the recording is between segments." = "Глава не отмечена: запись между двумя сегментами.";
+"The chapter mark could not be written: %@" = "Не удалось записать отметку главы: %@";
+"The speakers will be heard in the recording" = "Динамики будут слышны в записи";
+"The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "Встроенный микрофон слышит встроенные динамики, поэтому всё, что играет этот Mac, записывается дважды. В наушниках звук не попадёт в запись.";
+"Mark a chapter here" = "Отметить главу здесь";
+"Mark a chapter here (%@) — it becomes a chapter when the recording opens" = "Отметить главу здесь (%@) — она станет главой при открытии записи";
+"The microphone hears nothing" = "Микрофон ничего не слышит";
+"Chapter %lld marked" = "Глава %lld отмечена";
+"%lld chapter mark(s) fell outside the recorded video and were left out." = "Отметок глав вне записанного видео: %lld. Они пропущены.";

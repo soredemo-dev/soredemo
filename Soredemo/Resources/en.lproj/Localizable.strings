@@ -745,3 +745,16 @@
 
 /* A new recording's name (2026-09-28). */
 "Recording %@" = "Recording %@";
+
+/* Chapter marks and the notch's sound warnings (2026-09-28). */
+"Chapter %lld" = "Chapter %lld";
+"Marked while recording" = "Marked while recording";
+"No chapter was marked: the recording is between segments." = "No chapter was marked: the recording is between segments.";
+"The chapter mark could not be written: %@" = "The chapter mark could not be written: %@";
+"The speakers will be heard in the recording" = "The speakers will be heard in the recording";
+"The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take.";
+"Mark a chapter here" = "Mark a chapter here";
+"Mark a chapter here (%@) — it becomes a chapter when the recording opens" = "Mark a chapter here (%@) — it becomes a chapter when the recording opens";
+"The microphone hears nothing" = "The microphone hears nothing";
+"Chapter %lld marked" = "Chapter %lld marked";
+"%lld chapter mark(s) fell outside the recorded video and were left out." = "%lld chapter mark(s) fell outside the recorded video and were left out.";

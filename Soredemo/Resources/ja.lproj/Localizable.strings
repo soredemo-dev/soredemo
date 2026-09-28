@@ -731,3 +731,16 @@
 
 /* A new recording's name (2026-09-28). */
 "Recording %@" = "収録 %@";
+
+/* Chapter marks and the notch's sound warnings (2026-09-28). */
+"Chapter %lld" = "チャプター %lld";
+"Marked while recording" = "収録中にマーク";
+"No chapter was marked: the recording is between segments." = "チャプターはマークされませんでした:収録がセグメントの間です。";
+"The chapter mark could not be written: %@" = "チャプターマークを書き込めませんでした:%@";
+"The speakers will be heard in the recording" = "スピーカーの音が収録されます";
+"The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "内蔵マイクが内蔵スピーカーの音を拾うため、この Mac で再生した音が二重に収録されます。ヘッドフォンを使えば収録に入りません。";
+"Mark a chapter here" = "ここでチャプターをマーク";
+"Mark a chapter here (%@) — it becomes a chapter when the recording opens" = "ここでチャプターをマーク(%@)— 収録を開くとチャプターになります";
+"The microphone hears nothing" = "マイクに何も聞こえていません";
+"Chapter %lld marked" = "チャプター %lld をマーク";
+"%lld chapter mark(s) fell outside the recorded video and were left out." = "%lld 個のチャプターマークが収録された映像の外にあったため、除外しました。";

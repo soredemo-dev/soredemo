@@ -1568,6 +1568,8 @@ struct StageWindow: View {
                 if let pendingEdit {
                     editor.restore(pendingEdit)
                     editor.savedPackage = ProjectStore.packageURL(forMediaAt: mediaURL)
+                } else {
+                    editor.seedChaptersFromMarks(forMediaAt: mediaURL)
                 }
                 // After `load`, which resets the model: reading the envelope is slow enough
                 // that a person sees the strip before it arrives, and it must not be wiped by

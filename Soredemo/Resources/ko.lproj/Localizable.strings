@@ -729,3 +729,16 @@
 
 /* A new recording's name (2026-09-28). */
 "Recording %@" = "녹화 %@";
+
+/* Chapter marks and the notch's sound warnings (2026-09-28). */
+"Chapter %lld" = "챕터 %lld";
+"Marked while recording" = "녹화 중 표시";
+"No chapter was marked: the recording is between segments." = "챕터를 표시하지 않았습니다: 녹화가 구간 사이에 있습니다.";
+"The chapter mark could not be written: %@" = "챕터 표시를 기록할 수 없습니다: %@";
+"The speakers will be heard in the recording" = "스피커 소리가 녹화됩니다";
+"The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "내장 마이크가 내장 스피커 소리를 듣기 때문에 이 Mac에서 재생되는 소리가 두 번 녹화됩니다. 헤드폰을 쓰면 녹화에 들어가지 않습니다.";
+"Mark a chapter here" = "여기에 챕터 표시";
+"Mark a chapter here (%@) — it becomes a chapter when the recording opens" = "여기에 챕터 표시(%@) — 녹화를 열면 챕터가 됩니다";
+"The microphone hears nothing" = "마이크에 아무 소리도 들리지 않습니다";
+"Chapter %lld marked" = "챕터 %lld 표시함";
+"%lld chapter mark(s) fell outside the recorded video and were left out." = "챕터 표시 %lld개가 녹화된 영상 밖에 있어 제외했습니다.";

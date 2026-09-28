@@ -209,7 +209,7 @@ struct NotchSurfaceView: View {
                             .font(.system(size: 12, weight: .medium).monospacedDigit())
                     }
                 }, right: {
-                    LevelMeter(level: coordinator.microphoneLevel).frame(width: 36, height: 4)
+                    NotchSoundWing(coordinator: coordinator)
                 })
                 if expanded {
                     NotchTakeControls(coordinator: coordinator)
@@ -291,11 +291,21 @@ private struct NotchRecorderControls: View {
             .menuStyle(.borderlessButton)
             .font(.system(size: 11))
             .foregroundStyle(.white.opacity(0.8))
+            // **A hint, beside the choice it is about**, and only when it is true — see
+            // `AudioRoute` for why it suggests headphones and not muting.
+            if coordinator.speakersReachTheMicrophone {
+                Label("The speakers will be heard in the recording", systemImage: "speaker.wave.2.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Signal.paused)
+                    .help("The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take.")
+            }
         }
+        .onChange(of: coordinator.microphone) { coordinator.refreshAudioRoute() }
         // When the surface opens, which is the moment a phone was plugged in for — the menu's
         // own `.task` does the same, and without it the notch showed yesterday's devices.
         .task {
             coordinator.refreshMicrophones()
+            coordinator.refreshAudioRoute()
             coordinator.refreshCameras()
             coordinator.refreshMobileScreens()
         }
@@ -343,6 +353,39 @@ private struct NotchRecorderControls: View {
     }
 }
 
+/// The right wing of a live take: the level, unless there is something more urgent to say.
+///
+/// **One place, three states, in order of what a person needs to know first.** A mark that just
+/// landed is acknowledged briefly with its number — the press was blind, from a hot key, and
+/// otherwise nothing would answer it. A microphone that hears nothing replaces the meter, because
+/// a meter at the bottom of its track looks exactly like a quiet room.
+private struct NotchSoundWing: View {
+    let coordinator: RecordingCoordinator
+
+    var body: some View {
+        if coordinator.markAcknowledgement > 0 {
+            HStack(spacing: Space.hairline + 1) {
+                Image(systemName: "bookmark.fill")
+                Text(verbatim: "\(coordinator.marksThisTake)").monospacedDigit()
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 36)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Chapter \(coordinator.marksThisTake) marked"))
+        } else if coordinator.microphoneHearsNothing {
+            Label("The microphone hears nothing", systemImage: "mic.slash.fill")
+                .labelStyle(.iconOnly)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Signal.paused)
+                .frame(width: 36)
+                .help("The microphone hears nothing")
+        } else {
+            LevelMeter(level: coordinator.microphoneLevel).frame(width: 36, height: 4)
+        }
+    }
+}
+
 /// A take's controls, shown only while the pointer is on the surface.
 private struct NotchTakeControls: View {
     let coordinator: RecordingCoordinator
@@ -355,6 +398,18 @@ private struct NotchTakeControls: View {
                 } icon: {
                     Image(systemName: coordinator.isPaused ? "play.fill" : "pause.fill")
                 }
+            }
+            if coordinator.takeCanHoldMarks {
+                Button { coordinator.markChapter() } label: {
+                    Label("Mark a chapter here", systemImage: "bookmark")
+                }
+                .disabled(!coordinator.canMarkChapter)
+                .help("Mark a chapter here (\(GlobalHotkey.markChapterSymbol)) — it becomes a chapter when the recording opens")
+            }
+            if coordinator.microphoneHearsNothing {
+                Label("The microphone hears nothing", systemImage: "mic.slash.fill")
+                    .foregroundStyle(Signal.paused)
+                    .lineLimit(1)
             }
             if case .ready(let ceiling) = coordinator.clipReadiness {
                 Button { coordinator.saveClip(lastSeconds: ceiling) } label: {

@@ -731,3 +731,16 @@
 
 /* A new recording's name (2026-09-28). */
 "Recording %@" = "Grabación %@";
+
+/* Chapter marks and the notch's sound warnings (2026-09-28). */
+"Chapter %lld" = "a Rust recorderítulo %lld";
+"Marked while recording" = "Marcado durante la grabación";
+"No chapter was marked: the recording is between segments." = "No se marcó ningún capítulo: la grabación está entre dos segmentos.";
+"The chapter mark could not be written: %@" = "No se pudo escribir la marca de capítulo: %@";
+"The speakers will be heard in the recording" = "Los altavoces se oirán en la grabación";
+"The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "El micrófono integrado oye los altavoces integrados, así que todo lo que reproduce este Mac se graba dos veces. Con auriculares no entra en la toma.";
+"Mark a chapter here" = "Marcar un capítulo aquí";
+"Mark a chapter here (%@) — it becomes a chapter when the recording opens" = "Marcar un capítulo aquí (%@): se convierte en capítulo al abrir la grabación";
+"The microphone hears nothing" = "El micrófono no oye nada";
+"Chapter %lld marked" = "a Rust recorderítulo %lld marcado";
+"%lld chapter mark(s) fell outside the recorded video and were left out." = "%lld marca(s) de capítulo quedaron fuera del vídeo grabado y se omitieron.";

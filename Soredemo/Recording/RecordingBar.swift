@@ -264,6 +264,10 @@ struct RecordingBarView: View {
                       label: coordinator.isPaused ? "Resume" : "Pause") {
                 coordinator.togglePause()
             }
+            if coordinator.takeCanHoldMarks {
+                BarButton(icon: "bookmark", label: "Mark a chapter here") { coordinator.markChapter() }
+                    .disabled(!coordinator.canMarkChapter)
+            }
             BarButton(icon: "chevron.right.2", label: "Collapse — the recording keeps going") {
                 isCollapsed = true
             }
@@ -356,13 +360,22 @@ struct RecordingBarView: View {
     /// microphone on" but "is it hearing me", and only a moving bar answers that.
     @ViewBuilder private var microphone: some View {
         VStack(spacing: Space.tight) {
-            Image(systemName: coordinator.microphoneLevel == nil ? "mic.slash" : "mic.fill")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(coordinator.microphoneLevel == nil ? 0.45 : 0.95))
+            if coordinator.microphoneHearsNothing {
+                // **The meter is replaced, not joined.** A meter at the bottom of its track looks
+                // exactly like a quiet room; this is the one state it cannot show.
+                Image(systemName: "mic.slash.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Signal.paused)
+            } else {
+                Image(systemName: coordinator.microphoneLevel == nil ? "mic.slash" : "mic.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(coordinator.microphoneLevel == nil ? 0.45 : 0.95))
+            }
             LevelMeter(level: coordinator.microphoneLevel)
         }
         .frame(width: 34)
-        .help(coordinator.microphoneLevel == nil
+        .help(coordinator.microphoneHearsNothing ? Text("The microphone hears nothing")
+              : coordinator.microphoneLevel == nil
               ? Text("No microphone in this recording") : Text("Microphone level"))
     }
 
