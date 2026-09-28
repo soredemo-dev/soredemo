@@ -84,18 +84,15 @@ public enum WindowTargets {
                   true, onScreenWindowsOnly: true),
               let window = content.windows.first(where: { $0.windowID == target.id })
         else { return nil }
-        // The display whose bounds contain the window's CENTRE — `CaptureSource`'s own rule for
-        // which display a window belongs to, stated in `init(pickerFilter:availableDisplays:)`.
-        let centreX = Double(window.frame.midX)
-        let centreY = Double(window.frame.midY)
-        let display = content.displays.first { candidate in
-            let bounds = CGGeometryBridge.pointRect(from: candidate.frame)
-            return centreX >= bounds.x && centreX < bounds.x + bounds.width
-                && centreY >= bounds.y && centreY < bounds.y + bounds.height
-        } ?? content.displays.first
-        guard let display else { return nil }
-        let scale = Self.scale(of: display)
+        // **`DisplayHost`, and this is where the rules disagreed.** This said it used
+        // `CaptureSource`'s rule and did not: when the centre was on no display it took the
+        // FIRST display, overlapping or not — a recording of a screen the window was not on.
         let rect = CGGeometryBridge.pointRect(from: window.frame)
+        guard let index = DisplayHost.index(
+                for: rect, among: content.displays.map { CGGeometryBridge.pointRect(from: $0.frame) })
+        else { return nil }
+        let display = content.displays[index]
+        let scale = Self.scale(of: display)
         // **`SCWindow.frame` is GLOBAL; `WindowCapture.sourceRect` is DISPLAY-LOCAL.** This
         // handed the first straight into the second, which is harmless only on a display whose
         // origin is zero — elsewhere the recording is placed a whole display away and no cursor
@@ -106,8 +103,11 @@ public enum WindowTargets {
                               width: rect.width, height: rect.height)
         return .window(WindowCapture(
             window: window, display: display, sourceRect: local,
-            bufferWidth: Self.evenFloor(Int((rect.width * scale).rounded())),
-            bufferHeight: Self.evenFloor(Int((rect.height * scale).rounded()))))
+            // `RegionCapture.buffer`'s rule — floor to even, at least 2 — which the picker's
+            // window path already used. This ROUNDED first, so a 100.8-point window at 2× was a
+            // 202-pixel buffer here and 200 through the picker: one window, two sizes.
+            bufferWidth: RegionCapture.buffer(for: rect, scale: scale).width,
+            bufferHeight: RegionCapture.buffer(for: rect, scale: scale).height))
     }
 
     /// The displays a person could record, in the order the system reports them.
@@ -129,10 +129,6 @@ public enum WindowTargets {
         }
         return Double(mode.pixelWidth) / Double(mode.width)
     }
-
-    /// Even, because an odd buffer dimension is where a stray column of green comes from —
-    /// the same rule `CaptureSource` applies to its own buffer sizes.
-    static func evenFloor(_ value: Int) -> Int { max(2, value - (value % 2)) }
 }
 
 /// A rectangle of the screen a person dragged out, turned into something recordable.
@@ -165,24 +161,22 @@ public enum RegionTargets {
 
     /// The `CaptureSource` for a region given in GLOBAL top-left points.
     ///
-    /// **The display whose bounds contain the region's CENTRE**, which is `CaptureSource`'s own
-    /// rule for a window and the same one for the same reason: a rectangle straddling two
-    /// displays belongs to one of them, and the centre is the only answer that does not depend
-    /// on which edge is asked about.
+    /// **The display `DisplayHost` names** — the region's centre, then any display it overlaps —
+    /// the same rule as a window's and for the same reason: a rectangle straddling two displays
+    /// belongs to one of them, and the centre is the only answer that does not depend on which
+    /// edge is asked about.
     ///
     /// Returns `nil` when no display owns it — a rectangle from a monitor unplugged between the
     /// drag and the click, which is a real gap between two user actions.
     public static func source(for rect: PointRect) async -> CaptureSource? {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
                   true, onScreenWindowsOnly: true) else { return nil }
-        let centreX = rect.x + rect.width / 2
-        let centreY = rect.y + rect.height / 2
-        let display = content.displays.first { candidate in
-            let bounds = CGGeometryBridge.pointRect(from: candidate.frame)
-            return centreX >= bounds.x && centreX < bounds.x + bounds.width
-                && centreY >= bounds.y && centreY < bounds.y + bounds.height
-        }
-        guard let display else { return nil }
+        // `DisplayHost` — which adds the overlap fallback this lacked: a region whose centre
+        // fell in the gap under a shorter display was refused, though it overlapped one.
+        guard let index = DisplayHost.index(
+                for: rect, among: content.displays.map { CGGeometryBridge.pointRect(from: $0.frame) })
+        else { return nil }
+        let display = content.displays[index]
         let bounds = CGGeometryBridge.pointRect(from: display.frame)
         guard let local = localRect(of: rect, inDisplay: bounds) else { return nil }
         let scale = WindowTargets.scale(of: display)

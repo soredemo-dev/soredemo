@@ -194,7 +194,7 @@ public enum ExportResolution: String, Hashable, Sendable, Codable, CaseIterable 
     /// for them. A person who recorded a Retina display and wants it at full size can have it.
     ///
     /// Even in both dimensions: an odd dimension is where a stray column of green comes from,
-    /// which is the same rule `WindowTargets.evenFloor` and `CaptureSource` already apply.
+    /// which is the same rule `RegionCapture.buffer` and `CaptureSource` already apply.
     public func size(forAspect aspect: Double, recordingShortSide: Int)
     -> (width: Int, height: Int) {
         let target = shortSide ?? max(recordingShortSide, 2)

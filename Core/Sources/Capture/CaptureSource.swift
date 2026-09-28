@@ -385,27 +385,13 @@ public enum CaptureSource: Sendable {
         case .window:
             guard let window = filter.includedWindows.first else { return nil }
             let frame = CGGeometryBridge.pointRect(from: window.frame)
-            let centreX = frame.x + frame.width / 2
-            let centreY = frame.y + frame.height / 2
-            // **Centre first, then any overlap.** The centre test alone finds nothing for a
-            // window dragged so its middle is past a display's edge — between two screens, or
-            // pushed off the side — and a window with no host is a capture that cannot start.
-            // so intersection is the fallback. Centre stays FIRST because it is the better
-            // answer when both apply: a window straddling two displays belongs to the one
-            // showing most of it.
-            func contains(_ display: SCDisplay) -> Bool {
-                let bounds = CGGeometryBridge.pointRect(from: display.frame)
-                return centreX >= bounds.x && centreX < bounds.x + bounds.width
-                    && centreY >= bounds.y && centreY < bounds.y + bounds.height
-            }
-            func overlaps(_ display: SCDisplay) -> Bool {
-                let bounds = CGGeometryBridge.pointRect(from: display.frame)
-                return frame.x < bounds.x + bounds.width && frame.x + frame.width > bounds.x
-                    && frame.y < bounds.y + bounds.height && frame.y + frame.height > bounds.y
-            }
-            guard let host = availableDisplays.first(where: contains)
-                    ?? availableDisplays.first(where: overlaps)
+            // Centre first, then any overlap — `DisplayHost`, the one rule the three ways of
+            // choosing a window or a region share.
+            guard let index = DisplayHost.index(
+                    for: frame,
+                    among: availableDisplays.map { CGGeometryBridge.pointRect(from: $0.frame) })
             else { return nil }
+            let host = availableDisplays[index]
 
             let hostBounds = CGGeometryBridge.pointRect(from: host.frame)
             // `sourceRect` is in the DISPLAY's own point space, so the window's global

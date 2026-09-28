@@ -522,13 +522,17 @@ private func overlaps(window: (x: Double, y: Double, w: Double, h: Double),
                 == "1402\u{00D7}811")
     }
 
-    /// Buffer dimensions are even, for `CaptureSource`'s reason: an odd one is where a stray
-    /// column of green comes from.
-    @Test func bufferDimensionsAreAlwaysEven() {
-        for value in [1, 2, 3, 1401, 1402] {
-            #expect(WindowTargets.evenFloor(value) % 2 == 0)
-        }
-        #expect(WindowTargets.evenFloor(0) == 2)
+    /// **A window's buffer is sized by the same rule however the window was chosen** — floor to
+    /// even, at least 2 (`RegionCapture.buffer`), which the picker's path always used. Pointing
+    /// at a window ROUNDED first until 2026-09-28, so a 100.8-point window at 2× was 202 pixels
+    /// that way and 200 through the picker: one window, two buffers.
+    @Test func aWindowsBufferIsFlooredToEvenWhicheverWayItWasChosen() {
+        let window = PointRect(x: 30, y: 40, width: 100.8, height: 50.9)
+        let buffer = RegionCapture.buffer(for: window, scale: 2)
+        #expect(buffer.width == 200 && buffer.height == 100)
+        #expect(buffer.width == CaptureSource.evenFloor(window.width * 2))
+        let tiny = RegionCapture.buffer(for: PointRect(x: 0, y: 0, width: 0.4, height: 0.4), scale: 2)
+        #expect(tiny.width == 2 && tiny.height == 2, "a buffer is never smaller than 2 × 2")
     }
 
     /// Enumerating must not prompt or trap on a machine with no grant — it returns what it can.
