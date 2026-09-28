@@ -34,14 +34,14 @@ struct CanvasBar: View {
             .tooltip("The shape of the export")
 
             Text(verbatim: "\(outputWidth)\u{00D7}\(outputHeight)")
-                .font(Type.readout)
+                .font(Type.barReadout)
                 .foregroundStyle(Theme.Ink.tertiary)
 
             Divider().frame(height: 16).overlay(Theme.Line.hairline)
 
             Toggle(isOn: $isCropping) {
                 Label("Crop", systemImage: "crop")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Type.barLabel)
             }
             .toggleStyle(.button)
             .controlSize(.small)
@@ -50,7 +50,7 @@ struct CanvasBar: View {
 
             Toggle(isOn: $showsSafeFrame) {
                 Label("Guides", systemImage: "square.dashed")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Type.barLabel)
             }
             .toggleStyle(.button)
             .controlSize(.small)
@@ -59,7 +59,7 @@ struct CanvasBar: View {
 
             if !crop.isWhole {
                 Text(verbatim: Self.cropLabel(crop))
-                    .font(Type.readout)
+                    .font(Type.barReadout)
                     .foregroundStyle(Theme.Ink.accent)
                 Button("Reset") {
                     crop = .whole

@@ -87,6 +87,10 @@ struct ContentView: View {
         // Space, sized generously on first open — are all properties of the WINDOW, true
         // whether or not there is a recording in it.
         .background(WindowConfigurator())
+        // Asks before the window closes, and lets the recording go once it has — see
+        // `EditorCloseGuard`.
+        .background(EditorCloseHook(shouldClose: { UnsavedWorkGuard.shared.mayCloseEditor() },
+                                    didClose: { coordinator.editorClosed() }))
     }
 }
 

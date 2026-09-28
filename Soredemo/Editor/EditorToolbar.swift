@@ -84,7 +84,7 @@ struct EditorToolbar: View {
                 // the tooltip says which file, because two exports of the same project differ
                 // only by name.
                 Image(systemName: "square.and.arrow.up")
-                    .font(Type.detail)
+                    .font(Type.barIcon)
                     .foregroundStyle(.secondary)
                 if let fraction = job.progress?.fraction {
                     ProgressView(value: fraction)
@@ -97,7 +97,7 @@ struct EditorToolbar: View {
                 }
                 if let reading = job.timeReading {
                     ExportJob.timeText(reading)
-                        .font(Type.detail)
+                        .font(Type.barLabel)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .fixedSize()
@@ -194,7 +194,7 @@ struct EditorToolbar: View {
             let fades = model.selectedFades
             let any = (fades?.in ?? 0) > 0 || (fades?.out ?? 0) > 0
             Image(systemName: any ? "circle.lefthalf.filled" : "circle")
-                .font(.system(size: 12, weight: .medium))
+                .font(Type.barIcon)
                 .foregroundStyle(any ? Theme.accent : Theme.Ink.secondary)
                 .frame(width: 20)
         }
@@ -225,7 +225,7 @@ struct EditorToolbar: View {
             }
         } label: {
             Text(verbatim: model.selectedSpeed.map(Self.speedLabel) ?? "1\u{00D7}")
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .font(Type.barReadout)
                 .foregroundStyle((model.selectedSpeed ?? 1) == 1
                                  ? Theme.Ink.secondary : Theme.accent)
                 .frame(width: 34)
@@ -329,7 +329,7 @@ struct EditorToolbar: View {
             model.showWholeRecording()
         }
         Text(verbatim: Self.span(model.window.visible))
-            .font(Type.readout)
+            .font(Type.barReadout)
             .foregroundStyle(Theme.Ink.secondary)
             .frame(width: 54, alignment: .trailing)
             .tooltip("How much of the recording the strip is showing")
@@ -365,7 +365,7 @@ private struct ToolbarAction: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
+                .font(Type.barIcon)
                 .foregroundStyle(isEnabled ? Theme.Ink.primary : Theme.Ink.tertiary)
                 .frame(width: 24, height: 22)
                 .background {

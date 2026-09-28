@@ -39,6 +39,22 @@ enum Type {
     /// Numbers that line up in a column. `monospacedDigit` so a readout does not jitter as it
     /// counts — a timecode that shifts under the cursor is unreadable while scrubbing.
     static let readout: Font = .caption.monospacedDigit()
+
+    // MARK: the editor's bars — the toolbar, the canvas bar, the transport
+
+    /// **Four roles for everything on the three bars, and nothing else.** They picked their own
+    /// sizes — 10, 11, 12 and 13 points across seventeen places — and read as three different
+    /// bars rather than one editor (reported 2026-09-28). `theEditorsBarsUseOnlyTheirTypeRoles`
+    /// keeps a hard-coded size off them.
+    /// A word on a bar: Crop, Guides, Edited, a speed.
+    static let barLabel: Font = .system(size: 11, weight: .medium)
+    /// A number on a bar — a timecode, a size, a span — in the same size, with digits that do not
+    /// move as they count.
+    static let barReadout: Font = .system(size: 11, weight: .medium).monospacedDigit()
+    /// A bar button's glyph.
+    static let barIcon: Font = .system(size: 12, weight: .medium)
+    /// The one primary action's glyph — play and pause — a size up, on purpose.
+    static let barPrimaryIcon: Font = .system(size: 14, weight: .medium)
 }
 
 /// Corner radii, so a card and a clip and a zoom block agree about how round things are here.

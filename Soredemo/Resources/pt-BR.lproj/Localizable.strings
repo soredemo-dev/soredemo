@@ -722,3 +722,11 @@
 "Match System" = "Como o sistema";
 "Light" = "Claro";
 "Dark" = "Escuro";
+
+/* Closing the editor (2026-09-28). */
+"Save this recording before closing?" = "Salvar esta gravação antes de fechar?";
+"It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again." = "Ela nunca foi salva. Se você não salvar, a gravação será apagada e não poderá ser refeita.";
+"Delete Recording" = "Apagar gravação";
+
+/* A new recording's name (2026-09-28). */
+"Recording %@" = "Gravação %@";

@@ -227,9 +227,6 @@ struct RecordingBarView: View {
     /// What moves the window. Owned by the panel; see `WindowDragger` for why the bar cannot be
     /// dragged by AppKit alone.
     let dragger: WindowDragger
-    /// 20 Hz. Fast enough that the level meter moves rather than steps, slow enough that it is
-    /// not a frame-rate cost on a machine already encoding video.
-    private static let tick: Double = 1.0 / 20
 
     /// Whether it opens collapsed. **Only `--show-recording-bar` passes true**: the check that
     /// drives it has to be able to reach the collapsed state, where the bar is one control and
@@ -253,9 +250,6 @@ struct RecordingBarView: View {
         .padding(.horizontal, Glass.shadowRoomSides)
         .padding(.top, Glass.shadowRoomTop)
         .padding(.bottom, Glass.shadowRoomBottom)
-        .onReceive(Timer.publish(every: Self.tick, on: .main, in: .common).autoconnect()) { _ in
-            coordinator.tick(Self.tick)
-        }
         .animation(.spring(response: 0.28, dampingFraction: 0.85), value: isCollapsed)
     }
 

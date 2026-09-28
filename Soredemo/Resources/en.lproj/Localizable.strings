@@ -737,3 +737,11 @@
 "Match System" = "Match System";
 "Light" = "Light";
 "Dark" = "Dark";
+
+/* Closing the editor (2026-09-28). */
+"Save this recording before closing?" = "Save this recording before closing?";
+"It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again." = "It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again.";
+"Delete Recording" = "Delete Recording";
+
+/* A new recording's name (2026-09-28). */
+"Recording %@" = "Recording %@";

@@ -723,3 +723,11 @@
 "Match System" = "跟随系统";
 "Light" = "浅色";
 "Dark" = "深色";
+
+/* Closing the editor (2026-09-28). */
+"Save this recording before closing?" = "关闭前要存储这段录制吗？";
+"It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again." = "这段录制从未存储。如果不存储，录制会被删除，而且无法重新录制。";
+"Delete Recording" = "删除录制";
+
+/* A new recording's name (2026-09-28). */
+"Recording %@" = "录制 %@";

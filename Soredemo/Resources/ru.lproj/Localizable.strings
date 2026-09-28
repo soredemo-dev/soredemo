@@ -721,3 +721,11 @@
 "Match System" = "Как в системе";
 "Light" = "Светлое";
 "Dark" = "Тёмное";
+
+/* Closing the editor (2026-09-28). */
+"Save this recording before closing?" = "Сохранить эту запись перед закрытием?";
+"It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again." = "Она ни разу не сохранялась. Если не сохранить, запись будет удалена, и повторить её будет нельзя.";
+"Delete Recording" = "Удалить запись";
+
+/* A new recording's name (2026-09-28). */
+"Recording %@" = "Запись %@";

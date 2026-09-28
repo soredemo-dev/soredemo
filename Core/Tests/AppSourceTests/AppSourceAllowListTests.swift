@@ -2557,3 +2557,53 @@ private let untranslatableLiterals: Set<String> = [
         the menu can start a recording with \(menu.subtracting(notch).sorted()) and the notch cannot
         """)
 }
+
+/// **The take's clock has one owner.** `RecordingCoordinator.tick` was driven by the floating
+/// bar's timer, so when the notch hosted the take the time stayed at 0:00 — and a second surface
+/// that ticked it too would run the time at double speed. Only the coordinator's own
+/// `RecordingClock` may call it.
+@Test func onlyTheCoordinatorAdvancesTheRecordingClock() throws {
+    let callers = try codeLinesNaming(".tick(", in: try appSourceFiles())
+        .filter { !$0.location.hasPrefix("Soredemo/Recording/RecordingCoordinator.swift") }
+    #expect(callers.isEmpty, """
+        these advance the recording's clock from outside the coordinator:
+        \(callers.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
+        """)
+    let owner = try codeLinesNaming("self?.tick(", in: try appSourceFiles())
+    try #require(owner.count == 1, "the coordinator's own clock no longer ticks it — the scan's positive control is gone")
+}
+
+/// **The editor's three bars take their type from four roles.** They had picked their own sizes —
+/// 10, 11, 12 and 13 points across seventeen places — and read as three bars rather than one
+/// editor (reported 2026-09-28). Every `.font(` on them is a `Type.bar…` role; a size written in
+/// place is the thing that drifted.
+@Test func theEditorsBarsUseOnlyTheirTypeRoles() throws {
+    let bars = try appSourceFiles().filter {
+        ["EditorToolbar.swift", "CanvasBar.swift", "TransportBar.swift"].contains($0.lastPathComponent)
+    }
+    try #require(bars.count == 3, "found \(bars.count) of the three bar files")
+    let fonts = try codeLinesNaming(".font(", in: bars)
+    try #require(fonts.count >= 17, "only \(fonts.count) font sites — the scan has stopped seeing the bars")
+    let stray = fonts.filter { !$0.text.contains(".font(Type.bar") }
+    #expect(stray.isEmpty, """
+        these bar fonts are not one of the four roles in DesignTokens:
+        \(stray.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
+        """)
+}
+
+/// **A name a person sees goes through `RecordingName`.** Every title and save panel read the
+/// media file's own name, which for a fresh recording is `master-00` — the capture's internal
+/// segment name (reported 2026-09-28).
+@Test func noNameIsTakenFromTheMediaFilesOwnName() throws {
+    let all = try codeLinesNaming("mediaURL.deletingPathExtension()", in: try appSourceFiles())
+    // `RecordingName` is the one place that may, since deciding when the file's name IS the name
+    // is its job — and finding it there is this scan's positive control.
+    try #require(all.contains { $0.location.hasPrefix("Soredemo/Project/RecordingName.swift") },
+                 "RecordingName no longer reads the file's name — the scan's positive control is gone")
+    let uses = all.filter { !$0.location.hasPrefix("Soredemo/Project/RecordingName.swift") }
+    #expect(uses.isEmpty, """
+        these name something after the media file, which is `master-00` for a new recording:
+        \(uses.map { "  \($0.location): \($0.text)" }.joined(separator: "\n"))
+        use RecordingName.display(for:savedPackage:recordedAt:)
+        """)
+}

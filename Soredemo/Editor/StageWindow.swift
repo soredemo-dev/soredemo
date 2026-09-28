@@ -30,6 +30,12 @@ struct StageWindow: View {
     var cameraStartOffsetNanos: Int64 = 0
     /// Everything a person decides about this recording — see `EditorViewModel`.
     @State private var editor = EditorViewModel()
+    /// When the recording's file was made — for its name, read off the file (see `RecordingName`).
+    @State private var recordedAt: Date?
+    /// What this recording is called wherever a person sees a name. Never `master-00`.
+    private var recordingName: String {
+        RecordingName.display(for: mediaURL, savedPackage: editor.savedPackage, recordedAt: recordedAt)
+    }
     @State private var player: AVPlayer?
     /// The asset the current item was built from. Held because `AVAudioMix` addresses that
     /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
@@ -191,6 +197,10 @@ struct StageWindow: View {
             // keeps its own `EditHistory`, which is a different stack for a different surface —
             // undoing a caption correction should not undo a cut.
             .onAppear { editor.captions.undoRecorder = undoManager }
+            // **Stopped, not left to the player's release.** The sound of a recording played on
+            // after its window was closed (2026-09-28); whatever else still holds the player, a
+            // closed editor does not play.
+            .onDisappear { player?.pause() }
             .onChange(of: undoManager) { editor.captions.undoRecorder = undoManager }
             // **The caption editor REPLACES the stage rather than floating over it.** A sheet
             // would have kept the timeline and the inspector behind it, which is exactly the
@@ -333,7 +343,7 @@ struct StageWindow: View {
                 .opacity(0)
                 .accessibilityHidden(true)
         }
-        .navigationTitle(Text(verbatim: mediaURL.deletingPathExtension().lastPathComponent))
+        .navigationTitle(Text(verbatim: recordingName))
         .navigationDocument(editor.savedPackage ?? mediaURL)
         .task(id: mediaURL) { await load() }
         // The setting can be changed while an editor is open; without this it would take a
@@ -358,7 +368,8 @@ struct StageWindow: View {
         // **Registered on every change, not once.** The closure captures this view's current
         // state, so a stale one would save an older edit than the one being asked about.
         .onChange(of: hasUnsavedChanges, initial: true) {
-            UnsavedWorkGuard.shared.update(hasUnsavedChanges: hasUnsavedChanges) {
+            UnsavedWorkGuard.shared.update(hasUnsavedChanges: hasUnsavedChanges,
+                                           isNeverSaved: editor.savedPackage == nil) {
                 saveProject()
                 return editor.savedPackage != nil && editor.currentEditState(hasCamera: cameraURL != nil) == editor.savedEdit
             }
@@ -366,6 +377,7 @@ struct StageWindow: View {
         // The preview follows the chosen shape: showing landscape while Portrait is selected
         // would be showing the wrong thing, which is the fault this surface exists against.
         .task { CodecVerdicts.shared.askOnce() }
+        .task(id: mediaURL) { recordedAt = RecordingName.creationDate(of: mediaURL) }
         .task {
             guard !hasSeededCameraStyle else { return }
             hasSeededCameraStyle = true
@@ -712,7 +724,8 @@ struct StageWindow: View {
                 // half of it. Above the panel it sat over both halves, and it is the full-width
                 // version of one of them — a button for captions floating over the transcript
                 // is a control whose subject you have to work out.
-                CaptionsPanel(model: editor.captions, mediaURL: mediaURL, edit: editor.timeline.edit,
+                CaptionsPanel(model: editor.captions, mediaURL: mediaURL, recordingName: recordingName,
+                              edit: editor.timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 },
                               playheadNow: { editor.timeline.playhead },
@@ -987,11 +1000,11 @@ struct StageWindow: View {
     private func exportFinalCutXML() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "fcpxml") ?? .xml]
-        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".fcpxml"
+        panel.nameFieldStringValue = recordingName + ".fcpxml"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
-        let name = mediaURL.deletingPathExtension().lastPathComponent
+        let name = recordingName
         let edit = editor.timeline.editForExport
         let rate = editor.recordingFrameRate
         let media = mediaURL
@@ -1441,7 +1454,7 @@ struct StageWindow: View {
         let existing = askingForDestination ? nil : editor.savedPackage
         let destination = existing ?? ProjectStore.chooseSaveDestination(
             defaultName: editor.savedPackage?.deletingPathExtension().lastPathComponent
-                ?? mediaURL.deletingPathExtension().lastPathComponent)
+                ?? recordingName)
         guard let destination else { return }
         do {
             try ProjectStore.save(recordingAt: mediaURL, edit: edit, to: destination)
@@ -1615,7 +1628,7 @@ struct StageWindow: View {
               let output = editor.timeline.edit.outputTime(atSource: editor.timeline.playhead) else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent + ".png"
+        panel.nameFieldStringValue = recordingName + ".png"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         let size = editor.outputSize
@@ -1640,7 +1653,7 @@ struct StageWindow: View {
         // and offering an `.mp4` for it would be offering a file other editors refuse.
         panel.allowedContentTypes = editor.codec.fileExtension == "mov" ? [.quickTimeMovie, .gif]
                                                                  : [.mpeg4Movie, .quickTimeMovie, .gif]
-        panel.nameFieldStringValue = mediaURL.deletingPathExtension().lastPathComponent
+        panel.nameFieldStringValue = recordingName
             + "." + editor.codec.fileExtension
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }

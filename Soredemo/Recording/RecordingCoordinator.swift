@@ -346,6 +346,15 @@ final class RecordingCoordinator {
     /// Called from `ContentView`'s `.onDisappear` when the `StageWindow` showing
     /// `mediaSourceSink`'s recording is torn down. Not `private`: `ContentView.body` is a
     /// different type in the same file, which `private` does not reach across.
+    /// The editor window has closed and the person agreed to it. **The recording is let go** —
+    /// which takes the editor's view, and with it the player, off the screen and out of memory,
+    /// and deletes a scratch recording's directory through `previewWasDismissed`. A saved one
+    /// has already been copied into its package.
+    func editorClosed() {
+        mediaURL = nil
+        UnsavedWorkGuard.shared.clear()
+    }
+
     func previewWasDismissed() {
         if let directory = mediaSourceSink?.packageURL {
             try? FileManager.default.removeItem(at: directory)
@@ -575,6 +584,8 @@ final class RecordingCoordinator {
     /// The take's controls: in the notch when the notch surface is up, the floating bar otherwise.
     /// See `2026-09-27-the-recorder-lives-in-the-notch.md`.
     private func showRecordingControls() {
+        // The clock first, and here rather than in either surface: it belongs to the take.
+        clock.start { [weak self] interval in self?.tick(interval) }
         if NotchSurfacePresenter.shared.hostsTheTake {
             NotchSurfacePresenter.shared.recordingBegan()
         } else {
@@ -583,6 +594,7 @@ final class RecordingCoordinator {
     }
 
     private func hideRecordingControls() {
+        clock.stop()
         RecordingBarPresenter.shared.hide()
         NotchSurfacePresenter.shared.recordingEnded()
     }
@@ -607,9 +619,13 @@ final class RecordingCoordinator {
         }
     }
 
-    /// Advances the clock and reads the microphone. **Called by the recording bar's own timer**,
-    /// not by a timer here: a coordinator that ticked whether or not anything was watching would
-    /// be waking the main actor twenty times a second to update a number nobody reads.
+    /// The take's clock — see `RecordingClock` for why it lives here and not in a surface. 20 Hz:
+    /// fast enough that the level meter moves rather than steps, slow enough not to cost a frame
+    /// on a machine already encoding video — the rate the bar's timer ran at.
+    private let clock = RecordingClock(interval: 0.05)
+
+    /// Advances the time and reads the microphone. **Called only by `clock`**, and only while a
+    /// take is running, so the main actor is not woken for a number nobody reads.
     func tick(_ interval: Double) {
         guard isRecording, !isPaused else { return }
         elapsed += interval

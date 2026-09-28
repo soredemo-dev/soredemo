@@ -737,3 +737,11 @@
 "Match System" = "跟隨系統";
 "Light" = "淺色";
 "Dark" = "深色";
+
+/* Closing the editor (2026-09-28). */
+"Save this recording before closing?" = "關閉前要儲存這段錄影嗎？";
+"It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again." = "這段錄影從未儲存。如果不儲存，錄影會被刪除，而且無法重新錄製。";
+"Delete Recording" = "刪除錄影";
+
+/* A new recording's name (2026-09-28). */
+"Recording %@" = "錄影 %@";

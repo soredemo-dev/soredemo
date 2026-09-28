@@ -82,7 +82,7 @@ struct TransportBar: View {
         HStack(spacing: Space.regular) {
             Button { togglePlayback() } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(Type.barPrimaryIcon)
                     .foregroundStyle(Theme.Ink.primary)
                     .frame(width: 30, height: 24)
                     .background {
@@ -100,7 +100,7 @@ struct TransportBar: View {
 
             Button { player.seek(to: .zero) } label: {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: 11))
+                    .font(Type.barIcon)
                     .foregroundStyle(Theme.Ink.secondary)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
@@ -109,13 +109,13 @@ struct TransportBar: View {
             .tooltip("Back to the start")
 
             Text(verbatim: Self.timecode(position))
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .font(Type.barReadout)
                 .foregroundStyle(Theme.Ink.primary)
             Text("/")
-                .font(.system(size: 12))
+                .font(Type.barReadout)
                 .foregroundStyle(Theme.Ink.tertiary)
             Text(verbatim: Self.timecode(total))
-                .font(.system(size: 12).monospacedDigit())
+                .font(Type.barReadout)
                 .foregroundStyle(Theme.Ink.secondary)
 
             Spacer()
@@ -136,7 +136,7 @@ struct TransportBar: View {
                 }
             } label: {
                 Text(verbatim: Self.rateLabel(rate))
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .font(Type.barReadout)
                     .foregroundStyle(rate == 1 ? Theme.Ink.secondary : Theme.accent)
                     .frame(width: 38)
             }
@@ -148,7 +148,7 @@ struct TransportBar: View {
             // What the export will be, stated where a person is looking at the picture rather
             // than only in the inspector three tabs away.
             (model.hasEdits ? Text("Edited") : Text("Unedited"))
-                .font(.system(size: 11))
+                .font(Type.barLabel)
                 .foregroundStyle(Theme.Ink.tertiary)
         }
         .padding(.horizontal, Space.regular)

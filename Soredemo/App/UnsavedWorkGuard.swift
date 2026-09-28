@@ -20,6 +20,9 @@ final class UnsavedWorkGuard {
     static let shared = UnsavedWorkGuard()
 
     private(set) var hasUnsavedChanges = false
+    /// A recording that has never been saved lives in a scratch directory that closing deletes —
+    /// so for it, "don't save" means the recording is gone, not only the edits.
+    private(set) var isNeverSaved = false
     /// Saves and reports whether it worked. `false` cancels the close: a person who chose Save
     /// and got a failed write must not then lose the work anyway.
     private var save: (@MainActor () -> Bool)?
@@ -28,8 +31,9 @@ final class UnsavedWorkGuard {
 
     /// Called by the window whenever its dirty state changes. `save` is re-registered each time
     /// because it captures the window's current state, which a stale closure would not have.
-    func update(hasUnsavedChanges: Bool, save: @escaping @MainActor () -> Bool) {
+    func update(hasUnsavedChanges: Bool, isNeverSaved: Bool, save: @escaping @MainActor () -> Bool) {
         self.hasUnsavedChanges = hasUnsavedChanges
+        self.isNeverSaved = isNeverSaved
         self.save = save
         // The dot in the close button, which is how macOS says "unsaved" everywhere else.
         for window in NSApp.windows where window.isVisible {
@@ -40,6 +44,7 @@ final class UnsavedWorkGuard {
     /// Nothing is open any more, so nothing is at risk.
     func clear() {
         hasUnsavedChanges = false
+        isNeverSaved = false
         save = nil
         for window in NSApp.windows { window.isDocumentEdited = false }
     }
@@ -55,14 +60,39 @@ final class UnsavedWorkGuard {
     /// and the alert was English everywhere besides — `NSAlert` takes plain strings.
     func mayDiscard(asking question: LocalizedStringResource) -> Bool {
         guard hasUnsavedChanges else { return true }
+        return ask(question: String(localized: question),
+                   detail: String(localized: "A recording cannot be made again. If you don't save, the edits are lost."),
+                   discard: String(localized: "Don't Save"))
+    }
+
+    /// Whether the editor window may close. See `EditorCloseGuard`.
+    func mayCloseEditor() -> Bool {
+        guard hasUnsavedChanges else { return true }
+        let wording = Self.closingWording(neverSaved: isNeverSaved)
+        return ask(question: wording.question, detail: wording.detail, discard: wording.discard)
+    }
+
+    /// **What closing loses, said on the button.** A recording never saved is DELETED by closing
+    /// without saving — its scratch directory goes with the window — so the button says "Delete
+    /// Recording"; one already saved loses only the edits since, which "Don't Save" says.
+    static func closingWording(neverSaved: Bool) -> (question: String, detail: String, discard: String) {
+        neverSaved
+            ? (String(localized: "Save this recording before closing?"),
+               String(localized: "It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again."),
+               String(localized: "Delete Recording"))
+            : (String(localized: "Save this recording before closing?"),
+               String(localized: "A recording cannot be made again. If you don't save, the edits are lost."),
+               String(localized: "Don't Save"))
+    }
+
+    private func ask(question: String, detail: String, discard: String) -> Bool {
         let alert = NSAlert()
-        alert.messageText = String(localized: question)
-        alert.informativeText = String(localized:
-            "A recording cannot be made again. If you don't save, the edits are lost.")
+        alert.messageText = question
+        alert.informativeText = detail
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "Save"))
         alert.addButton(withTitle: String(localized: "Cancel"))
-        alert.addButton(withTitle: String(localized: "Don't Save"))
+        alert.addButton(withTitle: discard)
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             // A save that failed — no destination chosen, or the write threw — must not be

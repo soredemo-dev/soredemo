@@ -422,6 +422,8 @@ final class CaptionsModel {
 struct CaptionsPanel: View {
     let model: CaptionsModel
     let mediaURL: URL
+    /// What the recording is called — the sidecar's starting name. See `RecordingName`.
+    let recordingName: String
     let edit: EditTimeline?
     let outputWidth: Int
     let outputHeight: Int
@@ -870,7 +872,7 @@ struct CaptionsPanel: View {
                 Button("Export .\(format.fileExtension)") {
                     model.exportSidecar(
                         format: format, edit: edit,
-                        defaultName: mediaURL.deletingPathExtension().lastPathComponent)
+                        defaultName: recordingName)
                 }
             }
             Spacer()

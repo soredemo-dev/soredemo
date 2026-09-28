@@ -116,6 +116,7 @@ xcrun swiftc \
   Soredemo/App/UpdateCheck.swift \
   Soredemo/App/Clipboard.swift \
   Soredemo/App/Appearance.swift \
+  Soredemo/App/EditorCloseGuard.swift \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \
@@ -123,7 +124,9 @@ xcrun swiftc \
   Soredemo/DesignSystem/LiveSlider.swift \
   Soredemo/Editor/ContentView.swift \
   Soredemo/Recording/RecordingCoordinator.swift \
+  Soredemo/Recording/RecordingClock.swift \
   Soredemo/Project/TemporaryFileMediaSink.swift \
+  Soredemo/Project/RecordingName.swift \
   Soredemo/Recording/CameraSelfView.swift \
   Soredemo/Recording/DesktopIcons.swift \
   Soredemo/Project/ImportedRecording.swift \

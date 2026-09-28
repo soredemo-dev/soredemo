@@ -723,3 +723,11 @@
 "Match System" = "システムに合わせる";
 "Light" = "ライト";
 "Dark" = "ダーク";
+
+/* Closing the editor (2026-09-28). */
+"Save this recording before closing?" = "閉じる前にこの収録を保存しますか？";
+"It has never been saved. If you don't save it, the recording is deleted, and it cannot be made again." = "この収録は一度も保存されていません。保存しないと収録は削除され、撮り直すことはできません。";
+"Delete Recording" = "収録を削除";
+
+/* A new recording's name (2026-09-28). */
+"Recording %@" = "収録 %@";
