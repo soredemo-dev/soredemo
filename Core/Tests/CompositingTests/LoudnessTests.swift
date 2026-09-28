@@ -1,3 +1,4 @@
+import AVFoundation
 import Testing
 import Foundation
 @testable import Compositing
@@ -300,4 +301,53 @@ private func tone(hz: Double, amplitude: Double, seconds: Double,
             "the person's gain of 2 was not carried through untouched")
     #expect(volume > Loudness.peakCeiling,
             "the authored gain was silently capped, which is the rule this test exists for")
+}
+
+// MARK: - measuring a file
+
+/// A mono Float32 file holding `tone`, written with AVAudioFile — so the test knows exactly what
+/// is in it, independently of how `Loudness` reads it.
+private func toneFile(amplitude: Double, sampleRate: Double, seconds: Double) throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("loudness-\(UUID().uuidString).caf")
+    let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
+                                            channels: 1, interleaved: false))
+    let file = try AVAudioFile(forWriting: url, settings: format.settings,
+                               commonFormat: .pcmFormatFloat32, interleaved: false)
+    let samples = tone(hz: 1_000, amplitude: amplitude, seconds: seconds,
+                       sampleRate: sampleRate, channels: 1)
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format,
+                                               frameCapacity: AVAudioFrameCount(samples.count)))
+    buffer.frameLength = AVAudioFrameCount(samples.count)
+    let channel = try #require(buffer.floatChannelData)[0]
+    for (index, value) in samples.enumerated() { unsafe channel[index] = value }
+    try file.write(from: buffer)
+    return url
+}
+
+/// **The file path, end to end, against the conformance tone** — the meter above is tested on
+/// samples handed to it; this is the reading of a real track off disk, which is what levelling
+/// uses. At 44.1 kHz, not 48: the filter is derived per rate, and 48 kHz is the one rate where
+/// the derivation and the published table coincide, so it could not show the derivation working.
+@Test func aToneInAFileReadsItsLevelThroughTheWholePath() async throws {
+    let amplitude = pow(10.0, -20.0 / 20.0) * sqrt(2.0)
+    let url = try toneFile(amplitude: amplitude, sampleRate: 44_100, seconds: 5)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let readings = await Loudness.measure(contentsOf: url)
+    #expect(Array(readings.keys) == [0])
+    let reading = try #require(readings[0])
+    let integrated = try #require(reading.integrated)
+    #expect(abs(integrated - -20) < 0.15, "a −20 dBFS 1 kHz tone at 44.1 kHz read \(integrated) LUFS")
+    #expect(abs(reading.peak - amplitude) < 0.001, "peak \(reading.peak), written \(amplitude)")
+}
+
+/// Every audio track is measured, keyed by its position — the key the mix addresses it by.
+@Test func everyAudioTrackIsMeasuredByPosition() async {
+    let url = repositoryRootFromTests.appending(path: "Tests/RenderParityFixtures/two-track-audio.mov")
+    #expect(Set(await Loudness.measure(contentsOf: url).keys) == [0, 1])
+}
+
+@Test func aFileWithNoAudioHasNoReadings() async {
+    let url = repositoryRootFromTests.appending(path: "Tests/RenderParityFixtures/two-tone.mov")
+    #expect(await Loudness.measure(contentsOf: url).isEmpty)
 }

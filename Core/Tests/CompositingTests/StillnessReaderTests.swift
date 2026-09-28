@@ -63,4 +63,64 @@ struct StillnessReaderTests {
                                               .theReaderWouldNotStart]
         #expect(Set(all.map(\.rawValue)).count == all.count)
     }
+
+    // MARK: - walking a real recording
+
+    /// `two-tone.mov` is 20 frames at 10 fps, red for the first second and blue for the second —
+    /// known from how `generate-fixture.swift` writes it, not from this reader. At 0.25 s slices
+    /// the frames read are 0.0, 0.3, 0.5, 0.8, 1.0, 1.3, 1.5 and 1.8, so of the seven changes only
+    /// the fourth — 0.8 to 1.0, red to blue — is the whole frame, and the rest are nothing.
+    private var twoTone: URL {
+        repositoryRootFromTests.appending(path: "Tests/RenderParityFixtures/two-tone.mov")
+    }
+
+    @Test("the one cut from red to blue is the only change, and it is the whole frame")
+    func theColourChangeIsFoundWhereItHappens() async throws {
+        guard case .changes(let changes) = await StillnessReader.changes(contentsOf: twoTone) else {
+            Issue.record("the fixture was refused"); return
+        }
+        try #require(changes.count == 7, "read \(changes.count) changes")
+        #expect(changes[3] > 0.99)
+        #expect(changes.enumerated().filter { $0.offset != 3 }.allSatisfy { $0.element == 0 })
+    }
+
+    /// Half-second slices read 0.0, 0.5, 1.0 and 1.5: three changes, the middle one the cut.
+    @Test("the slice length decides which frames are compared")
+    func aLongerSliceComparesFewerFrames() async throws {
+        guard case .changes(let changes) = await StillnessReader.changes(contentsOf: twoTone,
+                                                                         sliceSeconds: 0.5) else {
+            Issue.record("the fixture was refused"); return
+        }
+        try #require(changes.count == 3, "read \(changes.count) changes")
+        #expect(changes[1] > 0.99 && changes[0] == 0 && changes[2] == 0)
+    }
+
+    @Test("progress rises to the end and finishes at one")
+    func progressRisesAndEndsAtOne() async {
+        final class Seen: @unchecked Sendable {
+            private let lock = NSLock()
+            private var values: [Double] = []
+            func add(_ value: Double) { lock.withLock { values.append(value) } }
+            var all: [Double] { lock.withLock { values } }
+        }
+        let seen = Seen()
+        _ = await StillnessReader.changes(contentsOf: twoTone) { seen.add($0) }
+        #expect(seen.all.last == 1)
+        #expect(zip(seen.all, seen.all.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
+    /// A search stopped part-way is a refusal, not "nothing moved" — the empty list would switch
+    /// every zoom off.
+    @Test("a cancelled walk says it was cancelled")
+    func aCancelledWalkIsARefusal() async {
+        // Cancelled from INSIDE, before the walk begins: cancelling from outside races a
+        // 20-frame fixture that can be read to the end before `cancel()` lands.
+        let url = twoTone
+        let outcome = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await StillnessReader.changes(contentsOf: url)
+        }.value
+        #expect(outcome == .refused(.theWorkWasCancelled))
+    }
 }
+
