@@ -20,7 +20,6 @@ let adjudicatedStringFields: [String: String] = [
     "TapDisabledInterval.kind": "keep — literal discriminator \"tapDisabled\"",
     "AXChainRecord.kind": "keep — literal discriminator \"axChain\"",
     "ContentCropSample.kind": "keep — literal discriminator \"contentCrop\". Like StillInterval.kind, ContentCropSample.init(from:) refuses any other value rather than carrying it. The record's other fields are a CropRect (four fractions of the capture buffer) and a Double; it describes where ScreenCaptureKit drew, never what was drawn, so there is nothing in it that could be about a person",
-    "ChapterMark.kind": "keep — literal discriminator \"mark\", and the only String this record has; its other field is a HostInstant. ChapterMark.init(from:) refuses any other value rather than carrying it. A mark records WHEN a person pressed the key, never a title — the chapter's title is written later, in the editor, into project.json and not into this log",
     "ObservationLogHeader.kind": "keep — literal discriminator \"logHeader\"",
     "ObservationLogTrailer.kind": "keep — literal discriminator \"logTrailer\"",
     "KindOnly.kind": "keep — ObservationLog.kind(of:)'s private decode-only helper, reading the same \"kind\" discriminator wire field as the ten entries above; not a second field, a second reader of the same one",

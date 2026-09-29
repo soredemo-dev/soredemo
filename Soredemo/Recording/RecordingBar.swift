@@ -264,10 +264,6 @@ struct RecordingBarView: View {
                       label: coordinator.isPaused ? "Resume" : "Pause") {
                 coordinator.togglePause()
             }
-            if coordinator.takeCanHoldMarks {
-                BarButton(icon: "bookmark", label: "Mark a chapter here") { coordinator.markChapter() }
-                    .disabled(!coordinator.canMarkChapter)
-            }
             BarButton(icon: "chevron.right.2", label: "Collapse — the recording keeps going") {
                 isCollapsed = true
             }

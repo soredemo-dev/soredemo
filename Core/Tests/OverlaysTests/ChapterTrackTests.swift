@@ -1,7 +1,5 @@
 import Testing
 import Foundation
-import Geometry
-import Project
 import Timeline
 @testable import Overlays
 
@@ -195,72 +193,5 @@ private func clip(_ id: Int, from start: Double, seconds: Double, speed: Double 
         // The first runs 0–5; the last runs 120–125. Both short; the middle one is not.
         #expect(ChapterList.problems(placed([0, 5, 120], total: 125))
                 == [.tooShort(id: 0), .tooShort(id: 2)])
-    }
-}
-
-// MARK: - marks placed while recording
-
-private let markEpoch = BootEpoch(id: UUID(uuidString: "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0")!)
-private let second: Int64 = 1_000_000_000
-
-/// Two segments at a non-zero host origin, with a ten-second pause between them: 1000–1060 s and
-/// 1070–1100 s of host time, which is 0–60 s and 60–90 s of the recording.
-private func pausedTable() throws -> SegmentTable {
-    try SegmentTable(segments: [
-        MasterSegment(index: 0, mediaFilename: "a.mov",
-                      hostRange: HostRange(epoch: markEpoch, start: Nanoseconds(1_000 * second),
-                                           duration: Nanoseconds(60 * second)),
-                      revision: GeometryRevision(id: 1), endedBy: .paused),
-        MasterSegment(index: 1, mediaFilename: "b.mov",
-                      hostRange: HostRange(epoch: markEpoch, start: Nanoseconds(1_070 * second),
-                                           duration: Nanoseconds(30 * second)),
-                      revision: GeometryRevision(id: 1), endedBy: .stopped),
-    ])
-}
-
-private func mark(_ seconds: Int64) -> HostInstant {
-    HostInstant(epoch: markEpoch, hostTime: Nanoseconds(seconds * second))
-}
-
-@Suite struct ChapterMarkSeedingTests {
-    /// **Placed against the segment table, not as an offset from the first frame.** A mark at host
-    /// 1075 s is 60 + 5 = 65 s into the recording; measured from the first frame it would be 75 s
-    /// — the pause's length late.
-    @Test func aMarkLandsWhereItsMomentIsInTheRecordingAcrossAPause() throws {
-        let seeded = ChapterTrack.fromMarks([mark(1_075), mark(1_010)], in: try pausedTable()) {
-            "Chapter \($0)"
-        }
-        #expect(seeded.track.chapters.map(\.start) == [Nanoseconds(10 * second), Nanoseconds(65 * second)])
-        // Numbered in the order they happen, not the order they were handed over.
-        #expect(seeded.track.chapters.map(\.title) == ["Chapter 1", "Chapter 2"])
-        #expect(seeded.track.chapters.allSatisfy { $0.origin == .marked })
-        #expect(seeded.refused == 0)
-    }
-
-    /// A mark in the pause or before the first frame has no moment in the video. **Refused and
-    /// counted, never moved to the nearest edge** — that would be a chapter at a moment nobody
-    /// chose.
-    @Test func aMarkThatLandsInNoSegmentIsRefusedAndCounted() throws {
-        let seeded = ChapterTrack.fromMarks([mark(1_065), mark(999), mark(1_030)],
-                                            in: try pausedTable()) { "Chapter \($0)" }
-        #expect(seeded.track.chapters.map(\.start) == [Nanoseconds(30 * second)])
-        #expect(seeded.track.chapters.map(\.title) == ["Chapter 1"])
-        #expect(seeded.refused == 2)
-    }
-
-    @Test func retitlingAMarkedChapterMakesItAuthored() throws {
-        let seeded = ChapterTrack.fromMarks([mark(1_010)], in: try pausedTable()) { "Chapter \($0)" }
-        let id = try #require(seeded.track.chapters.first?.id)
-        #expect(seeded.track.retitled(id, to: "Chapter 1").chapters.first?.origin == .marked)
-        #expect(seeded.track.retitled(id, to: "Installing").chapters.first?.origin == .authored)
-    }
-
-    @Test func aMarkedChapterSurvivesSavingAndOpening() throws {
-        let seeded = ChapterTrack.fromMarks([mark(1_010), mark(1_080)], in: try pausedTable()) {
-            "Chapter \($0)"
-        }
-        let decoded = try JSONDecoder().decode(ChapterTrack.self,
-                                               from: try JSONEncoder().encode(seeded.track))
-        #expect(decoded == seeded.track)
     }
 }

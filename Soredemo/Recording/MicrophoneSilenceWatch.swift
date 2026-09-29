@@ -9,7 +9,7 @@ import Foundation
 /// delivered count not moving is the only thing that notices.
 ///
 /// Fed by `RecordingCoordinator.tick`, which does not run while paused; `reset()` on resume. See
-/// `docs/design/2026-09-28-notch-marks-and-audio-warnings.md`.
+/// `docs/design/2026-09-28-notch-audio-warnings.md`.
 nonisolated struct MicrophoneSilenceWatch: Equatable {
     /// −80 dBFS. **Chosen, not measured** — below any working microphone's noise floor, so that it
     /// fires on a dead input and not on a quiet room. `ARCHITECTURE.md` D6b.

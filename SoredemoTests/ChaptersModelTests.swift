@@ -1,9 +1,6 @@
 import Testing
 import Foundation
-import Carbon.HIToolbox
-import Geometry
 import Overlays
-import Project
 import Timeline
 @testable import Soredemo
 
@@ -70,49 +67,4 @@ private func offered(_ pairs: (Int, String)..., existing: ChapterTrack = Chapter
         #expect(model.suggestions.isEmpty && model.refusals.isEmpty)
         #expect(model.track.chapters.map(\.title) == ["Saved"])
     }
-}
-
-// MARK: - marks placed while recording
-
-
-private let markEpoch = BootEpoch(id: UUID(uuidString: "5A5A5A5A-1111-2222-3333-444444444444")!)
-
-private func oneSegment() throws -> SegmentTable {
-    try SegmentTable(segments: [
-        MasterSegment(index: 0, mediaFilename: "a.mov",
-                      hostRange: HostRange(epoch: markEpoch, start: ns(500), duration: ns(120)),
-                      revision: GeometryRevision(id: 3), endedBy: .stopped),
-    ])
-}
-
-private func mark(_ seconds: Double) -> HostInstant { HostInstant(epoch: markEpoch, hostTime: ns(seconds)) }
-
-@MainActor @Suite struct ChapterMarkSeedingModelTests {
-    @Test func aNewRecordingsMarksBecomeNumberedChapters() throws {
-        let model = ChaptersModel()
-        let refused = model.seed(fromMarks: [mark(560), mark(530), mark(499)], in: try oneSegment())
-        #expect(model.track.chapters.map(\.start) == [ns(30), ns(60)])
-        #expect(model.track.chapters.map(\.title)
-                == [String(localized: "Chapter \(1)"), String(localized: "Chapter \(2)")])
-        #expect(refused == 1)
-    }
-
-    /// The producer-value rule: marks are derived, a chapter already here is a person's. Seeding
-    /// over it would put back what they removed or replace what they wrote.
-    @Test func marksNeverReplaceChaptersAlreadyThere() throws {
-        let model = ChaptersModel()
-        model.add(at: ns(10))
-        model.retitle(model.track.chapters[0].id, to: "Mine")
-        let before = model.track
-        _ = model.seed(fromMarks: [mark(560)], in: try oneSegment())
-        #expect(model.track == before)
-    }
-}
-
-/// **The mark key is ⌥⌘M, and that pair is the one `InputObserver`'s own test refuses to
-/// approve** (`CaptureTests.theChapterMarkKeyIsNotAKeystrokeTheVideoShows`). Pinned here because
-/// the two live in targets that cannot see each other; changing one without the other reddens this.
-@Test func theChapterMarkKeyIsOptionCommandM() {
-    #expect(GlobalHotkey.markChapterKeyCode == UInt32(kVK_ANSI_M))
-    #expect(GlobalHotkey.markChapterModifiers == UInt32(cmdKey | optionKey))
 }

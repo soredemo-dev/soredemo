@@ -261,14 +261,3 @@ private func revision() -> GeometryRevision {
         #expect(CaptureSession.Diagnostics().resamplingRange == nil)
     }
 }
-
-/// A mark refused during a pause and one the writer refused are different things to say, and
-/// two writer refusals with different reasons are different refusals. The end-to-end half — a
-/// real take, marked, paused and marked again — is probe § 31.
-@Test func chapterMarkOutcomesKeepWhatWentWrongApart() {
-    let epoch = BootEpoch(id: UUID(uuidString: "77777777-8888-9999-AAAA-BBBBBBBBBBBB")!)
-    let written = CaptureSession.ChapterMarkOutcome.written(HostInstant(epoch: epoch, hostTime: Nanoseconds(5)))
-    #expect(written != .noSegmentOpen)
-    #expect(CaptureSession.ChapterMarkOutcome.noSegmentOpen != .notWritten(""))
-    #expect(CaptureSession.ChapterMarkOutcome.notWritten("a") != .notWritten("b"))
-}

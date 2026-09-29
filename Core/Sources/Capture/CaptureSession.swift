@@ -1390,30 +1390,6 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         return (writer, finalizing)
     }
 
-    /// What pressing "mark a chapter" did. **Three outcomes, not a `Bool`**: a mark refused
-    /// because no segment is open is a person pressing during a pause, and one the writer refused
-    /// is a fault — the caller says different things about each.
-    public enum ChapterMarkOutcome: Sendable, Equatable {
-        case written(HostInstant)
-        /// Paused, stopping, or before the first frame opened the log. **Not held for later**, as
-        /// the tap's observations are: a mark pressed before the first frame would land before
-        /// the recording's first moment, where it has nowhere to go.
-        case noSegmentOpen
-        case notWritten(String)
-    }
-
-    /// Records a chapter mark at this instant in the open segment's log. See `ChapterMark`.
-    public nonisolated func markChapter() -> ChapterMarkOutcome {
-        let instant = HostInstant(epoch: epoch, hostTime: Minting.hostNow())
-        guard let writer = writerAndClosingFlag().0 else { return .noSegmentOpen }
-        do {
-            try writer.append(ChapterMark(instant: instant))
-            return .written(instant)
-        } catch {
-            return .notWritten(String(describing: error))
-        }
-    }
-
     /// Routes one `InputObserver.Observation` to the segment's `ObservationWriter` and, for a
     /// button-down, enqueues its AX chain. Called on the tap callback thread, so `nonisolated`,
     /// with everything it touches behind `lock`.
@@ -2087,9 +2063,6 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             // `contentCrop: 0` is not "nothing happened" but "no frame carried a readable
             // content rect", which is a fault worth being able to see.
             writer.declareRecordKind("contentCrop")
-            // Unconditional for `still`'s reason: a mark needs no permission, so `mark: 0` is
-            // "nobody pressed it", a measurement.
-            writer.declareRecordKind("mark")
         }
         let held = lock.withLock { () -> [(ObservationWriter) throws -> Void] in
             unsafe observationWriter = writer

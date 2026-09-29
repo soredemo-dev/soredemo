@@ -1,5 +1,4 @@
 import Foundation
-import Project
 import Timeline
 
 /// Where a chapter came from. **Shown beside it**, so a person can see what a suggestion was
@@ -10,9 +9,6 @@ public enum ChapterOrigin: Sendable, Equatable, Codable {
     /// Offered by the on-device model and added by a person: which transcript sentence it
     /// starts at, and what that sentence said.
     case suggested(sentence: Int, text: String)
-    /// Placed by a person with the recorder's mark while the take ran. The moment is theirs; the
-    /// title is a numbered placeholder until they write one, which makes it `.authored`.
-    case marked
 }
 
 /// A title and the moment it begins, in the RECORDING's time — the clock `TextTrack` and the
@@ -106,23 +102,6 @@ public struct ChapterTrack: Sendable, Equatable, Codable {
     public func adding(title: String, start: Nanoseconds, origin: ChapterOrigin = .authored) -> ChapterTrack {
         ChapterTrack(chapters: chapters + [Chapter(id: nextID, title: title, start: start, origin: origin)],
                      nextID: nextID + 1)
-    }
-
-    /// **The chapters a take's marks become**, numbered in the order they happen, and how many
-    /// could not be placed.
-    ///
-    /// Placed through `table`, because a pause occupies no content: an offset from the first
-    /// frame would put every mark after a pause late by the pause's length. A mark in no segment
-    /// — in a pause, or in the instant before the first frame — is refused and counted, never
-    /// moved to the nearest edge, which would be a chapter at a moment nobody chose.
-    public static func fromMarks(_ marks: [HostInstant], in table: SegmentTable,
-                                 title: (Int) -> String) -> (track: ChapterTrack, refused: Int) {
-        let starts = marks.compactMap { table.contentTime(of: $0) }.sorted()
-        var track = ChapterTrack()
-        for (index, start) in starts.enumerated() {
-            track = track.adding(title: title(index + 1), start: start, origin: .marked)
-        }
-        return (track, marks.count - starts.count)
     }
 
     public func removing(_ id: Int) -> ChapterTrack {

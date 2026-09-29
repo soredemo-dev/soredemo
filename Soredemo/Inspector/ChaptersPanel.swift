@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import Overlays
-import Project
 import SwiftUI
 import Timeline
 
@@ -27,17 +26,6 @@ final class ChaptersModel {
     }
 
     func retitle(_ id: Int, to title: String) { track = track.retitled(id, to: title) }
-
-    /// **The chapters a new recording's marks become**, and how many marks could not be placed.
-    ///
-    /// Only into an empty track: the marks are derived, and a chapter already here is a person's —
-    /// seeding over it would put back what they removed or replace what they wrote.
-    func seed(fromMarks marks: [HostInstant], in table: SegmentTable) -> Int {
-        guard track.isEmpty else { return 0 }
-        let seeded = ChapterTrack.fromMarks(marks, in: table) { String(localized: "Chapter \($0)") }
-        track = seeded.track
-        return seeded.refused
-    }
     func remove(_ id: Int) { track = track.removing(id) }
 
     func restore(_ saved: ChapterTrack) {
@@ -145,9 +133,6 @@ struct ChaptersPanel: View {
             if case .suggested(let sentence, let text) = chapter.origin {
                 Text("Suggested from sentence \(sentence + 1): “\(text)”")
                     .font(Type.detail).foregroundStyle(.secondary).lineLimit(2)
-            } else if chapter.origin == .marked {
-                Text("Marked while recording")
-                    .font(Type.detail).foregroundStyle(.secondary)
             }
             if let fate = placement.fates[chapter.id], let note = note(for: fate) {
                 Text(note).font(Type.detail).foregroundStyle(Theme.Ink.caution)

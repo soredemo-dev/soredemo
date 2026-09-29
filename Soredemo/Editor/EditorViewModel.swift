@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Capture
 import Compositing
 import Framing
 import Geometry
@@ -254,27 +253,6 @@ final class EditorViewModel {
     /// is reported: a person whose zoom corrections were silently dropped would redo them and save
     /// over the file that still had them.
     @discardableResult
-    /// **A new recording's chapter marks, made chapters** — called when a recording opens with no
-    /// saved edit, and only then: a saved edit already says what the person did with them.
-    ///
-    /// A package that cannot be read has no marks to offer and says nothing; the recording opens
-    /// the same as one nobody marked. A mark that could not be placed is said, because a person
-    /// who pressed it expects to find it.
-    func seedChaptersFromMarks(forMediaAt url: URL) {
-        let packageURL = ProjectStore.packageURL(forMediaAt: url)
-        guard let snapshot = try? ProjectPackageIO.load(from: packageURL),
-              !snapshot.segments.segments.isEmpty else { return }
-        let logs = snapshot.segments.segments.map {
-            ObservationWriter.logURL(forSegment: $0.index, in: packageURL)
-        }
-        guard let marks = try? ChapterMarkReader.marks(fromObservationLogsAt: logs),
-              !marks.isEmpty else { return }
-        let refused = chapters.seed(fromMarks: marks.map(\.instant), in: snapshot.segments)
-        if refused > 0 {
-            projectStatus = String(localized: "\(refused) chapter mark(s) fell outside the recorded video and were left out.")
-        }
-    }
-
     func restore(_ edit: EditState) -> [String] {
         var failures: [String] = []
         if let saved = edit.timeline { timeline.restoreSavedEdit(saved) }
