@@ -30,6 +30,14 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
     /// A picture — a logo, a screenshot, a sticker — fitted into the box the drag drew. The file
     /// lives in the project beside image backgrounds; see `AnnotationOverlay.imageName`.
     case image
+    /// A numbered badge — "this is step 2" — the largest circle that fits the box the drag drew.
+    /// **The number is not stored**: it is the step's place among the steps in the order they
+    /// appear, asked of `AnnotationTrack.stepNumber(of:)`, so removing step 2 renumbers the rest.
+    /// See `docs/design/2026-09-30-steps-and-highlights.md`.
+    case step
+    /// A marker over what should be read: the box, filled with the ink at a fixed strength and
+    /// no outline, so what is under it still shows. At full strength it would be a redaction.
+    case highlight
 
     public var displayName: String {
         switch self {
@@ -39,6 +47,8 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
         case .ellipse: "Ellipse"
         case .callout: "Callout"
         case .image: "Image"
+        case .step: "Step"
+        case .highlight: "Highlight"
         }
     }
 
@@ -50,7 +60,20 @@ public enum AnnotationShape: String, Hashable, Codable, Sendable, CaseIterable {
         // The bubble is a filled shape; an outline-only callout is a box with text falling out
         // of it over whatever is behind.
         case .rectangle, .ellipse, .callout: true
-        case .image: false
+        // Both are filled whatever the slider says — see `fixedFillOpacity` — so offering the
+        // slider would offer a control that does nothing.
+        case .image, .step, .highlight: false
+        }
+    }
+
+    /// How strongly the interior is filled when that is the shape's own choice rather than the
+    /// person's, or `nil` when `AnnotationStyle.fillOpacity` decides. A callout's bubble and a
+    /// step's badge are solid; a highlight is 35 % so what it marks still shows.
+    public var fixedFillOpacity: Double? {
+        switch self {
+        case .callout, .step: 1
+        case .highlight: 0.35
+        case .arrow, .line, .rectangle, .ellipse, .image: nil
         }
     }
 
@@ -271,6 +294,9 @@ public struct AnnotationOverlay: Hashable, Sendable {
            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         // A picture with no file is a box with nothing in it.
         if shape == .image, imageName.isEmpty { return true }
+        // A step with no number has nothing to say, for the callout's reason.
+        if shape == .step,
+           text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         return false
     }
 

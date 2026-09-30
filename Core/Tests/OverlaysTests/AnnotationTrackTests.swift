@@ -244,3 +244,57 @@ import Timeline
     let old = try JSONDecoder().decode(AnnotationItem.self, from: try JSONSerialization.data(withJSONObject: legacy))
     #expect(old.imageName == "")
 }
+
+// MARK: - step numbers
+
+/// **Numbered by when they appear, not by when they were made.** The fixture adds the steps out of
+/// time order, so "by id" and "by time" give different answers and only one of them passes.
+/// `docs/design/2026-09-30-steps-and-highlights.md`.
+@Suite struct StepNumberTests {
+    private func at(_ seconds: Int64) -> Nanoseconds { Nanoseconds(seconds * 1_000_000_000) }
+
+    private func track() -> AnnotationTrack {
+        AnnotationTrack()
+            .adding(shape: .step, startX: 0.1, startY: 0.1, endX: 0.2, endY: 0.2,
+                    start: at(30), end: at(35))                                  // id 0
+            .adding(shape: .arrow, startX: 0.1, startY: 0.1, endX: 0.4, endY: 0.4,
+                    start: at(5), end: at(8))                                    // id 1
+            .adding(shape: .step, startX: 0.3, startY: 0.3, endX: 0.4, endY: 0.4,
+                    start: at(10), end: at(15))                                  // id 2
+            .adding(shape: .step, startX: 0.5, startY: 0.5, endX: 0.6, endY: 0.6,
+                    start: at(50), end: at(55))                                  // id 3
+    }
+
+    @Test func stepsAreNumberedInTheOrderTheyAppear() {
+        let steps = track()
+        #expect(steps.stepNumber(of: 2) == 1)
+        #expect(steps.stepNumber(of: 0) == 2)
+        #expect(steps.stepNumber(of: 3) == 3)
+        // Not a step, so not counted and not numbered.
+        #expect(steps.stepNumber(of: 1) == nil)
+        #expect(steps.stepNumber(of: 99) == nil)
+    }
+
+    @Test func removingAStepRenumbersTheOnesAfterIt() {
+        let steps = track().removing(2)
+        #expect(steps.stepNumber(of: 0) == 1)
+        #expect(steps.stepNumber(of: 3) == 2)
+    }
+
+    /// Two steps at one instant are still ordered, by id, so neither is ever "step 1" twice.
+    @Test func twoStepsAtOneMomentAreStillTwoNumbers() {
+        let steps = AnnotationTrack()
+            .adding(shape: .step, startX: 0.1, startY: 0.1, endX: 0.2, endY: 0.2, start: at(7), end: at(9))
+            .adding(shape: .step, startX: 0.3, startY: 0.3, endX: 0.4, endY: 0.4, start: at(7), end: at(9))
+        #expect([steps.stepNumber(of: 0), steps.stepNumber(of: 1)] == [1, 2])
+    }
+
+    /// What the renderer is handed: a step's number, anything else its own words.
+    @Test func whatIsDrawnInAStepIsItsNumber() throws {
+        let steps = track()
+        let step = try #require(steps.items.first { $0.id == 3 })
+        let arrow = try #require(steps.items.first { $0.id == 1 })
+        #expect(steps.drawnText(for: step) == "3")
+        #expect(steps.drawnText(for: arrow) == arrow.text)
+    }
+}

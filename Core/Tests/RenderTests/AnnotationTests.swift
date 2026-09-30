@@ -125,7 +125,7 @@ import Testing
     /// old names still decode, which is what this list keeps honest.
     @Test func theShapeNamesOnDiskAreTheOnesEverySavedProjectUses() {
         #expect(AnnotationShape.allCases.map(\.rawValue).sorted()
-                == ["arrow", "callout", "ellipse", "image", "line", "rectangle"])
+                == ["arrow", "callout", "ellipse", "highlight", "image", "line", "rectangle", "step"])
     }
 
     @Test func everyShapeHasItsOwnDisplayName() {

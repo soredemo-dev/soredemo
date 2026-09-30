@@ -112,7 +112,9 @@ import Testing
             so every count below would be measuring something else.
             """)
         // Every shape drawn in ink. A picture is drawn in its own colours, and its own test says so.
-        for shape in AnnotationShape.allCases where shape.drawsWithInk {
+        // A highlight is translucent by design — it never reaches this saturated red over blue —
+        // and `aHighlightLetsWhatIsUnderItShowThrough` makes its own claim about its colour.
+        for shape in AnnotationShape.allCases where shape.drawsWithInk && shape != .highlight {
             guard let drawn = try rendered([overlay(shape)]) else { return }
             #expect(reddish(drawn) > 0, "\(shape.rawValue) drew nothing into the frame")
         }
@@ -231,5 +233,53 @@ import Testing
         #expect(artwork.interior == nil)
         #expect(artwork.head == nil)
         #expect(!artwork.stroked.isEmpty)
+    }
+
+    // MARK: - steps and highlights
+
+    private func pixel(_ frame: [(r: UInt8, g: UInt8, b: UInt8)], x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
+        frame[(height - 1 - y) * width + x]
+    }
+
+    /// **A badge of the ink with its number drawn on it, and round.** The box is 240 × 120 about
+    /// (320, 180), so the badge is the 120-wide circle at its centre: the digit is at the centre,
+    /// ink is a little below it, and two points outside the circle are still the picture.
+    @Test func aStepIsARoundBadgeOfItsInkWithItsNumberOnIt() throws {
+        guard let frame = try rendered([AnnotationOverlay(
+            shape: .step, startX: 200, startY: 120, endX: 440, endY: 240, style: red, text: "2")])
+        else { return }
+        #expect(whiteNear(frame, x: 320, y: 180, radius: 18) > 0, "no number was drawn on the badge")
+        let belowTheDigit = pixel(frame, x: 320, y: 180 - 45)
+        #expect(belowTheDigit.r > 150 && belowTheDigit.b < 110, "the badge is not the ink: \(belowTheDigit)")
+        let corner = pixel(frame, x: 206, y: 126)
+        #expect(corner.b > 150 && corner.r < 110, "the corner of the box was filled: \(corner)")
+        // **Inside the badge's own square, outside its circle** — 78 from the centre against a
+        // radius of 60. The box's corner above is outside both, so on its own it could not tell a
+        // round badge from a square one; this point can, and did (a square badge survived without it).
+        let squareCorner = pixel(frame, x: 265, y: 125)
+        #expect(squareCorner.b > 150 && squareCorner.r < 110, "the badge is square, not round: \(squareCorner)")
+    }
+
+    /// A step with no number has nothing to say, like a callout with no words.
+    @Test func aStepWithNoNumberDrawsNothing() {
+        #expect(AnnotationOverlay(shape: .step, startX: 200, startY: 120, endX: 440, endY: 240,
+                                  style: red, text: "").isEmpty)
+    }
+
+    /// **The picture shows through.** Over the blue source a highlight must move the colour toward
+    /// the ink and still leave the blue readable — a marker that hides what it marks is a
+    /// redaction. Fixed opacity: `fillOpacity` is 0 in this style and the highlight still draws.
+    @Test func aHighlightLetsWhatIsUnderItShowThrough() throws {
+        guard let empty = try rendered([]),
+              let lit = try rendered([AnnotationOverlay(
+                shape: .highlight, startX: 200, startY: 120, endX: 440, endY: 240, style: red)])
+        else { return }
+        let before = pixel(empty, x: 320, y: 180)
+        let after = pixel(lit, x: 320, y: 180)
+        #expect(Int(after.r) > Int(before.r) + 40, "the highlight did not tint the picture: \(before) → \(after)")
+        #expect(after.b > 110, "the highlight hid what is under it: \(before) → \(after)")
+        // No outline: the edge of the box is the same tint as its middle, not a stroke of solid ink.
+        let edge = pixel(lit, x: 201, y: 180)
+        #expect(abs(Int(edge.r) - Int(after.r)) < 25 && edge.b > 110, "the highlight has an outline: \(edge)")
     }
 }

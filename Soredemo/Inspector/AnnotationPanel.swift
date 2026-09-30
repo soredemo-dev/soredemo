@@ -332,6 +332,8 @@ struct AnnotationPanel: View {
         // and a rectangle — checked to exist, like every symbol this panel names.
         case .callout: "text.bubble"
         case .image: "photo"
+        case .step: "1.circle.fill"
+        case .highlight: "highlighter"
         }
     }
 

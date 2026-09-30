@@ -238,6 +238,36 @@ enum AnnotationArt {
                 interior: whole,
                 text: (callout.line,
                        callout.baselineX - originX, callout.baselineY - originY))
+        case .step:
+            // The largest circle in the drag's box, about its centre.
+            let diameter = Swift.min(abs(to.x - from.x), abs(to.y - from.y))
+            guard diameter > 0 else { return nil }
+            let centreX = (from.x + to.x) / 2
+            let centreY = (from.y + to.y) / 2
+            let badge = HeadlessGeometryBridge.rect(x: centreX - diameter / 2,
+                                                    y: centreY - diameter / 2,
+                                                    width: diameter, height: diameter)
+            // `unsafe`: `transform` is an `UnsafePointer<CGAffineTransform>?`; `nil` is the
+            // documented "no transform" and nothing is dereferenced — the rectangle's note below.
+            let circle = unsafe CGPath(ellipseIn: badge, transform: nil)
+            // **The number follows the badge, not `textSizeFraction`**: a digit that overflows
+            // its own badge is not a style choice. Two digits still fit at this size.
+            guard let number = centredLine(overlay.text, pointSize: diameter * 0.55,
+                                           centreX: centreX, centreY: centreY)
+            else { return nil }
+            return AnnotationArtwork(stroked: circle, head: nil, interior: circle, text: number)
+        case .highlight:
+            let x = Swift.min(from.x, to.x)
+            let y = Swift.min(from.y, to.y)
+            let width = abs(to.x - from.x)
+            let height = abs(to.y - from.y)
+            guard width > 0, height > 0 else { return nil }
+            // `unsafe`: as the rectangle's note below.
+            let box = unsafe CGPath(rect: HeadlessGeometryBridge.rect(x: x, y: y, width: width,
+                                                                      height: height),
+                                    transform: nil)
+            // **No outline**: an empty path strokes nothing. A marker drawn with a border is a box.
+            return AnnotationArtwork(stroked: CGMutablePath(), head: nil, interior: box)
         case .line:
             return AnnotationArtwork(stroked: segment(from: from, to: to), head: nil,
                                      interior: nil)
@@ -269,6 +299,23 @@ enum AnnotationArt {
                 stroked: outline, head: nil,
                 interior: overlay.style.fillOpacity > 0 ? outline : nil)
         }
+    }
+
+    /// One line of text typeset so its visual centre is at a point — a step's number on its
+    /// badge. `nil` for no text. The colour comes from the context, as the callout's does.
+    private static func centredLine(_ text: String, pointSize: Double, centreX: Double,
+                                    centreY: Double) -> (line: CTLine, x: Double, y: Double)? {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, pointSize > 0 else { return nil }
+        let attributed = NSAttributedString(string: words, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String):
+                TextArt.font(pointSize: pointSize, bold: true),
+            NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true])
+        let line = CTLineCreateWithAttributedString(attributed)
+        let bounds = HeadlessGeometryBridge.typographicBounds(of: line)
+        // Centred on the glyphs' own height, ascent above the baseline and descent below it.
+        return (line, centreX - bounds.width / 2,
+                centreY - (bounds.ascent - bounds.descent) / 2)
     }
 
     private static func segment(from: (x: Double, y: Double),

@@ -740,3 +740,7 @@
 /* Hiding notifications from a take (2026-09-30). */
 "Hide notifications" = "通知を隠す";
 "Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "収録中に届いた通知バナーはビデオに入りません。送信者やメッセージの冒頭などです。通知は引き続き表示され、音も鳴ります。収録から除かれるだけです。通知センターも除かれます。";
+
+/* Step numbers and the highlighter (2026-09-30). */
+"Step" = "ステップ";
+"Highlight" = "蛍光ペン";

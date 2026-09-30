@@ -783,16 +783,18 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // No offset. A drop shadow to one side helps a large filled shape and does nothing for a
         // two-pixel line, which needs contrast on every side — so this is a halo, which is what
         // keeps a red arrow legible over a red window.
-        if overlay.style.shadowOpacity > 0 && blur > 0 {
+        // Not for a highlight: a marker with a halo reads as a smudge around the words it marks.
+        if overlay.style.shadowOpacity > 0 && blur > 0 && overlay.shape != .highlight {
             bitmap.setShadow(offset: HeadlessGeometryBridge.noOffset(), blur: blur,
                              color: CGColor(red: 0, green: 0, blue: 0,
                                             alpha: overlay.style.shadowOpacity))
         }
 
         if let interior = artwork.interior {
-            // A callout's bubble is solid whatever `fillOpacity` says — see
-            // `AnnotationArt.artwork`. Every other closed shape is filled as the person chose.
-            let fill = overlay.shape == .callout ? 1 : overlay.style.fillOpacity
+            // A callout's bubble and a step's badge are solid, and a highlight is its fixed
+            // strength, whatever `fillOpacity` says; every other closed shape is filled as the
+            // person chose. `AnnotationShape.fixedFillOpacity` owns which is which.
+            let fill = overlay.shape.fixedFillOpacity ?? overlay.style.fillOpacity
             bitmap.setFillColor(CGColor(red: overlay.style.red, green: overlay.style.green,
                                         blue: overlay.style.blue,
                                         alpha: overlay.style.alpha * fill))

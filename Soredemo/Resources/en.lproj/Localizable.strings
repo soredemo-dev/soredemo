@@ -754,3 +754,7 @@
 /* Hiding notifications from a take (2026-09-30). */
 "Hide notifications" = "Hide notifications";
 "Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too.";
+
+/* Step numbers and the highlighter (2026-09-30). */
+"Step" = "Step";
+"Highlight" = "Highlight";

@@ -740,3 +740,7 @@
 /* Hiding notifications from a take (2026-09-30). */
 "Hide notifications" = "隐藏通知";
 "Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "录制时弹出的通知横幅不会进入视频,例如谁发了消息、消息的第一行。你仍然看得到、听得到,只是录制会略过它们。通知中心也一样会被略过。";
+
+/* Step numbers and the highlighter (2026-09-30). */
+"Step" = "步骤";
+"Highlight" = "荧光笔";

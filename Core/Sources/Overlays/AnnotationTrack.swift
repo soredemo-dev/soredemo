@@ -211,6 +211,21 @@ public struct AnnotationTrack: Sendable, Equatable, Codable {
         return AnnotationTrack(items: items + [item], nextID: nextID + 1)
     }
 
+    /// **A step's number: its place among the steps in the order they appear**, from 1 — by start
+    /// time, then by id, so two at one instant are still two numbers. `nil` for anything that is
+    /// not a step. Derived, never stored, so removing or moving one renumbers the rest.
+    public func stepNumber(of id: Int) -> Int? {
+        let steps = items.filter { $0.shape == .step }
+            .sorted { ($0.start.rawValue, $0.id) < ($1.start.rawValue, $1.id) }
+        return steps.firstIndex { $0.id == id }.map { $0 + 1 }
+    }
+
+    /// What is drawn in an item: a step's number, anything else's own words.
+    public func drawnText(for item: AnnotationItem) -> String {
+        guard item.shape == .step else { return item.text }
+        return stepNumber(of: item.id).map(String.init) ?? ""
+    }
+
     public func removing(_ id: Int) -> AnnotationTrack {
         AnnotationTrack(items: items.filter { $0.id != id }, nextID: nextID)
     }

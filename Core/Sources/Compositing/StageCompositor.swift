@@ -1022,7 +1022,10 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         let outputOffset = Nanoseconds(CMTimeConvertScale(
             compositionTime, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value)
         guard let source = Self.sourceOffset(forOutput: outputOffset) else { return [] }
-        return Self.annotations.items(at: source).compactMap { item in
+        // Read once: the items and the step numbers must come from the same track, and each read
+        // of the seam is a fresh copy that an edit between two reads could make disagree.
+        let track = Self.annotations
+        return track.items(at: source).compactMap { item in
             let state = item.animationState(at: source)
             return AnnotationOverlay(
                 shape: item.shape,
@@ -1034,7 +1037,9 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 opacity: state.opacity, scale: state.scale,
                 // Carried through: an overlay built without it is a callout with nothing to say,
                 // which `AnnotationOverlay.isEmpty` treats as nothing to draw.
-                text: item.text, imageName: item.imageName)
+                // A step's number is asked of the whole track, because it is its place among
+                // the steps — not something the item knows about itself.
+                text: track.drawnText(for: item), imageName: item.imageName)
         }
     }
 

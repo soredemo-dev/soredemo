@@ -738,3 +738,7 @@
 /* Hiding notifications from a take (2026-09-30). */
 "Hide notifications" = "알림 숨기기";
 "Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "녹화 중에 도착한 알림 배너는 영상에 들어가지 않습니다. 보낸 사람과 메시지의 첫 줄 같은 것입니다. 알림은 계속 보이고 소리도 나며, 녹화에서만 빠집니다. 알림 센터도 빠집니다.";
+
+/* Step numbers and the highlighter (2026-09-30). */
+"Step" = "단계";
+"Highlight" = "형광펜";
