@@ -92,12 +92,17 @@ struct MenuBarRecorderPanel: View {
             if coordinator.isRecording {
                 recordingControls
             } else {
+                purposePicker
                 targets
-                microphoneRow
-                cameraRow
-                frameRateRow
-                countdownRow
-                startButton
+                // A picture has no sound, no camera, no frame rate and no countdown; the rows
+                // that set them would be settings that do nothing.
+                if coordinator.capturePurpose == .take {
+                    microphoneRow
+                    cameraRow
+                    frameRateRow
+                    countdownRow
+                    startButton
+                }
             }
             hotkeyWarning
             failureNote
@@ -132,6 +137,18 @@ struct MenuBarRecorderPanel: View {
         }
     }
 
+    /// A take or a picture, chosen before the target. **Segmented, unlike the targets below**:
+    /// this IS two settings of one thing, and choosing one starts nothing.
+    @ViewBuilder private var purposePicker: some View {
+        Picker("Capture", selection: Binding(get: { coordinator.capturePurpose },
+                                             set: { coordinator.capturePurpose = $0 })) {
+            Text("Record").tag(RecordingCoordinator.CapturePurpose.take)
+            Text("Screenshot").tag(RecordingCoordinator.CapturePurpose.picture)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
     /// The two ways to start. **Cards rather than a segmented control**, because they are not two
     /// settings of one thing — each opens the system picker narrowed to its own kind of target,
     /// and pressing one is the act of starting.
@@ -159,7 +176,9 @@ struct MenuBarRecorderPanel: View {
         // appears when a phone is plugged in and disappears when it is unplugged, which is the
         // same moment they stop caring about it. It is worth shipping
         // phone recording; none of the seven open-source projects beside this repo does.
-        if !coordinator.availableMobileScreens.isEmpty {
+        // A phone is recorded through a different stack with no screenshot path; its card is a
+        // take's only.
+        if !coordinator.availableMobileScreens.isEmpty && coordinator.capturePurpose == .take {
             VStack(alignment: .leading, spacing: Space.snug) {
                 ForEach(coordinator.availableMobileScreens) { device in
                     TargetCard(icon: device.symbolName, title: "",

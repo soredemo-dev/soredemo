@@ -758,3 +758,9 @@
 /* Step numbers and the highlighter (2026-09-30). */
 "Step" = "Step";
 "Highlight" = "Highlight";
+
+/* Screenshots (2026-09-30). */
+"Screenshot" = "Screenshot";
+"Capture" = "Capture";
+"Screenshot taken. Add a background or annotations, then choose Export Frame…" = "Screenshot taken. Add a background or annotations, then choose Export Frame…";
+"The screenshot could not be taken: %@" = "The screenshot could not be taken: %@";

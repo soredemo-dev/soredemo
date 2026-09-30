@@ -2558,6 +2558,19 @@ private let untranslatableLiterals: Set<String> = [
         """)
 }
 
+/// **A screenshot is offered wherever a recording is started.** The menu and the notch each carry
+/// the take-or-picture switch — the same rule as the one above, for a mode rather than a verb:
+/// a surface without it can only record.
+@Test func theNotchAndTheMenuBothOfferAScreenshot() throws {
+    let files = try appSourceFiles()
+    for name in ["MenuBarRecorder.swift", "NotchSurfacePanel.swift"] {
+        let file = try #require(files.first { $0.lastPathComponent == name }, "\(name) is not under the app's sources")
+        let lines = SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
+        #expect(lines.contains { $0.contains("coordinator.capturePurpose = $0") },
+                "\(name) has no way to choose a screenshot")
+    }
+}
+
 /// **The take's clock has one owner.** `RecordingCoordinator.tick` was driven by the floating
 /// bar's timer, so when the notch hosted the take the time stayed at 0:00 — and a second surface
 /// that ticked it too would run the time at double speed. Only the coordinator's own

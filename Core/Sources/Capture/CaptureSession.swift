@@ -915,33 +915,9 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             refusedInput: { SessionError.writerFailed("AVAssetWriter.canAdd(_:) refused \($0) input") },
             startFailed: { SessionError.writerFailed($0 ?? "startWriting() returned false") })
 
-        let configuration = SCStreamConfiguration()
-        configuration.width = geometry.pixelWidth
-        configuration.height = geometry.pixelHeight
-        // **The crop, at the SOURCE.** `nil` for a display capture. Set here rather than
-        // applied per frame downstream: ScreenCaptureKit delivers frames already cropped
-        // and already the output's size, so nothing later has to know a window moved.
-        if let rect = source.sourceRect {
-            configuration.sourceRect = CGGeometryBridge.rect(from: rect)
-        }
-        configuration.showsCursor = false                 // Step 0 / D2-8
-        // **`scalesToFit` follows the capture kind, and a window needs it true.** The buffer
-        // is fixed for the life of a track (D2-13), so a window RESIZED mid-recording delivers
-        // content of a different size into it: `false` crops that content to the buffer, which
-        // silently loses whatever the window grew by. `true` fits it, which costs sharpness and
-        // shows the whole window. A display capture cannot resize, so leaving it false there
-        // keeps that path exactly as measured.
-        configuration.scalesToFit = source.window != nil
-        configuration.preservesAspectRatio = true           // D2-13a
-        if source.window != nil {
-            // The window's own drop shadow is not the window. A window filter includes it by
-            // default, which puts a soft dark border on every frame and a transparent one
-            // around it.
-            configuration.ignoreShadowsSingleWindow = true
-        }
-        // Set explicitly: unset, where ScreenCaptureKit places content that does
-        // not fill the surface is undocumented.
-        configuration.destinationRect = CGGeometryBridge.rect(from: destination)
+        // **The framing is shared with a screenshot** — `CaptureSource.framingConfiguration` —
+        // so a picture and a take of one source cannot be cropped, fitted or anchored differently.
+        let configuration = source.framingConfiguration(geometry: geometry, destination: destination)
         lock.withLock {
             unsafe _diagnostics.configuredDestinationRect = destination
             unsafe _diagnostics.segmentConfigurations.append(

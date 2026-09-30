@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 // `Capture` since Phase 3A-4 — the session, the source, permissions and `Minting`.
 import Capture
+import Compositing
 import Geometry
 import Observation
 import Project
@@ -184,6 +185,20 @@ final class RecordingCoordinator {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") else { return }
         NSWorkspace.shared.open(url)
     }
+    /// What the next Screen, Window or Area is chosen FOR: a take, or one picture.
+    ///
+    /// **A screenshot is a one-frame take** — the same pickers, the same filter, opened in the same
+    /// editor as a short still movie, so the stage, crop, redaction and every annotation apply to
+    /// it and *Export Frame* writes the picture. See
+    /// `docs/design/2026-09-30-a-screenshot-is-a-one-frame-take.md`. Not persisted: a person who
+    /// took one screenshot has not decided that the next press of Screen is a screenshot too.
+    enum CapturePurpose: Hashable { case take, picture }
+    var capturePurpose: CapturePurpose = .take
+
+    /// How long a picture's still movie lasts: long enough that an annotation added at the
+    /// playhead, which lasts `AnnotationsModel.defaultDuration`, is all inside it.
+    static let pictureSeconds = 5.0
+
     /// The inputs this machine currently offers, refreshed when the menu bar panel opens —
     /// a USB interface plugged in after launch has to appear without a relaunch.
     private(set) var availableMicrophones: [MicrophoneSource] = []
@@ -523,6 +538,40 @@ final class RecordingCoordinator {
         }
     }
 
+    /// One picture of `source`, opened in the editor as a still movie. No countdown and no camera:
+    /// a picture is of what is on screen now.
+    private func takePicture(of source: CaptureSource) async {
+        pendingMode = nil
+        guard mayReplaceWhatIsOpen() else {
+            status = .quiet
+            return
+        }
+        do {
+            let image = try await Screenshot.capture(
+                source, scale: Self.scale(forDisplay: Self.sizingDisplayID(for: source)),
+                displayUUID: Self.displayIdentity(for: source),
+                // The switches a take would use, so a screenshot leaves out exactly what a
+                // recording of the same thing would.
+                exclusions: CaptureExclusions(hidesDock: hidesDock, hidesMenuBar: hidesMenuBar,
+                                              hidesDesktopWidgets: hidesDesktopWidgets,
+                                              hidesNotifications: hidesNotifications))
+            // A directory of its own that the system reclaims, rather than a named temporary file
+            // two screenshots in one second could both claim.
+            let folder = try FileManager.default.url(for: .itemReplacementDirectory,
+                                                     in: .userDomainMask,
+                                                     appropriateFor: FileManager.default.temporaryDirectory,
+                                                     create: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let movie = folder.appending(path: String(localized: "Screenshot") + ".mov")
+            try await StillMovie.write(image, seconds: Self.pictureSeconds, to: movie)
+            await openVideoStaged(at: movie)
+            guard mediaURL != nil else { return }
+            status = .report(String(localized: "Screenshot taken. Add a background or annotations, then choose Export Frame\u{2026}"))
+        } catch {
+            status = .problem(String(localized: "The screenshot could not be taken: \(String(describing: error))"))
+        }
+    }
+
     /// Taken once. A window that re-read it would re-apply a person's saved edit over changes
     /// they had made since.
     func takePendingEdit() -> EditState? {
@@ -742,6 +791,11 @@ final class RecordingCoordinator {
         guard let source else {
             pendingMode = nil
             status = .quiet
+            return
+        }
+        // **The one branch.** Every picker meets here, so a screenshot needs no picker of its own.
+        if capturePurpose == .picture {
+            await takePicture(of: source)
             return
         }
         let scale = Self.scale(forDisplay: Self.sizingDisplayID(for: source))

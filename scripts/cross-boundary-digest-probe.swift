@@ -473,6 +473,10 @@ enum CrossBoundaryProbe {
         print("30.1-30.6 a real CaptureSession over this process's own window, shrunk under it")
         try await aWindowResizedMidRecordingRecordsWhereThePictureWent()
 
+        print("31. a SCREENSHOT of a window — through the take's framing, into a still movie")
+        print("31.1-31.4 this process's own window, one flat colour, captured and read back")
+        try await aScreenshotIsThePictureThroughTheTakesFraming()
+
         // The count is printed, never written down: a hand-maintained total in
         // a report goes stale the first time a check is added and nobody
         // notices, which is what happened to this one.
@@ -7869,4 +7873,107 @@ private func aWindowResizedMidRecordingRecordsWhereThePictureWent() async throws
           && track.crop(at: last.instant) == last.content,
           "30.6 the track answers each record's own instant with that record's crop",
           actual: "\(track.crop(at: first.instant)) then \(track.crop(at: last.instant))")
+}
+
+
+// MARK: - § 31. a screenshot, through the take's framing
+
+/// **The capture half of screenshots, end to end.** `StillMovie` is unit-tested against a synthetic
+/// picture; nothing there can tell whether `Screenshot.capture` frames a real window the way a take
+/// of it would, or keeps its colour. One flat, known colour makes both answerable. Skips loudly,
+/// like § 30. `docs/design/2026-09-30-a-screenshot-is-a-one-frame-take.md`.
+@MainActor
+private func aScreenshotIsThePictureThroughTheTakesFraming() async throws {
+    guard CGPreflightScreenCaptureAccess() else {
+        skipped.append("31. no Screen Recording grant for this binary, so there is nothing to photograph")
+        print("        SKIPPED — no Screen Recording grant.")
+        return
+    }
+    // A colour away from every stage and cursor colour this probe uses, in sRGB.
+    let known: (r: Double, g: Double, b: Double) = (0.20, 0.62, 0.34)
+    let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.title = "cross-boundary-digest-probe (screenshot)"
+    window.backgroundColor = NSColor(srgbRed: known.r, green: known.g, blue: known.b, alpha: 1)
+    window.makeKeyAndOrderFront(nil)
+    defer { window.orderOut(nil) }
+    try await Task.sleep(for: .milliseconds(500))
+
+    let content = try await SCShareableContent.currentProcess
+    guard let scWindow = content.windows.first(where: { $0.title == window.title }),
+          let display = content.displays.first else {
+        skipped.append("31. the probe's own window did not appear in SCShareableContent")
+        print("        SKIPPED — nothing to photograph.")
+        return
+    }
+    let source = probeWindowSource(scWindow, on: display, bufferSize: (1200, 800))
+    let image: CGImage
+    do {
+        image = try await Screenshot.capture(source, scale: 2, displayUUID: UUID(), exclusions: .none)
+    } catch {
+        check(false, "31.1 a screenshot of an on-screen window is taken", actual: "\(error)")
+        return
+    }
+    let expectedSize = source.geometry(scale: 2, displayUUID: UUID())
+    check(image.width == expectedSize.pixelWidth && image.height == expectedSize.pixelHeight,
+          "31.1 the picture is the size a take of the same source would be",
+          actual: "\(image.width)×\(image.height)",
+          expected: "\(expectedSize.pixelWidth)×\(expectedSize.pixelHeight)")
+
+    func centre(of picture: CGImage) -> (r: Int, g: Int, b: Int)? {
+        guard let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
+                                      bytesPerRow: 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.draw(picture, in: CGRect(x: -picture.width / 2, y: -picture.height / 2,
+                                         width: picture.width, height: picture.height))
+        guard let data = context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        return (Int(data[0]), Int(data[1]), Int(data[2]))
+    }
+    let want = (r: Int((known.r * 255).rounded()), g: Int((known.g * 255).rounded()),
+                b: Int((known.b * 255).rounded()))
+    func near(_ p: (r: Int, g: Int, b: Int)?) -> Bool {
+        guard let p else { return false }
+        return abs(p.r - want.r) <= 3 && abs(p.g - want.g) <= 3 && abs(p.b - want.b) <= 3
+    }
+    let shot = centre(of: image)
+    check(near(shot), "31.2 the picture's centre is the window's colour, in sRGB",
+          actual: "\(String(describing: shot))", expected: "\(want) ± 3")
+
+    let movie = FileManager.default.temporaryDirectory
+        .appending(path: "probe-still-\(ProcessInfo.processInfo.globallyUniqueString).mov")
+    defer { try? FileManager.default.removeItem(at: movie) }
+    try await StillMovie.write(image, seconds: 3, to: movie)
+    // `AVAssetReader`, not `AVAssetImageGenerator`, which this repository measured hanging for
+    // over ten minutes on exact frames (`StillnessReader`'s header). And the RAW bytes, not a
+    // `CIImage` of them: Core Image honours the movie's BT.709 tag and converts, and read that way
+    // this check first failed with (57, 168, 97) for (51, 158, 87) — a transfer-curve shift the
+    // editor never applies, because the renderer declares its input sRGB
+    // (`CoreImageFrameRenderer.screenImage`). The instrument has to read what the product reads.
+    let asset = AVURLAsset(url: movie)
+    var size: (width: Int, height: Int)?
+    var readBack: (r: Int, g: Int, b: Int)?
+    if let track = try await asset.loadTracks(withMediaType: .video).first,
+       let reader = try? AVAssetReader(asset: asset) {
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        reader.add(output)
+        if reader.startReading(), let sample = output.copyNextSampleBuffer(),
+           let buffer = CMSampleBufferGetImageBuffer(sample) {
+            let w = CVPixelBufferGetWidth(buffer), h = CVPixelBufferGetHeight(buffer)
+            size = (w, h)
+            CVPixelBufferLockBaseAddress(buffer, .readOnly)
+            if let base = unsafe CVPixelBufferGetBaseAddress(buffer) {
+                let bytes = unsafe base.assumingMemoryBound(to: UInt8.self)
+                let offset = (h / 2) * CVPixelBufferGetBytesPerRow(buffer) + (w / 2) * 4
+                readBack = unsafe (Int(bytes[offset + 2]), Int(bytes[offset + 1]), Int(bytes[offset]))
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
+        }
+        reader.cancelReading()
+    }
+    check(size.map { $0.width == image.width && $0.height == image.height } == true,
+          "31.3 the still movie is the picture's size", actual: "\(String(describing: size))")
+    check(near(readBack), "31.4 the still movie's first frame keeps the colour",
+          actual: "\(String(describing: readBack))", expected: "\(want) ± 3")
 }

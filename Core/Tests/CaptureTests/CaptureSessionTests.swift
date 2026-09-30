@@ -261,3 +261,9 @@ private func revision() -> GeometryRevision {
         #expect(CaptureSession.Diagnostics().resamplingRange == nil)
     }
 }
+
+/// Two capture failures with different reasons are different failures. The capture itself —
+/// a real window photographed through the take's framing and read back — is probe § 31.
+@Test func screenshotFailuresKeepTheirReasons() {
+    #expect(Screenshot.Failure.captureFailed("a") != .captureFailed("b"))
+}

@@ -193,8 +193,32 @@ struct NotchSurfaceView: View {
             glanceRow.transition(.opacity)
         case .open:
             VStack(spacing: 0) {
-                wings(left: { Text("Soredemo").font(.system(size: 12, weight: .semibold)) },
-                      right: { Text(verbatim: MenuBarRecorderPanel.toggleShortcut).opacity(0.6) })
+                // **The mode switch sits in the wing, and it is two symbols.** The open surface's
+                // depth is fixed — a third row was cut in half at its edge once already — and the
+                // wing beside the notch is about 125 points. Measured with the real translations,
+                // a worded switch is 84 to 188 points wide: past the wing, under the camera
+                // housing, in eight of ten languages. The symbols are 50 in all of them, and the
+                // right wing says which mode is on in words.
+                wings(left: {
+                    Picker("Capture", selection: Binding(get: { coordinator.capturePurpose },
+                                                         set: { coordinator.capturePurpose = $0 })) {
+                        Image(systemName: "record.circle").accessibilityLabel(Text("Record"))
+                            .tag(RecordingCoordinator.CapturePurpose.take)
+                        Image(systemName: "camera.viewfinder").accessibilityLabel(Text("Screenshot"))
+                            .tag(RecordingCoordinator.CapturePurpose.picture)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help(coordinator.capturePurpose == .take ? Text("Record") : Text("Screenshot"))
+                }, right: {
+                    if coordinator.capturePurpose == .take {
+                        Text(verbatim: MenuBarRecorderPanel.toggleShortcut).opacity(0.6)
+                    } else {
+                        Text("Screenshot").lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                })
                 NotchRecorderControls(coordinator: coordinator) { model.send(.escape) }
                     .padding(.horizontal, Space.regular)
                     .padding(.bottom, Space.regular)
@@ -260,12 +284,15 @@ private struct NotchRecorderControls: View {
                 // **A plugged-in phone or tablet, the same fourth choice the menu offers.** This row
                 // was built from the menu's first three and the fourth — which exists only while a
                 // device does — was missed, so recording a phone from the notch was impossible.
-                ForEach(coordinator.availableMobileScreens) { device in
-                    target(device.symbolName, verbatim: device.displayName) {
-                        coordinator.beginMobileRecording(device)
+                // A take's only: a phone is recorded through a stack with no screenshot path.
+                if coordinator.capturePurpose == .take {
+                    ForEach(coordinator.availableMobileScreens) { device in
+                        target(device.symbolName, verbatim: device.displayName) {
+                            coordinator.beginMobileRecording(device)
+                        }
                     }
+                    ForEach(coordinator.mobileScreensWaiting, id: \.self) { name in waiting(name) }
                 }
-                ForEach(coordinator.mobileScreensWaiting, id: \.self) { name in waiting(name) }
             }
             HStack(spacing: Space.snug) {
                 Menu {
@@ -303,6 +330,10 @@ private struct NotchRecorderControls: View {
             .menuStyle(.borderlessButton)
             .font(.system(size: 11))
             .foregroundStyle(.white.opacity(0.8))
+            // **Hidden, not removed, for a picture**: a picture has no sound and no camera, and
+            // keeping the row's space stops the surface's content jumping when the mode changes.
+            .opacity(coordinator.capturePurpose == .take ? 1 : 0)
+            .disabled(coordinator.capturePurpose != .take)
         }
         .onChange(of: coordinator.microphone) { coordinator.refreshAudioRoute() }
         // When the surface opens, which is the moment a phone was plugged in for — the menu's

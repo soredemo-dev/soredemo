@@ -742,3 +742,9 @@
 /* Step numbers and the highlighter (2026-09-30). */
 "Step" = "단계";
 "Highlight" = "형광펜";
+
+/* Screenshots (2026-09-30). */
+"Screenshot" = "스크린샷";
+"Capture" = "캡처";
+"Screenshot taken. Add a background or annotations, then choose Export Frame…" = "스크린샷을 찍었습니다. 배경이나 주석을 추가한 뒤 '프레임 내보내기…'를 선택하세요.";
+"The screenshot could not be taken: %@" = "스크린샷을 찍을 수 없습니다: %@";

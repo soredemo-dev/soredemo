@@ -744,3 +744,9 @@
 /* Step numbers and the highlighter (2026-09-30). */
 "Step" = "步骤";
 "Highlight" = "荧光笔";
+
+/* Screenshots (2026-09-30). */
+"Screenshot" = "截图";
+"Capture" = "捕获";
+"Screenshot taken. Add a background or annotations, then choose Export Frame…" = "已截图。添加背景或标注后,选择“导出画面…”。";
+"The screenshot could not be taken: %@" = "无法截图:%@";

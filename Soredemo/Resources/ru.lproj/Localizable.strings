@@ -742,3 +742,9 @@
 /* Step numbers and the highlighter (2026-09-30). */
 "Step" = "Шаг";
 "Highlight" = "Маркер";
+
+/* Screenshots (2026-09-30). */
+"Screenshot" = "Снимок экрана";
+"Capture" = "Захват";
+"Screenshot taken. Add a background or annotations, then choose Export Frame…" = "Снимок экрана сделан. Добавьте фон или пометки и выберите «Экспорт кадра…».";
+"The screenshot could not be taken: %@" = "Не удалось сделать снимок экрана: %@";

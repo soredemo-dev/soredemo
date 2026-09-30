@@ -744,3 +744,9 @@
 /* Step numbers and the highlighter (2026-09-30). */
 "Step" = "ステップ";
 "Highlight" = "蛍光ペン";
+
+/* Screenshots (2026-09-30). */
+"Screenshot" = "スクリーンショット";
+"Capture" = "キャプチャ";
+"Screenshot taken. Add a background or annotations, then choose Export Frame…" = "スクリーンショットを撮りました。背景や注釈を加えてから「フレームを書き出す…」を選んでください。";
+"The screenshot could not be taken: %@" = "スクリーンショットを撮れませんでした:%@";

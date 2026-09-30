@@ -743,3 +743,9 @@
 /* Step numbers and the highlighter (2026-09-30). */
 "Step" = "Etapa";
 "Highlight" = "Marca-texto";
+
+/* Screenshots (2026-09-30). */
+"Screenshot" = "Captura de tela";
+"Capture" = "Captura";
+"Screenshot taken. Add a background or annotations, then choose Export Frame…" = "Captura feita. Adicione um fundo ou anotações e escolha “Exportar quadro…”.";
+"The screenshot could not be taken: %@" = "Não foi possível fazer a captura de tela: %@";
