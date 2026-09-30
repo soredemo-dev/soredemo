@@ -33,11 +33,20 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// Costs a window query, like the Dock, so it is part of `wantsAnything`.
     public var hidesDesktopWidgets: Bool
 
+    /// Whether notification banners — and Notification Center itself — should be kept out.
+    ///
+    /// **A banner is the disclosure nobody chose to make**: a message's sender and first line,
+    /// arriving mid-take over whatever was being demonstrated. Excluded from the capture rather
+    /// than silenced — there is no public API to turn Focus on — so the person still sees it and
+    /// the video does not. `docs/design/2026-09-30-before-and-during-a-take.md`.
+    public var hidesNotifications: Bool
+
     public init(hidesDock: Bool = false, hidesMenuBar: Bool = false,
-                hidesDesktopWidgets: Bool = false) {
+                hidesDesktopWidgets: Bool = false, hidesNotifications: Bool = false) {
         self.hidesDock = hidesDock
         self.hidesMenuBar = hidesMenuBar
         self.hidesDesktopWidgets = hidesDesktopWidgets
+        self.hidesNotifications = hidesNotifications
     }
 
     /// Nothing hidden — what a display capture uses unless somebody asked otherwise.
@@ -49,7 +58,7 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
     /// The menu bar is deliberately not counted: it is a property on the filter,
     /// not an entry in an exclusion list, and counting it would send `resolve()`
     /// enumerating every window on the machine for an answer it does not need.
-    public var wantsAnything: Bool { hidesDock || hidesDesktopWidgets }
+    public var wantsAnything: Bool { hidesDock || hidesDesktopWidgets || hidesNotifications }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -60,10 +69,12 @@ public struct CaptureExclusions: Sendable, Equatable, Hashable, Codable {
         hidesMenuBar = try container.decodeIfPresent(Bool.self, forKey: .hidesMenuBar) ?? false
         hidesDesktopWidgets = try container
             .decodeIfPresent(Bool.self, forKey: .hidesDesktopWidgets) ?? false
+        hidesNotifications = try container
+            .decodeIfPresent(Bool.self, forKey: .hidesNotifications) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hidesDock, hidesMenuBar, hidesDesktopWidgets
+        case hidesDock, hidesMenuBar, hidesDesktopWidgets, hidesNotifications
     }
 }
 
@@ -129,6 +140,17 @@ public enum DesktopWidgetWindow {
     public static func isADesktopWidget(bundleIdentifier: String?, windowLayer: Int) -> Bool {
         bundleIdentifier == Self.bundleIdentifier && windowLayer < 0
     }
+
+    /// Whether one of this process's windows comes back into a capture that excluded the process.
+    ///
+    /// **Each switch decides only its own half**: excluding the application takes the widgets
+    /// and the notification UI together, and what comes back is whichever half was not asked to
+    /// be hidden. Asked of windows owned by `bundleIdentifier` only.
+    public static func comesBack(windowLayer: Int, hidingWidgets: Bool,
+                                 hidingNotifications: Bool) -> Bool {
+        isADesktopWidget(bundleIdentifier: bundleIdentifier, windowLayer: windowLayer)
+            ? !hidingWidgets : !hidingNotifications
+    }
 }
 
 // MARK: - Resolving against live content
@@ -167,6 +189,9 @@ extension CaptureExclusions {
         /// out. Named separately from `dockExcluded` so a recording that still
         /// shows the Dock cannot report that the Dock was excluded.
         case desktopWidgetsExcluded
+        /// Notifications were asked for without the Dock or the widgets, and are being kept
+        /// out. Its own name for `desktopWidgetsExcluded`'s reason.
+        case notificationsExcluded
     }
 
     /// Resolves against the live window list.
@@ -203,26 +228,29 @@ extension CaptureExclusions {
             outcome = .dockExcluded
         }
 
-        if hidesDesktopWidgets {
+        if hidesDesktopWidgets || hidesNotifications {
             // Not a failure when the process is missing: a Mac with no widgets on
             // the desktop has nothing to hide, and the recording is exactly what
             // was asked for. Only the Dock's absence is reported, because a Mac
             // without a Dock is a Mac something is wrong with.
-            if let widgets = content.applications.first(where: {
+            if let notificationCenter = content.applications.first(where: {
                 $0.bundleIdentifier == DesktopWidgetWindow.bundleIdentifier
             }) {
-                applications.append(widgets)
-                // The notification panel comes back: excluding the application
-                // takes everything the process draws, and a person demonstrating
-                // Notification Center is demonstrating Notification Center.
+                // **By application, so a banner drawn after the filter is built is still out.**
+                // What comes back is only the half that was not asked to be hidden — a person
+                // demonstrating Notification Center with only the widgets hidden is still
+                // demonstrating Notification Center. The excepted list is fixed when the filter
+                // is built, so a NEW window of this process stays out either way.
+                applications.append(notificationCenter)
                 kept += content.windows.filter {
-                    $0.owningApplication?.bundleIdentifier
-                        == DesktopWidgetWindow.bundleIdentifier
-                        && !DesktopWidgetWindow.isADesktopWidget(
-                            bundleIdentifier: DesktopWidgetWindow.bundleIdentifier,
-                            windowLayer: $0.windowLayer)
+                    $0.owningApplication?.bundleIdentifier == DesktopWidgetWindow.bundleIdentifier
+                        && DesktopWidgetWindow.comesBack(windowLayer: $0.windowLayer,
+                                                         hidingWidgets: hidesDesktopWidgets,
+                                                         hidingNotifications: hidesNotifications)
                 }
-                if outcome == .notAsked { outcome = .desktopWidgetsExcluded }
+                if outcome == .notAsked {
+                    outcome = hidesDesktopWidgets ? .desktopWidgetsExcluded : .notificationsExcluded
+                }
             }
         }
 

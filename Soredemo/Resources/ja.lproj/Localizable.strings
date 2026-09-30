@@ -736,3 +736,7 @@
 "The speakers will be heard in the recording" = "スピーカーの音が収録されます";
 "The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "内蔵マイクが内蔵スピーカーの音を拾うため、この Mac で再生した音が二重に収録されます。ヘッドフォンを使えば収録に入りません。";
 "The microphone hears nothing" = "マイクに何も聞こえていません";
+
+/* Hiding notifications from a take (2026-09-30). */
+"Hide notifications" = "通知を隠す";
+"Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "収録中に届いた通知バナーはビデオに入りません。送信者やメッセージの冒頭などです。通知は引き続き表示され、音も鳴ります。収録から除かれるだけです。通知センターも除かれます。";

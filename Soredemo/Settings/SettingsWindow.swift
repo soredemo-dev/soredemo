@@ -161,6 +161,14 @@ struct SettingsWindow: View {
             // one lists this afternoon's meetings by name.
             Text("The weather, the calendar and the battery ring on your desktop. They can say more than they look like they do — where you are, what is in your calendar this afternoon. Like the Dock, nothing on your Mac changes and Notification Center still opens normally while you record.")
                 .font(Type.detail).foregroundStyle(.secondary)
+
+            Toggle("Hide notifications", isOn: Binding(
+                get: { coordinator.hidesNotifications },
+                set: { coordinator.hidesNotifications = $0 }))
+            // **That you still see them is the point to make**, because "hide notifications" reads
+            // as Do Not Disturb, and it is not: nothing is silenced.
+            Text("Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("While editing") {
             Toggle("Play audio while dragging the playhead", isOn: Binding(

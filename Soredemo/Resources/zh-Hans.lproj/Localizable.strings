@@ -736,3 +736,7 @@
 "The speakers will be heard in the recording" = "扬声器的声音会被录进去";
 "The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "内置麦克风能听到内置扬声器,所以这台 Mac 播放的声音会被录两次。戴耳机就不会录进去。";
 "The microphone hears nothing" = "麦克风收不到任何声音";
+
+/* Hiding notifications from a take (2026-09-30). */
+"Hide notifications" = "隐藏通知";
+"Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "录制时弹出的通知横幅不会进入视频,例如谁发了消息、消息的第一行。你仍然看得到、听得到,只是录制会略过它们。通知中心也一样会被略过。";

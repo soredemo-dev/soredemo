@@ -734,3 +734,7 @@
 "The speakers will be heard in the recording" = "스피커 소리가 녹화됩니다";
 "The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "내장 마이크가 내장 스피커 소리를 듣기 때문에 이 Mac에서 재생되는 소리가 두 번 녹화됩니다. 헤드폰을 쓰면 녹화에 들어가지 않습니다.";
 "The microphone hears nothing" = "마이크에 아무 소리도 들리지 않습니다";
+
+/* Hiding notifications from a take (2026-09-30). */
+"Hide notifications" = "알림 숨기기";
+"Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "녹화 중에 도착한 알림 배너는 영상에 들어가지 않습니다. 보낸 사람과 메시지의 첫 줄 같은 것입니다. 알림은 계속 보이고 소리도 나며, 녹화에서만 빠집니다. 알림 센터도 빠집니다.";

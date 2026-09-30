@@ -734,3 +734,7 @@
 "The speakers will be heard in the recording" = "Die Lautsprecher werden mit aufgenommen";
 "The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "Das eingebaute Mikrofon hört die eingebauten Lautsprecher, also wird alles, was dieser Mac abspielt, doppelt aufgenommen. Mit Kopfhörern bleibt es aus der Aufnahme.";
 "The microphone hears nothing" = "Das Mikrofon hört nichts";
+
+/* Hiding notifications from a take (2026-09-30). */
+"Hide notifications" = "Mitteilungen ausblenden";
+"Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "Banner, die während der Aufnahme eintreffen, bleiben aus dem Video – wer eine Nachricht geschickt hat und ihre erste Zeile. Sie sehen und hören sie weiterhin; nur die Aufnahme lässt sie weg. Auch die Mitteilungszentrale bleibt draußen.";

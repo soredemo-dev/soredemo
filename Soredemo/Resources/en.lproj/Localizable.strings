@@ -750,3 +750,7 @@
 "The speakers will be heard in the recording" = "The speakers will be heard in the recording";
 "The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take." = "The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take.";
 "The microphone hears nothing" = "The microphone hears nothing";
+
+/* Hiding notifications from a take (2026-09-30). */
+"Hide notifications" = "Hide notifications";
+"Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too." = "Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too.";

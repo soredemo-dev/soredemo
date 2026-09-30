@@ -29,3 +29,34 @@ there while held and gone after — measured in both states before the test was 
 
 **Not measured: the screen saver.** `IOPMLib.h` says the assertion "prevents the display from
 dimming automatically"; it says nothing about the screen saver. D6b.
+
+## 2. Notifications stay out of the video
+
+**Asked for as "tidy the desktop and turn on Do Not Disturb before a take".** Read first, in the
+SDK: **there is no public API to turn Focus on.** `INFocusStatusCenter` only *reads* whether a
+Focus is on, behind an authorization and the communication-notifications entitlement. Driving
+Control Center with synthetic input is the kind of thing this app refuses to do to somebody's Mac.
+
+**What does exist is the mechanism this app already uses for the Dock, the menu bar and the
+widgets: leave it out of the capture.** Banners are drawn by `com.apple.notificationcenterui`,
+the same process as the desktop widgets. Measured again on 27.0 (26A428), passively: the three
+widgets at layer -2147483601 and a full-screen window titled "Notification Center" at layer 21,
+off screen until something shows in it.
+
+**Decision: `CaptureExclusions.hidesNotifications`.** The process is excluded by application —
+so a banner drawn after the filter is built is out too — and what comes back is only the half
+that was not asked to be hidden (`DesktopWidgetWindow.comesBack`). The person still sees and
+hears every banner; only the video leaves it out, which is better than Do Not Disturb for a
+demo, because nothing about the Mac changes.
+
+**Off by default**, like the Dock, the menu bar and the widgets, for the reason written on each:
+a recording that silently omits part of the screen is not what pressing Record means. That is
+the owner's to change.
+
+**Not measured: that a real banner is absent from a real take.** That needs a notification
+posted during a capture, which puts a banner on the owner's screen; asked for rather than done.
+D6b.
+
+**Found on the way:** `everyFieldSurvivesTheRoundTrip` built its value with `hidesDesktopWidgets`
+at its default, `false`, so a decoder that forgot that field would have passed it. Every switch is
+now on in that test, and it asserts so.

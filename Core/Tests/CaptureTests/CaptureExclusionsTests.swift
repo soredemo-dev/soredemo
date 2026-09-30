@@ -190,7 +190,11 @@ struct CaptureExclusionsTests {
     /// nothing to see. Walked with a `Mirror` so the next field is covered before it is written.
     @Test("every field of the type survives being written and read back")
     func everyFieldSurvivesTheRoundTrip() throws {
-        let all = CaptureExclusions(hidesDock: true, hidesMenuBar: true)
+        // **Every switch ON.** Each defaults to off, so a field left at its default here reads
+        // back the same whether or not the decoder knows it — `hidesDesktopWidgets` sat at its
+        // default in this test until 2026-09-30, covered by nothing.
+        let all = CaptureExclusions(hidesDock: true, hidesMenuBar: true, hidesDesktopWidgets: true,
+                                    hidesNotifications: true)
         let decoded = try JSONDecoder().decode(CaptureExclusions.self,
                                                from: try JSONEncoder().encode(all))
         func fields(of value: CaptureExclusions) -> [String: String] {
@@ -203,7 +207,9 @@ struct CaptureExclusionsTests {
         #expect(fields(of: decoded) == fields(of: all))
         // A guard on the guard: reflection that saw no fields would pass the line above while
         // checking nothing at all.
-        #expect(fields(of: all).count >= 2)
+        #expect(fields(of: all).count >= 4)
+        #expect(fields(of: all).values.allSatisfy { $0 == "true" },
+                "a field was left at its default, so this test cannot see it being dropped")
     }
 }
 
@@ -265,4 +271,42 @@ struct CaptureExclusionsTests {
     let coded = try JSONDecoder().decode(CaptureExclusions.self,
                                          from: try JSONEncoder().encode(asked))
     #expect(coded == asked)
+}
+
+
+// MARK: - notifications
+
+/// **One process draws the widgets and the notifications, and each switch decides only its own
+/// half.** Excluding the process takes both; what comes back is what was NOT asked to be hidden.
+/// Measured again on macOS 27 (26A428), 2026-09-30: the three widgets at -2147483601 and the
+/// full-screen "Notification Center" window at 21 — the one banners are drawn in.
+@Test func eachSwitchHidesOnlyItsOwnHalfOfNotificationCenter() {
+    let widget = -2_147_483_601
+    let panel = 21
+    // Widgets only: the panel comes back, which is where a banner would be — unchanged from
+    // before notifications could be hidden.
+    #expect(!DesktopWidgetWindow.comesBack(windowLayer: widget, hidingWidgets: true, hidingNotifications: false))
+    #expect(DesktopWidgetWindow.comesBack(windowLayer: panel, hidingWidgets: true, hidingNotifications: false))
+    // Notifications only: the widgets come back.
+    #expect(DesktopWidgetWindow.comesBack(windowLayer: widget, hidingWidgets: false, hidingNotifications: true))
+    #expect(!DesktopWidgetWindow.comesBack(windowLayer: panel, hidingWidgets: false, hidingNotifications: true))
+    // Both: nothing comes back.
+    #expect(!DesktopWidgetWindow.comesBack(windowLayer: widget, hidingWidgets: true, hidingNotifications: true))
+    #expect(!DesktopWidgetWindow.comesBack(windowLayer: panel, hidingWidgets: true, hidingNotifications: true))
+}
+
+/// Hiding notifications needs the window list, like the widgets; a person who asked for nothing
+/// still pays for nothing.
+@Test func hidingNotificationsIsAskingForSomething() {
+    #expect(CaptureExclusions(hidesNotifications: true).wantsAnything)
+    #expect(!CaptureExclusions.none.wantsAnything)
+}
+
+/// A project from before the switch reads it as off — the honest reading of a file written before
+/// it existed. What a NEW recording does is the app's default, not this type's.
+@Test func aProjectFromBeforeNotificationsCouldBeHiddenReadsItAsOff() throws {
+    let decoded = try JSONDecoder().decode(CaptureExclusions.self,
+                                           from: Data(#"{"hidesDock":true}"#.utf8))
+    #expect(decoded.hidesNotifications == false)
+    #expect(decoded.hidesDock)
 }

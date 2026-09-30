@@ -265,6 +265,17 @@ final class RecordingCoordinator {
     }
     static let hidesDesktopWidgetsKey = "hidesDesktopWidgets"
 
+    /// Whether notification banners, and Notification Center, are kept out of the picture.
+    ///
+    /// **Off by default, like the four above, and for their reason.** The case for ON is a
+    /// message's sender and first line arriving mid-take; it is still a part of the screen, and
+    /// somebody demonstrating a notification is demonstrating it. Nothing is silenced either
+    /// way — there is no public API to turn Focus on — so the person still sees every banner.
+    var hidesNotifications: Bool {
+        didSet { UserDefaults.standard.set(hidesNotifications, forKey: Self.hidesNotificationsKey) }
+    }
+    static let hidesNotificationsKey = "hidesNotifications"
+
     /// Whether dragging the playhead plays the moment under it.
     ///
     /// **On by default, unlike the three recording switches above.** Those change what a
@@ -387,6 +398,7 @@ final class RecordingCoordinator {
         hidesDock = UserDefaults.standard.bool(forKey: Self.hidesDockKey)
         hidesMenuBar = UserDefaults.standard.bool(forKey: Self.hidesMenuBarKey)
         hidesDesktopWidgets = UserDefaults.standard.bool(forKey: Self.hidesDesktopWidgetsKey)
+        hidesNotifications = UserDefaults.standard.bool(forKey: Self.hidesNotificationsKey)
         // **Defaults to ON, so `bool(forKey:)`'s zero is not the answer.** A key never written
         // answers `false`, which for a switch that should start on is the same silent defect
         // `countdownSeconds` documents.
@@ -777,7 +789,8 @@ final class RecordingCoordinator {
                                         exclusions: CaptureExclusions(
                                             hidesDock: hidesDock,
                                             hidesMenuBar: hidesMenuBar,
-                                            hidesDesktopWidgets: hidesDesktopWidgets),
+                                            hidesDesktopWidgets: hidesDesktopWidgets,
+                                            hidesNotifications: hidesNotifications),
                                         attachesClipBuffer: learnedFit.attaches(atLoad: load))
         session = newSession
         // **This app's own windows, told to the capture before it starts.** The accessibility
