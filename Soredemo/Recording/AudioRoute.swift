@@ -9,9 +9,10 @@ import CoreAudio
 /// headphones — not muting: whether system audio is captured before or after the output volume is
 /// unmeasured, and if after, muting would silence that track too.
 ///
-/// The decision is pure over what Core Audio reported; the two reads are at the bottom. Measured
-/// on a MacBook Pro, macOS 27, 2026-09-28: speakers `bltn`/`ispk`, microphone `bltn`. Headphones
-/// were not measured, so anything unread is `.unknown` and gets no hint. `ARCHITECTURE.md` D6b.
+/// The decision is pure over what Core Audio reported; the reads are at the bottom. Measured on a
+/// MacBook Pro, macOS 27: speakers `BuiltInSpeakerDevice`, `bltn`/`ispk`, microphone `bltn`
+/// (2026-09-28 and 2026-09-30). Headphones were not measured, so the rule asks "is it the
+/// speakers" and never "is it headphones", and anything unread gets no hint. `ARCHITECTURE.md` D6b.
 nonisolated enum AudioRoute {
     enum Output: Equatable { case builtInSpeakers, other, unknown }
     enum Input: Equatable { case builtIn, other, unknown }
@@ -19,13 +20,20 @@ nonisolated enum AudioRoute {
     private static let builtIn = fourCC("bltn")
     private static let internalSpeaker = fourCC("ispk")
 
-    /// The built-in transport AND the internal speaker as its source. A built-in device with no
-    /// readable source is `unknown`, not speakers: it might be the headphone jack.
-    static func output(transport: UInt32?, dataSource: UInt32?) -> Output {
+    /// The built-in speakers' identifier, measured on this machine. Not translated, unlike the
+    /// device's name ("MacBook Pro的揚聲器"), which is why the rule is on this and not on that.
+    static let builtInSpeakerUID = "BuiltInSpeakerDevice"
+
+    /// The speakers by their identifier, and otherwise the built-in transport AND the internal
+    /// speaker as its source. A built-in device that is not the speakers by identifier and has no
+    /// readable source is `other` when its identifier was read and `unknown` when it was not.
+    /// See `docs/design/2026-09-30-before-and-during-a-take.md` § 4.
+    static func output(transport: UInt32?, dataSource: UInt32?, uid: String?) -> Output {
+        if uid == builtInSpeakerUID { return .builtInSpeakers }
         guard let transport else { return .unknown }
         guard transport == builtIn else { return .other }
-        guard let dataSource else { return .unknown }
-        return dataSource == internalSpeaker ? .builtInSpeakers : .other
+        if let dataSource { return dataSource == internalSpeaker ? .builtInSpeakers : .other }
+        return uid == nil ? .unknown : .other
     }
 
     static func input(transport: UInt32?) -> Input {
@@ -59,7 +67,8 @@ nonisolated enum AudioRoute {
                 },
                 dataSource: output.flatMap {
                     property($0, kAudioDevicePropertyDataSource, kAudioDevicePropertyScopeOutput)
-                }))
+                },
+                uid: output.flatMap(deviceUID)))
     }
 
     // MARK: - Core Audio
@@ -82,6 +91,19 @@ nonisolated enum AudioRoute {
         var size = UInt32(MemoryLayout<Value>.size)
         let status = unsafe AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value)
         return status == noErr ? value : nil
+    }
+
+    /// A device's UID, or `nil` when it has none to give.
+    private static func deviceUID(_ object: AudioObjectID) -> String? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectHasProperty(object, &address) else { return nil }
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = unsafe AudioObjectGetPropertyData(object, &address, 0, nil, &size, &uid)
+        guard status == noErr, let uid else { return nil }
+        return uid.takeRetainedValue() as String
     }
 
     private static func fourCC(_ text: String) -> UInt32 {

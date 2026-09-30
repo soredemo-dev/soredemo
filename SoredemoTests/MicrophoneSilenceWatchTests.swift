@@ -76,12 +76,31 @@ import Foundation
     private func fourCC(_ text: String) -> UInt32 { text.utf8.reduce(0) { $0 << 8 | UInt32($1) } }
 
     @Test func theBuiltInSpeakersAreTheBuiltInTransportPlayingThroughTheInternalSpeaker() {
-        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: fourCC("ispk")) == .builtInSpeakers)
+        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: fourCC("ispk"), uid: nil) == .builtInSpeakers)
         // Built-in, but a different source — headphones on the jack report something other than ispk.
-        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: fourCC("hdpn")) == .other)
-        #expect(AudioRoute.output(transport: fourCC("blue"), dataSource: nil) == .other)
-        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: nil) == .unknown)
-        #expect(AudioRoute.output(transport: nil, dataSource: fourCC("ispk")) == .unknown)
+        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: fourCC("hdpn"), uid: nil) == .other)
+        #expect(AudioRoute.output(transport: fourCC("blue"), dataSource: nil, uid: nil) == .other)
+        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: nil, uid: nil) == .unknown)
+        #expect(AudioRoute.output(transport: nil, dataSource: fourCC("ispk"), uid: nil) == .unknown)
+    }
+
+    /// **The identifier decides, because it is not translated.** Measured on this machine the
+    /// speakers are `BuiltInSpeakerDevice` under the name "MacBook Pro的揚聲器"; a rule on the name
+    /// works in one language. With the identifier, a data source that cannot be read no longer
+    /// leaves the answer unknown.
+    @Test func theSpeakersAreKnownByTheirIdentifierWhateverTheirName() {
+        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: nil,
+                                  uid: "BuiltInSpeakerDevice") == .builtInSpeakers)
+        // A built-in device that is not the speakers — the headphone jack is its own device on
+        // Apple Silicon — is not the speakers, even with no data source to read.
+        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: nil,
+                                  uid: "SomeOtherBuiltInOutput") == .other)
+        // The measured source rule still holds when the identifier is something else.
+        #expect(AudioRoute.output(transport: fourCC("bltn"), dataSource: fourCC("ispk"),
+                                  uid: "SomeOtherBuiltInOutput") == .builtInSpeakers)
+        // A virtual device in front of the speakers is not the speakers.
+        #expect(AudioRoute.output(transport: fourCC("virt"), dataSource: nil,
+                                  uid: "MSLoopbackDriverDevice_UID") == .other)
     }
 
     @Test func theMicrophoneIsBuiltInOnlyWhenItsTransportSaysSo() {

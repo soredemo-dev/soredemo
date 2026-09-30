@@ -60,3 +60,26 @@ D6b.
 **Found on the way:** `everyFieldSurvivesTheRoundTrip` built its value with `hidesDesktopWidgets`
 at its default, `false`, so a decoder that forgot that field would have passed it. Every switch is
 now on in that test, and it asserts so.
+
+## 4. Knowing the speakers by their identifier, not their name
+
+**The idea came from `a utility suite`, which recognises headphones by matching the device's NAME
+against "headphone", "AirPods", "Beats" and a list of brands.** On this machine the names are
+localised — the speakers are "MacBook Pro的揚聲器" — so a name rule is a rule that works in the
+language it was written in.
+
+**The device UID is not localised.** Measured, passively, every device on this machine:
+
+    bltn  BuiltInMicrophoneDevice      MacBook Pro的麥克風
+    bltn  BuiltInSpeakerDevice         MacBook Pro的揚聲器
+    virt  MSLoopbackDriverDevice_UID   Microsoft Teams Audio
+
+**Decision: the default output is the built-in speakers when its UID is `BuiltInSpeakerDevice`**,
+and otherwise by the rule `2026-09-28-notch-audio-warnings.md` measured (transport `bltn` and
+data source `ispk`). On Apple Silicon the headphone jack is its own device, so plugging headphones
+in moves the default output to a device with a different UID, and the hint goes away without a
+brand list. **What that device's UID is was not measured** — nothing was plugged in — so nothing
+here names it: the rule is "is it the speakers", never "is it headphones".
+
+A virtual device in front of the speakers (Teams' loopback, an aggregate) reads as not-speakers,
+and the hint is not shown. That is the direction to be wrong in, for row 32's reason.
