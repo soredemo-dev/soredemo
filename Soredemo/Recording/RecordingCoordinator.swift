@@ -22,7 +22,12 @@ final class RecordingCoordinator {
     /// An edit read from a saved project, waiting for the window that will apply it. Cleared
     /// once taken, so re-opening the same recording does not re-apply a stale one.
     private(set) var pendingEdit: EditState?
-    private(set) var isRecording = false
+    /// **The display is held awake by this and nothing else**, so every way a take starts or ends —
+    /// a screen, a phone, a stop, a failure — takes or gives it back. See `TakeWakeLock`.
+    private(set) var isRecording = false {
+        didSet { isRecording ? wakeLock.hold() : wakeLock.release() }
+    }
+    private let wakeLock = TakeWakeLock()
     private(set) var isPaused = false
     /// Seconds since recording started, not counting time paused. Driven by a timer the bar
     /// starts and stops — see `tick()`.
