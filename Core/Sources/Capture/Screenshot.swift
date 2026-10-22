@@ -68,10 +68,27 @@ public enum Screenshot {
                                    excepting: furniture.exceptedWindows,
                                    showsMenuBar: !exclusions.hidesMenuBar)
         do {
-            return try await SCScreenshotManager.captureImage(contentFilter: filter,
-                                                              configuration: configuration)
+            return try await retryingOnceIfTransient {
+                try await SCScreenshotManager.captureImage(contentFilter: filter,
+                                                           configuration: configuration)
+            }
         } catch {
             throw Failure.captureFailed(String(describing: error))
+        }
+    }
+
+    /// Runs `attempt`, and once more if it failed with `SCStreamErrorInternalError` — the error
+    /// the probe saw once in three runs on macOS 27.0.1 and not on the next two. Any other error
+    /// is answered at once: a refused permission or a window that has gone cannot change its
+    /// answer on a second asking. See `docs/design/2026-10-22-audit-and-how-to-stand-out.md` R8.
+    static func retryingOnceIfTransient<Value>(
+        _ attempt: () async throws -> Value) async throws -> Value {
+        do {
+            return try await attempt()
+        } catch let error as NSError
+            where error.domain == SCStreamErrorDomain
+                && error.code == SCStreamError.Code.internalError.rawValue {
+            return try await attempt()
         }
     }
 }

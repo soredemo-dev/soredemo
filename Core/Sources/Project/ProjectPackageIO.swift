@@ -56,7 +56,7 @@ public enum ProjectPackageIO {
     /// Loads and migrates `project.json` via `ProjectUpgrade.load`, which probes the
     /// schema version before decoding anything else.
     public static func load(from packageURL: URL) throws -> ProjectSnapshot {
-        let data = try Data(contentsOf: manifestURL(in: packageURL))
+        let data = try BoundedRead.data(at: manifestURL(in: packageURL), limit: BoundedRead.manifestLimit)
         return try ProjectUpgrade.load(data)
     }
 

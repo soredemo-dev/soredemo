@@ -52,6 +52,6 @@ public enum JSONLReader {
 
     /// The filesystem helper; the truncated-tail rule itself lives in `lines(from:)`.
     public static func linesOfFile(at url: URL) throws -> Result {
-        lines(from: try Data(contentsOf: url))
+        lines(from: try BoundedRead.data(at: url, limit: BoundedRead.observationLogLimit))
     }
 }

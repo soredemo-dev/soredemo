@@ -423,3 +423,53 @@ func aManifestNamingAFileOutsideItsMediaIsRefused(_ name: String) throws {
         try ProjectPackageIO.mediaFile(named: "private.mov", in: package)
     }
 }
+
+// MARK: - files too large to be what they claim
+
+/// **A shared package's files are read whole, so their size is bounded first.** A crafted
+/// multi-gigabyte log would otherwise be read into memory before anything checked it. The limits
+/// are from measurement (`BoundedRead`'s header): about 80 MB of log per hour of take, so 1 GiB is
+/// twelve hours of one segment.
+@Suite struct BoundedReadTests {
+    /// A sparse file: it reports the size and occupies almost nothing on disk.
+    private func sparse(_ name: String, bytes: Int) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "soredemo-t17-\(name)-\(ProcessInfo.processInfo.globallyUniqueString)")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: UInt64(bytes))
+        try handle.close()
+        return url
+    }
+
+    @Test func aLogLargerThanAnyTakeWritesIsRefusedBeforeItIsRead() throws {
+        let url = try sparse("huge-log", bytes: BoundedRead.observationLogLimit + 1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(throws: BoundedRead.TooLarge(bytes: BoundedRead.observationLogLimit + 1,
+                                             limit: BoundedRead.observationLogLimit)) {
+            _ = try JSONLReader.linesOfFile(at: url)
+        }
+    }
+
+    @Test func aManifestLargerThanAnyEditIsRefusedBeforeItIsRead() throws {
+        let package = freshPackageDirectory("huge-manifest")
+        defer { try? FileManager.default.removeItem(at: package) }
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        let manifest = package.appending(path: "project.json")
+        FileManager.default.createFile(atPath: manifest.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: manifest)
+        try handle.truncate(atOffset: UInt64(BoundedRead.manifestLimit + 1))
+        try handle.close()
+        #expect(throws: BoundedRead.TooLarge(bytes: BoundedRead.manifestLimit + 1,
+                                             limit: BoundedRead.manifestLimit)) {
+            _ = try ProjectPackageIO.load(from: package)
+        }
+    }
+
+    /// Positive control: at the limit is not over it.
+    @Test func aFileAtTheLimitIsRead() throws {
+        let url = try sparse("at-limit", bytes: 64)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(try BoundedRead.data(at: url, limit: 64).count == 64)
+    }
+}

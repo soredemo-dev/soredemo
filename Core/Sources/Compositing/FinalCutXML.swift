@@ -280,6 +280,12 @@ public enum FinalCutXML {
             case ">": escaped += "&gt;"
             case "\"": escaped += "&quot;"
             case "'": escaped += "&apos;"
+            // **XML 1.0 cannot carry these at all** — not escaped, not as `&#1;`. Tab, newline
+            // and return are the three control characters it allows; the rest are left out
+            // rather than written into a document that will not parse.
+            case let c where c.unicodeScalars.contains(where: { $0.value < 0x20 })
+                && !["\t", "\n", "\r", "\r\n"].contains(c):
+                continue
             default: escaped.append(character)
             }
         }

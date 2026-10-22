@@ -215,6 +215,19 @@ struct FinalCutXMLTests {
         #expect(project.attribute(forName: "name")?.stringValue == #"Q&A "draft" <v2> it's"#)
     }
 
+    /// **XML 1.0 has no way to write most control characters at all** — not escaped, not as a
+    /// character reference. A name pasted from somewhere carrying one made a document Final Cut
+    /// could not open. They are left out; tab, newline and return are legal and stay.
+    @Test("a name carrying a control character still makes a document that parses")
+    func controlCharactersAreLeftOut() throws {
+        let name = "Demo\u{0}one\u{8}two\u{B}three\u{1F}four"
+        let xml = try Self.text(Self.timeline([(0, 1_000_000_000, 1)]), name: name)
+        let document = try XMLDocument(xmlString: xml, options: [])
+        let project = try #require(document.nodes(forXPath: "//project").first as? XMLElement)
+        #expect(project.attribute(forName: "name")?.stringValue == "Demoonetwothreefour")
+        #expect(FinalCutXML.escaped("a\tb\nc\rd") == "a\tb\nc\rd")
+    }
+
     @Test("every character that needs escaping is escaped")
     func escapingCoversAllFive() {
         #expect(FinalCutXML.escaped("&<>\"'") == "&amp;&lt;&gt;&quot;&apos;")

@@ -32,9 +32,9 @@ ordinary folder, asked with `lstat` so a link describes itself. Four mutations, 
 | R3 | No disk-space check before or during a take | medium | a full disk mid-take fails the writer; with R1 that is a lost take, without a word beforehand |
 | R4 | No sleep/wake handling | medium | `TakeWakeLock` stops *idle* sleep; a closed lid or Apple menu → Sleep still sleeps mid-take, and nothing records why the stream stopped |
 | R5 | Sharing a project shares its evidence | medium (privacy) | the observation log keeps the accessibility title under each click — window titles, button labels, sometimes a document's or an email's name. Correct for the editor; a surprise in a file somebody sends on |
-| R6 | Unbounded reads of a shared package | low | `JSONLReader.linesOfFile` and the manifest read whole files into memory; a crafted multi-gigabyte log exhausts memory. Needs the person to open the file |
-| R8 | A screenshot can fail on a transient system error | low–medium | probe § 31.1 failed once in three runs on 27.0.1 (26A434) with `SCStreamErrorInternalError` (-3811, "failed to start due to video/audio capture failure") and passed the next two. The person sees "could not be taken" for something one retry would have answered. Retry once on that code only |
-| R7 | XML 1.0 forbids control characters | low | a name containing U+0000–U+0008 makes an FCPXML Final Cut cannot parse; `FinalCutXML.escaped` escapes the five entities and not these |
+| R6 | Unbounded reads of a shared package | **Fixed 2026-10-22** — low | `JSONLReader.linesOfFile` and the manifest read whole files into memory; a crafted multi-gigabyte log exhausts memory. Needs the person to open the file |
+| R8 | A screenshot can fail on a transient system error | **Fixed 2026-10-22** — low–medium | probe § 31.1 failed once in three runs on 27.0.1 (26A434) with `SCStreamErrorInternalError` (-3811, "failed to start due to video/audio capture failure") and passed the next two. The person sees "could not be taken" for something one retry would have answered. Retry once on that code only |
+| R7 | XML 1.0 forbids control characters | **Fixed 2026-10-22** — low | a name containing U+0000–U+0008 makes an FCPXML Final Cut cannot parse; `FinalCutXML.escaped` escapes the five entities and not these |
 
 ### Checked and sound
 

@@ -1,5 +1,6 @@
 import Foundation
 import Geometry
+@preconcurrency import ScreenCaptureKit
 import Project
 import Testing
 import Timeline
@@ -266,4 +267,53 @@ private func revision() -> GeometryRevision {
 /// a real window photographed through the take's framing and read back — is probe § 31.
 @Test func screenshotFailuresKeepTheirReasons() {
     #expect(Screenshot.Failure.captureFailed("a") != .captureFailed("b"))
+}
+
+/// **One retry, for the one transient error.** `SCStreamErrorInternalError` (-3811, "failed to
+/// start due to video/audio capture failure") failed probe § 31.1 once in three runs on 27.0.1 and
+/// passed the next two. A refusal — no permission, a window that is gone — is not retried: asking
+/// again cannot change its answer, and a second prompt for a permission is worse than one.
+@Suite struct ScreenshotRetryTests {
+    final class Attempts: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func next() -> Int { lock.withLock { count += 1; return count } }
+        var total: Int { lock.withLock { count } }
+    }
+
+    private let transient = NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.internalError.rawValue)
+    private let refused = NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.userDeclined.rawValue)
+
+    @Test func aTransientFailureIsTriedOnceMore() async throws {
+        let attempts = Attempts()
+        let error = transient
+        let value = try await Screenshot.retryingOnceIfTransient {
+            if attempts.next() == 1 { throw error }
+            return 7
+        }
+        #expect(value == 7)
+        #expect(attempts.total == 2)
+    }
+
+    @Test func aRefusalIsNotRetried() async {
+        let attempts = Attempts()
+        let error = refused
+        await #expect(throws: (any Error).self) {
+            _ = try await Screenshot.retryingOnceIfTransient { () async throws -> Int in
+                _ = attempts.next(); throw error
+            }
+        }
+        #expect(attempts.total == 1)
+    }
+
+    @Test func aTransientFailureTwiceIsReportedNotRetriedForever() async {
+        let attempts = Attempts()
+        let error = transient
+        await #expect(throws: (any Error).self) {
+            _ = try await Screenshot.retryingOnceIfTransient { () async throws -> Int in
+                _ = attempts.next(); throw error
+            }
+        }
+        #expect(attempts.total == 2)
+    }
 }
