@@ -306,13 +306,13 @@ private struct NotchRecorderControls: View {
                           systemImage: coordinator.microphone == .off ? "mic.slash" : "mic")
                 }
                 Menu {
-                    Button("No camera") { coordinator.chooseCamera(.off) }
-                    ForEach(coordinator.availableCameras, id: \.self) { source in
-                        Button(LocalizedStringKey(source.displayName)) { coordinator.chooseCamera(source) }
+                    Button("No camera") { coordinator.camera.choose(.off) }
+                    ForEach(coordinator.camera.available, id: \.self) { source in
+                        Button(LocalizedStringKey(source.displayName)) { coordinator.camera.choose(source) }
                     }
                 } label: {
-                    Label(LocalizedStringKey(coordinator.camera.displayName),
-                          systemImage: coordinator.camera == .off ? "video.slash" : "video")
+                    Label(LocalizedStringKey(coordinator.camera.source.displayName),
+                          systemImage: coordinator.camera.source == .off ? "video.slash" : "video")
                 }
                 // **A hint, beside the choice it is about, and IN this row.** The open surface's
                 // depth is fixed (`NotchSurfaceLayout.openDepth`); as a third row it was cut in
@@ -341,7 +341,7 @@ private struct NotchRecorderControls: View {
         .task {
             coordinator.refreshMicrophones()
             coordinator.refreshAudioRoute()
-            coordinator.refreshCameras()
+            coordinator.camera.refresh()
             coordinator.refreshMobileScreens()
         }
     }

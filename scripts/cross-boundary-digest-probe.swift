@@ -529,8 +529,8 @@ enum CrossBoundaryProbe {
         let defaults = UserDefaults.standard
         let countdownKey = RecordingPreferences.countdownKey
         let frameRateKey = RecordingPreferences.frameRateKey
-        let qualityKey = RecordingCoordinator.cameraQualityKey
-        let styleKey = RecordingCoordinator.cameraStyleKey
+        let qualityKey = CameraController.qualityKey
+        let styleKey = CameraController.styleKey
         let iconsKey = RecordingPreferences.hidesDesktopIconsKey
         let dockKey = RecordingPreferences.hidesDockKey
         let menuBarKey = RecordingPreferences.hidesMenuBarKey
@@ -567,10 +567,10 @@ enum CrossBoundaryProbe {
         check(firstLaunch.preferences.frameRate == .sixty,
               "17.1 a first launch records at 60, not at a rate no initialiser would accept",
               actual: "\(firstLaunch.preferences.frameRate.rawValue)", expected: "60")
-        check(firstLaunch.cameraQuality == .best,
+        check(firstLaunch.camera.quality == .best,
               "17.1 a first launch's camera quality is .best",
-              actual: "\(firstLaunch.cameraQuality.rawValue)", expected: "best")
-        check(firstLaunch.cameraStyle == .default,
+              actual: "\(firstLaunch.camera.quality.rawValue)", expected: "best")
+        check(firstLaunch.camera.style == .default,
               "17.1 a first launch's camera sits where CameraOverlayStyle.default puts it")
         // **Both switches are off on a first launch, and for two different reasons.** Hiding the
         // desktop icons restarts Finder and closes somebody's windows, so it must be asked for.
@@ -623,11 +623,11 @@ enum CrossBoundaryProbe {
         }
         firstLaunch.preferences.countdownSeconds = 5
         firstLaunch.preferences.frameRate = .thirty
-        firstLaunch.cameraQuality = .hd720
+        firstLaunch.camera.quality = .hd720
         let moved = CameraOverlayStyle(widthFraction: 0.25, x: 0.2, y: 0.8, shape: .square,
                                        cornerFraction: 0.1, isMirrored: false,
                                        borderOpacity: 0.1, shadowOpacity: 0.2)
-        firstLaunch.cameraStyle = moved
+        firstLaunch.camera.style = moved
         firstLaunch.preferences.hidesDesktopIcons = true
         firstLaunch.preferences.hidesDock = true
         firstLaunch.preferences.hidesMenuBar = true
@@ -668,9 +668,9 @@ enum CrossBoundaryProbe {
               actual: "\(relaunched.preferences.countdownSeconds)", expected: "5")
         check(relaunched.preferences.frameRate == .thirty, "17.3 a relaunch records at 30",
               actual: "\(relaunched.preferences.frameRate.rawValue)", expected: "30")
-        check(relaunched.cameraQuality == .hd720, "17.3 a relaunch keeps the camera quality",
-              actual: relaunched.cameraQuality.rawValue, expected: "hd720")
-        check(relaunched.cameraStyle == moved,
+        check(relaunched.camera.quality == .hd720, "17.3 a relaunch keeps the camera quality",
+              actual: relaunched.camera.quality.rawValue, expected: "hd720")
+        check(relaunched.camera.style == moved,
               "17.3 a relaunch puts the camera back where it was dragged to")
         check(relaunched.preferences.hidesDesktopIcons,
               "17.3 a relaunch still hides the desktop icons")
@@ -707,10 +707,10 @@ enum CrossBoundaryProbe {
         check(recovered.preferences.frameRate == .sixty,
               "17.5 a stored frame rate of 0 falls back to 60 rather than becoming a timescale",
               actual: "\(recovered.preferences.frameRate.rawValue)", expected: "60")
-        check(recovered.cameraQuality == .best,
+        check(recovered.camera.quality == .best,
               "17.5 a camera quality this build does not know falls back to .best",
-              actual: recovered.cameraQuality.rawValue, expected: "best")
-        check(recovered.cameraStyle == .default,
+              actual: recovered.camera.quality.rawValue, expected: "best")
+        check(recovered.camera.style == .default,
               "17.5 a camera style that will not decode falls back to the default")
         check(recovered.preferences.countdownSeconds == 3,
               "17.5 a countdown stored as text falls back to 3",

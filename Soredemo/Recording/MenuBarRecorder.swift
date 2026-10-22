@@ -295,17 +295,17 @@ struct MenuBarRecorderPanel: View {
         // See `microphoneRow`: a menu label inherits the tint, and these report state rather
         // than offering the primary action.
         .tint(Theme.Ink.primary)
-        .task { coordinator.refreshMicrophones(); coordinator.refreshCameras(); coordinator.refreshMobileScreens() }
+        .task { coordinator.refreshMicrophones(); coordinator.camera.refresh(); coordinator.refreshMobileScreens() }
         // **Plugged in while the panel is open, and it is in the list.** The `.task` above only
         // runs when the panel appears, so a camera or an interface connected while a person was
         // looking at these two rows would not be there until they closed the panel and opened it
         // again — and the natural reading of a device missing from a list is that the app cannot
         // see it.
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
-            coordinator.refreshMicrophones(); coordinator.refreshCameras()
+            coordinator.refreshMicrophones(); coordinator.camera.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
-            coordinator.refreshMicrophones(); coordinator.refreshCameras()
+            coordinator.refreshMicrophones(); coordinator.camera.refresh()
         }
     }
 
@@ -316,12 +316,12 @@ struct MenuBarRecorderPanel: View {
     /// is chosen rather than at launch, because a recorder that asks for the camera on first run
     /// before anyone has asked for one is a recorder people distrust.
     @ViewBuilder private var cameraRow: some View {
-        if !coordinator.availableCameras.isEmpty {
+        if !coordinator.camera.available.isEmpty {
             Menu {
-                Button("No camera") { coordinator.camera = .off }
+                Button("No camera") { coordinator.camera.source = .off }
                 Divider()
-                ForEach(coordinator.availableCameras, id: \.self) { source in
-                    Button(LocalizedStringKey(source.displayName)) { coordinator.chooseCamera(source) }
+                ForEach(coordinator.camera.available, id: \.self) { source in
+                    Button(LocalizedStringKey(source.displayName)) { coordinator.camera.choose(source) }
                 }
                 Divider()
                 // **The quality is the camera's, read from the device.** It was capped at 1080p
@@ -329,9 +329,9 @@ struct MenuBarRecorderPanel: View {
                 // zooms, it can be made large, and a ProRes 4444 export of a large overlay wants
                 // every pixel the source has.
                 Menu("Camera Quality") {
-                    ForEach(CameraRecorder.qualities(for: coordinator.camera), id: \.self) { q in
+                    ForEach(CameraRecorder.qualities(for: coordinator.camera.source), id: \.self) { q in
                         Button {
-                            coordinator.cameraQuality = q
+                            coordinator.camera.quality = q
                         } label: {
                             Text(LocalizedStringKey(q.displayName))
                         }
@@ -341,11 +341,11 @@ struct MenuBarRecorderPanel: View {
                 Button("Video Effects\u{2026}") { CameraEffects.showVideoEffects() }
             } label: {
                 HStack(spacing: Space.snug) {
-                    Image(systemName: coordinator.camera == .off ? "video.slash" : "video.fill")
+                    Image(systemName: coordinator.camera.source == .off ? "video.slash" : "video.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(coordinator.camera == .off ? .secondary : .primary)
+                        .foregroundStyle(coordinator.camera.source == .off ? .secondary : .primary)
                         .frame(width: 14)
-                    Text(LocalizedStringKey(coordinator.camera.displayName))
+                    Text(LocalizedStringKey(coordinator.camera.source.displayName))
                         .font(.system(size: 12))
                         .lineLimit(1)
                     Spacer(minLength: Space.tight)
@@ -373,9 +373,9 @@ struct MenuBarRecorderPanel: View {
             // of itself and nothing said so. Shown rather than made a control: the camera is
             // drawn a few hundred pixels across in the finished video, so the ceiling is 1080p
             // and 4K would be disk and encode time for detail the export discards.
-            if case .device = coordinator.camera,
-               let size = CameraRecorder.recordingSize(of: coordinator.camera,
-                                                       quality: coordinator.cameraQuality) {
+            if case .device = coordinator.camera.source,
+               let size = CameraRecorder.recordingSize(of: coordinator.camera.source,
+                                                       quality: coordinator.camera.quality) {
                 Text(verbatim: size)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.tertiary)
@@ -384,11 +384,11 @@ struct MenuBarRecorderPanel: View {
             // effects — Reactions, Portrait, Studio Light — and they apply to a camera. Shown
             // beside "No camera" they name a thing that is not happening, which is worse than
             // saying nothing: somebody reads it as "this recording will have Reactions in it".
-            if coordinator.camera != .off, !coordinator.activeCameraEffects.isEmpty {
+            if coordinator.camera.source != .off, !coordinator.camera.activeEffects.isEmpty {
                 Button { CameraEffects.showVideoEffects() } label: {
                     HStack(spacing: Space.tight) {
                         Image(systemName: "sparkles").font(.system(size: 9))
-                        Text(verbatim: coordinator.activeCameraEffects
+                        Text(verbatim: coordinator.camera.activeEffects
                             .map { NSLocalizedString($0.rawValue, comment: "") }
                             .joined(separator: " \u{00B7} "))
                     }
@@ -400,15 +400,15 @@ struct MenuBarRecorderPanel: View {
             // **Said before the recording, not after it.** A camera another application already
             // holds is what a video call in a browser looks like from here, and the failure
             // used to arrive as a missing camera track in a finished recording.
-            if coordinator.cameraIsBusy {
+            if coordinator.camera.isBusy {
                 Label("Another app is using this camera. The screen will still record.",
                       systemImage: "video.badge.ellipsis")
                     .font(.system(size: 10))
                     .foregroundStyle(Signal.paused)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if coordinator.cameraWasRefused {
-                Button { coordinator.openCameraSettings() } label: {
+            if coordinator.camera.wasRefused {
+                Button { coordinator.camera.openSettings() } label: {
                     Label("This Mac has not allowed Soredemo the camera. Open Settings\u{2026}",
                           systemImage: "exclamationmark.triangle")
                         .font(.system(size: 10))

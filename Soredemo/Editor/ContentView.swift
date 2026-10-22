@@ -28,7 +28,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let mediaURL = coordinator.mediaURL {
-                StageWindow(initialCameraStyle: coordinator.cameraStyle,
+                StageWindow(initialCameraStyle: coordinator.camera.style,
                             cameraStartOffsetNanos: coordinator.cameraStartOffsetNanos,
                             mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit(),
                             cameraURL: coordinator.cameraURL,

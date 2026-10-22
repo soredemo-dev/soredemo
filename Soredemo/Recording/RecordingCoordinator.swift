@@ -22,6 +22,10 @@ final class RecordingCoordinator {
     private(set) var mediaURL: URL?
     /// The switches a person sets once — see `RecordingPreferences`. Read when a take starts.
     let preferences = RecordingPreferences()
+    /// The camera the next take may carry — see `CameraController`. The coordinator answers
+    /// whether a take is running and says its problems; the controller owns the choice and the
+    /// self-view.
+    let camera = CameraController()
     /// An edit read from a saved project, waiting for the window that will apply it. Cleared
     /// once taken, so re-opening the same recording does not re-apply a stale one.
     private(set) var pendingEdit: EditState?
@@ -81,60 +85,9 @@ final class RecordingCoordinator {
     /// Which microphone the next recording asks for. Held across recordings, so a person who
     /// picked their interface once does not pick it again every time.
     var microphone: MicrophoneSource = .systemDefault
-    /// Which camera the next recording uses, or `.off`. Held across recordings for the reason
-    /// `microphone` is.
-    var camera: CameraSource = .off {
-        // **The self-view follows the choice, not the recording.** Choosing a camera and only
-        // seeing it once the countdown has begun is being asked to check your framing in the
-        // take. See `CameraSelfView` and `CameraRecorder.startPreview`.
-        didSet { showOrHideSelfView() }
-    }
 
-    /// The camera that is only being SHOWN — no file, no recording. Handed to
-    /// `CameraSelfView`, and handed on to the recording when one starts so the picture somebody
-    /// framed is the picture that records.
-    private var previewRecorder: CameraRecorder?
 
-    /// How much of the camera to record. Persisted like the frame rate, because it is a
-    /// preference rather than a per-recording decision.
-    var cameraQuality: CameraRecorder.Quality {
-        didSet {
-            UserDefaults.standard.set(cameraQuality.rawValue, forKey: Self.cameraQualityKey)
-            showOrHideSelfView()
-        }
-    }
-    static let cameraQualityKey = "cameraQuality"
 
-    /// **Asymmetric about a recording on purpose: showing is refused, hiding never is.**
-    /// A self-view that appeared once the countdown had begun would be a face arriving in the
-    /// middle of the take. But a self-view that stays on screen after something set `camera` to
-    /// `.off` is the app saying "No camera" while a camera is plainly on — which is what the
-    /// menu bar panel used to do, because this guard sat above both branches and returned
-    /// before the hide. The panel now refuses the change during a recording (`cameraRow`), and
-    /// this is the second lock on the same door.
-    private func showOrHideSelfView() {
-        guard case .device = camera else {
-            CameraSelfView.shared.hide()
-            // Only the preview session is released here. Once a recording has taken it over the
-            // property is `nil` and the file belongs to `stopRecording`, which has to await the
-            // writer rather than drop it.
-            previewRecorder?.stopPreview()
-            previewRecorder = nil
-            return
-        }
-        guard !isRecording else { return }
-        let recorder = previewRecorder ?? CameraRecorder()
-        do {
-            try recorder.startPreview(camera: camera, quality: cameraQuality)
-        } catch {
-            status = .problem(String(localized: "The camera could not be shown: \(String(describing: error))"))
-            return
-        }
-        previewRecorder = recorder
-        CameraSelfView.shared.onStyleChange = { [weak self] style in self?.cameraStyle = style }
-        CameraSelfView.shared.show(recorder: recorder, style: cameraStyle)
-    }
-    private(set) var availableCameras: [CameraSource] = []
     private var cameraRecorder: CameraRecorder?
     /// Where the camera's file landed for the recording being previewed, or `nil`.
     private(set) var cameraURL: URL?
@@ -142,75 +95,8 @@ final class RecordingCoordinator {
     /// started first. See `CameraComposition.combine(screen:cameraURL:cameraStartOffset:)`.
     private(set) var cameraStartOffsetNanos: Int64 = 0
 
-    func refreshCameras() {
-        availableCameras = CameraRecorder.available()
-        camera = CameraSource.resolve(camera, against: availableCameras)
-        activeCameraEffects = CameraEffects.active()
-        cameraIsBusy = CameraRecorder.isInUseByAnotherApplication(camera)
-    }
 
-    /// Where the camera sits, chosen while recording and carried into the editor.
-    ///
-    /// **Held here so it is placed once.** The self-view is dragged during the recording and the
-    /// stage composites the camera afterwards; if the two kept separate positions, a person who
-    /// moved their face out of the way of the Dock would find it back over the Dock the moment
-    /// the editor opened. Persisted for the reason `frameRate` is — it is a preference, not a
-    /// per-recording decision.
-    var cameraStyle: CameraOverlayStyle {
-        didSet {
-            guard let data = try? JSONEncoder().encode(cameraStyle) else { return }
-            UserDefaults.standard.set(data, forKey: Self.cameraStyleKey)
-        }
-    }
-    static let cameraStyleKey = "cameraOverlayStyle"
 
-    /// True when the chosen camera is already held by another application — a video call in a
-    /// browser, most often. See `CameraRecorder.isInUseByAnotherApplication`.
-    private(set) var cameraIsBusy = false
-
-    /// True once this Mac has refused the camera, so the panel can say so.
-    ///
-    /// **A refusal has to be visible.** Choosing a camera used to be one `guard` — ask for
-    /// access, and on `false` put the selection back to `.off` and return. Which meant that on a
-    /// Mac where the camera had already been denied, picking one did nothing at all: no prompt,
-    /// no message, the row still reading "No camera". Silence is the worst answer to a
-    /// permission question, because the only thing it teaches is that the button is broken.
-    private(set) var cameraWasRefused = false
-
-    /// The effects macOS is applying to every camera on this Mac. Re-read with the device list,
-    /// because they are switched on in a panel this app does not own — see `CameraEffects`.
-    private(set) var activeCameraEffects: [CameraEffects.Effect] = []
-
-    /// Chooses a camera, asking this Mac first.
-    ///
-    /// **Activated before asking.** This is an accessory app with no Dock icon, and a TCC
-    /// prompt raised by one that is not frontmost can come up behind whatever the person is
-    /// looking at. The prompt is the whole interaction; it has to be in front of them.
-    func chooseCamera(_ source: CameraSource) {
-        guard case .device = source else {
-            camera = source
-            cameraWasRefused = false
-            return
-        }
-        Task { @MainActor in
-            if CameraRecorder.needsAsking { NSApp.activate(ignoringOtherApps: true) }
-            guard await CameraRecorder.requestAccess() else {
-                camera = .off
-                cameraWasRefused = true
-                return
-            }
-            cameraWasRefused = false
-            camera = source
-        }
-    }
-
-    /// Opens the pane of System Settings that holds the switch, because "grant it in System
-    /// Settings" is not an instruction anyone should have to follow by hand.
-    func openCameraSettings() {
-        guard let url = URL(string:
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") else { return }
-        NSWorkspace.shared.open(url)
-    }
     /// What the next Screen, Window or Area is chosen FOR: a take, or one picture.
     ///
     /// **A screenshot is a one-frame take** — the same pickers, the same filter, opened in the same
@@ -313,12 +199,8 @@ final class RecordingCoordinator {
     /// Sweeps leftover scratch directories once, at construction — the earliest point this app
     /// runs, before any recording exists to protect.
     init() {
-        // A shape stored from a previous run, or the bottom-right circle `default` is.
-        cameraQuality = (UserDefaults.standard.string(forKey: Self.cameraQualityKey))
-            .flatMap(CameraRecorder.Quality.init(rawValue:)) ?? .best
-        cameraStyle = (UserDefaults.standard.data(forKey: Self.cameraStyleKey))
-            .flatMap { try? JSONDecoder().decode(CameraOverlayStyle.self, from: $0) }
-            ?? .default
+        camera.isTakeRunning = { [weak self] in self?.isRecording ?? false }
+        camera.onProblem = { [weak self] in self?.status = .problem($0) }
         TemporaryFileMediaSink.sweepLeftoverDirectories()
     }
 
@@ -342,10 +224,10 @@ final class RecordingCoordinator {
             mediaURL = nil                   // swaps the window's branch, as recording does
             // The camera file, if the project has one. Named by convention beside the master,
             // as the observation log is — a package that carries one is self-describing.
-            let camera = packageURL.appending(path: ProjectStore.mediaDirectory,
+            let cameraFile = packageURL.appending(path: ProjectStore.mediaDirectory,
                                               directoryHint: .isDirectory)
                 .appending(path: "camera-00.mov")
-            cameraURL = FileManager.default.fileExists(atPath: camera.path) ? camera : nil
+            cameraURL = FileManager.default.fileExists(atPath: cameraFile.path) ? cameraFile : nil
             pendingEdit = opened.edit
             mediaURL = opened.mediaURL
             status = .report(String(localized: "Opened \(packageURL.lastPathComponent)."))
@@ -778,24 +660,15 @@ final class RecordingCoordinator {
         // wake and expose; started with the capture, its first second is a dark frame settling.
         // The countdown is exactly the pause that hides it — which is a second reason to have
         // one beyond giving a person time to move the pointer.
-        if case .device = camera, let packageURL = newSink.packageURL {
-            // The recorder that has been showing the preview, so the session already running the
-            // camera is the one that records it — one client on one device, and the framing a
-            // person set up is the framing that is captured.
-            let recorder = previewRecorder ?? CameraRecorder()
-            previewRecorder = nil
+        if camera.wantsRecording, let packageURL = newSink.packageURL {
+            // **The preview session is handed over, not replaced** — the camera already showing
+            // the person's face is the one that records it. See
+            // `CameraController.startRecording(to:)`.
             let url = packageURL.appending(path: ProjectStore.mediaDirectory,
                                            directoryHint: .isDirectory)
                 .appending(path: "camera-00.mov")
             do {
-                try recorder.start(camera: camera, to: url, quality: cameraQuality)
-                cameraRecorder = recorder
-                // Already on screen since the camera was chosen — this only makes sure of it for
-                // the path where a recording starts without the panel having been opened.
-                CameraSelfView.shared.onStyleChange = { [weak self] style in
-                    self?.cameraStyle = style
-                }
-                CameraSelfView.shared.show(recorder: recorder, style: cameraStyle)
+                cameraRecorder = try camera.startRecording(to: url)
             } catch {
                 // Not fatal: the screen still records. Said, because a person who turned the
                 // camera on and got no camera is owed the reason.

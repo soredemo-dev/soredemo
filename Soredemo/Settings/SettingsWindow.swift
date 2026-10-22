@@ -191,7 +191,7 @@ struct SettingsWindow: View {
                 }
             }
             // **Through `chooseCamera`, not straight onto the property.** This picker used to
-            // assign `coordinator.camera` directly, which skipped the one thing that function
+            // assign `coordinator.camera.source` directly, which skipped the one thing that function
             // exists for: asking this Mac for the camera. A camera chosen here on a fresh
             // install was set without a TCC prompt ever being raised, and an unauthorised
             // `AVCaptureDeviceInput` does not throw — it delivers black — so the self-view and
@@ -200,10 +200,10 @@ struct SettingsWindow: View {
             // The selection does not move until permission comes back, which is the honest
             // reading of it: refused, the camera was not chosen.
             Picker("Camera", selection: Binding(
-                get: { coordinator.camera },
-                set: { coordinator.chooseCamera($0) })) {
+                get: { coordinator.camera.source },
+                set: { coordinator.camera.choose($0) })) {
                 Text("No camera").tag(CameraSource.off)
-                ForEach(coordinator.availableCameras, id: \.self) { source in
+                ForEach(coordinator.camera.available, id: \.self) { source in
                     Text(LocalizedStringKey(source.displayName)).tag(source)
                 }
             }
@@ -224,7 +224,7 @@ struct SettingsWindow: View {
         .disabled(coordinator.isRecording)
         .task {
             coordinator.refreshMicrophones()
-            coordinator.refreshCameras()
+            coordinator.camera.refresh()
         }
     }
 

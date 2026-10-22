@@ -1581,9 +1581,9 @@ private func desktopIconsFile() throws -> [URL] {
     let lines = SwiftSourceLexer.codeViewLines(
         of: try String(contentsOf: menu[0], encoding: .utf8))
 
-    let shown = try #require(lines.firstIndex { $0.contains("activeCameraEffects.isEmpty") },
+    let shown = try #require(lines.firstIndex { $0.contains("camera.activeEffects.isEmpty") },
                              "the camera-effects row is gone, and this scan is about it")
-    #expect(lines[shown].contains("camera != .off"), """
+    #expect(lines[shown].contains("camera.source != .off"), """
         The effects row at line \(shown + 1) is not gated on a camera being selected, so it \
         names macOS's video effects beside "No camera".
         """)
