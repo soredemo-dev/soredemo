@@ -1366,6 +1366,12 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         return (writer, finalizing)
     }
 
+    /// How much video this take holds so far — see `SegmentLedger.recordedDuration`. Read by the
+    /// notch's clock, which used to add up ticks and lost the ones a busy main actor dropped.
+    public nonisolated var recordedDuration: Nanoseconds? {
+        lock.withLock { unsafe ledger.recordedDuration(through: lastFrameInstant) }
+    }
+
     /// Routes one `InputObserver.Observation` to the segment's `ObservationWriter` and, for a
     /// button-down, enqueues its AX chain. Called on the tap callback thread, so `nonisolated`,
     /// with everything it touches behind `lock`.
@@ -2549,6 +2555,17 @@ struct SegmentLedger {
         closedSegments.append(segment)
         open = nil
         return segment
+    }
+
+    /// **The length of the video that exists**: every closed segment, plus the open one from its
+    /// start to `latestFrame`. `nil` — never a guess — when the latest frame is on another clock or
+    /// before its segment began; the caller has something else to fall back on. Audit R9.
+    nonisolated func recordedDuration(through latestFrame: HostInstant?) -> Nanoseconds? {
+        let closed = closedSegments.reduce(Int64(0)) { $0 + $1.hostRange.duration.rawValue }
+        guard let open, let latestFrame else { return Nanoseconds(closed) }
+        guard latestFrame.epoch == open.start.epoch,
+              latestFrame.hostTime.rawValue >= open.start.hostTime.rawValue else { return nil }
+        return Nanoseconds(closed + latestFrame.hostTime.rawValue - open.start.hostTime.rawValue)
     }
 
     /// Traps if a segment is still open — `stop()` must close it first. A

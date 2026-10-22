@@ -7788,9 +7788,19 @@ private func aWindowResizedMidRecordingRecordsWhereThePictureWent() async throws
         }
     }
     try await stir(12)
+    let recordedEarly = session.recordedDuration
     window.setFrame(NSRect(x: 180, y: 180, width: 400, height: 300), display: true)
     try await stir(12)
+    let recordedLate = session.recordedDuration
     _ = try? await session.stop()
+
+    // **The notch's clock, read where it is read** (audit R9): the length of what has been
+    // written, growing while frames arrive. A value that did not move, or stayed at zero, would
+    // be a clock that stopped while the take went on.
+    check((recordedEarly?.rawValue ?? 0) > 0
+          && (recordedLate?.rawValue ?? 0) > (recordedEarly?.rawValue ?? 0),
+          "30.7 the recorded length grows while the take runs",
+          actual: "\(String(describing: recordedEarly?.rawValue)) then \(String(describing: recordedLate?.rawValue)) ns")
 
     let diagnostics = session.diagnostics
     guard let packageURL = sink.packageURL else {

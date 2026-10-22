@@ -317,3 +317,49 @@ private func revision() -> GeometryRevision {
         #expect(attempts.total == 2)
     }
 }
+
+/// **The take's length is what has been written, not what has been ticked.** The notch added up a
+/// fixed interval per tick on the main actor, and a busy main actor dropped ticks — one counted
+/// where twenty were due (audit R9). Every closed segment's length, plus the open one's from its
+/// start to its latest frame, is the video that exists. Host times away from zero, so a sum that
+/// ignored the segments' starts would be visibly wrong.
+@Suite struct RecordedDurationTests {
+    private let epoch = BootEpoch(id: UUID(uuidString: "0A0B0C0D-1111-2222-3333-444455556666")!)
+    private func at(_ seconds: Double) -> HostInstant {
+        HostInstant(epoch: epoch, hostTime: Nanoseconds(Int64(seconds * 1_000_000_000)))
+    }
+
+    private func ledgerWithTwoClosedSegments() -> SegmentLedger {
+        var ledger = SegmentLedger()
+        ledger.openSegment(at: at(1_000), revision: GeometryRevision(id: 1), mediaFilename: "a.mov")
+        ledger.closeSegment(at: at(1_003), endedBy: .paused)
+        ledger.openSegment(at: at(1_010), revision: GeometryRevision(id: 1), mediaFilename: "b.mov")
+        ledger.closeSegment(at: at(1_012), endedBy: .paused)
+        return ledger
+    }
+
+    @Test func itIsTheClosedSegmentsAndTheOpenOneUpToItsLatestFrame() {
+        var ledger = ledgerWithTwoClosedSegments()
+        ledger.openSegment(at: at(1_020), revision: GeometryRevision(id: 1), mediaFilename: "c.mov")
+        // 3 s + 2 s closed, and 1.5 s of the open one. The ten-second pause is not recorded time.
+        #expect(ledger.recordedDuration(through: at(1_021.5)) == Nanoseconds(6_500_000_000))
+    }
+
+    @Test func anOpenSegmentWithNoFrameYetAddsNothing() {
+        var ledger = ledgerWithTwoClosedSegments()
+        ledger.openSegment(at: at(1_020), revision: GeometryRevision(id: 1), mediaFilename: "c.mov")
+        #expect(ledger.recordedDuration(through: nil) == Nanoseconds(5_000_000_000))
+    }
+
+    /// **No safe default.** A frame stamped in another boot session, or before its segment
+    /// opened, is a fault — answered with nothing, so the caller falls back, rather than with a
+    /// plausible number.
+    @Test func aFrameFromAnotherClockIsNotAnAnswer() {
+        var ledger = ledgerWithTwoClosedSegments()
+        ledger.openSegment(at: at(1_020), revision: GeometryRevision(id: 1), mediaFilename: "c.mov")
+        let foreign = HostInstant(epoch: BootEpoch(id: UUID(uuidString: "FFFFFFFF-1111-2222-3333-444455556666")!),
+                                  hostTime: Nanoseconds(1_021_000_000_000))
+        #expect(ledger.recordedDuration(through: foreign) == nil)
+        #expect(ledger.recordedDuration(through: at(1_019)) == nil)
+    }
+}

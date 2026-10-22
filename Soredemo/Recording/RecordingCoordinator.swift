@@ -741,7 +741,14 @@ final class RecordingCoordinator {
     /// take is running, so the main actor is not woken for a number nobody reads.
     func tick(_ interval: Double) {
         guard isRecording, !isPaused else { return }
-        elapsed += interval
+        // **What has been written, when there is a writer to ask.** Adding up ticks lost every
+        // tick a busy main actor dropped — one counted where twenty were due (audit R9). A phone
+        // take has no session to ask, and keeps the tick sum.
+        if let recorded = session?.recordedDuration {
+            elapsed = Double(recorded.rawValue) / 1_000_000_000
+        } else {
+            elapsed += interval
+        }
         secondsSinceDiskCheck += interval
         if secondsSinceDiskCheck >= Self.diskCheckSeconds {
             let verdict = diskWatch.observe(free: DiskHeadroom.availableBytes(),
