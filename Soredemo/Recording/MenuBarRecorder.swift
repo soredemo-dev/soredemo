@@ -554,7 +554,7 @@ struct MenuBarRecorderPanel: View {
     @ViewBuilder private var recordingControls: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
             HStack(spacing: Space.snug) {
-                PanelLevel(level: coordinator.microphoneLevel)
+                PanelLevel(level: coordinator.guards.microphoneLevel)
                 Spacer()
                 Button { coordinator.togglePause() } label: {
                     coordinator.isPaused ? Text("Resume") : Text("Pause")

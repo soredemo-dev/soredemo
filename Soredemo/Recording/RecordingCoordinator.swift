@@ -32,31 +32,12 @@ final class RecordingCoordinator {
     /// **The display is held awake by this and nothing else**, so every way a take starts or ends —
     /// a screen, a phone, a stop, a failure — takes or gives it back. See `TakeWakeLock`.
     private(set) var isRecording = false {
-        didSet {
-            isRecording ? wakeLock.hold() : wakeLock.release()
-            // Listening for sleep, and counting the disk, for exactly the life of a take.
-            sleepPause = isRecording
-                ? SleepPause(centre: NSWorkspace.shared.notificationCenter) { [weak self] in
-                    self?.pauseBecauseTheMacIsSleeping()
-                }
-                : nil
-            if isRecording {
-                diskWatch = DiskWatch()
-                secondsSinceDiskCheck = 0
-                stoppingForDisk = false
-            }
-        }
+        didSet { isRecording ? guards.takeStarted() : guards.takeEnded() }
     }
-    private let wakeLock = TakeWakeLock()
-    private var sleepPause: SleepPause?
-    private var diskWatch = DiskWatch()
-    private var secondsSinceDiskCheck = 0.0
-    private var stoppingForDisk = false
+    /// What watches the take while it runs — wake, sleep, disk, microphone. See `TakeGuards`.
+    let guards = TakeGuards()
     /// Said when the take starts, if the estimate before it was low.
     private var lowDiskWarning: String?
-    /// How often the free space is read during a take. Five seconds at 85 Mbps is about 55 MB —
-    /// far inside the minute of margin `DiskWatch` keeps.
-    static let diskCheckSeconds = 5.0
 
     /// **Paused, not stopped, and not resumed on wake** — see `SleepPause`. A phone take has no
     /// pause, so it is left to the device.
@@ -69,13 +50,6 @@ final class RecordingCoordinator {
     /// Seconds since recording started, not counting time paused. Driven by a timer the bar
     /// starts and stops — see `tick()`.
     private(set) var elapsed: Double = 0
-    /// 0…1, the microphone's level right now, smoothed. `nil` when no microphone is being
-    /// recorded, which is what lets the bar draw a struck-through mic rather than a dead meter.
-    private(set) var microphoneLevel: Double?
-    /// True once the microphone has heard NOTHING for `MicrophoneSilenceWatch.patience` — no
-    /// buffers, or buffers of digital silence. Not a person being quiet; see the watch.
-    private(set) var microphoneHearsNothing = false
-    private var silenceWatch = MicrophoneSilenceWatch()
     /// Whether the built-in speakers will be heard by the built-in microphone. Re-read when the
     /// notch opens and when the microphone changes; see `AudioRoute`.
     private(set) var speakersReachTheMicrophone = false
@@ -201,6 +175,15 @@ final class RecordingCoordinator {
     init() {
         camera.isTakeRunning = { [weak self] in self?.isRecording ?? false }
         camera.onProblem = { [weak self] in self?.status = .problem($0) }
+        guards.onSleep = { [weak self] in self?.pauseBecauseTheMacIsSleeping() }
+        // **Stopped while it can still be saved** — see `DiskWatch`. Said after the stop, so the
+        // finishing messages do not cover it.
+        guards.onDiskNearlyFull = { [weak self] in
+            Task { @MainActor in
+                await self?.stopRecording()
+                self?.status = .problem(String(localized: "Stopped and saved: the disk was nearly full."))
+            }
+        }
         TemporaryFileMediaSink.sweepLeftoverDirectories()
     }
 
@@ -451,10 +434,7 @@ final class RecordingCoordinator {
                     try await session.resume()
                     isPaused = false
                     // A pause closed the segment and its copy is made: the disk count starts again.
-                    diskWatch.segmentBegan()
-                    // The clock did not tick while paused, and a pause is not silence.
-                    silenceWatch.reset()
-                    microphoneHearsNothing = false
+                    guards.segmentResumed()
                     status = .quiet
                 } else {
                     try await session.pause()
@@ -485,46 +465,9 @@ final class RecordingCoordinator {
         } else {
             elapsed += interval
         }
-        secondsSinceDiskCheck += interval
-        if secondsSinceDiskCheck >= Self.diskCheckSeconds {
-            let verdict = diskWatch.observe(free: DiskHeadroom.availableBytes(),
-                                            after: secondsSinceDiskCheck)
-            secondsSinceDiskCheck = 0
-            // **Stopped while it can still be saved** — see `DiskWatch`. Said after the stop, so
-            // the finishing messages do not cover it.
-            if verdict == .stopNow, !stoppingForDisk {
-                stoppingForDisk = true
-                Task { @MainActor in
-                    await stopRecording()
-                    status = .problem(String(localized: "Stopped and saved: the disk was nearly full."))
-                }
-            }
-        }
-        // Smoothed toward the instantaneous value: `latestRMS` is the RMS of one buffer, and a
-        // meter drawn straight from it flickers at the buffer rate. Rising fast and falling slow
-        // is what every level meter does, because a peak a person missed is worse than a decay
-        // they can see.
-        // `.off` reads as no meter rather than as a silent one: a full-height empty track is
-        // what "not hearing you" looks like, and that is not what a person who turned the
-        // microphone off should be shown.
-        guard microphone != .off else {
-            microphoneLevel = nil
-            microphoneHearsNothing = false
-            return
-        }
-        // **Before the level's guard, not after it.** A microphone that never delivered has no
-        // reading at all, and that is the loudest case of hearing nothing.
         let accounting = session?.diagnostics.microphoneAccounting
-        if let accounting {
-            microphoneHearsNothing = silenceWatch.observe(delivered: accounting.delivered,
-                                                          latestRMS: accounting.latestRMS,
-                                                          over: interval)
-        }
-        let reading = accounting?.latestRMS
-        guard let reading else { microphoneLevel = nil; return }
-        let scaled = min(1, sqrt(reading) * 1.6)
-        let previous = microphoneLevel ?? 0
-        microphoneLevel = scaled > previous ? scaled : previous + (scaled - previous) * 0.25
+        guards.tick(interval: interval, microphoneOff: microphone == .off,
+                    microphone: accounting.map { (delivered: $0.delivered, latestRMS: $0.latestRMS) })
     }
 
     /// Starts a window recording through this app's own overlay rather than the system picker.
@@ -712,8 +655,6 @@ final class RecordingCoordinator {
             isRecording = true
             isPaused = false
             elapsed = 0
-            silenceWatch.reset()
-            microphoneHearsNothing = false
             pendingMode = nil
             // **Shown from here, not from a view.** It used to be presented by `ContentView`'s
             // `.onChange`, which worked only while an editor window happened to be open — and
@@ -891,8 +832,6 @@ final class RecordingCoordinator {
         guard let session else { return }
         isRecording = false
         isPaused = false
-        microphoneLevel = nil
-        microphoneHearsNothing = false
         pendingMode = nil
         hideRecordingControls()
         status = .report(String(localized: "Finishing\u{2026}"))

@@ -396,7 +396,7 @@ private struct NotchSoundWing: View {
     let coordinator: RecordingCoordinator
 
     var body: some View {
-        if coordinator.microphoneHearsNothing {
+        if coordinator.guards.microphoneHearsNothing {
             Label("The microphone hears nothing", systemImage: "mic.slash.fill")
                 .labelStyle(.iconOnly)
                 .font(.system(size: 11, weight: .semibold))
@@ -404,7 +404,7 @@ private struct NotchSoundWing: View {
                 .frame(width: 36)
                 .help("The microphone hears nothing")
         } else {
-            LevelMeter(level: coordinator.microphoneLevel).frame(width: 36, height: 4)
+            LevelMeter(level: coordinator.guards.microphoneLevel).frame(width: 36, height: 4)
         }
     }
 }
