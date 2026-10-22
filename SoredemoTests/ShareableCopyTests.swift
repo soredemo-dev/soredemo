@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Geometry
 import Project
 @testable import Soredemo
 
@@ -57,5 +58,50 @@ import Project
         let saved = try String(contentsOf: destination.appending(path: "observations/segment-00.jsonl"),
                                encoding: .utf8)
         #expect(saved.contains("ACME"))
+    }
+}
+
+/// **The camera file is opened through the same door as the recording.** It was found by name
+/// and checked only for existing, so a shared package whose `camera-00.mov` was a symbolic link
+/// opened the file it pointed at as the camera — the hole `ProjectPackageIO.mediaFile(named:in:)`
+/// closed for the recording, still open beside it. Step 4 of
+/// `docs/design/2026-10-23-splitting-the-recording-coordinator.md`.
+@MainActor @Suite struct ProjectCameraFileTests {
+    private func package(camera: (URL) throws -> Void) throws -> URL {
+        let package = FileManager.default.temporaryDirectory
+            .appending(path: "soredemo-cam-\(ProcessInfo.processInfo.globallyUniqueString).soredemo",
+                       directoryHint: .isDirectory)
+        let media = package.appending(path: "media", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        try Data("movie".utf8).write(to: media.appending(path: "master-00.mov"))
+        // A real package has a manifest; without one `open` refuses before it reaches the camera,
+        // and every test below would be about the missing manifest instead.
+        try ProjectPackageIO.save(ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                                                  geometries: GeometryRegistry(),
+                                                  mediaFilenames: ["master-00.mov"]), to: package)
+        try camera(media.appending(path: "camera-00.mov"))
+        return package
+    }
+
+    @Test func aPackagesOwnCameraFileIsOpened() throws {
+        let package = try package { try Data("face".utf8).write(to: $0) }
+        defer { try? FileManager.default.removeItem(at: package) }
+        #expect(try ProjectStore.open(package).cameraURL?.lastPathComponent == "camera-00.mov")
+    }
+
+    @Test func aCameraFileThatIsALinkToElsewhereIsNotOpened() throws {
+        let outside = FileManager.default.temporaryDirectory
+            .appending(path: "soredemo-cam-outside-\(ProcessInfo.processInfo.globallyUniqueString).mov")
+        try Data("not yours".utf8).write(to: outside)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        let package = try package { try FileManager.default.createSymbolicLink(at: $0, withDestinationURL: outside) }
+        defer { try? FileManager.default.removeItem(at: package) }
+        #expect(try ProjectStore.open(package).cameraURL == nil)
+    }
+
+    @Test func aPackageWithNoCameraHasNone() throws {
+        let package = try package { _ in }
+        defer { try? FileManager.default.removeItem(at: package) }
+        #expect(try ProjectStore.open(package).cameraURL == nil)
     }
 }

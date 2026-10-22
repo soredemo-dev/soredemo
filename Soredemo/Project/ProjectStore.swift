@@ -110,7 +110,10 @@ enum ProjectStore {
     /// `nil` for the edit when the package has none, which is what a package produced by an
     /// older build looks like — and what a recording's own scratch directory looks like before
     /// anyone saves it.
-    static func open(_ packageURL: URL) throws -> (mediaURL: URL, edit: EditState) {
+    /// The camera's file inside `media/`, by the convention the recorder writes it under.
+    static let cameraFilename = "camera-00.mov"
+
+    static func open(_ packageURL: URL) throws -> (mediaURL: URL, edit: EditState, cameraURL: URL?) {
         let snapshot = try ProjectPackageIO.load(from: packageURL)
         let media = try mediaFilenames(in: packageURL)
         guard let first = snapshot.mediaFilenames.first ?? media.first else {
@@ -126,7 +129,12 @@ enum ProjectStore {
         }
         // **The package's own file, or nothing.** A safe name can still be a symbolic link to any
         // file this app can read; `mediaFile(named:in:)` refuses one. See its header.
-        return (try ProjectPackageIO.mediaFile(named: first, in: packageURL), snapshot.edit)
+        // The camera file, if the project has one — named by convention beside the master, as the
+        // observation log is. **Through the same door as the recording**: found by name and
+        // checked only for existing, a `camera-00.mov` that was a link opened the file it
+        // pointed at. Not a reason to refuse the project — it opens without a camera.
+        let camera = try? ProjectPackageIO.mediaFile(named: cameraFilename, in: packageURL)
+        return (try ProjectPackageIO.mediaFile(named: first, in: packageURL), snapshot.edit, camera)
     }
 
     /// Whether a path is a symbolic link, dangling or not — `fileExists` follows links, so a link

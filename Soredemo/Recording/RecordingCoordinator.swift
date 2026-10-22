@@ -205,12 +205,7 @@ final class RecordingCoordinator {
         do {
             let opened = try ProjectStore.open(packageURL)
             mediaURL = nil                   // swaps the window's branch, as recording does
-            // The camera file, if the project has one. Named by convention beside the master,
-            // as the observation log is — a package that carries one is self-describing.
-            let cameraFile = packageURL.appending(path: ProjectStore.mediaDirectory,
-                                              directoryHint: .isDirectory)
-                .appending(path: "camera-00.mov")
-            cameraURL = FileManager.default.fileExists(atPath: cameraFile.path) ? cameraFile : nil
+            cameraURL = opened.cameraURL
             pendingEdit = opened.edit
             mediaURL = opened.mediaURL
             status = .report(String(localized: "Opened \(packageURL.lastPathComponent)."))
@@ -609,7 +604,7 @@ final class RecordingCoordinator {
             // `CameraController.startRecording(to:)`.
             let url = packageURL.appending(path: ProjectStore.mediaDirectory,
                                            directoryHint: .isDirectory)
-                .appending(path: "camera-00.mov")
+                .appending(path: ProjectStore.cameraFilename)
             do {
                 cameraRecorder = try camera.startRecording(to: url)
             } catch {

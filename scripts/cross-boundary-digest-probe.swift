@@ -7794,14 +7794,6 @@ private func aWindowResizedMidRecordingRecordsWhereThePictureWent() async throws
     let recordedLate = session.recordedDuration
     _ = try? await session.stop()
 
-    // **The notch's clock, read where it is read** (audit R9): the length of what has been
-    // written, growing while frames arrive. A value that did not move, or stayed at zero, would
-    // be a clock that stopped while the take went on.
-    check((recordedEarly?.rawValue ?? 0) > 0
-          && (recordedLate?.rawValue ?? 0) > (recordedEarly?.rawValue ?? 0),
-          "30.7 the recorded length grows while the take runs",
-          actual: "\(String(describing: recordedEarly?.rawValue)) then \(String(describing: recordedLate?.rawValue)) ns")
-
     let diagnostics = session.diagnostics
     guard let packageURL = sink.packageURL else {
         skipped.append("30. the session wrote no package, so there is no log to read")
@@ -7838,6 +7830,18 @@ private func aWindowResizedMidRecordingRecordsWhereThePictureWent() async throws
         print("        SKIPPED — too few complete frames.")
         return
     }
+
+    // **After the frame-count precondition, not before it.** Placed above it at first, 30.7 failed
+    // on a locked screen that delivered two frames in the whole take: no frame arrived between
+    // the two reads, so the recorded length correctly stood still. A check judged before its
+    // precondition is a check about the environment.
+    // **The notch's clock, read where it is read** (audit R9): the length of what has been
+    // written, growing while frames arrive. A value that did not move, or stayed at zero, would
+    // be a clock that stopped while the take went on.
+    check((recordedEarly?.rawValue ?? 0) > 0
+          && (recordedLate?.rawValue ?? 0) > (recordedEarly?.rawValue ?? 0),
+          "30.7 the recorded length grows while the take runs",
+          actual: "\(String(describing: recordedEarly?.rawValue)) then \(String(describing: recordedLate?.rawValue)) ns")
 
     check(crops.count >= 2,
           "30.1 a resize under a running stream writes a second content crop",
