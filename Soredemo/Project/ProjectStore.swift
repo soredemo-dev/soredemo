@@ -45,7 +45,12 @@ enum ProjectStore {
     /// the previous file rather than half of the new one. A recording is not reproducible —
     /// nobody can perform the same demo twice — which makes a torn write worse here than in
     /// software where the input still exists.
-    static func save(recordingAt mediaURL: URL, edit: EditState, to destination: URL) throws {
+    ///
+    /// `withoutScreenText` is *Save a Copy for Sharing*: the copy's observation logs lose every
+    /// accessibility title — window names, button labels — before it is moved into place, and the
+    /// package this was copied from keeps them. See `EvidenceRedaction` and audit R5.
+    static func save(recordingAt mediaURL: URL, edit: EditState, to destination: URL,
+                     withoutScreenText: Bool = false) throws {
         let source = packageURL(forMediaAt: mediaURL)
         let fileManager = FileManager.default
         let staging = destination.deletingLastPathComponent()
@@ -57,6 +62,11 @@ enum ProjectStore {
 
         let snapshot = try snapshotForSaving(at: staging, edit: edit)
         try ProjectPackageIO.save(snapshot, to: staging)
+        // In the staging copy, before it is moved into place: the destination never holds an
+        // unredacted log, even for a moment, and the source package is never touched.
+        if withoutScreenText {
+            _ = try EvidenceRedaction.redactObservations(in: staging)  // the count is for tests; a refusal throws
+        }
 
         // Replace rather than remove-then-move: `replaceItemAt` is atomic where the filesystem
         // supports it, and leaves the original in place when it is not.

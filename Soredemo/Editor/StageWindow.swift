@@ -497,6 +497,9 @@ struct StageWindow: View {
                 Menu {
                     Button("Save As…") { saveProject(askingForDestination: true) }
                         .keyboardShortcut("s", modifiers: [.command, .shift])
+                    // **A copy, not a move**: this project keeps its home and its evidence.
+                    Button("Save a Copy for Sharing…") { saveCopyForSharing() }
+                        .help("A copy without the window names and button labels the recording noted under each click. It still zooms and draws its cursor.")
                 } label: {
                     editor.savedPackage == nil ? Text("Save\u{2026}") : Text("Save")
                 } primaryAction: {
@@ -1445,6 +1448,23 @@ struct StageWindow: View {
     /// unsaved, because nothing has been written yet — not because it has been edited.
     private var hasUnsavedChanges: Bool {
         editor.savedPackage == nil || editor.currentEditState(hasCamera: cameraURL != nil) != editor.savedEdit
+    }
+
+    /// *Save a Copy for Sharing*: always asks where, never becomes this project's home, and the
+    /// copy's evidence loses the words on the screen (audit R5).
+    private func saveCopyForSharing() {
+        let edit = editor.currentEditState(hasCamera: cameraURL != nil)
+        let name = editor.savedPackage?.deletingPathExtension().lastPathComponent ?? recordingName
+        guard let destination = ProjectStore.chooseSaveDestination(
+            defaultName: String(localized: "\(name) (shared)"))
+        else { return }
+        do {
+            try ProjectStore.save(recordingAt: mediaURL, edit: edit, to: destination,
+                                  withoutScreenText: true)
+            editor.projectStatus = String(localized: "Saved a copy without screen text to \(destination.lastPathComponent).")
+        } catch {
+            editor.projectStatus = String(localized: "Could not save the copy: \(String(describing: error))")
+        }
     }
 
     /// `askingForDestination` is Save As: it asks even when this project already has a home,

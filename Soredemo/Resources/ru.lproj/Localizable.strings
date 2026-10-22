@@ -754,3 +754,10 @@
 "Stopped and saved: the disk was nearly full." = "Запись остановлена и сохранена: диск почти заполнен.";
 "There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "Свободного места не хватит даже на минуту записи такого размера. Освободите место и попробуйте снова.";
 "About %lld minutes of disk space left at this size." = "Свободного места хватит примерно на %lld мин записи такого размера.";
+
+/* A copy for sharing without screen text (2026-10-23). */
+"Save a Copy for Sharing…" = "Сохранить копию для отправки…";
+"A copy without the window names and button labels the recording noted under each click. It still zooms and draws its cursor." = "Копия без названий окон и подписей кнопок, отмеченных при каждом щелчке. Масштабирование и курсор по-прежнему работают.";
+"%@ (shared)" = "%@ (для отправки)";
+"Saved a copy without screen text to %@." = "Копия без текста с экрана сохранена в %@.";
+"Could not save the copy: %@" = "Не удалось сохранить копию: %@";

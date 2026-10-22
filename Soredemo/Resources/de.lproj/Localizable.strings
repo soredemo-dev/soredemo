@@ -754,3 +754,10 @@
 "Stopped and saved: the disk was nearly full." = "Beendet und gesichert: Das Volume war fast voll.";
 "There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "Der freie Speicher reicht bei dieser Größe nicht für eine Minute Aufnahme. Bitte Speicher freigeben und erneut versuchen.";
 "About %lld minutes of disk space left at this size." = "Bei dieser Größe reicht der freie Speicher für etwa %lld Minuten.";
+
+/* A copy for sharing without screen text (2026-10-23). */
+"Save a Copy for Sharing…" = "Kopie zum Teilen sichern …";
+"A copy without the window names and button labels the recording noted under each click. It still zooms and draws its cursor." = "Eine Kopie ohne die Fensternamen und Tastenbeschriftungen, die bei jedem Klick notiert wurden. Sie zoomt weiterhin und zeichnet den Zeiger.";
+"%@ (shared)" = "%@ (geteilt)";
+"Saved a copy without screen text to %@." = "Kopie ohne Bildschirmtext unter %@ gesichert.";
+"Could not save the copy: %@" = "Die Kopie konnte nicht gesichert werden: %@";

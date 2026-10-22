@@ -754,3 +754,10 @@
 "Stopped and saved: the disk was nearly full." = "중지하고 저장했습니다: 디스크가 거의 가득 찼습니다.";
 "There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "이 크기로는 남은 디스크 공간으로 1분도 녹화할 수 없습니다. 공간을 확보한 뒤 다시 시도하세요.";
 "About %lld minutes of disk space left at this size." = "이 크기로는 남은 디스크 공간으로 약 %lld분 녹화할 수 있습니다.";
+
+/* A copy for sharing without screen text (2026-10-23). */
+"Save a Copy for Sharing…" = "공유용 사본 저장…";
+"A copy without the window names and button labels the recording noted under each click. It still zooms and draws its cursor." = "클릭할 때마다 기록한 창 이름과 버튼 이름을 뺀 사본입니다. 확대와 커서 표시는 그대로 됩니다.";
+"%@ (shared)" = "%@ (공유용)";
+"Saved a copy without screen text to %@." = "화면 텍스트를 뺀 사본을 %@에 저장했습니다.";
+"Could not save the copy: %@" = "사본을 저장할 수 없습니다: %@";

@@ -756,3 +756,10 @@
 "Stopped and saved: the disk was nearly full." = "已停止并保存:磁盘快满了。";
 "There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "以这个大小,剩余的磁盘空间录不到一分钟。请先清出一些空间再试一次。";
 "About %lld minutes of disk space left at this size." = "以这个大小,剩余的磁盘空间大约还能录 %lld 分钟。";
+
+/* A copy for sharing without screen text (2026-10-23). */
+"Save a Copy for Sharing…" = "另存可分享的副本…";
+"A copy without the window names and button labels the recording noted under each click. It still zooms and draws its cursor." = "不含录制时在每次点击下记下的窗口名称和按钮文字的副本。仍然会自动缩放并画出光标。";
+"%@ (shared)" = "%@(分享用)";
+"Saved a copy without screen text to %@." = "已把不含画面文字的副本存到 %@。";
+"Could not save the copy: %@" = "无法保存副本:%@";

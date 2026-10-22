@@ -770,3 +770,10 @@
 "Stopped and saved: the disk was nearly full." = "Stopped and saved: the disk was nearly full.";
 "There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "There is not enough free disk space for a minute of recording at this size. Free some space and try again.";
 "About %lld minutes of disk space left at this size." = "About %lld minutes of disk space left at this size.";
+
+/* A copy for sharing without screen text (2026-10-23). */
+"Save a Copy for Sharing…" = "Save a Copy for Sharing…";
+"A copy without the window names and button labels the recording noted under each click. It still zooms and draws its cursor." = "A copy without the window names and button labels the recording noted under each click. It still zooms and draws its cursor.";
+"%@ (shared)" = "%@ (shared)";
+"Saved a copy without screen text to %@." = "Saved a copy without screen text to %@.";
+"Could not save the copy: %@" = "Could not save the copy: %@";

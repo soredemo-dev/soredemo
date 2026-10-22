@@ -32,6 +32,7 @@ let adjudicatedStringFields: [String: String] = [
     "ProjectFormatError.sidecarAlreadyExists": "keep — same type, same reason as ProjectFormatError.malformed above",
     "ProjectFormatError.invalidSidecarName": "keep — same type, same reason as ProjectFormatError.malformed above",
     "ProjectFormatError.mediaIsNotAFile": "keep — same type, same reason as ProjectFormatError.malformed above",
+    "Failure.notText": "keep — EvidenceRedaction.Failure, Error and Equatable only, never Codable; it carries the name of a log file this app minted (segment-NN.jsonl), not anything a person typed or a screen showed",
     "EditState.cameraPace": "keep — one of CameraPace's raw values (\"gentle\", \"standard\", \"snappy\"), chosen from a fixed list in a picker and never typed; the app resolves it with CameraPace(rawValue:) and treats anything else as standard, so a person cannot put anything else in it that is used",
     "EditState.outputShapeName": "keep — one of AspectVariant's own names (\"Landscape\", \"Portrait\", \"Square\"), chosen from a fixed list in a picker and never typed. Stored as the NAME rather than as dimensions so a project made before a shape was retuned opens with the current one; a person cannot put anything else in it, and the decoder resolves it against AspectVariant.all rather than trusting the string",
 ]

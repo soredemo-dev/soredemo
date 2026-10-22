@@ -223,7 +223,11 @@ let package = Package(
         .testTarget(name: "OverlaysTests",
                     dependencies: ["Overlays", "Timeline", "Render", "Project", "Geometry"],
                     swiftSettings: strict),
-        .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"], swiftSettings: strict),
+        // The redacted fixture, so `EvidenceRedactionTests` can show the app's redaction agrees
+        // with the script that made it.
+        .testTarget(name: "ProjectTests", dependencies: ["Project", "Geometry"],
+                    resources: [.copy("../HeadlessFixtures/segment-00-redacted.jsonl")],
+                    swiftSettings: strict),
         .testTarget(name: "RenderTests", dependencies: ["Render", "Geometry", "Timeline", "Project"],
                     swiftSettings: strict),
 
