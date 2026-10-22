@@ -748,3 +748,9 @@
 "Capture" = "Захват";
 "Screenshot taken. Add a background or annotations, then choose Export Frame…" = "Снимок экрана сделан. Добавьте фон или пометки и выберите «Экспорт кадра…».";
 "The screenshot could not be taken: %@" = "Не удалось сделать снимок экрана: %@";
+
+/* Disk space and sleep during a take (2026-10-22). */
+"Paused because the Mac went to sleep. Resume or stop when you are back." = "Запись приостановлена: Mac перешёл в режим сна. Продолжите или остановите, когда вернётесь.";
+"Stopped and saved: the disk was nearly full." = "Запись остановлена и сохранена: диск почти заполнен.";
+"There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "Свободного места не хватит даже на минуту записи такого размера. Освободите место и попробуйте снова.";
+"About %lld minutes of disk space left at this size." = "Свободного места хватит примерно на %lld мин записи такого размера.";

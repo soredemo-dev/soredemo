@@ -764,3 +764,9 @@
 "Capture" = "擷取";
 "Screenshot taken. Add a background or annotations, then choose Export Frame…" = "已截圖。加上背景或標註後,選擇「匯出畫面…」。";
 "The screenshot could not be taken: %@" = "無法截圖:%@";
+
+/* Disk space and sleep during a take (2026-10-22). */
+"Paused because the Mac went to sleep. Resume or stop when you are back." = "Mac 進入睡眠,所以已暫停錄影。回來後再選擇繼續或停止。";
+"Stopped and saved: the disk was nearly full." = "已停止並存檔:磁碟快滿了。";
+"There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "以這個大小,剩餘的磁碟空間錄不到一分鐘。請先清出一些空間再試一次。";
+"About %lld minutes of disk space left at this size." = "以這個大小,剩餘的磁碟空間大約還能錄 %lld 分鐘。";

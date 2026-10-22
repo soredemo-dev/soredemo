@@ -26,9 +26,39 @@ final class RecordingCoordinator {
     /// **The display is held awake by this and nothing else**, so every way a take starts or ends —
     /// a screen, a phone, a stop, a failure — takes or gives it back. See `TakeWakeLock`.
     private(set) var isRecording = false {
-        didSet { isRecording ? wakeLock.hold() : wakeLock.release() }
+        didSet {
+            isRecording ? wakeLock.hold() : wakeLock.release()
+            // Listening for sleep, and counting the disk, for exactly the life of a take.
+            sleepPause = isRecording
+                ? SleepPause(centre: NSWorkspace.shared.notificationCenter) { [weak self] in
+                    self?.pauseBecauseTheMacIsSleeping()
+                }
+                : nil
+            if isRecording {
+                diskWatch = DiskWatch()
+                secondsSinceDiskCheck = 0
+                stoppingForDisk = false
+            }
+        }
     }
     private let wakeLock = TakeWakeLock()
+    private var sleepPause: SleepPause?
+    private var diskWatch = DiskWatch()
+    private var secondsSinceDiskCheck = 0.0
+    private var stoppingForDisk = false
+    /// Said when the take starts, if the estimate before it was low.
+    private var lowDiskWarning: String?
+    /// How often the free space is read during a take. Five seconds at 85 Mbps is about 55 MB —
+    /// far inside the minute of margin `DiskWatch` keeps.
+    static let diskCheckSeconds = 5.0
+
+    /// **Paused, not stopped, and not resumed on wake** — see `SleepPause`. A phone take has no
+    /// pause, so it is left to the device.
+    private func pauseBecauseTheMacIsSleeping() {
+        guard isRecording, !isPaused, session != nil else { return }
+        togglePause()
+        status = .report(String(localized: "Paused because the Mac went to sleep. Resume or stop when you are back."))
+    }
     private(set) var isPaused = false
     /// Seconds since recording started, not counting time paused. Driven by a timer the bar
     /// starts and stops — see `tick()`.
@@ -684,6 +714,8 @@ final class RecordingCoordinator {
                 if isPaused {
                     try await session.resume()
                     isPaused = false
+                    // A pause closed the segment and its copy is made: the disk count starts again.
+                    diskWatch.segmentBegan()
                     // The clock did not tick while paused, and a pause is not silence.
                     silenceWatch.reset()
                     microphoneHearsNothing = false
@@ -710,6 +742,21 @@ final class RecordingCoordinator {
     func tick(_ interval: Double) {
         guard isRecording, !isPaused else { return }
         elapsed += interval
+        secondsSinceDiskCheck += interval
+        if secondsSinceDiskCheck >= Self.diskCheckSeconds {
+            let verdict = diskWatch.observe(free: DiskHeadroom.availableBytes(),
+                                            after: secondsSinceDiskCheck)
+            secondsSinceDiskCheck = 0
+            // **Stopped while it can still be saved** — see `DiskWatch`. Said after the stop, so
+            // the finishing messages do not cover it.
+            if verdict == .stopNow, !stoppingForDisk {
+                stoppingForDisk = true
+                Task { @MainActor in
+                    await stopRecording()
+                    status = .problem(String(localized: "Stopped and saved: the disk was nearly full."))
+                }
+            }
+        }
         // Smoothed toward the instantaneous value: `latestRMS` is the RMS of one buffer, and a
         // meter drawn straight from it flickers at the buffer rate. Rising fast and falling slow
         // is what every level meter does, because a peak a person missed is worse than a decay
@@ -802,6 +849,23 @@ final class RecordingCoordinator {
         // `Self.displayIdentity(for:)`, not `displayUUID(for:)`: `AppSourceAllowListTests`'
         // ambient scan bans the substring "UUID(".
         let displayUUID = Self.displayIdentity(for: source)
+
+        // **Before anything starts**: a take that cannot be saved is worse than one that did not
+        // begin. An estimate — the take itself is measured by `DiskWatch`.
+        let size = source.geometry(scale: scale, displayUUID: displayUUID)
+        switch DiskHeadroom.verdict(available: DiskHeadroom.availableBytes(),
+                                    bytesPerSecond: DiskHeadroom.bytesPerSecond(
+                                        pixelWidth: size.pixelWidth, pixelHeight: size.pixelHeight,
+                                        frameRate: frameRate.rawValue)) {
+        case .tooLittle:
+            pendingMode = nil
+            status = .problem(String(localized: "There is not enough free disk space for a minute of recording at this size. Free some space and try again."))
+            return
+        case .low(let minutes):
+            lowDiskWarning = String(localized: "About \(minutes) minutes of disk space left at this size.")
+        case .plenty:
+            lowDiskWarning = nil
+        }
 
         let newSink: TemporaryFileMediaSink
         do {
@@ -927,7 +991,8 @@ final class RecordingCoordinator {
             // recording started from the menu bar had no controls at all. The bar belongs to the
             // recording, and the recording is here.
             showRecordingControls()
-            status = .report(String(localized: "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."))
+            // The disk warning outranks the reminder of how to stop: it is the one that can cost the take.
+            status = .report(lowDiskWarning ?? String(localized: "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."))
         } catch {
             status = .problem(String(localized: "Could not start recording: \(String(describing: error))"))
             session = nil

@@ -128,6 +128,8 @@ xcrun swiftc \
   Soredemo/Recording/MicrophoneSilenceWatch.swift \
   Soredemo/Recording/AudioRoute.swift \
   Soredemo/Recording/TakeWakeLock.swift \
+  Soredemo/Recording/DiskHeadroom.swift \
+  Soredemo/Recording/SleepPause.swift \
   Soredemo/Project/TemporaryFileMediaSink.swift \
   Soredemo/Project/RecordingName.swift \
   Soredemo/Recording/CameraSelfView.swift \

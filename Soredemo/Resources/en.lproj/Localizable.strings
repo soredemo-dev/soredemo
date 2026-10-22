@@ -764,3 +764,9 @@
 "Capture" = "Capture";
 "Screenshot taken. Add a background or annotations, then choose Export Frame…" = "Screenshot taken. Add a background or annotations, then choose Export Frame…";
 "The screenshot could not be taken: %@" = "The screenshot could not be taken: %@";
+
+/* Disk space and sleep during a take (2026-10-22). */
+"Paused because the Mac went to sleep. Resume or stop when you are back." = "Paused because the Mac went to sleep. Resume or stop when you are back.";
+"Stopped and saved: the disk was nearly full." = "Stopped and saved: the disk was nearly full.";
+"There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "There is not enough free disk space for a minute of recording at this size. Free some space and try again.";
+"About %lld minutes of disk space left at this size." = "About %lld minutes of disk space left at this size.";

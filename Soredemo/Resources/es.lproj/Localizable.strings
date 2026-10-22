@@ -750,3 +750,9 @@
 "Capture" = "Captura";
 "Screenshot taken. Add a background or annotations, then choose Export Frame…" = "Captura hecha. Añade un fondo o anotaciones y elige «Exportar fotograma…».";
 "The screenshot could not be taken: %@" = "No se pudo hacer la captura de pantalla: %@";
+
+/* Disk space and sleep during a take (2026-10-22). */
+"Paused because the Mac went to sleep. Resume or stop when you are back." = "En pausa porque el Mac entró en reposo. Reanuda o detén cuando vuelvas.";
+"Stopped and saved: the disk was nearly full." = "Detenido y guardado: el disco estaba casi lleno.";
+"There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "No hay espacio libre suficiente para un minuto de grabación a este tamaño. Libera espacio y vuelve a intentarlo.";
+"About %lld minutes of disk space left at this size." = "Quedan unos %lld minutos de espacio en disco a este tamaño.";

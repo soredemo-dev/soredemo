@@ -750,3 +750,9 @@
 "Capture" = "キャプチャ";
 "Screenshot taken. Add a background or annotations, then choose Export Frame…" = "スクリーンショットを撮りました。背景や注釈を加えてから「フレームを書き出す…」を選んでください。";
 "The screenshot could not be taken: %@" = "スクリーンショットを撮れませんでした:%@";
+
+/* Disk space and sleep during a take (2026-10-22). */
+"Paused because the Mac went to sleep. Resume or stop when you are back." = "Mac がスリープしたため収録を一時停止しました。戻ったら再開か停止を選んでください。";
+"Stopped and saved: the disk was nearly full." = "停止して保存しました:ディスクがほぼいっぱいです。";
+"There is not enough free disk space for a minute of recording at this size. Free some space and try again." = "このサイズでは、空き容量が 1 分の収録にも足りません。空き容量を増やしてからもう一度お試しください。";
+"About %lld minutes of disk space left at this size." = "このサイズでは、空き容量で約 %lld 分収録できます。";

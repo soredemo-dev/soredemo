@@ -14,14 +14,23 @@ import Foundation
     }
 
     /// Runs with no view anywhere: nothing here is on screen, and it still ticks.
+    ///
+    /// **Waits for the ticks rather than timing them.** This asked for three ticks in a fixed
+    /// 200 ms and failed under a busy main actor — once in a mutation run on 2026-09-30, once in
+    /// gate 5 on 2026-10-22 with ONE tick counted — because the clock runs on the main actor and
+    /// the suite runs other main-actor tests beside it. The claim is that it ticks with nothing
+    /// on screen, not how fast; up to two seconds for three ticks says that without a race.
+    /// (That a busy main actor slows the clock is a real property, and the audit records it.)
     @Test func itTicksWithNothingOnScreen() async throws {
         let clock = RecordingClock(interval: 0.01)
         let ticks = Ticks()
         clock.start { ticks.add($0) }
         #expect(clock.isRunning)
-        try await Task.sleep(for: .milliseconds(200))
+        for _ in 0..<100 where ticks.all.count < 3 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         clock.stop()
-        #expect(ticks.all.count >= 3, "\(ticks.all.count) ticks in 200 ms at a 10 ms interval")
+        #expect(ticks.all.count >= 3, "\(ticks.all.count) ticks in up to 2 s at a 10 ms interval")
         #expect(ticks.all.allSatisfy { $0 == 0.01 }, "each tick reports the interval it stands for")
     }
 
