@@ -65,13 +65,7 @@ public enum ProjectPackageIO {
     /// made mechanical. `name` must be a single path component, also refused before any
     /// byte is written: anything outside `media/` is a permanent orphan.
     public static func writeSidecar(_ data: Data, named name: String, into packageURL: URL) throws {
-        guard
-            !name.contains("/"), !name.contains("\\"),
-            name != ".", name != "..",
-            !name.hasPrefix(".")
-        else {
-            throw ProjectFormatError.invalidSidecarName(name)
-        }
+        guard isSafeMediaName(name) else { throw ProjectFormatError.invalidSidecarName(name) }
 
         let fm = FileManager.default
         let directory = mediaURL(in: packageURL)
@@ -82,6 +76,35 @@ public enum ProjectPackageIO {
             throw ProjectFormatError.sidecarAlreadyExists(name)
         }
         try data.write(to: fileURL)
+    }
+
+    /// Whether `name` is one file directly inside `media/`: a single path component, not `.` or
+    /// `..`, not hidden, not empty. **The one rule for a media name, in and out** — `writeSidecar`
+    /// on the way in and `ProjectSnapshot`'s decoder on the way back, because a package is a
+    /// document people send each other.
+    public static func isSafeMediaName(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && !name.contains("\\") && !name.hasPrefix(".")
+    }
+
+    /// The package's own media file of this name, or a refusal.
+    ///
+    /// **A safe name is not enough.** `media/clip.mov` can be a symbolic link to any file this
+    /// unsandboxed app can read, and opening it would open that. Asked without following links,
+    /// so the answer is about the entry in the package and not about what it points to.
+    public static func mediaFile(named name: String, in packageURL: URL) throws -> URL {
+        guard isSafeMediaName(name) else { throw ProjectFormatError.invalidSidecarName(name) }
+        let folder = mediaURL(in: packageURL)
+        let url = folder.appending(path: name, directoryHint: .notDirectory)
+        // `attributesOfItem` is `lstat`: it describes the entry itself, never a link's target.
+        // Both the folder and the file — `media` as a link to somebody's Movies folder makes
+        // every file under it look ordinary.
+        func type(_ path: URL) -> FileAttributeType? {
+            (try? FileManager.default.attributesOfItem(atPath: path.path))?[.type] as? FileAttributeType
+        }
+        guard type(folder) == .typeDirectory, type(url) == .typeRegular else {
+            throw ProjectFormatError.mediaIsNotAFile(name)
+        }
+        return url
     }
 
     /// Names under `media/` that `snapshot.mediaFilenames` does not reference, sorted.

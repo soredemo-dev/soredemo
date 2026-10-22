@@ -18,6 +18,9 @@ public enum ProjectFormatError: Error, Equatable {
     /// `..`, or starts with `.`. A name escaping `media/` would write outside the
     /// directory `unreferencedSidecars` scans, making a permanent orphan.
     case invalidSidecarName(String)
+    /// The named media is not an ordinary file in the package — a symbolic link to somewhere
+    /// else, most dangerously, which would open a file this package does not contain.
+    case mediaIsNotAFile(String)
 }
 
 /// Decodes a `ProjectSnapshot` from any schema version this build reads, migrating

@@ -360,3 +360,66 @@ private func nonEmptySegments() throws -> SegmentTable {
     let onDiskAfterCompact = Set(try FileManager.default.contentsOfDirectory(atPath: mediaDir.path))
     #expect(onDiskAfterCompact == ["kept.mov"])
 }
+
+// MARK: - a shared package naming files outside itself
+
+/// **A `.soredemo` package is a document people send each other**, so every name in it is
+/// untrusted. A manifest naming `../../somebody's-private.mov` used to be opened as the
+/// recording — any file this unsandboxed app can read, played in the editor and carried into the
+/// next project saved from it. Refused where the name enters: the decoder.
+@Test(arguments: ["../outside.mov", "../../Users/someone/Movies/private.mov", "sub/clip.mov",
+                  "..\\outside.mov", ".hidden.mov", "..", ".", ""])
+func aManifestNamingAFileOutsideItsMediaIsRefused(_ name: String) throws {
+    let good = try JSONEncoder().encode(snapshot(mediaFilenames: ["clip-01.mov"]))
+    var object = try #require(try JSONSerialization.jsonObject(with: good) as? [String: Any])
+    object["mediaFilenames"] = ["clip-01.mov", name]
+    let bad = try JSONSerialization.data(withJSONObject: object)
+    #expect(throws: DecodingError.self) { try JSONDecoder().decode(ProjectSnapshot.self, from: bad) }
+    // Positive control: the same document with only the good name decodes.
+    #expect(try JSONDecoder().decode(ProjectSnapshot.self, from: good).mediaFilenames == ["clip-01.mov"])
+}
+
+/// **A safe name can still point outside**: `media/clip.mov` as a symbolic link to a file
+/// elsewhere. The file that is opened must be the package's own.
+@Test func aMediaFileThatIsALinkToElsewhereIsRefused() throws {
+    let package = freshPackageDirectory("media-link")
+    defer { try? FileManager.default.removeItem(at: package) }
+    let media = package.appending(path: "media", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+    let outside = FileManager.default.temporaryDirectory
+        .appending(path: "soredemo-t17-outside-\(ProcessInfo.processInfo.globallyUniqueString).mov")
+    try Data("not yours".utf8).write(to: outside)
+    defer { try? FileManager.default.removeItem(at: outside) }
+    try FileManager.default.createSymbolicLink(at: media.appending(path: "linked.mov"),
+                                               withDestinationURL: outside)
+    try Data("ours".utf8).write(to: media.appending(path: "own.mov"))
+
+    #expect(throws: ProjectFormatError.mediaIsNotAFile("linked.mov")) {
+        try ProjectPackageIO.mediaFile(named: "linked.mov", in: package)
+    }
+    #expect(throws: ProjectFormatError.invalidSidecarName("../own.mov")) {
+        try ProjectPackageIO.mediaFile(named: "../own.mov", in: package)
+    }
+    // Positive control: the package's own file is handed back.
+    #expect(try ProjectPackageIO.mediaFile(named: "own.mov", in: package).lastPathComponent == "own.mov")
+}
+
+/// **The folder can be the link.** `media` itself pointing at somebody's Movies folder makes every
+/// file under it look like an ordinary file in the package.
+@Test func aMediaFolderThatIsALinkToElsewhereIsRefused() throws {
+    let package = freshPackageDirectory("media-folder-link")
+    defer { try? FileManager.default.removeItem(at: package) }
+    let elsewhere = FileManager.default.temporaryDirectory
+        .appending(path: "soredemo-t17-elsewhere-\(ProcessInfo.processInfo.globallyUniqueString)",
+                   directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: elsewhere) }
+    try Data("not yours".utf8).write(to: elsewhere.appending(path: "private.mov"))
+    try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: package.appending(path: "media"),
+                                               withDestinationURL: elsewhere)
+
+    #expect(throws: ProjectFormatError.mediaIsNotAFile("private.mov")) {
+        try ProjectPackageIO.mediaFile(named: "private.mov", in: package)
+    }
+}

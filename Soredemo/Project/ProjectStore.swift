@@ -108,13 +108,22 @@ enum ProjectStore {
         }
         let mediaURL = packageURL.appending(path: mediaDirectory, directoryHint: .isDirectory)
             .appending(path: first)
-        guard FileManager.default.fileExists(atPath: mediaURL.path) else {
+        guard FileManager.default.fileExists(atPath: mediaURL.path) || isLink(mediaURL) else {
             // The manifest names a file the package does not have. Said plainly rather than
             // opening an empty editor: a package missing its media is not a project a person
             // can do anything with, and the name is the only clue to what happened to it.
             throw ProjectStoreError.mediaMissing(first)
         }
-        return (mediaURL, snapshot.edit)
+        // **The package's own file, or nothing.** A safe name can still be a symbolic link to any
+        // file this app can read; `mediaFile(named:in:)` refuses one. See its header.
+        return (try ProjectPackageIO.mediaFile(named: first, in: packageURL), snapshot.edit)
+    }
+
+    /// Whether a path is a symbolic link, dangling or not — `fileExists` follows links, so a link
+    /// to a missing file would otherwise read as "the media is missing" rather than as a link.
+    private static func isLink(_ url: URL) -> Bool {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType)
+            == .typeSymbolicLink
     }
 
     // MARK: - panels

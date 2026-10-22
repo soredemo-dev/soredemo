@@ -59,7 +59,17 @@ extension ProjectSnapshot {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         geometries = try container.decode(GeometryRegistry.self, forKey: .geometries)
-        mediaFilenames = try container.decode([String].self, forKey: .mediaFilenames)
+        let names = try container.decode([String].self, forKey: .mediaFilenames)
+        // **Untrusted, and refused where it enters.** A package is a document people send each
+        // other, and a name like `../../private.mov` would be opened as the recording — any file
+        // this unsandboxed app can read. The same rule `writeSidecar` already applied on the way
+        // out, applied on the way in.
+        if let unsafe = names.first(where: { !ProjectPackageIO.isSafeMediaName($0) }) {
+            throw DecodingError.dataCorruptedError(
+                forKey: .mediaFilenames, in: container,
+                debugDescription: "\"\(unsafe)\" is not a file name inside the package's media folder")
+        }
+        mediaFilenames = names
         segments = try container.decodeIfPresent(SegmentTable.self, forKey: .segments) ?? .empty
         // **Absent means unedited, and the version does NOT move for it.** `segments` above
         // took that trade once and its comment says a future additive field must re-make the
