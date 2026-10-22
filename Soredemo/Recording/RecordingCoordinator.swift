@@ -20,6 +20,8 @@ import Timeline
 @Observable
 final class RecordingCoordinator {
     private(set) var mediaURL: URL?
+    /// The switches a person sets once — see `RecordingPreferences`. Read when a take starts.
+    let preferences = RecordingPreferences()
     /// An edit read from a saved project, waiting for the window that will apply it. Cleared
     /// once taken, so re-opening the same recording does not re-apply a stale one.
     private(set) var pendingEdit: EditState?
@@ -132,12 +134,6 @@ final class RecordingCoordinator {
         CameraSelfView.shared.onStyleChange = { [weak self] style in self?.cameraStyle = style }
         CameraSelfView.shared.show(recorder: recorder, style: cameraStyle)
     }
-    /// The ceiling on capture frame delivery. Persisted, like the countdown: a preference rather
-    /// than a per-recording decision.
-    var frameRate: CaptureFrameRate {
-        didSet { UserDefaults.standard.set(frameRate.rawValue, forKey: Self.frameRateKey) }
-    }
-    static let frameRateKey = "captureFrameRate"
     private(set) var availableCameras: [CameraSource] = []
     private var cameraRecorder: CameraRecorder?
     /// Where the camera's file landed for the recording being previewed, or `nil`.
@@ -232,13 +228,6 @@ final class RecordingCoordinator {
     /// The inputs this machine currently offers, refreshed when the menu bar panel opens —
     /// a USB interface plugged in after launch has to appear without a relaunch.
     private(set) var availableMicrophones: [MicrophoneSource] = []
-    /// Seconds between choosing a target and the capture starting. Persisted, because it is a
-    /// preference rather than a per-recording decision — a person who wants five seconds wants
-    /// five seconds every time.
-    var countdownSeconds: Int {
-        didSet { UserDefaults.standard.set(countdownSeconds, forKey: Self.countdownKey) }
-    }
-    static let countdownKey = "countdownSeconds"
 
     /// What this Mac has measured about the rolling clip buffer: the smallest load, in pixels per
     /// second, at which it had to be dropped. Absent on a fresh install, which is
@@ -249,116 +238,7 @@ final class RecordingCoordinator {
     /// The load the current recording started at, kept so that what the watchdog decides about
     /// it can be written back against the same number at stop.
     private var clipBufferLoad: Int?
-    /// The choices offered. Zero is "off" and is a legitimate answer — a person recording a
-    /// window they have already arranged is not waiting three seconds for it.
-    static let countdownChoices = [0, 3, 5, 10]
 
-    /// Whether the desktop's icons are hidden for the duration of a recording.
-    ///
-    /// **Off by default, and it is the cost that decides that.** Restarting Finder closes the
-    /// Finder windows somebody has open, which is a real interruption to make on their behalf
-    /// without being asked. A person who wants a clean desktop in their demos asks once, in
-    /// Settings, and gets it every time — the same shape as the countdown.
-    var hidesDesktopIcons: Bool {
-        didSet { UserDefaults.standard.set(hidesDesktopIcons, forKey: Self.hidesDesktopIconsKey) }
-    }
-    static let hidesDesktopIconsKey = "hidesDesktopIcons"
-
-    /// Whether the Dock is kept out of the picture for the duration of a recording.
-    ///
-    /// **Off by default, but not for the reason its neighbour is.** Hiding the desktop icons
-    /// restarts Finder and costs somebody their open windows, so it has to be asked for. This
-    /// costs nothing at all — the Dock is excluded from the capture filter and the person's own
-    /// Dock never moves — and it is still off, because a recording that silently omits part of
-    /// the screen is not what somebody pressing Record expects to get. See `CaptureExclusions`
-    /// for the three mechanisms that were measured and rejected before this one.
-    var hidesDock: Bool {
-        didSet { UserDefaults.standard.set(hidesDock, forKey: Self.hidesDockKey) }
-    }
-    static let hidesDockKey = "hidesDock"
-
-    /// Whether the menu bar — and the twelve small things sitting in it — are kept out of the
-    /// picture for the duration of a recording.
-    ///
-    /// **Off by default, and this is the one where that is arguable.** A menu bar says what time
-    /// it is, how much battery is left, which network somebody is on, and through its extras
-    /// which applications they run: for a recording that is going to be published, that is a row
-    /// of small disclosures nobody meant to make. The case for hiding it by default is real.
-    ///
-    /// It is still off, for the same reason the other two are: a recording that silently omits
-    /// part of the screen is not what pressing Record is understood to mean, and somebody
-    /// demonstrating a menu is demonstrating the menu bar. Costs nothing when off — it is one
-    /// property on the capture filter, not a query and not a change to the Mac.
-    var hidesMenuBar: Bool {
-        didSet { UserDefaults.standard.set(hidesMenuBar, forKey: Self.hidesMenuBarKey) }
-    }
-    static let hidesMenuBarKey = "hidesMenuBar"
-
-    /// Whether the desktop widgets are kept out of the picture.
-    ///
-    /// **Off by default, like the other three, and for the same reason**: a
-    /// recording that silently omits part of the screen is not what pressing
-    /// Record is understood to mean. The case for ON is the strongest of the four
-    /// — the widgets say what is in somebody's calendar this afternoon, where
-    /// they are and what their battery is doing, which is a row of small
-    /// disclosures nobody meant to publish — and it is still not enough to
-    /// decide for them.
-    var hidesDesktopWidgets: Bool {
-        didSet {
-            UserDefaults.standard.set(hidesDesktopWidgets, forKey: Self.hidesDesktopWidgetsKey)
-        }
-    }
-    static let hidesDesktopWidgetsKey = "hidesDesktopWidgets"
-
-    /// Whether notification banners, and Notification Center, are kept out of the picture.
-    ///
-    /// **Off by default, like the four above, and for their reason.** The case for ON is a
-    /// message's sender and first line arriving mid-take; it is still a part of the screen, and
-    /// somebody demonstrating a notification is demonstrating it. Nothing is silenced either
-    /// way — there is no public API to turn Focus on — so the person still sees every banner.
-    var hidesNotifications: Bool {
-        didSet { UserDefaults.standard.set(hidesNotifications, forKey: Self.hidesNotificationsKey) }
-    }
-    static let hidesNotificationsKey = "hidesNotifications"
-
-    /// Whether dragging the playhead plays the moment under it.
-    ///
-    /// **On by default, unlike the three recording switches above.** Those change what a
-    /// recording CONTAINS, so a default that surprised somebody would be in their file. This
-    /// changes only what the person editing hears, costs nothing when they are not dragging, and
-    /// is the difference between finding a sentence and hunting for one.
-    var scrubAudio: Bool {
-        didSet { UserDefaults.standard.set(scrubAudio, forKey: Self.scrubAudioKey) }
-    }
-    static let scrubAudioKey = "scrubAudio"
-
-    /// Whether the machine's own output — what the speakers are playing — is recorded.
-    ///
-    /// **On by default, and it has to be asked rather than assumed.** A demo of
-    /// anything that makes a sound is worse without it, so on is the right
-    /// default. But it used to be unconditional, which left no way to record a
-    /// call, or a screen that pings, without the other side of it in the file —
-    /// and muting afterwards is not the same act, because by then it is recorded.
-    ///
-    /// This app's own sound is already excluded (`excludesCurrentProcessAudio`),
-    /// so the switch is about the rest of the machine.
-    var capturesSystemAudio: Bool {
-        didSet { UserDefaults.standard.set(capturesSystemAudio, forKey: Self.capturesSystemAudioKey) }
-    }
-    static let capturesSystemAudioKey = "capturesSystemAudio"
-
-    // **Every preference key is `internal`, not `private`, and the reason is compatibility
-    // rather than testing convenience.** A persisted key is part of what the app promises across
-    // versions: rename one and every existing user's preference silently reverts to its default
-    // on the next launch, with nothing to see and nothing to report. Two of the four were
-    // already internal and two were private, which was inconsistency rather than design —
-    // nothing outside this file named any of them. They are named now by
-    // `scripts/cross-boundary-digest-probe.swift` § 17, which asserts that setting each
-    // preference writes the string below, so a rename is a red check instead of a quiet reset.
-    //
-    // `hidesDesktopIcons` was internal from the start and still went unpinned until the Dock
-    // switch was added beside it — the probe named four keys and there were five. Both are
-    // pinned now.
 
     func refreshMicrophones() {
         availableMicrophones = MicrophoneInventory.available()
@@ -433,30 +313,6 @@ final class RecordingCoordinator {
     /// Sweeps leftover scratch directories once, at construction — the earliest point this app
     /// runs, before any recording exists to protect.
     init() {
-        // `object(forKey:)` rather than `integer(forKey:)`: the latter answers 0 for a key that
-        // has never been set, and 0 means "off" here — so a first launch would silently ship
-        // with no countdown, which is the opposite of the default this chose.
-        countdownSeconds = UserDefaults.standard.object(forKey: Self.countdownKey) as? Int ?? 3
-        // Absent means off, which `bool(forKey:)` already answers — no `object(forKey:)` dance
-        // is needed for a preference whose default is the same as its zero value.
-        hidesDesktopIcons = UserDefaults.standard.bool(forKey: Self.hidesDesktopIconsKey)
-        hidesDock = UserDefaults.standard.bool(forKey: Self.hidesDockKey)
-        hidesMenuBar = UserDefaults.standard.bool(forKey: Self.hidesMenuBarKey)
-        hidesDesktopWidgets = UserDefaults.standard.bool(forKey: Self.hidesDesktopWidgetsKey)
-        hidesNotifications = UserDefaults.standard.bool(forKey: Self.hidesNotificationsKey)
-        // **Defaults to ON, so `bool(forKey:)`'s zero is not the answer.** A key never written
-        // answers `false`, which for a switch that should start on is the same silent defect
-        // `countdownSeconds` documents.
-        scrubAudio = UserDefaults.standard.object(forKey: Self.scrubAudioKey) as? Bool ?? true
-        // `object(forKey:)` rather than `bool(forKey:)` for the same reason as every
-        // switch above: `bool` reads a missing key as `false`, which would turn this
-        // off for everybody who has ever run the app rather than defaulting it on.
-        capturesSystemAudio = UserDefaults.standard
-            .object(forKey: Self.capturesSystemAudioKey) as? Bool ?? true
-        // Same reasoning as the countdown's default: `integer(forKey:)` answers 0 for a key
-        // never set, and 0 is not a frame rate.
-        frameRate = (UserDefaults.standard.object(forKey: Self.frameRateKey) as? Int)
-            .flatMap(CaptureFrameRate.init(rawValue:)) ?? .sixty
         // A shape stored from a previous run, or the bottom-right circle `default` is.
         cameraQuality = (UserDefaults.standard.string(forKey: Self.cameraQualityKey))
             .flatMap(CameraRecorder.Quality.init(rawValue:)) ?? .best
@@ -582,9 +438,7 @@ final class RecordingCoordinator {
                 displayUUID: Self.displayIdentity(for: source),
                 // The switches a take would use, so a screenshot leaves out exactly what a
                 // recording of the same thing would.
-                exclusions: CaptureExclusions(hidesDock: hidesDock, hidesMenuBar: hidesMenuBar,
-                                              hidesDesktopWidgets: hidesDesktopWidgets,
-                                              hidesNotifications: hidesNotifications))
+                exclusions: preferences.exclusions)
             // A directory of its own that the system reclaims, rather than a named temporary file
             // two screenshots in one second could both claim.
             let folder = try FileManager.default.url(for: .itemReplacementDirectory,
@@ -863,7 +717,7 @@ final class RecordingCoordinator {
         switch DiskHeadroom.verdict(available: DiskHeadroom.availableBytes(),
                                     bytesPerSecond: DiskHeadroom.bytesPerSecond(
                                         pixelWidth: size.pixelWidth, pixelHeight: size.pixelHeight,
-                                        frameRate: frameRate.rawValue)) {
+                                        frameRate: preferences.frameRate.rawValue)) {
         case .tooLittle:
             pendingMode = nil
             status = .problem(String(localized: "There is not enough free disk space for a minute of recording at this size. Free some space and try again."))
@@ -895,7 +749,7 @@ final class RecordingCoordinator {
         // session makes, so the two cannot disagree about the size.
         let geometry = source.geometry(scale: scale, displayUUID: displayUUID)
         let load = ClipBufferFit.load(width: geometry.pixelWidth, height: geometry.pixelHeight,
-                                      frameRate: frameRate.rawValue)
+                                      frameRate: preferences.frameRate.rawValue)
         clipBufferLoad = load
         let learnedFit = ClipBufferFit(smallestLoadThatDidNotFit:
             UserDefaults.standard.object(forKey: Self.clipBufferFitKey) as? Int)
@@ -905,17 +759,13 @@ final class RecordingCoordinator {
                                         pointerShapeReader: SystemCursorShape.reader(),
                                         pointerHotspotReader: SystemCursorShape.hotspotReader(),
                                         microphone: microphone,
-                                        capturesSystemAudio: capturesSystemAudio,
-                                        frameRate: frameRate,
+                                        capturesSystemAudio: preferences.capturesSystemAudio,
+                                        frameRate: preferences.frameRate,
                                         // Passed as the person's ANSWER, not as a resolved list:
                                         // the session looks the Dock up per segment, because a
                                         // window object taken now would be stale by the time a
                                         // second segment opens. See `CaptureExclusions`.
-                                        exclusions: CaptureExclusions(
-                                            hidesDock: hidesDock,
-                                            hidesMenuBar: hidesMenuBar,
-                                            hidesDesktopWidgets: hidesDesktopWidgets,
-                                            hidesNotifications: hidesNotifications),
+                                        exclusions: preferences.exclusions,
                                         attachesClipBuffer: learnedFit.attaches(atLoad: load))
         session = newSession
         // **This app's own windows, told to the capture before it starts.** The accessibility
@@ -957,7 +807,7 @@ final class RecordingCoordinator {
         // and redraw, and a desktop whose icons vanish during the first second of the take is
         // worse than one that never hid them. Counting down over an already-clean desktop also
         // lets the person SEE that it worked before anything is recorded.
-        if hidesDesktopIcons { DesktopIcons.hide() }
+        if preferences.hidesDesktopIcons { DesktopIcons.hide() }
 
         // **Counted before the session starts, not after.** A countdown that ran while the
         // capture was already recording would put itself in the first three seconds of the file.
@@ -965,9 +815,9 @@ final class RecordingCoordinator {
         // icons are hidden before the count so a person can see that it worked; walking away
         // from the recording without putting them back would leave the machine changed by
         // something that never happened.
-        guard await CountdownPresenter.shared.run(seconds: countdownSeconds,
+        guard await CountdownPresenter.shared.run(seconds: preferences.countdownSeconds,
                                                   subject: source.countdownSubject) else {
-            if hidesDesktopIcons { DesktopIcons.restore() }
+            if preferences.hidesDesktopIcons { DesktopIcons.restore() }
             // The camera RECORDER is stopped and its file dropped with the scratch package; the
             // self-view is left alone, because it follows the camera somebody CHOSE and not a
             // recording that did not happen.

@@ -115,9 +115,9 @@ struct SettingsWindow: View {
         }
         SwiftUI.Section("Before recording") {
             Picker("Countdown", selection: Binding(
-                get: { coordinator.countdownSeconds },
-                set: { coordinator.countdownSeconds = $0 })) {
-                ForEach(RecordingCoordinator.countdownChoices, id: \.self) { value in
+                get: { coordinator.preferences.countdownSeconds },
+                set: { coordinator.preferences.countdownSeconds = $0 })) {
+                ForEach(RecordingPreferences.countdownChoices, id: \.self) { value in
                     (value == 0 ? Text("Off") : Text("\(value) seconds")).tag(value)
                 }
             }
@@ -125,8 +125,8 @@ struct SettingsWindow: View {
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide desktop icons", isOn: Binding(
-                get: { coordinator.hidesDesktopIcons },
-                set: { coordinator.hidesDesktopIcons = $0 }))
+                get: { coordinator.preferences.hidesDesktopIcons },
+                set: { coordinator.preferences.hidesDesktopIcons = $0 }))
             // **The cost is on screen, not in a header nobody reads.** This is the only setting
             // in the app that restarts another application, and somebody who has Finder windows
             // open is owed that fact before they turn it on rather than after.
@@ -134,8 +134,8 @@ struct SettingsWindow: View {
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide the Dock", isOn: Binding(
-                get: { coordinator.hidesDock },
-                set: { coordinator.hidesDock = $0 }))
+                get: { coordinator.preferences.hidesDock },
+                set: { coordinator.preferences.hidesDock = $0 }))
             // **The contrast with the switch above it is the point.** They sit together and
             // sound alike, and one of them restarts an application while the other changes
             // nothing on the machine at all. Somebody comparing the two is owed that difference
@@ -144,8 +144,8 @@ struct SettingsWindow: View {
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide the menu bar", isOn: Binding(
-                get: { coordinator.hidesMenuBar },
-                set: { coordinator.hidesMenuBar = $0 }))
+                get: { coordinator.preferences.hidesMenuBar },
+                set: { coordinator.preferences.hidesMenuBar = $0 }))
             // **What it takes with it is the reason to turn it on**, and it is not obvious from
             // the name. Somebody reading "hide the menu bar" thinks about tidiness; the clock,
             // the battery and the row of app icons are the part that ends up in a published
@@ -154,8 +154,8 @@ struct SettingsWindow: View {
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide the desktop widgets", isOn: Binding(
-                get: { coordinator.hidesDesktopWidgets },
-                set: { coordinator.hidesDesktopWidgets = $0 }))
+                get: { coordinator.preferences.hidesDesktopWidgets },
+                set: { coordinator.preferences.hidesDesktopWidgets = $0 }))
             // **What they say about somebody is the reason**, and the switch's name does not
             // say it. A widget is read as decoration until it is pointed out that the calendar
             // one lists this afternoon's meetings by name.
@@ -163,8 +163,8 @@ struct SettingsWindow: View {
                 .font(Type.detail).foregroundStyle(.secondary)
 
             Toggle("Hide notifications", isOn: Binding(
-                get: { coordinator.hidesNotifications },
-                set: { coordinator.hidesNotifications = $0 }))
+                get: { coordinator.preferences.hidesNotifications },
+                set: { coordinator.preferences.hidesNotifications = $0 }))
             // **That you still see them is the point to make**, because "hide notifications" reads
             // as Do Not Disturb, and it is not: nothing is silenced.
             Text("Banners that arrive while you record stay out of the video — who sent a message and its first line. You still see and hear them; only the recording leaves them out. Notification Center is left out too.")
@@ -172,8 +172,8 @@ struct SettingsWindow: View {
         }
         SwiftUI.Section("While editing") {
             Toggle("Play audio while dragging the playhead", isOn: Binding(
-                get: { coordinator.scrubAudio },
-                set: { coordinator.scrubAudio = $0 }))
+                get: { coordinator.preferences.scrubAudio },
+                set: { coordinator.preferences.scrubAudio = $0 }))
             // **Off is a real answer**, which is why this is a switch rather than a constant:
             // somebody editing beside a sleeping child, or with the recording already playing
             // through a speaker, wants the drag silent.

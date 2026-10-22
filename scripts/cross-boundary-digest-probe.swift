@@ -527,16 +527,16 @@ enum CrossBoundaryProbe {
     @MainActor
     static func recordingCoordinatorPreferences() {
         let defaults = UserDefaults.standard
-        let countdownKey = RecordingCoordinator.countdownKey
-        let frameRateKey = RecordingCoordinator.frameRateKey
+        let countdownKey = RecordingPreferences.countdownKey
+        let frameRateKey = RecordingPreferences.frameRateKey
         let qualityKey = RecordingCoordinator.cameraQualityKey
         let styleKey = RecordingCoordinator.cameraStyleKey
-        let iconsKey = RecordingCoordinator.hidesDesktopIconsKey
-        let dockKey = RecordingCoordinator.hidesDockKey
-        let menuBarKey = RecordingCoordinator.hidesMenuBarKey
-        let scrubKey = RecordingCoordinator.scrubAudioKey
-        let systemAudioKey = RecordingCoordinator.capturesSystemAudioKey
-        let widgetsKey = RecordingCoordinator.hidesDesktopWidgetsKey
+        let iconsKey = RecordingPreferences.hidesDesktopIconsKey
+        let dockKey = RecordingPreferences.hidesDockKey
+        let menuBarKey = RecordingPreferences.hidesMenuBarKey
+        let scrubKey = RecordingPreferences.scrubAudioKey
+        let systemAudioKey = RecordingPreferences.capturesSystemAudioKey
+        let widgetsKey = RecordingPreferences.hidesDesktopWidgetsKey
         let keys = [countdownKey, frameRateKey, qualityKey, styleKey, iconsKey, dockKey,
                     menuBarKey, scrubKey, systemAudioKey, widgetsKey]
 
@@ -558,15 +558,15 @@ enum CrossBoundaryProbe {
         // The one `init()` names outright: `integer(forKey:)` answers 0 for a key never set, and
         // 0 is a legitimate countdown meaning "off" — so the obvious spelling ships a first
         // launch with the countdown silently disabled.
-        check(firstLaunch.countdownSeconds == 3,
+        check(firstLaunch.preferences.countdownSeconds == 3,
               "17.1 a first launch counts down 3 seconds, not 0",
-              actual: "\(firstLaunch.countdownSeconds)", expected: "3")
+              actual: "\(firstLaunch.preferences.countdownSeconds)", expected: "3")
         // Same trap, worse consequence: 0 is not a frame rate at all, and `CaptureFrameRate`'s
         // own initialiser refuses it — so the fallback is what keeps a first launch from having
         // no rate rather than a bad one.
-        check(firstLaunch.frameRate == .sixty,
+        check(firstLaunch.preferences.frameRate == .sixty,
               "17.1 a first launch records at 60, not at a rate no initialiser would accept",
-              actual: "\(firstLaunch.frameRate.rawValue)", expected: "60")
+              actual: "\(firstLaunch.preferences.frameRate.rawValue)", expected: "60")
         check(firstLaunch.cameraQuality == .best,
               "17.1 a first launch's camera quality is .best",
               actual: "\(firstLaunch.cameraQuality.rawValue)", expected: "best")
@@ -577,23 +577,23 @@ enum CrossBoundaryProbe {
         // Hiding the Dock costs nothing at all — it is excluded from the capture filter and the
         // machine is not touched — and is still off, because a recording that quietly omits part
         // of the screen is not what pressing Record is understood to mean.
-        check(!firstLaunch.hidesDesktopIcons,
+        check(!firstLaunch.preferences.hidesDesktopIcons,
               "17.1 a first launch does not restart Finder to hide desktop icons")
-        check(!firstLaunch.hidesDock,
+        check(!firstLaunch.preferences.hidesDock,
               "17.1 a first launch records the Dock rather than silently omitting it")
-        check(!firstLaunch.hidesMenuBar,
+        check(!firstLaunch.preferences.hidesMenuBar,
               "17.1 a first launch records the menu bar rather than silently omitting it")
         // **The one switch here that defaults ON**, and the reason is what it touches: the three
         // above change what a recording CONTAINS, so a surprising default would be in somebody's
         // file. This changes only what the person editing hears. `bool(forKey:)` answers false
         // for a key never written, which is the trap 17.1 exists for.
-        check(firstLaunch.scrubAudio,
+        check(firstLaunch.preferences.scrubAudio,
               "17.1 a first launch plays audio while the playhead is dragged")
 
         // The second switch that defaults ON, and for the opposite reason to the one above: this
         // one DOES change what a recording contains, and a demo of anything that makes a sound
         // is worse without it. What it must not do is be unaskable, which it was until now.
-        check(firstLaunch.capturesSystemAudio,
+        check(firstLaunch.preferences.capturesSystemAudio,
               "17.1 a first launch records the machine's own output")
 
         // ---- 17.2 each preference reaches disk, under the key the app has always used.
@@ -621,19 +621,19 @@ enum CrossBoundaryProbe {
                   "17.2 the \(what) is stored under the key it has always been stored under",
                   actual: declared, expected: pinned)
         }
-        firstLaunch.countdownSeconds = 5
-        firstLaunch.frameRate = .thirty
+        firstLaunch.preferences.countdownSeconds = 5
+        firstLaunch.preferences.frameRate = .thirty
         firstLaunch.cameraQuality = .hd720
         let moved = CameraOverlayStyle(widthFraction: 0.25, x: 0.2, y: 0.8, shape: .square,
                                        cornerFraction: 0.1, isMirrored: false,
                                        borderOpacity: 0.1, shadowOpacity: 0.2)
         firstLaunch.cameraStyle = moved
-        firstLaunch.hidesDesktopIcons = true
-        firstLaunch.hidesDock = true
-        firstLaunch.hidesMenuBar = true
-        firstLaunch.scrubAudio = false
-        firstLaunch.capturesSystemAudio = false
-        firstLaunch.hidesDesktopWidgets = true
+        firstLaunch.preferences.hidesDesktopIcons = true
+        firstLaunch.preferences.hidesDock = true
+        firstLaunch.preferences.hidesMenuBar = true
+        firstLaunch.preferences.scrubAudio = false
+        firstLaunch.preferences.capturesSystemAudio = false
+        firstLaunch.preferences.hidesDesktopWidgets = true
 
         check(defaults.object(forKey: countdownKey) as? Int == 5,
               "17.2 the countdown is written under '\(countdownKey)'",
@@ -664,36 +664,36 @@ enum CrossBoundaryProbe {
         // two failures have different causes — a `didSet` that stopped firing, against an `init`
         // that stopped looking.
         let relaunched = RecordingCoordinator()
-        check(relaunched.countdownSeconds == 5, "17.3 a relaunch counts down 5",
-              actual: "\(relaunched.countdownSeconds)", expected: "5")
-        check(relaunched.frameRate == .thirty, "17.3 a relaunch records at 30",
-              actual: "\(relaunched.frameRate.rawValue)", expected: "30")
+        check(relaunched.preferences.countdownSeconds == 5, "17.3 a relaunch counts down 5",
+              actual: "\(relaunched.preferences.countdownSeconds)", expected: "5")
+        check(relaunched.preferences.frameRate == .thirty, "17.3 a relaunch records at 30",
+              actual: "\(relaunched.preferences.frameRate.rawValue)", expected: "30")
         check(relaunched.cameraQuality == .hd720, "17.3 a relaunch keeps the camera quality",
               actual: relaunched.cameraQuality.rawValue, expected: "hd720")
         check(relaunched.cameraStyle == moved,
               "17.3 a relaunch puts the camera back where it was dragged to")
-        check(relaunched.hidesDesktopIcons,
+        check(relaunched.preferences.hidesDesktopIcons,
               "17.3 a relaunch still hides the desktop icons")
-        check(relaunched.hidesDock,
+        check(relaunched.preferences.hidesDock,
               "17.3 a relaunch still keeps the Dock out of the picture")
-        check(relaunched.hidesMenuBar,
+        check(relaunched.preferences.hidesMenuBar,
               "17.3 a relaunch still keeps the menu bar out of the picture")
         // **Deliberately turned OFF above**, which is the distinction 17.4 makes for the
         // countdown: a switch whose default is on must remember being turned off.
-        check(relaunched.hidesDesktopWidgets,
+        check(relaunched.preferences.hidesDesktopWidgets,
               "17.3 a desktop-widget switch deliberately turned on stays on across a relaunch")
-        check(!relaunched.capturesSystemAudio,
+        check(!relaunched.preferences.capturesSystemAudio,
               "17.3 system audio deliberately turned off stays off across a relaunch")
-        check(!relaunched.scrubAudio,
+        check(!relaunched.preferences.scrubAudio,
               "17.3 a scrub-audio switch deliberately turned off stays off")
 
         // ---- 17.4 zero is a stored answer, not an absent key. This is the distinction 17.1's
         // default rests on, from the other side: if the two collapsed, somebody who deliberately
         // turned the countdown off would get three seconds back on every launch.
-        relaunched.countdownSeconds = 0
-        check(RecordingCoordinator().countdownSeconds == 0,
+        relaunched.preferences.countdownSeconds = 0
+        check(RecordingCoordinator().preferences.countdownSeconds == 0,
               "17.4 a countdown deliberately set to off stays off across a relaunch",
-              actual: "\(RecordingCoordinator().countdownSeconds)", expected: "0")
+              actual: "\(RecordingCoordinator().preferences.countdownSeconds)", expected: "0")
 
         // ---- 17.5 a stored value this build cannot read falls back rather than trapping.
         // These are not hypothetical: a downgrade, a hand-edited plist, and a shape enum that
@@ -704,17 +704,17 @@ enum CrossBoundaryProbe {
         defaults.set(Data("not JSON at all".utf8), forKey: styleKey)
         defaults.set("three", forKey: countdownKey)
         let recovered = RecordingCoordinator()
-        check(recovered.frameRate == .sixty,
+        check(recovered.preferences.frameRate == .sixty,
               "17.5 a stored frame rate of 0 falls back to 60 rather than becoming a timescale",
-              actual: "\(recovered.frameRate.rawValue)", expected: "60")
+              actual: "\(recovered.preferences.frameRate.rawValue)", expected: "60")
         check(recovered.cameraQuality == .best,
               "17.5 a camera quality this build does not know falls back to .best",
               actual: recovered.cameraQuality.rawValue, expected: "best")
         check(recovered.cameraStyle == .default,
               "17.5 a camera style that will not decode falls back to the default")
-        check(recovered.countdownSeconds == 3,
+        check(recovered.preferences.countdownSeconds == 3,
               "17.5 a countdown stored as text falls back to 3",
-              actual: "\(recovered.countdownSeconds)", expected: "3")
+              actual: "\(recovered.preferences.countdownSeconds)", expected: "3")
     }
 
     /// Saves a document that already has a media sidecar on disk, and asserts

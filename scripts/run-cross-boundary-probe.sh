@@ -130,6 +130,7 @@ xcrun swiftc \
   Soredemo/Recording/TakeWakeLock.swift \
   Soredemo/Recording/DiskHeadroom.swift \
   Soredemo/Recording/SleepPause.swift \
+  Soredemo/Recording/RecordingPreferences.swift \
   Soredemo/Project/TemporaryFileMediaSink.swift \
   Soredemo/Project/RecordingName.swift \
   Soredemo/Recording/CameraSelfView.swift \

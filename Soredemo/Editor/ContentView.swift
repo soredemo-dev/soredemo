@@ -32,7 +32,7 @@ struct ContentView: View {
                             cameraStartOffsetNanos: coordinator.cameraStartOffsetNanos,
                             mediaURL: mediaURL, pendingEdit: coordinator.takePendingEdit(),
                             cameraURL: coordinator.cameraURL,
-                            scrubAudioIsOn: coordinator.scrubAudio)
+                            scrubAudioIsOn: coordinator.preferences.scrubAudio)
                     // `StageWindow` carries no `.id(mediaURL)`, so `.onDisappear` fires only
                     // because `beginOpenRecording()` sets `mediaURL = nil` first, swapping this
                     // `Group`'s branch out and giving old and new `StageWindow` distinct view

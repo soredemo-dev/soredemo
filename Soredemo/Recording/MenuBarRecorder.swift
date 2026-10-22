@@ -250,10 +250,10 @@ struct MenuBarRecorderPanel: View {
             // same and the button carries its own action, which keeps the state in
             // the coordinator rather than in a binding this view would own.
             Button {
-                coordinator.capturesSystemAudio.toggle()
+                coordinator.preferences.capturesSystemAudio.toggle()
             } label: {
                 Label("Record system audio",
-                      systemImage: coordinator.capturesSystemAudio ? "checkmark" : "")
+                      systemImage: coordinator.preferences.capturesSystemAudio ? "checkmark" : "")
             }
         } label: {
             HStack(spacing: Space.snug) {
@@ -265,7 +265,7 @@ struct MenuBarRecorderPanel: View {
                 // would be one more thing to read on a row that is usually just
                 // "System default"; a struck-through one appears exactly when
                 // somebody has turned something off and needs to see that they did.
-                if !coordinator.capturesSystemAudio {
+                if !coordinator.preferences.capturesSystemAudio {
                     Image(systemName: "speaker.slash.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -466,8 +466,8 @@ struct MenuBarRecorderPanel: View {
 
     @ViewBuilder private var frameRateRow: some View {
         settingRow(icon: "speedometer", title: "Frame rate",
-                   selection: Binding(get: { coordinator.frameRate },
-                                      set: { coordinator.frameRate = $0 })) {
+                   selection: Binding(get: { coordinator.preferences.frameRate },
+                                      set: { coordinator.preferences.frameRate = $0 })) {
             ForEach(CaptureFrameRate.available(forDisplayRates: Self.displayRefreshRates),
                     id: \.self) {
                 // A format key, not the name: the rate is the display's own (144, 240…), so no
@@ -506,13 +506,13 @@ struct MenuBarRecorderPanel: View {
 
     /// How long to wait before the capture starts.
     @ViewBuilder private var countdownRow: some View {
-        settingRow(icon: coordinator.countdownSeconds == 0 ? "timer.square" : "timer",
+        settingRow(icon: coordinator.preferences.countdownSeconds == 0 ? "timer.square" : "timer",
                    // Muted when it is off, so the row says so before the value is read.
-                   iconIsMuted: coordinator.countdownSeconds == 0,
+                   iconIsMuted: coordinator.preferences.countdownSeconds == 0,
                    title: "Countdown",
-                   selection: Binding(get: { coordinator.countdownSeconds },
-                                      set: { coordinator.countdownSeconds = $0 })) {
-            ForEach(RecordingCoordinator.countdownChoices, id: \.self) { value in
+                   selection: Binding(get: { coordinator.preferences.countdownSeconds },
+                                      set: { coordinator.preferences.countdownSeconds = $0 })) {
+            ForEach(RecordingPreferences.countdownChoices, id: \.self) { value in
                 (value == 0 ? Text("Off") : Text("\(value)s")).tag(value)
             }
         }
