@@ -717,50 +717,7 @@ private struct PanelLevel: View {
     }
 }
 
-/// What every footer row looks like. Split out of `PanelLink` so the Settings row can wear the
-/// same face while being a different KIND of control — see `SettingsPanelLink`.
-private struct PanelLinkLabel: View {
-    let icon: String
-    /// `LocalizedStringKey` for `TargetCard`'s reason — this is why Open Project and Quit
-    /// stayed English while everything written as a literal in this file was translated.
-    let title: LocalizedStringKey
-    let shortcut: String
-    let isHovering: Bool
-
-    var body: some View {
-        HStack(spacing: Space.tight + 2) {
-            // The same 14-point column the settings rows above use, so the four footer icons
-            // and the two row icons form one vertical line rather than four.
-            Image(systemName: icon).font(.system(size: 11)).frame(width: 14)
-            Text(title)
-            // **Only when there is one.** An empty `Text` still takes the stack's spacing, which
-            // left Permissions sitting a few points off the alignment its neighbours kept.
-            if !shortcut.isEmpty { Text(verbatim: shortcut).foregroundStyle(.tertiary) }
-        }
-        .foregroundStyle(isHovering ? .primary : .secondary)
-        .contentShape(Rectangle())
-    }
-}
-
-/// A footer action: a label and its shortcut, with no button chrome — the row is a list of
-/// places to go, and three bordered buttons would compete with the red one above them.
-private struct PanelLink: View {
-    let icon: String
-    let title: LocalizedStringKey
-    let shortcut: String
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            PanelLinkLabel(icon: icon, title: title, shortcut: shortcut, isHovering: isHovering)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-    }
-}
-
-/// The Settings row, which is a `SettingsLink` rather than a `PanelLink` with an action.
+/// The Settings row, which is a `SettingsLink` rather than a `FooterButton` with an action.
 ///
 /// **`NSApp.sendAction(Selector("showSettingsWindow:"))` is what this was, and it is broken.**
 /// That private selector has been the way to open a `Settings` scene since it existed; since

@@ -63,7 +63,39 @@ this list's layout, and the focus they share is the panel's.
   is refused with a translated reason and the style keeps its font; a chosen font is copied in
   and becomes the style's. Mutations: the mapping skipped, the unsafe-name guard removed, the
   copy not replacing a file of the same name.
-- **2** is a move plus one placement. A source rule asserts the panel's body places the names
-  list, reddened by removing it. The panel is looked at once in the running app.
+- **2** is a move plus one placement. A source rule catches a view nobody places, reddened by
+  removing the names list. The panel is looked at once in the running app.
 
 Every step: app tests, mutations, gates in order, commit with explicit paths.
+
+## Where it ended
+
+| Step | Moved | Commit |
+| --- | --- | --- |
+| 1 | `CaptionsModel` to its own file; sidecars and fonts take a URL; `ProjectStore.copyIntoPackage` | `f87e785` |
+| 2 | `TranscriptionControls`, `CaptionTermControls`, `CaptionPresetControls`, `CaptionLookControls`; the names list placed | this commit |
+
+`CaptionsPanel` went from 1049 lines to 195 (`wc -l`): the two-list switch, the sections in
+order, and the scroll that follows the playhead.
+
+**The rule became general rather than about this panel.** A check that the panel names
+`CaptionTermControls` would catch this defect once. Two checks in `AppSourceAllowListTests`
+catch the class: `everyPrivateViewInTheAppIsPlacedSomewhere` (65 private views; it was red on
+`termControls` and nothing else) and `everyViewTypeInTheAppIsBuiltSomewhere` (73 view types).
+The second's first run found `PanelLink` and `PanelLinkLabel`, unused since the menu-bar
+footer became icons in `f8fbed0`; they are deleted, being a replacement nobody finished
+cleaning up rather than a feature nobody placed.
+
+**And the first version of the first check was wrong in a way worth keeping.** It matched
+mentions with `\b`, and Swift's `Regex` finds word boundaries by Unicode's rules, under which
+`glanceRow.transition` is one word. It reported `NotchSurfacePanel.glanceRow` — placed, on the
+line `glanceRow.transition(.opacity)` — as unplaced. Both checks now count identifiers.
+
+**Not covered:** the sentence list (`TranscriptPanel`) is handed the transcript as recognised,
+not `correctedTranscript`, so a name added to the list corrects the captions and not the
+sentences. Passing the corrected one is a one-word change that runs the correction on every
+redraw of the stage window; measure `Transcript.correcting(terms:)` on a long recording before
+making it.
+
+**Still owed:** a look at the captions tab in the running app — the names list has never been
+seen by anybody, and both lists show it.

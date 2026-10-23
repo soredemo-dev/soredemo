@@ -6,7 +6,7 @@ import Timeline
 /// What it costs to rebuild a caption track, at the size a real recording produces.
 ///
 /// **§ 5.2 of docs/TESTING.md named this as unmeasured and it stayed that way for ten days.**
-/// It is not an idle number: `CaptionsPanel.rebuild` runs on every change to the caption style,
+/// It is not an idle number: `CaptionsModel.rebuild` runs on every change to the caption style,
 /// the output size and the maximum words per line — a slider, in other words. A rebuild that
 /// takes 200 ms is a slider that stutters, and nothing would have said so.
 ///

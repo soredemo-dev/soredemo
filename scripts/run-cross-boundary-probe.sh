@@ -181,6 +181,10 @@ xcrun swiftc \
   Soredemo/Inspector/SystemCaptionStyle.swift \
   Soredemo/Inspector/CaptionsPanel.swift \
   Soredemo/Inspector/CaptionsModel.swift \
+  Soredemo/Inspector/TranscriptionControls.swift \
+  Soredemo/Inspector/CaptionTermControls.swift \
+  Soredemo/Inspector/CaptionPresetControls.swift \
+  Soredemo/Inspector/CaptionLookControls.swift \
   Soredemo/Inspector/CaptionField.swift \
   Soredemo/Editor/SafeFrameOverlay.swift \
   Soredemo/App/EditorWindowStyle.swift \

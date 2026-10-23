@@ -2637,3 +2637,78 @@ private let untranslatableLiterals: Set<String> = [
         use RecordingName.display(for:savedPackage:recordedAt:)
         """)
 }
+
+/// **A private view that nothing places is a feature nobody can reach.** `CaptionsPanel`'s
+/// names list was written, saved in the project, translated into ten languages — and never put
+/// in the panel's body, from the commit that added it (`522bf4f`) until 2026-10-23. Every check
+/// in the tree was green the whole time: the model had tests, the strings had tests, and the
+/// one line that would have shown it did not exist.
+///
+/// So: every `private var name: some View` in the app is named again somewhere in its own file.
+/// A private member cannot be reached from anywhere else, so one mention is the declaration and
+/// nothing more. Read through the code view, so a comment naming the view does not count as
+/// placing it.
+@Test func everyPrivateViewInTheAppIsPlacedSomewhere() throws {
+    let declaration = try Regex(#"private (?:static )?var (\w+)\s*:\s*some View"#)
+    var declared = 0
+    var unplaced: [String] = []
+    for file in try appSourceFiles() {
+        let code = SwiftSourceLexer.codeViewLines(
+            of: try String(contentsOf: file, encoding: .utf8)).joined(separator: "\n")
+        // **Identifiers, not `\b`.** Swift's `Regex` finds word boundaries by Unicode's rules,
+        // where `glanceRow.transition` is ONE word — so `\bglanceRow\b` missed the line that
+        // places it and the first version of this check reported `NotchSurfacePanel.glanceRow`
+        // as unplaced. Splitting on everything that cannot be in a Swift identifier has no
+        // such rule to get wrong.
+        let identifiers = code.split { !($0.isLetter || $0.isNumber || $0 == "_") }
+        for match in code.matches(of: declaration) {
+            declared += 1
+            guard let name = match.output[1].substring else { continue }
+            if identifiers.filter({ $0 == name }).count < 2 {
+                unplaced.append("\(pathRelativeToRepositoryRoot(file)): \(name)")
+            }
+        }
+    }
+    // Measured at 65 when this was written. A scan that finds none has stopped reading the app.
+    try #require(declared >= 50, "only \(declared) private views found — the scan has stopped seeing the app")
+    #expect(unplaced.isEmpty, """
+        these private views are declared and never placed, so nobody can see them:
+        \(unplaced.map { "  \($0)" }.joined(separator: "\n"))
+        put each in a body, or delete it
+        """)
+}
+
+/// **The same question one level up: a view type nothing builds.** Once the names list became
+/// `CaptionTermControls`, deleting its one `Section` would leave it as unreachable as before and
+/// the check above would not see it — that one reads `private var`s. This reads every
+/// `struct …: View` in the app and asks that its name appear somewhere besides its declaration.
+///
+/// Its first run found `PanelLink` and `PanelLinkLabel`, unused since the menu-bar footer became
+/// four icons (`f8fbed0`) and deleted with this check.
+@Test func everyViewTypeInTheAppIsBuiltSomewhere() throws {
+    let declaration = try Regex(#"(?m)^\s*(?:private |fileprivate |public )?struct (\w+)\s*:[^{]*\bView\b"#)
+    var declarations: [(file: String, name: Substring)] = []
+    var identifiers: [Substring: Int] = [:]
+    for file in try appSourceFiles() {
+        let code = SwiftSourceLexer.codeViewLines(
+            of: try String(contentsOf: file, encoding: .utf8)).joined(separator: "\n")
+        // Identifiers rather than `\b`, for the reason in `everyPrivateViewInTheAppIsPlacedSomewhere`.
+        for token in code.split(whereSeparator: { !($0.isLetter || $0.isNumber || $0 == "_") }) {
+            identifiers[token, default: 0] += 1
+        }
+        for match in code.matches(of: declaration) {
+            if let name = match.output[1].substring {
+                declarations.append((pathRelativeToRepositoryRoot(file), name))
+            }
+        }
+    }
+    // Measured at 73 when this was written.
+    try #require(declarations.count >= 60,
+                 "only \(declarations.count) view types found — the scan has stopped seeing the app")
+    let unbuilt = declarations.filter { identifiers[$0.name, default: 0] < 2 }
+    #expect(unbuilt.isEmpty, """
+        these views are declared and never built, so nobody can see them:
+        \(unbuilt.map { "  \($0.file): \($0.name)" }.joined(separator: "\n"))
+        build each somewhere, or delete it
+        """)
+}
