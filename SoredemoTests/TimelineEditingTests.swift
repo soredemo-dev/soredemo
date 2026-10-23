@@ -193,13 +193,13 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     // MARK: - the strip's own labels
 
     @Test func rulerLabelsShowTenthsOnlyWhenTheStepIsUnderASecond() {
-        #expect(TimelineEditor.tickLabel(75.4, step: 5) == "1:15")
-        #expect(TimelineEditor.tickLabel(75.4, step: 0.5) == "1:15.4")
+        #expect(TimelineRuler.tickLabel(75.4, step: 5) == "1:15")
+        #expect(TimelineRuler.tickLabel(75.4, step: 0.5) == "1:15.4")
     }
 
     @Test func theTickStepWidensAsMoreTimeIsVisible() {
-        let near = TimelineEditor.tickStep(visibleSeconds: 3, width: 600)
-        let far = TimelineEditor.tickStep(visibleSeconds: 1200, width: 600)
+        let near = TimelineRuler.tickStep(visibleSeconds: 3, width: 600)
+        let far = TimelineRuler.tickStep(visibleSeconds: 1200, width: 600)
         #expect(near < far)
         #expect(far * 600 / 1200 >= 64, "labels at least 64 points apart")
     }

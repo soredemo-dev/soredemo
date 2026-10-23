@@ -163,8 +163,16 @@ xcrun swiftc \
   Soredemo/Inspector/StageStylePicker.swift \
   Soredemo/Inspector/WallpaperGallery.swift \
   Soredemo/Editor/ScrubAudio.swift \
-  Soredemo/Editor/TimelineEditor.swift \
-  Soredemo/Editor/TimelineEditorModel.swift \
+  Soredemo/Editor/Timeline/TimelineEditor.swift \
+  Soredemo/Editor/Timeline/TimelineEditorModel.swift \
+  Soredemo/Editor/Timeline/TimelineScale.swift \
+  Soredemo/Editor/Timeline/TimelineLane.swift \
+  Soredemo/Editor/Timeline/TimelineRuler.swift \
+  Soredemo/Editor/Timeline/TimelineClipStrip.swift \
+  Soredemo/Editor/Timeline/TimelineZoomLane.swift \
+  Soredemo/Editor/Timeline/TimelineTrackLanes.swift \
+  Soredemo/Editor/Timeline/TimelineOverlays.swift \
+  Soredemo/Editor/Timeline/WaveformBars.swift \
   Soredemo/Editor/EditorToolbar.swift \
   Soredemo/Editor/AtPlayhead.swift \
   Soredemo/Editor/CaptionCueTracker.swift \

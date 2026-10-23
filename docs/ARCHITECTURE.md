@@ -175,7 +175,9 @@ a new group.
 
 **Sundell's rule of threes applies to the groups too:** once three files in a group
 are about one narrower thing, that is a subgroup. `Inspector/` is at seven panels and
-flat; it does not need one yet.
+flat; it does not need one yet. **`Editor/Timeline/` is the first subgroup** (2026-10-23): the
+timeline's view became one file per lane, ten files about one thing. See
+`docs/design/2026-10-23-splitting-the-timeline.md`.
 
 **No `Utilities/`, `Helpers/`, `Common/` or `Shared/`.** They are the named
 anti-pattern: a folder whose membership rule is "nowhere else fits" has no membership
