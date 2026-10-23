@@ -1072,7 +1072,8 @@ func firstPartySourceFiles() throws -> [URL] {
     // The FILE and the COUNT, not the line: a line number moves with every edit above it, and a
     // check that has to be renumbered is a check people renumber without reading.
     let files = Set(deferred.map { $0.location.split(separator: ":").first.map(String.init) ?? "" })
-    #expect(deferred.count == 1 && files == ["Soredemo/Editor/StageWindow.swift"], """
+    // `ZoomAmountControls` since the inspector's sections left `StageWindow` (2026-10-23).
+    #expect(deferred.count == 1 && files == ["Soredemo/Inspector/ZoomAmountControls.swift"], """
         \(deferred.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
         A control that commits on release leaves a paused preview showing the old picture while \
         its own number moves. If this one genuinely needs to — because it re-derives something \
@@ -1353,10 +1354,22 @@ private func desktopIconsFile() throws -> [URL] {
     // The three places that must see the restricted timeline: the job's edit, and both size
     // estimates. A figure for the whole video beside a button that writes ten seconds of it is
     // worse than no figure.
-    #expect(exportUses.count >= 3, """
-        Only \(exportUses.count) of the three places that must measure what will actually be \
-        written do: \(exportUses.map(\.location).joined(separator: ", ")).
-        """)
+    //
+    // **Named by file since 2026-10-23**, when the inspector's sections left `StageWindow`. Until
+    // then this counted `editForExport` in that one file and asked for three — and the three it
+    // found were the job, the GIF estimate and the Final Cut XML, not the job and "both size
+    // estimates": the video's estimate is `EditorViewModel.estimatedExportBytes`, which this
+    // never read. A count over one file was satisfied by the wrong three.
+    for (path, place) in [("Soredemo/Editor/StageWindow.swift", "the export job's edit"),
+                          ("Soredemo/Editor/EditorViewModel.swift", "the video's size estimate"),
+                          ("Soredemo/Inspector/GIFControls.swift", "the GIF's size estimate")] {
+        let file = try appSourceFiles().filter { pathRelativeToRepositoryRoot($0) == path }
+        try #require(file.count == 1, "\(path) is not where this scan names \(place)")
+        #expect(try !codeLinesNaming("timeline.editForExport", in: file).isEmpty, """
+            \(place) (\(path)) no longer reads `editForExport`, so with a section marked it \
+            measures the whole video.
+            """)
+    }
 
     // And the preview still builds from the unrestricted edit.
     // `editor.` since the timeline moved into `EditorViewModel` (2026-09-27); the pin names the

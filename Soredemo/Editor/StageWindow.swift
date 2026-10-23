@@ -693,25 +693,31 @@ struct StageWindow: View {
             switch inspectorTab {
             case .project:
                 List {
-                    Section("Output") { outputControls }
+                    Section("Output") {
+                        OutputControls(editor: editor, onExportFinalCutXML: { exportFinalCutXML() })
+                    }
                     Section("Look") {
                         StageStylePicker(model: editor.stageStyle, onChange: { reviewRevision += 1 },
                                          packageURL: ProjectStore.packageURL(forMediaAt: mediaURL))
                     }
                     if cameraURL != nil {
-                        Section("Camera") { cameraControls }
+                        Section("Camera") {
+                            CameraOverlayControls(editor: editor, onChange: { reviewRevision += 1 })
+                        }
                     }
                     Section("Cursor") {
                         StageStylePicker(model: editor.stageStyle,
                                          onChange: { reviewRevision += 1 }).cursorControls
                     }
                     Section("Audio") { audioControls }
-                    Section("Animated GIF") { gifControls }
+                    Section("Animated GIF") { GIFControls(editor: editor) }
                 }
                 .listStyle(.sidebar)
             case .selection:
                 List {
-                    Section("Zoom amount") { zoomIntensityControl }
+                    Section("Zoom amount") {
+                        ZoomAmountControls(editor: editor, onChange: { reviewRevision += 1 })
+                    }
                     AtPlayhead(model: editor.timeline) { playhead in
                         FramingReviewSections(model: editor.review, onChange: { reviewRevision += 1 },
                                               playhead: playhead)
@@ -764,234 +770,6 @@ struct StageWindow: View {
                 }
             }
         }
-    }
-
-    /// Where the camera sits. **Shown only when the recording HAS one** — controls for a track
-    /// that does not exist are controls a person changes and sees nothing happen.
-    ///
-    /// **The nine-place grid is gone, because the camera can be dragged.** It was added when
-    /// the only alternative was two sliders, and that argument was sound then — almost every
-    /// camera goes in a corner, and finding a corner by aiming two sliders is a job. It stopped
-    /// being sound when the overlay became draggable: pointing at where the camera should go IS
-    /// the grid's whole justification, and dragging it there is the same gesture with none of
-    /// the chrome. Two controls for one decision is one more than the decision has.
-    @ViewBuilder private var cameraControls: some View {
-        Toggle("Show camera", isOn: Binding(
-            get: { !editor.cameraStyle.isHidden },
-            set: { editor.cameraStyle = editor.cameraStyle.changing(isHidden: !$0); reviewRevision += 1 }))
-        // **The room behind the person, cut away or kept** — see `PersonMask`.
-        //
-        // Turning it on warms Vision's models on a detached task. The first segmentation of each
-        // level costs one to two seconds loading the model and every one after it costs 21 ms;
-        // paid here, seconds before anybody scrubs to a frame with a camera in it, it is never
-        // paid on a frame somebody is waiting for. Detached because it is not the picker's job
-        // to wait for it, and nothing about the answer is needed to draw the next frame.
-        Picker("Background", selection: Binding(
-            get: { editor.cameraStyle.background },
-            set: { editor.cameraStyle = editor.cameraStyle.changing(background: $0)
-                   if $0 == .removed { Task.detached(priority: .utility) { PersonMask.warmUp() } }
-                   reviewRevision += 1 })) {
-            ForEach(CameraOverlayStyle.Background.allCases, id: \.self) {
-                Text(LocalizedStringKey($0.displayName)).tag($0)
-            }
-        }
-        // **The system's own blur is one control away and is not reimplemented here.** Portrait
-        // mode runs inside the camera pipeline for free; a hand-written blur would be slower and
-        // worse. Said in the interface because somebody looking for "blur my background" will
-        // look here first, and sending them two clicks away beats offering them a worse copy.
-        if editor.cameraStyle.background == .keep {
-            Text("To blur the background instead, turn on Portrait in the camera effects.")
-                .font(Type.detail).foregroundStyle(.secondary)
-        } else {
-            // **The cost, on screen, before it is discovered.** Cutting a person out is 21 ms a
-            // frame — measured — on top of everything else a frame costs, and somebody whose
-            // preview has just become less smooth is owed the reason rather than left to
-            // conclude the app got slower. Nothing is sent anywhere: this runs on this Mac.
-            Text("Cut out on this Mac, frame by frame — around 21 ms each, so previews and exports take longer with this on.")
-                .font(Type.detail).foregroundStyle(.secondary)
-        }
-        // **A cut-out person has no card**, so the controls that shape one are not offered while
-        // the background is gone. They keep their values — switching back restores the card
-        // exactly — they simply do nothing, and a control that does nothing is one people
-        // conclude is broken. The same argument the corner slider already makes for a circle.
-        if editor.cameraStyle.background == .keep {
-            Picker("Shape", selection: Binding(
-                get: { editor.cameraStyle.shape },
-                set: { editor.cameraStyle = editor.cameraStyle.changing(shape: $0); reviewRevision += 1 })) {
-                ForEach(CameraOverlayStyle.Shape.allCases, id: \.self) {
-                    Text(LocalizedStringKey($0.displayName)).tag($0)
-                }
-            }
-        }
-        // **Only for the shape that has corners.** A slider that does nothing on a circle and
-        // nothing on a square is a slider people conclude is broken.
-        if editor.cameraStyle.shape == .rounded, editor.cameraStyle.background == .keep {
-            Slider(value: Binding(
-                get: { editor.cameraStyle.cornerFraction },
-                set: { editor.cameraStyle = editor.cameraStyle.changing(cornerFraction: $0)
-                       reviewRevision += 1 }),
-                   in: 0...0.5) { Text("Corner") }
-        }
-        Slider(value: Binding(get: { editor.cameraStyle.widthFraction },
-                              set: { editor.cameraStyle = editor.cameraStyle.changing(widthFraction: $0)
-                                     reviewRevision += 1 }),
-               in: 0.05...0.5) { Text("Size") }
-        // **How much the camera shrinks while the stage is zoomed in.** A zoom makes the picture
-        // bigger, and a camera that holds its width is covering a larger share of a smaller area
-        // — which is exactly when it is most in the way. 1 holds the size, which is what this
-        // did before the control existed.
-        Slider(value: Binding(get: { editor.cameraStyle.scaleDuringZoom },
-                              set: { editor.cameraStyle = editor.cameraStyle.changing(scaleDuringZoom: $0)
-                                     reviewRevision += 1 }),
-               in: 0.3...1) { Text("Shrink on zoom") }
-        Slider(value: Binding(get: { editor.cameraStyle.x },
-                              set: { editor.cameraStyle = editor.cameraStyle.changing(x: $0)
-                                     reviewRevision += 1 }),
-               in: 0...1) { Text("Across") }
-        Slider(value: Binding(get: { editor.cameraStyle.y },
-                              set: { editor.cameraStyle = editor.cameraStyle.changing(y: $0)
-                                     reviewRevision += 1 }),
-               in: 0...1) { Text("Up from the bottom") }
-        // **Out of the cursor's way.** The classic flaw is a face over the thing being shown.
-        // The camera goes to a corner while the cursor is on it and comes back once the cursor
-        // has been clear for a while; see `CameraDodge`.
-        Toggle("Move out of the cursor's way", isOn: Binding(
-            get: { editor.cameraStyle.avoidsCursor },
-            set: { editor.cameraStyle = editor.cameraStyle.changing(avoidsCursor: $0); reviewRevision += 1 }))
-            .font(Type.detail)
-        Toggle("Mirror", isOn: Binding(
-            get: { editor.cameraStyle.isMirrored },
-            set: { editor.cameraStyle = editor.cameraStyle.changing(isMirrored: $0); reviewRevision += 1 }))
-    }
-
-    @ViewBuilder private var outputControls: some View {
-        // The recording's own shape first when it is not already one of the three — see
-        // `AspectVariant.available(recordingWidth:recordingHeight:)`.
-        Picker("Shape", selection: Binding(
-            get: { editor.variant },
-            set: { editor.variant = $0; editor.chosenShapeDeliberately = true })) {
-            ForEach(AspectVariant.available(recordingWidth: editor.recordingSize.width,
-                                            recordingHeight: editor.recordingSize.height),
-                    id: \.self) { shape in
-                Text(LocalizedStringKey(shape.name)).tag(shape)
-            }
-        }
-        let size = editor.outputSize
-        LabeledContent("Size", value: "\(size.width)\u{00D7}\(size.height)")
-            .font(Type.detail).foregroundStyle(.secondary)
-
-        // **A destination, as the four settings below it.** Choosing one sets them and then gets
-        // out of the way — the four stay live, and changing any of them puts this back to
-        // Custom rather than silently claiming an export is still "Web" when it is not. See
-        // `ExportPreset`.
-        Picker("For", selection: $editor.preset) {
-            // Not selectable: "Custom" is a description of where the four controls are, not a
-            // thing to choose. Choosing it would have to mean "put them back", and there is no
-            // back to put them to.
-            Text("Custom").tag(ExportPreset?.none)
-            ForEach(ExportPreset.all, id: \.self) { preset in
-                Text(LocalizedStringKey(preset.name)).tag(ExportPreset?.some(preset))
-            }
-        }
-        if let preset = editor.preset {
-            Text(LocalizedStringKey(preset.detail))
-                .font(Type.detail).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-
-        // **How large, by SHORT side.** A ladder written as 1920×1080 cannot describe a portrait
-        // output, and this app exports portrait and square for the places people post them.
-        Picker("Resolution", selection: Binding(
-            get: { editor.resolution }, set: { editor.resolution = $0 })) {
-            ForEach(ExportResolution.available(recordingShortSide: editor.recordingShortSide),
-                    id: \.self) { choice in
-                Text(LocalizedStringKey(choice.displayName)).tag(choice)
-            }
-        }
-        Picker("Frame rate", selection: Binding(
-            get: { editor.frameRate }, set: { editor.frameRate = $0 })) {
-            ForEach(ExportFrameRate.available(recording: editor.recordingFrameRate),
-                    id: \.self) { choice in
-                Text(LocalizedStringKey(choice.displayName)).tag(choice)
-            }
-        }
-        // **Codecs that are not ranked.** HEVC is the same picture at about half the file and
-        // every Mac this runs on encodes it in hardware; ProRes is enormous and meant for handing
-        // to an editor; H.264 plays everywhere without a question being asked.
-        //
-        // **Narrowed to two when the stage has no background**, because only two of them carry an
-        // alpha channel and the other three do not fail when handed one — they encode the
-        // transparency away and hand back a black rectangle. `MP4Exporter` refuses that pairing
-        // by name, but a list somebody cannot choose wrongly from is better than a refusal they
-        // have to read. See `TransparentExport`.
-        Picker("Format", selection: Binding(get: { editor.codec }, set: { editor.codec = $0 })) {
-            ForEach(editor.stageStyle.isTransparent
-                    ? TransparentExport.codecsThatCarryIt
-                    : ExportCodec.allCases, id: \.self) { choice in
-                Text(LocalizedStringKey(choice.displayName)).tag(choice)
-            }
-        }
-        // **Snapped rather than left dangling.** Somebody who had chosen H.264 and then made the
-        // background transparent has a selection that is no longer in the list; SwiftUI would
-        // show an empty picker and the export would refuse. Moving it to the smallest format that
-        // works is visible — the picker changes in front of them — which is the difference
-        // between this and a silent correction at export time.
-        .task(id: editor.stageStyle.isTransparent) { editor.keepCodecAbleToCarryTransparency() }
-        if editor.stageStyle.isTransparent {
-            Text("The background is transparent, so only formats that keep an alpha channel are offered. HEVC with Alpha is around a hundred times smaller than ProRes 4444 for the same picture.")
-                .font(Type.detail).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        // **What this Mac's encoder actually does with a coloured edge**, asked rather than
-        // tabulated — see `CodecVerdicts`. Silent when the probe could not run: "we could not
-        // ask" and "the answer is no" are different things.
-        if let note = CodecVerdicts.shared.note(for: editor.codec) {
-            Text(LocalizedStringKey(note))
-                .font(Type.detail).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        // **How many bits the picture gets.** Nothing was choosing before, so AVFoundation did —
-        // at a rate tuned for camera footage, which is the wrong content. See `ExportQuality`.
-        if editor.codec.takesBitRate {
-            Picker("Quality", selection: Binding(
-                get: { editor.quality }, set: { editor.quality = $0 })) {
-                ForEach(ExportQuality.choices, id: \.self) { choice in
-                    Text(LocalizedStringKey(choice.displayName)).tag(choice)
-                }
-            }
-        }
-        // **The estimate is why the picker is usable.** A quality control with no consequence
-        // attached is three words to guess between.
-        if let range = editor.timeline.exportRange {
-            // **Named in the sheet, because the button says "Export" either way.** Somebody who
-            // marked a section an hour ago and came back to export has no other way to find out
-            // that the file will be ten seconds long.
-            let seconds = Double(range.upperBound - range.lowerBound) / 1_000_000_000
-            let whole = TransportBar.timecode(Double(editor.timeline.edit.outputDuration.rawValue) / 1e9)
-            LabeledContent("Range") { Text("\(TransportBar.timecode(seconds)) of \(whole)") }
-                .font(Type.detail).foregroundStyle(Theme.Ink.accent)
-        }
-        LabeledContent("About", value: Self.fileSize(editor.estimatedExportBytes))
-            .font(Type.detail).foregroundStyle(.secondary)
-
-        Divider()
-
-        // **A separate button, not a third entry in the save panel's format popup.** Every
-        // control above this — resolution, codec, quality, the size estimate — describes a
-        // rendered picture, and none of them applies to a cut list. Folding it into the same
-        // panel would offer somebody a bit rate for a text file.
-        //
-        // It also runs instantly rather than through `ExportQueue`: there is nothing to render.
-        Button("Export Final Cut XML\u{2026}") { exportFinalCutXML() }
-            .disabled(editor.timeline.editForExport.isEmpty)
-        // **What it carries and what it does not, before the click rather than after it.**
-        // "Export to Final Cut" reads like a promise to carry everything, and the honest answer
-        // is that it carries the cut and none of the look — which is exactly what somebody
-        // finishing in another application wants, and nothing like what they would expect if
-        // nobody said so.
-        Text("The cut only — your clips and their in-points, against the original recording, with the camera on its own lane. None of the look travels: no zooms, no cursor, no background. DaVinci Resolve reads the same file.")
-            .font(Type.detail).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Writes the cut as FCPXML, which Final Cut Pro and DaVinci Resolve both read.
@@ -1091,48 +869,6 @@ struct StageWindow: View {
     /// reimplement.
     static func fileSize(_ bytes: Int) -> String {
         Int64(bytes).formatted(.byteCount(style: .file))
-    }
-
-    /// What a GIF export would be. In the project tab because it is a property of the OUTPUT,
-    /// like the shape and the look beside it — the format is chosen in the save panel's popup,
-    /// which is where macOS puts it.
-    @ViewBuilder private var gifControls: some View {
-        Picker("Frames", selection: $editor.gifSettings.frameRate) {
-            ForEach(GIFSettings.exactRates, id: \.self) { rate in
-                Text("\(rate) fps").tag(rate)
-            }
-        }
-        Picker("Longest edge", selection: $editor.gifSettings.maximumLongestEdge) {
-            Text("480 px").tag(480)
-            Text("640 px").tag(640)
-            Text("960 px").tag(960)
-            Text("1280 px").tag(1280)
-        }
-        Toggle("Loop forever", isOn: $editor.gifSettings.loops)
-
-        let size = editor.outputSize
-        let gif = editor.gifSettings.size(fitting: size.width, height: size.height)
-        // The size is worth stating because it is not the export size beside it, and the
-        // "no sound" is worth stating because a person who recorded themselves talking would
-        // otherwise find that out from the file.
-        LabeledContent("GIF", value: "\(gif.width)\u{00D7}\(gif.height), no sound")
-            .font(Type.detail).foregroundStyle(.secondary)
-        // **A GIF has no inter-frame compression worth the name**, so its size is frames times
-        // pixels and nothing else — a twenty-second 640-wide GIF is tens of megabytes, which is
-        // past what most places accept. Warned about here rather than letting somebody find
-        // out from the upload.
-        // `editForExport`, not `edit`: with a section marked, the file being estimated is
-        // the section. A figure for the whole video beside a button that writes ten seconds of
-        // it is worse than no figure.
-        let seconds = Double(editor.timeline.editForExport.outputDuration.rawValue) / 1_000_000_000
-        let gifBytes = Int(Double(gif.width * gif.height) * 0.5 * 0.07
-                           * Double(editor.gifSettings.frameRate) * seconds)
-        if gifBytes > 20_000_000 {
-            Label("About \(Self.fileSize(gifBytes)) \u{2014} fewer frames or a smaller edge",
-                  systemImage: "exclamationmark.triangle")
-                .font(Type.detail).foregroundStyle(Signal.paused)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 
     /// One row per recorded source: a level and a mute.
@@ -1490,42 +1226,6 @@ struct StageWindow: View {
     /// **The lane's blocks, from the same call the camera makes.** Extracted the moment there
     /// were two callers: `load()` and the intensity dial. A second derivation with its own
     /// arguments is how a lane comes to disagree with the picture it is describing.
-    @ViewBuilder private var zoomIntensityControl: some View {
-        // **The one control that still commits on release, and it is not the camera's rule.**
-        // Every other control in this window now refreshes on every change: publishing a static
-        // and asking a paused player to redraw costs a seek, which AVPlayer coalesces. This one
-        // is different in kind — `.task(id: zoomIntensity)` re-derives the zoom BLOCKS through
-        // `refreshDerivedZooms`, which walks the framing plan and rebuilds the camera's baked
-        // path, and doing that per pixel of slider travel is work rather than a redraw. The
-        // lane's blocks move on release; the number under the thumb moves live.
-        //
-        // The comment here used to say "the same rule the camera sliders already use". That
-        // stopped being true on 2026-08-26, when they stopped using it.
-        Slider(value: $editor.zoomIntensity, in: 0...FramingDepth.maximumIntensity, step: 0.1,
-               onEditingChanged: { if !$0 { reviewRevision += 1 } }) {
-            Text("Amount")
-        }
-        Text(verbatim: zoomIntensityLabel)
-            .font(Type.detail).foregroundStyle(.secondary)
-        // The spring's damping stays at 1 whatever this says, so no pace overshoots.
-        Picker("Speed", selection: $editor.cameraPace) {
-            ForEach(CameraPace.allCases, id: \.self) { pace in
-                Text(LocalizedStringKey(pace.displayName)).tag(pace)
-            }
-        }
-        .onChange(of: editor.cameraPace) { reviewRevision += 1 }
-    }
-
-    /// Says what the dial does at the ends, because "0.0" and "2.0" do not.
-    private var zoomIntensityLabel: String {
-        let percent = Int((editor.zoomIntensity * 100).rounded())
-        if percent == 0 { return String(localized: "No zoom anywhere. Every click is framed, none is magnified.") }
-        if percent == 100 {
-            return String(localized: "As derived. Adjustments you have made to single zooms still apply on top.")
-        }
-        return String(localized: "\(percent)% of the derived zoom. Adjustments to single zooms still apply on top.")
-    }
-
     private func refreshDerivedZooms() {
         editor.timeline.setDerivedZooms(ZoomBlock.blocks(
             for: editor.review.plan.framedClicks(with: editor.review.overrides,
@@ -1787,10 +1487,6 @@ struct StageWindow: View {
     }
 
 
-    /// Whole numbers without a trailing `.0`, which is what every rate on `exactRates` is.
-    private func formatted(_ rate: Double) -> String {
-        rate == rate.rounded() ? String(Int(rate)) : String(format: "%.1f", rate)
-    }
 }
 
 
