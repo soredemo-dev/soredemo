@@ -61,3 +61,28 @@ window state.
   no audio track says so; every refusal has a sentence. Mutation: audio presence inverted.
 
 Every step: app tests, mutations, gates in order, commit with explicit paths.
+
+## Where it ended
+
+| Step | Moved | Commit |
+| --- | --- | --- |
+| 1 | camera, output, GIF and zoom-amount sections → `Soredemo/Inspector/` | `17aaaef` |
+| 2 | the preview pipeline → `EditorPreview`; the audio section → `AudioControls`; re-deriving zooms → `EditorViewModel` | `f09969f` |
+| 3 | reading a file for Final Cut XML, and the refusal sentences → `FinalCutXMLExport` | this commit |
+
+`StageWindow` went from 1797 lines to 1001 (`wc -l`). What remains is the layout, the `.task(id:)`
+reactions that decide when the preview rebuilds, the toolbar, and the window's actions — saving,
+exporting, Final Cut XML — each of which opens a panel and so belongs to the window.
+
+**Found on the way, each by a check that already existed:** two source rules named
+`StageWindow.swift` and failed on the move, and rewriting one by file showed its comment had
+named the wrong three readers of `editForExport` (step 1); a doc comment sat on the wrong
+declaration (step 1); a test fixture named `soredemo-preview-…` was deleted mid-test by the
+launch sweep, which only renaming it could tell apart from a broken pipeline (step 2).
+
+**Not covered:** `FinalCutXMLExport` is tested against a movie with no audio track. A fixture
+with audio would test the other direction of `hasAudio`; `StillMovie` writes picture only, so it
+needs a different writer.
+
+**Still owed:** a look at all seven inspector tabs in the running app, with a recording that has
+a camera and music. Every step was a move with tests green, and none of them was looked at.

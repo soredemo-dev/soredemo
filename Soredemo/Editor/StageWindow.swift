@@ -764,46 +764,13 @@ struct StageWindow: View {
         let cameraMedia = cameraURL
         let cameraOffset = cameraStartOffsetNanos
         Task {
-            // **The recording's own properties, read from the file rather than from view state.**
-            // `recordingShortSide` is the OUTPUT's short side and the variant may have changed
-            // it; what an editing application has to be told is the size of the media it is
-            // being pointed at.
-            let asset = AVURLAsset(url: media)
-            let duration = (try? await asset.load(.duration)) ?? .zero
-            let track = try? await asset.loadTracks(withMediaType: .video).first
-            // **Converted at the bridge and rotated to what is actually seen.** A phone recording
-            // is encoded landscape with a rotation in `preferredTransform`; describing a sequence
-            // by the encoded size would turn it on its side and letterbox every clip in it.
-            let natural = (try? await track?.load(.naturalSize)) ?? .zero
-            let transform = (try? await track?.load(.preferredTransform)) ?? .identity
-            let size = CGGeometryBridge.displayedPixelSize(of: natural, transform: transform)
-            let hasAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty
-                == false
-            let source = FinalCutXML.Source(
-                url: media,
-                duration: Nanoseconds(Int64((duration.seconds * 1_000_000_000).rounded())),
-                width: size.width, height: size.height,
-                frameRate: rate, hasAudio: hasAudio)
+            let source = await FinalCutXMLExport.source(for: media, frameRate: rate).source
             // The camera's own shape, read from its own file: a webcam is almost never the
             // screen's aspect, and describing it by the screen's would letterbox it.
             var cameraSource: FinalCutXML.Source?
             if let cameraMedia {
-                let cameraAsset = AVURLAsset(url: cameraMedia)
-                let cameraDuration = (try? await cameraAsset.load(.duration)) ?? .zero
-                if let cameraTrack = try? await cameraAsset.loadTracks(withMediaType: .video).first {
-                    let natural = (try? await cameraTrack.load(.naturalSize)) ?? .zero
-                    let transform = (try? await cameraTrack.load(.preferredTransform)) ?? .identity
-                    let cameraSize = CGGeometryBridge.displayedPixelSize(of: natural,
-                                                                        transform: transform)
-                    let cameraAudio = ((try? await cameraAsset.loadTracks(withMediaType: .audio))
-                                       ?? []).isEmpty == false
-                    cameraSource = FinalCutXML.Source(
-                        url: cameraMedia,
-                        duration: Nanoseconds(Int64((cameraDuration.seconds * 1_000_000_000)
-                            .rounded())),
-                        width: cameraSize.width, height: cameraSize.height,
-                        frameRate: rate, hasAudio: cameraAudio)
-                }
+                let camera = await FinalCutXMLExport.source(for: cameraMedia, frameRate: rate)
+                cameraSource = camera.hasVideo ? camera.source : nil
             }
             switch FinalCutXML.document(timeline: edit, source: source, camera: cameraSource,
                                         cameraOffset: Nanoseconds(cameraOffset),
@@ -817,18 +784,7 @@ struct StageWindow: View {
                         "Could not write \(destination.lastPathComponent): \(String(describing: error))")
                 }
             case .refused(let refusal):
-                // Named rather than generic: the three reasons have three different fixes, and a
-                // person told only that it failed cannot act on any of them.
-                exportStatus = switch refusal {
-                case .theEditKeepsNothing:
-                    String(localized:
-                        "The edit removes the whole recording, so there is no cut to export.")
-                case .theFrameRateIsNotAFrameRate:
-                    String(localized: "The recording reports no frame rate, and every time in the file has to be a whole frame.")
-                case .theRecordingHasNoSize:
-                    String(localized:
-                        "The recording reports no size, so there is no sequence to describe.")
-                }
+                exportStatus = FinalCutXMLExport.message(for: refusal)
             }
         }
     }
