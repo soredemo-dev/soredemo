@@ -365,4 +365,14 @@ final class EditorViewModel {
         }
         return failures
     }
+
+    /// **The lane's blocks, from the same call the camera makes.** Extracted the moment there
+    /// were two callers: `load()` and the intensity dial. A second derivation with its own
+    /// arguments is how a lane comes to disagree with the picture it is describing.
+    func refreshDerivedZooms() {
+        timeline.setDerivedZooms(ZoomBlock.blocks(
+            for: review.plan.framedClicks(with: review.overrides,
+                                          pointerFallbackRevision: review.fallbackRevision),
+            coverage: outputCoverage, intensity: zoomIntensity))
+    }
 }

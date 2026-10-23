@@ -148,10 +148,12 @@ xcrun swiftc \
   Soredemo/Project/ProjectDocument.swift \
   Soredemo/Editor/PreviewView.swift \
   Soredemo/Editor/StageWindow.swift \
+  Soredemo/Editor/EditorPreview.swift \
   Soredemo/Inspector/CameraOverlayControls.swift \
   Soredemo/Inspector/OutputControls.swift \
   Soredemo/Inspector/GIFControls.swift \
   Soredemo/Inspector/ZoomAmountControls.swift \
+  Soredemo/Inspector/AudioControls.swift \
   Soredemo/Editor/EditorViewModel.swift \
   Soredemo/Export/ExportQueue.swift \
   Soredemo/Export/CodecVerdicts.swift \

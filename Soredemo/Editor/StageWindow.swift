@@ -30,18 +30,19 @@ struct StageWindow: View {
     var cameraStartOffsetNanos: Int64 = 0
     /// Everything a person decides about this recording — see `EditorViewModel`.
     @State private var editor = EditorViewModel()
+    /// The asset being watched and how it was built — see `EditorPreview`.
+    @State private var preview = EditorPreview()
+    /// This recording's files, as the preview reads them.
+    private var files: EditorPreview.Files {
+        EditorPreview.Files(mediaURL: mediaURL, cameraURL: cameraURL,
+                            cameraStartOffsetNanos: cameraStartOffsetNanos)
+    }
     /// When the recording's file was made — for its name, read off the file (see `RecordingName`).
     @State private var recordedAt: Date?
     /// What this recording is called wherever a person sees a name. Never `master-00`.
     private var recordingName: String {
         RecordingName.display(for: mediaURL, savedPackage: editor.savedPackage, recordedAt: recordedAt)
     }
-    @State private var player: AVPlayer?
-    /// The asset the current item was built from. Held because `AVAudioMix` addresses that
-    /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
-    @State private var playingAsset: AVAsset?
-    /// The video track's thumbnails. Owned here so a cache is not discarded on every edit.
-    @State private var filmstrip = Filmstrip()
     /// One-shot, because `initialCameraStyle` seeds `cameraStyle` and a saved project's own
     /// value must win over it — the load runs after this and would otherwise be overwritten.
     @State private var hasSeededCameraStyle = false
@@ -50,27 +51,9 @@ struct StageWindow: View {
     /// to look at while deciding where something sits, not a property of the recording, and a
     /// guide left on from last week is furniture rather than information.
     @State private var showsSafeFrame = false
-    @State private var failure: String?
     // MARK: - export-basic
     @State private var exportStatus: String?
     // MARK: - review-ui
-    /// What the last attempt to clean the microphone did, or why it could not. Shown, never
-    /// swallowed — a person who turned this on and heard no difference is owed the reason.
-    @State private var noiseReductionNote: String?
-    /// The cleaned microphone, once it exists. Rebuilt when the settings change; cleared when
-    /// the feature is turned off.
-    @State private var cleanedMicrophone: URL?
-    /// Each audio track's integrated loudness, by index — see `Loudness`. Measured lazily, the
-    /// first time levelling is asked for, because it decodes the whole audio track and most
-    /// recordings are never levelled. Cleared when a different recording is loaded.
-    @State private var measuredLoudness: [Int: Loudness.Reading] = [:]
-    /// The composition's music track, and the envelope it follows. Both are rebuilt with the
-    /// composition rather than per frame: the track is a track and the envelope is a volume
-    /// automation, and `AVAudioMix` takes them together.
-    @State private var musicTrackID: CMPersistentTrackID?
-    /// Why a chosen piece did not become the bed, or `nil`. Reported rather than swallowed: a
-    /// person who chose music and got silence is owed the reason.
-    @State private var musicFailure: String?
     // MARK: - project
     // MARK: - basic-edit
     /// Bumped when an edit is committed, to rebuild the composition against the cut asset.
@@ -200,7 +183,7 @@ struct StageWindow: View {
             // **Stopped, not left to the player's release.** The sound of a recording played on
             // after its window was closed (2026-09-28); whatever else still holds the player, a
             // closed editor does not play.
-            .onDisappear { player?.pause() }
+            .onDisappear { preview.player?.pause() }
             .onChange(of: undoManager) { editor.captions.undoRecorder = undoManager }
             // **The caption editor REPLACES the stage rather than floating over it.** A sheet
             // would have kept the timeline and the inspector behind it, which is exactly the
@@ -210,7 +193,7 @@ struct StageWindow: View {
             // keep.
             .opacity(isCaptionEditorShown ? 0 : 1)
             .overlay {
-                if isCaptionEditorShown, let player {
+                if isCaptionEditorShown, let player = preview.player {
                     // No `AtPlayhead` here: `CaptionEditor` takes the timeline and confines
                     // the read to the waveform, which is the only part of it that moves.
                     CaptionEditor(
@@ -241,9 +224,9 @@ struct StageWindow: View {
                           onChange: { reviewRevision += 1 })
                 Divider().overlay(Theme.Line.hairline)
                 Group {
-                    if let player {
+                    if let player = preview.player {
                         PreviewView(player: player)
-                    } else if let failure {
+                    } else if let failure = preview.failure {
                         ContentUnavailableView("Could not build the preview",
                                                systemImage: "exclamationmark.triangle",
                                                description: Text(verbatim: failure))
@@ -293,7 +276,7 @@ struct StageWindow: View {
                 // over it: its ground is black whatever the window is, so a handle or a label in
                 // the light theme's dark lane colours would vanish into it.
                 .environment(\.colorScheme, .dark)
-                if let player {
+                if let player = preview.player {
                     Divider()
                     TransportBar(player: player, model: editor.timeline)
                 }
@@ -318,7 +301,7 @@ struct StageWindow: View {
                 if !isTimelineCollapsed {
                     Divider()
                     TimelineEditor(model: editor.timeline, onChange: { editRevision += 1 },
-                                   filmstrip: filmstrip,
+                                   filmstrip: preview.filmstrip,
                                    texts: editor.texts.track, captions: editor.captions.track,
                                    redactions: editor.redactions.track, chapters: editor.chapters.track)
                         .padding(Space.regular)
@@ -338,7 +321,7 @@ struct StageWindow: View {
         .background {
             Button("Export Frame…") { exportFrame() }
                 .keyboardShortcut("e", modifiers: [.command, .option])
-                .disabled(player == nil)
+                .disabled(preview.player == nil)
                 .frame(width: 0, height: 0)
                 .opacity(0)
                 .accessibilityHidden(true)
@@ -354,17 +337,7 @@ struct StageWindow: View {
         // for as long as that took — so a person testing whether to keep their narration would
         // be judging it across a gap. `AVPlayerItem.audioMix` is honoured mid-playback, which
         // is the whole reason this is a separate path from the export's.
-        .task(id: editor.audioMix) {
-            guard let item = player?.currentItem, let asset = playingAsset else { return }
-            // Measured from the recording's own file, once, and only when somebody asks for
-            // levelling — a full audio decode for a feature most projects never turn on would
-            // be a second of work on every open. See `Loudness.measure(contentsOf:)`.
-            if editor.audioMix.targetLoudness != nil, measuredLoudness.isEmpty {
-                measuredLoudness = await Loudness.measure(contentsOf: mediaURL)
-            }
-            await AudioMixBuilder.apply(editor.audioMix, to: item, of: asset, measured: measuredLoudness,
-                                        musicTrackID: musicTrackID, musicRamps: musicRamps)
-        }
+        .task(id: editor.audioMix) { await preview.applyMix(files, editor: editor) }
         // **Registered on every change, not once.** The closure captures this view's current
         // state, so a stale one would save an older edit than the one being asked about.
         .onChange(of: hasUnsavedChanges, initial: true) {
@@ -387,16 +360,12 @@ struct StageWindow: View {
         // **A full rebuild, not a mix change.** Noise removal replaces a whole audio TRACK in
         // the composition, which `audioMix`'s cheaper path above cannot do — that one only moves
         // volume ramps on tracks that are already there.
-        .task(id: editor.noiseReduction) { if editor.noiseReduction != nil || cleanedMicrophone != nil { await load() } }
+        .task(id: editor.noiseReduction) { if editor.noiseReduction != nil || preview.hasCleanedMicrophone { await load() } }
         // **The file, not the whole bed.** Changing the piece means a different track in the
         // composition and a rebuild; changing its level or its ducking is a volume automation,
         // which the sibling below re-applies without touching the asset.
-        .task(id: editor.music.filename) { if editor.music.filename != nil || musicTrackID != nil { await load() } }
-        .task(id: editor.music) {
-            guard let item = player?.currentItem, let asset = playingAsset else { return }
-            await AudioMixBuilder.apply(editor.audioMix, to: item, of: asset, measured: measuredLoudness,
-                                        musicTrackID: musicTrackID, musicRamps: musicRamps)
-        }
+        .task(id: editor.music.filename) { if editor.music.filename != nil || preview.musicTrackID != nil { await load() } }
+        .task(id: editor.music) { await preview.applyMix(files, editor: editor) }
         // Rebuilding on a COMMITTED edit, not on every drag event: `load()` builds an
         // `AVVideoComposition` over a freshly cut asset, and doing that per pixel of a
         // selection drag would make the strip unusable.
@@ -409,7 +378,7 @@ struct StageWindow: View {
         // second, and seeking the player to where it already is would stall it. See
         // `TimelineEditorModel.seekRequest`.
         .task(id: editor.timeline.seekRequest) {
-            guard let player,
+            guard let player = preview.player,
                   let output = editor.timeline.edit.outputTime(atSource: editor.timeline.playhead)
             else { return }
             await player.seek(to: CMTime(value: output.rawValue, timescale: 1_000_000_000),
@@ -431,7 +400,7 @@ struct StageWindow: View {
         // while one is in progress supersedes it — the earlier handler gets `finished: false` —
         // and `.task(id:)` cancels the previous task, so nothing accumulates on either side.
         .task(id: reviewRevision) {
-            guard reviewRevision > 0, let player else { return }
+            guard reviewRevision > 0, let player = preview.player else { return }
             // **Only when PAUSED, and that is the fix.** The seek is here to give a stopped
             // player a reason to redraw the frame it is already showing. Running it during
             // playback stops the playback — `AVPlayer.seek` does not resume — so dragging a
@@ -452,7 +421,7 @@ struct StageWindow: View {
             StageCompositor.zoomIntensity = editor.zoomIntensity
             // The lane and the camera read one derivation; without this the blocks a person
             // sees would keep the depths the dial just changed.
-            refreshDerivedZooms()
+            editor.refreshDerivedZooms()
         }
         .task(id: editor.cameraPace) { StageCompositor.cameraPace = editor.cameraPace }
         .task(id: editor.crop) {
@@ -506,7 +475,7 @@ struct StageWindow: View {
                     saveProject()
                 }
                 .keyboardShortcut("s", modifiers: .command)
-                .disabled(player == nil)
+                .disabled(preview.player == nil)
             }
             // **Export stays pressable while one is running.** It used to be replaced by a
             // progress readout, which made "a master and a small copy" a thing you had to sit
@@ -522,7 +491,7 @@ struct StageWindow: View {
                 } primaryAction: {
                     startExport()
                 }
-                .disabled(player == nil)
+                .disabled(preview.player == nil)
             }
             // **A mode this app has needs a way in that does not require finding it.** The
             // button inside the Captions inspector section is where somebody already working on
@@ -709,7 +678,7 @@ struct StageWindow: View {
                         StageStylePicker(model: editor.stageStyle,
                                          onChange: { reviewRevision += 1 }).cursorControls
                     }
-                    Section("Audio") { audioControls }
+                    Section("Audio") { AudioControls(editor: editor, preview: preview, files: files) }
                     Section("Animated GIF") { GIFControls(editor: editor) }
                 }
                 .listStyle(.sidebar)
@@ -871,314 +840,8 @@ struct StageWindow: View {
         Int64(bytes).formatted(.byteCount(style: .file))
     }
 
-    /// One row per recorded source: a level and a mute.
-    ///
-    /// **Mute is a separate control from a zero level**, which is what lets a person unmute
-    /// back to where they had it — `AudioMix` keeps the two apart for that reason, and a UI
-    /// that collapsed them would throw the level away.
-    ///
-    /// The level is shown as a percentage because that is what a person reads a volume in;
-    /// `AudioMix` stores a linear gain, which is what `AVAudioMix` takes. The conversion is
-    /// here, at the edge, rather than in the model.
-    @ViewBuilder private var audioControls: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Toggle(isOn: Binding(
-                get: { editor.noiseReduction != nil },
-                set: { editor.noiseReduction = $0 ? .default : nil })
-            ) {
-                Text("Remove background noise")
-            }
-            .toggleStyle(.checkbox)
-            .font(.caption)
-
-            if editor.noiseReduction != nil {
-                HStack {
-                    Text("Strength").font(.caption).foregroundStyle(.secondary)
-                    LiveSlider(
-                        value: editor.noiseReduction?.strength
-                            ?? NoiseReduction.Settings.default.strength,
-                        // **Not the type's full 0…4 range.** Zero removes nothing, and above
-                        // three the voice starts going with the room — a range whose ends are
-                        // both useless is a slider that spends most of its travel doing harm.
-                        range: 0.5...3.0,
-                        commit: { strength in
-                            editor.noiseReduction = .init(
-                                strength: strength,
-                                floor: editor.noiseReduction?.floor
-                                    ?? NoiseReduction.Settings.default.floor)
-                        })
-                }
-            }
-            // **What it can and cannot do, on screen.** It takes out a fan, a hum, a laptop under
-            // load — sound that is there the whole time. It does not take out a door, a keyboard
-            // or a dog, and somebody who expects it to will conclude the feature is broken.
-            (noiseReductionNote.map { Text(verbatim: $0) }
-                 ?? Text("Removes steady sound — a fan, a hum, air conditioning — from the microphone only. It cannot remove a one-off noise like a door or a keyboard."))
-                .font(Type.detail)
-                .foregroundStyle(noiseReductionNote == nil ? .secondary : Signal.paused)
-        }
-        .padding(.bottom, 2)
-
-        ForEach(AudioMix.Source.allCases, id: \.self) { source in
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Toggle(isOn: Binding(
-                        get: { !editor.audioMix.isMuted(source) },
-                        set: { editor.audioMix = editor.audioMix.setting(source, muted: !$0) })
-                    ) {
-                        Text(LocalizedStringKey(source.displayName))
-                    }
-                    .toggleStyle(.checkbox)
-                    Spacer()
-                    Text(verbatim: "\(Int((editor.audioMix.gain(for: source) * 100).rounded()))%")
-                        .monospacedDigit()
-                        .foregroundStyle(editor.audioMix.isMuted(source) ? .tertiary : .secondary)
-                }
-                .font(.caption)
-                Slider(value: Binding(
-                    get: { editor.audioMix.gain(for: source) },
-                    set: { editor.audioMix = editor.audioMix.setting(source, gain: $0) }),
-                       in: 0...AudioMix.maximumGain)
-                    // A muted source's slider is disabled rather than hidden: the level is
-                    // still there, and hiding it would suggest it had been lost.
-                    .disabled(editor.audioMix.isMuted(source))
-            }
-        }
-        // **Levelling, which every comparable recorder ships and this had none of.** A demo's
-        // narration sits at whatever level the microphone happened to be at, and every platform
-        // it is posted to renormalises by loudness — so a file that ignores loudness is a file
-        // the platform will change. The target is in
-        // LUFS because that is the unit the platforms publish theirs in; the measurement and
-        // the gain that follows are `Loudness`'s.
-        Divider()
-        Toggle(isOn: Binding(
-            get: { editor.audioMix.targetLoudness != nil },
-            set: { editor.audioMix = editor.audioMix.settingTargetLoudness(
-                $0 ? Loudness.defaultTargetLUFS : nil) })
-        ) {
-            Text("Match a loudness target")
-        }
-        .toggleStyle(.checkbox)
-        .font(.caption)
-        if let target = editor.audioMix.targetLoudness {
-            HStack {
-                Text("Target").font(.caption)
-                Spacer()
-                Text(verbatim: "\(Int(target.rounded())) LUFS")
-                    .monospacedDigit().foregroundStyle(.secondary).font(.caption)
-            }
-            Slider(value: Binding(get: { target },
-                                  set: { editor.audioMix = editor.audioMix.settingTargetLoudness($0.rounded()) }),
-                   in: AudioMix.quietestTarget...AudioMix.loudestTarget)
-            Text("YouTube and Spotify normalise to \u{2212}14; \u{2212}16 leaves a little headroom under it.")
-                .font(Type.detail).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        if editor.audioMix.changesAnything {
-            Button("Reset audio") { editor.audioMix = .unchanged; measuredLoudness = [:] }
-                .buttonStyle(.link).font(.caption)
-        }
-        Divider()
-        musicControls
-    }
-
-    /// **A music bed, and how far out of the way it gets when somebody speaks.**
-    ///
-    /// The file is copied into the project — `MusicBed` says why — and the envelope
-    /// comes from the silences the timeline already found, so there is one answer to "where is
-    /// the voice" rather than two.
-    @ViewBuilder private var musicControls: some View {
-        HStack {
-            Text("Music").font(.caption)
-            Spacer()
-            if let name = editor.music.filename {
-                Text(verbatim: name).font(Type.detail).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            Button {
-                if let source = Self.chooseAudio() { adoptMusic(source) }
-            } label: {
-                editor.music.filename == nil ? Text("Choose\u{2026}") : Text("Replace\u{2026}")
-            }
-            .buttonStyle(.link).font(.caption)
-        }
-        if let failure = musicFailure {
-            Text(verbatim: failure).font(Type.detail).foregroundStyle(Signal.paused)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        if editor.music.filename != nil {
-            Toggle("Play the music", isOn: Binding(
-                get: { editor.music.isEnabled },
-                set: { editor.music = editor.music.changing(isEnabled: $0) }))
-                .toggleStyle(.checkbox).font(.caption)
-            musicSlider("Music level", value: editor.music.ducking.bedGain, upTo: 1) { value in
-                let settings = editor.music.ducking
-                editor.music = editor.music.changing(ducking: MusicDucking.Settings(
-                    bedGain: value, duckedGain: min(settings.duckedGain, value),
-                    attack: settings.attack, release: settings.release, hold: settings.hold))
-            }
-            Toggle("Lower it while I speak", isOn: Binding(
-                get: { editor.music.ducks },
-                set: { editor.music = editor.music.changing(ducks: $0) }))
-                .toggleStyle(.checkbox).font(.caption)
-            if editor.music.ducks {
-                musicSlider("Level while speaking", value: editor.music.ducking.duckedGain,
-                            upTo: editor.music.ducking.bedGain) { value in
-                    let settings = editor.music.ducking
-                    editor.music = editor.music.changing(ducking: MusicDucking.Settings(
-                        bedGain: settings.bedGain, duckedGain: value,
-                        attack: settings.attack, release: settings.release, hold: settings.hold))
-                }
-                if editor.timeline.silences.isEmpty {
-                    Text("Nothing on the microphone track reads as speech yet, so the bed stays at its own level.")
-                        .font(Type.detail).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Button("Remove the music") {
-                editor.music = MusicBed.none
-                musicFailure = nil
-            }
-            .buttonStyle(.link).font(.caption)
-        }
-    }
-
-    /// A level slider with its value written beside it. `upTo` is clamped away from zero
-    /// because a `Slider` whose range is empty traps, and "level while speaking" has an upper
-    /// bound that is itself a slider somebody can drag to nothing.
-    @ViewBuilder private func musicSlider(_ title: LocalizedStringKey, value: Double, upTo: Double,
-                                          commit: @escaping (Double) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(title).font(.caption)
-                Spacer()
-                Text(verbatim: "\(Int((value * 100).rounded()))%")
-                    .monospacedDigit().foregroundStyle(.secondary).font(.caption)
-            }
-            Slider(value: Binding(get: { min(value, max(upTo, 0.0001)) }, set: { commit($0) }),
-                   in: 0...max(upTo, 0.0001))
-        }
-    }
-
-    /// **Copied into the package, not referenced.** `StageStylePicker.useImageBackground`'s
-    /// argument exactly: a bed pointing at a file on the Desktop works until that file moves,
-    /// and music that silently becomes silence is worse than music never offered.
-    private func adoptMusic(_ source: URL) {
-        let packageURL = ProjectStore.packageURL(forMediaAt: mediaURL)
-        let directory = packageURL.appending(path: MusicBed.directory, directoryHint: .isDirectory)
-        let name = source.lastPathComponent
-        guard MusicBed.isSafeFilename(name) else {
-            musicFailure = String(localized: "\(name) is not a name this can use.")
-            return
-        }
-        do {
-            try FileManager.default.createDirectory(at: directory,
-                                                    withIntermediateDirectories: true)
-            let destination = directory.appending(path: name)
-            if FileManager.default.fileExists(atPath: destination.path) {
-                try FileManager.default.removeItem(at: destination)
-            }
-            try FileManager.default.copyItem(at: source, to: destination)
-        } catch {
-            musicFailure = String(localized: "Could not copy \(name) into the project: \(String(describing: error))")
-            return
-        }
-        musicFailure = nil
-        editor.music = editor.music.changing(filename: .some(name), isEnabled: true)
-    }
-
-    /// The open panel, audio only.
-    @MainActor
-    private static func chooseAudio() -> URL? {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audio]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        return panel.runModal() == .OK ? panel.url : nil
-    }
-
     // MARK: - saving and opening
 
-
-    /// The cleaned microphone track, made if it is asked for and does not exist yet.
-    ///
-    /// **Returns the map `EditedAsset.make` takes, keyed by track index**, because a Soredemo
-    /// recording has system audio and a microphone as separate tracks and only one of them is a
-    /// room. `NoiseReducedAudio.microphoneTrackIndex` is where that index is decided, from the
-    /// same named order the mix and the waveform read.
-    ///
-    /// **Cached on disk, keyed by the settings.** The pass is a full decode and re-encode of the
-    /// audio; doing it again on every preview rebuild would make the strength slider unusable.
-    /// A settings change makes a different filename rather than deleting the old one, so
-    /// switching back is instant.
-    ///
-    /// Every refusal is reported into `noiseReductionNote` rather than swallowed. A person who
-    /// turned this on and heard no difference is owed the reason, and "there is no measurable
-    /// silence in this recording" is a thing they can act on.
-    private func microphoneSubstitution(for recording: AVAsset) async -> [Int: AVAsset] {
-        guard let settings = editor.noiseReduction,
-              let index = NoiseReducedAudio.microphoneTrackIndex
-        else { return [:] }
-
-        // Inside the recording's own package, beside `media/` and `observations/`. A cleaned
-        // track is derived from the recording and belongs with it: copying the project copies
-        // it, and deleting the project takes it too.
-        let destination = NoiseReducedAudio.destination(
-            for: mediaURL, settings: settings,
-            in: ProjectStore.packageURL(forMediaAt: mediaURL))
-        if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
-            cleanedMicrophone = destination
-            return [index: AVURLAsset(url: destination)]
-        }
-        do {
-            let outcome = try await NoiseReducedAudio.write(from: recording, to: destination,
-                                                            trackIndex: index, settings: settings)
-            switch outcome {
-            case .reduced(let url):
-                cleanedMicrophone = url
-                noiseReductionNote = nil
-                return [index: AVURLAsset(url: url)]
-            case .refused(let refusal):
-                // **Left ON in the interface.** Turning the switch back off here would look like
-                // the app disagreeing with the person; the note says what happened and the
-                // switch still says what they asked for.
-                cleanedMicrophone = nil
-                noiseReductionNote = String(localized: "Noise removal did nothing: \(String(describing: refusal)).")
-                return [:]
-            }
-        } catch {
-            cleanedMicrophone = nil
-            noiseReductionNote = String(localized: "Noise removal could not run: \(String(describing: error)).")
-            return [:]
-        }
-    }
-
-    /// The bed's file inside the project package, or `nil` when there is none to play.
-    private var musicFileURL: URL? {
-        guard editor.music.isAudible, let filename = editor.music.filename else { return nil }
-        return ProjectStore.packageURL(forMediaAt: mediaURL)
-            .appending(path: MusicBed.directory, directoryHint: .isDirectory)
-            .appending(path: filename)
-    }
-
-    /// **The envelope the bed follows, from the silences the timeline already found.** One
-    /// decision about where the voice is: `SilenceFinder` makes it for the Silence lane and for
-    /// auto-cutting, and `MusicDucking.speech(betweenSilences:over:)` turns the same answer
-    /// inside out. A second detector here would be a second answer a person could catch
-    /// disagreeing with the lane in front of them.
-    ///
-    /// Ducking off leaves the bed flat at its own level, which is what somebody laying music
-    /// under a demo with no narration wants; no file leaves it empty, and `AudioMixBuilder`
-    /// reads an empty envelope as silence rather than as unity.
-    private var musicRamps: [MusicDucking.Ramp] {
-        guard editor.music.isAudible, let duration = editor.timeline.duration else { return [] }
-        guard editor.music.ducks else {
-            return MusicDucking.ramps(speech: [], over: duration, settings: editor.music.ducking)
-        }
-        return MusicDucking.ramps(
-            speech: MusicDucking.speech(betweenSilences: editor.timeline.silences, over: duration),
-            over: duration, settings: editor.music.ducking)
-    }
 
     /// True when what is on screen differs from what is on disk. A scratch recording is always
     /// unsaved, because nothing has been written yet — not because it has been edited.
@@ -1223,119 +886,8 @@ struct StageWindow: View {
     }
 
 
-    /// **The lane's blocks, from the same call the camera makes.** Extracted the moment there
-    /// were two callers: `load()` and the intensity dial. A second derivation with its own
-    /// arguments is how a lane comes to disagree with the picture it is describing.
-    private func refreshDerivedZooms() {
-        editor.timeline.setDerivedZooms(ZoomBlock.blocks(
-            for: editor.review.plan.framedClicks(with: editor.review.overrides,
-                                          pointerFallbackRevision: editor.review.fallbackRevision),
-            coverage: editor.outputCoverage, intensity: editor.zoomIntensity))
-    }
-
-
     private func load() async {
-        do {
-            // Before the composition: `configuredComposition` reads
-            // `StageCompositor.framingOverrides`, which `FramingReviewModel.load` publishes.
-            editor.review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: mediaURL)
-                .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
-            // The crop before the composition: `StagePlanner` fits the card to the CROPPED
-            // aspect, so a composition built while the static still said "whole" would size the
-            // card for a recording that is no longer what is being drawn. It is also what
-            // `outputCoverage` below is computed from, which is the other reason it goes first.
-            StageCompositor.crop = editor.crop
-            let recording = AVURLAsset(url: mediaURL)
-            // What `Match Recording` matches. Read once from the file, because it is a property
-            // of the capture and no edit changes it.
-            //
-            // **Read before the zoom lane is built, and the order is load-bearing.** The lane's
-            // depths now come from `outputCoverage`, which is computed from this size; reading
-            // it afterwards meant the FIRST open of every project derived its zooms against the
-            // 1920x1080 placeholder these properties start at, so a 3024x1964 recording exported
-            // 9:16 showed one set of depths until something happened to rebuild.
-            if let track = try await recording.loadTracks(withMediaType: .video).first {
-                let natural = try await track.load(.naturalSize)
-                editor.recordingShortSide = Int(min(natural.width, natural.height).rounded())
-                editor.recordingSize = (width: Int(natural.width.rounded()),
-                                 height: Int(natural.height.rounded()))
-                // **The shape is NOT set from here, and the reason is a hazard rather than a
-                // preference.** `.task(id: variant)` runs this function, so assigning `variant`
-                // inside it cancels the very run doing the assigning — and `restore(_:)`, which
-                // applies a saved shape, happens further down. A first draft did exactly that
-                // and would have dropped a saved Portrait on the first open of a project,
-                // silently, depending on where the cancellation landed. The recording's own
-                // shape is offered in the picker instead; making it the default belongs
-                // wherever a NEW recording is first handed to this window, not here.
-                // `nominalFrameRate` is a Float and a capture reports 59.999996; rounding is what
-                // makes "match the recording" mean 60 rather than a rate no container has.
-                let nominal = try await track.load(.nominalFrameRate)
-                if nominal > 0 { editor.recordingFrameRate = Int(nominal.rounded()) }
-            }
-            // The lane draws the same blocks the camera integrates, derived from the same
-            // plan and now at the same coverage — a second derivation would be a second
-            // answer, and a second coverage would be a second answer that agreed in landscape
-            // and diverged in portrait, which is worse.
-            StageCompositor.outputCoverage = editor.outputCoverage
-            // The anchor first: the lane converts every block's absolute instant through it,
-            // and blocks set before it would be drawn off the edge for one frame.
-            editor.timeline.setZoomAnchor(editor.review.anchor)
-            refreshDerivedZooms()
-            if editor.timeline.duration == nil {
-                editor.timeline.load(duration: try await recording.load(.duration).seconds)
-                // **After `load`, which resets the models.** Restoring first would be wiped by
-                // the reset, silently, and a person would see their saved edit vanish on open.
-                if let pendingEdit {
-                    editor.restore(pendingEdit)
-                    editor.savedPackage = ProjectStore.packageURL(forMediaAt: mediaURL)
-                }
-                // After `load`, which resets the model: reading the envelope is slow enough
-                // that a person sees the strip before it arrives, and it must not be wiped by
-                // the reset it raced.
-                await editor.timeline.loadWaveform(from: recording)
-            }
-            // **The preview plays the EDITED asset, not the recording with an end time set.**
-            // `EditedAsset` is what the export cuts with too, so the two cannot show different
-            // videos — an edit a person can make but not see is a setting, not an edit.
-            // **The cleaned microphone is substituted into the cut, so preview and export
-            // cannot disagree.** Export is handed the asset the preview is playing — see
-            // `runExport`'s header — so wiring it here wires both, and there is no second place
-            // for the two to drift apart.
-            let cut = try await EditedAsset.make(
-                from: recording, by: editor.timeline.edit,
-                substitutingAudio: await microphoneSubstitution(for: recording))
-            // The camera laid alongside the cut recording, so one composition sees both. Returns
-            // the cut asset untouched when there is no camera, so the common path costs nothing.
-            let combined = try await CameraComposition.combine(
-                screen: cut, cameraURL: cameraURL,
-                cameraStartOffset: CMTime(value: cameraStartOffsetNanos, timescale: 1_000_000_000),
-                musicURL: musicFileURL)
-            StageCompositor.cameraTrackID = combined.cameraTrackID
-            musicTrackID = combined.musicTrackID
-            StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : editor.cameraStyle
-            let asset = combined.asset
-            let composition = try await Self.configuredComposition(
-                for: asset, logForMediaURL: mediaURL, resolution: editor.resolution,
-                recordingShortSide: editor.recordingShortSide, variant: editor.variant)
-            let item = AVPlayerItem(asset: asset)
-            item.videoComposition = composition
-            // The mix is applied at load too, not only on change: reopening a saved project
-            // with the microphone muted must sound muted before anyone touches a control.
-            await AudioMixBuilder.apply(editor.audioMix, to: item, of: asset)
-            playingAsset = asset
-            // **The filmstrip reads the UNCUT recording**, not the edited composition: the strip
-            // is laid out in source time, and a composition's own timeline has already had the
-            // cuts taken out of it — so a frame asked for at 30 s would come back from a
-            // different moment after every edit.
-            filmstrip.load(url: mediaURL)
-            // Cheap: nothing is read until the first scrub, and a recording with no audio leaves
-            // it silent rather than failing.
-            editor.timeline.scrubAudio.isEnabled = scrubAudioIsOn
-            editor.timeline.scrubAudio.open(mediaURL)
-            player = AVPlayer(playerItem: item)
-        } catch {
-            failure = "\(error)"
-        }
+        await preview.load(files, into: editor, pendingEdit: pendingEdit, scrubAudio: scrubAudioIsOn)
     }
 
     /// Presents the save panel and queues what it chose. The panel comes first because a job
@@ -1344,7 +896,7 @@ struct StageWindow: View {
     /// The frame under the playhead as a PNG, at the export's size and through the export's own
     /// composition. See `docs/design/2026-09-27-one-frame-as-a-picture.md`.
     private func exportFrame() {
-        guard let asset = playingAsset,
+        guard let asset = preview.playingAsset,
               let output = editor.timeline.edit.outputTime(atSource: editor.timeline.playhead) else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
@@ -1386,7 +938,7 @@ struct StageWindow: View {
         // process-global statics, and a job that started in two minutes would otherwise draw
         // whatever had been edited since.
         let settings = StageCompositor.settings()
-        let asset = playingAsset
+        let asset = preview.playingAsset
         // **The range is applied here, at the export, and nowhere else.** `timeline.edit` is
         // still what the preview plays: a marked section is a choice about one export, not an
         // edit to the project, and hiding the rest of the recording the moment somebody marks a
@@ -1396,9 +948,9 @@ struct StageWindow: View {
         // Captured with the rest of the job, for `runExport`'s reason: a queued export runs
         // later than the view that asked for it, and reading this then would read whatever had
         // been measured since.
-        let loudness = measuredLoudness
-        let bedTrack = musicTrackID
-        let bedRamps = musicRamps
+        let loudness = preview.measuredLoudness
+        let bedTrack = preview.musicTrackID
+        let bedRamps = preview.musicRamps(editor: editor)
         let chosen = editor.quality
         let chosenCodec = editor.codec
         let frames = editor.frameRate.frames(recording: editor.recordingFrameRate)

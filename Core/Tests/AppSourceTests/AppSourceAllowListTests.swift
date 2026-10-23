@@ -1374,7 +1374,11 @@ private func desktopIconsFile() throws -> [URL] {
     // And the preview still builds from the unrestricted edit.
     // `editor.` since the timeline moved into `EditorViewModel` (2026-09-27); the pin names the
     // spelling in the file, because a substring that no longer occurs reads as the rule broken.
-    let previewComposes = try codeLinesNaming("by: editor.timeline.edit,", in: stage)
+    // **In `EditorPreview` since 2026-10-23**, when the preview pipeline left `StageWindow`.
+    let previewFile = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Editor/EditorPreview.swift" }
+    try #require(previewFile.count == 1, "EditorPreview.swift is not where this scan names it")
+    let previewComposes = try codeLinesNaming("by: editor.timeline.edit,", in: previewFile)
     #expect(!previewComposes.isEmpty, """
         The preview no longer composes from `timeline.edit`. If it now uses the restricted \
         timeline, marking a section hides the rest of the recording — see this check's header \
