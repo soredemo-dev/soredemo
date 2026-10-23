@@ -105,8 +105,7 @@ struct TimelineZoomLane: View {
                         }
                     }
                     .onEnded { value in
-                        model.commitZoomDrag(value.startLocation.x > width * 0.75
-                                             ? "Resize Zoom" : "Move Zoom")
+                        model.commitZoomDrag()
                         onChange()
                     }
             )

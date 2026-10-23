@@ -173,6 +173,9 @@ xcrun swiftc \
   Soredemo/Editor/Timeline/TimelineTrackLanes.swift \
   Soredemo/Editor/Timeline/TimelineOverlays.swift \
   Soredemo/Editor/Timeline/WaveformBars.swift \
+  Soredemo/Editor/Timeline/ExportMarks.swift \
+  Soredemo/Editor/Timeline/PackageStillness.swift \
+  Soredemo/Editor/Timeline/ClipChoices.swift \
   Soredemo/Editor/EditorToolbar.swift \
   Soredemo/Editor/AtPlayhead.swift \
   Soredemo/Editor/CaptionCueTracker.swift \

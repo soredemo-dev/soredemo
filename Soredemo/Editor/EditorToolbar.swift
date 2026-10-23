@@ -175,7 +175,7 @@ struct EditorToolbar: View {
     @ViewBuilder private var fades: some View {
         Menu {
             Section("Fade in") {
-                ForEach(TimelineEditorModel.fadeChoices, id: \.self) { value in
+                ForEach(ClipChoices.fades, id: \.self) { value in
                     Button(Self.fadeLabel(value)) {
                         model.setSelectedFade(in: value)
                         onChange()
@@ -183,7 +183,7 @@ struct EditorToolbar: View {
                 }
             }
             Section("Fade out") {
-                ForEach(TimelineEditorModel.fadeChoices, id: \.self) { value in
+                ForEach(ClipChoices.fades, id: \.self) { value in
                     Button(Self.fadeLabel(value)) {
                         model.setSelectedFade(out: value)
                         onChange()
@@ -215,16 +215,16 @@ struct EditorToolbar: View {
 
     @ViewBuilder private var speed: some View {
         Menu {
-            ForEach(TimelineEditorModel.speedChoices, id: \.self) { value in
+            ForEach(ClipChoices.speeds, id: \.self) { value in
                 Button {
                     model.setSelectedSpeed(value)
                     onChange()
                 } label: {
-                    Text(verbatim: Self.speedLabel(value))
+                    Text(verbatim: ClipChoices.speedLabel(value))
                 }
             }
         } label: {
-            Text(verbatim: model.selectedSpeed.map(Self.speedLabel) ?? "1\u{00D7}")
+            Text(verbatim: model.selectedSpeed.map(ClipChoices.speedLabel) ?? "1\u{00D7}")
                 .font(Type.barReadout)
                 .foregroundStyle((model.selectedSpeed ?? 1) == 1
                                  ? Theme.Ink.secondary : Theme.accent)
@@ -237,11 +237,6 @@ struct EditorToolbar: View {
         .opacity(model.selectedClip == nil ? 0.35 : 1)
         .tooltip(model.selectedClip == nil ? "Select a clip to change its speed"
               : "How fast the selected clip plays")
-    }
-
-    /// `2×`, `0.5×` — trailing zeroes dropped, as the transport's rate label does.
-    static func speedLabel(_ value: Double) -> String {
-        value == value.rounded() ? "\(Int(value))\u{00D7}" : String(format: "%.2g\u{00D7}", value)
     }
 
     /// Finding and cutting the pauses.

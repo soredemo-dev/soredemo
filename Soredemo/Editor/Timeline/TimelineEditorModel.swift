@@ -1,13 +1,9 @@
 import Compositing
 import Foundation
 import Observation
-import AppKit
 import AVFoundation
 import Framing
-import SwiftUI
-import Capture
 import Overlays
-import Project
 import Timeline
 
 /// The editing surface: what survives, what was cut, and where the playhead is.
@@ -39,31 +35,13 @@ final class TimelineEditorModel {
 
     // MARK: - the export range
 
-    /// Where an export of part of the video begins and ends, in OUTPUT time. **Both `nil` is the
-    /// ordinary case** — most exports are the whole video, and a range that defaulted to
-    /// something would make every export a decision.
-    ///
-    /// Without it the workaround is: duplicate the project, trim the copy, export, repeat. Once
-    /// per section, with a fresh chance to trim the wrong edge each time.
-    private(set) var inPoint: Nanoseconds?
-    private(set) var outPoint: Nanoseconds?
+    /// Where an export of part of the video begins and ends, in OUTPUT time — see `ExportMarks`.
+    private(set) var marks = ExportMarks()
+    var inPoint: Nanoseconds? { marks.inPoint }
+    var outPoint: Nanoseconds? { marks.outPoint }
 
-    /// The range an export should cover, or `nil` for the whole video.
-    ///
-    /// **One end is enough.** An in point alone means "from here to the end" and an out point
-    /// alone means "from the start to here", which is what those gestures mean in every editor
-    /// that has them — requiring both would make the first keystroke do nothing.
-    var exportRange: Range<Int64>? {
-        let total = edit.outputDuration.rawValue
-        guard total > 0, inPoint != nil || outPoint != nil else { return nil }
-        let lower = max(inPoint?.rawValue ?? 0, 0)
-        let upper = min(outPoint?.rawValue ?? total, total)
-        guard lower < upper else { return nil }
-        // The whole video is not a range: an in point dragged back to zero has been cancelled,
-        // and reporting a range there would put "1 of 1 sections" in the export sheet forever.
-        guard lower > 0 || upper < total else { return nil }
-        return lower..<upper
-    }
+    /// The range an export should cover, in OUTPUT time, or `nil` for the whole video.
+    var exportRange: Range<Int64>? { marks.range(outputDuration: edit.outputDuration) }
 
     /// The timeline an export should render — the edit, restricted to the range if there is one.
     ///
@@ -75,26 +53,36 @@ final class TimelineEditorModel {
         return edit.restricted(toOutput: range) ?? edit
     }
 
-    /// Sets the in point to the playhead, or clears it if it is already there.
+    /// What the export will write, in SOURCE time, for drawing on the strip — or `nil` for the
+    /// whole video.
     ///
-    /// **Pressing the key again cancels**, which is how a person undoes a mark without reaching
-    /// for a menu. Clearing an out point that now sits before the in point too: leaving a pair
-    /// that selects nothing would make the export silently fall back to the whole video.
+    /// **Read off `editForExport`, the timeline the exporter renders**, rather than converted a
+    /// second way that could disagree with it. The range itself is output time, and drawn as
+    /// though it were source time it lands late by everything cut before it.
+    var exportRangeInSource: Range<Int64>? {
+        guard exportRange != nil, let first = editForExport.clips.first,
+              let last = editForExport.clips.last else { return nil }
+        return first.sourceStart.rawValue..<last.sourceEnd.rawValue
+    }
+
+    /// Marks the in point at the playhead, or clears it if it is already there.
+    ///
+    /// **The playhead is SOURCE time and a mark is OUTPUT time**, so it converts. Until
+    /// 2026-10-23 it did not: with three seconds cut earlier, I exported from three seconds after
+    /// the playhead. A playhead inside a cut marks nothing — there is no frame of the video there
+    /// to point at, and the nearest kept frame either side is a side nobody chose.
     func markIn() {
-        if inPoint == playhead { inPoint = nil; return }
-        inPoint = playhead
-        if let out = outPoint, out.rawValue <= playhead.rawValue { outPoint = nil }
+        guard let output = edit.outputTime(atSource: playhead) else { return }
+        marks.markIn(at: output)
     }
 
     func markOut() {
-        if outPoint == playhead { outPoint = nil; return }
-        outPoint = playhead
-        if let into = inPoint, into.rawValue >= playhead.rawValue { inPoint = nil }
+        guard let output = edit.outputTime(atSource: playhead) else { return }
+        marks.markOut(at: output)
     }
 
     func clearExportRange() {
-        inPoint = nil
-        outPoint = nil
+        marks.clear()
     }
 
     /// Bumped only when a PERSON moved the playhead, and what the preview seeks on.
@@ -109,6 +97,17 @@ final class TimelineEditorModel {
     /// Plays the recording under the playhead while it is being dragged. Silent until a
     /// recording is opened, and silent for a recording with no audio.
     let scrubAudio = ScrubAudio()
+    /// What a deliberate move is heard through: `scrubAudio`, unless a test is listening.
+    private let scrub: (Nanoseconds) -> Void
+
+    init(scrubbingThrough scrub: ((Nanoseconds) -> Void)? = nil) {
+        if let scrub {
+            self.scrub = scrub
+        } else {
+            let audio = scrubAudio
+            self.scrub = { audio.scrub(to: $0) }
+        }
+    }
 
     /// A person put the playhead here. Seeks the preview.
     ///
@@ -119,13 +118,10 @@ final class TimelineEditorModel {
     func movePlayhead(to time: Nanoseconds) {
         playhead = time
         seekRequest += 1
-        scrubAudio.scrub(to: sourceTime(atOutput: time) ?? time)
-    }
-
-    /// Where in the RECORDING an output time falls, for anything that reads the source rather
-    /// than the edit. `nil` past the end of the edit.
-    private func sourceTime(atOutput time: Nanoseconds) -> Nanoseconds? {
-        edit.sourceTime(atOutput: time)
+        // The playhead is already the recording's clock, which is what `ScrubAudio` reads.
+        // Until 2026-10-23 it was converted as though it were output time, and after a cut the
+        // scrub played whatever lay that far further on.
+        scrub(time)
     }
 
     /// The preview is here. Moves the line and nothing else.
@@ -137,6 +133,7 @@ final class TimelineEditorModel {
         guard let source = edit.sourceTime(atOutput: outputTime) else { return }
         playhead = source
     }
+
     /// The span a person has dragged out, in SOURCE time, or `nil` for no selection.
     var selection: Range<Int64>?
     /// The clip a person clicked, or `nil`. **Kept as an identity, never an index**: deleting
@@ -177,8 +174,6 @@ final class TimelineEditorModel {
     /// Derived, then adjusted — the order IS the producer-value rule.
     var zooms: [ZoomBlock] { zoomAdjustments.applied(to: derivedZooms) }
 
-    /// Hands the lane the zooms the gate derived. Called when the plan is read; the
-    /// adjustments survive, because they are keyed on the click rather than on the block.
     /// The recording's epoch anchor — what turns a zoom block's ABSOLUTE host instant into an
     /// offset from the start of the video.
     ///
@@ -203,6 +198,8 @@ final class TimelineEditorModel {
         zoomAnchor = anchor
     }
 
+    /// Hands the lane the zooms the gate derived. Called when the plan is read; the
+    /// adjustments survive, because they are keyed on the click rather than on the block.
     func setDerivedZooms(_ blocks: [ZoomBlock]) {
         derivedZooms = blocks
         publish()
@@ -270,8 +267,13 @@ final class TimelineEditorModel {
         return result.time.rawValue - result.probeOffset.rawValue - first.rawValue
     }
 
-    /// Commits the drag as ONE step, for the same reason a trim does.
-    func commitZoomDrag(_ name: String) {
+    /// Ends a zoom drag and publishes where it ended.
+    ///
+    /// **Not an undo step.** Zoom adjustments are not in `EditHistory`, so ⌘Z after moving a
+    /// zoom undoes the clip edit before it. Recorded in
+    /// `docs/design/2026-10-23-the-timeline-model-and-its-two-clocks.md` and not yet changed:
+    /// putting zooms in the history changes what the history holds.
+    func commitZoomDrag() {
         defer {
             zoomDragBaseline = nil
             draggingZoom = nil
@@ -373,7 +375,6 @@ final class TimelineEditorModel {
     /// **Snapped to clip edges and the playhead.** A cut a person aims at an existing edge
     /// should land ON it: a cut that misses by a nanosecond leaves a sliver of a clip that is
     /// invisible on the strip and real in the export.
-    @discardableResult
     func snapped(_ time: Nanoseconds, threshold: Nanoseconds) -> Nanoseconds {
         let targets = SnapEngine.targets(in: edit, playhead: playhead)
         guard let result = SnapEngine.snap(position: time, targets: targets,
@@ -413,27 +414,17 @@ final class TimelineEditorModel {
     /// How far the measurement has got, 0…1, or `nil` when it is not running.
     private(set) var stillnessProgress: Double?
 
-    /// Measures the recording and finds the stretches where the picture does not change.
+    /// Finds the stretches where the picture does not change, preferring what the recorder
+    /// already wrote down (`PackageStillness`) to decoding the recording.
     ///
-    /// **Asked for rather than run on open.** It decodes the whole recording once — a few seconds
-    /// for a few minutes of video — which is cheap enough to ask for and far too expensive to do
-    /// to somebody who only wanted to trim the end.
-    /// Finds the still stretches, preferring what the recorder already knew.
-    ///
-    /// `StillnessReader` answers by decoding every frame of the recording and
-    /// differencing it — minutes of work on a long demo, and the reason this
-    /// control has a progress bar at all. `StillInterval` is the same answer
-    /// written down at capture time, where ScreenCaptureKit was already
-    /// reporting that it had drawn nothing; reading it back is a scan of one
-    /// small text file.
-    ///
-    /// Nothing is threaded through the UI for this: the package and its logs are
-    /// derived from the media URL the toolbar already has.
+    /// **Asked for rather than run on open.** The decode reads the whole recording once — a few
+    /// seconds for a few minutes of video — which is cheap enough to ask for and far too
+    /// expensive to do to somebody who only wanted to trim the end.
     func findStillness(in url: URL) {
         guard stillnessProgress == nil else { return }
         let settings = stillnessSettings
 
-        switch Self.recorded(forMediaAt: url) {
+        switch PackageStillness.answer(forMediaAt: url) {
         case .recorded(let intervals, let segments):
             // Instant, so no progress is shown — a bar that appears and vanishes
             // in one frame reads as a glitch, not as speed.
@@ -461,39 +452,6 @@ final class TimelineEditorModel {
             }
             stillness = StillnessFinder.spans(changes: changes, sliceSeconds: 0.25,
                                               settings: settings)
-        }
-    }
-
-    /// What a recording says about its own stillness, with the segment table it
-    /// has to be read against.
-    ///
-    /// Any failure to read the package is `theRecordingDoesNotCarryIt`, not an
-    /// error shown to a person: the fallback is the decode, which answers the
-    /// same question correctly and only costs time. A recording whose package
-    /// cannot be opened has bigger problems than this control, and they surface
-    /// where the package is opened.
-    private enum RecordedAnswer {
-        case recorded([StillInterval], SegmentTable)
-        case nothingWasEverStill
-        case theRecordingDoesNotCarryIt
-    }
-
-    private static func recorded(forMediaAt url: URL) -> RecordedAnswer {
-        let packageURL = ProjectStore.packageURL(forMediaAt: url)
-        guard let snapshot = try? ProjectPackageIO.load(from: packageURL),
-              !snapshot.segments.segments.isEmpty else {
-            return .theRecordingDoesNotCarryIt
-        }
-        let logs = snapshot.segments.segments.map {
-            ObservationWriter.logURL(forSegment: $0.index, in: packageURL)
-        }
-        guard let outcome = try? RecordedStillnessReader.intervals(fromObservationLogsAt: logs) else {
-            return .theRecordingDoesNotCarryIt
-        }
-        switch outcome {
-        case .recorded(let intervals):    return .recorded(intervals, snapshot.segments)
-        case .nothingWasEverStill:        return .nothingWasEverStill
-        case .theRecordingDoesNotCarryIt: return .theRecordingDoesNotCarryIt
         }
     }
 
@@ -533,11 +491,6 @@ final class TimelineEditorModel {
         selectedClip = edit.clip(atSource: sourceTime)?.id
     }
 
-    /// The speeds the toolbar offers. Not a slider: a demo is sped up to a ROUND number a
-    /// viewer can feel — half, twice — and a slider invites 1.37×, which is a number nobody
-    /// chose on purpose.
-    static let speedChoices: [Double] = [0.5, 1, 1.5, 2, 4]
-
     /// The selected clip's speed, or `nil` when nothing is selected.
     var selectedSpeed: Double? {
         selectedClip.flatMap { id in edit.clips.first { $0.id == id }?.speed }
@@ -549,17 +502,10 @@ final class TimelineEditorModel {
               let clip = edit.clips.first(where: { $0.id == id }), clip.speed != speed else {
             return
         }
-        apply("Play at \(EditorToolbar.speedLabel(speed))",
+        apply("Play at \(ClipChoices.speedLabel(speed))",
               EditTimeline(clips: edit.clips.map { $0.id == id ? $0.playing(at: speed) : $0 },
                            nextID: edit.nextID))
     }
-
-    /// The fade lengths the toolbar offers, in seconds.
-    ///
-    /// **Round numbers rather than a slider**, for `speedChoices`' reason: a fade is felt, not
-    /// measured, and a slider invites 0.37 s — a number nobody chose. Half a second is a beat,
-    /// one second is a breath, two is a scene ending.
-    static let fadeChoices: [Double] = [0, 0.25, 0.5, 1, 2]
 
     /// The selected clip's fades, or `nil` when nothing is selected.
     var selectedFades: (in: Double, out: Double)? {

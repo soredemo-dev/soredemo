@@ -46,7 +46,9 @@ struct TimelineExportRangeShade: View {
     let model: TimelineEditorModel
 
     var body: some View {
-        if let range = model.exportRange {
+        // The span in SOURCE time, because the strip is: `exportRange` is output time and
+        // drawn here directly sat late by everything cut before it.
+        if let range = model.exportRangeInSource {
             GeometryReader { proxy in
                 // The same origin the playhead uses, and for the same reason.
                 let contentOrigin = TimelineLayout.contentOrigin

@@ -17,25 +17,57 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     return model
 }
 
+/// What the scrub was asked to play, in order.
+@MainActor private final class Heard { var times: [Nanoseconds] = [] }
+
 @MainActor @Suite(.serialized) struct TimelineEditingTests {
     // MARK: - the export range (output time)
 
+    // **Every mark below is made with the playhead AFTER the cut**, at source 10 s = output 7 s.
+    // These tests once marked at source 4 s, inside the cut, and asserted output 4 s: the
+    // fixture had a cut and measured where the cut maps nothing, so a mark that skipped the
+    // conversion passed. See docs/design/2026-10-23-the-timeline-model-and-its-two-clocks.md.
+
+    @Test func anInPointIsWhereThePlayheadIsInTheEditedVideo() {
+        let model = cutTimeline()
+        model.movePlayhead(to: ns(10))
+        model.markIn()
+        #expect(model.exportRange == ns(7).rawValue..<ns(17).rawValue)
+    }
+
+    @Test func anOutPointIsWhereThePlayheadIsInTheEditedVideo() {
+        let model = cutTimeline()
+        model.movePlayhead(to: ns(10))
+        model.markOut()
+        #expect(model.exportRange == 0..<ns(7).rawValue)
+        #expect(model.editForExport.outputDuration == ns(7))
+    }
+
     @Test func pressingInTwiceCancelsIt() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(4))
+        model.movePlayhead(to: ns(10))
         model.markIn()
-        #expect(model.exportRange == ns(4).rawValue..<ns(17).rawValue)
+        #expect(model.exportRange != nil)
         model.markIn()
         #expect(model.exportRange == nil)
     }
 
+    /// No frame of the video is there, so there is nothing to point at.
+    @Test func aPlayheadInsideACutMarksNothing() {
+        let model = cutTimeline()
+        model.movePlayhead(to: ns(3))
+        model.markIn()
+        model.markOut()
+        #expect(model.inPoint == nil && model.outPoint == nil)
+    }
+
     @Test func anOutPointBeforeTheInPointClearsTheInPoint() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(9))
+        model.movePlayhead(to: ns(12))
         model.markIn()
-        model.movePlayhead(to: ns(6))
+        model.movePlayhead(to: ns(10))
         model.markOut()
-        #expect(model.exportRange == 0..<ns(6).rawValue)
+        #expect(model.exportRange == 0..<ns(7).rawValue)
     }
 
     /// An in point at the very start is the whole video, not a section of it.
@@ -51,10 +83,34 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
         let model = cutTimeline()
         model.movePlayhead(to: ns(10))
         model.markOut()
-        #expect(model.editForExport.outputDuration == ns(10))
+        #expect(model.editForExport.outputDuration == ns(7))
         #expect(model.edit.outputDuration == ns(17))
         model.clearExportRange()
         #expect(model.exportRange == nil)
+    }
+
+    /// The shade is drawn on the strip, which is in SOURCE time; it must start where the
+    /// playhead was when I was pressed, not at the output number read as a source one.
+    @Test func theShadeIsDrawnWhereTheExportStartsInTheRecording() {
+        let model = cutTimeline()
+        model.movePlayhead(to: ns(10))
+        model.markIn()
+        #expect(model.exportRangeInSource == ns(10).rawValue..<ns(20).rawValue)
+        model.clearExportRange()
+        #expect(model.exportRangeInSource == nil)
+    }
+
+    // MARK: - the scrub (source time)
+
+    /// `ScrubAudio` reads the recording's own clock, which is what the playhead already is.
+    @Test func theScrubPlaysTheRecordingUnderThePlayhead() {
+        let heard = Heard()
+        let model = TimelineEditorModel(scrubbingThrough: { heard.times.append($0) })
+        model.load(duration: 20)
+        model.selection = ns(2).rawValue..<ns(5).rawValue
+        model.removeSelection()
+        model.movePlayhead(to: ns(10))
+        #expect(heard.times.last == ns(10))
     }
 
     // MARK: - editing (source time), and the history

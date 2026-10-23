@@ -139,7 +139,7 @@ struct TimelineClipStrip: View {
                 if w > Self.clipLabelMinimumWidth {
                     Text(verbatim: clip.speed == 1 ? TimelineEditor.stamp(clip.duration)
                          : "\(TimelineEditor.stamp(clip.duration)) \u{00B7} "
-                         + EditorToolbar.speedLabel(clip.speed))
+                         + ClipChoices.speedLabel(clip.speed))
                         .font(.system(size: 9, weight: .medium).monospacedDigit())
                         .foregroundStyle(Theme.Ink.primary.opacity(0.85))
                         .padding(.horizontal, Space.tight)
