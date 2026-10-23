@@ -245,21 +245,14 @@ final class EditorPreview {
     /// argument exactly: a bed pointing at a file on the Desktop works until that file moves,
     /// and music that silently becomes silence is worse than music never offered.
     func adoptMusic(_ source: URL, files: Files, editor: EditorViewModel) {
-        let packageURL = ProjectStore.packageURL(forMediaAt: files.mediaURL)
-        let directory = packageURL.appending(path: MusicBed.directory, directoryHint: .isDirectory)
         let name = source.lastPathComponent
         guard MusicBed.isSafeFilename(name) else {
             musicFailure = String(localized: "\(name) is not a name this can use.")
             return
         }
         do {
-            try FileManager.default.createDirectory(at: directory,
-                                                    withIntermediateDirectories: true)
-            let destination = directory.appending(path: name)
-            if FileManager.default.fileExists(atPath: destination.path) {
-                try FileManager.default.removeItem(at: destination)
-            }
-            try FileManager.default.copyItem(at: source, to: destination)
+            try ProjectStore.copyIntoPackage(source, directory: MusicBed.directory,
+                                             mediaURL: files.mediaURL)
         } catch {
             musicFailure = String(localized: "Could not copy \(name) into the project: \(String(describing: error))")
             return

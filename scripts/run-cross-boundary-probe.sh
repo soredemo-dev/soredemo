@@ -180,6 +180,7 @@ xcrun swiftc \
   Soredemo/Project/ProjectStore.swift \
   Soredemo/Inspector/SystemCaptionStyle.swift \
   Soredemo/Inspector/CaptionsPanel.swift \
+  Soredemo/Inspector/CaptionsModel.swift \
   Soredemo/Inspector/CaptionField.swift \
   Soredemo/Editor/SafeFrameOverlay.swift \
   Soredemo/App/EditorWindowStyle.swift \
