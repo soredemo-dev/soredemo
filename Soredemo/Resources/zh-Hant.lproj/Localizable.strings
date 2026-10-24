@@ -502,6 +502,8 @@
 "Retime Caption" = "調整字幕時間";
 "Split Caption" = "分割字幕";
 "Merge Captions" = "合併字幕";
+"Fix Captions Everywhere" = "全部修正字幕";
+"Import Subtitles" = "匯入字幕";
 "Snap Caption" = "對齊字幕";
 "Whole display" = "整個顯示器";
 "A window" = "一個視窗";

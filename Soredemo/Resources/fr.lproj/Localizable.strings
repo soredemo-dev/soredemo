@@ -486,6 +486,8 @@
 "Retime Caption" = "Recaler le sous-titre";
 "Split Caption" = "Diviser le sous-titre";
 "Merge Captions" = "Fusionner les sous-titres";
+"Fix Captions Everywhere" = "Corriger les sous-titres partout";
+"Import Subtitles" = "Importer des sous-titres";
 "Snap Caption" = "Aligner le sous-titre";
 "Whole display" = "Écran entier";
 "A window" = "Une fenêtre";

@@ -488,6 +488,8 @@
 "Retime Caption" = "调整字幕时间";
 "Split Caption" = "拆分字幕";
 "Merge Captions" = "合并字幕";
+"Fix Captions Everywhere" = "全部修正字幕";
+"Import Subtitles" = "导入字幕";
 "Snap Caption" = "对齐字幕";
 "Whole display" = "整个显示器";
 "A window" = "一个窗口";

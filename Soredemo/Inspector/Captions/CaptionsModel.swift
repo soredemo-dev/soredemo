@@ -198,13 +198,14 @@ final class CaptionsModel {
     /// would be eight chances to forget the ninth, and the one forgotten is the one a person
     /// loses work to.
     ///
-    /// **Symmetric by construction.** The closure calls this same method, so undoing registers
-    /// its own redo and ⇧⌘Z works without a second mechanism.
-    ///
     /// **An edit that changed nothing is not a step.** `setText` runs on every keystroke,
     /// including the ones that retype the same character; a no-op registered as a step is a ⌘Z
     /// that appears to do nothing.
-    private func change(_ name: String, to next: CaptionTrack, typingAt index: Int? = nil) {
+    ///
+    /// **`terms` moves the names list with the lines**, for the one edit that changes both —
+    /// `docs/design/2026-10-24-every-caption-edit-is-undoable.md`. `nil` leaves the list.
+    private func change(_ name: String, to next: CaptionTrack, typingAt index: Int? = nil,
+                        terms nextTerms: [String]? = nil) {
         guard next != track else { return }
         // **Typing coalesces into one step per cue.** Registering per keystroke means ⌘Z walks
         // back a character at a time, which is not what undo means to anybody. The first
@@ -214,17 +215,19 @@ final class CaptionsModel {
         let continuesRun = index != nil && index == typingRun
         if !continuesRun {
             let previous = track
+            let previousTerms = nextTerms.map { _ in spokenTerms }
             let previousRun = typingRun
             // **Symmetric by construction.** The closure calls this same method, so undoing
             // registers its own redo and ⇧⌘Z works without a second mechanism. `self` is
             // captured strongly: the step is worthless if the model it restores has gone.
             undoRecorder?.register(name) { [self] in
                 typingRun = previousRun
-                change(name, to: previous)
+                change(name, to: previous, terms: previousTerms)
             }
         }
         typingRun = index
         track = next
+        if let nextTerms { spokenTerms = nextTerms }
         publish()
     }
 
@@ -270,10 +273,13 @@ final class CaptionsModel {
     /// this recording again does not undo the work — `Transcript.correcting(terms:)` puts it
     /// back. Doing only the first is a correction that survives until somebody presses
     /// Transcribe; doing only the second changes nothing on screen now.
+    ///
+    /// **One undo step for both.** It wrote the track directly until 2026-10-24, so "Fix them
+    /// too" could not be undone at all — `docs/design/2026-10-24-every-caption-edit-is-undoable.md`.
     func applyEverywhere(_ edit: RunEdit, correctedWord: String?) {
-        track = track.replacing(edit.was, with: edit.now)
-        if let correctedWord, addTerm(correctedWord) { }
-        publish()
+        let terms = correctedWord.map { Self.adding($0, to: spokenTerms) } ?? spokenTerms
+        change(String(localized: "Fix Captions Everywhere"),
+               to: track.replacing(edit.was, with: edit.now), terms: terms)
     }
 
     func setBurnsIn(_ value: Bool) {
@@ -285,12 +291,19 @@ final class CaptionsModel {
     /// duplicate**: two spellings of one name are two answers to the same question, and the
     /// second would be picked or not depending on which came first in the list.
     func addTerm(_ term: String) -> Bool {
+        let next = Self.adding(term, to: spokenTerms)
+        guard next != spokenTerms else { return false }
+        spokenTerms = next
+        return true
+    }
+
+    /// `terms` with `term` added, trimmed — or unchanged when it is empty or already there.
+    private static func adding(_ term: String, to terms: [String]) -> [String] {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
-              !spokenTerms.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
-        else { return false }
-        spokenTerms.append(trimmed)
-        return true
+              !terms.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+        else { return terms }
+        return terms + [trimmed]
     }
 
     func removeTerm(at index: Int) {
@@ -345,8 +358,9 @@ final class CaptionsModel {
                     "None of \(reading.track.cues.count) cue(s) fall inside this edit.")
                 return
             }
-            track = CaptionTrack(cues: placed)
-            publish()
+            // **Undoable, because it replaces.** An import over corrected captions used to
+            // discard the corrections with no way back.
+            change(String(localized: "Import Subtitles"), to: CaptionTrack(cues: placed))
 
             // **One whole sentence per fact, each its own key.** This used to be one `String`
             // grown with `+=`, which no table could reach — the import report was English in

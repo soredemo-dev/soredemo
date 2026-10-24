@@ -486,6 +486,8 @@
 "Retime Caption" = "자막 시간 조정";
 "Split Caption" = "자막 나누기";
 "Merge Captions" = "자막 합치기";
+"Fix Captions Everywhere" = "모든 자막 수정";
+"Import Subtitles" = "자막 가져오기";
 "Snap Caption" = "자막 맞추기";
 "Whole display" = "전체 디스플레이";
 "A window" = "창";

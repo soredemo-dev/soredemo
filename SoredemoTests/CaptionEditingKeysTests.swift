@@ -244,3 +244,47 @@ import Timeline
     let finished = await CountdownPresenter.shared.run(seconds: 0, subject: "Whole display")
     #expect(finished, "a countdown of zero reported a cancellation")
 }
+
+// MARK: - the two edits that skipped the undo stack
+
+/// **"Fix them too" is one step, and undoing it takes the name back as well.** It wrote the
+/// track directly, so it could not be undone at all; and an undo that restored the lines but
+/// left the corrected word in the names list would put the correction back on the next
+/// Transcribe. `docs/design/2026-10-24-every-caption-edit-is-undoable.md`.
+@Test @MainActor func fixingEverywhereIsOneStepThatTakesTheNameBackToo() throws {
+    let (model, undo) = undoable([("open Sore Demo", 0, 1_000_000_000),
+                                  ("Sore Demo records", 1_000_000_000, 2_000_000_000),
+                                  ("and Sore Demo edits", 2_000_000_000, 3_000_000_000)])
+    let edit = try #require(RunEdit(from: "open Sore Demo", to: "open Soredemo"))
+    model.applyEverywhere(edit, correctedWord: "Soredemo")
+    #expect(model.track.cues.map(\.text) == ["open Soredemo", "Soredemo records", "and Soredemo edits"])
+    #expect(model.spokenTerms == ["Soredemo"])
+    #expect(undo.names == [String(localized: "Fix Captions Everywhere")])
+
+    undo.undo()
+    #expect(model.track.cues.map(\.text) == ["open Sore Demo", "Sore Demo records", "and Sore Demo edits"])
+    #expect(model.spokenTerms.isEmpty, "the name went in with the fix and goes out with its undo")
+
+    undo.undo()
+    #expect(model.track.cues[1].text == "Soredemo records", "and the redo puts both back")
+    #expect(model.spokenTerms == ["Soredemo"])
+}
+
+/// **An import over corrected captions can be taken back.** It replaces the track by design;
+/// before this it did so with no step, and the corrections it replaced were gone.
+@Test @MainActor func importingSubtitlesIsUndoable() throws {
+    let (model, undo) = undoable([("corrected by hand", 0, 1_000_000_000)])
+    let folder = FileManager.default.temporaryDirectory
+        .appending(path: "soredemo-sidecar-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let file = folder.appending(path: "edited.srt")
+    try "1\n00:00:00,500 --> 00:00:01,500\nfrom the file\n".write(to: file, atomically: true, encoding: .utf8)
+
+    model.importSidecar(from: file, edit: nil)
+    #expect(model.track.cues.map(\.text) == ["from the file"])
+    #expect(undo.names == [String(localized: "Import Subtitles")])
+
+    undo.undo()
+    #expect(model.track.cues.map(\.text) == ["corrected by hand"])
+}

@@ -488,6 +488,8 @@
 "Retime Caption" = "字幕のタイミングを変更";
 "Split Caption" = "字幕を分割";
 "Merge Captions" = "字幕を結合";
+"Fix Captions Everywhere" = "字幕をすべて修正";
+"Import Subtitles" = "字幕を読み込む";
 "Snap Caption" = "字幕をスナップ";
 "Whole display" = "ディスプレイ全体";
 "A window" = "ウインドウ";

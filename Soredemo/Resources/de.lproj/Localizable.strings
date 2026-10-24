@@ -486,6 +486,8 @@
 "Retime Caption" = "Untertitel neu takten";
 "Split Caption" = "Untertitel teilen";
 "Merge Captions" = "Untertitel zusammenführen";
+"Fix Captions Everywhere" = "Untertitel überall korrigieren";
+"Import Subtitles" = "Untertitel importieren";
 "Snap Caption" = "Untertitel einrasten";
 "Whole display" = "Ganzes Display";
 "A window" = "Ein Fenster";

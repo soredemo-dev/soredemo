@@ -486,6 +486,8 @@
 "Retime Caption" = "Изменить тайминг субтитра";
 "Split Caption" = "Разделить субтитр";
 "Merge Captions" = "Объединить субтитры";
+"Fix Captions Everywhere" = "Исправить субтитры везде";
+"Import Subtitles" = "Импортировать субтитры";
 "Snap Caption" = "Выровнять субтитр";
 "Whole display" = "Весь экран";
 "A window" = "Окно";
