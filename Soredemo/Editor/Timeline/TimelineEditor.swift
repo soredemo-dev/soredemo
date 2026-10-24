@@ -24,6 +24,9 @@ struct TimelineEditor: View {
     var captions = CaptionTrack()
     var redactions = RedactionTrack()
     var chapters = ChapterTrack()
+    /// **What the person did, one mark per step**, under the chapters: a step is a point in time
+    /// with a name, like a chapter — `docs/design/2026-10-25-a-recording-knows-its-steps.md`.
+    var steps: [StepMark] = []
 
     var body: some View {
         if let duration = model.duration, duration.rawValue > 0 {
@@ -34,6 +37,11 @@ struct TimelineEditor: View {
                 if !chapters.isEmpty {
                     TimelineLane("Chapters", "list.bullet.rectangle", height: 14) {
                         TimelineChapterMarks(model: model, chapters: chapters)
+                    }
+                }
+                if !steps.isEmpty {
+                    TimelineLane("Steps", "list.number", height: 14) {
+                        TimelineStepMarks(model: model, steps: steps)
                     }
                 }
                 TimelineLane("Video", "film", height: 44) {

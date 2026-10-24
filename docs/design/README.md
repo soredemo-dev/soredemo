@@ -86,6 +86,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 
 | Document | What it settles |
 | --- | --- |
+| [2026-10-25-a-recording-knows-its-steps](2026-10-25-a-recording-knows-its-steps.md) | steps — each named press — derived from the log, on a Steps lane |
 | [2026-08-19-framing-gates](2026-08-19-framing-gates.md) | the zoom target, and every reason there isn't one |
 | [how-the-drawn-cursor-behaves](how-the-drawn-cursor-behaves.md) | the drawn cursor: shape, density, motion |
 | [classifying-the-live-cursor](classifying-the-live-cursor.md) | telling cursor shapes apart while recording |

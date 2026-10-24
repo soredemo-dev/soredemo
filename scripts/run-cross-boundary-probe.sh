@@ -164,6 +164,7 @@ xcrun swiftc \
   Soredemo/Editor/PreviewView.swift \
   Soredemo/Editor/StageWindow.swift \
   Soredemo/Editor/EditorPreview.swift \
+  Soredemo/Editor/RecordedStepsModel.swift \
   Soredemo/Editor/FinalCutXMLExport.swift \
   Soredemo/Inspector/CameraOverlayControls.swift \
   Soredemo/Inspector/OutputControls.swift \

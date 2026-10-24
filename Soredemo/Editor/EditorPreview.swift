@@ -58,8 +58,9 @@ final class EditorPreview {
         do {
             // Before the composition: `configuredComposition` reads
             // `StageCompositor.framingOverrides`, which `FramingReviewModel.load` publishes.
-            editor.review.load(observationLogAt: ObservationWriter.expectedLogURL(forMediaURL: files.mediaURL)
-                .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
+            let observationLog = ObservationWriter.expectedLogURL(forMediaURL: files.mediaURL)
+                .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+            editor.review.load(observationLogAt: observationLog)
             // The crop before the composition: `StagePlanner` fits the card to the CROPPED
             // aspect, so a composition built while the static still said "whole" would size the
             // card for a recording that is no longer what is being drawn. It is also what
@@ -114,6 +115,10 @@ final class EditorPreview {
                 // the reset it raced.
                 await editor.timeline.loadWaveform(from: recording)
             }
+            // The steps after the duration, which closes the last of them, and from the same
+            // log and anchor the zooms were read with.
+            editor.steps.load(observationLogAt: observationLog, anchor: editor.review.anchor,
+                              duration: editor.timeline.duration)
             // **The preview plays the EDITED asset, not the recording with an end time set.**
             // `EditedAsset` is what the export cuts with too, so the two cannot show different
             // videos — an edit a person can make but not see is a setting, not an edit.

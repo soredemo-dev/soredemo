@@ -303,7 +303,8 @@ struct StageWindow: View {
                     TimelineEditor(model: editor.timeline, onChange: { editRevision += 1 },
                                    filmstrip: preview.filmstrip,
                                    texts: editor.texts.track, captions: editor.captions.track,
-                                   redactions: editor.redactions.track, chapters: editor.chapters.track)
+                                   redactions: editor.redactions.track, chapters: editor.chapters.track,
+                                   steps: editor.steps.marks)
                         .padding(Space.regular)
                         .frame(height: timelineHeight - EditorToolbar.height)
                 }

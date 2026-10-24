@@ -32,6 +32,16 @@ public enum FramingPlanReader {
         return FramingPlan(entries: entries)
     }
 
+    /// Every `axChain` record in the log, as recorded — what `RecordedSteps` derives steps from.
+    ///
+    /// **Read here, beside `plan`, so the steps and the zooms come from the same lines**: two
+    /// readers of one log would be two chances to disagree about which clicks there were.
+    public static func chains(fromObservationLogAt url: URL) throws -> [AXChainRecord] {
+        try JSONLReader.linesOfFile(at: url).lines
+            .filter { try ObservationLog.kind(of: $0) == "axChain" }
+            .map { try ObservationLog.decode($0) as AXChainRecord }
+    }
+
     /// The recording's epoch anchor — the `logHeader`'s, which is how an absolute host
     /// instant becomes an offset a person can read as a time in the video.
     ///

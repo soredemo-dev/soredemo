@@ -37,6 +37,8 @@ final class EditorViewModel {
     let redactions = RedactionsModel()
     let annotations = AnnotationsModel()
     let chapters = ChaptersModel()
+    /// What the person did, step by step, read from the same log as the zooms.
+    let steps = RecordedStepsModel()
 
     // MARK: - authored values
 

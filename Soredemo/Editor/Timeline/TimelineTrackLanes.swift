@@ -167,3 +167,45 @@ struct TimelineChapterMarks: View {
         }
     }
 }
+
+/// A numbered mark per step with the element's label beside it; tapping one puts the playhead
+/// there. The chapter lane's arrangement — a step is a moment with a name — clipped rather than
+/// wrapped, because the label is the interface's own and the full one is in its tooltip.
+struct TimelineStepMarks: View {
+    let model: TimelineEditorModel
+    let steps: [StepMark]
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
+                ForEach(steps, id: \.number) { step in
+                    let fraction = model.window.fraction(of: step.start)
+                    if fraction >= 0, fraction <= 1 {
+                        HStack(spacing: 2) {
+                            Text(verbatim: "\(step.number)")
+                                .font(.system(size: 8, weight: .bold).monospacedDigit())
+                                .foregroundStyle(Theme.Ink.onLane)
+                                .padding(.horizontal, 3)
+                                .background(Capsule().fill(Theme.Lane.chapter))
+                            // The interface's own label, drawn as it is — translating "Export"
+                            // would rename somebody else's button.
+                            Text(verbatim: step.label)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(Theme.Ink.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: max(24, (1 - fraction) * width), alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentShape(Rectangle())
+                        .offset(x: fraction * width)
+                        .onTapGesture { model.movePlayhead(to: step.start) }
+                        .help(Text(verbatim: "\(step.number). \(step.label)"))
+                    }
+                }
+            }
+        }
+    }
+}
+
