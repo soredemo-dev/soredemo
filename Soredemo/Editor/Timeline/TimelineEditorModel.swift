@@ -24,12 +24,16 @@ final class TimelineEditorModel {
     /// Every edit goes through here, so ⌘Z is not a separate code path that has to be kept in
     /// step with the one that makes changes. `EditHistory` stores VALUES rather than inverse
     /// operations — see its header for why that is the right trade for an immutable model.
-    private var history = EditHistory<EditTimeline>(EditTimeline(clips: []))
+    ///
+    /// **The clips and the zooms are one value in one history**, so ⌘Z steps back across both
+    /// in the order they happened. Until 2026-10-23 the zooms were outside it, and ⌘Z after
+    /// moving a zoom undid the clip edit before it — see `docs/design/2026-10-23-undoing-a-zoom.md`.
+    private var history = EditHistory<TimelineEdits>(TimelineEdits(timeline: EditTimeline(clips: []), zooms: []))
     /// What a drag in progress is showing. **Held outside the history on purpose**: a trim is
     /// one edit a person makes, not one per pixel their cursor travelled, and recording every
     /// intermediate value would make ⌘Z undo a pixel. Committed once on release.
     private var liveEdit: EditTimeline?
-    var edit: EditTimeline { liveEdit ?? history.current }
+    var edit: EditTimeline { liveEdit ?? history.current.timeline }
     /// Where the playhead sits, in SOURCE time.
     private(set) var playhead = Nanoseconds(0)
 
@@ -167,8 +171,10 @@ final class TimelineEditorModel {
     /// The zooms the gate derived, before anyone touched them.
     private(set) var derivedZooms: [ZoomBlock] = []
     /// What a person changed about them. Published to the compositor, like every other
-    /// authored value here.
-    private(set) var zoomAdjustments: [ZoomAdjustment] = []
+    /// authored value here. A drag shows `liveZooms` until it is let go, as a trim shows
+    /// `liveEdit`.
+    var zoomAdjustments: [ZoomAdjustment] { liveZooms ?? history.current.zooms }
+    private var liveZooms: [ZoomAdjustment]?
     /// The zoom a person is holding, so the lane can show it differently while it moves.
     private(set) var draggingZoom: HostInstant?
     /// Derived, then adjusted — the order IS the producer-value rule.
@@ -211,25 +217,24 @@ final class TimelineEditorModel {
     /// it within `snapThreshold` — zero to place it freely.
     func previewZoomMove(_ origin: HostInstant, byNanoseconds delta: Int64,
                          snapThreshold: Nanoseconds = Nanoseconds(0)) {
-        let base = zoomDragBaseline ?? zoomAdjustments
-        zoomDragBaseline = base
+        // From what was committed, not from the last frame — a drag cannot accumulate rounding.
+        let base = history.current.zooms
         draggingZoom = origin
         let edges = zoomEdges(of: origin, in: base)
         let snapped = snappedDelta(moving: edges, by: delta, threshold: snapThreshold,
                                    zoomsFrom: base, excludingZoom: origin)
-        zoomAdjustments = base.replacing(base.adjustment(for: origin).movedBy(snapped))
+        liveZooms = base.replacing(base.adjustment(for: origin).movedBy(snapped))
     }
 
     /// Shows a zoom's end being dragged, its end lining up as a trim's does.
     func previewZoomResize(_ origin: HostInstant, byNanoseconds delta: Int64,
                            snapThreshold: Nanoseconds = Nanoseconds(0)) {
-        let base = zoomDragBaseline ?? zoomAdjustments
-        zoomDragBaseline = base
+        let base = history.current.zooms
         draggingZoom = origin
         let edges = zoomEdges(of: origin, in: base).suffix(1)
         let snapped = snappedDelta(moving: Array(edges), by: delta, threshold: snapThreshold,
                                    zoomsFrom: base, excludingZoom: origin)
-        zoomAdjustments = base.replacing(base.adjustment(for: origin).resizedBy(snapped))
+        liveZooms = base.replacing(base.adjustment(for: origin).resizedBy(snapped))
     }
 
     /// A zoom's start and end in source time under `adjustments`, or none when it cannot be
@@ -267,26 +272,33 @@ final class TimelineEditorModel {
         return result.time.rawValue - result.probeOffset.rawValue - first.rawValue
     }
 
-    /// Ends a zoom drag and publishes where it ended.
-    ///
-    /// **Not an undo step.** Zoom adjustments are not in `EditHistory`, so ⌘Z after moving a
-    /// zoom undoes the clip edit before it. Recorded in
-    /// `docs/design/2026-10-23-the-timeline-model-and-its-two-clocks.md` and not yet changed:
-    /// putting zooms in the history changes what the history holds.
-    func commitZoomDrag() {
+    /// What a zoom drag did, which is what its undo step is called.
+    enum ZoomDrag: Sendable { case move, resize }
+
+    /// Commits the drag as ONE history step, for the same reason a trim does, or nothing if
+    /// nothing moved. **The name is chosen here, from the kind of drag,** so it is a localised
+    /// key like every other step's rather than a string the lane made up.
+    func commitZoomDrag(_ drag: ZoomDrag) {
         defer {
-            zoomDragBaseline = nil
+            liveZooms = nil
             draggingZoom = nil
             endDrag()
         }
-        publish()
+        guard let live = liveZooms else { return }
+        switch drag {
+        case .move:   recordZooms("Move Zoom", live)
+        case .resize: recordZooms("Resize Zoom", live)
+        }
     }
 
     func toggleZoomSuppressed(_ origin: HostInstant) {
         let current = zoomAdjustments.adjustment(for: origin)
-        zoomAdjustments = zoomAdjustments
-            .replacing(current.settingSuppressed(!current.suppressed))
-        publish()
+        let toggled = zoomAdjustments.replacing(current.settingSuppressed(!current.suppressed))
+        if current.suppressed {
+            recordZooms("Turn Zoom On", toggled)
+        } else {
+            recordZooms("Turn Zoom Off", toggled)
+        }
     }
 
     /// Whether a person has moved or resized this zoom, as distinct from the gate having derived
@@ -311,26 +323,23 @@ final class TimelineEditorModel {
     /// whatever was open before it, and a person must not be able to ⌘Z their way from one
     /// project into another.
     func restoreSavedEdit(_ saved: EditTimeline) {
-        history.reset(to: saved)
+        history.reset(to: TimelineEdits(timeline: saved, zooms: history.current.zooms))
         original = saved
         selection = nil
         selectedClip = nil
         publish()
     }
 
+    /// The saved zoom corrections. **`reset`, not `record`**, for `restoreSavedEdit`'s reason —
+    /// and it forgets the steps before it, which belonged to whatever was open.
     func restoreZoomAdjustments(_ adjustments: [ZoomAdjustment]) {
-        zoomAdjustments = adjustments
+        history.reset(to: TimelineEdits(timeline: history.current.timeline, zooms: adjustments))
         publish()
     }
 
     func resetZooms() {
-        zoomAdjustments = []
-        publish()
+        recordZooms("Reset Zooms", [])
     }
-
-    /// The adjustments a drag started from, so every intermediate value is computed from there
-    /// rather than from the previous frame — the same reason a trim keeps a baseline.
-    private var zoomDragBaseline: [ZoomAdjustment]?
 
     /// Reads the audio envelope off the main thread. Called once per recording; a failure
     /// leaves `waveform` nil, because a strip without a waveform is a smaller loss than an
@@ -347,8 +356,11 @@ final class TimelineEditorModel {
         let total = Nanoseconds(Int64(seconds * 1_000_000_000))
         duration = total
         // `reset`, not `record`: opening a recording is not an edit to the one before it, and
-        // a person must not be able to ⌘Z their way back into a different video.
-        history.reset(to: EditTimeline.whole(duration: total))
+        // a person must not be able to ⌘Z their way back into a different video. The zooms
+        // stay: they arrive separately, and the host's order of calls depends on this keeping
+        // them.
+        history.reset(to: TimelineEdits(timeline: EditTimeline.whole(duration: total),
+                                        zooms: history.current.zooms))
         window = .whole(total)
         original = edit
         movePlayhead(to: Nanoseconds(0))
@@ -615,7 +627,7 @@ final class TimelineEditorModel {
     /// has gone past the clip's own length, and the handle stopping is what that looks like.
     func previewTrim(of id: ClipID, edge: TrimEdge, byNanoseconds delta: Int64,
                      snapThreshold: Nanoseconds = Nanoseconds(0)) {
-        let base = trimBaseline ?? history.current
+        let base = trimBaseline ?? history.current.timeline
         trimBaseline = base
         // The edge lines up with what is near it, against the timeline as the drag began.
         let moving = base.clips.first { $0.id == id }.map { edge == .start ? $0.sourceStart : $0.sourceEnd }
@@ -677,8 +689,15 @@ final class TimelineEditorModel {
 
     /// For a name that arrives already localised — a caller outside this file built it.
     private func record(_ name: String, _ updated: EditTimeline) {
-        history.record(name, updated)
+        history.record(name, TimelineEdits(timeline: updated, zooms: history.current.zooms))
         clearSelectionsThatNoLongerExist()
+        publish()
+    }
+
+    /// The zoom twin of `apply`: one step, the clips unchanged.
+    private func recordZooms(_ name: LocalizedStringResource, _ zooms: [ZoomAdjustment]) {
+        history.record(String(localized: name),
+                       TimelineEdits(timeline: history.current.timeline, zooms: zooms))
         publish()
     }
 
@@ -700,4 +719,12 @@ final class TimelineEditorModel {
         StageCompositor.editTimeline = edit
         StageCompositor.zoomAdjustments = zoomAdjustments
     }
+}
+
+/// What one undo step holds: the clips and the person's zoom corrections, together, so one
+/// history orders both. See `docs/design/2026-10-23-undoing-a-zoom.md`. `nonisolated` because
+/// `EditHistory` needs its `Equatable` from any isolation, and the app's default is the main actor.
+nonisolated struct TimelineEdits: Equatable, Sendable {
+    var timeline: EditTimeline
+    var zooms: [ZoomAdjustment]
 }

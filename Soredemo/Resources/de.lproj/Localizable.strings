@@ -650,6 +650,11 @@
 "Fade Out" = "Ausblenden";
 "Trim Clip Start" = "Clipanfang kürzen";
 "Trim Clip End" = "Clipende kürzen";
+"Move Zoom" = "Zoom verschieben";
+"Resize Zoom" = "Zoomdauer ändern";
+"Turn Zoom On" = "Zoom einschalten";
+"Turn Zoom Off" = "Zoom ausschalten";
+"Reset Zooms" = "Zooms zurücksetzen";
 "Controls" = "Steuerung";
 "Controls in the notch" = "Steuerung in der Notch";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "Zeige auf die Notch, um eine Aufnahme zu starten, und sieh dort die laufende. Aus, oder auf einem Mac ohne Notch, ist die Steuerung eine Leiste am unteren Bildschirmrand.";

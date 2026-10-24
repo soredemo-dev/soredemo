@@ -650,6 +650,11 @@
 "Fade Out" = "Затухание";
 "Trim Clip Start" = "Обрезать начало клипа";
 "Trim Clip End" = "Обрезать конец клипа";
+"Move Zoom" = "Переместить зум";
+"Resize Zoom" = "Изменить длительность зума";
+"Turn Zoom On" = "Включить зум";
+"Turn Zoom Off" = "Выключить зум";
+"Reset Zooms" = "Сбросить зумы";
 "Controls" = "Управление";
 "Controls in the notch" = "Управление в вырезе";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "Наведите указатель на вырез, чтобы начать запись и видеть там текущую. Если выключено или у Mac нет выреза, управление — панель внизу экрана.";

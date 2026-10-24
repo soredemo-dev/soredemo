@@ -100,4 +100,4 @@ Ten new app tests (274 → 284, `scripts/run-app-tests.sh`). Seven mutations, ea
 and the fixes are measured by tests. A look is still owed: cut a span, mark I after it, export, and
 check the file starts at the playhead; drag the playhead after a cut and listen.
 
-**Still open:** zoom edits are not undoable (above).
+**Zoom edits became undoable in the next commit** — `2026-10-23-undoing-a-zoom.md`.

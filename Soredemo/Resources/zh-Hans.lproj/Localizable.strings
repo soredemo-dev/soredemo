@@ -652,6 +652,11 @@
 "Fade Out" = "淡出";
 "Trim Clip Start" = "修剪片段开头";
 "Trim Clip End" = "修剪片段结尾";
+"Move Zoom" = "移动缩放";
+"Resize Zoom" = "调整缩放时长";
+"Turn Zoom On" = "打开缩放";
+"Turn Zoom Off" = "关闭缩放";
+"Reset Zooms" = "重置缩放";
 "Controls" = "控制";
 "Controls in the notch" = "在刘海中显示控制";
 "Point at the notch to start a recording, and see the one that is running there. Off, or on a Mac without a notch, the controls are a bar at the bottom of the screen." = "把指针移到刘海上即可开始录制，正在进行的录制也会显示在那里。关闭时，或在没有刘海的 Mac 上，控制会是屏幕底部的一条栏。";

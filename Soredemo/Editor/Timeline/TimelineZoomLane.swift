@@ -105,7 +105,7 @@ struct TimelineZoomLane: View {
                         }
                     }
                     .onEnded { value in
-                        model.commitZoomDrag()
+                        model.commitZoomDrag(value.startLocation.x > width * 0.75 ? .resize : .move)
                         onChange()
                     }
             )
