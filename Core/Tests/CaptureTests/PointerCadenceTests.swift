@@ -113,15 +113,25 @@ import Timeline
     /// The instant is taken when the reading is taken, not derived from the timer's
     /// schedule. A `DispatchSourceTimer` with leeway does not fire on its nominal deadline,
     /// and a track stamped with intentions rather than measurements would drift.
+    ///
+    /// **Waits for three samples rather than for 40 ms.** A fixed 40 ms window at a 3 ms cadence
+    /// failed on the first CI run (2026-10-24, run 40105280760) with fewer than three — a loaded
+    /// hosted runner, not a sampler that stopped. Three is this test's precondition, not its
+    /// claim: it needs two pairs to compare. So it polls for them, up to a deadline that says
+    /// how long it waited and how many came.
     @Test func theInstantIsMeasuredNotScheduled() async {
         let instants = InstantBox()
         let sampler = PointerSampler(interval: Nanoseconds(3_000_000), read: { (x: 1, y: 1) })
         sampler.start(epoch: epoch) { instant, _ in instants.note(instant) }
-        try? await Task.sleep(for: .milliseconds(40))
+        var waited = 0
+        while instants.all.count < 3, waited < 2_000 {
+            try? await Task.sleep(for: .milliseconds(10))
+            waited += 10
+        }
         sampler.stop()
 
         let seen = instants.all
-        #expect(seen.count >= 3)
+        #expect(seen.count >= 3, "\(seen.count) sample(s) in about \(waited) ms at a 3 ms cadence")
         // Strictly increasing, and every one inside the window the test was awake for.
         for (earlier, later) in zip(seen, seen.dropFirst()) {
             #expect(later.hostTime.rawValue > earlier.hostTime.rawValue)
