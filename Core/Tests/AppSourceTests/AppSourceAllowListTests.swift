@@ -2568,8 +2568,8 @@ private let untranslatableLiterals: Set<String> = [
     // The menu is every file of the panel, since it became one file per section.
     let menu = try verbs(where: { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/MenuBar/") },
                          "Recording/MenuBar/")
-    let notch = try verbs(where: { $0.lastPathComponent == "NotchSurfacePanel.swift" },
-                          "NotchSurfacePanel.swift")
+    let notch = try verbs(where: { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/Notch/") },
+                          "Recording/Notch/")
     try #require(menu.count >= 4, "the menu offers \(menu.sorted()) — fewer than the four ways there are, so the pattern has stopped matching")
     #expect(menu.subtracting(notch).isEmpty, """
         the menu can start a recording with \(menu.subtracting(notch).sorted()) and the notch cannot
@@ -2581,7 +2581,7 @@ private let untranslatableLiterals: Set<String> = [
 /// a surface without it can only record.
 @Test func theNotchAndTheMenuBothOfferAScreenshot() throws {
     let files = try appSourceFiles()
-    for name in ["MenuBarTargets.swift", "NotchSurfacePanel.swift"] {
+    for name in ["MenuBarTargets.swift", "NotchSurfaceView.swift"] {
         let file = try #require(files.first { $0.lastPathComponent == name }, "\(name) is not under the app's sources")
         let lines = SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
         #expect(lines.contains { $0.contains("coordinator.capturePurpose = $0") },

@@ -184,6 +184,8 @@ seven panels and flat" and needed none, and splitting the captions panel had sin
 files about the one Captions tab in it — the model, the panel, its four sections, the line
 list, the field, the transcript and the system caption style. The rest of `Inspector/` is one
 file per tab and stays flat.
+**`Recording/Notch/` is the fourth** (2026-10-24): the notch surface's pure rules, model, panel,
+views and presenter — `docs/design/2026-10-24-splitting-the-notch-surface.md`.
 
 **No `Utilities/`, `Helpers/`, `Common/` or `Shared/`.** They are the named
 anti-pattern: a folder whose membership rule is "nowhere else fits" has no membership

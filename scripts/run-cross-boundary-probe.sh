@@ -141,8 +141,12 @@ xcrun swiftc \
   Soredemo/DesignSystem/SystemCursorShape.swift \
   Soredemo/Recording/CountdownPanel.swift \
   Soredemo/Recording/RecordingBar.swift \
-  Soredemo/Recording/NotchSurface.swift \
-  Soredemo/Recording/NotchSurfacePanel.swift \
+  Soredemo/Recording/Notch/NotchSurface.swift \
+  Soredemo/Recording/Notch/NotchSurfaceModel.swift \
+  Soredemo/Recording/Notch/NotchSurfacePanel.swift \
+  Soredemo/Recording/Notch/NotchSurfaceView.swift \
+  Soredemo/Recording/Notch/NotchControls.swift \
+  Soredemo/Recording/Notch/NotchSurfacePresenter.swift \
   Soredemo/Recording/MenuBar/MenuBarRecorderLabel.swift \
   Soredemo/Recording/MenuBar/MenuBarRecorderPanel.swift \
   Soredemo/Recording/MenuBar/MenuBarTargets.swift \

@@ -221,3 +221,25 @@ private func event(_ x: Double, _ y: Double, _ state: NotchSurfaceState) -> Notc
     #expect(event(200, 400, .open) == nil, "open closes on a click outside, not on the pointer")
     #expect(event(756, 6, .open) == nil)
 }
+
+// MARK: - one answer to "is this point on the surface"
+
+/// The hit test, the click handler and the pointer rule all ask this. A rectangle off the origin,
+/// so an edge measured from zero instead of from the rectangle's own corner cannot pass.
+private let surface = PointRect(x: 600, y: 20, width: 300, height: 40)
+
+@Test func aPointIsInsideBetweenItsEdgesAndOutsideJustPastEachOne() {
+    #expect(NotchSurfacePointer.isInside(x: 750, y: 40, of: surface))
+    #expect(NotchSurfacePointer.isInside(x: 600, y: 20, of: surface), "the edges count")
+    #expect(NotchSurfacePointer.isInside(x: 900, y: 60, of: surface))
+    #expect(!NotchSurfacePointer.isInside(x: 599, y: 40, of: surface), "left")
+    #expect(!NotchSurfacePointer.isInside(x: 901, y: 40, of: surface), "right")
+    #expect(!NotchSurfacePointer.isInside(x: 750, y: 19, of: surface), "top")
+    #expect(!NotchSurfacePointer.isInside(x: 750, y: 61, of: surface), "bottom")
+}
+
+@Test func aMarginGrowsEveryEdge() {
+    #expect(NotchSurfacePointer.isInside(x: 595, y: 40, of: surface, grownBy: 5))
+    #expect(NotchSurfacePointer.isInside(x: 750, y: 65, of: surface, grownBy: 5))
+    #expect(!NotchSurfacePointer.isInside(x: 594, y: 40, of: surface, grownBy: 5))
+}

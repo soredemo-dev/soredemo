@@ -110,16 +110,23 @@ enum NotchSurfacePointer {
     static func event(atX x: Double, y: Double, state: NotchSurfaceState,
                       notch: PointRect, surface: PointRect) -> NotchSurfaceState.Event? {
         let margin = notch.height * wakeMargin
-        func contains(_ r: PointRect, grownBy m: Double) -> Bool {
-            x >= r.x - m && x <= r.x + r.width + m && y >= r.y - m && y <= r.y + r.height + m
-        }
-        let onNotch = contains(notch, grownBy: margin)
-        let onSurface = contains(surface, grownBy: margin)
+        let onNotch = isInside(x: x, y: y, of: notch, grownBy: margin)
+        let onSurface = isInside(x: x, y: y, of: surface, grownBy: margin)
         return switch state {
         case .dormant, .live(expanded: false): onNotch ? .pointerEntered : nil
         case .glance, .live(expanded: true): onSurface ? nil : .pointerLeft
         // Open closes on a click outside or escape: its menus take the pointer outside it.
         case .open: nil
         }
+    }
+
+    /// Whether a point is on a rectangle, edges included, with every edge pushed out by `margin`.
+    ///
+    /// **The one answer to "is this point on the surface".** The panel's hit test, the
+    /// presenter's click handling and the rule above each compared the four edges by hand, two of
+    /// them in the app's untested half; see `docs/design/2026-10-24-splitting-the-notch-surface.md`.
+    static func isInside(x: Double, y: Double, of rect: PointRect, grownBy margin: Double = 0) -> Bool {
+        x >= rect.x - margin && x <= rect.x + rect.width + margin
+            && y >= rect.y - margin && y <= rect.y + rect.height + margin
     }
 }

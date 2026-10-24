@@ -77,7 +77,7 @@ struct MenuBarCameraRow: View {
     var body: some View {
         if !camera.available.isEmpty {
             Menu {
-                Button("No camera") { camera.source = .off }
+                Button("No camera") { camera.choose(.off) }
                 Divider()
                 ForEach(camera.available, id: \.self) { source in
                     Button(LocalizedStringKey(source.displayName)) { camera.choose(source) }

@@ -54,7 +54,11 @@ final class CameraController {
 
     /// Which camera the next recording uses, or `.off`. Held across recordings for the reason
     /// `microphone` is.
-    var source: CameraSource = .off {
+    ///
+    /// **`private(set)`, so `choose(_:)` is the one way to change it.** The menu bar's "No camera"
+    /// assigned `.off` directly and skipped `choose`'s clearing of `wasRefused`, so a refusal
+    /// stayed on screen under a row that read "No camera".
+    private(set) var source: CameraSource = .off {
         // **The self-view follows the choice, not the recording.** Choosing a camera and only
         // seeing it once the countdown has begun is being asked to check your framing in the
         // take. See `CameraSelfView` and `CameraRecorder.startPreview`.
