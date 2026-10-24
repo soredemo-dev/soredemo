@@ -884,8 +884,12 @@ struct StageWindow: View {
     /// The take as a step-by-step guide, into a folder a person names. See `GuideExport`.
     private func exportGuide() {
         guard let asset = preview.playingAsset else { return }
-        let pictures = GuideExport.pictures(for: editor.steps.steps, anchor: editor.steps.anchor,
-                                            edit: editor.timeline.edit)
+        let size = editor.outputSize
+        let pictures = GuideExport.pictures(
+            for: editor.steps.steps, anchor: editor.steps.anchor, edit: editor.timeline.edit,
+            highlight: GuideExport.highlighter(outputWidth: size.width, outputHeight: size.height,
+                                               sourceWidth: editor.recordingSize.width,
+                                               sourceHeight: editor.recordingSize.height))
         guard !pictures.isEmpty else {
             exportStatus = String(localized: "No step of this recording is left in the video, so there is no guide to write.")
             return
@@ -894,7 +898,6 @@ struct StageWindow: View {
         panel.nameFieldStringValue = String(localized: "\(recordingName) Guide")
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        let size = editor.outputSize
         Task {
             do {
                 try await GuideExport.write(pictures, title: recordingName, asset: asset,

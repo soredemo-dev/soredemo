@@ -2,6 +2,8 @@ import AVFoundation
 import Compositing
 import Foundation
 import Framing
+import Geometry
+import Render
 import Timeline
 
 /// The take as a step-by-step guide: `guide.md`, `guide.html` and a picture per step, in one
@@ -26,7 +28,12 @@ enum GuideExport {
     /// **A step whose press was cut from the video is not in the guide**: a guide that tells
     /// somebody to click what the video no longer shows describes a different recording. Empty
     /// without an anchor, which is what turns a step's instant into a time in the video.
-    static func pictures(for steps: [RecordedStep], anchor: EpochAnchor?, edit: EditTimeline) -> [Picture] {
+    ///
+    /// `highlight` places a step's element on its picture — `highlighter(...)` in the app, through
+    /// the compositor's own frame plan; a test hands in its own to see what it was asked.
+    static func pictures(for steps: [RecordedStep], anchor: EpochAnchor?, edit: EditTimeline,
+                         highlight: (NormalizedFrame, Nanoseconds) -> GuideHighlight? = { _, _ in nil })
+        -> [Picture] {
         guard let anchor else { return [] }
         return steps.compactMap { step in
             guard let press = FramingPlanReader.offset(of: step.origin, from: anchor),
@@ -35,8 +42,26 @@ enum GuideExport {
             // Just before the press where there is a "before" in the video; the press itself at
             // the very start, or right after a cut.
             let output = before.rawValue >= 0 ? (edit.outputTime(atSource: before) ?? pressOutput) : pressOutput
-            return Picture(step: GuideStep(label: step.label, role: step.role, application: step.application),
+            return Picture(step: GuideStep(label: step.label, role: step.role, application: step.application,
+                                           highlight: step.frame.flatMap { highlight($0, output) }),
                            outputTime: output)
+        }
+    }
+
+    /// Where an element is on the picture taken at `outputTime`: the compositor's frame plan for
+    /// that moment — crop, card and camera, the road every rendered frame takes — and the
+    /// element's corners through it (`WalkthroughHotspot`). Reads the compositor's statics, which
+    /// the open project has published, exactly as the pictures themselves do.
+    static func highlighter(outputWidth: Int, outputHeight: Int, sourceWidth: Int, sourceHeight: Int)
+        -> (NormalizedFrame, Nanoseconds) -> GuideHighlight? {
+        let compositor = StageCompositor()
+        return { frame, outputTime in
+            let plan = compositor.framePlan(at: CMTime(value: outputTime.rawValue, timescale: 1_000_000_000),
+                                            outputWidth: outputWidth, outputHeight: outputHeight,
+                                            sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+            return WalkthroughHotspot.box(of: frame, in: plan).map {
+                GuideHighlight(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+            }
         }
     }
 

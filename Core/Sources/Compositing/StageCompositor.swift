@@ -419,42 +419,12 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         else { return refuse(.noDestinationBuffer) }
         guard let renderer = Self.renderer
         else { return refuse(.noRenderer) }
-        // **The card is fitted to the CROPPED aspect, not the recording's.** `StagePlanner` fits
-        // a rectangle inside the output, and handing it the uncropped size would letterbox a
-        // cropped recording as though it were still 16:9 — the bars would be exactly the part
-        // that was cropped away.
-        let authored = Self.crop
-        // **Two crops, composed, and the order is the whole behaviour.** `authored` is what a
-        // person drew; `content` is where ScreenCaptureKit actually put the picture inside a
-        // buffer it is not allowed to resize (see `ContentCropTrack`). A person draws on the
-        // picture they can SEE, so their fractions are fractions of the window, not of the
-        // buffer — `authored.within(content)`, never the reverse.
-        let content = contentCrop(at: request.compositionTime)
-        let crop = authored.within(content)
-        let cropped = crop.size(ofSourceWidth: source.size.width,
-                                sourceHeight: source.size.height)
-        // **The ceiling is computed from the AUTHORED crop alone, and that is a cost decision.**
-        // `loadedTracks(zoomCeiling:)` re-bakes the whole camera whenever the ceiling it is
-        // handed differs from the one it baked under, and the comment there rested on the crop
-        // being fixed for a composition — which the content crop is not. Feeding it a number
-        // that moves would re-derive every zoom block on every frame of a window drag. What is
-        // given up is a ceiling that is slightly too generous for the seconds a window was
-        // smaller than its buffer; what is kept is a camera that is baked once.
-        let authoredWidth = authored.size(ofSourceWidth: source.size.width,
-                                          sourceHeight: source.size.height).width
-        let basePlan = StagePlanner.plan(
+        // The crop, the card and the camera, through the one function the guide's pictures use
+        // too — so the box a guide draws and the frame rendered here cannot be two answers.
+        let (basePlan, aimed, crop, authoredWidth) = framePieces(
+            at: request.compositionTime,
             outputWidth: Int(context.size.width), outputHeight: Int(context.size.height),
-            sourceWidth: cropped.width, sourceHeight: cropped.height,
-            style: Self.style)
-        // The camera first: the pointer's placement is computed THROUGH the resulting plan
-        // (`StagePlanner.placement` maps by `RenderPlan.contentX/Y`), so a pointer drawn
-        // against the un-zoomed plan would sit where the user never pointed.
-        // The source's pixels across the card are what bound the zoom — see
-        // `FramingDepth.zoomCeiling`. The AUTHORED width rather than the composed one, for the
-        // reason given where `authoredWidth` is computed: a ceiling that moved with the window
-        // would re-bake the camera on every frame of a resize.
-        let aimed = cameraPlan(basePlan, at: request.compositionTime,
-                               sourcePixelWidth: authoredWidth)
+            sourceWidth: source.size.width, sourceHeight: source.size.height)
         let plan = RenderPlan(outputWidth: aimed.outputWidth, outputHeight: aimed.outputHeight,
                               card: aimed.card, cornerRadius: aimed.cornerRadius,
                               style: aimed.style,
@@ -822,6 +792,59 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         let (_, _, anchor, _) = loadedTracks()
         guard let anchor else { return .whole }
         return lock.withLock { unsafe contentCrops }.crop(at: anchor.instant(atOffset: offset))
+    }
+
+    /// The frame's plan before its overlays: the crops composed, the card fitted to the cropped
+    /// size, the camera applied. **`startRequest` renders every frame through this, and a guide's
+    /// box is placed through it** (`WalkthroughHotspot`), so the two are one code path.
+    /// `sourceWidth` and `sourceHeight` are the recording's buffer size in pixels.
+    public func framePlan(at compositionTime: CMTime, outputWidth: Int, outputHeight: Int,
+                          sourceWidth: Int, sourceHeight: Int) -> RenderPlan {
+        framePieces(at: compositionTime, outputWidth: outputWidth, outputHeight: outputHeight,
+                    sourceWidth: sourceWidth, sourceHeight: sourceHeight).aimed
+    }
+
+    /// `framePlan` and the three things `startRequest` needs beside it: the plan before the
+    /// camera, the composed crop, and the authored width the zoom ceiling is taken from.
+    private func framePieces(at compositionTime: CMTime, outputWidth: Int, outputHeight: Int,
+                             sourceWidth: Int, sourceHeight: Int)
+        -> (base: RenderPlan, aimed: RenderPlan, crop: CropRect, authoredWidth: Int) {
+        // **The card is fitted to the CROPPED aspect, not the recording's.** `StagePlanner` fits
+        // a rectangle inside the output, and handing it the uncropped size would letterbox a
+        // cropped recording as though it were still 16:9 — the bars would be exactly the part
+        // that was cropped away.
+        let authored = Self.crop
+        // **Two crops, composed, and the order is the whole behaviour.** `authored` is what a
+        // person drew; `content` is where ScreenCaptureKit actually put the picture inside a
+        // buffer it is not allowed to resize (see `ContentCropTrack`). A person draws on the
+        // picture they can SEE, so their fractions are fractions of the window, not of the
+        // buffer — `authored.within(content)`, never the reverse.
+        let content = contentCrop(at: compositionTime)
+        let crop = authored.within(content)
+        let cropped = crop.size(ofSourceWidth: sourceWidth,
+                                sourceHeight: sourceHeight)
+        // **The ceiling is computed from the AUTHORED crop alone, and that is a cost decision.**
+        // `loadedTracks(zoomCeiling:)` re-bakes the whole camera whenever the ceiling it is
+        // handed differs from the one it baked under, and the comment there rested on the crop
+        // being fixed for a composition — which the content crop is not. Feeding it a number
+        // that moves would re-derive every zoom block on every frame of a window drag. What is
+        // given up is a ceiling that is slightly too generous for the seconds a window was
+        // smaller than its buffer; what is kept is a camera that is baked once.
+        let authoredWidth = authored.size(ofSourceWidth: sourceWidth,
+                                          sourceHeight: sourceHeight).width
+        let basePlan = StagePlanner.plan(
+            outputWidth: outputWidth, outputHeight: outputHeight,
+            sourceWidth: cropped.width, sourceHeight: cropped.height,
+            style: Self.style)
+        // The camera first: the pointer's placement is computed THROUGH the resulting plan
+        // (`StagePlanner.placement` maps by `RenderPlan.contentX/Y`), so a pointer drawn
+        // against the un-zoomed plan would sit where the user never pointed.
+        // The source's pixels across the card are what bound the zoom — see
+        // `FramingDepth.zoomCeiling`. The AUTHORED width rather than the composed one, for the
+        // reason given where `authoredWidth` is computed: a ceiling that moved with the window
+        // would re-bake the camera on every frame of a resize.
+        return (basePlan, cameraPlan(basePlan, at: compositionTime, sourcePixelWidth: authoredWidth),
+                crop, authoredWidth)
     }
 
     /// `basePlan` with the camera applied for `compositionTime`, or unchanged when the log

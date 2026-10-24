@@ -12,8 +12,13 @@ private let anchor = EpochAnchor(epoch: epoch, hostTime: Nanoseconds(500 * secon
 
 private func step(_ number: Int, at seconds: Double, _ label: String) -> RecordedStep {
     let origin = HostInstant(epoch: epoch, hostTime: Nanoseconds(500 * second + Int64(seconds * 1e9)))
+    // The element's frame carries its step's time in x, so a highlight placed from the wrong
+    // step's frame is visible.
     return RecordedStep(origin: origin, end: origin, number: number, label: label, role: "AXButton",
-                        application: "Keynote", frame: nil)
+                        application: "Keynote",
+                        frame: NormalizedFrame(origin: NormalizedPoint(x: seconds / 100, y: 0.5),
+                                               size: NormalizedSize(width: 0.1, height: 0.05),
+                                               revision: GeometryRevision(id: 1)))
 }
 
 private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds * 1e9).rounded())) }
@@ -51,5 +56,19 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
 
     @Test func withoutAnAnchorThereIsNoGuide() {
         #expect(GuideExport.pictures(for: [step(1, at: 1, "Open")], anchor: nil, edit: cut()).isEmpty)
+    }
+
+    /// Each picture's box is placed from its OWN step's element, at its OWN picture's time.
+    @Test func eachBoxIsPlacedFromItsStepsElementAtItsPicturesTime() {
+        var asked: [(x: Double, time: Nanoseconds)] = []
+        let pictures = GuideExport.pictures(
+            for: [step(1, at: 1, "Open"), step(2, at: 8, "Export")], anchor: anchor, edit: cut(),
+            highlight: { frame, time in
+                asked.append((frame.minX, time))
+                return GuideHighlight(x: frame.minX, y: 0, width: 0.1, height: 0.1)
+            })
+        #expect(asked.map(\.x) == [0.01, 0.08])
+        #expect(asked.map(\.time) == [ns(0.85), ns(4.85)])
+        #expect(pictures.map { $0.step.highlight?.x } == [0.01, 0.08])
     }
 }

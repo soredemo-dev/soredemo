@@ -75,4 +75,15 @@ private func step(_ label: String, _ role: String = "AXButton", _ app: String? =
         let text = StepGuide.markdown(title: "T", steps: [step("Save\nAs")], phrases: phrases)
         #expect(text.contains("Click **Save As** in Keynote."))
     }
+
+    /// The box sits over its picture, in percentages of it; a step with no box has none.
+    @Test func aStepsBoxIsDrawnOverItsPicture() {
+        let html = StepGuide.html(title: "T",
+                                  steps: [GuideStep(label: "Export", role: "AXButton", application: "Keynote",
+                                                    highlight: GuideHighlight(x: 0.3, y: 0.25, width: 0.125, height: 0.05)),
+                                          step("Done")],
+                                  phrases: phrases)
+        #expect(html.contains(#"<span class="box" style="left:30.00%;top:25.00%;width:12.50%;height:5.00%"></span>"#))
+        #expect(html.components(separatedBy: #"class="box""#).count == 2, "one box, for the one step that has one")
+    }
 }

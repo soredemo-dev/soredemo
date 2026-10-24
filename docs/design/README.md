@@ -148,6 +148,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 | [what-a-codec-keeps](what-a-codec-keeps.md) | codecs, and transparency |
 | [2026-09-27-one-frame-as-a-picture](2026-09-27-one-frame-as-a-picture.md) | exporting one frame |
 | [2026-10-25-a-guide-from-the-steps](2026-10-25-a-guide-from-the-steps.md) | exporting the take as a step-by-step guide, escaped |
+| [2026-10-25-where-the-element-is-in-the-picture](2026-10-25-where-the-element-is-in-the-picture.md) | a pressed element's box on the exported picture, by the cursor's road |
 | [2026-10-23-interactive-walkthrough-export](2026-10-23-interactive-walkthrough-export.md) | exporting a take as a clickable walkthrough |
 | [what-a-project-file-remembers](what-a-project-file-remembers.md) | what a project file keeps |
 

@@ -1,15 +1,35 @@
 import Foundation
 
-/// One line of a guide: what was pressed, what kind of thing it was, and in which application.
+/// One line of a guide: what was pressed, what kind of thing it was, in which application, and
+/// where on its picture it is.
 public struct GuideStep: Hashable, Sendable {
     public let label: String
     public let role: String?
     public let application: String?
+    /// The pressed element's box on the step's picture, or `nil` when it is not on it.
+    public let highlight: GuideHighlight?
 
-    public init(label: String, role: String?, application: String?) {
+    public init(label: String, role: String?, application: String?, highlight: GuideHighlight? = nil) {
         self.label = label
         self.role = role
         self.application = application
+        self.highlight = highlight
+    }
+}
+
+/// A box as fractions of a picture, top-left origin — `Render.WalkthroughHotspot.Box`'s numbers,
+/// carried here because this module does not depend on `Render`.
+public struct GuideHighlight: Hashable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
     }
 }
 
@@ -74,14 +94,21 @@ public enum StepGuide {
                                           application: htmlEscaped).enumerated() {
             let number = index + 1
             let alt = htmlEscaped(phrases.pictureAlt.replacingOccurrences(of: "{number}", with: "\(number)"))
-            items += "<li><p>\(sentence)</p><img src=\"\(pictureName(for: number))\" alt=\"\(alt)\"></li>\n"
+            // The box is numbers this function formats — no text from anywhere reaches a style.
+            let box = steps[index].highlight.map {
+                String(format: "<span class=\"box\" style=\"left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%\"></span>",
+                       $0.x * 100, $0.y * 100, $0.width * 100, $0.height * 100)
+            } ?? ""
+            items += "<li><p>\(sentence)</p><div class=\"shot\"><img src=\"\(pictureName(for: number))\" alt=\"\(alt)\">\(box)</div></li>\n"
         }
         return """
             <!doctype html>
             <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <title>\(htmlEscaped(title))</title>
             <style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;color:#1d1d1f}
-            li{margin:0 0 2rem}img{max-width:100%;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+            li{margin:0 0 2rem}.shot{position:relative;display:inline-block;max-width:100%}
+            img{display:block;max-width:100%;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+            .box{position:absolute;border:3px solid #ff3b30;border-radius:6px;box-sizing:border-box;pointer-events:none}
             @media (prefers-color-scheme:dark){body{background:#1d1d1f;color:#f5f5f7}}</style>
             </head><body>
             <h1>\(htmlEscaped(title))</h1>
