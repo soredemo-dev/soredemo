@@ -119,8 +119,8 @@ prose. Leave one line pointing at it. If the reasoning is worth 300 words, it is
 
 **No competitor is named in the source.** Not as evidence, not as attribution. State the technical
 fact — the fact is what the reader needs, it survives the other product changing, and a repository
-does not audit its own reasoning by pointing at somebody else's. Comparisons live in
-`docs/research/` and in dated surveys under `docs/design/`, which can be superseded as a whole.
+does not audit its own reasoning by pointing at somebody else's. Comparisons live in one place,
+`docs/research/landscape.md`, which is redone when it goes stale rather than joined by a second.
 
 `noSourceFileNamesACompetitor` checks this, because for weeks the rule was written down and nine
 sentences in the source quietly broke it. That is the shape of every rule here that is worth
@@ -129,7 +129,9 @@ having: if it can be checked, check it.
 ### Where a long reasoning goes
 
 `docs/design/` holds one note per subsystem whose "why" is longer than a paragraph — what was
-measured, what was tried, what it cost. The source file keeps a doc comment a caller can act on
+measured, what was tried, what it cost. Each is listed under its subject in
+`docs/design/README.md`, and `everyDesignDocumentIsInTheIndex` fails `swift test` for one that is
+not. The source file keeps a doc comment a caller can act on
 and one line pointing at the note.
 
 **The density number is a smell, not a target.** A file of tuning constants is mostly comment and

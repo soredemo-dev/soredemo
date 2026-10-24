@@ -107,8 +107,9 @@ build it, the four gates, and the handful of standards that will otherwise surpr
 | [`docs/TESTING.md`](docs/TESTING.md) | **The test strategy**, counted rather than claimed: what each level owns, the gates' exit criteria, the known flake and how to tell it from a real failure, and the levels that are empty |
 | [`docs/research/landscape.md`](docs/research/landscape.md) | The market as of its date — who ships what, checked against this codebase — and what to take from it |
 
-`docs/design/` holds one document per phase — the questions asked, the alternatives rejected, and
-why. Those are the durable record of *why*; `git log` is the rest.
+`docs/design/` holds one document per decision — the questions asked, the alternatives rejected,
+and why — indexed by subject in [`docs/design/README.md`](docs/design/README.md). Those are the
+durable record of *why*; `git log` is the rest.
 
 ---
 

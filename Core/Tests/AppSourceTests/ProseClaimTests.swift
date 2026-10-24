@@ -59,3 +59,34 @@ import Testing
         current test count" is not established over a document this gate never opened.
         """)
 }
+
+/// **Every design document is in the index, exactly once, and the index names nothing that is gone.**
+///
+/// `docs/design/` is the record of why, and at 82 files with no index nobody could find the one
+/// they needed; the August surveys that went stale were found only by reading every title. An
+/// index kept by hand rots by omission, so this compares it with the directory both ways: a new
+/// document without a line fails, and so does a line for a document that was removed.
+@Test func everyDesignDocumentIsInTheIndex() throws {
+    let directory = repositoryRoot.appending(path: "docs/design", directoryHint: .isDirectory)
+    let onDisk = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))
+        .filter { $0.hasSuffix(".md") && $0 != "README.md" })
+    try #require(onDisk.count >= 50, """
+        only \(onDisk.count) design documents were found under \(directory.path(percentEncoded: false)) — \
+        the directory has moved or this is reading the wrong place, and the comparison below \
+        would decide nothing.
+        """)
+    let index = try String(contentsOf: directory.appending(path: "README.md"), encoding: .utf8)
+    let linked = index.matches(of: try Regex(#"\]\(([^)/]+\.md)\)"#))
+        .compactMap { $0.output[1].substring.map(String.init) }
+    let counted = Dictionary(linked.map { ($0, 1) }, uniquingKeysWith: +)
+
+    let missing = onDisk.subtracting(counted.keys).sorted()
+    #expect(missing.isEmpty, """
+        in docs/design and not in its README: \(missing.joined(separator: ", ")). \
+        Add a line under the section it belongs to.
+        """)
+    let gone = Set(counted.keys).subtracting(onDisk).sorted()
+    #expect(gone.isEmpty, "the README links documents that are not there: \(gone.joined(separator: ", "))")
+    let twice = counted.filter { $0.value > 1 }.keys.sorted()
+    #expect(twice.isEmpty, "listed more than once: \(twice.joined(separator: ", "))")
+}
