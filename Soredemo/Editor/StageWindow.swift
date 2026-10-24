@@ -491,6 +491,10 @@ struct StageWindow: View {
                 // and the frame under the playhead is one click further.
                 Menu {
                     Button("Export Frame…") { exportFrame() }
+                    // A picture and a sentence per step, from what the log says was pressed —
+                    // see `GuideExport`. Offered only when there are steps to write.
+                    Button("Export Guide…") { exportGuide() }
+                        .disabled(editor.steps.steps.isEmpty)
                 } label: {
                     Text("Export…")
                 } primaryAction: {
@@ -873,6 +877,31 @@ struct StageWindow: View {
                 exportStatus = String(localized: "Saved the frame to \(destination.lastPathComponent).")
             } catch {
                 exportStatus = String(localized: "Could not save the frame: \(String(describing: error))")
+            }
+        }
+    }
+
+    /// The take as a step-by-step guide, into a folder a person names. See `GuideExport`.
+    private func exportGuide() {
+        guard let asset = preview.playingAsset else { return }
+        let pictures = GuideExport.pictures(for: editor.steps.steps, anchor: editor.steps.anchor,
+                                            edit: editor.timeline.edit)
+        guard !pictures.isEmpty else {
+            exportStatus = String(localized: "No step of this recording is left in the video, so there is no guide to write.")
+            return
+        }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = String(localized: "\(recordingName) Guide")
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        let size = editor.outputSize
+        Task {
+            do {
+                try await GuideExport.write(pictures, title: recordingName, asset: asset,
+                                            outputWidth: size.width, outputHeight: size.height, to: folder)
+                exportStatus = String(localized: "Saved the guide to \(folder.lastPathComponent).")
+            } catch {
+                exportStatus = String(localized: "Could not save the guide: \(String(describing: error))")
             }
         }
     }

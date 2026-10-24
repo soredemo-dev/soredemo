@@ -24,6 +24,19 @@ public struct RecordedStep: Hashable, Sendable {
     public let application: String?
     /// Where the pressed element is, for a guide's crop.
     public let frame: NormalizedFrame?
+
+    /// Public for the app's tests, which build steps without writing a log. Production steps come
+    /// from `RecordedSteps.steps(from:recordingEnd:)` and nowhere else.
+    public init(origin: HostInstant, end: HostInstant, number: Int, label: String, role: String?,
+                application: String?, frame: NormalizedFrame?) {
+        self.origin = origin
+        self.end = end
+        self.number = number
+        self.label = label
+        self.role = role
+        self.application = application
+        self.frame = frame
+    }
 }
 
 public enum RecordedSteps {

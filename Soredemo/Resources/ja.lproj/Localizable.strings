@@ -677,6 +677,16 @@
 "Check for updates when Soredemo starts" = "Soredemo の起動時にアップデートを確認";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "文字起こしはデバイス上で行います。アカウントもアップロードもテレメトリもありません。Soredemo が行う唯一の通信は、新しいバージョンがあるかを GitHub に尋ねることで、あなたが選んだときだけです。";
 "Export Frame…" = "フレームを書き出す…";
+"Export Guide…" = "ガイドを書き出す…";
+"Click {label}." = "{label} をクリックします。";
+"Click {label} in {app}." = "{app} で {label} をクリックします。";
+"Choose {label}." = "{label} を選択します。";
+"Choose {label} in {app}." = "{app} で {label} を選択します。";
+"Step {number}" = "ステップ {number}";
+"%@ Guide" = "%@ のガイド";
+"No step of this recording is left in the video, so there is no guide to write." = "この収録のステップは動画に残っていないため、ガイドを作れません。";
+"Saved the guide to %@." = "ガイドを %@ に保存しました。";
+"Could not save the guide: %@" = "ガイドを保存できませんでした: %@";
 "Saved the frame to %@." = "フレームを %@ に保存しました。";
 "Could not save the frame: %@" = "フレームを保存できませんでした:%@";
 "Image" = "画像";

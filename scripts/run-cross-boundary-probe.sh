@@ -173,6 +173,7 @@ xcrun swiftc \
   Soredemo/Inspector/AudioControls.swift \
   Soredemo/Editor/EditorViewModel.swift \
   Soredemo/Export/ExportQueue.swift \
+  Soredemo/Export/GuideExport.swift \
   Soredemo/Export/CodecVerdicts.swift \
   Soredemo/Recording/RegionPickerOverlay.swift \
   Soredemo/Editor/FramingReview.swift \

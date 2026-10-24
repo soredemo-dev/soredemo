@@ -675,6 +675,16 @@
 "Check for updates when Soredemo starts" = "Beim Start von Soredemo nach Updates suchen";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "Die Transkription läuft auf dem Gerät. Kein Konto, kein Upload, keine Telemetrie. Die einzige Anfrage, die Soredemo stellen kann, ist die Frage an GitHub nach einer neueren Version — und nur, wenn du es willst.";
 "Export Frame…" = "Bild exportieren …";
+"Export Guide…" = "Anleitung exportieren…";
+"Click {label}." = "Klicken Sie auf {label}.";
+"Click {label} in {app}." = "Klicken Sie in {app} auf {label}.";
+"Choose {label}." = "Wählen Sie {label}.";
+"Choose {label} in {app}." = "Wählen Sie in {app} {label}.";
+"Step {number}" = "Schritt {number}";
+"%@ Guide" = "%@ – Anleitung";
+"No step of this recording is left in the video, so there is no guide to write." = "Kein Schritt dieser Aufnahme ist mehr im Video, daher gibt es keine Anleitung.";
+"Saved the guide to %@." = "Anleitung in %@ gesichert.";
+"Could not save the guide: %@" = "Anleitung konnte nicht gesichert werden: %@";
 "Saved the frame to %@." = "Das Bild wurde in %@ gesichert.";
 "Could not save the frame: %@" = "Das Bild konnte nicht gesichert werden: %@";
 "Image" = "Bild";

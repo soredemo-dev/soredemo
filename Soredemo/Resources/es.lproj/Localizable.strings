@@ -677,6 +677,16 @@
 "Check for updates when Soredemo starts" = "Buscar actualizaciones al abrir Soredemo";
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "La transcripción se hace en el dispositivo. Sin cuenta, sin subidas y sin telemetría. La única solicitud que Soredemo puede hacer es preguntar a GitHub si hay una versión más nueva, y solo cuando tú lo decides.";
 "Export Frame…" = "Exportar fotograma…";
+"Export Guide…" = "Exportar guía…";
+"Click {label}." = "Haz clic en {label}.";
+"Click {label} in {app}." = "Haz clic en {label} en {app}.";
+"Choose {label}." = "Elige {label}.";
+"Choose {label} in {app}." = "Elige {label} en {app}.";
+"Step {number}" = "Paso {number}";
+"%@ Guide" = "Guía de %@";
+"No step of this recording is left in the video, so there is no guide to write." = "No queda ningún paso de esta grabación en el vídeo, así que no hay guía que escribir.";
+"Saved the guide to %@." = "Guía guardada en %@.";
+"Could not save the guide: %@" = "No se pudo guardar la guía: %@";
 "Saved the frame to %@." = "Se guardó el fotograma en %@.";
 "Could not save the frame: %@" = "No se pudo guardar el fotograma: %@";
 "Image" = "Imagen";
