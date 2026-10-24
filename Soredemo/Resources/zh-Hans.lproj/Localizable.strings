@@ -678,6 +678,14 @@
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "转写在设备上运行。没有账户、没有上传，也没有遥测。Soredemo 唯一可能发出的请求，是向 GitHub 询问有没有新版本，而且只在你选择时。";
 "Export Frame…" = "导出画面…";
 "Export Guide…" = "导出操作指南…";
+"Export Walkthrough…" = "导出互动演示…";
+"Step {number} of {total}" = "第 {number} 步,共 {total} 步";
+"Next" = "下一步";
+"Back" = "上一步";
+"You have finished this walkthrough." = "这个互动演示到此结束。";
+"Start again" = "重新开始";
+"Saved the walkthrough to %@." = "已把互动演示存到 %@。";
+"Could not save the walkthrough: %@" = "无法保存互动演示:%@";
 "Click {label}." = "点击 {label}。";
 "Click {label} in {app}." = "在 {app} 中点击 {label}。";
 "Choose {label}." = "选择 {label}。";

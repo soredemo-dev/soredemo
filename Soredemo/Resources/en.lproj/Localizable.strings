@@ -692,6 +692,14 @@
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to.";
 "Export Frame…" = "Export Frame…";
 "Export Guide…" = "Export Guide…";
+"Export Walkthrough…" = "Export Walkthrough…";
+"Step {number} of {total}" = "Step {number} of {total}";
+"Next" = "Next";
+"Back" = "Back";
+"You have finished this walkthrough." = "You have finished this walkthrough.";
+"Start again" = "Start again";
+"Saved the walkthrough to %@." = "Saved the walkthrough to %@.";
+"Could not save the walkthrough: %@" = "Could not save the walkthrough: %@";
 "Click {label}." = "Click {label}.";
 "Click {label} in {app}." = "Click {label} in {app}.";
 "Choose {label}." = "Choose {label}.";

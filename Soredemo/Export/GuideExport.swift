@@ -75,6 +75,38 @@ enum GuideExport {
                      pictureAlt: String(localized: "Step {number}"))
     }
 
+    /// The words around a walkthrough's steps, in the app's language.
+    static var walkthroughWords: WalkthroughWords {
+        WalkthroughWords(stepOf: String(localized: "Step {number} of {total}"),
+                         next: String(localized: "Next"), back: String(localized: "Back"),
+                         finished: String(localized: "You have finished this walkthrough."),
+                         startAgain: String(localized: "Start again"))
+    }
+
+    /// Writes the take as one walkthrough page at `file`: the same pictures as the guide, inlined,
+    /// so the page is a single file that fetches nothing.
+    ///
+    /// **The pictures are made in a scratch folder the system chooses beside `file`**
+    /// (`itemReplacementDirectory`), not under a name made up here: this target reads no ambient
+    /// randomness, and the system's folder is removed with everything in it afterwards.
+    static func writeWalkthrough(_ pictures: [Picture], title: String, asset: AVAsset,
+                                 outputWidth: Int, outputHeight: Int, to file: URL) async throws {
+        let scratch = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                                  appropriateFor: file, create: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        var inlined: [String] = []
+        for (index, picture) in pictures.enumerated() {
+            let png = scratch.appending(path: StepGuide.pictureName(for: index + 1))
+            try await StillFrameExporter.export(
+                asset: asset, at: CMTime(value: picture.outputTime.rawValue, timescale: 1_000_000_000),
+                to: png, outputWidth: outputWidth, outputHeight: outputHeight)
+            inlined.append("data:image/png;base64," + (try Data(contentsOf: png)).base64EncodedString())
+        }
+        try WalkthroughDocument.html(title: title, steps: pictures.map(\.step), pictures: inlined,
+                                     phrases: phrases, words: walkthroughWords)
+            .write(to: file, atomically: true, encoding: .utf8)
+    }
+
     /// Writes the folder. The pictures first, so a guide whose pictures could not be made is not
     /// left behind pointing at files that are not there.
     static func write(_ pictures: [Picture], title: String, asset: AVAsset,

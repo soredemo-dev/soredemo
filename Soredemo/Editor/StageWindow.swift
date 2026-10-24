@@ -495,6 +495,9 @@ struct StageWindow: View {
                     // see `GuideExport`. Offered only when there are steps to write.
                     Button("Export Guide…") { exportGuide() }
                         .disabled(editor.steps.steps.isEmpty)
+                    // The same steps as one page a viewer clicks through.
+                    Button("Export Walkthrough…") { exportGuide(asWalkthrough: true) }
+                        .disabled(editor.steps.steps.isEmpty)
                 } label: {
                     Text("Export…")
                 } primaryAction: {
@@ -881,8 +884,9 @@ struct StageWindow: View {
         }
     }
 
-    /// The take as a step-by-step guide, into a folder a person names. See `GuideExport`.
-    private func exportGuide() {
+    /// The take as a step-by-step guide, into a folder a person names — or, as a walkthrough, one
+    /// page a viewer clicks through. See `GuideExport`.
+    private func exportGuide(asWalkthrough: Bool = false) {
         guard let asset = preview.playingAsset else { return }
         let size = editor.outputSize
         let pictures = GuideExport.pictures(
@@ -895,16 +899,30 @@ struct StageWindow: View {
             return
         }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = String(localized: "\(recordingName) Guide")
         panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        if asWalkthrough {
+            panel.allowedContentTypes = [.html]
+            panel.nameFieldStringValue = recordingName + ".html"
+        } else {
+            panel.nameFieldStringValue = String(localized: "\(recordingName) Guide")
+        }
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
         Task {
             do {
-                try await GuideExport.write(pictures, title: recordingName, asset: asset,
-                                            outputWidth: size.width, outputHeight: size.height, to: folder)
-                exportStatus = String(localized: "Saved the guide to \(folder.lastPathComponent).")
+                if asWalkthrough {
+                    try await GuideExport.writeWalkthrough(pictures, title: recordingName, asset: asset,
+                                                           outputWidth: size.width, outputHeight: size.height,
+                                                           to: destination)
+                    exportStatus = String(localized: "Saved the walkthrough to \(destination.lastPathComponent).")
+                } else {
+                    try await GuideExport.write(pictures, title: recordingName, asset: asset,
+                                                outputWidth: size.width, outputHeight: size.height, to: destination)
+                    exportStatus = String(localized: "Saved the guide to \(destination.lastPathComponent).")
+                }
             } catch {
-                exportStatus = String(localized: "Could not save the guide: \(String(describing: error))")
+                exportStatus = asWalkthrough
+                    ? String(localized: "Could not save the walkthrough: \(String(describing: error))")
+                    : String(localized: "Could not save the guide: \(String(describing: error))")
             }
         }
     }

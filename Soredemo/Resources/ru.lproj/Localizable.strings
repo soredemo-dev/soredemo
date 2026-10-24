@@ -676,6 +676,14 @@
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "Расшифровка выполняется на устройстве. Нет аккаунта, загрузки и телеметрии. Единственный запрос, который может сделать Soredemo, — спросить у GitHub о новой версии, и только когда вы этого захотите.";
 "Export Frame…" = "Экспорт кадра…";
 "Export Guide…" = "Экспортировать руководство…";
+"Export Walkthrough…" = "Экспортировать пошаговый тур…";
+"Step {number} of {total}" = "Шаг {number} из {total}";
+"Next" = "Далее";
+"Back" = "Назад";
+"You have finished this walkthrough." = "Вы прошли этот тур.";
+"Start again" = "Начать сначала";
+"Saved the walkthrough to %@." = "Тур сохранён в %@.";
+"Could not save the walkthrough: %@" = "Не удалось сохранить тур: %@";
 "Click {label}." = "Нажмите {label}.";
 "Click {label} in {app}." = "Нажмите {label} в {app}.";
 "Choose {label}." = "Выберите {label}.";

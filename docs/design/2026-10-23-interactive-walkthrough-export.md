@@ -81,3 +81,27 @@ a file the person sends, the same rule as every other export.
 4. Document: the HTML parses; every caption is escaped; every image has `alt`; every hotspot is a
    `<button>` with a label.
 5. A person clicks through an exported walkthrough in Safari and in a second browser.
+
+## Where it ended (2026-10-25), and what is still this document's
+
+**Built, on the steps and the boxes** (`2026-10-25-a-recording-knows-its-steps.md`,
+`2026-10-25-where-the-element-is-in-the-picture.md`): *Export Walkthrough…* writes one `.html`
+file. Each step is a `<section>` with "Step 3 of 9", the sentence the guide uses, the picture as an
+inlined PNG and the pressed element as a real `<button>` labelled with that sentence and placed on
+its box; → and the Next button advance, ← and Back return, a click on the picture outside the box
+lights the box for a moment and never blocks, a closing step offers Start again. A step whose
+element is off its picture has no button and keeps Next. The pulse stops under Reduce Motion;
+light and dark follow the viewer. **The script holds no label** — it only shows and hides
+sections — and a picture is written only if it is an image `data:` URI whose payload is base64,
+so a quote after the prefix cannot close the attribute.
+
+`WalkthroughDocument` is in `Framing` beside `StepGuide`, whose sentences and escapes it reuses.
+Six tests; four mutations, each red: the button's label unescaped, the later steps not hidden,
+the payload unchecked, any reference accepted.
+
+**Not built, and still designed here:** the inspector's step list — removing, merging, retitling
+and reordering steps, with an authored caption that a re-derivation never replaces; captions
+proposed from the transcript; the *Without screen text* switch; the drag step; the offer to redact
+a step on a secure field; JPEG stills with the size stated before writing (the pictures are PNG
+today). **Not checked by a test:** `GuideExport.writeWalkthrough`, which runs only in the app.
+**Not seen:** a walkthrough clicked through in Safari and a second browser.

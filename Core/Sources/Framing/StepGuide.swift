@@ -121,7 +121,7 @@ public enum StepGuide {
 
     /// Each step's sentence, with its label and — on the first step and wherever the application
     /// changes — its application, both already escaped by the caller's format.
-    private static func sentences(_ steps: [GuideStep], phrases: GuidePhrases,
+    static func sentences(_ steps: [GuideStep], phrases: GuidePhrases,
                                   label: (String) -> String,
                                   application: (String) -> String) -> [String] {
         var previous: String?

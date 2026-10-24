@@ -676,6 +676,14 @@
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "La transcription s’exécute sur l’appareil. Pas de compte, pas d’envoi, pas de télémétrie. La seule requête que Soredemo peut faire est de demander à GitHub s’il existe une version plus récente, et seulement si vous le choisissez.";
 "Export Frame…" = "Exporter l’image…";
 "Export Guide…" = "Exporter un guide…";
+"Export Walkthrough…" = "Exporter une visite guidée…";
+"Step {number} of {total}" = "Étape {number} sur {total}";
+"Next" = "Suivant";
+"Back" = "Précédent";
+"You have finished this walkthrough." = "Vous avez terminé cette visite guidée.";
+"Start again" = "Recommencer";
+"Saved the walkthrough to %@." = "Visite guidée enregistrée dans %@.";
+"Could not save the walkthrough: %@" = "Impossible d’enregistrer la visite guidée : %@";
 "Click {label}." = "Cliquez sur {label}.";
 "Click {label} in {app}." = "Cliquez sur {label} dans {app}.";
 "Choose {label}." = "Choisissez {label}.";

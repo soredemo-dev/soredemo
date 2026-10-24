@@ -676,6 +676,14 @@
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "받아쓰기는 기기에서 실행됩니다. 계정도, 업로드도, 원격 측정도 없습니다. Soredemo가 보낼 수 있는 유일한 요청은 새 버전이 있는지 GitHub에 묻는 것이며, 사용자가 선택할 때만 보냅니다.";
 "Export Frame…" = "프레임 내보내기…";
 "Export Guide…" = "가이드 내보내기…";
+"Export Walkthrough…" = "워크스루 내보내기…";
+"Step {number} of {total}" = "단계 {number}/{total}";
+"Next" = "다음";
+"Back" = "뒤로";
+"You have finished this walkthrough." = "이 워크스루를 마쳤습니다.";
+"Start again" = "처음부터";
+"Saved the walkthrough to %@." = "워크스루를 %@에 저장했습니다.";
+"Could not save the walkthrough: %@" = "워크스루를 저장할 수 없습니다: %@";
 "Click {label}." = "{label}을(를) 클릭합니다.";
 "Click {label} in {app}." = "{app}에서 {label}을(를) 클릭합니다.";
 "Choose {label}." = "{label}을(를) 선택합니다.";

@@ -678,6 +678,14 @@
 "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo can make is asking GitHub whether there is a newer version, and only when you choose to." = "文字起こしはデバイス上で行います。アカウントもアップロードもテレメトリもありません。Soredemo が行う唯一の通信は、新しいバージョンがあるかを GitHub に尋ねることで、あなたが選んだときだけです。";
 "Export Frame…" = "フレームを書き出す…";
 "Export Guide…" = "ガイドを書き出す…";
+"Export Walkthrough…" = "ウォークスルーを書き出す…";
+"Step {number} of {total}" = "ステップ {number}/{total}";
+"Next" = "次へ";
+"Back" = "戻る";
+"You have finished this walkthrough." = "このウォークスルーは終わりです。";
+"Start again" = "最初から";
+"Saved the walkthrough to %@." = "ウォークスルーを %@ に保存しました。";
+"Could not save the walkthrough: %@" = "ウォークスルーを保存できませんでした: %@";
 "Click {label}." = "{label} をクリックします。";
 "Click {label} in {app}." = "{app} で {label} をクリックします。";
 "Choose {label}." = "{label} を選択します。";
