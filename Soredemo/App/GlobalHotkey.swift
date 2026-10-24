@@ -8,8 +8,8 @@ import Carbon.HIToolbox
 /// only fires when this app's window is key, and the floating bar is a `.nonactivatingPanel` on
 /// purpose, so it never becomes key either. Without a system-wide registration there is no key
 /// that stops a recording, which is exactly what happened: ⌘R worked in the app's own window and
-/// nowhere else. Every recorder surveyed in `docs/design/2026-08-30-what-the-market-ships.md`
-/// registers global shortcuts for the same reason; this is that, without a plugin.
+/// nowhere else. Every recorder surveyed in `docs/research/landscape.md` registers global
+/// shortcuts for the same reason; this is that, without a plugin.
 ///
 /// **Carbon's `RegisterEventHotKey`, not an `NSEvent` global monitor.** A global monitor needs
 /// Accessibility permission, sees every keystroke in the system, and cannot consume the event —

@@ -330,8 +330,8 @@ Zooms lane and a Silence lane, every one of them aligned to the same ruler, cros
 one playhead, inside a `TimelineWindow` that zooms.
 
 That is the second row in this project's own comparisons to be wrong about this
-codebase rather than about somebody else's — region capture was the first, in
-`2026-08-30-what-the-market-ships.md`. The failure is the same both times: a row
+codebase rather than about somebody else's — region capture was the first, in the August market
+survey (since replaced by `docs/research/landscape.md`). The failure is the same both times: a row
 written by reading another product and then guessing at this one. **A comparison table
 is a claim about this repository as much as about anyone else's, and the half about
 this one is the half that can actually be checked.**

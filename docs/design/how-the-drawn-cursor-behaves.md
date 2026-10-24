@@ -209,3 +209,24 @@ and it goes stale silently. Asking the running system means a macOS that
 redraws its cursors is followed rather than contradicted.
 
 `@unchecked Sendable`: `CGImage` is immutable and this type only reads it.
+
+## Why the cursor drew as an arrow for weeks
+
+*Moved here from the retired competitor survey, 2026-10-25.*
+
+`SystemCursorShape.sampleOnMainActor` returned `.other` unconditionally on the strength of a
+comment: the class cursors' images were 0×0 with no TIFF representation, so "no comparison could
+ever succeed". **The measurement was real and was taken in the wrong place.** AppKit populates
+those images when the application object is created; in a bare command-line binary, which is
+where it was measured, `NSCursor.arrow.image` really is 0×0.
+
+Re-measured inside an application, all seventeen class cursors have real images and distinct
+digests — `arrow` 28×40, `iBeam` 23×22, `pointingHand` 32×32, `crosshair` 24×24. Size alone
+cannot discriminate (`pointingHand`, `openHand` and `closedHand` share a size and a byte count),
+the digests can. **The table is built from the running system, not written down**: a literal
+table of digests is a fact about one OS version pinned inside the app, and the artwork changed
+between macOS releases.
+
+The lesson is bigger than the feature: a measurement taken in the wrong context became a comment,
+and the comment became a wall. Measure with the app's own conditions — frameworks as well as
+compiler flags.

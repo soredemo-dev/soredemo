@@ -3,8 +3,8 @@ import Foundation
 
 /// Records the built-in or an attached camera to its own file, beside the screen recording.
 ///
-/// **A separate file, not a second track in the master.** At least one other recorder surveyed
-/// in `docs/design/2026-08-30-what-the-market-ships.md` records its webcam this way, and the reason holds here: the screen capture is an `SCStream` writing through `MasterWriting`,
+/// **A separate file, not a second track in the master.** Other recorders record the webcam this
+/// way too (`docs/research/landscape.md`), and the reason holds here: the screen capture is an `SCStream` writing through `MasterWriting`,
 /// and threading a camera into it would mean a fourth input on a writer whose interleaving
 /// rules this project has already been bitten by twice. A file the compositor reads at render
 /// time can also be re-positioned, resized and turned off after the fact, which a burnt-in

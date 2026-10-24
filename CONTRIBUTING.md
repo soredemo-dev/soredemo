@@ -14,7 +14,7 @@ unless something checks it.** Most of what follows is a consequence of that.
 | You want to | Do this |
 | --- | --- |
 | Report a bug | Open an issue. Say what you did, what happened, and what you expected — and give your macOS version, because this app is close to the OS |
-| Suggest a feature | Open an issue. [`docs/research/competitors.md`](docs/research/competitors.md) has the ranked gap list; saying which row you mean, or why the list is wrong, saves a round trip |
+| Suggest a feature | Open an issue. [`docs/research/landscape.md`](docs/research/landscape.md) has the ranked gap list; saying which row you mean, or why the list is wrong, saves a round trip |
 | Report a vulnerability | Use GitHub's private vulnerability reporting on this repository rather than a public issue. This app records screens and microphones, so a defect that leaks either is worth handling quietly first |
 | Send code | Read the rest of this file first |
 

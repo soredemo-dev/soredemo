@@ -40,9 +40,9 @@ shapes, keyboard-shortcut badges, desktop icons hidden for the take, 16:9 / 9:16
 export to H.264, HEVC, ProRes 422, ProRes
 4444 or GIF — with the file size estimated before you commit and several exports queued at once.
 
-[`docs/research/competitors.md`](docs/research/competitors.md) is the full matrix against Screen
-the leading commercial and open-source recorders, verified file by file rather than remembered — and
-it is equally clear about what is *missing*.
+[`docs/research/landscape.md`](docs/research/landscape.md) is the full matrix against the leading
+paid and free recorders, checked against this codebase rather than remembered — and it is equally
+clear about what is *missing*.
 
 ---
 
@@ -105,7 +105,7 @@ build it, the four gates, and the handful of standards that will otherwise surpr
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | Xcode 27 setup. A macOS 27 volume is **not** required at the 26.0 floor |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | **How to contribute.** Build, the four gates in order, the house standards, and what will be declined |
 | [`docs/TESTING.md`](docs/TESTING.md) | **The test strategy**, counted rather than claimed: what each level owns, the gates' exit criteria, the known flake and how to tell it from a real failure, and the levels that are empty |
-| [`docs/research/competitors.md`](docs/research/competitors.md) | Every feature of the leading recorders against this codebase, verified file by file — and the ranked gap list |
+| [`docs/research/landscape.md`](docs/research/landscape.md) | The market as of its date — who ships what, checked against this codebase — and what to take from it |
 
 `docs/design/` holds one document per phase — the questions asked, the alternatives rejected, and
 why. Those are the durable record of *why*; `git log` is the rest.

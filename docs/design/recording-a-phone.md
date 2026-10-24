@@ -124,3 +124,26 @@ name carries no information is deciding something that is not its to decide.
 
 The only fallback left is for a name with no characters in it at all. A card has
 to say something, and that is the one case where there is nothing to say.
+
+## No touch data, and why the automatic zoom was taken out
+
+*Moved here from the retired competitor survey, 2026-10-25.*
+
+**There is no touch data, for anyone.** iOS does not send touch coordinates over the CoreMediaIO
+screen-capture interface, and nothing on the Mac can obtain them; a connected iPad exposes PTP,
+Apple's USB multiplexor and two network-over-USB interfaces, and the capture device carries video
+and audio only. Screen Studio's own guide says automatic zoom is not supported on iOS recordings
+for the same reason.
+
+**A zoom from what changes on screen was built, measured and removed on 2026-08-29.** It rested on
+"change means intent", which is false on a phone. Three detections on a real iPad recording, three
+wrong: a home-screen widget animating by itself, a banner mid-transition, empty space while a
+sidebar slid in. Wrong structurally, not by a margin: navigation animates the whole screen and is
+always a larger change than the tap; the interface animates on its own; and the tap comes before
+the change, so by the time the change peaks the finger is elsewhere. A peak-relative threshold, a
+fixed target, rejecting frame-wide changes and framing from the clearest burst each improved a
+method that cannot work.
+
+A wrong zoom costs somebody a deletion; a missing one costs nothing. **What works instead** is a
+Bluetooth mouse paired to the device: a real cursor appears in the recording, and everything that
+follows a cursor has something to follow — which the menu bar panel says before the take.
