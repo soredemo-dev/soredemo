@@ -86,9 +86,7 @@ struct CaptionLines: View {
                         noteCorrection(at: previous)
                         onChange()
                     }
-                    if let current, current < model.track.cues.count {
-                        state.textOnFocus = (current, model.track.cues[current].text)
-                    }
+                    if let current { state.remember(current, in: model.track) }
                 }
                 .onChange(of: currentIndex) {
                     guard let currentIndex, focused == nil else { return }
@@ -99,14 +97,8 @@ struct CaptionLines: View {
         }
     }
 
-    /// The cues the search allows through, each with its index into the unfiltered track — which
-    /// is what every edit below addresses, so filtering can never retime the wrong line.
-    private var visibleCues: [(index: Int, cue: CaptionCue)] {
-        let needle = state.search.trimmingCharacters(in: .whitespaces).lowercased()
-        return model.track.cues.enumerated()
-            .filter { needle.isEmpty || $0.element.text.lowercased().contains(needle) }
-            .map { (index: $0.offset, cue: $0.element) }
-    }
+    /// The cues the search allows through; see `CaptionListState.visibleCues(of:)`.
+    private var visibleCues: [(index: Int, cue: CaptionCue)] { state.visibleCues(of: model.track) }
 
     /// A field over the list, and the two keys that move between cues.
     ///
@@ -172,7 +164,7 @@ struct CaptionLines: View {
                 Button {
                     onSeek(cue.start)
                 } label: {
-                    Text(verbatim: timecode(cue.start))
+                    Text(verbatim: Self.timecode(cue.start))
                         .font(Type.readout)
                         .foregroundStyle(isCurrent ? AnyShapeStyle(.primary)
                                                    : AnyShapeStyle(.secondary))
@@ -278,36 +270,17 @@ struct CaptionLines: View {
         focused = next
     }
 
-    /// **The reason correcting a transcript is hard is not one line — it is the same word forty
-    /// times.** A demo says a product's name forty times and the recogniser gets it wrong forty
-    /// times, and fixing that by hand is what makes people give up on automatic captions.
-    ///
-    /// So a commit that changed ONE contiguous run of text, in a line whose run appears
-    /// elsewhere, becomes an offer with the count on it. Offered rather than done: a silent
-    /// sweep across a transcript is a change nobody reviewed, and the count is what lets
-    /// somebody predict what pressing it will do.
+    /// A commit, offered to the rest of the recording when it fits; see
+    /// `CaptionListState.noteCorrection(at:in:)`.
     private func noteCorrection(at index: Int) {
-        defer { state.textOnFocus = nil }
-        guard let before = state.textOnFocus, before.index == index,
-              index < model.track.cues.count else { return }
-        let after = model.track.cues[index].text
-        guard let edit = RunEdit(from: before.text, to: after) else { return }
-        let others = model.track.cuesContaining(edit.was, excluding: index)
-        guard others > 0 else { return }
-        // The whole word the run sits in is what gets remembered for next time — a term list of
-        // three-letter fragments would match things nobody meant.
-        let word = after.split(whereSeparator: \.isWhitespace)
-            .first { $0.contains(edit.now) }.map(String.init)
-        state.offer = (edit, others, word ?? edit.now)
+        state.noteCorrection(at: index, in: model.track)
     }
 
-    /// A cue's own numbers, and the verdict when there is one.
+    /// **On a row: the fault if there is one, and the width. Nothing else.**
     ///
     /// **The fault is a word, not a colour alone.** A red number tells somebody a line is wrong
     /// without telling them what to do, and the three faults have three different fixes — see
-    /// `CaptionFault`. The reading speed is shown whatever the verdict, because the number is
-    /// what a person adjusts against.
-    /// **On a row: the fault if there is one, and the width. Nothing else.**
+    /// `CaptionFault`.
     ///
     /// The full reading is 59pt of a row that has 437pt to give a 42-character line, a timecode
     /// and a fault label — measured, and it is why the inspector's maximum moved. A count is
@@ -328,7 +301,8 @@ struct CaptionLines: View {
     }
 
     /// The whole reading, for the cue the caret is in: how long it is on screen, how much there
-    /// is to read, and how fast that is.
+    /// is to read, and how fast that is. The reading speed is shown whatever the verdict,
+    /// because the number is what a person adjusts against.
     @ViewBuilder private func reading(of cue: CaptionCue) -> some View {
         let reading = cue.measurement
         Text(verbatim: String(format: "%.2fs · %d · %.1f/s", reading.seconds, reading.charactersToRead,
@@ -412,27 +386,8 @@ struct CaptionLines: View {
 
     /// `m:ss.t` — a caption list is scanned for WHERE something was said, and hours of leading
     /// zeroes on every row is noise in a column a person reads down.
-    private func timecode(_ time: Nanoseconds) -> String {
+    static func timecode(_ time: Nanoseconds) -> String {
         let tenths = max(0, time.rawValue) / 100_000_000
         return "\(tenths / 600):" + String(format: "%02d.%01d", (tenths / 10) % 60, tenths % 10)
     }
-}
-
-/// What a cue list remembers between redraws.
-///
-/// **A class, because the list is a value that gets thrown away.** `CaptionLines` is handed to a
-/// host's `List` as rows; SwiftUI rebuilds that struct constantly, and `@State` inside it is
-/// never installed, so every binding is a constant of its initial value. The runtime reports
-/// exactly that, and the symptom is a search field that filters nothing.
-///
-/// Held by the host with `@State`, so the host's identity is what keeps it alive.
-@Observable
-final class CaptionListState {
-    /// What the list is filtered to. **A filter, not a jump-to-match**: on a long recording the
-    /// question is "where did I say that", and the answer is every line that says it.
-    var search = ""
-    /// What the focused row said before anybody typed in it, so a commit can tell what changed.
-    var textOnFocus: (index: Int, text: String)?
-    /// A correction worth offering to apply everywhere, with how many other lines it reaches.
-    var offer: (edit: RunEdit, others: Int, word: String)?
 }

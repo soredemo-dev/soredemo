@@ -219,6 +219,7 @@ xcrun swiftc \
   Soredemo/App/WindowObservers.swift \
   Soredemo/DesignSystem/Tooltip.swift \
   Soredemo/Inspector/Captions/CaptionLines.swift \
+  Soredemo/Inspector/Captions/CaptionListState.swift \
   Soredemo/Editor/CaptionEditor.swift \
   Soredemo/Editor/CaptionWaveform.swift \
   Soredemo/Inspector/Captions/TranscriptPanel.swift \
