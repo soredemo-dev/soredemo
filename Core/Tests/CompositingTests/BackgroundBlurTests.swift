@@ -120,6 +120,82 @@ struct BackgroundBlurTests {
                 "blurred spanned \(blurred) and sharp spanned \(sharp) — the blur did nothing")
     }
 
+    // MARK: - the picture cache
+
+    /// **A picture replaced under the same name is the picture drawn — once the cache is told.**
+    ///
+    /// The renderer keeps every package picture it decodes, by name, for as long as it lives,
+    /// and an inspector change does not replace it. Choosing a new background or a new
+    /// annotation picture with the old one's name overwrites the file; the cache went on drawing
+    /// the old one for the rest of the session. Here with this suite because the image base is
+    /// the process-global it serialises around. `docs/design/2026-10-24-a-replaced-picture-is-drawn.md`.
+    ///
+    /// The middle assertion is the cache-hit half AGENTS.md pairs with every invalidation: with
+    /// no forget, the replaced file is NOT read — so the last assertion is about the forget and
+    /// not about a renderer that never cached.
+    @Test("a picture replaced under its own name is drawn after the cache forgets it")
+    func aReplacedPictureIsDrawnOnceForgotten() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "soredemo-picture-cache-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let backgrounds = directory.appending(path: StageBackground.imageDirectory,
+                                              directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backgrounds, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = backgrounds.appending(path: "wall.png")
+        try Self.writeSolid(red: 230, green: 20, blue: 20, to: file)
+
+        let previousBase = unsafe CoreImageFrameRenderer.imageBaseURL
+        unsafe CoreImageFrameRenderer.imageBaseURL = directory
+        defer { unsafe CoreImageFrameRenderer.imageBaseURL = previousBase }
+
+        let renderer: any FrameRendering
+        do { renderer = try CoreImageFrameRenderer() }
+        catch FrameRenderingError.noRenderDevice {
+            Issue.record("no Metal render device on this machine — a real answer, not a skip")
+            return
+        }
+        let style = StageStyle(insetFraction: 0.3, cornerRadius: 0, shadowRadius: 0,
+                               shadowOpacity: 0, background: .image(filename: "wall.png"))
+        let plan = StagePlanner.plan(outputWidth: 320, outputHeight: 180,
+                                     sourceWidth: 320, sourceHeight: 180, style: style)
+        // The top-left corner is background: the card is inset by 30%.
+        func corner() throws -> (r: Int, b: Int) {
+            let source = try makePixelBuffer(width: 320, height: 180, fill: (90, 90, 90))
+            let destination = try makePixelBuffer(width: 320, height: 180, fill: (0, 0, 0))
+            try renderer.render(plan, source: source, camera: nil, into: destination)
+            let pixel = try pixels(of: destination)[320 * 4 + 4]
+            return (Int(pixel.r), Int(pixel.b))
+        }
+
+        let first = try corner()
+        #expect(first.r > 150 && first.b < 80, "the red picture is drawn first, and drew \(first)")
+
+        try Self.writeSolid(red: 20, green: 20, blue: 230, to: file)
+        let cached = try corner()
+        #expect(cached.r > 150 && cached.b < 80,
+                "with no forget the cached red is still drawn — drew \(cached); if this is blue the cache is gone and the next check proves nothing")
+
+        CoreImageFrameRenderer.forgetPackageImages()
+        let replaced = try corner()
+        #expect(replaced.b > 150 && replaced.r < 80,
+                "after the forget the blue file is drawn, and drew \(replaced)")
+    }
+
+    /// One colour, edge to edge.
+    static func writeSolid(red: UInt8, green: UInt8, blue: UInt8, to url: URL) throws {
+        let width = 64, height = 64
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for index in stride(from: 0, to: bytes.count, by: 4) {
+            bytes[index] = red; bytes[index + 1] = green; bytes[index + 2] = blue
+        }
+        let image = CIImage(bitmapData: Data(bytes), bytesPerRow: width * 4,
+                            size: CGSize(width: width, height: height),
+                            format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        try CIContext().writePNGRepresentation(
+            of: image, to: url, format: .RGBA8,
+            colorSpace: CGColorSpaceCreateDeviceRGB())
+    }
+
     /// Hard black-and-white stripes: the picture a blur has the most to do to.
     static func writeStripes(to url: URL) throws {
         let width = 256, height = 256

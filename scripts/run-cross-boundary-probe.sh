@@ -226,7 +226,9 @@ xcrun swiftc \
   Soredemo/Inspector/ChaptersPanel.swift \
   Soredemo/Inspector/ChapterSuggester.swift \
   Soredemo/Inspector/RedactionPanel.swift \
-  Soredemo/Inspector/AnnotationPanel.swift \
+  Soredemo/Inspector/Annotations/AnnotationsModel.swift \
+  Soredemo/Inspector/Annotations/AnnotationPanel.swift \
+  Soredemo/Inspector/Annotations/AnnotationInk.swift \
   scripts/cross-boundary-digest-probe.swift
 
 # **Always to a file as well as to the terminal.**

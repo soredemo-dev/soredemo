@@ -181,6 +181,50 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// the arrangement `cursorCanvases` already uses.
     private nonisolated(unsafe) var backgroundImages: [String: CIImage] = [:]
     private let backgroundImageLock = NSLock()
+    /// The `packageImageGeneration` `backgroundImages` was filled under. Read and written under
+    /// `backgroundImageLock`, with the cache it describes.
+    private nonisolated(unsafe) var backgroundImagesGeneration = 0
+
+    /// Bumped by `forgetPackageImages()`. Guarded by its own lock, taken without the cache's.
+    private nonisolated(unsafe) static var packageImageGeneration = 0
+    private static let packageImageGenerationLock = NSLock()
+
+    /// Forgets every picture read from a project's package, in every renderer.
+    ///
+    /// **Because a person can replace a picture under its own name.** Choosing a new background
+    /// or annotation picture with the old one's filename overwrites the file, and the cache —
+    /// keyed by that name, alive as long as the renderer, which an inspector change does not
+    /// replace — went on drawing the old one for the rest of the session.
+    /// `TextArt.forgetProjectFonts()` is the same answer for fonts.
+    ///
+    /// **A generation rather than reaching into each renderer**, because the app holds a renderer
+    /// only as `any FrameRendering` behind `StageCompositor`; each one empties itself on its next
+    /// lookup. Called by the app after it copies a picture in. See
+    /// `docs/design/2026-10-24-a-replaced-picture-is-drawn.md`.
+    public static func forgetPackageImages() {
+        packageImageGenerationLock.withLock { unsafe packageImageGeneration += 1 }
+    }
+
+    /// How many times `forgetPackageImages()` has been called in this process. **So an adopter
+    /// can be shown to call it**: what it changes is a cache inside a renderer the app never
+    /// holds, and a test that had to render a frame to see the forget would be testing the
+    /// renderer again rather than the adopter.
+    public static var packageImagesForgotten: Int {
+        packageImageGenerationLock.withLock { unsafe packageImageGeneration }
+    }
+
+    /// A cached package picture, or `nil` — after emptying the cache if a forget has happened
+    /// since it was filled.
+    private func cachedPackageImage(_ key: String) -> CIImage? {
+        let current = Self.packageImageGenerationLock.withLock { unsafe Self.packageImageGeneration }
+        return backgroundImageLock.withLock {
+            if unsafe backgroundImagesGeneration != current {
+                unsafe backgroundImages.removeAll()
+                unsafe backgroundImagesGeneration = current
+            }
+            return unsafe backgroundImages[key]
+        }
+    }
 
     /// Where image backgrounds are read from — the package the recording lives in. Set on the
     /// same terms as `StageCompositor`'s other statics: written before the composition reaches
@@ -255,7 +299,7 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     private func imageBackground(_ filename: String) -> CIImage? {
         guard StageBackground.isSafeImageFilename(filename),
               let base = unsafe Self.imageBaseURL else { return nil }
-        if let cached = backgroundImageLock.withLock({ unsafe backgroundImages[filename] }) {
+        if let cached = cachedPackageImage(filename) {
             return cached
         }
         let url = base.appending(path: StageBackground.imageDirectory, directoryHint: .isDirectory)
@@ -700,7 +744,7 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
               let base = unsafe Self.imageBaseURL else { return nil }
         let key = AnnotationOverlay.imageDirectory + "/" + overlay.imageName
         let picture: CIImage
-        if let cached = backgroundImageLock.withLock({ unsafe backgroundImages[key] }) {
+        if let cached = cachedPackageImage(key) {
             picture = cached
         } else {
             let url = base.appending(path: AnnotationOverlay.imageDirectory, directoryHint: .isDirectory)

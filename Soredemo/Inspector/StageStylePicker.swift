@@ -67,25 +67,20 @@ final class StageStyleModel {
     /// picture and got no picture is owed the reason.
     @discardableResult
     func useImageBackground(_ source: URL, inPackageAt packageURL: URL) -> String? {
-        let directory = packageURL.appending(path: StageBackground.imageDirectory,
-                                             directoryHint: .isDirectory)
         // The chosen file's own name, made safe. Two pictures with the same name replace each
-        // other, which is the behaviour a person expects of "choose an image" and costs nothing.
+        // other, which is the behaviour a person expects of "choose an image" — and costs one
+        // forget, below, or the renderer goes on drawing the one replaced.
         let name = source.lastPathComponent
         guard StageBackground.isSafeImageFilename(name) else {
             return String(localized: "\(name) is not a name this can use.")
         }
         do {
-            try FileManager.default.createDirectory(at: directory,
-                                                    withIntermediateDirectories: true)
-            let destination = directory.appending(path: name)
-            if FileManager.default.fileExists(atPath: destination.path) {
-                try FileManager.default.removeItem(at: destination)
-            }
-            try FileManager.default.copyItem(at: source, to: destination)
+            try ProjectStore.copyIntoPackage(source, directory: StageBackground.imageDirectory,
+                                             packageURL: packageURL)
         } catch {
             return String(localized: "Could not copy \(name) into the project: \(String(describing: error))")
         }
+        CoreImageFrameRenderer.forgetPackageImages()
         presetName = nil
         apply(background: .image(filename: name))
         return nil

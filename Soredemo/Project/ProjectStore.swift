@@ -40,12 +40,16 @@ enum ProjectStore {
     /// Copies a file a person chose into `directory` inside the recording's package, replacing a
     /// file of the same name.
     ///
-    /// **One function for music and fonts**, which carried the same eight lines each. The name
-    /// is NOT checked here: each caller refuses different names for its own reasons, and a check
-    /// in two places is two answers to which one wins.
+    /// **One function for music, fonts, backgrounds and annotation pictures**, which carried the
+    /// same eight lines each. The name is NOT checked here: each caller refuses different names
+    /// for its own reasons, and a check in two places is two answers to which one wins.
     static func copyIntoPackage(_ source: URL, directory: String, mediaURL: URL) throws {
-        let directory = packageURL(forMediaAt: mediaURL)
-            .appending(path: directory, directoryHint: .isDirectory)
+        try copyIntoPackage(source, directory: directory, packageURL: packageURL(forMediaAt: mediaURL))
+    }
+
+    /// The same, for a caller that already holds the package.
+    static func copyIntoPackage(_ source: URL, directory: String, packageURL: URL) throws {
+        let directory = packageURL.appending(path: directory, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let destination = directory.appending(path: source.lastPathComponent)
         if FileManager.default.fileExists(atPath: destination.path) {

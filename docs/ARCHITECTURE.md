@@ -183,7 +183,9 @@ timeline's view became one file per lane, ten files about one thing. See
 seven panels and flat" and needed none, and splitting the captions panel had since put ten
 files about the one Captions tab in it — the model, the panel, its four sections, the line
 list, the field, the transcript and the system caption style. The rest of `Inspector/` is one
-file per tab and stays flat.
+file per tab and stays flat. **`Inspector/Annotations/`** joined it the same day, when the Mark
+tab's model and its colours left the panel —
+`docs/design/2026-10-24-a-replaced-picture-is-drawn.md`.
 **`Recording/Notch/` is the fourth** (2026-10-24): the notch surface's pure rules, model, panel,
 views and presenter — `docs/design/2026-10-24-splitting-the-notch-surface.md`.
 **`Recording/RecordingBar/` is the fifth** (2026-10-24): the floating bar's panel, dragger,

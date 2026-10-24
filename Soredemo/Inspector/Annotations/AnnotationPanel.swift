@@ -1,76 +1,9 @@
-import Compositing
-import Foundation
-import Observation
+import AppKit
 import Overlays
 import Render
 import SwiftUI
 import Timeline
 import UniformTypeIdentifiers
-
-/// The arrows, lines, boxes and ellipses drawn over a recording.
-///
-/// **Published to the compositor on every change**, like every other model here. An annotation
-/// is placed by looking at it — a person drags a slider and checks the arrow is on the button —
-/// so a change that reached the preview only on the next play would be a change they could not
-/// judge.
-@Observable
-final class AnnotationsModel {
-    private(set) var track = AnnotationTrack()
-    var selection: Int?
-    /// The shape the next annotation gets. Held on the model rather than passed in, so a person
-    /// drawing three arrows in a row picks "arrow" once.
-    var nextShape: AnnotationShape = .arrow
-
-    /// Three seconds. Long enough to read an arrow and notice what it points at, short enough
-    /// that leaving one on by accident is obvious — `TextPanel` uses the same reasoning for its
-    /// own default and this deliberately matches it, so a title and an arrow added at the same
-    /// playhead leave together.
-    static let defaultDuration = Nanoseconds(3_000_000_000)
-
-    init() { publish() }
-
-    var selected: AnnotationItem? {
-        selection.flatMap { id in track.items.first { $0.id == id } }
-    }
-
-    /// A new annotation across the middle of the frame, big enough to see and to grab.
-    ///
-    /// **Not a zero-length one waiting to be dragged.** There is no draw-on-the-preview surface
-    /// yet, and an annotation with no length draws nothing at all — so offering one would be
-    /// offering a row in a list and an empty picture, which reads as the feature being broken.
-    /// The numbers put it clear of the frame's edges in the recording's own coordinates, where
-    /// `y` runs from the bottom.
-    func add(at playhead: Nanoseconds, imageName: String = "") {
-        track = track.adding(shape: nextShape,
-                             startX: 0.3, startY: 0.35, endX: 0.62, endY: 0.6,
-                             start: playhead,
-                             end: Nanoseconds(playhead.rawValue + Self.defaultDuration.rawValue),
-                             imageName: imageName)
-        selection = track.items.map(\.id).max()
-        publish()
-    }
-
-    func update(_ item: AnnotationItem) {
-        track = track.replacing(item)
-        publish()
-    }
-
-    func remove(_ id: Int) {
-        track = track.removing(id)
-        if selection == id { selection = nil }
-        publish()
-    }
-
-    func restore(_ saved: AnnotationTrack) {
-        track = saved
-        selection = nil
-        publish()
-    }
-
-    private func publish() {
-        StageCompositor.annotations = track
-    }
-}
 
 /// The annotation tab.
 struct AnnotationPanel: View {
@@ -79,8 +12,6 @@ struct AnnotationPanel: View {
     /// The project package, where a picture annotation's file is copied.
     let packageURL: URL
     let onChange: () -> Void
-    /// Why a chosen picture did not take, said where it was chosen.
-    @State private var pictureFailure: String?
 
     var body: some View {
         List {
@@ -103,7 +34,7 @@ struct AnnotationPanel: View {
                     }
                     onChange()
                 }
-                if let pictureFailure {
+                if let pictureFailure = model.pictureFailure {
                     Text(verbatim: pictureFailure).font(Type.detail).foregroundStyle(Signal.paused)
                 }
                 Text("An annotation is anchored to the recording, not to the frame — it moves with the picture when the camera zooms in on what it points at.")
@@ -166,21 +97,21 @@ struct AnnotationPanel: View {
             }
             // Ink, weight and halo draw a shape; a picture is drawn in its own colours.
             if item.shape.drawsWithInk {
-            Picker("Colour", selection: Binding(
-                get: { AnnotationInk.nearest(to: item.style) },
-                set: { ink in
-                    var changed = item
-                    changed.style = item.style.changing(red: ink.red, green: ink.green,
-                                                        blue: ink.blue)
-                    model.update(changed)
-                    onChange()
-                })) {
-                ForEach(AnnotationInk.allCases, id: \.self) { ink in
-                    Text(LocalizedStringKey(ink.displayName)).tag(ink)
+                Picker("Colour", selection: Binding(
+                    get: { AnnotationInk.nearest(to: item.style) },
+                    set: { ink in
+                        var changed = item
+                        changed.style = item.style.changing(red: ink.red, green: ink.green,
+                                                            blue: ink.blue)
+                        model.update(changed)
+                        onChange()
+                    })) {
+                    ForEach(AnnotationInk.allCases, id: \.self) { ink in
+                        Text(LocalizedStringKey(ink.displayName)).tag(ink)
+                    }
                 }
-            }
-            slider("Weight", value: styleBinding(item) { $0.changing(strokeWidthFraction: $1) },
-                   read: item.style.strokeWidthFraction, range: 0.001...0.03)
+                slider("Weight", value: styleBinding(item) { $0.changing(strokeWidthFraction: $1) },
+                       read: item.style.strokeWidthFraction, range: 0.001...0.03)
             }
             // **Shown only for the shapes that have an interior.** A fill control on an arrow
             // is a control a person moves and sees nothing happen, which teaches them the panel
@@ -220,25 +151,14 @@ struct AnnotationPanel: View {
                 }
             }
             Button("Start here") {
-                var changed = item
-                let length = item.duration.rawValue
-                changed.start = playhead
-                changed.end = Nanoseconds(playhead.rawValue + length)
-                model.update(changed)
+                model.startHere(item, at: playhead)
                 onChange()
             }
+            // Refused by the model when the end would not be after the start; see `endHere`.
             Button("End here") {
-                // Refused rather than silently reordered: an end before its start is a
-                // zero-length annotation that draws nothing, and a button that quietly did
-                // something else would be worse than one that does nothing.
-                if playhead.rawValue > item.start.rawValue {
-                    var changed = item
-                    changed.end = playhead
-                    model.update(changed)
-                    onChange()
-                }
+                if model.endHere(item, at: playhead) { onChange() }
             }
-            .disabled(playhead.rawValue <= item.start.rawValue)
+            .disabled(!AnnotationsModel.canEndHere(item, at: playhead))
             Text(verbatim: span(of: item)).font(Type.detail).foregroundStyle(.secondary)
         }
         Section {
@@ -344,107 +264,17 @@ struct AnnotationPanel: View {
     }
 }
 
-/// The colours an annotation can be.
-///
-/// **A named few, not a colour well**, and the restraint is the same one `TextOverlayStyle`'s
-/// header argues for: every control is something a person has to understand before they can put
-/// a mark on the screen. These five are picked to stay legible over a screen recording — a
-/// screenshot is mostly white and mostly grey — and to be tellable apart from each other by
-/// someone who is colourblind, which a free colour well cannot promise.
-///
-/// **In the app, not in `Render`.** `AnnotationStyle` takes the three components and does not
-/// need to know that a person chose from a list; a palette in the render tier would be a public
-/// option with nothing exercising it, which is the shape `CameraOverlayStyle.borderOpacity` had.
-enum AnnotationInk: String, CaseIterable, Hashable {
-    case red, amber, green, blue, ink
-
-    var displayName: String {
-        switch self {
-        case .red: "Red"
-        case .amber: "Amber"
-        case .green: "Green"
-        case .blue: "Blue"
-        case .ink: "Ink"
-        }
-    }
-
-    var red: Double {
-        switch self {
-        case .red: 0.93
-        case .amber: 0.98
-        case .green: 0.16
-        case .blue: 0.16
-        case .ink: 0.08
-        }
-    }
-
-    var green: Double {
-        switch self {
-        case .red: 0.16
-        case .amber: 0.72
-        case .green: 0.72
-        case .blue: 0.45
-        case .ink: 0.08
-        }
-    }
-
-    var blue: Double {
-        switch self {
-        case .red: 0.16
-        case .amber: 0.10
-        case .green: 0.32
-        case .blue: 0.93
-        case .ink: 0.10
-        }
-    }
-
-    /// Which entry a stored style is closest to.
-    ///
-    /// **Nearest rather than exact, and a `Picker` is why.** A style decoded from a project
-    /// saved by a build with a different palette — or hand-edited — would match nothing, and a
-    /// `Picker` with a selection outside its options shows a blank row and quietly rewrites the
-    /// value on the next interaction. Answering with the closest entry keeps the control honest
-    /// about what it is going to do.
-    static func nearest(to style: AnnotationStyle) -> AnnotationInk {
-        allCases.min { a, b in a.distance(to: style) < b.distance(to: style) } ?? .red
-    }
-
-    private func distance(to style: AnnotationStyle) -> Double {
-        pow(red - style.red, 2) + pow(green - style.green, 2) + pow(blue - style.blue, 2)
-    }
-}
-
 extension AnnotationPanel {
-    /// Asks for a picture and copies it into the project, returning the name it is kept under.
+    /// Asks for a picture and hands it to the model, which copies it into the project.
     ///
-    /// **Copied, not referenced.** A project is a package that travels, and a logo read from
-    /// somebody's Downloads folder would be missing from every copy of it. The name is the file's
-    /// own, checked by `StageBackground.isSafeImageFilename` — the same rule image backgrounds
-    /// use, because the compositor joins it onto a path.
+    /// **The panel stays in the view; the file work does not.** `NSOpenPanel` cannot run in a
+    /// test, and the copy — and the name it is refused for — is what is worth testing
+    /// (`AnnotationsModelTests`).
     fileprivate func choosePicture() -> String? {
-        pictureFailure = nil
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let source = panel.url else { return nil }
-        let name = source.lastPathComponent
-        guard StageBackground.isSafeImageFilename(name) else {
-            pictureFailure = String(localized: "\(name) is not a name this can use.")
-            return nil
-        }
-        let directory = packageURL.appending(path: AnnotationOverlay.imageDirectory,
-                                             directoryHint: .isDirectory)
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let destination = directory.appending(path: name)
-            if FileManager.default.fileExists(atPath: destination.path) {
-                try FileManager.default.removeItem(at: destination)
-            }
-            try FileManager.default.copyItem(at: source, to: destination)
-        } catch {
-            pictureFailure = String(localized: "Could not copy \(name) into the project: \(String(describing: error))")
-            return nil
-        }
-        return name
+        return model.adoptPicture(source, packageURL: packageURL)
     }
 }
