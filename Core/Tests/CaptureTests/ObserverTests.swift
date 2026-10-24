@@ -724,3 +724,36 @@ private func windowViewport() -> CaptureViewport {
     #expect(abs(frame.size.width - 0.5) < 1e-9)
     #expect(abs(frame.size.height - 0.2) < 1e-9)
 }
+
+// MARK: - a window's title is content
+
+/// window(0) → web area(1) → group(2) → button(3), the window and the page each titled with
+/// something private, the button with the interface's own label.
+private func treeWithPrivateTitles() -> FakeAXSource {
+    FakeAXSource(nodes: [
+        .init(role: "AXWindow", title: "Invoice — A. Customer.pdf", frame: (0, 0, 1000, 500),
+              parent: nil, children: [1]),
+        .init(role: "AXWebArea", title: "Account 4471 · Billing", frame: (0, 40, 1000, 460),
+              parent: 0, children: [2]),
+        .init(role: "AXGroup", title: "Toolbar", frame: (100, 100, 400, 200),
+              parent: 1, children: [3]),
+        .init(role: "AXButton", title: "Record", frame: (200, 150, 100, 40),
+              parent: 2, children: []),
+    ], hit: 3)
+}
+
+/// **The walk climbs through the window and the page, and their titles are what is open in
+/// them** — a document's name, a page's — which the log may never carry
+/// (`docs/design/2026-10-25-a-window-title-is-content.md`). A control's title is the label on
+/// it and stays.
+@Test func aWindowsAndAPagesTitlesAreNotRecordedAndAControlsAre() throws {
+    let record = try #require(observer().chain(at: click(x: 0.25, y: 0.7),
+                                               source: treeWithPrivateTitles()))
+    #expect(record.hit?.title == "Record", "the control's own label is the step's text")
+    let byRole = Dictionary(record.ancestors.map { ($0.role ?? "", $0.title) }, uniquingKeysWith: { a, _ in a })
+    #expect(byRole["AXGroup"] == .some("Toolbar"), "a container's own label stays")
+    #expect(byRole["AXWebArea"] == .some(nil), "the page's title was recorded")
+    #expect(byRole["AXWindow"] == .some(nil), "the window's title was recorded")
+    #expect(record.ancestors.map(\.role) == ["AXGroup", "AXWebArea", "AXWindow"],
+            "the walk still climbs through them: only the title is left out")
+}

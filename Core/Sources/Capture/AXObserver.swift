@@ -535,6 +535,15 @@ final class AXObserver: @unchecked Sendable {
     /// frame costs two of them because `kAXFrameAttribute` is not exposed to
     /// Swift. The interval's width is the uncertainty about this element only,
     /// not about the chain, whose levels are read at different moments.
+    /// Roles whose `kAXTitleAttribute` is the content they hold rather than a label on them: a
+    /// window's title is whatever document is open in it, a web area's is the page's. **The
+    /// log may carry AX titles because a title is the interface's own label**
+    /// (`noAppSourceReadsUserContent`); these two are the exception that the rule's own reason
+    /// excludes, and the same text `WindowTarget` and the ban on `kCGWindowName` keep out by
+    /// other routes. Closed by construction: a role added here is a visible edit.
+    /// `docs/design/2026-10-25-a-window-title-is-content.md`.
+    nonisolated static let rolesWhoseTitleIsContent: Set<String> = ["AXWindow", "AXWebArea"]
+
     private nonisolated func describe<Source: AXElementSource>(
         _ element: Source.Element, source: Source, epoch: BootEpoch, into tally: inout Diagnostics
     ) -> AXElementRecord {
@@ -542,9 +551,12 @@ final class AXObserver: @unchecked Sendable {
         let role = source.role(of: element)
         let position = source.position(of: element)
         let size = source.size(of: element)
-        let title = source.title(of: element)
+        // **Not asked for at all** where the title is the content the element holds — a window's
+        // is its document's name, a web area's its page's. See `rolesWhoseTitleIsContent`.
+        let readsTitle = !Self.rolesWhoseTitleIsContent.contains(role ?? "")
+        let title = readsTitle ? source.title(of: element) : nil
         let after = Minting.hostNow()
-        tally.axCalls += 4
+        tally.axCalls += readsTitle ? 4 : 3
         tally.elementsDescribed += 1
 
         var frame: NormalizedFrame?

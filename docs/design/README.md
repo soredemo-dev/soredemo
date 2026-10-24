@@ -57,6 +57,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 | --- | --- |
 | [2026-08-19-recorder-parity](2026-08-19-recorder-parity.md) | what the recorder must match, by owner decision |
 | [what-a-filter-excludes](what-a-filter-excludes.md) | what a capture filter leaves out |
+| [2026-10-25-a-window-title-is-content](2026-10-25-a-window-title-is-content.md) | why the accessibility walk does not read a window's or a web page's title |
 | [three-tracks-one-clock](three-tracks-one-clock.md) | video, system audio and microphone on one clock |
 | [surviving-a-stopped-stream](surviving-a-stopped-stream.md) | when ScreenCaptureKit stops a stream mid-take |
 | [2026-08-20-window-capture-repair](2026-08-20-window-capture-repair.md) | window capture: four defects, one root |
