@@ -99,7 +99,7 @@ struct NotchSurfaceView: View {
                 wings(left: {
                     HStack(spacing: Space.tight + 2) {
                         PulsingDot(isPaused: coordinator.isPaused)
-                        Text(verbatim: RecordingBarView.elapsedText(coordinator.elapsed))
+                        Text(verbatim: ElapsedTime.text(coordinator.elapsed))
                             .font(.system(size: 12, weight: .medium).monospacedDigit())
                     }
                 }, right: {

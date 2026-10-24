@@ -186,6 +186,9 @@ list, the field, the transcript and the system caption style. The rest of `Inspe
 file per tab and stays flat.
 **`Recording/Notch/` is the fourth** (2026-10-24): the notch surface's pure rules, model, panel,
 views and presenter — `docs/design/2026-10-24-splitting-the-notch-surface.md`.
+**`Recording/RecordingBar/` is the fifth** (2026-10-24): the floating bar's panel, dragger,
+presenter and view — `docs/design/2026-10-24-splitting-the-recording-bar.md`. What all three
+recording surfaces draw (the dot, the meter, the elapsed time) is `Recording/RecordingSignals.swift`.
 
 **No `Utilities/`, `Helpers/`, `Common/` or `Shared/`.** They are the named
 anti-pattern: a folder whose membership rule is "nowhere else fits" has no membership

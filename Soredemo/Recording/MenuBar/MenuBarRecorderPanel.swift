@@ -115,7 +115,7 @@ private struct MenuBarHeader: View {
                 .font(.system(size: 14, weight: .semibold))
             Spacer()
             if coordinator.isRecording {
-                Text(verbatim: RecordingBarView.elapsedText(coordinator.elapsed))
+                Text(verbatim: ElapsedTime.text(coordinator.elapsed))
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
             }

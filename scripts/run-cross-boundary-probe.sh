@@ -140,7 +140,11 @@ xcrun swiftc \
   Soredemo/Project/ImportedRecording.swift \
   Soredemo/DesignSystem/SystemCursorShape.swift \
   Soredemo/Recording/CountdownPanel.swift \
-  Soredemo/Recording/RecordingBar.swift \
+  Soredemo/Recording/RecordingBar/RecordingBarPanel.swift \
+  Soredemo/Recording/RecordingBar/WindowDragger.swift \
+  Soredemo/Recording/RecordingBar/RecordingBarPresenter.swift \
+  Soredemo/Recording/RecordingBar/RecordingBarView.swift \
+  Soredemo/Recording/RecordingSignals.swift \
   Soredemo/Recording/Notch/NotchSurface.swift \
   Soredemo/Recording/Notch/NotchSurfaceModel.swift \
   Soredemo/Recording/Notch/NotchSurfacePanel.swift \
