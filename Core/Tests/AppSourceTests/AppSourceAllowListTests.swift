@@ -1113,17 +1113,19 @@ func firstPartySourceFiles() throws -> [URL] {
 /// lengths, which is what a person sees. Matching the two numbers would have left the two
 /// shapes free to drift apart again, so there is one row builder and both rows go through it.
 ///
-/// Checked as "exactly one popup style in this file", which is the mechanical consequence: a
-/// second row that built its own popup would have to declare one.
+/// Checked as "exactly one popup style in the panel's files", which is the mechanical
+/// consequence: a second row that built its own popup would have to declare one. Every file in
+/// `Recording/MenuBar/`, since the panel became one file per section (2026-10-24), so a row
+/// added to a new file is counted too.
 @Test func theMenuBarPanelHasOneSettingsRowShape() throws {
     let panel = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
-    try #require(panel.count == 1, "MenuBarRecorder.swift is not where this scan names it")
+        .filter { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/MenuBar/") }
+    try #require(panel.count >= 7, "the menu bar panel's files are not where this scan names them")
     let popups = try codeLinesNaming("pickerStyle(.menu)", in: panel)
     #expect(popups.count == 1, """
         \(popups.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
         Two rows declaring their own popup is how Frame rate and Countdown came to be different \
-        lengths. Route the new row through `settingRow(icon:title:selection:options:)`.
+        lengths. Route the new row through `MenuBarSettingRow`.
         """)
 }
 
@@ -1472,7 +1474,7 @@ private func desktopIconsFile() throws -> [URL] {
 /// silently rename the device.
 @Test func aConnectedDevicesNameIsNotPutThroughTheStringTable() throws {
     let menu = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBar/MenuBarTargets.swift" }
     try #require(menu.count == 1)
     let lines = try String(contentsOf: menu[0], encoding: .utf8)
         .components(separatedBy: .newlines)
@@ -1593,62 +1595,55 @@ private func desktopIconsFile() throws -> [URL] {
 /// the camera off.
 @Test func cameraEffectsAreOnlyNamedWhenACameraIsBeingRecorded() throws {
     let menu = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBar/MenuBarSourceRows.swift" }
     try #require(menu.count == 1)
     let lines = SwiftSourceLexer.codeViewLines(
         of: try String(contentsOf: menu[0], encoding: .utf8))
 
     let shown = try #require(lines.firstIndex { $0.contains("camera.activeEffects.isEmpty") },
                              "the camera-effects row is gone, and this scan is about it")
-    #expect(lines[shown].contains("camera.source != .off"), """
+    #expect(lines[shown].contains("source != .off"), """
         The effects row at line \(shown + 1) is not gated on a camera being selected, so it \
         names macOS's video effects beside "No camera".
         """)
 }
 
-/// **Two footer items per row, because a third truncates all of them.**
+/// **The footer draws no words, so nothing in it can truncate.**
 ///
-/// The panel is 292 points wide. Three links in one row rendered as "Op…", "O…", "Set…" — not
-/// shorter labels but unreadable ones, and the row is the only place Open Project, Open Video
-/// and Settings can be reached when no window is open. Reported from a screenshot.
+/// The panel is 292 points wide. Labelled footer links rendered as "Op…", "O…", "Set…" at three
+/// to a row and "Open Proj… ⌘O" at two — reported from a screenshot — and no arrangement of
+/// rows fitted the English labels with their shortcuts. So the footer became icons, with each
+/// name moved to `.help` and to an accessibility label (`FooterIcon`).
 ///
-/// Counted rather than measured: nothing here can lay out text, but a row's item count is the
-/// thing that went wrong and it is right there in the source.
-@Test func theMenuBarFooterPutsAtMostTwoLinksInARow() throws {
-    let menu = try appSourceFiles()
-        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBarRecorder.swift" }
-    try #require(menu.count == 1)
+/// **This replaced `theMenuBarFooterPutsAtMostTwoLinksInARow` on 2026-10-24**, which had stopped
+/// checking anything: it counted lines naming `PanelLink(`, a type deleted on 2026-10-23, so of
+/// the footer's four items it saw one and passed. The rule it guarded — two per row — had been
+/// overtaken by the icons; what the icons need is that no visible text comes back.
+///
+/// Checked on `FooterIcon`'s body, which every footer item draws: a `Text` there is a word on
+/// screen, except inside `.help` and `.accessibilityLabel`, which are where the names went.
+@Test func theMenuBarFooterDrawsNoWordsThatCanTruncate() throws {
+    let footer = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Recording/MenuBar/MenuBarFooter.swift" }
+    try #require(footer.count == 1, "MenuBarFooter.swift is not where this scan names it")
     let lines = SwiftSourceLexer.codeViewLines(
-        of: try String(contentsOf: menu[0], encoding: .utf8))
+        of: try String(contentsOf: footer[0], encoding: .utf8))
 
-    let start = try #require(lines.firstIndex { $0.contains("private var footer: some View") },
-                             "the footer is gone")
-    // The footer ends at the `.font` modifier that closes it.
-    let end = try #require(lines[start...].firstIndex { $0.contains(".font(.system(size: 12))") })
+    let start = try #require(lines.firstIndex { $0.contains("private struct FooterIcon: View") },
+                             "FooterIcon is gone, and this scan is about it")
+    let end = try #require(lines[(start + 1)...].firstIndex { $0.hasPrefix("}") },
+                           "FooterIcon has no closing brace at the start of a line")
+    let body = lines[start...end]
+    try #require(body.contains { $0.contains("Image(systemName:") },
+                 "FooterIcon draws no symbol, so this scan is looking at the wrong thing")
 
-    // **Segmented between one `HStack` and the next, not by brace matching.** A first version
-    // closed the row on the first line that was only `}` — which is the closing brace of a
-    // PanelLink's own trailing closure, not the row's. It counted one link per row however many
-    // there were, and a mutation putting three in a row left it green.
-    var rowCounts: [Int] = []
-    var current: Int?
-    for index in start...end {
-        let line = lines[index]
-        if line.contains("HStack(spacing:") {
-            if let count = current { rowCounts.append(count) }
-            current = 0
-        }
-        if line.contains("PanelLink(") || line.contains("SettingsPanelLink(") {
-            current = (current ?? 0) + 1
-        }
+    let words = body.enumerated().filter { _, line in
+        line.contains("Text(") && !line.contains(".help(") && !line.contains(".accessibilityLabel(")
     }
-    if let count = current { rowCounts.append(count) }
-    let worst = rowCounts.max() ?? 0
-
-    #expect(worst > 0, "no footer links were found at all, so this scan decided nothing")
-    #expect(worst <= 2, """
-        A footer row holds \(worst) links. The panel is 292 points wide and a third makes every \
-        title in the row truncate — "Op…", "O…", "Set…" — which is the state a screenshot caught.
+    #expect(words.isEmpty, """
+        FooterIcon draws text at \(words.map { "line \(start + $0.offset + 1)" }.joined(separator: ", ")). \
+        A word in the footer truncates at this width; put the name in `.help` and \
+        `.accessibilityLabel`, as the others are.
         """)
 }
 
@@ -2561,14 +2556,20 @@ private let untranslatableLiterals: Set<String> = [
 /// surface and not the other fails here rather than being noticed by its absence.
 @Test func theNotchOffersEveryWayOfStartingThatTheMenuDoes() throws {
     let files = try appSourceFiles()
-    func verbs(in name: String) throws -> Set<String> {
-        let file = try #require(files.first { $0.lastPathComponent == name }, "\(name) is not under the app's sources")
-        let lines = SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
+    func verbs(where matches: (URL) -> Bool, _ what: String) throws -> Set<String> {
+        let chosen = files.filter(matches)
+        try #require(!chosen.isEmpty, "\(what) is not under the app's sources")
         let pattern = try Regex(#"coordinator\.(begin[A-Za-z]*Recording[A-Za-z]*)\("#)
-        return Set(lines.flatMap { line in line.matches(of: pattern).map { String($0.output[1].substring ?? "") } })
+        return Set(try chosen.flatMap { file in
+            SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
+                .flatMap { line in line.matches(of: pattern).map { String($0.output[1].substring ?? "") } }
+        })
     }
-    let menu = try verbs(in: "MenuBarRecorder.swift")
-    let notch = try verbs(in: "NotchSurfacePanel.swift")
+    // The menu is every file of the panel, since it became one file per section.
+    let menu = try verbs(where: { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/MenuBar/") },
+                         "Recording/MenuBar/")
+    let notch = try verbs(where: { $0.lastPathComponent == "NotchSurfacePanel.swift" },
+                          "NotchSurfacePanel.swift")
     try #require(menu.count >= 4, "the menu offers \(menu.sorted()) — fewer than the four ways there are, so the pattern has stopped matching")
     #expect(menu.subtracting(notch).isEmpty, """
         the menu can start a recording with \(menu.subtracting(notch).sorted()) and the notch cannot
@@ -2580,7 +2581,7 @@ private let untranslatableLiterals: Set<String> = [
 /// a surface without it can only record.
 @Test func theNotchAndTheMenuBothOfferAScreenshot() throws {
     let files = try appSourceFiles()
-    for name in ["MenuBarRecorder.swift", "NotchSurfacePanel.swift"] {
+    for name in ["MenuBarTargets.swift", "NotchSurfacePanel.swift"] {
         let file = try #require(files.first { $0.lastPathComponent == name }, "\(name) is not under the app's sources")
         let lines = SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
         #expect(lines.contains { $0.contains("coordinator.capturePurpose = $0") },

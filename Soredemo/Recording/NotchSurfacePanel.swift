@@ -214,7 +214,7 @@ struct NotchSurfaceView: View {
                     .help(coordinator.capturePurpose == .take ? Text("Record") : Text("Screenshot"))
                 }, right: {
                     if coordinator.capturePurpose == .take {
-                        Text(verbatim: MenuBarRecorderPanel.toggleShortcut).opacity(0.6)
+                        Text(verbatim: GlobalHotkey.toggleRecordingSpelling).opacity(0.6)
                     } else {
                         Text("Screenshot").lineLimit(1).minimumScaleFactor(0.8)
                     }
@@ -252,7 +252,7 @@ struct NotchSurfaceView: View {
                 Text("Record").lineLimit(1).minimumScaleFactor(0.7)
             }
         }, right: {
-            Text(verbatim: MenuBarRecorderPanel.toggleShortcut).opacity(0.6)
+            Text(verbatim: GlobalHotkey.toggleRecordingSpelling).opacity(0.6)
         })
     }
 

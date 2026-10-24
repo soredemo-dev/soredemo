@@ -419,7 +419,7 @@ struct RecordingBarView: View {
         // becomes key, and a shortcut on a button in a window that cannot take focus is a
         // shortcut that never fires — which is what ⎋ was doing. The key that stops a recording
         // is registered system-wide; see `GlobalHotkey`.
-        .help("Stop recording (\(MenuBarRecorderPanel.toggleShortcut))")
+        .help("Stop recording (\(GlobalHotkey.toggleRecordingSpelling))")
     }
 
     /// `m:ss` under an hour, `h:mm:ss` over it. A leading `00:` on every recording is two

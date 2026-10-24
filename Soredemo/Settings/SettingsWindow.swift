@@ -230,7 +230,7 @@ struct SettingsWindow: View {
 
     @ViewBuilder private var export: some View {
         SwiftUI.Section("Shortcut") {
-            LabeledContent("Start and stop", value: MenuBarRecorderPanel.toggleShortcut)
+            LabeledContent("Start and stop", value: GlobalHotkey.toggleRecordingSpelling)
             Text("Works while another application is in front, which is when a recording is stopped.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }

@@ -177,7 +177,9 @@ a new group.
 are about one narrower thing, that is a subgroup. `Inspector/` is at seven panels and
 flat; it does not need one yet. **`Editor/Timeline/` is the first subgroup** (2026-10-23): the
 timeline's view became one file per lane, ten files about one thing. See
-`docs/design/2026-10-23-splitting-the-timeline.md`.
+`docs/design/2026-10-23-splitting-the-timeline.md`. **`Recording/MenuBar/` is the second**
+(2026-10-24): the menu bar label and its panel, one file per section —
+`docs/design/2026-10-24-splitting-the-menu-bar-panel.md`.
 
 **No `Utilities/`, `Helpers/`, `Common/` or `Shared/`.** They are the named
 anti-pattern: a folder whose membership rule is "nowhere else fits" has no membership

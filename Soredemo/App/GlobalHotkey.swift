@@ -41,12 +41,18 @@ final class GlobalHotkey {
 
     private init() {}
 
-    /// ⌘⇧R — start a recording, or stop the one running. **One key for both**, because the
+    /// ⇧⌘R — start a recording, or stop the one running. **One key for both**, because the
     /// question a person has mid-recording is "how do I stop this", and an answer that depends on
     /// remembering a second combination is not an answer. A surveyed recorder binds start and stop
     /// separately AND ships a toggle; the toggle is the one people use.
     static let toggleRecordingKeyCode = UInt32(kVK_ANSI_R)
     static let toggleRecordingModifiers = UInt32(cmdKey | shiftKey)
+    /// The same combination as a person reads it, in the system's modifier order (⌃⌥⇧⌘).
+    ///
+    /// **Beside the registration it spells**, so the two cannot be changed one at a time without
+    /// a test noticing (`GlobalHotkeyTests`). It lived on the menu bar panel, which four other
+    /// surfaces reached into for it, and it read `⌘⇧R` — an order no macOS menu uses.
+    static let toggleRecordingSpelling = "\u{21E7}\u{2318}R"
 
     /// Registers `action` for a key code and Carbon modifier mask. Returns false when the system
     /// refuses — usually because another application already holds the combination, which is a

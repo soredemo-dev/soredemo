@@ -143,7 +143,14 @@ xcrun swiftc \
   Soredemo/Recording/RecordingBar.swift \
   Soredemo/Recording/NotchSurface.swift \
   Soredemo/Recording/NotchSurfacePanel.swift \
-  Soredemo/Recording/MenuBarRecorder.swift \
+  Soredemo/Recording/MenuBar/MenuBarRecorderLabel.swift \
+  Soredemo/Recording/MenuBar/MenuBarRecorderPanel.swift \
+  Soredemo/Recording/MenuBar/MenuBarTargets.swift \
+  Soredemo/Recording/MenuBar/MenuBarSourceRows.swift \
+  Soredemo/Recording/MenuBar/MenuBarSettingRows.swift \
+  Soredemo/Recording/MenuBar/MenuBarRecordingControls.swift \
+  Soredemo/Recording/MenuBar/MenuBarFooter.swift \
+  Soredemo/Recording/DisplayRefreshRates.swift \
   Soredemo/Settings/SettingsWindow.swift \
   Soredemo/Project/ProjectDocument.swift \
   Soredemo/Editor/PreviewView.swift \
