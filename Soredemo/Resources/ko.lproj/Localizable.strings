@@ -397,8 +397,8 @@
 "Guides" = "가이드";
 "Show where captions may be cut off or covered" = "자막이 잘리거나 가려질 수 있는 곳 표시";
 "Covered on most vertical platforms" = "대부분의 세로형 플랫폼이 여기를 가립니다";
-"You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off." = "이 줌은 직접 조정한 것입니다. 드래그로 이동, 오른쪽 끝을 드래그해 길이 변경, 클릭하면 끄기.";
-"Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off." = "클릭에서 도출된 것입니다. 드래그로 이동, 오른쪽 끝을 드래그해 길이 변경, 클릭하면 끄기.";
+"You moved this zoom. Drag to move it again, drag an edge to change when it starts or ends, click to turn it off." = "이 줌은 직접 조정한 것입니다. 드래그로 이동, 가장자리를 드래그해 시작이나 끝 변경, 클릭하면 끄기.";
+"Derived from a click. Drag to move, drag an edge to change when it starts or ends, click to turn it off." = "클릭에서 도출된 것입니다. 드래그로 이동, 가장자리를 드래그해 시작이나 끝 변경, 클릭하면 끄기.";
 "Zoom, off" = "줌, 꺼짐";
 "Zoom, adjusted" = "줌, 조정됨";
 "Zoom, derived from a click" = "줌, 클릭에서 도출";

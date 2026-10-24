@@ -204,6 +204,36 @@ public struct CameraMotion: Sendable {
         return Array(zip(path.times, path.states)).map { (seconds: $0.0, state: $0.1) }
     }
 
+    /// The camera's depth from `start` to `end`, as one value per column — what the zoom lane
+    /// draws, so the timeline shows the move the picture makes: when the camera arrives, how
+    /// long it holds, whether it goes back out between two blocks or pans.
+    ///
+    /// **Each column is its span's HIGHEST depth**, not a sample at its edge: a column can be
+    /// a second wide on a long recording, and an arrival shorter than a column would vanish.
+    /// Read off the same baked path `state(at:)` answers from, so the lane and the render
+    /// cannot disagree about timing. Empty for no columns, an empty span, or a span across two
+    /// boots — failures outside the range of a profile rather than a row of ones that reads as
+    /// "no zoom here". See `docs/design/2026-10-25-the-zoom-lane-draws-the-camera.md`.
+    public func zoomProfile(from start: HostInstant, to end: HostInstant, columns: Int) -> [Double] {
+        guard columns > 0, start.epoch == end.epoch,
+              end.hostTime.rawValue > start.hostTime.rawValue else { return [] }
+        let from = Double(start.hostTime.rawValue) / 1_000_000_000
+        let span = (Double(end.hostTime.rawValue) / 1_000_000_000 - from) / Double(columns)
+        // Each column starts from the camera AT its left edge, so a column with no integration
+        // step inside it — narrower than a step — still says what the camera is doing.
+        var values = (0..<columns).map { column in
+            state(at: HostInstant(epoch: start.epoch,
+                                  hostTime: Nanoseconds(Int64((from + Double(column) * span) * 1_000_000_000)))).zoom
+        }
+        guard let path = paths[start.epoch] else { return values }
+        for (offset, state) in zip(path.times, path.states) {
+            let column = Int(((path.begin + offset) - from) / span)
+            guard column >= 0, column < columns else { continue }
+            values[column] = max(values[column], state.zoom)
+        }
+        return values
+    }
+
     /// Keeps the viewport inside the recording: at zoom `z` it is `1/z` wide, so the centre
     /// lives in the inset region. A target at the very edge pulls the centre to the edge of
     /// that region and no further, or the export shows blank where the recording ends.

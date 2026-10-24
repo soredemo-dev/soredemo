@@ -399,8 +399,8 @@
 "Guides" = "参考线";
 "Show where captions may be cut off or covered" = "显示字幕可能被裁掉或盖住的地方";
 "Covered on most vertical platforms" = "多数竖版平台会盖住这里";
-"You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off." = "这个缩放是你调过的。拖曳可再移动,拖右缘改变长度,点一下关掉。";
-"Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off." = "由点击推导出来的。拖曳可移动,拖右缘改变长度,点一下关掉。";
+"You moved this zoom. Drag to move it again, drag an edge to change when it starts or ends, click to turn it off." = "这个缩放是你调过的。拖曳可再移动,拖左右边缘改变开始或结束,点一下关掉。";
+"Derived from a click. Drag to move, drag an edge to change when it starts or ends, click to turn it off." = "由点击推导出来的。拖曳可移动,拖左右边缘改变开始或结束,点一下关掉。";
 "Zoom, off" = "缩放,已关闭";
 "Zoom, adjusted" = "缩放,已调整";
 "Zoom, derived from a click" = "缩放,由点击推导";

@@ -397,8 +397,8 @@
 "Guides" = "Направляющие";
 "Show where captions may be cut off or covered" = "Показать, где субтитры могут быть обрезаны или закрыты";
 "Covered on most vertical platforms" = "Закрыто на большинстве вертикальных платформ";
-"You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off." = "Этот зум вы передвинули. Тяните, чтобы переместить, тяните правый край для длительности, щёлкните, чтобы выключить.";
-"Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off." = "Выведен из щелчка. Тяните, чтобы переместить, тяните правый край для длительности, щёлкните, чтобы выключить.";
+"You moved this zoom. Drag to move it again, drag an edge to change when it starts or ends, click to turn it off." = "Этот зум вы передвинули. Тяните, чтобы переместить, тяните край, чтобы изменить начало или конец, щёлкните, чтобы выключить.";
+"Derived from a click. Drag to move, drag an edge to change when it starts or ends, click to turn it off." = "Выведен из щелчка. Тяните, чтобы переместить, тяните край, чтобы изменить начало или конец, щёлкните, чтобы выключить.";
 "Zoom, off" = "Зум, выключен";
 "Zoom, adjusted" = "Зум, изменён";
 "Zoom, derived from a click" = "Зум, выведен из щелчка";

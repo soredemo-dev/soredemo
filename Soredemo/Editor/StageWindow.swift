@@ -423,7 +423,11 @@ struct StageWindow: View {
             // sees would keep the depths the dial just changed.
             editor.refreshDerivedZooms()
         }
-        .task(id: editor.cameraPace) { StageCompositor.cameraPace = editor.cameraPace }
+        // The lane's curve is baked at the same pace as the picture — see `ZoomCurve`.
+        .task(id: editor.cameraPace) {
+            StageCompositor.cameraPace = editor.cameraPace
+            editor.timeline.cameraPace = editor.cameraPace
+        }
         .task(id: editor.crop) {
             StageCompositor.crop = editor.crop
             // Coverage depends on the cropped aspect, so it moves with the crop or it lies.

@@ -200,6 +200,44 @@ final class TimelineEditorModel {
         zoomAnchor.flatMap { FramingPlanReader.offset(of: instant, from: $0) }
     }
 
+    /// How fast the camera moves — the editor's choice, handed in so the lane's curve is baked at
+    /// the pace the render uses. `StageWindow` keeps it in step with `EditorViewModel.cameraPace`.
+    var cameraPace = CameraPace.standard
+
+    /// The camera's depth across the visible window, one value per column, 0 at rest and 1 at
+    /// the deepest zoom in view — what `ZoomCurve` draws. Empty without an anchor, without a
+    /// zoom, or without columns. See `CameraMotion.zoomProfile` and
+    /// `docs/design/2026-10-25-the-zoom-lane-draws-the-camera.md`.
+    func zoomCurve(columns: Int) -> [Double] {
+        guard let zoomAnchor, columns > 0, !zooms.isEmpty else { return [] }
+        let depths = camera.zoomProfile(from: zoomAnchor.instant(atOffset: window.start),
+                                        to: zoomAnchor.instant(atOffset: window.start + window.visible),
+                                        columns: columns)
+        guard let deepest = depths.max(), deepest > CameraMotion.identityZoomBound else {
+            return depths.map { _ in 0 }
+        }
+        return depths.map { ($0 - 1) / (deepest - 1) }
+    }
+
+    /// The camera baked from the zooms as they stand, kept until the zooms or the pace change —
+    /// a bake integrates the whole recording, and the lane asks on every redraw of a drag.
+    private var camera: CameraMotion {
+        let key = CameraKey(zooms: zooms, pace: cameraPace)
+        if let cachedCamera, cachedCamera.key == key { return cachedCamera.motion }
+        let motion = CameraMotion(blocks: zooms, pace: cameraPace)
+        cachedCamera = (key, motion)
+        cameraBakes += 1
+        return motion
+    }
+
+    private struct CameraKey: Equatable {
+        let zooms: [ZoomBlock]
+        let pace: CameraPace
+    }
+    @ObservationIgnored private var cachedCamera: (key: CameraKey, motion: CameraMotion)?
+    /// How many times the camera has been baked — so a test can tell a cache hit from a re-bake.
+    @ObservationIgnored private(set) var cameraBakes = 0
+
     func setZoomAnchor(_ anchor: EpochAnchor?) {
         zoomAnchor = anchor
     }
@@ -223,7 +261,8 @@ final class TimelineEditorModel {
         let edges = zoomEdges(of: origin, in: base)
         let snapped = snappedDelta(moving: edges, by: delta, threshold: snapThreshold,
                                    zoomsFrom: base, excludingZoom: origin)
-        liveZooms = base.replacing(base.adjustment(for: origin).movedBy(snapped))
+        let held = clamped(snapped, of: origin, in: base, start: true, end: true)
+        liveZooms = base.replacing(base.adjustment(for: origin).movedBy(held))
     }
 
     /// Shows a zoom's end being dragged, its end lining up as a trim's does.
@@ -234,7 +273,52 @@ final class TimelineEditorModel {
         let edges = zoomEdges(of: origin, in: base).suffix(1)
         let snapped = snappedDelta(moving: Array(edges), by: delta, threshold: snapThreshold,
                                    zoomsFrom: base, excludingZoom: origin)
-        liveZooms = base.replacing(base.adjustment(for: origin).resizedBy(snapped))
+        let held = clamped(snapped, of: origin, in: base, start: false, end: true)
+        liveZooms = base.replacing(base.adjustment(for: origin).resizedBy(held))
+    }
+
+    /// Shows a zoom's START being dragged while its end stays where it is.
+    ///
+    /// `ZoomAdjustment` moves the whole block with `startDelta` and the end alone with
+    /// `endDelta`, so a start that moves by `d` is a move by `d` and an end pulled back by the
+    /// same `d`. **A start dragged past the end is "no zoom here"**, for the reason
+    /// `ZoomAdjustment.applied(to:)` gives for an end dragged past the start.
+    func previewZoomResizeStart(_ origin: HostInstant, byNanoseconds delta: Int64,
+                                snapThreshold: Nanoseconds = Nanoseconds(0)) {
+        let base = history.current.zooms
+        draggingZoom = origin
+        let edges = zoomEdges(of: origin, in: base).prefix(1)
+        let snapped = snappedDelta(moving: Array(edges), by: delta, threshold: snapThreshold,
+                                   zoomsFrom: base, excludingZoom: origin)
+        let held = clamped(snapped, of: origin, in: base, start: true, end: false)
+        liveZooms = base.replacing(base.adjustment(for: origin).movedBy(held).resizedBy(-held))
+    }
+
+    /// `delta`, stopped where the zoom would run into its neighbour.
+    ///
+    /// **Stopped rather than refused**, the trim's rule: the part of a drag that was legal stays
+    /// on screen. Two adjusted zooms that overlapped would aim the camera at whichever it
+    /// reached first, a state derivation never produces — `ZoomBlock.blocks` merges overlaps.
+    /// A switched-off zoom is not in the way: it is not drawn into the picture.
+    private func clamped(_ delta: Int64, of origin: HostInstant, in adjustments: [ZoomAdjustment],
+                         start movesStart: Bool, end movesEnd: Bool) -> Int64 {
+        let edges = zoomEdges(of: origin, in: adjustments)
+        guard edges.count == 2 else { return delta }
+        let (start, end) = (edges[0].rawValue, edges[1].rawValue)
+        let others = adjustments.applied(to: derivedZooms)
+            .filter { $0.origin != origin }
+            .compactMap { block -> (Int64, Int64)? in
+                guard let s = offset(of: block.start), let e = offset(of: block.end) else { return nil }
+                return (s.rawValue, e.rawValue)
+            }
+        var held = delta
+        if movesStart, let previous = others.filter({ $0.1 <= start }).map(\.1).max() {
+            held = max(held, previous - start)
+        }
+        if movesEnd, let next = others.filter({ $0.0 >= end }).map(\.0).min() {
+            held = min(held, next - end)
+        }
+        return held
     }
 
     /// A zoom's start and end in source time under `adjustments`, or none when it cannot be
@@ -273,7 +357,7 @@ final class TimelineEditorModel {
     }
 
     /// What a zoom drag did, which is what its undo step is called.
-    enum ZoomDrag: Sendable { case move, resize }
+    enum ZoomDrag: Sendable { case move, resizeStart, resizeEnd }
 
     /// Commits the drag as ONE history step, for the same reason a trim does, or nothing if
     /// nothing moved. **The name is chosen here, from the kind of drag,** so it is a localised
@@ -286,8 +370,8 @@ final class TimelineEditorModel {
         }
         guard let live = liveZooms else { return }
         switch drag {
-        case .move:   recordZooms("Move Zoom", live)
-        case .resize: recordZooms("Resize Zoom", live)
+        case .move:                   recordZooms("Move Zoom", live)
+        case .resizeStart, .resizeEnd: recordZooms("Resize Zoom", live)
         }
     }
 

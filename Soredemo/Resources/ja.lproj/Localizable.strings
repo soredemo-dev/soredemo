@@ -399,8 +399,8 @@
 "Guides" = "ガイド";
 "Show where captions may be cut off or covered" = "字幕が切れたり隠れたりする範囲を表示";
 "Covered on most vertical platforms" = "縦型プラットフォームの多くはここを覆います";
-"You moved this zoom. Drag to move it again, drag the right edge to change how long it lasts, click to turn it off." = "このズームはあなたが調整したものです。ドラッグで移動、右端をドラッグで長さ変更、クリックでオフ。";
-"Derived from a click. Drag to move, drag the right edge to change how long it lasts, click to turn it off." = "クリックから導出されたものです。ドラッグで移動、右端をドラッグで長さ変更、クリックでオフ。";
+"You moved this zoom. Drag to move it again, drag an edge to change when it starts or ends, click to turn it off." = "このズームはあなたが調整したものです。ドラッグで移動、端をドラッグで開始・終了を変更、クリックでオフ。";
+"Derived from a click. Drag to move, drag an edge to change when it starts or ends, click to turn it off." = "クリックから導出されたものです。ドラッグで移動、端をドラッグで開始・終了を変更、クリックでオフ。";
 "Zoom, off" = "ズーム、オフ";
 "Zoom, adjusted" = "ズーム、調整済み";
 "Zoom, derived from a click" = "ズーム、クリックから導出";
