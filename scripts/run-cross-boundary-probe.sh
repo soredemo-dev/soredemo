@@ -196,24 +196,24 @@ xcrun swiftc \
   Soredemo/Editor/CanvasBar.swift \
   Soredemo/Editor/TransportBar.swift \
   Soredemo/Project/ProjectStore.swift \
-  Soredemo/Inspector/SystemCaptionStyle.swift \
-  Soredemo/Inspector/CaptionsPanel.swift \
-  Soredemo/Inspector/CaptionsModel.swift \
-  Soredemo/Inspector/TranscriptionControls.swift \
-  Soredemo/Inspector/CaptionTermControls.swift \
-  Soredemo/Inspector/CaptionPresetControls.swift \
-  Soredemo/Inspector/CaptionLookControls.swift \
-  Soredemo/Inspector/CaptionField.swift \
+  Soredemo/Inspector/Captions/SystemCaptionStyle.swift \
+  Soredemo/Inspector/Captions/CaptionsPanel.swift \
+  Soredemo/Inspector/Captions/CaptionsModel.swift \
+  Soredemo/Inspector/Captions/TranscriptionControls.swift \
+  Soredemo/Inspector/Captions/CaptionTermControls.swift \
+  Soredemo/Inspector/Captions/CaptionPresetControls.swift \
+  Soredemo/Inspector/Captions/CaptionLookControls.swift \
+  Soredemo/Inspector/Captions/CaptionField.swift \
   Soredemo/Editor/SafeFrameOverlay.swift \
   Soredemo/App/EditorWindowStyle.swift \
   Soredemo/App/WindowSizeFloor.swift \
   Soredemo/App/FullScreenEntry.swift \
   Soredemo/App/WindowObservers.swift \
   Soredemo/DesignSystem/Tooltip.swift \
-  Soredemo/Inspector/CaptionLines.swift \
+  Soredemo/Inspector/Captions/CaptionLines.swift \
   Soredemo/Editor/CaptionEditor.swift \
   Soredemo/Editor/CaptionWaveform.swift \
-  Soredemo/Inspector/TranscriptPanel.swift \
+  Soredemo/Inspector/Captions/TranscriptPanel.swift \
   Soredemo/Inspector/TextPanel.swift \
   Soredemo/Inspector/ChaptersPanel.swift \
   Soredemo/Inspector/ChapterSuggester.swift \

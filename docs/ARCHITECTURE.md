@@ -174,12 +174,16 @@ signal — either it belongs in `Core/` (D1a decides), or it is a new feature an
 a new group.
 
 **Sundell's rule of threes applies to the groups too:** once three files in a group
-are about one narrower thing, that is a subgroup. `Inspector/` is at seven panels and
-flat; it does not need one yet. **`Editor/Timeline/` is the first subgroup** (2026-10-23): the
+are about one narrower thing, that is a subgroup. **`Editor/Timeline/` is the first subgroup** (2026-10-23): the
 timeline's view became one file per lane, ten files about one thing. See
 `docs/design/2026-10-23-splitting-the-timeline.md`. **`Recording/MenuBar/` is the second**
 (2026-10-24): the menu bar label and its panel, one file per section —
 `docs/design/2026-10-24-splitting-the-menu-bar-panel.md`.
+**`Inspector/Captions/` is the third** (2026-10-24): this paragraph said `Inspector/` was "at
+seven panels and flat" and needed none, and splitting the captions panel had since put ten
+files about the one Captions tab in it — the model, the panel, its four sections, the line
+list, the field, the transcript and the system caption style. The rest of `Inspector/` is one
+file per tab and stays flat.
 
 **No `Utilities/`, `Helpers/`, `Common/` or `Shared/`.** They are the named
 anti-pattern: a folder whose membership rule is "nowhere else fits" has no membership
