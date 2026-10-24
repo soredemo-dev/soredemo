@@ -2,11 +2,17 @@
 # person (`CONTRIBUTING.md`, "The four gates"). Gates 3 and 5 capture a real screen and run the
 # app; they stay on a contributor's Mac, and a pull request says what they printed.
 #
-# NOT YET OBSERVED RUNNING. Written 2026-10-22 without a GitHub run to read. Two things may need
-# changing on its first run, and both fail loudly rather than passing by accident:
-#   - the runner needs an Xcode that ships Swift 6.4 and the macOS 27 SDK;
-#   - the renderer's tests record "no Metal render device" as a FAILURE, not a skip, by design —
-#     if the hosted runner has no Metal device, those tests are the ones that say so.
+# FIRST RUN, 2026-10-24 (run 40104724344, on `macos-latest`): failed in Gate 1's compile, as the
+# note that stood here predicted. That image's newest Xcode was 26.6 — Swift 6.3.3, the macOS 26
+# SDK — and `SCClipBufferingOutput`, macOS 27 API, was not in scope. No test ran.
+#
+# So the job runs on `xcode-27`, the runner images' Xcode 27 preview (actions/runner-images
+# #14404: Xcode 27.0 beta, the macOS 27 SDK; Swift's version is not listed there). A preview
+# image can queue and can change under us; the toolchain step below refuses to go on when the
+# compiler or SDK is older than this project needs, and says what it found.
+#
+# Still unobserved: whether the hosted runner has a Metal device. The renderer's tests record
+# "no Metal render device" as a FAILURE, not a skip, by design — they are the ones that say so.
 name: gates
 
 on:
@@ -16,7 +22,7 @@ on:
 
 jobs:
   gates:
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +34,21 @@ jobs:
           xcodebuild -version
           swift --version
           sw_vers
+          # **Refused on what was measured, before anything compiles.** The first run spent its
+          # time compiling against the wrong SDK and ended in "cannot find type" — an answer
+          # about the runner that read like one about the code.
+          swift_version="$(swift --version 2>&1 | sed -n 's/.*Swift version \([0-9]*\.[0-9]*\).*/\1/p' | head -1)"
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "measured: Swift ${swift_version:-none found}, macOS SDK ${sdk_version:-none found}"
+          if [ -z "$swift_version" ] || [ -z "$sdk_version" ]; then
+            echo "could not read the toolchain's versions; refusing to run the gates against it"; exit 1
+          fi
+          if [ "$(printf '%s\n6.4\n' "$swift_version" | sort -V | head -1)" != "6.4" ]; then
+            echo "Swift $swift_version is older than the 6.4 this project needs"; exit 1
+          fi
+          if [ "$(printf '%s\n27.0\n' "$sdk_version" | sort -V | head -1)" != "27.0" ]; then
+            echo "the macOS $sdk_version SDK is older than the 27.0 this project needs"; exit 1
+          fi
 
       - name: Gate 1 — the package's tests
         run: swift test --package-path Core --no-parallel
