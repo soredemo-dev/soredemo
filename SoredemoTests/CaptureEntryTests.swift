@@ -40,6 +40,18 @@ import Capture
         #expect(CaptureEntry.for(target: .area, device: nil, purpose: purpose) == .dragArea)
     }
 
+    /// **Choosing another target abandons a start that is still picking.** Two cards showed an
+    /// edge at once — the one chosen and the one whose picker was still up — seen by the owner on
+    /// 2026-10-25. Choosing the card that is already picking leaves it be.
+    @Test func choosingAnotherTargetCancelsAStartStillPicking() {
+        #expect(CaptureEntry.cancelsPending(.region, choosing: .screen))
+        #expect(CaptureEntry.cancelsPending(.windowsOnly, choosing: .area))
+        #expect(CaptureEntry.cancelsPending(.displaysOnly, choosing: .window))
+        #expect(!CaptureEntry.cancelsPending(.region, choosing: .area))
+        #expect(!CaptureEntry.cancelsPending(.displaysOnly, choosing: .screen))
+        #expect(!CaptureEntry.cancelsPending(nil, choosing: .screen))
+    }
+
     /// A chosen device outranks the remembered card, and has no picture to take.
     @Test func aChosenDeviceIsRecordedAndCannotBePhotographed() {
         #expect(CaptureEntry.for(target: .area, device: phone, purpose: .take) == .device(phone))

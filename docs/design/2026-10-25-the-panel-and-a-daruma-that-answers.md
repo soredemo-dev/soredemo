@@ -207,3 +207,11 @@ row declaring its own indicator. Looked at: the panel in the light and dark them
 
 **Not done here:** the notch has its own Record/Screenshot switch and its own target buttons,
 which now disagree with the panel. It is the next surface.
+
+**Two cards at once (found by the owner the same day).** The chosen card and a card whose picker
+was still up both wore the ink edge, because busy drew the same edge as chosen — so Screen and
+Area read as both selected. Now only the chosen card has the edge, a busy card shows a small
+spinner, and choosing a different target cancels the start that is still picking
+(`CaptureEntry.cancelsPending`; red with every pending start cancelled, which choosing the card
+already picking must not do). The coordinator's call to it is not covered by a test: observing it
+needs a picker up.

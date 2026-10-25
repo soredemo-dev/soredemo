@@ -92,11 +92,15 @@ final class RecordingCoordinator {
     /// The target a press of Record or Screenshot will capture — one choice for the panel and the
     /// notch both, so choosing Window in one is choosing it in the other.
     func choose(_ target: CaptureTarget) {
+        if CaptureEntry.cancelsPending(pendingMode, choosing: target) { cancelPendingStart() }
         selectedDevice = nil
         preferences.captureTarget = target
     }
 
-    func choose(device: MobileScreen.Source) { selectedDevice = device }
+    func choose(device: MobileScreen.Source) {
+        if pendingMode != nil { cancelPendingStart() }
+        selectedDevice = device
+    }
 
     /// Shown as chosen: the remembered target, unless a connected device was chosen over it.
     func isChosen(_ target: CaptureTarget) -> Bool {

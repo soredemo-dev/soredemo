@@ -27,3 +27,19 @@ enum CaptureEntry: Equatable {
         }
     }
 }
+
+extension CaptureEntry {
+    /// Whether choosing `target` abandons a start that is still picking: a picker is up for some
+    /// other target. Choosing the card that is picking leaves it be. Without this the panel showed
+    /// two chosen cards at once — the new choice, and the old one whose picker was still up.
+    static func cancelsPending(_ pending: CaptureSourcePicker.Modes?, choosing target: CaptureTarget) -> Bool {
+        guard let pending else { return false }
+        let picking: CaptureTarget? = switch pending {
+        case .displaysOnly: .screen
+        case .windowsOnly: .window
+        case .region: .area
+        case .displaysAndWindows: nil
+        }
+        return picking != target
+    }
+}

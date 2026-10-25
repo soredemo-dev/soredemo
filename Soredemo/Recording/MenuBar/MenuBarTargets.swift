@@ -118,6 +118,9 @@ private struct TargetCard: View {
             }
             .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
             .padding(Space.regular)
+            .overlay(alignment: .topTrailing) {
+                if isBusy { ProgressView().controlSize(.mini).padding(Space.snug) }
+            }
             .background { card }
             .contentShape(Rectangle())
         }
@@ -126,12 +129,13 @@ private struct TargetCard: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// The system's own fill, with corners concentric to the popover's; the chosen card wears the
-    /// ink accent's edge. Busy — its picker is up — is the same edge, not a new colour.
+    /// The system's own fill, with corners concentric to the popover's; **only the chosen card
+    /// wears the ink accent's edge.** Busy — its picker is up — is a small spinner, not a second
+    /// edge: two edges read as two choices (seen 2026-10-25).
     @ViewBuilder private var card: some View {
         let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(Glass.controlRadius)),
                                         isUniform: true)
-        if isSelected || isBusy {
+        if isSelected {
             shape.fill(Theme.accent.opacity(0.10))
                 .overlay(shape.stroke(Theme.accent, lineWidth: 1.5))
         } else {
