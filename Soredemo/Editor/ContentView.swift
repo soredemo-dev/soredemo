@@ -44,9 +44,16 @@ struct ContentView: View {
                 // `openWindow` are between them meant to prevent. Kept as a plain statement of
                 // fact rather than a welcome screen: the welcome screen WAS this window, and it
                 // was the thing covering the screen a person came to record.
-                ContentUnavailableView("Nothing open",
-                                       systemImage: "record.circle",
-                                       description: Text("Start a recording from the menu bar."))
+                // The menu bar's resting daruma, in the template ink a system empty state uses.
+                ContentUnavailableView {
+                    Label {
+                        Text("Nothing open")
+                    } icon: {
+                        DarumaView(style: .template).frame(width: 44, height: 44)
+                    }
+                } description: {
+                    Text("Start a recording from the menu bar.")
+                }
             }
         }
         .frame(minWidth: 640, minHeight: 460)

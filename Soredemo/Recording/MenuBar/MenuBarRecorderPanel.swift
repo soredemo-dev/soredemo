@@ -17,14 +17,17 @@ import SwiftUI
 /// `docs/design/2026-10-24-splitting-the-menu-bar-panel.md`.
 struct MenuBarRecorderPanel: View {
     let coordinator: RecordingCoordinator
+    /// Which card the pointer is over, for the header's mark to look at. An object rather than a
+    /// value so that only the header, which reads it, redraws as the pointer moves.
+    @State private var glance = PanelGlance()
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.regular) {
-            MenuBarHeader(coordinator: coordinator)
+            MenuBarHeader(coordinator: coordinator, glance: glance)
             if coordinator.isRecording {
                 MenuBarRecordingControls(coordinator: coordinator)
             } else {
-                MenuBarTargets(coordinator: coordinator)
+                MenuBarTargets(coordinator: coordinator, glance: glance)
                 // **The take's rows, always shown.** There is no mode to hide them behind any more:
                 // they set what Record records, and Screenshot, beside it, takes none of them. The
                 // frame rate is set once and lives in Settings, beside the countdown's own entry.
@@ -95,20 +98,20 @@ struct MenuBarRecorderPanel: View {
 /// `coordinator.elapsed` re-ran the whole panel's body for the length of the recording.
 private struct MenuBarHeader: View {
     let coordinator: RecordingCoordinator
+    let glance: PanelGlance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: Space.snug) {
-            // **The template mark, not the coloured one.** `Logomark` is a black daruma with a
-            // red eye, which is right on a welcome page and wrong beside a label: in the header
-            // it would be the one coloured thing in a panel of plain text, drawing the eye to the
-            // app's own name — the least useful thing on the panel. Template rendering hands it
-            // the same ink the title is set in, and follows a light system the way the title does.
-            Image("LogomarkTemplate")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
+            // **The template mark, not the coloured one**: a coloured mark would be the loudest
+            // thing beside a label, drawing the eye to the app's own name. Drawn rather than
+            // baked so its eye can look toward the card under the pointer — the mark saying what
+            // the next press will capture. Under Reduce Motion the eye moves without travelling.
+            DarumaView(pose: .looking(at: glance.target), style: .template)
                 .frame(width: 18, height: 18)
                 .foregroundStyle(.primary)
+                .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.7),
+                           value: glance.target)
             Text("Soredemo")
                 .font(.system(size: 14, weight: .semibold))
             Spacer()

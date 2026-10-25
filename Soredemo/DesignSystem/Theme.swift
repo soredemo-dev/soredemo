@@ -107,6 +107,11 @@ enum Theme {
     }
 }
 
+extension Palette.RGB {
+    /// This value as SwiftUI draws it — for marks drawn in a fixed brand colour, not a theme token.
+    var color: Color { Color(.sRGB, red: red, green: green, blue: blue) }
+}
+
 extension View {
     /// A panel: the panel ground, in whichever theme is showing.
     func editorPanel() -> some View {

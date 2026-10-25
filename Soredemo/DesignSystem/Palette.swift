@@ -99,6 +99,10 @@ nonisolated enum Palette {
         static let washi = RGB(hex: 0xF4F3EF)
         static let shu = RGB(hex: 0xFA3D4A)
         static let kin = RGB(hex: 0xC8A24A)
+        /// The dark mark's body, a paper a shade off white (the brand kit's dark logomark).
+        static let paper = RGB(hex: 0xF4F4F5)
+        /// The vermilion daruma's body (shu-nuri), when a person chose that icon.
+        static let shuNuri = RGB(hex: 0xE8452C)
     }
 
     /// One tint per timeline track. The hue is the lane's; lightness and chroma are the theme's.

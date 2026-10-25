@@ -200,6 +200,7 @@ xcrun swiftc \
   Soredemo/Editor/AtPlayhead.swift \
   Soredemo/Editor/CaptionCueTracker.swift \
   Soredemo/DesignSystem/Theme.swift \
+  Soredemo/DesignSystem/DarumaView.swift \
   Soredemo/DesignSystem/Palette.swift \
   Soredemo/App/WindowConfigurator.swift \
   Soredemo/Recording/TargetPickerOverlay.swift \

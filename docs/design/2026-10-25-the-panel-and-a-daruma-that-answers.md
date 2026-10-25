@@ -163,6 +163,8 @@ than pressed, and their detail line wraps.
 
 ### C. The daruma that answers
 
+**Built the same day — `2026-10-25-a-daruma-that-answers.md` says what changed on the way.**
+
 Restraint first: it is never on the picture being recorded, never moves during a take except
 where it carries information, and holds still under Reduce Motion. Each state is entered by
 something real:

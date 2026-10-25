@@ -4,6 +4,7 @@ import SwiftUI
 /// What to capture: the cards a person chooses between before pressing Record or Screenshot.
 struct MenuBarTargets: View {
     let coordinator: RecordingCoordinator
+    let glance: PanelGlance
 
     var body: some View {
         targets
@@ -18,10 +19,12 @@ struct MenuBarTargets: View {
                        isSelected: coordinator.isChosen(.screen), isBusy: coordinator.pendingMode == .displaysOnly) {
                 coordinator.choose(.screen)
             }
+            .onHover { glance.hover(.screen, $0) }
             TargetCard(icon: "macwindow", title: "Window", detail: "Point at it",
                        isSelected: coordinator.isChosen(.window), isBusy: coordinator.pendingMode == .windowsOnly) {
                 coordinator.choose(.window)
             }
+            .onHover { glance.hover(.window, $0) }
             // **The third thing a recorder has to be able to point at.** A display capture of a
             // demo living in a small panel spends most of its pixels on desktop, and a window
             // capture cannot do it at all when the subject is part of a window rather than all
@@ -30,6 +33,7 @@ struct MenuBarTargets: View {
                        isSelected: coordinator.isChosen(.area), isBusy: coordinator.pendingMode == .region) {
                 coordinator.choose(.area)
             }
+            .onHover { glance.hover(.area, $0) }
         }
         // **The fourth card exists only while a device does.** A card that is always there and
         // usually disabled is a permanent reminder of a thing somebody is not doing; this row
@@ -74,6 +78,17 @@ struct MenuBarTargets: View {
             .foregroundStyle(Signal.paused)
             .padding(.top, Space.snug)
         }
+    }
+}
+
+/// The card the pointer is over, if any — what the panel header's mark looks toward.
+@Observable final class PanelGlance {
+    private(set) var target: CaptureTarget?
+
+    /// Leaving a card clears the glance only if no other card has taken it since: moving from one
+    /// card to the next can report the new entry before the old exit.
+    func hover(_ card: CaptureTarget, _ inside: Bool) {
+        if inside { target = card } else if target == card { target = nil }
     }
 }
 

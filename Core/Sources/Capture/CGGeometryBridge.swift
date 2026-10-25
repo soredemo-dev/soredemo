@@ -187,6 +187,24 @@ public enum CGGeometryBridge {
         return path
     }
 
+    /// The daruma's body — the brand kit's path, `M50 8C73 8 86 30 86 55C86 77 71 92 50 92C29 92
+    /// 14 77 14 55C14 30 27 8 50 8Z` in a 100-unit box — drawn in `box`, top-left points. Here,
+    /// like the notch's outline, because the app names no CoreGraphics geometry type (rule 5).
+    public nonisolated static func darumaOutline(in box: PointRect) -> CGPath {
+        let ux = box.width / 100, uy = box.height / 100
+        func point(_ x: Double, _ y: Double) -> CGPoint {
+            CGPoint(x: box.x + x * ux, y: box.y + y * uy)
+        }
+        let path = CGMutablePath()
+        path.move(to: point(50, 8))
+        path.addCurve(to: point(86, 55), control1: point(73, 8), control2: point(86, 30))
+        path.addCurve(to: point(50, 92), control1: point(86, 77), control2: point(71, 92))
+        path.addCurve(to: point(14, 55), control1: point(29, 92), control2: point(14, 77))
+        path.addCurve(to: point(50, 8), control1: point(14, 30), control2: point(27, 8))
+        path.closeSubpath()
+        return path
+    }
+
     /// A video track's DISPLAYED size in whole pixels, transform applied.
     ///
     /// **`naturalSize` alone is the encoded size and is not what anybody sees.** A recording made
